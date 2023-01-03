@@ -1,0 +1,4 @@
+# Ignore ALL files in ANY directory named build
+build/
+
+tasks.json
