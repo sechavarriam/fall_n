@@ -1,4 +1,9 @@
 # Ignore ALL files in ANY directory named build
 build/
-
+unstructured_dft/
+.cache/
+.vscode/
 tasks.json
+Makefile
+output/
+
