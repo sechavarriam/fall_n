@@ -736,6 +736,7 @@ template<class F, class Arg, class A> A apply(F f, A x, Arg a) { A res(x,f,a); r
 
 //-----------------------------------------------------------------------------
 
+// ROW DEFINITIONS!
 // The default values for T and D have been declared before.
 template<class T, int D> class Row {
     // general version exists only to allow specializations
@@ -743,10 +744,7 @@ private:
         Row();
 };
 
-//-----------------------------------------------------------------------------
-
-// ROW DEFINITIONS!
-
+//_____________________________________________________________________________
 
 template<class T> class Row<T,1> : public Matrix<T,1> {
 public:
@@ -761,7 +759,7 @@ public:
     }
 };
 
-//-----------------------------------------------------------------------------
+//_____________________________________________________________________________
 
 template<class T> class Row<T,2> : public Matrix<T,2> {
 public:
@@ -776,7 +774,7 @@ public:
     }
 };
 
-//-----------------------------------------------------------------------------
+//_____________________________________________________________________________
 
 template<class T> class Row<T,3> : public Matrix<T,3> {
 public:
@@ -791,8 +789,7 @@ public:
     }
 };
 
-//-----------------------------------------------------------------------------
-
+//_____________________________________________________________________________
 
 
 
@@ -835,7 +832,6 @@ template<class T> std::ostream& operator<<(std::ostream& os, const Matrix<T>& v)
         os << "  ";
         os << v(i);
     }
-
     os << '}';
     return os;
 }
@@ -868,7 +864,7 @@ template<class T> std::istream& operator>>(std::istream& is, Matrix<T>& v)
     is >> ch;
 
     if (ch!='}') error("'}' missing in Matrix<T,1> input");
-  
+
     return is;
 }
 
@@ -899,7 +895,5 @@ template<class T> std::istream& operator>>(std::istream& is, Matrix<T,2>& m)
 // ======================================================================================
 
 
-
-
-//} 
+//} // End namespace (Not Needed Yet)
 #endif
