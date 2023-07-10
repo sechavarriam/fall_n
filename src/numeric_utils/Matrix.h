@@ -13,9 +13,9 @@
 
 #include<string>
 #include<algorithm>
-//#include<iostream>
+#include<iostream>
 
-namespace Numeric_lib {
+//namespace Numeric_lib { //Not needed yet.
 
 //-----------------------------------------------------------------------------
 
@@ -115,9 +115,11 @@ template<class T> class Matrix_base {
 protected:
     T* elem;    // vector? no: we couldn't easily provide a vector for a slice
     const Index sz;    
-    mutable bool owns;
-    mutable bool xfer;
+    mutable bool owns; //Are elements dynamicaly allocated in constructor? True, False. 
+    mutable bool xfer; //Transfer? Yes! If you want to do the elements own.
 public:
+
+    // Matrix Base Constructors ==============================================
     Matrix_base(Index n) :elem(new T[n]()), sz(n), owns(true), xfer(false)
         // matrix of n elements (default initialized)
     {
@@ -130,17 +132,23 @@ public:
     }
 
     ~Matrix_base()
-    {
+    {   
         if (owns) {
             // std::cerr << "delete[" << sz << "] " << elem << "\n";
-            delete[]elem;
+            delete[]elem; // If the elements are dynamicaly allocated, delete it.
         }
-    }
+    } 
 
+    // =======================================================================
+
+    // DATA ACCESS (GET) METHODS =============================================
     // if necessay, we can get to the raw matrix:
           T* data()       { return elem; }
     const T* data() const { return elem; }
     Index    size() const { return sz; }
+
+    // ========================================================================
+
 
     void copy_elements(const Matrix_base& a)
     {
@@ -155,7 +163,7 @@ public:
         if (a.xfer) {          // a is just about to be deleted
                                // so we can transfer ownership rather than copy
             // std::cerr << "xfer @" << a.elem << " [" << a.sz << "]\n";
-            elem = a.elem;
+            elem  = a.elem;
             a.xfer = false;    // note: modifies source
             a.owns = false;
         }
@@ -172,6 +180,7 @@ public:
     void base_xfer(Matrix_base& x)
     {
         if (owns==false) error("cannot xfer() non-owner");
+
         owns = false;     // now the elements are safe from deletion by original owner
         x.xfer = true;    // target asserts temporary ownership
         x.owns = true;
@@ -187,7 +196,7 @@ private:
 //-----------------------------------------------------------------------------
 
 template<class T> class Matrix<T,1> : public Matrix_base<T> {
-    const Index d1;
+    const Index d1; // Dimension 1 Length
 
 protected:
     // for use by Row:
@@ -196,7 +205,10 @@ protected:
         // std::cerr << "construct 1D Matrix from data\n";
     }
 
+
 public:
+
+    // Constructores MATRIX 1D
 
     Matrix(Index n1) : Matrix_base<T>(n1), d1(n1) { }
 
@@ -259,13 +271,12 @@ public:
     Matrix xfer()    // make an Matrix to move elements out of a scope
     {
         Matrix x(dim1(),this->data()); // make a descriptor
-        this->base_xfer(x);                  // transfer (temporary) ownership to x
+        this->base_xfer(x);            // transfer (temporary) ownership to x
         return x;
     }
 
     void range_check(Index n1) const
     {
-        // std::cerr << "range check: (" << d1 << "): " << n1 << "\n"; 
         if (n1<0 || d1<=n1) error("1D range error: dimension 1");
     }
 
@@ -355,6 +366,7 @@ public:
 
 //-----------------------------------------------------------------------------
 
+// MATRICES 2D
 template<class T> class Matrix<T,2> : public Matrix_base<T> {
     const Index d1;
     const Index d2;
@@ -519,6 +531,8 @@ public:
 };
 
 //-----------------------------------------------------------------------------
+
+// MATRICES 3D
 
 template<class T> class Matrix<T,3> : public Matrix_base<T> {
     const Index d1;
@@ -709,6 +723,7 @@ template<class T> T dot_product(const Matrix<T>&a , const Matrix<T>& b)
 
 //-----------------------------------------------------------------------------
 
+
 template<class T, int N> Matrix<T,N> xfer(Matrix<T,N>& a)
 {
     return a.xfer();
@@ -730,6 +745,9 @@ private:
 
 //-----------------------------------------------------------------------------
 
+// ROW DEFINITIONS!
+
+
 template<class T> class Row<T,1> : public Matrix<T,1> {
 public:
     Row(Index n, T* p) : Matrix<T,1>(n,p)
@@ -737,7 +755,6 @@ public:
     }
 
     Matrix<T,1>& operator=(const T& c) { this->base_apply(Assign<T>(),c); return *this; }
-
     Matrix<T,1>& operator=(const Matrix<T,1>& a)
     {
         return *static_cast<Matrix<T,1>*>(this)=a;
@@ -753,7 +770,6 @@ public:
     }
         
     Matrix<T,2>& operator=(const T& c) { this->base_apply(Assign<T>(),c); return *this; }
-
     Matrix<T,2>& operator=(const Matrix<T,2>& a)
     {
         return *static_cast<Matrix<T,2>*>(this)=a;
@@ -769,7 +785,6 @@ public:
     }
 
     Matrix<T,3>& operator=(const T& c) { this->base_apply(Assign<T>(),c); return *this; }
-
     Matrix<T,3>& operator=(const Matrix<T,3>& a)
     {
         return *static_cast<Matrix<T,3>*>(this)=a;
@@ -777,6 +792,12 @@ public:
 };
 
 //-----------------------------------------------------------------------------
+
+
+
+
+
+
 
 template<class T, int N> Matrix<T,N-1> scale_and_add(const Matrix<T,N>& a, const Matrix<T,N-1> c, const Matrix<T,N-1>& b)
 {
@@ -800,5 +821,85 @@ template<class T, int D> Matrix<T,D> operator^(const Matrix<T,D>& m, const T& c)
 
 //-----------------------------------------------------------------------------
 
+
+// PRINTING FACILITIES =================================================================
+// Up to 2D Matrices.
+
+//-----------------------------------------------------------------------------
+
+template<class T> std::ostream& operator<<(std::ostream& os, const Matrix<T>& v)
+{
+    os << '{';
+
+    for (Index i = 0; i<v.dim1(); ++i) {
+        os << "  ";
+        os << v(i);
+    }
+
+    os << '}';
+    return os;
 }
+
+//-----------------------------------------------------------------------------
+
+template<class T> std::ostream& operator<<(std::ostream& os, const Matrix<T,2>& m)
+{
+    os << "{\n";
+
+    for (Index i = 0; i<m.dim1(); ++i)
+        os << m[i] << '\n';
+
+    os << '}';
+    return os;
+}
+
+//-----------------------------------------------------------------------------
+
+template<class T> std::istream& operator>>(std::istream& is, Matrix<T>& v)
+{
+    char ch;
+    is >> ch;
+
+    if (ch!='{') error("'{' missing in Matrix<T,1> input");
+
+    for (Index i = 0; i<v.dim1(); ++i)
+        is >> v(i);
+
+    is >> ch;
+
+    if (ch!='}') error("'}' missing in Matrix<T,1> input");
+  
+    return is;
+}
+
+//-----------------------------------------------------------------------------
+
+template<class T> std::istream& operator>>(std::istream& is, Matrix<T,2>& m)
+{
+    char ch;
+    is >> ch;
+
+    if (ch!='{') error("'{' missing in Matrix<T,2> input");
+
+    for (Index i = 0; i<m.dim1(); ++i)
+    {
+        Matrix<T,1> tmp(m.dim2());
+        is >> tmp;
+        m[i] = tmp;
+    }
+
+    is >> ch;
+
+    if (ch!='}') error("'}' missing in Matrix<T,2> input");
+
+    return is;
+}
+
+//-----------------------------------------------------------------------------
+// ======================================================================================
+
+
+
+
+//} 
 #endif

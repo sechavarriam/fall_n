@@ -7,7 +7,11 @@ int main(){
 
     Node N1 = Node(1, 0.0,0.0,0.0);
 
-    Numeric_lib::Matrix<double,2> M;
-    
+    int D1;
+    int D2;
+    Matrix<double,2> M(D1,D2);
+
+    std::cout << M << "\n"; 
+
     
 };
