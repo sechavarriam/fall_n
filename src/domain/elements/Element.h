@@ -13,9 +13,9 @@ class Element{
     int dim;
     int tag;
 
-    double** K; // Stiffness matrix
-    double** M;
-    double** C;
+    double** K = NULL; // Stiffness matrix
+    double** M = NULL;
+    double** C = NULL;
 
     // Apuntar a nodo o coleccionar índices?
     //std::vector<Node> node;
@@ -23,6 +23,8 @@ class Element{
     public:
 
     virtual int get_tag(){return tag;};
+
+
 
     Element(){};
 
