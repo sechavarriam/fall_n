@@ -10,17 +10,28 @@
                     // Usado en Matrix.h
 
 
+
+#include "src/numeric_utils/Matrix.h"
+
+#include "src/domain/Node.h"
+#include "src/domain/elements/Element.h"
+#include "src/domain/elements/ContinuumElement.h"
+
+
+
+
 //#include <numeric>  // This header describes a set of algorithms to perform certain operations on sequences of numeric values.
 
 
 
 
-#include "src/numeric_utils/Matrix.h"
 
 
-#include "src/domain/Node.h"
-#include "src/domain/elements/Element.h"
-#include "src/domain/elements/ContinuumElement.h"
+
+
+
+
+
 
 /*---------------------------
 #include <fstream>  // Header providing file stream classe (Read and write files).
