@@ -6,4 +6,7 @@ unstructured_dft/
 tasks.json
 Makefile
 output/
-
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+*.tcl
