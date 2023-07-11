@@ -12,7 +12,6 @@
 
 
 #include "src/numeric_utils/Matrix.h"
-
 typedef Matrix<double,2> Mat2D;
 
 #include "src/domain/Node.h"

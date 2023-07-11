@@ -15,8 +15,9 @@
 #include<algorithm>
 #include<iostream>
 
-//namespace Numeric_lib { //Not needed yet.
+typedef long Index; 
 
+//namespace Numeric_lib { //Not needed yet.
 //-----------------------------------------------------------------------------
 
 struct Matrix_error {
@@ -25,16 +26,10 @@ struct Matrix_error {
     Matrix_error(std::string n) :name(n) { }
 };
 
-//-----------------------------------------------------------------------------
-
-inline void error(const char* p)
-{
-    throw Matrix_error(p);
-}
+inline void error(const char* p){throw Matrix_error(p);}
 
 //-----------------------------------------------------------------------------
 
-typedef long Index;    // I still dislike unsigned
 
 //-----------------------------------------------------------------------------
 
@@ -48,9 +43,11 @@ template<class T = double, int D = 1> class Matrix {
     // = has copy semantics
     // ( ) and [ ] are range checked
     // slice() to give sub-ranges 
+
 private:
     Matrix();    // this should never be compiled
-//	template<class A> Matrix(A);
+	//template<class A> Matrix(A);
+
 };
 
 //-----------------------------------------------------------------------------
@@ -109,6 +106,8 @@ template<class T> struct Complement {
 //-----------------------------------------------------------------------------
 
 // Matrix_base represents the common part of the Matrix classes:
+// -> HAS NO DIMENTION!
+
 template<class T> class Matrix_base {
     // matrixs store their memory (elements) in Matrix_base and have copy semantics
     // Matrix_base does element-wise operations
@@ -186,8 +185,9 @@ public:
         x.owns = true;
     }
 
-    template<class F> void base_apply(F f) { for (Index i = 0; i<size(); ++i) f(elem[i]); }
-    template<class F> void base_apply(F f, const T& c) { for (Index i = 0; i<size(); ++i) f(elem[i],c); }
+    template<class F> void base_apply(F f) { for (Index i = 0; i<size(); ++i) f(elem[i]); } // Apply function to all elements.
+    template<class F> void base_apply(F f, const T& c) { for (Index i = 0; i<size(); ++i) f(elem[i],c); } // Same with additional parameter c.
+
 private:
     void operator=(const Matrix_base&);    // no ordinary copy of bases
     Matrix_base(const Matrix_base&);
@@ -200,7 +200,7 @@ template<class T> class Matrix<T,1> : public Matrix_base<T> {
 
 protected:
     // for use by Row:
-    Matrix(Index n1, T* p) : Matrix_base<T>(n1,p), d1(n1)
+    Matrix(Index n1, T* p) : Matrix_base<T>(n1,p), d1(n1) // Básicamente es el mismo Matrix_base, pero con dimensión d1
     {
         // std::cerr << "construct 1D Matrix from data\n";
     }
@@ -208,7 +208,7 @@ protected:
 
 public:
 
-    // Constructores MATRIX 1D
+    // Constructores MATRIX 1D ===============================================
 
     Matrix(Index n1) : Matrix_base<T>(n1), d1(n1) { }
 
@@ -238,6 +238,8 @@ public:
         // std::cerr << "matrix ctor\n";
         for (Index i = 0; i<n; ++i) this->elem[i]=p[i];
     }
+
+    // ========================================================================
 
     template<class F> Matrix(const Matrix& a, F f) : Matrix_base<T>(a.size()), d1(a.d1)
         // construct a new Matrix with element's that are functions of a's elements:
@@ -280,16 +282,20 @@ public:
         if (n1<0 || d1<=n1) error("1D range error: dimension 1");
     }
 
-    // subscripting:
-          T& operator()(Index n1)       { range_check(n1); return this->elem[n1]; }
-    const T& operator()(Index n1) const { range_check(n1); return this->elem[n1]; }
+    // ACCES OPERATOR OVERLOADING (DEFINITION) =========================================
+    // subscripting:                                                                  //
+          T& operator()(Index n1)       { range_check(n1); return this->elem[n1]; }   //
+    const T& operator()(Index n1) const { range_check(n1); return this->elem[n1]; }   // 
+                                                                                      //  
+    // slicing (the same as subscripting for 1D matrixs):                             // 
+          T& operator[](Index n)       { return row(n); }                             // 
+    const T& operator[](Index n) const { return row(n); }                             //
+                                                                                      //
+          T& row(Index n)       { range_check(n); return this->elem[n]; }             //
+    const T& row(Index n) const { range_check(n); return this->elem[n]; }             //
+    // =================================================================================
 
-    // slicing (the same as subscripting for 1D matrixs):
-          T& operator[](Index n)       { return row(n); }
-    const T& operator[](Index n) const { return row(n); }
 
-          T& row(Index n)       { range_check(n); return this->elem[n]; }
-    const T& row(Index n) const { range_check(n); return this->elem[n]; }
 
     Row<T,1> slice(Index n)
         // the last elements from a[n] onwards
@@ -403,6 +409,8 @@ public:
             for (Index j = 0; j<n2; ++j) this->elem[i*n2+j]=a[i][j];
     }
 
+    ~Matrix() {}
+
     template<class F> Matrix(const Matrix& a, F f) : Matrix_base<T>(a.size()), d1(a.d1), d2(a.d2)
         // construct a new Matrix with element's that are functions of a's elements:
         // does not modify a unless f has been specifically programmed to modify its argument
@@ -427,8 +435,6 @@ public:
         this->base_assign(a);
         return *this;
     }
-
-    ~Matrix() { }
     
     Index dim1() const { return d1; }    // number of elements in a row
     Index dim2() const { return d2; }    // number of elements in a column
@@ -749,7 +755,7 @@ private:
 template<class T> class Row<T,1> : public Matrix<T,1> {
 public:
     Row(Index n, T* p) : Matrix<T,1>(n,p)
-    {
+    { //En 1D la fila es la matriz?
     }
 
     Matrix<T,1>& operator=(const T& c) { this->base_apply(Assign<T>(),c); return *this; }
