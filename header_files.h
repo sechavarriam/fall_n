@@ -16,7 +16,12 @@ typedef Matrix<double,2> Mat2D;
 
 #include "src/domain/Node.h"
 #include "src/domain/elements/Element.h"
+#include "src/domain/elements/StructuralElement.h"
 #include "src/domain/elements/ContinuumElement.h"
+
+#include "src/domain/elements/BeamColumn_EulerB_2D.h"
+
+
 
 
 
