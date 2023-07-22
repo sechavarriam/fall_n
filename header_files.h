@@ -1,18 +1,19 @@
 // Header files...
 
 /*Standard libraries --------*/
-#include <vector>   // Header that defines the vector container class.
-#include <iostream> // Header that defines the standard input/output stream objects.
-#include <math.h>   // Header <cmath> declares a set of functions to compute common mathematical operations and transformations.
-#include <string>   // Strings are objects that represent sequences of characters.
 
-#include <algorithm>// Defines a collection of functions especially designed to be used on ranges of elements (e.g. std::find).
+//#include <vector>   // Header that defines the vector container class.
+#include <iostream>   // Header that defines the standard input/output stream objects.
+#include <cmath>      // Header <cmath> declares a set of functions to compute common mathematical operations and transformations.
+//#include <string>   // Strings are objects that represent sequences of characters.
+
+//#include <algorithm>// Defines a collection of functions especially designed to be used on ranges of elements (e.g. std::find).
                     // Usado en Matrix.h
 
+/*Eigen Utils --------*/
 
 
-#include "src/numeric_utils/Matrix.h"
-typedef Matrix<double,2> Mat2D;
+/*Source headers --------*/
 
 #include "src/domain/Node.h"
 #include "src/domain/elements/Element.h"
@@ -23,16 +24,11 @@ typedef Matrix<double,2> Mat2D;
 
 
 
-
+// #include "src/numeric_utils/Matrix.h"
+// typedef Matrix<double,2> Mat2D;
 
 
 //#include <numeric>  // This header describes a set of algorithms to perform certain operations on sequences of numeric values.
-
-
-
-
-
-
 
 
 
