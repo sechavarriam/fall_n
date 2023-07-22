@@ -45,6 +45,7 @@ template<class T = double, int D = 1> class Matrix {
     // slice() to give sub-ranges 
 
 private:
+
     Matrix();    // this should never be compiled
 	//template<class A> Matrix(A);
 
@@ -112,10 +113,10 @@ template<class T> class Matrix_base {
     // matrixs store their memory (elements) in Matrix_base and have copy semantics
     // Matrix_base does element-wise operations
 protected:
-    T* elem;    // vector? no: we couldn't easily provide a vector for a slice
+    T* elem;           // vector? no: we couldn't easily provide a vector for a slice
     const Index sz;    
-    mutable bool owns; //Are elements dynamicaly allocated in constructor? True, False. 
-    mutable bool xfer; //Transfer? Yes! If you want to do the elements own.
+    mutable bool owns; // Are elements dynamicaly allocated in constructor? True, False. 
+    mutable bool xfer; // Transfer? Yes! If you want to do the elements own.
 public:
 
     // Matrix Base Constructors ==============================================
