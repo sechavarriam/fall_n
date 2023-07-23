@@ -18,6 +18,9 @@
 // template <> class X<int, int>;
 
 
+#include <Eigen/Dense>
+
+
 // Forward Declarations
 class Node;
 
@@ -58,11 +61,13 @@ class Element{
                     // Area  : for topological 2D element (like shell or plate).
                     // Volume: for topological 3D element (like brik element).
 
+
+    //template<int n> static constexpr Eigen::Matrix<double, n, n> K;
+    //template<int n> Eigen::Matrix<double, n, n> K;
+
+    //Eigen::Matrix* K;
     
-    //Matrix<double, 2> *K ;// Stiffness matrix (has to be dynamically allocated)
-                          // Use smart pointers?
-
-
+    //Eigen::Matrix<double, num_DoF, num_DoF> K;
 
     protected:
 
