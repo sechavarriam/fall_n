@@ -3,7 +3,8 @@
 
 #include "Element.h"
 
-class StructuralElement: public Element{
+template<int nDoF>
+class StructuralElement: public Element<nDoF>{
 
  private:
     //static int topo_dim ; // Topological dimension
@@ -16,7 +17,7 @@ class StructuralElement: public Element{
     //virtual void set_num_nodes(int n){this->set_num_nodes(int n);};
 
      StructuralElement(){};
-     StructuralElement(int tag, Node **nodes): Element(tag,nodes){}
+     StructuralElement(int tag, Node **nodes): Element<nDoF>(tag,nodes){}
 
  public:
     virtual ~StructuralElement(){};
