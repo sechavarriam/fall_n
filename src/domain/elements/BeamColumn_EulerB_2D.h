@@ -33,7 +33,7 @@ class BeamColumn_EulerB_2D: public StructuralElement{
           
          //init_K(this->get_num_DoF ());
 
-         std::cout<< "Beam Element "<< tag << "constructed." << std::endl;
+         std::cout<< "Beam Element "<< tag << " constructed." << std::endl;
          //std::cout<< get_K() <<std::endl;
 
          
