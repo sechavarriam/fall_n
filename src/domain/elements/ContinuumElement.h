@@ -5,8 +5,8 @@
 #include "../../materials/Material.h"
 
 
-
-class ContinuumElement:Element{
+template<int nDoF>
+class ContinuumElement : public Element<nDoF>{
     
  private:
   Material Mat;

@@ -30,7 +30,7 @@ class Node;
 //template<typename> class Transformation{}; //Not defined yet.
 
 
-//template<typename T>
+template<int nDoF>
 class Element{
     
  private:
@@ -53,7 +53,7 @@ class Element{
     */
 
 
-    int num_DoF; //const static in each subclass? 
+    int num_DoF = nDoF; //const static in each subclass? 
 
 
 
@@ -67,7 +67,7 @@ class Element{
 
     //Eigen::Matrix* K;
     
-    //Eigen::Matrix<double, num_DoF, num_DoF> K;
+    Eigen::Matrix<double, nDoF, nDoF> K;
 
     protected:
 

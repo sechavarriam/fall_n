@@ -7,7 +7,7 @@
 
 // Classical Euler-Bernoulli 2D Beam-Column Element
 
-class BeamColumn_EulerB_2D: public StructuralElement{
+class BeamColumn_EulerB_2D: public StructuralElement<6>{
 
  private:
     
