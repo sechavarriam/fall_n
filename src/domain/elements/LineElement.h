@@ -1,6 +1,7 @@
 #ifndef FN_LINE_ELEMENT
 #define FN_LINE_ELEMENT
 
+#include "../Node.h"
 #include "StructuralElement.h"
 
 /*Line elements or 1D elements have an initial node ni, a final node nk and 
@@ -15,8 +16,8 @@ class LineElement: virtual public StructuralElement<Dim,nDoF>{
                                    // 1D for line elements
                                    // 2D for surface elements
 
-    Node* ni;
-    Node* nj;
+    Node<Dim>* ni;
+    Node<Dim>* nj;
 
     //double xi, xj, yi, yj ; 
 
@@ -25,7 +26,7 @@ class LineElement: virtual public StructuralElement<Dim,nDoF>{
     //virtual void set_num_nodes(int n){this->set_num_nodes(int n);};
 
      LineElement(){};
-     LineElement(int tag, Node **nodes): StructuralElement<Dim,nDoF>(tag,nodes){}
+     LineElement(int tag, Node<Dim> **nodes): StructuralElement<Dim,nDoF>(tag,nodes){}
 
  public:
     virtual ~LineElement(){};

@@ -51,7 +51,7 @@ class BeamColumn_EulerB_2D: public LineElement<2,6>{
      
      BeamColumn_EulerB_2D(){};
 
-     BeamColumn_EulerB_2D(int tag, Node **nodes, double e, double a, double iz):
+     BeamColumn_EulerB_2D(int tag, Node<2> **nodes, double e, double a, double iz):
       StructuralElement(tag,nodes),E(e),A(a),Iz(iz){
          set_num_nodes(2); 
          set_num_DoF(6)  ;

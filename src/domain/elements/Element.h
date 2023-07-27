@@ -9,16 +9,11 @@
 
 
 //#include "../../numeric_utils/Matrix.h" // 
+#include "../Node.h"
 
 
-
-
-// Forward Declarations
-class Node;
-//class Transformation;
 
 //template<typename> class Transformation{}; //Not defined yet.
-
 
 template<unsigned int Dim, unsigned int nDoF> // Non type parameter
 class Element{
@@ -31,7 +26,7 @@ class Element{
      
 
     
-    Node**  node; //Pointer to array of Node pointers.
+    Node<Dim>**  node; //Pointer to array of Node pointers.
 
     unsigned int num_nodes; //Común a cada clase de elemento.
     unsigned int num_DoF = nDoF; //const static in each subclass? 
@@ -62,7 +57,7 @@ class Element{
     // Protected constructors.
     // This is an abstract class. Pure elements should not be constructed.
     
-    virtual Node** get_node(){return node;}
+    virtual Node<Dim>** get_node(){return node;}
 
     virtual void set_num_nodes(unsigned int n){this->num_nodes = n;};
     virtual void set_num_DoF(int n){this->num_DoF = n;};
@@ -90,13 +85,12 @@ class Element{
 
     protected:
     Element(){};
-    Element(int tag, Node** nodes): id(tag),node(nodes){
+    Element(int tag, Node<Dim>** nodes): id(tag),node(nodes){
             }; // Here only for test
 
     virtual ~Element(){};
 
 
-    
 
 };
 

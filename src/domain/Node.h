@@ -31,18 +31,22 @@ class Node {
   
   Node(){}; 
   
-  Node<2>(int id, double Coord1, double Coord2)
-  :tag(id),ndof(dim),coord(std::vector<double>{Coord1,Coord2})
+
+  Node(int id, double Coord1, double Coord2)
+  :tag(id),coord(std::vector<double>{Coord1,Coord2})
   {
+    static_assert(Dim == 2, "Using constructor for 2D node");
     std::cout << "Construido Nodo 2D: " << tag << "\n"; 
   } 
 
-  Node<3>(int id, double Coord1, double Coord2, double Coord3)
-  :tag(id),ndof(dim),coord(std::vector<double>{Coord1,Coord2,Coord3})
+  Node(int id, double Coord1, double Coord2, double Coord3)
+  :tag(id),coord(std::vector<double>{Coord1,Coord2,Coord3})
   {
+    static_assert(Dim == 3, "Using constructor for 3D node");
     std::cout << "Construido Nodo 3D: " << tag << "\n"; 
   } 
-
+  
+  //Node<3> 
 
   ~Node(){} // Destructor por defecto
 
