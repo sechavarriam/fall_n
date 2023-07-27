@@ -1,48 +1,40 @@
 
-#ifndef FALL_N_ELEMENT_H
-#define FALL_N_ELEMENT_H
-
-
-//typedef Matrix<double,2> Mat2D;
+#ifndef FN_ELEMENT_H
+#define FN_ELEMENT_H
 
 #include <vector>
 #include <iostream> // Header that defines the standard input/output stream objects.
 
-
-//#include "../../numeric_utils/Matrix.h" // Cannot be forward declarated?
-
-// Se podría hacer un forward declaration explícito pero se requiere el include (Matrix)
-//template <typename, int> class Matrix;
-//template <typename,int> class Matrix<double,int>;
-// template <typename U> class X<int, U>;
-// template <> class X<int, int>;
-
-
 #include <Eigen/Dense>
+
+
+//#include "../../numeric_utils/Matrix.h" // 
+
+
 
 
 // Forward Declarations
 class Node;
-
-
-
+//class Transformation;
 
 //template<typename> class Transformation{}; //Not defined yet.
 
 
-template<int nDoF>
+template<unsigned int Dim, unsigned int nDoF> // Non type parameter
 class Element{
     
  private:
 
-    unsigned int id; //tag    
-    int dim;
+    static const unsigned int dim = Dim;
+
+    int id ; //tag    
+     
 
     
     Node**  node; //Pointer to array of Node pointers.
 
     unsigned int num_nodes; //Común a cada clase de elemento.
-
+    unsigned int num_DoF = nDoF; //const static in each subclass? 
     /*
     En vez de punteros podría ser solo una lista de índices?
         int const n_nodes;
@@ -53,65 +45,57 @@ class Element{
     */
 
 
-    int num_DoF = nDoF; //const static in each subclass? 
-
-
-
-    double measure; // Length: for topological 1D element (like truss or beam).
-                    // Area  : for topological 2D element (like shell or plate).
-                    // Volume: for topological 3D element (like brik element).
-
-
-    //template<int n> static constexpr Eigen::Matrix<double, n, n> K;
-    //template<int n> Eigen::Matrix<double, n, n> K;
-
-    //Eigen::Matrix* K;
     
-    Eigen::Matrix<double, nDoF, nDoF> K;
+
+    double measure = 0; // Length: for topological 1D element (like truss or beam).
+                        // Area  : for topological 2D element (like shell or plate).
+                        // Volume: for topological 3D element (like brik element).
+
+    // Eigen Matrix. Initialized in zero by default static method to avoid garbage values.
+    
+    
+    Eigen::Matrix<double, nDoF, nDoF> K = Eigen::Matrix<double, nDoF, nDoF>::Zero();
+
 
     protected:
 
     // Protected constructors.
     // This is an abstract class. Pure elements should not be constructed.
     
-    //Element(int tag, Node** nodes): id(tag),node(nodes){};
-    //virtual ~Element(){};
+    virtual Node** get_node(){return node;}
 
     virtual void set_num_nodes(unsigned int n){this->num_nodes = n;};
-    
     virtual void set_num_DoF(int n){this->num_DoF = n;};
-    virtual void set_num_DoF(){
+    //virtual void set_num_DoF(){
         //Iterar nodos y de cada uno ir sumando sus correspondientes dofs.
-    };
+    //};
 
-    /*
-    virtual void set_K(Matrix<double, 2> mat){
-        this->K = &mat;
-    };
-
-    virtual void init_K(int n){
-        Matrix<double,2> *mat = new Matrix<double,2>(n,0); 
-        //Matrix<double,2> mat = mat(n,0);
-
+    
+    virtual void set_K(Eigen::Matrix<double, nDoF, nDoF> mat){
         this->K = mat;
     };
-    */
+    
+    
+    virtual int tag(){return id;};
+
+    virtual void compute_measure(){};
+    virtual void compute_K(){};
+
 
     public:
 
     virtual int get_num_DoF(){return this->num_DoF;};   
+    
+    virtual double get_measure(){return this->measure;};  
 
-
-    //virtual Matrix<double,2>* get_K(){return this-> K ;};   
-
+    protected:
     Element(){};
     Element(int tag, Node** nodes): id(tag),node(nodes){
             }; // Here only for test
-    ~Element(){};
-    // Implementations to be defined in separate .cxx file.
-    virtual int tag(){return id;};
 
-    //virtual Matrix<double, 2>* set_K();
+    virtual ~Element(){};
+
+
     
 
 };

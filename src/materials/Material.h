@@ -1,5 +1,5 @@
-#ifndef MATERIAL_H
-#define MATERIAL_H
+#ifndef FN_MATERIAL
+#define FN_MATERIAL
 
 class Material{
     private:

@@ -8,8 +8,8 @@
     Use as you like as long as you acknowledge the source.
 */
 
-#ifndef MATRIX_LIB
-#define MATRIX_LIB
+#ifndef FN_MATRIX_LIB
+#define FN_MATRIX_LIB
 
 #include<string>
 #include<algorithm>

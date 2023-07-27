@@ -1,23 +1,22 @@
-#ifndef STRUCTURAL_ELEMENT_H
-#define STRUCTURAL_ELEMENT_H
+#ifndef FN_STRUCTURAL_ELEMENT
+#define FN_STRUCTURAL_ELEMENT
 
 #include "Element.h"
 
-template<int nDoF>
-class StructuralElement: public Element<nDoF>{
+template<unsigned int Dim, unsigned int nDoF> 
+class StructuralElement: virtual public Element<Dim,nDoF>{
 
  private:
-    //static int topo_dim ; // Topological dimension
-                          // 1D for line elements
-                          // 2D for surface elements
+
+   bool HasCurvature;
 
  protected:
-    //virtual void set_topo_dim(int n){this->topo_dim = n;};
 
-    //virtual void set_num_nodes(int n){this->set_num_nodes(int n);};
+   virtual void enable_curvature(){this->HasCurvature = true;} ; // For large displacements?
+   virtual void disable_curvature(){this->HasCurvature = false; }; 
 
-     StructuralElement(){};
-     StructuralElement(int tag, Node **nodes): Element<nDoF>(tag,nodes){}
+   StructuralElement(){};
+   StructuralElement(int tag, Node **nodes): Element<Dim,nDoF>(tag,nodes){}
 
  public:
     virtual ~StructuralElement(){};

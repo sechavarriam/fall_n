@@ -1,12 +1,12 @@
-#ifndef CONTINUUM_ELEMENT_H
-#define CONTINUUM_ELEMENT_H
+#ifndef FN_CONTINUUM_ELEMENT
+#define FN_CONTINUUM_ELEMENT
 
 #include "Element.h"
 #include "../../materials/Material.h"
 
 
-template<int nDoF>
-class ContinuumElement : public Element<nDoF>{
+template<unsigned int Dim, unsigned int nDoF> 
+class ContinuumElement : public Element<Dim,nDoF> {
     
  private:
   Material Mat;

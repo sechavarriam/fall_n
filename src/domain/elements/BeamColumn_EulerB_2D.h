@@ -1,13 +1,13 @@
-#ifndef EULER_2D_BEAM
-#define EULER_2D_BEAM
+#ifndef FN_EULER_2D_BEAM
+#define FN_EULER_2D_BEAM
 
-#include "StructuralElement.h"
-#include <string>
-//class Element{};
+#include "../Node.h"
+#include "LineElement.h"
+
 
 // Classical Euler-Bernoulli 2D Beam-Column Element
 
-class BeamColumn_EulerB_2D: public StructuralElement<6>{
+class BeamColumn_EulerB_2D: public LineElement<2,6>{ 
 
  private:
     
@@ -20,7 +20,32 @@ class BeamColumn_EulerB_2D: public StructuralElement<6>{
     
 
  protected:
+
     
+    void compute_measure(){
+      double x1, y1;
+      double x2, y2;
+
+      x1 = this->get_node()[0]->get_coord(0);
+      x2 = this->get_node()[0]->get_coord(1);
+      
+
+    };
+    
+    void compute_L(){
+      compute_measure();
+      this->L = get_measure();
+    };
+    
+    
+
+
+    void compute_theta(){};
+
+
+    void set_K(){
+
+    }
 
  public:
      
@@ -33,7 +58,7 @@ class BeamColumn_EulerB_2D: public StructuralElement<6>{
           
          //init_K(this->get_num_DoF ());
 
-         std::cout<< "Beam Element "<< tag << " constructed." << std::endl;
+         std::cout<< "2D Beam Element "<< tag << " constructed." << std::endl;
          //std::cout<< get_K() <<std::endl;
 
          
