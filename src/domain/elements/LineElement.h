@@ -16,8 +16,8 @@ class LineElement: virtual public StructuralElement<Dim,nDoF>{
                                    // 1D for line elements
                                    // 2D for surface elements
 
-    Node<Dim>* ni;
-    Node<Dim>* nj;
+    Node<Dim>* ni; //First node
+    Node<Dim>* nj; //Last node
 
     //double xi, xj, yi, yj ; 
 

@@ -1,6 +1,7 @@
 #ifndef FN_NODE
 #define FN_NODE
 
+#include <cmath>
 #include <vector>   // Header that defines the vector container class.
 #include <iostream> // Header that defines the standard input/output stream objects.
 
@@ -8,56 +9,44 @@ template<unsigned int Dim>
 class Node {
   
   public:
-  static const unsigned int dim = Dim;      // Dimention (2 or 3)
+
+  static constexpr unsigned int dim = Dim;      // Dimention (2 or 3)
 
   private:
-  int tag;
-  
-  int ndof = 0; // Number of DoF (init = 0 )
 
-  std::vector<double> coord;  
+  int id_         ;
+  int ndof_ = 0   ; // Number of DoF (init = 0 )
+
+  std::vector<double> coord_;  
 
   public:
 
-  void set_tag(int t){tag=t;}
+  inline void set_id (int t){id_=t;}
+  inline void set_tag(int t){id_=t;}
 
+  inline int id (){return id_;}
+  inline int tag(){return id_;}
 
-  // GET FUNCTIONS ======================================================
-  int                 get_dim()       {return dim     ;}
-  std::vector<double> get_coord()     {return coord   ;}
-  double              get_coord(int i){return coord[i];}
+  inline double* coord(int i){return &coord_[i];}
 
   //CONSTRUCTORS ========================================================
   
   Node(){}; 
-  
 
-  Node(int id, double Coord1, double Coord2)
-  :tag(id),coord(std::vector<double>{Coord1,Coord2})
+  Node(int tag, double Coord1, double Coord2)
+  :id_(tag),coord_(std::vector<double>{Coord1,Coord2})
   {
     static_assert(Dim == 2, "Using constructor for 2D node");
-    std::cout << "Construido Nodo 2D: " << tag << "\n"; 
   } 
 
-  Node(int id, double Coord1, double Coord2, double Coord3)
-  :tag(id),coord(std::vector<double>{Coord1,Coord2,Coord3})
+  Node(int tag, double Coord1, double Coord2, double Coord3)
+  :id_(tag),coord_(std::vector<double>{Coord1,Coord2,Coord3})
   {
     static_assert(Dim == 3, "Using constructor for 3D node");
     std::cout << "Construido Nodo 3D: " << tag << "\n"; 
   } 
   
-  //Node<3> 
-
-  ~Node(){} // Destructor por defecto
-
-
-  // PRINTING FACILITIES ===================================================
-  void print_coords(){ 
-    for (int i=0; i<dim; i++){
-      std::cout << " " << coord[i];
-      }
-    std::cout << "\n";
-  }
+  ~Node(){} 
 
 };
 
