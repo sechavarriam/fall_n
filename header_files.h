@@ -20,7 +20,7 @@
 #include "src/domain/elements/StructuralElement.h"
 #include "src/domain/elements/ContinuumElement.h"
 
-#include "src/domain/elements/BeamColumn_EulerB_2D.h"
+#include "src/domain/elements/BeamColumn_Euler.h"
 
 
 

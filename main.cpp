@@ -1,37 +1,30 @@
 
+
 #include"header_files.h"
 
+#include <iostream> 
 #include <Eigen/Dense>
 
 //#include "src/numeric_utils/Matrix.h"
 
+
 int main(){
 
-    Node<3> N1 = Node<3>(1, 0.0, 0.0, 0.0);
-    Node<3> N2 = Node<3>(1, 1.0, 0.0, 0.0);
-    Node<3> N3 = Node<3>(3, 0.0, 1.0, 0.0);
-    Node<3> N4 = Node<3>(4, 0.0, 0.0, 1.0);
-    Node<3> N5 = Node<3>(5, 1.0, 1.0, 0.0);
-    Node<3> N6 = Node<3>(6, 0.0, 1.0, 1.0);
-    Node<3> N7 = Node<3>(7, 1.0, 0.0, 1.0);
-    Node<3> N8 = Node<3>(8, 1.0, 1.0, 1.0);
+    constexpr int dim = 3;
     
-    Node<3>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
-
-
-    //BeamColumn_EulerB_2D Beam1 = BeamColumn_EulerB_2D(1,nodes, 1.0,1.0,1.0);
+    Node<dim> N1 = Node<dim>(1, 0.0, 0.0, 0.0);
+    Node<dim> N2 = Node<dim>(1, 1.0, 0.0, 0.0);
+    Node<dim> N3 = Node<dim>(3, 0.0, 1.0, 0.0);
+    Node<dim> N4 = Node<dim>(4, 0.0, 0.0, 1.0);
+    Node<dim> N5 = Node<dim>(5, 1.0, 1.0, 0.0);
+    Node<dim> N6 = Node<dim>(6, 0.0, 1.0, 1.0);
+    Node<dim> N7 = Node<dim>(7, 1.0, 0.0, 1.0);
+    Node<dim> N8 = Node<dim>(8, 1.0, 1.0, 1.0);
     
-    //std::cout<< Beam1.get_K() <<std::endl;
+    Node<dim>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
 
-
-    int const D1 = 2 ;
-    int const D2 = 2 ;
-    double data[D1][D2]{
-        {1,2},
-        {3,4}
-        };
-
-    //Element E = Element(1, nodes);
+    BeamColumn_Euler<dim> Beam1 = BeamColumn_Euler<dim>(1,nodes, 1.0,1.0,1.0);
+    
 
 
 };
