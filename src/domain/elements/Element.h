@@ -4,18 +4,14 @@
 
 #include <vector>
 #include <iostream> // Header that defines the standard input/output stream objects.
+#include <concepts>
 
 #include <Eigen/Dense>
 
-
-//#include "../../numeric_utils/Matrix.h" // 
 #include "../Node.h"
 
 
-
-//template<typename> class Transformation{}; //Not defined yet.
-
-template<unsigned int Dim, unsigned int nDoF> // Non type parameter
+template<unsigned int Dim, unsigned int nDoF> requires EmbeddableInSpace<Dim> 
 class Element{
   public:
     static constexpr unsigned int dim = Dim;
@@ -68,10 +64,6 @@ class Element{
     Element(){};
     Element(int tag, Node<Dim>** nodes): id_(tag),node_(nodes){};
     virtual ~Element(){};
-
-
-
 };
-
 
 #endif

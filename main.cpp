@@ -11,6 +11,10 @@
 int main(){
 
     constexpr int dim = 3;
+
+    Node<0> nn;
+
+    Node<2> N0 = Node<2>(1, 0.0, 0.0);
     
     Node<dim> N1 = Node<dim>(1, 0.0, 0.0, 0.0);
     Node<dim> N2 = Node<dim>(1, 1.0, 0.0, 0.0);
@@ -22,6 +26,8 @@ int main(){
     Node<dim> N8 = Node<dim>(8, 1.0, 1.0, 1.0);
     
     Node<dim>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
+
+
 
     BeamColumn_Euler<dim> Beam1 = BeamColumn_Euler<dim>(1,nodes, 1.0,1.0,1.0);
     
