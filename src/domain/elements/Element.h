@@ -8,10 +8,11 @@
 
 #include <Eigen/Dense>
 
+#include "../Topology.h"
 #include "../Node.h"
 
 
-template<unsigned int Dim, unsigned int nDoF> requires EmbeddableInSpace<Dim> 
+template<unsigned int Dim, unsigned int nDoF> requires Topology::EmbeddableInSpace<Dim> 
 class Element{
   public:
     static constexpr unsigned int dim = Dim;
