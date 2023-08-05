@@ -15,6 +15,8 @@
 
 /*Source headers --------*/
 
+#include "src/domain/Topology.h"
+
 #include "src/domain/Node.h"
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/StructuralElement.h"
