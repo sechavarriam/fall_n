@@ -12,16 +12,15 @@
 #include "Topology.h"
 
 
-template<unsigned int Dim> requires Topology::EmbeddableInSpace<Dim>
+template<unsigned int Dim, unsigned int nDoF=Dim> requires Topology::EmbeddableInSpace<Dim>
 class Node {
-  
-  public:
+ public:
   static constexpr unsigned int dim = Dim;      // Dimention (2 or 3)
 
   private:
 
-  int id_         ;
-  int ndof_ = 0   ; // Number of DoF (init = 0 )
+  int id_            ;
+  int ndof_ = nDoF   ; // Number of DoF (init = 0 )
 
   //std::vector<double> coord_ = std::vector<double> (Dim); // Usar Eigen? 
   Eigen::Matrix<double, Dim, 1> coord_; //Use of Eigen vector to facilitate operaitons.
