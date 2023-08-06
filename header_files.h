@@ -2,7 +2,7 @@
 
 /*Standard libraries --------*/
 
-//#include <vector>   // Header that defines the vector container class.
+#include <vector>   // Header that defines the vector container class.
 #include <iostream>   // Header that defines the standard input/output stream objects.
 #include <cmath>      // Header <cmath> declares a set of functions to compute common mathematical operations and transformations.
 //#include <string>   // Strings are objects that represent sequences of characters.
@@ -16,6 +16,8 @@
 /*Source headers --------*/
 
 #include "src/domain/Topology.h"
+
+#include "src/domain/Domain.h"
 
 #include "src/domain/Node.h"
 #include "src/domain/elements/Element.h"
