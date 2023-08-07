@@ -5,15 +5,15 @@
 #include "../../materials/Material.h"
 
 
-template<unsigned int Dim, unsigned int nDoF> 
-class ContinuumElement : public Element<Dim,nDoF> {
-    
- private:
-  Material Mat;
-  
- public:
-  ContinuumElement(){};
-
-};
+//template<unsigned int Dim, typename ...> 
+//class ContinuumElement : public Element<Dim, typename ...> {
+//    
+// private:
+//  Material Mat;
+//  
+// public:
+//  ContinuumElement(){};
+//
+//};
 
 #endif

@@ -11,7 +11,12 @@ int main(){
 
     Domain<dim> D; //Domain Aggregator Object
     
+    D.preallocate_node_capacity(10);
+
     D.add_node(Node<dim>(1, 0.0, 0.0, 0.0));
+    
+    D.preallocate_node_capacity(100);
+
     D.add_node(Node<dim>(1, 0.0, 0.0, 0.0));
     D.add_node(Node<dim>(2, 1.0, 0.0, 0.0));
     D.add_node(Node<dim>(3, 0.0, 1.0, 0.0));
@@ -27,7 +32,7 @@ int main(){
     //    std::cout<<(long int) x<<std::endl;
     //}
 
-    BeamColumn_Euler<dim> Beam1 = BeamColumn_Euler<dim>(1,nodes, 1.0,1.0,1.0);
+    //BeamColumn_Euler<dim> Beam1 = BeamColumn_Euler<dim>(1,nodes, 1.0,1.0,1.0);
     
 
 

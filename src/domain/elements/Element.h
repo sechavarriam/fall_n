@@ -12,11 +12,12 @@
 #include "../Node.h"
 
 
-template<unsigned int Dim, unsigned int nDoF> requires Topology::EmbeddableInSpace<Dim> 
+template<unsigned int Dim> requires Topology::EmbeddableInSpace<Dim> 
 class Element{
   public:
     static constexpr unsigned int dim = Dim;
 
+    static constexpr unsigned int nDoF = Dim;
   private:
     int id_ ; //tag    
 
