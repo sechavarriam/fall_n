@@ -34,8 +34,8 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     // https://cplusplus.com/reference/vector/vector/capacity/
     // https://cplusplus.com/reference/vector/vector/reserve/
     // Tol increases capacity by default in 20%.
-    // Use Try and Catch to allow this operation if the container is empty.
     void preallocate_node_capacity(int n, double tol=1.20){
+    // Use Try and Catch to allow this operation if the container is empty.
         try {
             if(nodes_.empty())
             {
@@ -44,7 +44,7 @@ class Domain{ //Spacial Domain. Where the simulation takes place
             else {
                 throw nodes_.empty();
             }
-        } catch (bool IsEmpty) {
+        } catch (bool NotEmpty) {
             std::cout << "Preallocation should be done only before any node definition. Doing nothing." << std::endl;
         }
             
