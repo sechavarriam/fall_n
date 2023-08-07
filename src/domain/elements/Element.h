@@ -19,7 +19,9 @@ class Element{
 
   private:
     int id_ ; //tag    
+
     Node<Dim>**  node_; //Pointer to array of Node pointers.
+    
     /*
     En vez de punteros podría ser solo una lista de índices?
     int nodeTags[n_nodes]
@@ -42,7 +44,7 @@ class Element{
     void set_id (int t){id_=t;}
     void set_tag(int t){id_=t;}
 
-    virtual Node<Dim>** node(){return node_;}
+    //virtual Node<Dim>** node(){return node_;}
     virtual void set_num_nodes(unsigned int n){this->num_nodes_ = n;};
     
     virtual void set_K(Eigen::Matrix<double, nDoF, nDoF> mat){

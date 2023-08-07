@@ -15,7 +15,9 @@
 template<unsigned int Dim, unsigned int nDoF=Dim> requires Topology::EmbeddableInSpace<Dim>
 class Node {
  public:
+  
   static constexpr unsigned int dim = Dim;      // Dimention (2 or 3)
+  // Its topological dimension is 0
 
   private:
 
@@ -38,7 +40,7 @@ class Node {
 
   //CONSTRUCTORS ========================================================
   
-  Node(){}; 
+  Node(){}; //Private con Friend Domain? Para que sean solo construibles por el dominio?
 
   Node(int tag, double Coord1, double Coord2):id_(tag),coord_({Coord1,Coord2}) 
   {

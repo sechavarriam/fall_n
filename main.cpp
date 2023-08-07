@@ -5,29 +5,23 @@
 #include <iostream> 
 #include <Eigen/Dense>
 
-//#include "src/numeric_utils/Matrix.h"
-
-
 int main(){
 
     constexpr int dim = 3;
 
-    Domain<dim>
-
-    Node<0> nn;
-
-    Node<2> N0 = Node<2>(1, 0.0, 0.0);
+    Domain<dim> D; //Domain Aggregator Object
     
-    Node<dim> N1 = Node<dim>(1, 0.0, 0.0, 0.0);
-    Node<dim> N2 = Node<dim>(1, 1.0, 0.0, 0.0);
-    Node<dim> N3 = Node<dim>(3, 0.0, 1.0, 0.0);
-    Node<dim> N4 = Node<dim>(4, 0.0, 0.0, 1.0);
-    Node<dim> N5 = Node<dim>(5, 1.0, 1.0, 0.0);
-    Node<dim> N6 = Node<dim>(6, 0.0, 1.0, 1.0);
-    Node<dim> N7 = Node<dim>(7, 1.0, 0.0, 1.0);
-    Node<dim> N8 = Node<dim>(8, 1.0, 1.0, 1.0);
+    D.add_node(Node<dim>(1, 0.0, 0.0, 0.0));
+    D.add_node(Node<dim>(1, 0.0, 0.0, 0.0));
+    D.add_node(Node<dim>(2, 1.0, 0.0, 0.0));
+    D.add_node(Node<dim>(3, 0.0, 1.0, 0.0));
+    D.add_node(Node<dim>(4, 0.0, 0.0, 1.0));
+    D.add_node(Node<dim>(5, 1.0, 1.0, 0.0));
+    D.add_node(Node<dim>(6, 0.0, 1.0, 1.0));
+    D.add_node(Node<dim>(7, 1.0, 0.0, 1.0));
+    D.add_node(Node<dim>(8, 1.0, 1.0, 1.0));
     
-    Node<dim>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
+    //Node<dim>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
 
     //for (auto x: nodes) {
     //    std::cout<<(long int) x<<std::endl;
