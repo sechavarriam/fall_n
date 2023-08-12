@@ -12,33 +12,39 @@
 #include "../Node.h"
 
 
-template<unsigned int Dim> requires Topology::EmbeddableInSpace<Dim> 
+typedef unsigned short u_short;
+typedef unsigned int   u_int  ;
+
+
+/*
+Every element type must have define:
+     i) His spacial Dimension (Dim)
+    ii) The number of nodes   (nNodes)
+   iii) The number of nodes   (Dim)
+This has to be known at compile time.
+*/
+
+template<u_short Dim, u_short nNodes, u_short nDoF> requires Topology::EmbeddableInSpace<Dim> 
 class Element{
   public:
-    static constexpr unsigned int dim = Dim;
-
-    static constexpr unsigned int nDoF = Dim;
+    static constexpr unsigned int dim  = Dim;
+    //static u_short num_dof = nDoF; //Run time...
+  
   private:
     int id_ ; //tag    
 
+    std::size_t* node_positions;
     Node<Dim>**  node_; //Pointer to array of Node pointers.
     
-    /*
-    En vez de punteros podría ser solo una lista de índices?
-    int nodeTags[n_nodes]
-    O definir un genérico!!!? 
-    T** node_; //?
-    */
-
-    unsigned int num_nodes_     ; //Común a cada clase de elemento.
-    unsigned int num_dof_ = nDoF; //const static in each subclass? 
+    //static constexpr unsigned int num_nodes_ = nNodes    ; //Común a cada clase de elemento.
+    //unsigned int num_dof_ = nDoF; //const static in each subclass? 
     
     double measure_ = 0; // Length: for topological 1D element (like truss or beam).
                          // Area  : for topological 2D element (like shell or plate).
                          // Volume: for topological 3D element (like brik element).
 
     // Eigen Matrix. Initialized in zero by default static method to avoid garbage values.
-    Eigen::Matrix<double, nDoF, nDoF> K_ = Eigen::Matrix<double, nDoF, nDoF>::Zero();
+    Eigen::Matrix<double, nDoF, nDoF> K_ ;//= Eigen::Matrix<double, nDoF, nDoF>::Zero();
 
   protected:
 

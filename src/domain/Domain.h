@@ -22,7 +22,7 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
     std::vector<Node<Dim>> nodes_; //Could have an init preallocating parameter for eficiency!
 
-    std::vector<Element<Dim>*> elements_; //Vector de punteros a clase base...
+    //std::vector<Element<Dim>*> elements_; //Vector de punteros a clase base...
                                             //porque en sí puede contener varios tipos derivados
 
   public:
@@ -31,23 +31,18 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     //void add_node(Node<Dim> x){nodes_.push_back(x);};
     void add_node(Node<Dim> x){nodes_.emplace_back(x);}; //Constructs the node directly in the container
     
+
     // https://cplusplus.com/reference/vector/vector/capacity/
     // https://cplusplus.com/reference/vector/vector/reserve/
     // Tol increases capacity by default in 20%.
     void preallocate_node_capacity(int n, double tol=1.20){
     // Use Try and Catch to allow this operation if the container is empty.
         try {
-            if(nodes_.empty())
-            {
-                nodes_.reserve((int) n*tol);
-            }
-            else {
-                throw nodes_.empty();
-            }
+            if(nodes_.empty()) nodes_.reserve((int) n*tol);
+            else throw nodes_.empty();
         } catch (bool NotEmpty) {
             std::cout << "Preallocation should be done only before any node definition. Doing nothing." << std::endl;
-        }
-            
+        }     
     };
     
 

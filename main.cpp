@@ -17,14 +17,14 @@ int main(){
     
     D.preallocate_node_capacity(100);
 
-    D.add_node(Node<dim>(1, 0.0, 0.0, 0.0));
-    D.add_node(Node<dim>(2, 1.0, 0.0, 0.0));
-    D.add_node(Node<dim>(3, 0.0, 1.0, 0.0));
-    D.add_node(Node<dim>(4, 0.0, 0.0, 1.0));
-    D.add_node(Node<dim>(5, 1.0, 1.0, 0.0));
-    D.add_node(Node<dim>(6, 0.0, 1.0, 1.0));
-    D.add_node(Node<dim>(7, 1.0, 0.0, 1.0));
-    D.add_node(Node<dim>(8, 1.0, 1.0, 1.0));
+    D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
+    D.add_node( Node<dim>(2, 1.0, 0.0, 0.0) );
+    D.add_node( Node<dim>(3, 0.0, 1.0, 0.0) );
+    D.add_node( Node<dim>(4, 0.0, 0.0, 1.0) );
+    D.add_node( Node<dim>(5, 1.0, 1.0, 0.0) );
+    D.add_node( Node<dim>(6, 0.0, 1.0, 1.0) );
+    D.add_node( Node<dim>(7, 1.0, 0.0, 1.0) );
+    D.add_node( Node<dim>(8, 1.0, 1.0, 1.0) );
     
     //Node<dim>* nodes[8]{&N1,&N2,&N3,&N4,&N5,&N6,&N7,&N8};
 

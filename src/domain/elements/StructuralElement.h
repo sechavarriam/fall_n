@@ -5,8 +5,8 @@
 #include "Element.h"
 
 
-template<unsigned int Dim, unsigned int nDoF> 
-class StructuralElement: virtual public Element<Dim>{
+template<u_short Dim, u_short nNodes, u_short nDoF>
+class StructuralElement: virtual public Element<Dim,nNodes,nDoF>{
 
  private:
 
@@ -18,7 +18,7 @@ class StructuralElement: virtual public Element<Dim>{
    virtual void disable_curvature(){this->HasCurvature = false; }; 
 
    StructuralElement(){};
-   StructuralElement(int tag, Node<Dim> **nodes): Element<Dim>(tag,nodes){}
+   StructuralElement(int tag, Node<Dim> **nodes): Element<Dim,nNodes,nDoF>(tag,nodes){}
 
  public:
     virtual ~StructuralElement(){};
