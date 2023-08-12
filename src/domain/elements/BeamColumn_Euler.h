@@ -16,7 +16,7 @@
 
 
 template<unsigned int Dim>
-class BeamColumn_Euler: public LineElement<Dim, 2*(Dim*2)-Dim%3 >{ 
+class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{ 
 
 
   private:
@@ -53,7 +53,7 @@ class BeamColumn_Euler: public LineElement<Dim, 2*(Dim*2)-Dim%3 >{
      BeamColumn_Euler(){};
 
      BeamColumn_Euler(int tag, Node<Dim> **nodes, double e, double a, double iz):
-      StructuralElement<Dim,2*(Dim*2)-Dim%3>(tag,nodes),E_(e),A_(a),Iz_(iz){
+      StructuralElement<Dim,2,2*(Dim*2)-Dim%3>(tag,nodes),E_(e),A_(a),Iz_(iz){
          //check num nodes.
          //check dim
          static_assert(Dim > 1 && Dim < 4, "Wrong dimention. Must be 2 or 3.");

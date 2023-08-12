@@ -4,15 +4,22 @@
 #include <cmath>
 //#include <vector>   // Header that defines the vector container class.
 
+#include <cstddef>
 #include <iostream> // Header that defines the standard input/output stream objects.
 #include <concepts>
 
 #include <Eigen/Dense>
+#include <sys/types.h>
 
 #include "Topology.h"
 
 
-template<unsigned int Dim, unsigned int nDoF=Dim> requires Topology::EmbeddableInSpace<Dim>
+
+typedef unsigned short u_short;
+typedef unsigned int   u_int  ;
+
+
+template<u_short Dim, u_short nDoF=Dim> requires Topology::EmbeddableInSpace<Dim>
 class Node {
  public:
   
@@ -21,8 +28,11 @@ class Node {
 
   private:
 
-  int id_            ;
-  int ndof_ = nDoF   ; // Number of DoF (init = 0 )
+  
+  u_int id_ ;
+  
+  //std::size_t domain_array_position; 
+  //int ndof_ = nDoF   ; // Number of DoF (init = 0 )
 
   //std::vector<double> coord_ = std::vector<double> (Dim); // Usar Eigen? 
   Eigen::Matrix<double, Dim, 1> coord_; //Use of Eigen vector to facilitate operaitons.
