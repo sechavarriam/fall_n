@@ -51,7 +51,6 @@ class Node {
   //CONSTRUCTORS ========================================================
   
   Node(){}; //Private con Friend Domain? Para que sean solo construibles por el dominio?
-
   Node(int tag, double Coord1, double Coord2):id_(tag),coord_({Coord1,Coord2}) 
   {
     static_assert(Topology::InPlane<Dim>, "Using constructor for 2D node");
