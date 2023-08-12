@@ -25,7 +25,7 @@ This has to be known at compile time.
 */
 
 template<u_short Dim, u_short nNodes, u_short nDoF> requires Topology::EmbeddableInSpace<Dim> 
-class Element{
+class ElementBase{
   public:
     static constexpr unsigned int dim  = Dim;
     //static u_short num_dof = nDoF; //Run time...
@@ -71,9 +71,9 @@ class Element{
   
   protected:
     // This is an abstract base class. Pure elements should not be constructed.
-    Element(){};
-    Element(int tag, Node<Dim>** nodes): id_(tag),node_(nodes){};
-    virtual ~Element(){};
+    ElementBase(){};
+    ElementBase(int tag, Node<Dim>** nodes): id_(tag),node_(nodes){};
+    virtual ~ElementBase(){};
 };
 
 #endif
