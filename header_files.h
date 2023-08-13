@@ -24,12 +24,14 @@
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"
 #include "src/domain/elements/StructuralElement.h"
+#include "src/domain/elements/LineElement.h"
 
-//#include "src/domain/elements/ContinuumElement.h"
 
 #include "src/domain/elements/BeamColumn_Euler.h"
 
 
+
+//#include "src/domain/elements/ContinuumElement.h"
 
 // #include "src/numeric_utils/Matrix.h"
 // typedef Matrix<double,2> Mat2D;

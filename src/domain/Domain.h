@@ -1,3 +1,6 @@
+#ifndef FN_DOMAIN
+#define FN_DOMAIN
+
 
 
 #include <iostream>  
@@ -14,23 +17,36 @@
 //Contar cuantos nodos hay. y con esto separar un espacio en memoria con algun contenedor.
 //Los elementos guardarían solo en índice en el arreglo en vez de un puntero al nodo?
 
-template<unsigned int Dim> requires Topology::EmbeddableInSpace<Dim>
+template<unsigned short Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
-    
-    int num_nodes_;
-    int num_elements_;
 
-    std::vector<Node<Dim>> nodes_; //Could have an init preallocating parameter for eficiency!
+    friend class Node<Dim>;
+    friend class Element; //?
 
-    //std::vector<Element<Dim>*> elements_; //Vector de punteros a clase base...
-                                            //porque en sí puede contener varios tipos derivados
+    u_int num_nodes_;
+    u_int num_elements_;
+
+    std::vector<Node<Dim>> nodes_    ; //Could have an init preallocating parameter for eficiency!
+    std::vector<Element*>  elements_ ; //Vector de punteros (unique?) a clase base...
+                                       //porque en sí puede contener varios tipos derivados
 
   public:
 
+    Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
+
+
+
+
     //https://stackoverflow.com/questions/23717151/why-emplace-back-is-faster-than-push-back
     //void add_node(Node<Dim> x){nodes_.push_back(x);};
-    void add_node(Node<Dim> x){nodes_.emplace_back(x);}; //Constructs the node directly in the container
+
+    //Constructs the node directly in the container
+    void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
     
+    // Se usa push_back porque el elemento no se crea en el arreglo. Se crea el puntero.
+    void add_element(Element* e){elements_.push_back(e);};
+
+
 
     // https://cplusplus.com/reference/vector/vector/capacity/
     // https://cplusplus.com/reference/vector/vector/reserve/
@@ -59,10 +75,7 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
 
 
-
-
-
-
+#endif
 
 
 

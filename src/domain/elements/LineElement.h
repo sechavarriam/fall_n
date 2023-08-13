@@ -26,7 +26,9 @@ class LineElement: virtual public StructuralElement<Dim,nNodes,nDoF>{
     //virtual void set_num_nodes(int n){this->set_num_nodes(int n);};
 
      LineElement(){};
-     LineElement(int tag, Node<Dim> **nodes): StructuralElement<Dim,nNodes,nDoF>(tag,nodes){}
+     //LineElement(int tag, Node<Dim>** nodes): StructuralElement<Dim,nNodes,nDoF>(tag,nodes){}
+     LineElement(int tag, std::array<u_int,nNodes> NodeTAGS): StructuralElement<Dim,nNodes,nDoF>(tag,NodeTAGS){}
+
 
  public:
     virtual ~LineElement(){};
