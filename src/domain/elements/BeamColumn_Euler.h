@@ -15,7 +15,7 @@
 // if Dim = 3 then DoF = 12
 
 
-template<unsigned int Dim>
+template<u_short Dim>
 class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{ 
 
 
@@ -51,14 +51,16 @@ class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{
  public:
      
      BeamColumn_Euler(){};
-
-     BeamColumn_Euler(int tag, Node<Dim> **nodes, double e, double a, double iz):
-      StructuralElement<Dim,2,2*(Dim*2)-Dim%3>(tag,nodes),E_(e),A_(a),Iz_(iz){
+     //                                       nNodes
+     //                                         |
+     //                                         ▼
+     BeamColumn_Euler(int tag, std::array<u_int,2> NodeTAGS, double e, double a, double iz):
+      LineElement<Dim, 2, 2*(Dim*2)-Dim%3>(tag,NodeTAGS),E_(e),A_(a),Iz_(iz){
          //check num nodes.
          //check dim
          static_assert(Dim > 1 && Dim < 4, "Wrong dimention. Must be 2 or 3.");
 
-         std::cout<< this->dim <<"D Beam Element "<< tag << " constructed. nDof = "<< this-> num_dof()<< std::endl;
+         std::cout<< Dim <<"D Beam Element "<< tag << " constructed" << std::endl;//. nDof = "<< this-> num_dof()<< std::endl;
          //std::cout<< get_K() <<std::endl;
 
          

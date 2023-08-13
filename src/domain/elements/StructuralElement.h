@@ -18,7 +18,9 @@ class StructuralElement: virtual public ElementBase<Dim,nNodes,nDoF>{
    virtual void disable_curvature(){this->HasCurvature = false; }; 
 
    StructuralElement(){};
-   StructuralElement(int tag, Node<Dim> **nodes): ElementBase<Dim,nNodes,nDoF>(tag,nodes){}
+   
+   //StructuralElement(int tag, Node<Dim>** nodes): ElementBase<Dim,nNodes,nDoF>(tag,nodes){} // Should not be used yet
+   StructuralElement(int tag, std::array<u_int,nNodes> NodeTAGS): ElementBase<Dim,nNodes,nDoF>(tag,NodeTAGS){}
 
  public:
     virtual ~StructuralElement(){};
