@@ -29,15 +29,14 @@ This has to be known at compile time.
 */
 
 template<u_short Dim, u_short nNodes, u_short nDoF> requires Topology::EmbeddableInSpace<Dim> 
-class ElementBase: protected Element{
+class ElementBase: public Element{
   public:
   
   private: 
 
     //https://stackoverflow.com/questions/11134497/constant-sized-vector
-    std::array<u_int,nNodes> nodes_index_;   
-
-    Node<Dim>*  nodes_[nNodes];
+    std::array<u_int     ,nNodes> nodes_index_;   
+    std::array<Node<Dim>*,nNodes> nodes_      ; // Fixed size?
     
     //Node<Dim>**  node_; //Pointer to array of Node pointers.
     

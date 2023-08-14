@@ -26,7 +26,7 @@ class Element{
 
     virtual void compute_measure(){};
 
-
+    
     Element(){};
     Element(int tag):id_(tag){};
     

@@ -12,11 +12,8 @@
 //#include "Domain.h"
 #include "Topology.h"
 
-
 typedef unsigned short u_short;
 typedef unsigned int   u_int  ;
-
-
 
 template<u_short Dim, u_short nDoF=Dim> requires Topology::EmbeddableInSpace<Dim>
 class Node {
