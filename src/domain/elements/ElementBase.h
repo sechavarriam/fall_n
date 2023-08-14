@@ -21,7 +21,7 @@ typedef unsigned int   u_int  ;
 
 
 /*
-Every element type must have define:
+Every element type must have defined:
      i) His spacial Dimension (Dim)
     ii) The number of nodes   (nNodes)
    iii) The number of nodes   (Dim)
@@ -65,9 +65,8 @@ class ElementBase: public Element{
   //protected:
     // This is an abstract base class. Pure elements should not be constructed.
     ElementBase(){};
-
-    ElementBase(int tag, Node<Dim>** nodes): Element(tag), nodes_(nodes){};
     
+    ElementBase(int tag, Node<Dim>** nodes): Element(tag), nodes_(nodes){};
     ElementBase(int tag, std::array<u_int,nNodes> NodeTAGS): Element(tag), nodes_index_(NodeTAGS){};
     
     
