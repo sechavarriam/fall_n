@@ -3,7 +3,9 @@
 
 
 
+#include <format>
 #include <iostream>  
+#include <memory>
 #include <vector>
 
 #include "Topology.h"
@@ -26,15 +28,20 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     u_int num_nodes_;
     u_int num_elements_;
 
-    std::vector<Node<Dim>> nodes_    ; //Could have an init preallocating parameter for eficiency!
-    std::vector<Element*>  elements_ ; //Vector de punteros (unique?) a clase base...
-                                       //porque en sí puede contener varios tipos derivados
+    //unique_ptr<int> p = make_unique<int>(42);
 
+    std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
+    std::vector<std::unique_ptr<Element>>  elements_ ; 
   public:
 
-    Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
+    //Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
 
-
+    template<typename ElementType, typename... Args >
+    void add_element(Args... constructorArgs){
+        elements_.emplace_back(
+            std::make_unique<ElementType>(constructorArgs... )
+        );
+    };
 
 
     //https://stackoverflow.com/questions/23717151/why-emplace-back-is-faster-than-push-back
@@ -44,7 +51,7 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
     
     // Se usa push_back porque el elemento no se crea en el arreglo. Se crea el puntero.
-    void add_element(Element* e){elements_.push_back(e);};
+    
 
 
 
