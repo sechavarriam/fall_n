@@ -21,9 +21,7 @@ class Node {
     static constexpr unsigned int dim = Dim; // Dimention (2 or 3). Its topological dimension is 0
 
   private:
-
     u_int id_ ;
-    
     Eigen::Matrix<double, Dim, 1> coord_; //Use of Eigen vector to facilitate operaitons.
 
   public:

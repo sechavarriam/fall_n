@@ -11,8 +11,9 @@ int main(){
     constexpr int dim = 3;
 
     Domain<dim> D; //Domain Aggregator Object
-    D.preallocate_node_capacity(100);
+    //D.preallocate_node_capacity(100);
  
+    
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
     D.add_node( Node<dim>(2, 1.0, 0.0, 0.0) );
     D.add_node( Node<dim>(3, 0.0, 1.0, 0.0) );
@@ -21,6 +22,8 @@ int main(){
     D.add_node( Node<dim>(6, 0.0, 1.0, 1.0) );
     D.add_node( Node<dim>(7, 1.0, 0.0, 1.0) );
     D.add_node( Node<dim>(8, 1.0, 1.0, 1.0) );
+    
+    
     
     std::array<u_int,8> index_test{0,1,2,3,4,5,6,7};
 
