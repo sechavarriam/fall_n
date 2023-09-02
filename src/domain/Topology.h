@@ -24,22 +24,6 @@ class Dimension{
 }
 
 
-//template<unsigned int Dim>
-//concept EmbeddableInSpace = requires()
-//{
-//    Dim<4;
-//};
-
-
-//class Topology {
-//    //template<typename T,unsigned int Dim> static constexpr bool InPlane 
-//    public:
-//    template<unsigned int Dim> static constexpr bool InPlane = Dim==2; // Unused Yet 
-//    template<unsigned int Dim> static constexpr bool InSpace = Dim==3; // Unused Yet
-//    template<unsigned int Dim> //Variable Template
-//    static constexpr bool EmbeddableInSpace = Dim<4;
-//};
-
 
 
 #endif
