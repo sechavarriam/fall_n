@@ -1,28 +1,24 @@
-#ifndef FN_MATERIAL
-#define FN_MATERIAL
+#ifndef FN_CONSTITUTIVE_RELATION
+#define FN_CONSTITUTIVE_RELATION
 
 
 
 
 #include <Eigen/Dense>
-#include <vector>
-
-#include "Strain.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 template<ushort nVars> // Dim?
-class Material{
+class ConstitutiveRelation{
 
     // nVars: Number of state variables (strains)
     private:
-        std::vector<Strain<nVars>> strains_t_; //Store history of strains in simulation for memory materials
+        Eigen::Matrix<double, nVars, 1> strain_ = Eigen::Matrix<double, nVars, 1>::Zero();
 
     public:
-
-    
         
+    //TODO: OVERLOAD OPERATOR()
 
 };
 

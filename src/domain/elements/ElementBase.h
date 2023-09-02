@@ -16,8 +16,8 @@
 #include "../Node.h"
 
 
-typedef unsigned short u_short;
-typedef unsigned int   u_int  ;
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
 
 
 /*
@@ -28,14 +28,14 @@ Every element type must have defined:
 This has to be known at compile time.
 */
 
-template<u_short Dim, u_short nNodes, u_short nDoF> requires Topology::EmbeddableInSpace<Dim> 
+template<ushort Dim, ushort nNodes, ushort nDoF> requires Topology::EmbeddableInSpace<Dim> 
 class ElementBase: public Element{
   public:
   
   private: 
 
     //https://stackoverflow.com/questions/11134497/constant-sized-vector
-    std::array<u_int     ,nNodes> nodes_index_;   
+    std::array<uint     ,nNodes> nodes_index_;   
     std::array<Node<Dim>*,nNodes> nodes_      ; // Fixed size?
     
     //Node<Dim>**  node_; //Pointer to array of Node pointers.
@@ -67,7 +67,7 @@ class ElementBase: public Element{
     ElementBase(){};
     
     ElementBase(int tag, Node<Dim>** nodes): Element(tag), nodes_(nodes){};
-    ElementBase(int tag, std::array<u_int,nNodes> NodeTAGS): Element(tag), nodes_index_(NodeTAGS){};
+    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_index_(NodeTAGS){};
     
     
     virtual ~ElementBase(){};
