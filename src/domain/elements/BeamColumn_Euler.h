@@ -15,7 +15,10 @@
 // if Dim = 3 then DoF = 12
 
 
-template<u_short Dim>
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
+
+template<ushort Dim>
 class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{ 
 
 
