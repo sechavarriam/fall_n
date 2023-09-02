@@ -20,7 +20,9 @@
 
 #include "src/domain/Domain.h"
 
+#include "src/domain/Point.h"
 #include "src/domain/Node.h"
+
 
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"
