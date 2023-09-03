@@ -3,14 +3,11 @@
 
 #include <Eigen/Dense>
 
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
+// Derivatives of displacement Field (DoF)
+// nVars: Number of model state variables (strains)
 
-    // Derivatives of displacement Field
-    // nVars: Number of model state variables (strains)
-
-template<ushort nVars> // Dim?
+template<unsigned short nVars> // Dim?
 class Strain{
     private:
         //Container.

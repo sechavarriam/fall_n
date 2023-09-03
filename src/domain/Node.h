@@ -8,6 +8,7 @@
 
 #include <Eigen/Dense>
 
+//#include "DoF.h"
 #include "Point.h"
 #include "Topology.h"
 
@@ -19,6 +20,7 @@ class Node : public Point<Dim>{
 
  private:
 
+    //DoF<nDoF> DoF_; TODO.
     Eigen::Matrix<double, nDoF, 1> DoF_; // e.g. [u,v,w]  current state? Should have a containter for all times? Recorder...  
                                          // Should be a class itself? Maybe
  

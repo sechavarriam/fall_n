@@ -18,6 +18,12 @@
 
 #include "src/domain/Topology.h"
 
+#include "src/materials/Material.h"
+#include "src/materials/Strain.h"
+
+#include "src/materials/ConstitutiveRelation.h"
+
+
 #include "src/domain/Domain.h"
 
 #include "src/domain/Point.h"
