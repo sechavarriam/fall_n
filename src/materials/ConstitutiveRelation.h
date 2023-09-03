@@ -2,22 +2,18 @@
 #define FN_CONSTITUTIVE_RELATION
 
 
+// F cause
+// U efect
 
-
-#include <Eigen/Dense>
-
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
-
-template<ushort nVars> // Dim?
+template<typename F,typename U> // Dim?
 class ConstitutiveRelation{
 
-    // nVars: Number of state variables (strains)
-    private:
-        Eigen::Matrix<double, nVars, 1> strain_ = Eigen::Matrix<double, nVars, 1>::Zero();
+    F* cause_; //e.g. Takes strains or displacements by reference.
+    U* efect_; //e.g. Return stresses of internal forces  
 
     public:
-        
+    ConstitutiveRelation(){};
+    ~ConstitutiveRelation(){};
     //TODO: OVERLOAD OPERATOR()
 
 };

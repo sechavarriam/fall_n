@@ -42,9 +42,9 @@ class ElementBase: public Element{
     // Eigen Matrix. Initialized in zero by default static method to avoid garbage values.
     Eigen::Matrix<double, nDoF, nDoF> K_ = Eigen::Matrix<double, nDoF, nDoF>::Zero();
     
-    virtual void set_K(Eigen::Matrix<double, nDoF, nDoF> mat){
-        this->K_ = mat;
-    };
+    //virtual void set_K(Eigen::Matrix<double, nDoF, nDoF> mat){
+    //    this->K_ = mat;
+    //};
     
   public:
 

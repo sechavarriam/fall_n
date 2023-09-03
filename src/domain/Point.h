@@ -18,7 +18,7 @@ template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Point {
  
   private:
-    
+
     uint id_ ; //Considerar quitar el id de nodo si los puntos de integración no lo necesitan.
     Eigen::Matrix<double, Dim, 1> coord_; //Use of Eigen vector to facilitate operaitons.
 
@@ -32,9 +32,7 @@ class Point {
   
     virtual inline double* coord(int i){return &coord_[i];}
 
-  //private:
-    
-    Point(){}; //Private con Friend Domain? Para que sean solo construibles por el dominio?    
+    Point(){}; 
     Point(int tag, double Coord1, double Coord2):id_(tag),coord_({Coord1,Coord2}) 
     {
       static_assert(Topology::InPlane<Dim>, "Using constructor for 2D node");
