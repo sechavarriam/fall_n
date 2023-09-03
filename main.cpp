@@ -1,7 +1,10 @@
 
 
 #include"header_files.h"
+#include "src/domain/IntegrationPoint.h"
 #include "src/domain/elements/ElementBase.h"
+
+
 
 #include <iostream> 
 #include <Eigen/Dense>
@@ -45,6 +48,8 @@ int main(){
 
     D.add_element<BeamColumn_Euler<dim>>(1, node_TEST, 1.0,1.0,1.0);   
     D.add_element<BeamColumn_Euler<dim>>(1, 0, 8, 1.0, 1.0, 1.0);
+
+    //IntegrationPoint<dim> a;
 
 
 };

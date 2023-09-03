@@ -16,11 +16,10 @@ typedef unsigned int   uint  ;
 
 template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Point {
- public:
-    static constexpr unsigned int dim = Dim; // Dimention (2 or 3). Its topological dimension is 0
-
+ 
   private:
-    uint id_ ;
+    
+    uint id_ ; //Considerar quitar el id de nodo si los puntos de integración no lo necesitan.
     Eigen::Matrix<double, Dim, 1> coord_; //Use of Eigen vector to facilitate operaitons.
 
   public:
@@ -44,7 +43,6 @@ class Point {
     Point(int tag, double Coord1, double Coord2, double Coord3):id_(tag),coord_({Coord1,Coord2,Coord3}) 
     {
       static_assert(Topology::InSpace<Dim>, "Using constructor for 3D node");
-      std::cout << "3D Point Constructed: " << tag << "\n"; 
     } 
     
     ~Point(){} 
