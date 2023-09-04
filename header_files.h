@@ -39,6 +39,7 @@
 
 #include "src/domain/elements/BeamColumn_Euler.h"
 
+#include "src/domain/elements/Section.h"
 
 
 //#include "src/domain/elements/ContinuumElement.h"
