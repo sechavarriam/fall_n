@@ -3,10 +3,11 @@
 
 #include "../Node.h"
 #include "ElementBase.h"
+#include <sys/types.h>
 
 
-template<u_short Dim, u_short nNodes, u_short nDoF>
-class StructuralElement: virtual public ElementBase<Dim,nNodes,nDoF>{
+template<u_short Dim, u_short nNodes, u_short nDoF, u_short nGauss>
+class StructuralElement: virtual public ElementBase<Dim,nNodes,nDoF,nGauss>{
 
  private:
 

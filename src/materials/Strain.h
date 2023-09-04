@@ -15,7 +15,8 @@ class Strain{
 
     public:
         
-
+    Strain(){};
+    virtual ~Strain(){};
 };
 
 
