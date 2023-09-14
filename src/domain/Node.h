@@ -8,7 +8,7 @@
 
 #include <Eigen/Dense>
 
-//#include "DoF.h"
+#include "DoF.h"
 #include "Point.h"
 #include "Topology.h"
 

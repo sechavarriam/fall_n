@@ -5,6 +5,8 @@
 #include <iostream> 
 #include <Eigen/Dense>
 
+#include "src/numerics/Tensor.h"
+
 int main(){
 
     constexpr int dim = 3;
@@ -31,6 +33,12 @@ int main(){
     constexpr int nNodes = 2;
     constexpr int nDoF  = 12;
     
+    Tensor<dim,2> tensorTest;
+
+    int DIM = 3;
+    int ORD = 2;
+    std::cout<< DIM*ORD + ( DIM%ORD) << std::endl;
+    
     std::array<u_int,nNodes> node_TEST{1,8};  
 
     D.add_element<Element>(1);
@@ -43,6 +51,8 @@ int main(){
     D.add_element<BeamColumn_Euler<dim>>(1, 0, 8, 1.0, 1.0, 1.0);
 
     //IntegrationPoint<dim> a;
+
+    
 
 
 };
