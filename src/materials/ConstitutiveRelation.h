@@ -2,10 +2,12 @@
 #define FN_CONSTITUTIVE_RELATION
 
 
-// F cause
-// U efect
+// F cause type e.g. stress in Voight notation
+// U efect type e.g. srains in Voight notation
 
-template<typename F,typename U> // Dim?
+// R Relation function type e.g. Elastic Tensor Matrix in Voight Notation
+
+template<typename F,typename R,typename U=F> // Dim?
 class ConstitutiveRelation{
 
     F* cause_; //e.g. Takes strains or displacements by reference.
@@ -22,6 +24,19 @@ class ConstitutiveRelation{
     //TODO: OVERLOAD OPERATOR()
 
 };
+
+
+template<typename F,typename U> 
+class ProportionalRelation : public ConstitutiveRelation<F,U>{
+
+    //F=K*U
+    //U=C*K
+};
+
+
+
+
+
 
 
 #endif
