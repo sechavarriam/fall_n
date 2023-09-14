@@ -33,11 +33,10 @@ int main(){
     constexpr int nNodes = 2;
     constexpr int nDoF  = 12;
     
-    Tensor<dim,2> tensorTest;
+    Tensor<dim,2> tensorTest1{1,2,3,4,5,6};
+    Tensor<dim,2> tensorTest2{1,2,3,4,5,6};
 
-    int DIM = 3;
-    int ORD = 2;
-    std::cout<< DIM*ORD + ( DIM%ORD) << std::endl;
+    Tensor<dim,2> tensorTest3;// = tensorTest1+tensorTest2;
     
     std::array<u_int,nNodes> node_TEST{1,8};  
 
