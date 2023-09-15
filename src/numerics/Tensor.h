@@ -47,36 +47,22 @@ using VoightTensorContainer
 // Voight notation tensor second order tensor (Vector Form)
 
 
-
-// https://eigen.tuxfamily.org/dox-devel/TopicCustomizing_InheritingMatrix.html
-
 template<ushort Dim,  ushort Order> 
 class Tensor: public VoightTensorContainer<Dim, Order>{
   private:
 
     // More things.
-
   public:
 
 
-    //===========================================================================
-    // Constructor
-    Tensor(void):VoightTensorContainer<Dim, Order>(){}
-    // This constructor allows you to construct Tensor from Eigen expressions
-
-    template<typename OtherDerived>
-    Tensor(const Eigen::MatrixBase<OtherDerived>& other)
-        : VoightTensorContainer<Dim, Order>(other)
-    { }
- 
     // This method allows you to assign Eigen expressions to Tensor
-    template<typename OtherDerived>
-    Tensor& operator=(const Eigen::MatrixBase <OtherDerived>& other)
-    {
+    // https://eigen.tuxfamily.org/dox-devel/TopicCustomizing_InheritingMatrix.html
+    
+    template<typename EigenDerived>
+    Tensor& operator=(const Eigen::MatrixBase <EigenDerived>& other){
         this->VoightTensorContainer<Dim, Order>::operator=(other);
         return *this;
     }
-    //===========================================================================
 
     template <typename... Args>
     Tensor(Args&&... args):VoightTensorContainer<Dim, Order>(std::forward<Args>(args)...)
