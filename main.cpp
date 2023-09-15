@@ -33,11 +33,17 @@ int main(){
     constexpr int nNodes = 2;
     constexpr int nDoF  = 12;
     
-    Tensor<dim,2> tensorTest1{1,2,3,4,5,6};
-    Tensor<dim,2> tensorTest2{1,2,3,4,5,6};
-
-    Tensor<dim,2> tensorTest3;// = tensorTest1+tensorTest2;
+    Tensor<dim,2> t_Test1({1,2,3,4,5,6}); //Melo 
+    Tensor<dim,2> t_Test2{1,2,3,4,5,6};   //Melo
+    Tensor<dim,2> tensorSum = t_Test1;    //Melo
     
+    t_Test1 += t_Test2; //
+
+    tensorSum = t_Test1 + t_Test2;
+    
+    Tensor<dim,2> t_Test3 = 10*t_Test2;
+
+
     std::array<u_int,nNodes> node_TEST{1,8};  
 
     D.add_element<Element>(1);
