@@ -21,7 +21,6 @@
 #include "src/numerics/Tensor.h"
 #include "src/numerics/InterpolationFunction.h"
 
-
 #include "src/materials/Material.h"
 #include "src/materials/Strain.h"
 

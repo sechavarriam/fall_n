@@ -3,9 +3,14 @@
 
 
 #include <utility>
+#include <concepts>
+#include <type_traits>
+
+
 #include "../domain/Topology.h"
 
 #include <Eigen/Dense>
+#include <Eigen/Core>
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -43,17 +48,39 @@ using VoightTensorContainer
 
 
 
+// https://eigen.tuxfamily.org/dox-devel/TopicCustomizing_InheritingMatrix.html
+
 template<ushort Dim,  ushort Order> 
-class Tensor{
+class Tensor: public VoightTensorContainer<Dim, Order>{
   private:
 
-    VoightTensorContainer<Dim, Order> components_;
     // More things.
 
   public:
-    template <typename... Args> Tensor(Args&&... args):
-    components_{VoightTensorContainer<Dim, Order>(std::forward<Args>(args)...)}
-    {}
+
+
+    //===========================================================================
+    // Constructor
+    Tensor(void):VoightTensorContainer<Dim, Order>(){}
+    // This constructor allows you to construct Tensor from Eigen expressions
+
+    template<typename OtherDerived>
+    Tensor(const Eigen::MatrixBase<OtherDerived>& other)
+        : VoightTensorContainer<Dim, Order>(other)
+    { }
+ 
+    // This method allows you to assign Eigen expressions to Tensor
+    template<typename OtherDerived>
+    Tensor& operator=(const Eigen::MatrixBase <OtherDerived>& other)
+    {
+        this->VoightTensorContainer<Dim, Order>::operator=(other);
+        return *this;
+    }
+    //===========================================================================
+
+    template <typename... Args>
+    Tensor(Args&&... args):VoightTensorContainer<Dim, Order>(std::forward<Args>(args)...)
+    {};
 
     ~Tensor(){};
 };
