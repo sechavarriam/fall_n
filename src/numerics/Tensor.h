@@ -1,11 +1,8 @@
 #ifndef FN_TENSOR
 #define FN_TENSOR
 
-
 #include <utility>
 #include <concepts>
-#include <type_traits>
-
 
 #include "../domain/Topology.h"
 
@@ -14,7 +11,6 @@
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
-
 
 // Compile time swich case.
 template<ushort Dim,  ushort Order> requires Topology::EmbeddableInSpace<Dim>
@@ -39,7 +35,6 @@ consteval ushort Voigth_Dim2(){
     };
 };
 
-
 template<ushort Dim,  ushort Order> 
 using VoightTensorContainer 
     = Eigen::Matrix<double, Voigth_Dim1<Dim,Order>(), Voigth_Dim2<Dim,Order>()> ;
@@ -52,17 +47,17 @@ class Tensor: public VoightTensorContainer<Dim, Order>{
   private:
 
     // More things.
+
   public:
 
+    //This method allows you to assign Eigen expressions to Tensor
+    //template<typename EigenDerived>
+    //Tensor& operator=(const Eigen::MatrixBase <EigenDerived>& other){
+    //    this->VoightTensorContainer<Dim, Order>::operator=(other);
+    //    return *this;
+    //}//https://eigen.tuxfamily.org/dox-devel/TopicCustomizing_InheritingMatrix.html
 
-    // This method allows you to assign Eigen expressions to Tensor
-    // https://eigen.tuxfamily.org/dox-devel/TopicCustomizing_InheritingMatrix.html
-    
-    template<typename EigenDerived>
-    Tensor& operator=(const Eigen::MatrixBase <EigenDerived>& other){
-        this->VoightTensorContainer<Dim, Order>::operator=(other);
-        return *this;
-    }
+    using VoightTensorContainer<Dim, Order>::operator=;
 
     template <typename... Args>
     Tensor(Args&&... args):VoightTensorContainer<Dim, Order>(std::forward<Args>(args)...)
