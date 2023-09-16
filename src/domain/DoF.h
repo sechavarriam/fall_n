@@ -1,16 +1,26 @@
 #ifndef FALL_N_DEGGREE_OF_FREEDOM_CONTAINER  
 #define FALL_N_DEGGREE_OF_FREEDOM_CONTAINER
 
+
+#include <utility>
+
 #include <Eigen/Dense>
 
-//template<typename T, unsigned int nDoF> //Requires T containter
-template<unsigned int nDoF> //Requires T containter
-class DoF{
-    Eigen::Matrix<double, nDoF, 1> data_; // e.g. [u,v,w]  current state? Should have a containter for all times? Recorder...  
-                                          // Should be a class itself? Maybe
+
+
+
+template<unsigned int nDoF> 
+class DofContainer: public Eigen::Matrix<double, nDoF, 1>{
+    
+  // More things to implement...
+  // unsigned int id = 0;
+  // map
+  // new id
   public:
-    DoF(){};
-    ~DoF(){};
+    
+    template <typename... Args>
+    DofContainer(Args&&... args):Eigen::Matrix<double, nDoF, 1>(std::forward<Args>(args)...)
+    {};
 };
 
 

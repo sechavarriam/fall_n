@@ -2,7 +2,7 @@
 #define FN_DOMAIN
 
 
-
+#include <utility>
 #include <format>
 #include <iostream>  
 #include <memory>
@@ -28,32 +28,28 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     u_int num_nodes_;
     u_int num_elements_;
 
-    //unique_ptr<int> p = make_unique<int>(42);
+    std::vector<Node<Dim>>                nodes_     ; //Could have an init preallocating parameter for eficiency!
+    std::vector<std::unique_ptr<Element>> elements_  ; 
+    std::vector<double>                   dof_vector_;
 
-    std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
-    std::vector<std::unique_ptr<Element>>  elements_ ; 
   public:
 
     //Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
 
     template<typename ElementType, typename... Args >
-    void add_element(Args... constructorArgs){
+    void make_element(Args&&... constructorArgs){
         elements_.emplace_back(
             std::make_unique<ElementType>(constructorArgs... )
         );
     };
-
-
     //https://stackoverflow.com/questions/23717151/why-emplace-back-is-faster-than-push-back
-    //void add_node(Node<Dim> x){nodes_.push_back(x);};
-
+    
     //Constructs the node directly in the container
     void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
+
+    
     
     // Se usa push_back porque el elemento no se crea en el arreglo. Se crea el puntero.
-    
-
-
 
     // https://cplusplus.com/reference/vector/vector/capacity/
     // https://cplusplus.com/reference/vector/vector/reserve/
