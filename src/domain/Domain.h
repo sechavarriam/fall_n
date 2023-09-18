@@ -22,8 +22,8 @@
 template<unsigned short Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
 
-    friend class Node<Dim>;
-    friend class Element; //?
+    friend class Node<Dim>;//?
+    friend class Element;  //?
 
     u_int num_nodes_;
     u_int num_elements_;
@@ -33,8 +33,6 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     std::vector<double>                   dof_vector_;
 
   public:
-
-    //Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
 
     template<typename ElementType, typename... Args >
     void make_element(Args&&... constructorArgs){
@@ -47,10 +45,7 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     //Constructs the node directly in the container
     void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
 
-    
-    
-    // Se usa push_back porque el elemento no se crea en el arreglo. Se crea el puntero.
-
+  
     // https://cplusplus.com/reference/vector/vector/capacity/
     // https://cplusplus.com/reference/vector/vector/reserve/
     // Tol increases capacity by default in 20%.
@@ -66,10 +61,12 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     
 
 
-
+    
+    
+    // TODO: Preallocated constructor.
+    //Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
+    //
     Domain(){};
-
-
     ~Domain(){};
 
 
