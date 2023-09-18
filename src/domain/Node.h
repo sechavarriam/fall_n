@@ -21,7 +21,7 @@ class Node : public Point<Dim>{
 
  private:
 
-    std::unique_ptr<DofContainer<nDoF>> DoF_;
+    //std::unique_ptr<DofContainer<nDoF>> DoF_;
 
     //DoF<nDoF> DoF_; TODO.
     //Eigen::Matrix<double, nDoF, 1> DoF_; // e.g. [u,v,w]  current state? Should have a containter for all times? Recorder...  

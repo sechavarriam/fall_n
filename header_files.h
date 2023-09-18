@@ -21,6 +21,10 @@
 #include "src/numerics/Tensor.h"
 #include "src/numerics/InterpolationFunction.h"
 
+#include "src/numerics/numerical_integration/Quadrature.h"
+
+
+
 #include "src/materials/Material.h"
 #include "src/materials/Strain.h"
 
@@ -32,6 +36,9 @@
 #include "src/domain/Node.h"
 
 #include "src/domain/IntegrationPoint.h"
+
+#include "src/domain/GeometricTransformation.h"
+
 
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"

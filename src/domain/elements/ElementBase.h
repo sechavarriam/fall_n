@@ -36,8 +36,7 @@ template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0>
 requires Topology::EmbeddableInSpace<Dim> 
 class ElementBase: public Element{
     private: 
-    
-    
+      
     std::array<uint,nDoF>   dof_index_ ; // dof   Index position in domain array.
 
     // Agrupar estos dos en un variant? ------------------------------------------------
@@ -53,7 +52,17 @@ class ElementBase: public Element{
     // Initialized in zero by default static method to avoid garbage values.
     SquareMatrix<nDoF> K_ = SquareMatrix<nDoF>::Zero(); 
     
+    // TRANSFORMATION LOCAL DISPLACEMENTS TO GLOBAL DISPLACEMENTS
+    // DISPLACEMENT INTERPOLATION FUNCTION. A functor with state?
+    //                                      A lambda?
+    //                                      A regular member function + coeficients.
+
+
+
+
   public:
+
+
     
     virtual void set_node_index(){};
     virtual void set_dof_index(){};
