@@ -54,14 +54,11 @@ class Quadrature{
     //        );
     //};
 
-
-
-
     Quadrature(){};
 
-    Quadrature(T w, F f):weights_(w),function2eval_(f){
-        std::cout << "value constructor called." << std::endl;
-    } ;
+    //Quadrature(T w, F f):weights_(w),function2eval_(f){
+    //    std::cout << "value constructor called." << std::endl;
+    //} ;
 
     Quadrature(T& w, F& f):weights_(w),function2eval_(f){
         std::cout << "ref constructor called." << std::endl;
@@ -78,7 +75,14 @@ class Quadrature{
 
 /* Possible Usage
 
-Quadrature<std::array<double>, ShapeFunction> Q; 
+Quadrature<std::array<double>, ShapeFunction> Q; //No es tan interesante, en la cuadratura los puntos son fijos.
+Quadrature<std::array<double>, std::array<points>> Q; 
+Quadrature<std::array<double>, std::array<GaussPoints>, JACOBIAN?> Q(shape_function); 
+
+Quadrature<std::array<double>, std::array<GaussPoints>, JACOBIAN?> Q(shape_function, jacobian?);
+dim? order?
+
+
 
 Q()
 
