@@ -22,9 +22,16 @@ int main(){
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
     D.make_element<BeamColumn_Euler<dim>>(1, 0, 8, 1.0, 1.0, 1.0);
 
+    std::function<double(double)> F = [](double x){return x*x;};
+    for (int i = 0; ++i, i<10;)std::cout << i << ' ' << F(i) << std::endl;
+    
 
-    //Quadrature<std::array<double,3>, std::function<double>>
 
+    Quadrature<std::array<double,3>,std::function<double(double)>> Gauss3{{0.555556,0.888889,0.555556},F};
+
+    
+    std::cout << "Int_F (-1,1) := "<< Gauss3({-0.774597,0,0.774597}) << std::endl;
+    
     //IntegrationPoint<dim> a;
 
     
