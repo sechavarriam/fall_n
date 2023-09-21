@@ -1,3 +1,5 @@
+#include <Eigen/Dense>
+
 #include"header_files.h"
 #include "src/domain/IntegrationPoint.h"
 #include "src/domain/elements/ElementBase.h"
@@ -7,7 +9,7 @@
 #include <array>
 #include <functional>
 #include <iostream> 
-#include <Eigen/Dense>
+
 
 #include "src/numerics/Tensor.h"
 
@@ -39,7 +41,5 @@ int main(){
     
     //IntegrationPoint<dim> a;
 
-    
-
-
 };
+

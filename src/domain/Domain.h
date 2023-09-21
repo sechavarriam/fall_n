@@ -18,15 +18,17 @@
 
 //Contar cuantos nodos hay. y con esto separar un espacio en memoria con algun contenedor.
 //Los elementos guardarían solo en índice en el arreglo en vez de un puntero al nodo?
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
 
-template<unsigned short Dim> requires Topology::EmbeddableInSpace<Dim>
+template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
 
     friend class Node<Dim>;//?
     friend class Element;  //?
 
-    u_int num_nodes_;
-    u_int num_elements_;
+    uint num_nodes_;
+    uint num_elements_;
 
     std::vector<Node<Dim>>                nodes_     ; //Could have an init preallocating parameter for eficiency!
     std::vector<std::unique_ptr<Element>> elements_  ; 
