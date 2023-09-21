@@ -1,4 +1,6 @@
 # Ignore ALL files in ANY directory named build
+eigen/
+Eigen/
 build/
 unstructured_dft/
 .cache/
