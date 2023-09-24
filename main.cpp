@@ -14,6 +14,8 @@
 #include "src/numerics/Tensor.h"
 
 #include "src/numerics/numerical_integration/Quadrature.h"
+#include "src/numerics/numerical_integration/GaussLegendreNodes.h"
+#include "src/numerics/numerical_integration/GaussLegendreWeights.h"
 
 int main(){
 
@@ -27,9 +29,24 @@ int main(){
 
     std::function<double(double)> F = [](double x){return x*x;};
     for (int i = 0; ++i, i<10;)std::cout << i << ' ' << F(i) << std::endl;
-    
 
-    std::array<double, 3> Weights={0.555556,0.888889,0.555556};
+
+    std::array<double, 3> Weights{0.555556,0.888889,0.555556};
+
+    std::cout << "Weights: ";
+    for(auto& w:Weights) std::cout << w << ' ';
+    std::cout << std::endl;
+
+    auto Weights2 = GaussLegendre::Weights1D<3>();
+    std::cout << "Weights2: ";
+    for(auto& w:Weights2) std::cout << w << ' ';
+    std::cout << std::endl;
+
+    //std::array<double, 3> Weights2{GaussLegendre::Weights1D<3>()};
+
+
+
+
 
 };
 
