@@ -1,6 +1,7 @@
 #ifndef FN_GAUSS_CUADRATURE
 #define FN_GAUSS_CUADRATURE
 
+#include <array>
 #include <iostream>
 #include <functional> // https://en.cppreference.com/w/cpp/header/functional
 #include <algorithm>  // https://en.cppreference.com/w/cpp/algorithm
@@ -14,47 +15,56 @@
 // a Class?
 // a Functor?
 // a Function Template?
-template<typename W, typename P, typename F>
+typedef unsigned short ushort;
+
+template<ushort Dim,ushort Order> using defaultWeightContainer = std::array<double, Order*Dim>;
+template<ushort Dim,ushort Order> using defaultPointsContainer = std::array<double, Order*Dim>;
+
+template<ushort Dim, ushort Order, typename W=defaultWeightContainer<Dim,Order>, typename P=defaultPointsContainer<Dim,Order>>
 class Quadrature{
     W weights_   ; // Punteros a un contenedor estático?
     P evalPoints_;
 
   public:
-    double operator()(F function2eval){
-        return std::inner_product(
-            weights_.begin(),weights_.end(),
-            evalPoints_.begin(), 
-            double(0),
-            std::plus<>(),
-            [&](const auto& w, const auto& x){return w*function2eval(x);}
-            );
-    };
-//
-    double operator()(F& function2eval){
-        return std::inner_product(
-            weights_.begin(), weights_.end(),
-            evalPoints_.begin(),0,
-            std::plus<>(),
-            [&](const double& w, const double& x){
-                return w*function2eval(x);}
-            );
-    };
 
-    double operator()(F&& function2eval){
-        return std::inner_product(
-            weights_.begin(), weights_.end(),
-            evalPoints_.begin(),0,
-            std::plus<>(),
-            [&](W& w, P& x){
-                return std::forward<W>(w)*function2eval(std::forward<P>(x));}
-            );
-    };
+   template<typename F>
+   double operator()(F function2eval){
+       return std::inner_product(
+           weights_.begin(),weights_.end(),
+           evalPoints_.begin(), 
+           double(0),
+           std::plus<>(),
+           [&](const auto& w, const auto& x){return w*function2eval(x);}
+           );
+   };
+
+   //template<typename F>
+   //double operator()(F& function2eval){
+   //     return std::inner_product(
+   //         weights_.begin(), weights_.end(),
+   //         evalPoints_.begin(),0,
+   //         std::plus<>(),
+   //         [&](const double& w, const double& x){
+   //             return w*function2eval(x);}
+   //         );
+   // };
+
+    //template<typename F>
+    //double operator()(F&& function2eval){
+    //    return std::inner_product(
+    //        weights_.begin(), weights_.end(),
+    //        evalPoints_.begin(),0,
+    //        std::plus<>(),
+    //        [&](W& w, P& x){
+    //            return std::forward<W>(w)*function2eval(std::forward<P>(x));}
+    //        );
+    //};
 
     Quadrature(){};
 
-    Quadrature(W w, P p):weights_(w),evalPoints_(p){
-        std::cout << "value constructor called." << std::endl;
-    } ;
+    //Quadrature(W w, P p):weights_(w),evalPoints_(p){
+    //    std::cout << "value constructor called." << std::endl;
+    //} ;
 
     Quadrature(W& w, P& p):weights_(w),evalPoints_(p){
         std::cout << "ref constructor called." << std::endl;
