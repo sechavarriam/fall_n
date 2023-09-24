@@ -27,14 +27,15 @@ int main(){
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
     D.make_element<BeamColumn_Euler<dim>>(1, 0, 8, 1.0, 1.0, 1.0);
 
-    std::function<double(double)> F = [](double x){return x*x;};
-    for (int i = 0; ++i, i<10;)std::cout << i << ' ' << F(i) << std::endl;
+    std::function<double(double)> Fn = [](double x){return x*x;};
+    for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
 
 
-    Quadrature<1,3> GaussOrder3(GaussLegendre::Weights1D<3>(),GaussLegendre::evalPoints1D<3>());
+    constexpr short order = 3;
+    Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
     
     std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
-
+    std::cout << GaussOrder3(Fn) << std::endl;
 
 };
 
