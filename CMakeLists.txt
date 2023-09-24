@@ -9,16 +9,16 @@ include(CTest)
 enable_testing()
 
 # =============================================================
-include(FetchContent)
-
-FetchContent_Declare(
-  Eigen3
-  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-  GIT_TAG        master
-)
-FetchContent_MakeAvailable(Eigen3)
-
-target_link_libraries(fall_n Eigen3::Eigen)
+#include(FetchContent)
+#
+#FetchContent_Declare(
+#  Eigen3
+#  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+#  GIT_TAG        master
+#)
+#FetchContent_MakeAvailable(Eigen3)
+#
+#target_link_libraries(fall_n Eigen3::Eigen)
 # =============================================================
 
 
