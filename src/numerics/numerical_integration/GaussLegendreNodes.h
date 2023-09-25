@@ -10,7 +10,7 @@ namespace GaussLegendre{
     template<unsigned short Order> requires (Order>0)
     consteval std::array<double,Order> evalPoints1D(){
         if constexpr (Order==1){
-            return std::array<double,Order>{0.000000};
+            return std::array<double,Order>{0.000000000000000000000000000000000};
         }else if constexpr(Order==2){
             return std::array<double,Order>{-0.577350,0.577350};
         }else if constexpr(Order==3){
