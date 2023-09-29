@@ -1,7 +1,6 @@
 #ifndef FN_ELEMENTBASE_H
 #define FN_ELEMENTBASE_H
 
-
 #include <vector>
 #include <array>
 #include <variant>
@@ -60,10 +59,7 @@ class ElementBase: public Element{
 
 
 
-  public:
-
-
-    
+  public:    
     virtual void set_node_index(){};
     virtual void set_dof_index(){};
     

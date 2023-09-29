@@ -52,6 +52,22 @@ namespace GaussLegendre{
             return std::array<double,Order>{};
         }   
     };
+
+
+    template<unsigned short OrderX,unsigned short OrderY=OrderX> requires (OrderX>0 && OrderY>0)
+    consteval std::array<double,OrderX*OrderY> Weights2D(){
+        std::array<double,OrderX*OrderY> W;
+        int pos = 0;
+        for(auto&& i:Weights1D<OrderX>()){
+            for(auto&& j:Weights1D<OrderY>()){
+                W[pos] = i*j;
+                ++pos; 
+            }
+        }
+        return W;
+    };
+
+
 }
 
 

@@ -53,9 +53,8 @@ namespace GaussLegendre{
             return std::array<double,Order>{};
         }   
     };
-
-
 }
+
 
 
 

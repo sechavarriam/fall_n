@@ -7,6 +7,7 @@
 #include "src/domain/DoF.h"
 
 #include <array>
+#include <cwchar>
 #include <functional>
 #include <iostream> 
 
@@ -31,11 +32,14 @@ int main(){
     for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
 
 
-    constexpr short order = 3;
+    constexpr short order = 15;
     Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
     
     std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
     std::cout << GaussOrder3(Fn) << std::endl;
+
+    auto W_2D = GaussLegendre::Weights2D<2,3>();
+    for(auto&& i:W_2D) std::cout << i << std::endl;
 
 };
 
