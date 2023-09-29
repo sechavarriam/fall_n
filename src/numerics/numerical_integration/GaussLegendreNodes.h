@@ -53,6 +53,22 @@ namespace GaussLegendre{
             return std::array<double,Order>{};
         }   
     };
+
+    template<unsigned short OrderX,unsigned short OrderY=OrderX> requires (OrderX>0 && OrderY>0)
+    consteval std::array<double[2],OrderX*OrderY> evalPoints2D(){
+        std::array<std::array<double, 2>,OrderX*OrderY> Points;
+        int pos = 0;
+        for (auto&& i:evalPoints1D<OrderX>()){
+            for (auto&& j:evalPoints1D<OrderY>()){
+                Points[pos][0] = i; // Coord X
+                Points[pos][1] = j; // Coord Y
+                ++pos;
+            }
+        }
+        return Points;
+    };
+
+
 }
 
 

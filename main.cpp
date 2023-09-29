@@ -38,7 +38,8 @@ int main(){
     std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
     std::cout << GaussOrder3(Fn) << std::endl;
 
-    auto W_2D = GaussLegendre::Weights2D<2,3>();
+    std::cout << "____________________________" << std::endl;
+    auto W_2D = GaussLegendre::Weights2D<5>();
     for(auto&& i:W_2D) std::cout << i << std::endl;
 
 };
