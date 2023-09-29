@@ -68,6 +68,40 @@ namespace GaussLegendre{
         return Points;
     };
 
+    // 3D
+    template<unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
+    requires (OrderX>0 && OrderY>0 && OrderZ>0)
+    consteval std::array<double[3],OrderX*OrderY*OrderZ> evalPoints3D(){
+        std::array<std::array<double, 3>,OrderX*OrderY*OrderZ> Points;
+        int pos = 0;
+        for (auto&& i:evalPoints1D<OrderX>()){
+            for (auto&& j:evalPoints1D<OrderY>()){
+                for (auto&& k:evalPoints1D<OrderZ>()){
+                    Points[pos][0] = i; // Coord X
+                    Points[pos][1] = j; // Coord Y
+                    Points[pos][2] = k; // Coord Z
+                    ++pos;
+                }
+            }
+        }
+        return Points;
+    };
+
+    // Wrapper
+    template<unsigned short Dim, unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY>
+    requires (OrderX>0 && OrderY>0 && OrderZ>0)
+    consteval auto evalPoints(){
+        if constexpr (Dim==1){
+            return evalPoints1D<OrderX>();
+        }else if constexpr (Dim==2){
+            return evalPoints2D<OrderX,OrderY>();
+        }else if constexpr (Dim==3){
+            return evalPoints3D<OrderX,OrderY,OrderZ>();
+        }else{
+            return std::array<double,0>{};
+        }
+    };
+
 
 }
 

@@ -39,7 +39,7 @@ int main(){
     std::cout << GaussOrder3(Fn) << std::endl;
 
     std::cout << "____________________________" << std::endl;
-    auto W_2D = GaussLegendre::Weights2D<5>();
+    auto W_2D = GaussLegendre::Weights<1,3>();
     for(auto&& i:W_2D) std::cout << i << std::endl;
 
 };

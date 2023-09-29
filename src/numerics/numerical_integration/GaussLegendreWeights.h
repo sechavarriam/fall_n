@@ -53,7 +53,6 @@ namespace GaussLegendre{
         }   
     };
 
-
     template<unsigned short OrderX,unsigned short OrderY=OrderX> requires (OrderX>0 && OrderY>0)
     consteval std::array<double,OrderX*OrderY> Weights2D(){
         std::array<double,OrderX*OrderY> W;
@@ -67,6 +66,36 @@ namespace GaussLegendre{
         return W;
     };
 
+    template<unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
+    requires (OrderX>0 && OrderY>0 && OrderZ>0)
+    consteval std::array<double,OrderX*OrderY*OrderZ> Weights3D(){
+        std::array<double,OrderX*OrderY*OrderZ> W;
+        int pos = 0;
+        for(auto&& i:Weights1D<OrderX>()){
+            for(auto&& j:Weights1D<OrderY>()){
+                for(auto&& k:Weights1D<OrderZ>()){
+                    W[pos] = i*j*k;
+                    ++pos; 
+                }
+            }
+        }
+        return W;
+    };
+
+    // Wrapper
+    template<unsigned short Dim, unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
+    requires (OrderX>0 && OrderY>0 && OrderZ>0)
+    consteval auto Weights(){
+        if constexpr (Dim==1){
+            return Weights1D<OrderX>();
+        }else if constexpr (Dim==2){
+            return Weights2D<OrderX,OrderY>();
+        }else if constexpr (Dim==3){
+            return Weights3D<OrderX,OrderY,OrderZ>();
+        }else{
+            return std::array<double,0>{};
+        }
+    };
 
 }
 
