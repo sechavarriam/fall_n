@@ -38,27 +38,18 @@ class Quadrature{
            );
    };
 
+   // DEFINIR EL TERMINOS DE PUNTERO A FUNCION?
    //template<typename F>
    //double operator()(F& function2eval){
-   //     return std::inner_product(
-   //         weights_.begin(), weights_.end(),
-   //         evalPoints_.begin(),0,
-   //         std::plus<>(),
-   //         [&](const double& w, const double& x){
-   //             return w*function2eval(x);}
-   //         );
-   // };
+   //    return std::inner_product(
+   //        weights_.begin(), weights_.end(),
+   //        evalPoints_.begin(),0,
+   //        std::plus<>(),
+   //        [&](const double& w, const double& x){
+   //            return w*function2eval(x);}
+   //        );
+   //};
 
-    //template<typename F>
-    //double operator()(F&& function2eval){
-    //    return std::inner_product(
-    //        weights_.begin(), weights_.end(),
-    //        evalPoints_.begin(),0,
-    //        std::plus<>(),
-    //        [&](W& w, P& x){
-    //            return std::forward<W>(w)*function2eval(std::forward<P>(x));}
-    //        );
-    //};
 
     Quadrature(){};
 
@@ -66,7 +57,7 @@ class Quadrature{
     //    std::cout << "value constructor called." << std::endl;
     //} ;
 
-    Quadrature(W& w, P& p):weights_(w),evalPoints_(p){
+    Quadrature(const W& w,const P& p):weights_(w),evalPoints_(p){
         std::cout << "ref constructor called." << std::endl;
     } ;
     
@@ -82,7 +73,6 @@ class Quadrature{
 
 /* Possible Usage
 
-Quadrature<std::array<double>, ShapeFunction> Q; //No es tan interesante, en la cuadratura los puntos son fijos.
 Quadrature<std::array<double>, std::array<points>> Q; 
 Quadrature<std::array<double>, std::array<GaussPoints>, JACOBIAN?> Q(shape_function); 
 
