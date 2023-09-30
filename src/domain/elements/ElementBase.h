@@ -36,14 +36,13 @@ requires Topology::EmbeddableInSpace<Dim>
 class ElementBase: public Element{
     private: 
       
-    std::array<uint,nDoF>   dof_index_ ; // dof   Index position in domain array.
+    //std::array<uint,nDoF>   dof_index_ ; // dof   Index position in domain array.
 
-    // Agrupar estos dos en un variant? ------------------------------------------------
-    std::variant<uint,Node<Dim>*> nodes_; //Posición en el arreglo, o puntero directo al nodo. No los dos.
+    std::variant<uint,std:array<Node<Dim>*,nNodes> nodes_; //Posición en el arreglo, o puntero directo al nodo. No los dos.
                                           // Para acceder a la info a través del nodo, o del índice.
 
-    std::array<uint,nNodes>       nodes_index_  ;// nodes Index position in domain array.
-    std::array<Node<Dim>*,nNodes> nodes_pointer_;// Pointer to nodes.
+    //std::array<uint,nNodes>       nodes_index_  ;// nodes Index position in domain array.
+    //std::array<Node<Dim>*,nNodes> nodes_pointer_;// Pointer to nodes.
     //----------------------------------------------------------------------------------
 
     std::array<IntegrationPoint<Dim>,nGauss> integration_points_ ; // Array of integration points. (Should be elements of the domain?) 
