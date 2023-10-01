@@ -45,47 +45,30 @@ class ElementBase: public Element{
     std::array<uint,nDoF> dof_index_ ;      // dof Index position in domain array.
 
     //----------------------------------------------------------------------------------
-
     std::array<IntegrationPoint<Dim>,nGauss> integration_points_ ; // Array of integration points. (Should be elements of the domain?) 
 
     // Initialized in zero by default static method to avoid garbage values.
     SquareMatrix<nDoF> K_ = SquareMatrix<nDoF>::Zero(); 
-    
 
   public:    
     //virtual void set_node_index(){};
     //virtual void set_dof_index(){};
     
     ElementBase(){};
-
-    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_(NodeTAGS)
-    {
+    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_(NodeTAGS){
       std::cout << "Element Base Copy Constructor" << std::endl;
     };
 
-    template <typename... Args>
-    ElementBase(int tag, Args&&... NodeTAGS): Element(tag), nodes_{std::forward<Args>(NodeTAGS)...}
-    {
-      std::cout << "Element Base Variadic Forward Constructor" << std::endl;
-    };
-
-
-    //ElementBase(int tag, std::initializer_list<uint> NodeTAGS): Element(tag), nodes_(NodeTAGS)
-    //{
-    //  std::cout << "ElementBase(int tag, std::initializer_list<uint> NodeTAGS)" << std::endl;
+    //Perfect Forwarding Constructor - Doesn't work yet.
+    // requires clause to constrain a template parameter T to be a std::array<uint, nNodes> type.
+    //template<typename T>
+    //requires std::is_same_v<std::remove_cvref_t<T>,std::array<uint,nNodes>>
+    //ElementBase(int tag, T&& args): Element(tag), nodes_{std::forward<T>(args)}{
+    //  std::cout << "Element Base Perfect Forwarding Constructor" << std::endl;
     //};
-
-    //<template<typename T>
-    //<ElementBase(int tag, T NodeTAGS): Element(tag), nodes_(NodeTAGS){
-    //<  std::cout << "ElementBase(int tag, T NodeTAGS)" << std::endl;
-    //<};
-    //<
-    //<template<typename T>
-    //<ElementBase(int&& tag, T&& NodeTAGS): Element(std::forward<int>(tag)), nodes_(std::forward<T>(NodeTAGS)){
-    //<  std::cout << "ElementBase(int&& tag, T&& NodeTAGS)" << std::endl;
-    //<};
-
+    
     ~ElementBase(){};
 };
+
 
 #endif

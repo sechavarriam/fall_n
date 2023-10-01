@@ -38,8 +38,9 @@ int main(){
 
     //D.make_element<ElementBase<dim,4>>(2);
 
-    ElementBase<dim,4> test_element(1,{0,1,2,3}); 
-
+    std::array<unsigned int,4> a{1,2,3,4};
+    ElementBase<dim,4> test_element (1,{0,1,2,3}); 
+    ElementBase<dim,4> test_element2(1,a); 
     //ElementBase<dim,4> E = D.get_element<ElementBase<dim,4>>(1);
     
     //std::function<double(double)> Fn = [](double x){return x*x;};
