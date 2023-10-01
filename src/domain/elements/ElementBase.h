@@ -1,12 +1,16 @@
 #ifndef FN_ELEMENTBASE_H
 #define FN_ELEMENTBASE_H
 
-#include <vector>
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <utility>
+#include <vector>
 #include <variant>
+#include <concepts>
+#include <initializer_list>
 
 #include <iostream>
-#include <concepts>
 
 #include <Eigen/Dense>
 
@@ -36,13 +40,10 @@ requires Topology::EmbeddableInSpace<Dim>
 class ElementBase: public Element{
     private: 
       
-    //std::array<uint,nDoF>   dof_index_ ; // dof   Index position in domain array.
+    std::array<uint , nNodes> nodes_;       // Node indexes in node domain array.
+    std::array<Node<Dim>*, nNodes> p_nodes_;// Pointers to nodes
+    std::array<uint,nDoF> dof_index_ ;      // dof Index position in domain array.
 
-    std::variant<uint,std:array<Node<Dim>*,nNodes> nodes_; //Posición en el arreglo, o puntero directo al nodo. No los dos.
-                                          // Para acceder a la info a través del nodo, o del índice.
-
-    //std::array<uint,nNodes>       nodes_index_  ;// nodes Index position in domain array.
-    //std::array<Node<Dim>*,nNodes> nodes_pointer_;// Pointer to nodes.
     //----------------------------------------------------------------------------------
 
     std::array<IntegrationPoint<Dim>,nGauss> integration_points_ ; // Array of integration points. (Should be elements of the domain?) 
@@ -50,25 +51,41 @@ class ElementBase: public Element{
     // Initialized in zero by default static method to avoid garbage values.
     SquareMatrix<nDoF> K_ = SquareMatrix<nDoF>::Zero(); 
     
-    // TRANSFORMATION LOCAL DISPLACEMENTS TO GLOBAL DISPLACEMENTS
-    // DISPLACEMENT INTERPOLATION FUNCTION. A functor with state?
-    //                                      A lambda?
-    //                                      A regular member function + coeficients.
-
-
-
 
   public:    
-    virtual void set_node_index(){};
-    virtual void set_dof_index(){};
+    //virtual void set_node_index(){};
+    //virtual void set_dof_index(){};
     
     ElementBase(){};
 
-    // TODO: Implement Perfec Forwarding.
-    ElementBase(int tag, Node<Dim>** nodes): Element(tag), nodes_(nodes){};
-    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_index_(NodeTAGS){};
-    
-    virtual ~ElementBase(){};
+    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_(NodeTAGS)
+    {
+      std::cout << "Element Base Copy Constructor" << std::endl;
+    };
+
+    template <typename... Args>
+    ElementBase(int tag, Args&&... NodeTAGS): Element(tag), nodes_{std::forward<Args>(NodeTAGS)...}
+    {
+      std::cout << "Element Base Variadic Forward Constructor" << std::endl;
+    };
+
+
+    //ElementBase(int tag, std::initializer_list<uint> NodeTAGS): Element(tag), nodes_(NodeTAGS)
+    //{
+    //  std::cout << "ElementBase(int tag, std::initializer_list<uint> NodeTAGS)" << std::endl;
+    //};
+
+    //<template<typename T>
+    //<ElementBase(int tag, T NodeTAGS): Element(tag), nodes_(NodeTAGS){
+    //<  std::cout << "ElementBase(int tag, T NodeTAGS)" << std::endl;
+    //<};
+    //<
+    //<template<typename T>
+    //<ElementBase(int&& tag, T&& NodeTAGS): Element(std::forward<int>(tag)), nodes_(std::forward<T>(NodeTAGS)){
+    //<  std::cout << "ElementBase(int&& tag, T&& NodeTAGS)" << std::endl;
+    //<};
+
+    ~ElementBase(){};
 };
 
 #endif

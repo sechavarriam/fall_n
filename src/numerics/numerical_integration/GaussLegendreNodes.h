@@ -101,12 +101,6 @@ namespace GaussLegendre{
             return std::array<double,0>{};
         }
     };
-
-
 }
-
-
-
-
 
 #endif // FN_GAUSS_LEGENDRE_POINTS
