@@ -26,21 +26,35 @@ int main(){
     //D.preallocate_node_capacity(100);
  
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
+    D.add_node( Node<dim>(2, 1.0, 0.0, 0.0) );
+    D.add_node( Node<dim>(3, 1.0, 1.0, 0.0) );
+    D.add_node( Node<dim>(4, 0.0, 1.0, 0.0) );
+    D.add_node( Node<dim>(5, 0.0, 0.0, 1.0) );
+    D.add_node( Node<dim>(6, 1.0, 0.0, 1.0) );
+    D.add_node( Node<dim>(7, 1.0, 1.0, 1.0) );
+    D.add_node( Node<dim>(8, 0.0, 1.0, 1.0) );
+
     D.make_element<BeamColumn_Euler<dim>>(1, 0, 8, 1.0, 1.0, 1.0);
 
-    std::function<double(double)> Fn = [](double x){return x*x;};
-    for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
+    //D.make_element<ElementBase<dim,4>>(2);
 
+    ElementBase<dim,4> test_element(1,{0,1,2,3}); 
 
-    constexpr short order = 15;
-    Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
+    //ElementBase<dim,4> E = D.get_element<ElementBase<dim,4>>(1);
     
-    std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
-    std::cout << GaussOrder3(Fn) << std::endl;
+    //std::function<double(double)> Fn = [](double x){return x*x;};
+    //for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
 
-    std::cout << "____________________________" << std::endl;
-    auto W_2D = GaussLegendre::Weights<1,3>();
-    for(auto&& i:W_2D) std::cout << i << std::endl;
+
+    //constexpr short order = 15;
+    //Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
+    //
+    //std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
+    //std::cout << GaussOrder3(Fn) << std::endl;
+
+    //std::cout << "____________________________" << std::endl;
+    //auto W_2D = GaussLegendre::Weights<1,3>();
+    //for(auto&& i:W_2D) std::cout << i << std::endl;
 
 };
 
