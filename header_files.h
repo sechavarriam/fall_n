@@ -18,6 +18,9 @@
 
 #include "src/domain/Topology.h"
 
+
+#include "src/numerics/Matrix.h" //Wrapper for Eigen Matrix class.
+#include "src/numerics/Vector.h" //Wrapper for Eigen Vector class.
 #include "src/numerics/Tensor.h"
 #include "src/numerics/InterpolationFunction.h"
 
