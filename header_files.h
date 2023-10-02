@@ -26,8 +26,6 @@
 
 #include "src/numerics/numerical_integration/Quadrature.h"
 
-
-
 #include "src/materials/Material.h"
 #include "src/materials/Strain.h"
 

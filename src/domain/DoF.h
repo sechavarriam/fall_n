@@ -3,6 +3,7 @@
 
 
 #include <utility>
+#include "../numerics/Vector.h"
 
 #include <Eigen/Dense>
 
@@ -10,7 +11,7 @@
 
 
 template<unsigned int nDoF> 
-class DofContainer: public Eigen::Matrix<double, nDoF, 1>{
+class DofContainer: public Vector<nDoF>{
     
   // More things to implement...
   // unsigned int id = 0;

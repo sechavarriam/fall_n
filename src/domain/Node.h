@@ -7,8 +7,6 @@
 #include <memory> 
 #include <concepts>
 
-#include <Eigen/Dense>
-
 #include "DoF.h"
 #include "Point.h"
 #include "Topology.h"
