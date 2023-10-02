@@ -12,8 +12,8 @@
 #include <functional>
 #include <iostream> 
 
-
 #include "src/numerics/Tensor.h"
+#include "src/numerics/InterpolationFunction.h"
 
 #include "src/numerics/numerical_integration/Quadrature.h"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.h"
@@ -41,7 +41,7 @@ int main(){
 
     std::array<unsigned int,4> a{1,2,3,4};
     ElementBase<dim,4> test_element (1,{0,1,2,3}); 
-    
+
     ContinuumElement<dim,4> test_element2(1,a); 
     //ElementBase<dim,4> E = D.get_element<ElementBase<dim,4>>(1);
     

@@ -24,11 +24,12 @@ typedef unsigned int   uint  ;
 template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
 
-    friend class Node<Dim>;//?
-    friend class Element;  //?
+    //friend class Node<Dim>;//?
+    //friend class Element;  //?
 
-    uint num_nodes_;
-    uint num_elements_;
+    uint num_nodes_{0};
+    uint num_elements_{0};
+    
 
     std::vector<Node<Dim>>                nodes_     ; //Could have an init preallocating parameter for eficiency!
     std::vector<std::unique_ptr<Element>> elements_  ; 
@@ -38,18 +39,11 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
     template<typename ElementType, typename... Args >
     void make_element(Args&&... constructorArgs){
-        elements_.emplace_back(
-            std::make_unique<ElementType>(constructorArgs... )
-        );
+        elements_.emplace_back(std::make_unique<ElementType>(constructorArgs... ));
     };
-    //https://stackoverflow.com/questions/23717151/why-emplace-back-is-faster-than-push-back
-    
-    //Constructs the node directly in the container
-    void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
 
-  
-    // https://cplusplus.com/reference/vector/vector/capacity/
-    // https://cplusplus.com/reference/vector/vector/reserve/
+    void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
+    
     // Tol increases capacity by default in 20%.
     void preallocate_node_capacity(int n, double tol=1.20){
     // Use Try and Catch to allow this operation if the container is empty.
@@ -62,9 +56,6 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     };
     
 
-
-    
-    
     // TODO: Preallocated constructor.
     //Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
     //

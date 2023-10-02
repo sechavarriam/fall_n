@@ -6,8 +6,9 @@
 
 #include "../domain/Topology.h"
 
-#include <Eigen/Dense>
-#include <Eigen/Core>
+#include "Matrix.h"
+#include "Vector.h"
+
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -36,8 +37,7 @@ consteval ushort Voigth_Dim2(){
 };
 
 template<ushort Dim,  ushort Order> 
-using VoightTensorContainer 
-    = Eigen::Matrix<double, Voigth_Dim1<Dim,Order>(), Voigth_Dim2<Dim,Order>()> ;
+using VoightTensorContainer = Matrix<Voigth_Dim1<Dim,Order>(), Voigth_Dim2<Dim,Order>()> ;
 // ========================================================================
 // Voight notation tensor second order tensor (Vector Form)
 
