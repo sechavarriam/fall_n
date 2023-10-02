@@ -51,7 +51,6 @@ class ElementBase: public Element{
     //----------------------------------------------------------------------------------
     // std::array<IntegrationPoint<Dim>,nGauss> integration_points_ ; // Array of integration points. (Should be elements of the domain?) 
     // Initialized in zero by default static method to avoid garbage values.
-    // SquareMatrix<nDoF> K_ = SquareMatrix<nDoF>::Zero(); 
 
   public:    
     
