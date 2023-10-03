@@ -5,9 +5,6 @@
 #include <functional>
 #include "../domain/Point.h"
 
-
-
-
 template <unsigned short Dim, 
           unsigned short nPoints, 
           typename       PointType,

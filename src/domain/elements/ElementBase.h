@@ -36,30 +36,22 @@ This has to be known at compile time.
 template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0> 
 requires Topology::EmbeddableInSpace<Dim> 
 class ElementBase: public Element{
-    
-    private:       
-    std::array<uint , nNodes> nodes_;       // Node indexes in node domain array.
-    
-    protected:
 
+  public:
+    static constexpr ushort num_Nodes = nNodes;
+    static constexpr ushort num_DoF   = nDoF  ;
+    static constexpr ushort num_Gauss = nGauss;
+    
+  private:       
+    std::array<ushort , nNodes> nodes_;       // Node indexes in node domain array.
+    
+  protected:
     // Shape functions and derivatives.
-    std::array<std::function<double(double,double,double)>,nNodes> shape_function_ ; // Array of shape functions.
     
-    
-    // std::array<Node<Dim>*, nNodes> p_nodes_;// Pointers to nodes
-    // std::array<uint,nDoF> dof_index_ ;      // dof Index position in domain array.
-    //----------------------------------------------------------------------------------
-    // std::array<IntegrationPoint<Dim>,nGauss> integration_points_ ; // Array of integration points. (Should be elements of the domain?) 
-    // Initialized in zero by default static method to avoid garbage values.
-
   public:    
-    
-    ElementBase(){};
-    ElementBase(int tag, std::array<uint,nNodes> NodeTAGS): Element(tag), nodes_(NodeTAGS){
-      std::cout << "Element Base Copy Constructor" << std::endl;
-    };
+    ElementBase() = delete;
+    ElementBase(int tag, std::array<ushort,num_Nodes> NodeTAGS): Element{tag}, nodes_{NodeTAGS}{};
 
-    
     ~ElementBase(){};
 };
 

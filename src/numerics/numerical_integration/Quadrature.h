@@ -71,18 +71,15 @@ class Quadrature{
 
 };
 
-/* Possible Usage
-
-Quadrature<std::array<double>, std::array<points>> Q; 
-Quadrature<std::array<double>, std::array<GaussPoints>, JACOBIAN?> Q(shape_function); 
-
-Quadrature<std::array<double>, std::array<GaussPoints>, JACOBIAN?> Q(shape_function, jacobian?);
-dim? order?
-
-
-
-Q()
-
-*/
+    //std::function<double(double)> Fn = [](double x){return x*x;};
+    //for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
+    //constexpr short order = 15;
+    //Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
+    //std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
+    //std::cout << GaussOrder3(Fn) << std::endl;
+    //std::cout << "____________________________" << std::endl;
+    //auto W_2D = GaussLegendre::Weights<1,3>();
+    //for(auto&& i:W_2D) std::cout << i << std::endl;
+    
 
 #endif
