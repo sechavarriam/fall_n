@@ -37,10 +37,28 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
   public:
 
-    template<typename ElementType, typename... Args >
-    void make_element(Args&&... constructorArgs){
-        elements_.emplace_back(std::make_unique<ElementType>(constructorArgs... ));
+
+    template<typename ElementType, typename ...Args >
+    void make_element(
+        uint&& tag, std::array<ushort,ElementType::num_Nodes>&& nodeTags, Args&&... constructorArgs){
+            elements_.emplace_back(
+                std::make_unique<ElementType>(
+                    tag,
+                    nodeTags,
+                    constructorArgs...
+            )
+        );
     };
+    
+    
+    //Forwards the arguments to the constructor of the element.
+    //template<typename ElementType, typename... Args >
+    //void make_element(Args&&... args){
+    //    elements_.emplace_back( 
+    //        std::make_unique<ElementType>(std::forward<Args>(args)...)
+    //        );
+    //};
+
 
     void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
     
@@ -69,27 +87,3 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
 
 #endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
