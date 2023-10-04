@@ -2,7 +2,9 @@
 #define FN_DOMAIN
 
 
+#include <functional>
 #include <utility>
+#include <optional>
 #include <format>
 #include <iostream>  
 #include <memory>
@@ -30,34 +32,33 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     uint num_nodes_{0};
     uint num_elements_{0};
     
+    public:
 
     std::vector<Node<Dim>>                nodes_     ; //Could have an init preallocating parameter for eficiency!
-    std::vector<std::unique_ptr<Element>> elements_  ; 
     std::vector<double>                   dof_vector_;
 
   public:
 
+    std::vector<std::unique_ptr<Element>> elements_  ; 
 
+    // ===========================================================================================================
     template<typename ElementType, typename ...Args >
-    void make_element(
-        uint&& tag, std::array<ushort,ElementType::num_Nodes>&& nodeTags, Args&&... constructorArgs){
-            elements_.emplace_back(
-                std::make_unique<ElementType>(
-                    tag,
-                    nodeTags,
-                    constructorArgs...
-            )
+    void make_element(uint&& tag,std::array<ushort,ElementType::num_Nodes>&& nodeTags,Args&&... constructorArgs){
+        elements_.emplace_back(
+            std::make_unique<ElementType>(
+                std::forward<int>(tag),
+                std::forward<std::array<ushort,ElementType::num_Nodes>>(nodeTags),
+                std::forward<Args>(constructorArgs)...)
         );
     };
+    template<typename ElementType, typename... Args >
+    void make_element(Args&&... args){
+        elements_.emplace_back( 
+            std::make_unique<ElementType>(std::forward<Args>(args)...)
+            );
+    };
     
-    
-    //Forwards the arguments to the constructor of the element.
-    //template<typename ElementType, typename... Args >
-    //void make_element(Args&&... args){
-    //    elements_.emplace_back( 
-    //        std::make_unique<ElementType>(std::forward<Args>(args)...)
-    //        );
-    //};
+
 
 
     void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
@@ -87,3 +88,4 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
 
 #endif
+

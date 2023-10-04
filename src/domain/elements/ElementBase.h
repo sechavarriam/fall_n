@@ -41,8 +41,7 @@ class ElementBase: public Element{
     static constexpr ushort num_Nodes = nNodes;
     static constexpr ushort num_DoF   = nDoF  ;
     static constexpr ushort num_Gauss = nGauss;
-    
-  private:       
+           
     std::array<ushort , nNodes> nodes_;       // Node indexes in node domain array.
     
   protected:
