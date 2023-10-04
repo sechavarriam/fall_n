@@ -15,12 +15,11 @@ class ContinuumElement: public ElementBase<Dim,nNodes,nDoF,nGauss>{
 
     ContinuumElement(){};
 
-    template<typename ListType>
-    ContinuumElement(int tag, ListType&& nodes): 
-    ElementBase<Dim,nNodes,nDoF,nGauss>(tag,std::forward<ListType>(nodes))
-    {
+
+    ContinuumElement(int tag, std::array<ushort,nNodes> nodes):
+    ElementBase<Dim,nNodes,nDoF,nGauss>(tag,std::forward<std::array<ushort,nNodes>>(nodes)){
       std::cout << "Continuum Element Perfect Forwarding Constructor" << std::endl;
-    }
+    };
 
     virtual ~ContinuumElement(){};
 };
