@@ -39,8 +39,7 @@ int main(){
     D.add_node( Node<dim>(7, 1.0, 1.0, 1.0) );
     D.add_node( Node<dim>(8, 0.0, 1.0, 1.0) );
 
-    D.make_element<ElementBase<dim,4>>(0,{0,1,2,3} /*resto de argumentos*/ );
-    D.make_element<ElementBase<dim,4>>(42,std::array<ushort,4>{10,11,12,13});
+
 //
 
     auto Casted = static_cast<ElementBase<dim,4>*>(D.elements_[0].get()); 
