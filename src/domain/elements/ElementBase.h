@@ -35,7 +35,9 @@ This has to be known at compile time.
 
 template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0> 
 requires Topology::EmbeddableInSpace<Dim> 
-class ElementBase: public Element{
+class ElementBase{
+
+    int id_ ; //tag
 
   public:
     static constexpr ushort num_Nodes = nNodes;
@@ -49,7 +51,10 @@ class ElementBase: public Element{
     
   public:    
     ElementBase() = delete;
-    ElementBase(int tag, std::array<ushort,num_Nodes> NodeTAGS): Element{tag}, nodes_{NodeTAGS}{};
+    ElementBase(int tag, std::array<ushort,num_Nodes> NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
+
+    //ElementBase(int tag, std::array<ushort,num_Nodes>&& NodeTAGS): id_{tag}, nodes_{std::forward<std::array<ushort,num_Nodes>>(NodeTAGS)}{};
+
 
     ~ElementBase(){};
 };
