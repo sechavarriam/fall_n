@@ -37,9 +37,8 @@ template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0>
 requires Topology::EmbeddableInSpace<Dim> 
 class ElementBase{
   public:
-    //static constexpr ushort num_Nodes = nNodes;
-    //static constexpr ushort num_DoF   = nDoF  ;
-    //static constexpr ushort num_Gauss = nGauss;
+    static constexpr ushort Num_nodes = nNodes;
+    static constexpr ushort Num_dof   = nDoF  ;
 
     static constexpr ushort num_nodes(){return nNodes;};
     static constexpr ushort num_dof  (){return nDoF  ;};
@@ -47,7 +46,7 @@ class ElementBase{
 
     uint    id()    const {return id_   ;};
 
-    ushort const* nodes() const {return nodes_.data();};    
+    ushort const& nodes() const {return *nodes_.data();};    
     
     //ushort* nodes() const {return nodes_.data();};
 
