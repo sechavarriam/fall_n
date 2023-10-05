@@ -58,9 +58,10 @@ int main(){
 
     for (auto const& e: elements){
         std::cout << id(e)<< " " << num_nodes(e)<< " " << num_dof(e)<< " ";
-            for (auto const& n: nodes(e)){
-                std::cout << n << " ";
-            }
+            std::cout << nodes(e) << " ";
+            //for (auto const& n: nodes(e)){
+            //    std::cout << n << " ";
+            //}
         std::cout << std::endl;
     }
 

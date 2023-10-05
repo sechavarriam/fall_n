@@ -6,7 +6,7 @@
 #include <utility>
 #include <memory>
 #include <vector>
-
+#include <functional>
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -29,12 +29,16 @@ class Element{
         constexpr virtual ushort get_num_dof()   const = 0;
 
         virtual uint          get_id()    const = 0;
-        virtual ushort const* get_nodes() const = 0;
+        virtual ushort const& get_nodes() const = 0;
         ////==========================================================
     };
     template <typename ElementType> //(External Polymorfism Design Pattern).
     class ElementModel: public ElementConcept{ // Wrapper for all element types (of any kind)
         public:
+
+        // POSIBLE CAMINO"""""""""
+        static constexpr ushort num_nodes = ElementType::Num_nodes;
+        // =========================
 
         ElementType element_; // Stores the Element object
 
@@ -56,9 +60,7 @@ class Element{
         
         uint get_id() const override {return element_.id()   ;};
 
-        ushort const* get_nodes() const override {return element_.nodes();};
-
-
+        ushort const& get_nodes() const override {return element_.nodes();};
 
         //unsigned short* get_nodes() const override {return element_.nodes();};
         //========================================================
@@ -69,8 +71,8 @@ class Element{
     //    element.p_element_impl->do_action(/* args...*/);
     //};
     friend uint   id       (Element const& element){return element.p_element_impl->get_id()       ;};
-    friend ushort num_nodes(Element const& element){return element.p_element_impl->get_num_nodes();};
-    friend ushort num_dof  (Element const& element){return element.p_element_impl->get_num_dof()  ;};
+    friend constexpr ushort num_nodes(Element const& element){return element.p_element_impl->get_num_nodes();};
+    friend constexpr ushort num_dof  (Element const& element){return element.p_element_impl->get_num_dof()  ;};
 
     //template<std::size_t N>
     //friend std::array<ushort,N> nodes(Element const& element){
@@ -78,7 +80,8 @@ class Element{
     //    };
 
     friend auto nodes(Element const& element){
-        return std::array{*element.p_element_impl->get_nodes()};
+        ushort N = element.p_element_impl->get_num_nodes();
+        return element.p_element_impl->get_nodes();
         };
 
     //friend unsigned short* nodes(Element const& element){
