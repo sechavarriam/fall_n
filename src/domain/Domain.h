@@ -34,8 +34,8 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     
     public:
 
-    std::vector<Node<Dim>>                nodes_     ; //Could have an init preallocating parameter for eficiency!
-    std::vector<double>                   dof_vector_;
+    std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
+    std::vector<double>    dof_vector_;
 
   public:
 

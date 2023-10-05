@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+
 class Element{
     // External hiyerarchy for element types 
     class ElementConcept{
@@ -17,7 +18,9 @@ class Element{
         virtual ~ElementConcept() = default;
 
         ////VIRTUAL OPERATIONS =======================================
-        //virtual void do_action (/*Args.. args*/) const = 0;
+        //virtual void do_action (/*Args.. args*/) const = 0; 
+        virtual unsigned int get_id() const = 0;
+        
         ////==========================================================
     };
     template <typename ElementType> //(External Polymorfism Design Pattern).
@@ -30,13 +33,15 @@ class Element{
             return std::make_unique<ElementModel<ElementType>>(*this);
         };        
 
-        ElementModel(ElementType   element) : element_{std::move(element)}{};
-        //ElementModel(ElementType&& element) : element_(std::forward<ElementType>(element)){}; // to test.
-
+        //ElementModel(ElementType   element) : element_{std::move(element)}{};
+        ElementModel(ElementType&& element) : element_(std::forward<ElementType>(element)){}; // to test.
         ~ElementModel(){};
 
-
         // IMPLEMENTATION OF VIRTUAL OPERATIONS ==================
+        unsigned int get_id() const override {
+            return element_.id();
+        };
+
         // void do_action (/*Args.. args*/) const override {
         //     action(element_/*, args...*/);  
         // };
@@ -47,7 +52,9 @@ class Element{
     //friend void action(Element const& element /*, Args.. args*/){
     //    element.p_element_impl->do_action(/* args...*/);
     //};
-
+    friend unsigned int id(Element const& element){
+        return element.p_element_impl->get_id();
+    };
     // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
     // and call the virtual function do_action() on it. This function is implemented in the
     // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
@@ -59,23 +66,21 @@ class Element{
   public:
   // Templated constructor which takes ANY kind of element and deduces the type!
     template <typename ElementType> //Bridge to possible impementation details (compiler generated).
-    Element(ElementType&& element)
-        : p_element_impl{
-            std::make_unique<ElementModel<ElementType>>(std::forward<ElementType>(element))
-            } {};
+    Element(ElementType&& element) : p_element_impl{
+        std::make_unique<ElementModel<ElementType>>(std::forward<ElementType>(element))
+    } {};
 
     /*
     template <typename ElementType>
-    Element(ElementType element)
-        : p_element_impl{
+    Element(ElementType element) : p_element_impl{
             std::make_unique<ElementModel<ElementType>>(std::move(element))
             }{};
     */
- 
-    // ^ ^ ^ 
-    // | | | 
-    // This constructors take and element of ElementType and construct an ElementModel, in which the element is stored
-    // "erasing the type of the element". We only have a pointer to base (ElementConcept)
+    //    ^ ^ ^ 
+    //    | | | 
+    // This constructors take and element of ElementType and construct an ElementModel, 
+    // in which the element is stored "erasing the type of the element". We only have 
+    // a pointer to base (ElementConcept)
 
     // -----------------------------------------------------------------------------------------------
     // Copy Operations (in terms of clone)
@@ -91,7 +96,6 @@ class Element{
     Element(Element&& other) noexcept = default;
     Element& operator=(Element&& other) noexcept = default;
     // -----------------------------------------------------------------------------------------------
-
 };
 
 // PARTICULAR IMPLEMENTATIONS OF VIRTUAL OPERATIONS ==========

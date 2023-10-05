@@ -36,22 +36,28 @@ This has to be known at compile time.
 template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0> 
 requires Topology::EmbeddableInSpace<Dim> 
 class ElementBase{
-
-    int id_ ; //tag
-
   public:
     static constexpr ushort num_Nodes = nNodes;
     static constexpr ushort num_DoF   = nDoF  ;
     static constexpr ushort num_Gauss = nGauss;
+
+    uint    id()    const {return id_;};
+    //ushort* get_nodes() const {return nodes_;};
+
+  private:
+    uint id_ ; //tag
+    std::array<ushort,nNodes> nodes_; //Array of node tags
+
+  
            
-    std::array<ushort , nNodes> nodes_;       // Node indexes in node domain array.
+    
     
   protected:
     // Shape functions and derivatives.
     
   public:    
     ElementBase() = delete;
-    ElementBase(int tag, std::array<ushort,num_Nodes> NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
+    ElementBase(uint tag, std::array<ushort,num_Nodes> NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
 
     //ElementBase(int tag, std::array<ushort,num_Nodes>&& NodeTAGS): id_{tag}, nodes_{std::forward<std::array<ushort,num_Nodes>>(NodeTAGS)}{};
 

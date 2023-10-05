@@ -31,7 +31,7 @@ int main(){
     constexpr int dim = 3;
 
     Domain<dim> D; //Domain Aggregator Object
-    //D.preallocate_node_capacity(100);
+    D.preallocate_node_capacity(20);
  
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
     D.add_node( Node<dim>(2, 1.0, 0.0, 0.0) );
@@ -45,16 +45,20 @@ int main(){
     ElementBase<dim,8> e{1, {1,2,3,4,5,6,7,8}};
 
     std::vector<Element> elements;
-    elements.emplace_back(ElementBase<dim,8> {1, {1,2,3,4,5,6,7,8}});   
-    elements.emplace_back(ElementBase<dim,3> {2, {1,2,3}});
-    elements.emplace_back(ElementBase<dim,5> {4, {1,2,3,4,5}});
-    elements.emplace_back(ElementBase<dim,7> {5, {1,2,3,4,5,6,7}});
-    elements.emplace_back(ElementBase<dim,14>{7, {1,2,3,4,5,6,7,8,9,10,11,12,13,14}});
-    elements.emplace_back(ElementBase<dim,5> {16, {1,2,3,4,5}});
-    elements.emplace_back(ElementBase<dim,1> {13, {1}});
-    elements.emplace_back(ElementBase<dim,5> {42, {1,2,3,4,5}}); 
-    elements.emplace_back(ElementBase<dim,9> {44, {1,2,3,4,5,6,7,8,9}}); 
-    elements.emplace_back(ElementBase<dim,13>{50, {1,2,3,4,5,6,7,8,9,10,11,12,13}});
+    elements.emplace_back(ElementBase<dim,8 > {1 , {1,2,3,4,5,6,7,8}});   
+    elements.emplace_back(ElementBase<dim,3 > {2 , {1,2,3}});
+    elements.emplace_back(ElementBase<dim,5 > {4 , {1,2,3,4,5}});
+    elements.emplace_back(ElementBase<dim,7 > {5 , {1,2,3,4,5,6,7}});
+    elements.emplace_back(ElementBase<dim,14> {7 , {1,2,3,4,5,6,7,8,9,10,11,12,13,14}});
+    elements.emplace_back(ElementBase<dim,5 > {16, {1,2,3,4,5}});
+    elements.emplace_back(ElementBase<dim,1 > {13, {1}});
+    elements.emplace_back(ElementBase<dim,5 > {42, {1,2,3,4,5}}); 
+    elements.emplace_back(ElementBase<dim,9 > {44, {1,2,3,4,5,6,7,8,9}}); 
+    elements.emplace_back(ElementBase<dim,13> {50, {1,2,3,4,5,6,7,8,9,10,11,12,13}});
+
+    for (auto const& e: elements){
+        std::cout << id(e)<< std::endl;
+    }
 
     //elements.emplace_back(ContinuumElement<dim,1,9,2> {2, {1,2,3,4,5,6,7,8,9}});
 
