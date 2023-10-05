@@ -1,10 +1,15 @@
 #ifndef FN_ELEMENT_H
 #define FN_ELEMENT_H
 
+#include <array>
+#include <cstddef>
 #include <utility>
 #include <memory>
 #include <vector>
 
+
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
 
 class Element{
     // External hiyerarchy for element types 
@@ -19,8 +24,12 @@ class Element{
 
         ////VIRTUAL OPERATIONS =======================================
         //virtual void do_action (/*Args.. args*/) const = 0; 
-        virtual unsigned int get_id() const = 0;
-        
+
+        constexpr virtual ushort get_num_nodes() const = 0;
+        constexpr virtual ushort get_num_dof()   const = 0;
+
+        virtual uint          get_id()    const = 0;
+        virtual ushort const* get_nodes() const = 0;
         ////==========================================================
     };
     template <typename ElementType> //(External Polymorfism Design Pattern).
@@ -38,13 +47,20 @@ class Element{
         ~ElementModel(){};
 
         // IMPLEMENTATION OF VIRTUAL OPERATIONS ==================
-        unsigned int get_id() const override {
-            return element_.id();
-        };
-
         // void do_action (/*Args.. args*/) const override {
         //     action(element_/*, args...*/);  
         // };
+
+        ushort constexpr get_num_nodes()const override {return element_.num_nodes();};
+        ushort constexpr get_num_dof()  const override {return element_.num_dof()  ;};
+        
+        uint get_id() const override {return element_.id()   ;};
+
+        ushort const* get_nodes() const override {return element_.nodes();};
+
+
+
+        //unsigned short* get_nodes() const override {return element_.nodes();};
         //========================================================
     };
     // -----------------------------------------------------------------------------------------------
@@ -52,9 +68,22 @@ class Element{
     //friend void action(Element const& element /*, Args.. args*/){
     //    element.p_element_impl->do_action(/* args...*/);
     //};
-    friend unsigned int id(Element const& element){
-        return element.p_element_impl->get_id();
-    };
+    friend uint   id       (Element const& element){return element.p_element_impl->get_id()       ;};
+    friend ushort num_nodes(Element const& element){return element.p_element_impl->get_num_nodes();};
+    friend ushort num_dof  (Element const& element){return element.p_element_impl->get_num_dof()  ;};
+
+    //template<std::size_t N>
+    //friend std::array<ushort,N> nodes(Element const& element){
+    //    return std::array{element.p_element_impl->get_nodes()[element.p_element_impl->get_num_nodes()]};
+    //    };
+
+    friend auto nodes(Element const& element){
+        return std::array{*element.p_element_impl->get_nodes()};
+        };
+
+    //friend unsigned short* nodes(Element const& element){
+    //    return element.p_element_impl->get_nodes();
+    //};
     // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
     // and call the virtual function do_action() on it. This function is implemented in the
     // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
