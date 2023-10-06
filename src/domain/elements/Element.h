@@ -41,25 +41,17 @@ class Element{
     class ElementModel: public ElementConcept{ // Wrapper for all element types (of any kind)
         public:
 
-        // POSIBLE CAMINO"""""""""
-        static constexpr ushort num_nodes = ElementType::Num_nodes;
-        static constexpr ushort num_dof   = ElementType::Num_dof;
-        // =========================
-
         ElementType element_; // Stores the Element object
 
         std::unique_ptr<ElementConcept> clone() const override {
             return std::make_unique<ElementModel<ElementType>>(*this);
         };        
 
-        //ElementModel(ElementType   element) : element_{std::move(element)}{};
         ElementModel(ElementType&& element) : element_(std::forward<ElementType>(element)){}; // to test.
         ~ElementModel(){};
 
-        // IMPLEMENTATION OF VIRTUAL OPERATIONS ==================
-        // void do_action (/*Args.. args*/) const override {
-        //     action(element_/*, args...*/);  
-        // };
+        // IMPLEMENTATION OF VIRTUAL OPERATIONS ===============================================
+        // void do_action (/*Args.. args*/) const override{action(element_/*, args...*/);};
 
         ushort constexpr get_num_nodes()const override {return element_.num_nodes();};
         ushort constexpr get_num_dof()  const override {return element_.num_dof()  ;};
@@ -69,16 +61,15 @@ class Element{
         ushort const* get_nodes() const override {return element_.nodes();};
 
         //unsigned short* get_nodes() const override {return element_.nodes();};
-        //========================================================
+        //=====================================================================================
     };
     // -----------------------------------------------------------------------------------------------
     // Hidden Friends (Free Functions)
-    //friend void action(Element const& element /*, Args.. args*/){
-    //    element.p_element_impl->do_action(/* args...*/);
+    //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
     friend uint   id       (Element const& element){return element.p_element_impl->get_id()       ;};
-    friend constexpr ushort num_nodes(Element const& element){return element.p_element_impl->get_num_nodes();};
-    friend constexpr ushort num_dof  (Element const& element){return element.p_element_impl->get_num_dof()  ;};
+    friend ushort num_nodes(Element const& element){return element.p_element_impl->get_num_nodes();};
+    friend ushort num_dof  (Element const& element){return element.p_element_impl->get_num_dof()  ;};
 
     friend auto nodes(Element const& element){
         return std::span{
@@ -87,9 +78,6 @@ class Element{
             };
         };
 
-    //friend unsigned short* nodes(Element const& element){
-    //    return element.p_element_impl->get_nodes();
-    //};
     // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
     // and call the virtual function do_action() on it. This function is implemented in the
     // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
@@ -104,16 +92,8 @@ class Element{
     Element(ElementType&& element) : p_element_impl{
         std::make_unique<ElementModel<ElementType>>(std::forward<ElementType>(element))
     } {};
-
-    /*
-    template <typename ElementType>
-    Element(ElementType element) : p_element_impl{
-            std::make_unique<ElementModel<ElementType>>(std::move(element))
-            }{};
-    */
-    //    ^ ^ ^ 
-    //    | | | 
-    // This constructors take and element of ElementType and construct an ElementModel, 
+    
+    // This constructors take and element of ElementType and build an ElementModel, 
     // in which the element is stored "erasing the type of the element". We only have 
     // a pointer to base (ElementConcept)
 
@@ -133,16 +113,6 @@ class Element{
     // -----------------------------------------------------------------------------------------------
 };
 
-// PARTICULAR IMPLEMENTATIONS OF VIRTUAL OPERATIONS ==========
-//
-// Example: (implement in .cpp file)  
-// Only EXTERNAL POLYMORFISM is needed.
-//void action_on_ALLelements(std::vector<std::unique_ptr<ElementConcept>> const& elems){
-//    for (auto const& e: elems){
-//        e->do_action(/*args...*/);
-//    }
-//};
-//
 
 //void do_on_element(SomeElementType const& element, /*Args.. args*/){
 //    //Do something with the element
