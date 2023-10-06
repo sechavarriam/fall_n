@@ -18,9 +18,28 @@
 
 #include "src/domain/Topology.h"
 
+
+#include "src/numerics/Matrix.h" //Wrapper for Eigen Matrix class.
+#include "src/numerics/Vector.h" //Wrapper for Eigen Vector class.
+#include "src/numerics/Tensor.h"
+#include "src/numerics/InterpolationFunction.h"
+
+#include "src/numerics/numerical_integration/Quadrature.h"
+
+#include "src/materials/Material.h"
+#include "src/materials/Strain.h"
+
+#include "src/materials/ConstitutiveRelation.h"
+
 #include "src/domain/Domain.h"
 
+#include "src/domain/Point.h"
 #include "src/domain/Node.h"
+
+#include "src/domain/IntegrationPoint.h"
+
+#include "src/domain/GeometricTransformation.h"
+
 
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"
@@ -30,6 +49,7 @@
 
 #include "src/domain/elements/BeamColumn_Euler.h"
 
+#include "src/domain/elements/Section.h"
 
 
 //#include "src/domain/elements/ContinuumElement.h"

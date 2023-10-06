@@ -1,76 +1,73 @@
-
 #ifndef FN_ELEMENTBASE_H
 #define FN_ELEMENTBASE_H
 
-
-#include <vector>
+#include <algorithm>
 #include <array>
-#include <iostream> // Header that defines the standard input/output stream objects.
+#include <cstddef>
+#include <functional>
+#include <utility>
+#include <vector>
+#include <variant>
 #include <concepts>
+#include <span>
 
-#include <Eigen/Dense>
+#include <iostream>
+
+#include "../../numerics/Matrix.h"
 
 #include "../Topology.h"
 
 #include "Element.h"
 #include "../Node.h"
+#include "../IntegrationPoint.h"
 
-
-typedef unsigned short u_short;
-typedef unsigned int   u_int  ;
-
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
 
 /*
 Every element type must have defined:
-     i) His spacial Dimension (Dim)
-    ii) The number of nodes   (nNodes)
-   iii) The number of nodes   (Dim)
+     i) His spacial Dimension ------------> (Dim)   
+    ii) The number of nodes --------------> (nNodes)
+   iii) The number of DoF ----------------> (nDoF)  = Dim*nNodes (Defaulted for continuum displacement Elements)
+    iv) The number of integration Points -> (nGauss)= 0 (Defaulted for analytical integrated elements e.g. classical stiffnes beam) 
 This has to be known at compile time.
 */
 
-template<u_short Dim, u_short nNodes, u_short nDoF> requires Topology::EmbeddableInSpace<Dim> 
-class ElementBase: public Element{
-  public:
-  
-  private: 
-
-    //https://stackoverflow.com/questions/11134497/constant-sized-vector
-    std::array<u_int     ,nNodes> nodes_index_;   
-    std::array<Node<Dim>*,nNodes> nodes_      ; // Fixed size?
-    
-    //Node<Dim>**  node_; //Pointer to array of Node pointers.
-    
-    //static constexpr unsigned int num_nodes_ = nNodes    ; //Común a cada clase de elemento.
-    //unsigned int num_dof_ = nDoF; //const static in each subclass? 
-    
-    // Eigen Matrix. Initialized in zero by default static method to avoid garbage values.
-    Eigen::Matrix<double, nDoF, nDoF> K_ = Eigen::Matrix<double, nDoF, nDoF>::Zero();
-
-    //virtual Node<Dim>** node(){return node_;}
-    //virtual void set_num_nodes(unsigned int n){this->num_nodes_ = n;};
-    
-    virtual void set_K(Eigen::Matrix<double, nDoF, nDoF> mat){
-        this->K_ = mat;
-    };
-    
-    
-    virtual void compute_K(){};
-
+template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0> 
+requires Topology::EmbeddableInSpace<Dim> 
+class ElementBase{
   public:
 
+    static constexpr ushort num_nodes(){return nNodes;};
+    static constexpr ushort num_dof  (){return nDoF  ;};
+
+    uint    id()    const {return id_   ;};
+
+    ushort const* nodes() const {return nodes_.data();};   
+
+    //std::span<ushort const, nNodes> nodes() const {return nodes_;};
+
+    
+    //ushort* nodes() const {return nodes_.data();};
+
+  private:
+    uint id_ ; //tag
+    std::array<ushort,nNodes> nodes_; //Array of node tags
+
   
-    //virtual int num_dof(){return this->num_dof_;};   
-    //virtual double measure(){return this->measure_;};  
-  
-  //protected:
-    // This is an abstract base class. Pure elements should not be constructed.
-    ElementBase(){};
     
-    ElementBase(int tag, Node<Dim>** nodes): Element(tag), nodes_(nodes){};
-    ElementBase(int tag, std::array<u_int,nNodes> NodeTAGS): Element(tag), nodes_index_(NodeTAGS){};
+  protected:
+    // Shape functions and derivatives.
     
-    
-    virtual ~ElementBase(){};
+  public:    
+    ElementBase() = delete;
+    ElementBase(uint tag, std::array<ushort,nNodes> NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
+
+    //ElementBase(int tag, std::array<ushort,num_Nodes>&& NodeTAGS): id_{tag}, nodes_{std::forward<std::array<ushort,num_Nodes>>(NodeTAGS)}{};
+
+
+    ~ElementBase(){};
 };
+
 
 #endif

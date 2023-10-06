@@ -7,8 +7,11 @@
 /*Line elements or 1D elements have an initial node ni, a final node nk and 
   num_nodes-2 optional internal nodes nk*/
 
-template<u_short Dim, u_short nNodes, u_short nDoF>
-class LineElement: virtual public StructuralElement<Dim,nNodes,nDoF>{
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
+
+template<ushort Dim, ushort nNodes, ushort nDoF, ushort nGauss>
+class LineElement: virtual public StructuralElement<Dim,nNodes,nDoF,nGauss>{
 
 
  private:
@@ -29,7 +32,7 @@ class LineElement: virtual public StructuralElement<Dim,nNodes,nDoF>{
      //LineElement(int tag, Node<Dim>** nodes): StructuralElement<Dim,nNodes,nDoF>(tag,nodes){}
      
 
-     LineElement(int tag, std::array<u_int,nNodes> NodeTAGS): StructuralElement<Dim,nNodes,nDoF>(tag,NodeTAGS){}
+     LineElement(int tag, std::array<uint,nNodes> NodeTAGS): StructuralElement<Dim,nNodes,nDoF,nGauss>(tag,NodeTAGS){}
 
 
  public:

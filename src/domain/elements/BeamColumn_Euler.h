@@ -15,8 +15,11 @@
 // if Dim = 3 then DoF = 12
 
 
-template<u_short Dim>
-class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{ 
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
+
+template<ushort Dim>
+class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3,0>{ 
 
 
   private:
@@ -45,14 +48,14 @@ class BeamColumn_Euler: public LineElement<Dim, 2, 2*(Dim*2)-Dim%3 >{
      //-------------------------------------- nNodes
      //                                         |
      //                                         ▼
-     BeamColumn_Euler(int tag, std::array<u_int,2> NodeTAGS, double e, double a, double iz):
-      LineElement<Dim, 2, 2*(Dim*2)-Dim%3>(tag,NodeTAGS),E_(e),A_(a),Iz_(iz){
+     BeamColumn_Euler(int tag, std::array<uint,2> NodeTAGS, double e, double a, double iz):
+      LineElement<Dim, 2, 2*(Dim*2)-Dim%3,0>(tag,NodeTAGS),E_(e),A_(a),Iz_(iz){
          static_assert(Dim > 1 && Dim < 4, "Wrong dimention. Must be 2 or 3.");
       };
 
 
-     BeamColumn_Euler(int tag, u_int firstNode_index, u_int lastNode_index, double e, double a, double iz):
-        LineElement<Dim,2,2*(Dim*2)-Dim%3>(tag, {firstNode_index,lastNode_index}),
+     BeamColumn_Euler(int tag, uint firstNode_index, uint lastNode_index, double e, double a, double iz):
+        LineElement<Dim,2,2*(Dim*2)-Dim%3,0>(tag, {firstNode_index,lastNode_index}),
         E_(e),
         A_(a),
         Iz_(iz)

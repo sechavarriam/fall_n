@@ -2,7 +2,9 @@
 #define FN_DOMAIN
 
 
-
+#include <functional>
+#include <utility>
+#include <optional>
 #include <format>
 #include <iostream>  
 #include <memory>
@@ -18,45 +20,49 @@
 
 //Contar cuantos nodos hay. y con esto separar un espacio en memoria con algun contenedor.
 //Los elementos guardarían solo en índice en el arreglo en vez de un puntero al nodo?
+typedef unsigned short ushort;
+typedef unsigned int   uint  ;
 
-template<unsigned short Dim> requires Topology::EmbeddableInSpace<Dim>
+template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
 
-    friend class Node<Dim>;
-    friend class Element; //?
+    //friend class Node<Dim>;//?
+    //friend class Element;  //?
 
-    u_int num_nodes_;
-    u_int num_elements_;
-
-    //unique_ptr<int> p = make_unique<int>(42);
+    uint num_nodes_{0};
+    uint num_elements_{0};
+    
+    public:
 
     std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
-    std::vector<std::unique_ptr<Element>>  elements_ ; 
+    std::vector<double>    dof_vector_;
+
   public:
 
-    //Node<Dim>* node(u_int i){return &nodes_[i] ;}; 
+    std::vector<std::unique_ptr<Element>> elements_  ; 
 
-    template<typename ElementType, typename... Args >
-    void add_element(Args... constructorArgs){
+    // ===========================================================================================================
+    template<typename ElementType, typename ...Args >
+    void make_element(uint&& tag,std::array<ushort,ElementType::num_Nodes>&& nodeTags,Args&&... constructorArgs){
         elements_.emplace_back(
-            std::make_unique<ElementType>(constructorArgs... )
+            std::make_unique<ElementType>(
+                std::forward<int>(tag),
+                std::forward<std::array<ushort,ElementType::num_Nodes>>(nodeTags),
+                std::forward<Args>(constructorArgs)...)
         );
     };
-
-
-    //https://stackoverflow.com/questions/23717151/why-emplace-back-is-faster-than-push-back
-    //void add_node(Node<Dim> x){nodes_.push_back(x);};
-
-    //Constructs the node directly in the container
-    void add_node(Node<Dim> node){nodes_.emplace_back(node);}; 
-    
-    // Se usa push_back porque el elemento no se crea en el arreglo. Se crea el puntero.
+    template<typename ElementType, typename... Args >
+    void make_element(Args&&... args){
+        elements_.emplace_back( 
+            std::make_unique<ElementType>(std::forward<Args>(args)...)
+            );
+    };
     
 
 
 
-    // https://cplusplus.com/reference/vector/vector/capacity/
-    // https://cplusplus.com/reference/vector/vector/reserve/
+    void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
+    
     // Tol increases capacity by default in 20%.
     void preallocate_node_capacity(int n, double tol=1.20){
     // Use Try and Catch to allow this operation if the container is empty.
@@ -69,11 +75,10 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     };
     
 
-
-
+    // TODO: Preallocated constructor.
+    //Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
+    //
     Domain(){};
-
-
     ~Domain(){};
 
 
@@ -83,27 +88,4 @@ class Domain{ //Spacial Domain. Where the simulation takes place
 
 
 #endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
