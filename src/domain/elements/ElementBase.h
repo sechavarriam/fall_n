@@ -9,7 +9,7 @@
 #include <vector>
 #include <variant>
 #include <concepts>
-#include <initializer_list>
+#include <span>
 
 #include <iostream>
 
@@ -46,7 +46,10 @@ class ElementBase{
 
     uint    id()    const {return id_   ;};
 
-    ushort const& nodes() const {return *nodes_.data();};    
+    ushort const* nodes() const {return nodes_.data();};   
+
+    //std::span<ushort const, nNodes> nodes() const {return nodes_;};
+
     
     //ushort* nodes() const {return nodes_.data();};
 
