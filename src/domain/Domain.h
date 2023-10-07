@@ -26,36 +26,32 @@ typedef unsigned int   uint  ;
 template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial Domain. Where the simulation takes place
 
-    //friend class Node<Dim>;//?
-    //friend class Element;  //?
-
     uint num_nodes_{0};
     uint num_elements_{0};
     
     public:
-
     std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
     std::vector<double>    dof_vector_;
 
   public:
 
-    std::vector<std::unique_ptr<Element>> elements_  ; 
+    std::vector<Element> elements_  ; 
 
     // ===========================================================================================================
     template<typename ElementType, typename ...Args >
-    void make_element(uint&& tag,std::array<ushort,ElementType::num_Nodes>&& nodeTags,Args&&... constructorArgs){
+    void make_element(uint&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){
         elements_.emplace_back(
-            std::make_unique<ElementType>(
-                std::forward<int>(tag),
-                std::forward<std::array<ushort,ElementType::num_Nodes>>(nodeTags),
-                std::forward<Args>(constructorArgs)...)
-        );
-    };
-    template<typename ElementType, typename... Args >
-    void make_element(Args&&... args){
-        elements_.emplace_back( 
-            std::make_unique<ElementType>(std::forward<Args>(args)...)
+            ElementType{
+                std::forward<uint>(tag),
+                std::forward<std::array<ushort,ElementType::n_nodes>>(nodeTags),
+                std::forward<Args>(constructorArgs)...
+                }
             );
+    };
+
+    template<typename ElementType,typename... Args>
+    void make_element(Args&&... args){
+        elements_.emplace_back(ElementType{std::forward<Args>(args)...});
     };
     
 
