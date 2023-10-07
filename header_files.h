@@ -22,7 +22,8 @@
 #include "src/numerics/Matrix.h" //Wrapper for Eigen Matrix class.
 #include "src/numerics/Vector.h" //Wrapper for Eigen Vector class.
 #include "src/numerics/Tensor.h"
-#include "src/numerics/InterpolationFunction.h"
+
+#include "src/numerics/Interpolation/GenericInterpolant.h"
 
 #include "src/numerics/numerical_integration/Quadrature.h"
 

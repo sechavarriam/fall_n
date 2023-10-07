@@ -8,8 +8,10 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim, ushort nNodes, ushort nDoF, ushort nGauss>
-class StructuralElement: virtual public ElementBase<Dim,nNodes,nDoF,nGauss>{
+template<ushort Dim,
+         ushort nNodes, 
+         ushort nDoF>
+class StructuralElement: virtual public ElementBase<Dim,nNodes,nDoF>{
 
  private:
 

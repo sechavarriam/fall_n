@@ -7,21 +7,27 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes, ushort nGauss=0> 
-requires Topology::EmbeddableInSpace<Dim> 
-class ContinuumElement: public ElementBase<Dim,nNodes,nDoF,nGauss>{
+template<ushort Dim,
+         ushort nNodes,
+         ushort nDoF=Dim*nNodes> 
+class ContinuumElement: public ElementBase<Dim,nNodes,nDoF>{
 
   public:
 
-    ContinuumElement(){};
+    ContinuumElement() =  delete;
 
+    //ContinuumElement(uint tag, std::array<ushort,nNodes> NodeTAGS)
+    //  : ElementBase<Dim,nNodes,nDoF>(tag,NodeTAGS){}
 
-    ContinuumElement(int tag, std::array<ushort,nNodes> nodes):
-    ElementBase<Dim,nNodes,nDoF,nGauss>(tag,std::forward<std::array<ushort,nNodes>>(nodes)){
-      std::cout << "Continuum Element Perfect Forwarding Constructor" << std::endl;
-    };
+    ContinuumElement(uint& tag, std::array<ushort,nNodes>& NodeTAGS)
+      : ElementBase<Dim,nNodes,nDoF>(tag,NodeTAGS){};
 
-    virtual ~ContinuumElement(){};
+    ContinuumElement(uint&& tag, std::array<ushort,nNodes>&& nodes)
+      : ElementBase<Dim,nNodes,nDoF>{
+          std::forward<uint>(tag),
+          std::forward<std::array<ushort,nNodes>>(nodes)}{};
+
+   ~ContinuumElement(){};
 };
 
 #endif
