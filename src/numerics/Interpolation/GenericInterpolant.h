@@ -14,20 +14,21 @@ class Interpolant{ // Type Erased Interpolation Function
     
     class InterpolantConcept{
       public:
-
       virtual std::unique_ptr<InterpolantConcept> clone() const = 0;
       virtual ~InterpolantConcept() = default;
-        
+
+      //virtual ReturnType operator()(PointType x) const = 0;
     };
 
     template <typename InterpolantType>
     class InterpolantModel : public InterpolantConcept{
+    
       public:
-      InterpolantType interpolant_;
+        InterpolantType interpolant_;
 
-      std::unique_ptr<InterpolantConcept> clone() const override {
-        return std::make_unique<InterpolantModel<InterpolantType>>(*this);
-      };
+        std::unique_ptr<InterpolantConcept> clone() const override {
+          return std::make_unique<InterpolantModel<InterpolantType>>(*this);
+        };
 
       InterpolantModel(InterpolantType&& interpolant)
        : interpolant_(std::forward<InterpolantType>(interpolant)){};
@@ -59,10 +60,11 @@ class Interpolant{ // Type Erased Interpolation Function
     Interpolant(Interpolant&& other) noexcept = default;
     Interpolant& operator=(Interpolant&& other) noexcept = default;
 
-
+    
+    
+    ~Interpolant() = default;
 
     //OVERLOAD () OPERATOR
-
    // Hidden implementation Friends
 };
 

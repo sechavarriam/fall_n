@@ -8,8 +8,8 @@
 #include <concepts>
 
 #include "DoF.h"
-#include "Point.h"
-#include "Topology.h"
+#include "../geometry/Point.h"
+#include "../geometry/Topology.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

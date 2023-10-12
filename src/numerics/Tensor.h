@@ -4,7 +4,7 @@
 #include <utility>
 #include <concepts>
 
-#include "../domain/Topology.h"
+#include "../geometry/Topology.h"
 
 #include "Matrix.h"
 #include "Vector.h"
