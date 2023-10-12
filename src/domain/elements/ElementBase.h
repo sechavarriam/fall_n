@@ -13,7 +13,7 @@
 
 #include "../../numerics/Matrix.h"
 
-#include "../Topology.h"
+#include "../../geometry/Topology.h"
 
 #include "Element.h"
 #include "../Node.h"

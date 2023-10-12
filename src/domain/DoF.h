@@ -5,7 +5,7 @@
 #include <utility>
 #include "../numerics/Vector.h"
 
-#include <Eigen/Dense>
+
 
 
 

@@ -10,7 +10,6 @@
 #include "src/domain/DoF.h"
 
 #include <array>
-#include <cwchar>
 #include <functional>
 #include <iostream> 
 #include <vector>

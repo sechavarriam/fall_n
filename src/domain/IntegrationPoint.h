@@ -1,14 +1,10 @@
 #ifndef FN_INTEGRATION_POINT
 #define FN_INTEGRATION_POINT
 
-#include <iostream> // Header that defines the standard input/output stream objects.
+#include <iostream> 
 
-#include <Eigen/Dense>
-
-
-
-#include "Point.h"
-#include "Topology.h"
+#include "../geometry/Point.h"
+#include "../geometry/Topology.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -18,9 +14,6 @@ class IntegrationPoint : public Point<Dim>{
 
  private:
 
-
-    //Eigen::Matrix<double, nDoF, 1> DoF_; // e.g. [u,v,w]  current state? Should have a containter for all times? Recorder...  
-    //                                     // Should be a class itself? Maybe
  public:
 
     IntegrationPoint(){};  
