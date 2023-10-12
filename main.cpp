@@ -17,6 +17,9 @@
 #include "src/numerics/Tensor.h"
 #include "src/numerics/Interpolation/GenericInterpolant.h"
 
+
+#include "src/numerics/Polynomial.h"
+
 #include "src/numerics/numerical_integration/Quadrature.h"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.h"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.h"
@@ -26,6 +29,9 @@ typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 int main(){
+
+
+    Polynomial<double, 2.3, 1.0, 1.0, 1.0> P;
 
     constexpr int dim = 3;
 
