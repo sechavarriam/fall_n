@@ -19,23 +19,18 @@ class Node : public Point<Dim>{
 
  private:
 
-    //std::unique_ptr<DofContainer<nDoF>> DoF_;
+    uint id_ ; 
 
-    //DoF<nDoF> DoF_; TODO.
-    //Eigen::Matrix<double, nDoF, 1> DoF_; // e.g. [u,v,w]  current state? Should have a containter for all times? Recorder...  
-                                           // Should be a class itself? Maybe
- 
+ // DOF?
+
  public:
     Node(){}; //Private con Friend Domain? Para que sean solo construibles por el dominio?    
-    Node(int tag, double Coord1, double Coord2):Point<2>(tag,Coord1,Coord2)
-    {
-      static_assert(Topology::InPlane<Dim>, "Using constructor for 2D node");
-    } 
-  
-    Node(int tag, double Coord1, double Coord2, double Coord3):Point<3>(tag,Coord1,Coord2,Coord3)
-    {
-      static_assert(Topology::InSpace<Dim>, "Using constructor for 3D node");
-    } 
+    //Node(int tag, double Coord1, double Coord2): id_(tag), Point<2>{Coord1,Coord2}{} 
+    //Node(int tag, double Coord1, double Coord2, double Coord3): id_(tag), Point<3>(Coord1,Coord2,Coord3){} 
+
+    // forwardeing constructor
+    template<typename... Args>
+    Node(int tag, Args&&... args) : id_(tag), Point<Dim>(std::forward<Args>(args)...){}
     
     ~Node(){} 
 
