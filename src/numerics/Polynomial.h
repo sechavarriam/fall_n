@@ -41,8 +41,20 @@ class Polynomial {
   private:
     static constexpr std::array coeff_{coefs...};
   public:
-    Polynomial(){};
+
+    //default constructor
+    constexpr Polynomial(){};
     ~Polynomial(){};
+
+    //move constructor
+    Polynomial(Polynomial&&) = default;
+    //copy constructor
+    Polynomial(const Polynomial&) = default;
+    //move assignment
+    Polynomial& operator=(Polynomial&&) = default;
+    //copy assignment
+    Polynomial& operator=(const Polynomial&) = default;
+
 
     template<typename X> 
     constexpr X operator()(X x){//Horner's Method
