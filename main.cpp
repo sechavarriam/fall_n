@@ -18,20 +18,35 @@
 #include "src/numerics/Interpolation/GenericInterpolant.h"
 
 
-#include "src/numerics/Polynomial.h"
+
 
 #include "src/numerics/numerical_integration/Quadrature.h"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.h"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.h"
 
+#include "src/numerics/Polynomial.h"
+#include "src/numerics/Vector.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 int main(){
 
+    Polynomial<double, 1.0, 0.0, 0.0> f; // f(x) = 2x² +2.0x +5.0;
+    
+    std::cout << f(3.0) << std::endl;
 
-    Polynomial<double, 2.3, 1.0, 1.0, 1.0> P;
+
+    Vector<9> v1{1,2,3,4,5,6,7,8,9};
+
+    auto v2 = f(v1);
+
+    for (auto const& i: v2){
+        std::cout << i << " " ;
+    }
+    std::cout << std::endl;
+  
+
 
     constexpr int dim = 3;
 
@@ -59,13 +74,13 @@ int main(){
     D.make_element<ElementBase<dim,9    > > (44, {1,2,3,4,5,6,7,8,9}); 
     D.make_element<ElementBase<dim,13   > > (50, {1,2,3,4,5,6,7,8,9,10,11,12,13});
                         
-    for (auto const& e: D.elements_){
-        std::cout << id(e)<< " " << num_nodes(e)<< " " << num_dof(e)<< " ";
-            for (auto const& n: nodes(e)){
-                std::cout << n << " ";
-            }
-        std::cout << std::endl;
-    }
+    //for (auto const& e: D.elements_){
+    //    std::cout << id(e)<< " " << num_nodes(e)<< " " << num_dof(e)<< " ";
+    //        for (auto const& n: nodes(e)){
+    //            std::cout << n << " ";
+    //        }
+    //    std::cout << std::endl;
+    //}
 
 };
 
