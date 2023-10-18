@@ -32,12 +32,14 @@ typedef unsigned int   uint  ;
 
 int main(){
 
-    Polynomial<double, 1.0, 0.0, 0.0> f; // f(x) = 2x² +2.0x +5.0;
+    Polynomial<double, 0.0,0.0,1.0> f; // f(x) = 2x² +2.0x +5.0;
     
-    std::cout << f(3.0) << std::endl;
+    std::cout << f(3.5) << std::endl;
+
+    std::cout << poly_eval(3.5, 0,0,1.0) << std::endl;
 
 
-    Vector<9> v1{1,2,3,4,5,6,7,8,9};
+    Vector<10> v1{1,2,3,4,5,6,7,8,9,10};
 
     auto v2 = f(v1);
 
