@@ -3,9 +3,16 @@
 
 #include <array>
 #include <iostream>
+#include <iterator>
 #include <type_traits>
 #include <ranges>
 #include <concepts>
+#include <algorithm>
+#include <numeric>
+
+
+#include <variant>
+#include <any>
 
 #include "Vector.h"
 #include "Matrix.h"
@@ -20,43 +27,51 @@ concept Addable = requires(T t, X x){
     {t+x} -> std::convertible_to<X>;
 };
 
-// P(x) = cn x^n + cn-1 x^n-1 + ... + c1 x + c0
-template<typename T, T cn, T ... coefs> requires (std::is_arithmetic_v<T>)
+template<typename T>
+concept Scalar = std::is_arithmetic_v<T>; //|| std::is_pointer_interconvertible_base_of_v<T,Matrix<1,1>>;
+
+template<Scalar T, Scalar... U>
+struct largest_scalar_type{
+    using type = std::common_type_t<T,U...>;
+};
+
+// P(x) = c0 + c1 x + c2 x^2 + ... + cn x^n
+template<Scalar T, T... coefs>
 class Polynomial {
   private:
-    static constexpr unsigned short order_ = sizeof...(coefs);
-    static constexpr std::array<T, order_+1> coeff_ = {cn,coefs...};
-  
+    static constexpr std::array coeff_{coefs...};
   public:
     Polynomial(){};
     ~Polynomial(){};
 
     template<typename X> 
-    //requires std::is_arithmetic_v<X> 
     constexpr X operator()(X x){//Horner's Method
         if constexpr (std::is_arithmetic_v<X>){
-            auto fx = coeff_[0]*X(1);
-            for(const auto& c : coeff_|std::views::drop(1)) fx = fx*x + c*X(1);
-            return fx;
-        }else{ //Eigen Types
-            X fx = coeff_[0]*X::Ones();
+            return std::accumulate( //From last to first
+                std::next(coeff_.rbegin()),   // Skip the first element ............... (The last.... cn)
+                coeff_.rend(),                // End of the range ..................... (The first... c0)
+                static_cast<X>(coeff_.back()),// Initial value casted to X type ........(cn)
+                [&x](const X& fx, const auto& c){return fx*x + c;} //Lambda function, Horner's method (captures x)
+            );
+        }else{ //Eigen Types (TODO: Impreve efficiency!)
+            X fx = coeff_.back()*X::Ones();
             for(const auto& c : coeff_|std::views::drop(1)) fx = fx.cwiseProduct(x)+c*X::Ones();
-            return fx;
+            return fx-X::Ones(); //(TODO: Impreve efficiency!)
         }
     }
-    
 };
 
 
+// Function evaluation without creating a Polynomial Functor (Doestn't work for Eigen Types yet)
+// Doest't store the coefficients.
 
-//template <typename X>
-//consteval auto identity(){
-//    if constexpr ( std::is_pointer_interconvertible_base_of_v<X,Matrix<1,1>>){
-//        return X::Identity();
-//    }else{
-//        return X(1);
-//    }
-//};
+// P(x) = c0 + c1 x + c2 x^2 + ... + cn x^n
+template<typename X, Scalar T>
+inline constexpr X poly_eval(X x, T cn){return X(cn);}
 
+template<typename X, Scalar T, Scalar... Ts>
+inline constexpr X poly_eval(X x, T cn, Ts... coefs){ 
+    return cn + (x*poly_eval(x, coefs...));
+    }
 
 #endif
