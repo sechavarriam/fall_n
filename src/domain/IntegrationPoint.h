@@ -17,16 +17,9 @@ class IntegrationPoint : public Point<Dim>{
  public:
 
     IntegrationPoint(){};  
-    IntegrationPoint(int tag, double Coord1, double Coord2):Point<2>(tag,Coord1,Coord2)
-    {
-      static_assert(Topology::InPlane<Dim>, "Using constructor for 2D IntegrationPoint");
-    } 
+    IntegrationPoint(int tag, double Coord1, double Coord2):Point<2>(tag,Coord1,Coord2){} 
   
-    IntegrationPoint(int tag, double Coord1, double Coord2, double Coord3):Point<3>(tag,Coord1,Coord2,Coord3)
-    {
-      static_assert(Topology::InSpace<Dim>, "Using constructor for 3D IntegrationPoint");
-      std::cout << "Construido Nodo 3D: " << tag << "\n"; 
-    } 
+    IntegrationPoint(int tag, double Coord1, double Coord2, double Coord3):Point<3>(tag,Coord1,Coord2,Coord3){} 
     
     ~IntegrationPoint(){} 
 

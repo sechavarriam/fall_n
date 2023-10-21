@@ -17,9 +17,6 @@
 #include "src/numerics/Tensor.h"
 #include "src/numerics/Interpolation/GenericInterpolant.h"
 
-
-
-
 #include "src/numerics/numerical_integration/Quadrature.h"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.h"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.h"
@@ -31,27 +28,6 @@ typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 int main(){
-
-    Polynomial<double, 0.0,0.0,1.0> f; // f(x) = 2x² +2.0x +5.0
-    std::function<double(double)> F = f;
-    std::function<double(double)> F2 = Polynomial<double, 0.0,0.0,1.0>{};
-
-    std::cout << f(3.5) << std::endl;
-    std::cout << F(3.5) << std::endl;
-    std::cout << F2(3.5) << std::endl;
-    std::cout << poly_eval(3.5, 0, 0, 1.0) << std::endl;
-
-
-    Vector<10> v1{1,2,3,4,5,6,7,8,9,10};
-
-    auto v2 = f(v1);
-
-    for (auto const& i: f(v1))std::cout << i << " " ; std::cout << std::endl;
-
-
-    //for (auto const& i: F(v1))std::cout << i << " " ; std::cout << std::endl;
-
-
     constexpr int dim = 3;
 
     Domain<dim> D; //Domain Aggregator Object
