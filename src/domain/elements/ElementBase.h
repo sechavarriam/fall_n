@@ -1,22 +1,19 @@
 #ifndef FN_ELEMENTBASE_H
 #define FN_ELEMENTBASE_H
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <functional>
 #include <utility>
-#include <vector>
-#include <concepts>
-
+#include <array>
 #include <iostream>
 
-#include "../../numerics/Matrix.h"
+//#include "../../numerics/Matrix.h"
 
 #include "../../geometry/Topology.h"
 
 #include "Element.h"
 #include "../Node.h"
+#include "../../numerics/numerical_integration/Quadrature.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -47,7 +44,14 @@ class ElementBase{
 
   private:
     uint id_ ; //tag
-    std::array<ushort,nNodes> nodes_; //Array of node tags
+
+    //Array of node tags
+    std::array<ushort,nNodes> nodes_; 
+
+    //Gauss points
+    //std::array<IntegrationPoint<dim>,nGauss> gauss_points_;
+
+    
 
   protected:
     // Shape functions and derivatives.
