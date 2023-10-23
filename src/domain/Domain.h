@@ -38,24 +38,25 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     std::vector<Element> elements_  ; 
 
     // ===========================================================================================================
-    template<typename ElementType, typename ...Args >
-    void make_element(uint&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){
+    template<typename ElementType, typename IntegrationStrategy, typename ...Args>
+    void make_element(IntegrationStrategy&& integrator, uint&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){
         elements_.emplace_back(
-            ElementType{
+            Element(
+                ElementType{
                 std::forward<uint>(tag),
                 std::forward<std::array<ushort,ElementType::n_nodes>>(nodeTags),
                 std::forward<Args>(constructorArgs)...
-                }
-            );
+                },
+                std::forward<IntegrationStrategy>(integrator)
+            )
+        );
     };
 
-    template<typename ElementType,typename... Args>
-    void make_element(Args&&... args){
-        elements_.emplace_back(ElementType{std::forward<Args>(args)...});
-    };
+    //template<typename ElementType,typename... Args>
+    //void make_element(Args&&... args){
+    //    elements_.emplace_back(ElementType{std::forward<Args>(args)...});
+    //};
     
-
-
 
     void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
     

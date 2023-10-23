@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstddef>
+#include <iostream>
 #include <utility>
 #include <memory>
 #include <vector>
@@ -45,12 +46,11 @@ namespace impl{ //Implementation details
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
     public:
-
         void compute_integral(/*function2integrate?*/) const override {integrator_(element_);}; //Maybe double?
 
         explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) 
             : element_   (std::move(element)),
-            integrator_(std::move(integrator)){};
+              integrator_(std::move(integrator)){};
 
         std::unique_ptr<ElementConcept> clone() const override {
             return std::make_unique<OwningElementModel<ElementType,IntegrationStrategy>>(*this);
@@ -75,7 +75,6 @@ namespace impl{ //Implementation details
         IntegrationStrategy* integrator_{nullptr}; // 
 
     public:
-
         void compute_integral(/*function2integrate?*/) const override {(*integrator_)(*element_);}; //Maybe double?
 
         NON_OwningElementModel(ElementType& element, IntegrationStrategy& integrator) 
@@ -140,6 +139,13 @@ class ElementConstRef{
 
     ~ElementConstRef(){std::destroy_at(pimpl());}; // OR: ~ElementConstRef(){pimpl()->~ElementConcept();};
     // Move operations explicitly not declared
+
+  private: //Operations with references
+    friend void integrate(ElementConstRef const& element){
+        element.pimpl()->compute_integral(/*args...*/);
+        std::cout << "Element " << element.pimpl()->get_id() << " integrated" << std::endl;
+        };
+
 };
 
 class Element{
@@ -171,6 +177,12 @@ class Element{
   private:
     // -----------------------------------------------------------------------------------------------
     // Hidden Friends (Free Functions)
+
+    friend void integrate(Element const& element){
+        element.pimpl_->compute_integral(/*args...*/);
+        std::cout << "Element " << element.pimpl_->get_id() << " integrated" << std::endl;
+        };
+
     //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
     friend uint   id       (Element const& element){return element.pimpl_->get_id()       ;};
@@ -194,22 +206,4 @@ inline ElementConstRef :: ElementConstRef(Element&       other) {other.pimpl_->c
 inline ElementConstRef :: ElementConstRef(Element const& other) {other.pimpl_->clone(pimpl());};
 
 
-#endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#endif //FN_ELEMENT_H
