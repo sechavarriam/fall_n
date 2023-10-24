@@ -43,7 +43,7 @@ int main(){
     D.add_node( Node<dim>(8, 0.0, 1.0, 1.0) );
     D.add_node( Node<dim>(9, 0.5, 0.5, 0.5) );
 
-    auto integrationScheme = [](ElementBase<dim,9> const & e){/**integrate*/};
+    auto integrationScheme = [](auto const & e){/**integrate*/};
 
     Element test1{ElementBase<dim,9>{3, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
 
@@ -57,7 +57,7 @@ int main(){
 
     integrate(test3);
 
-    D.make_element<ElementBase<dim,9> >(integrationScheme,1 , {1,2,3,4,5,6,7,8,9});   
+    D.make_element<ElementBase<dim,9> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 
 
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
