@@ -14,7 +14,7 @@ typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 // Compile time swich case.
-template<ushort Dim,  ushort Order> requires Topology::EmbeddableInSpace<Dim>
+template<ushort Dim,  ushort Order> requires topology::EmbeddableInSpace<Dim>
 consteval ushort Voigth_Dim1(){
     if constexpr (Dim==1){
         return 1; 
@@ -25,7 +25,7 @@ consteval ushort Voigth_Dim1(){
     };
 };
 
-template<ushort Dim,  ushort Order> requires Topology::EmbeddableInSpace<Dim>
+template<ushort Dim,  ushort Order> requires topology::EmbeddableInSpace<Dim>
 consteval ushort Voigth_Dim2(){
     if constexpr (Order==1){
         return 1; 

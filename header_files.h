@@ -49,11 +49,9 @@
 
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"
-#include "src/domain/elements/StructuralElement.h"
-#include "src/domain/elements/LineElement.h"
-
-
-#include "src/domain/elements/BeamColumn_Euler.h"
+//#include "src/domain/elements/StructuralElement.h"
+//#include "src/domain/elements/LineElement.h"
+//#include "src/domain/elements/BeamColumn_Euler.h"
 
 #include "src/domain/elements/Section.h"
 
