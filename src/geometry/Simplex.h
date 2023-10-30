@@ -8,15 +8,20 @@
 
 #include "../numerics/Vector.h"
 
+namespace geometry {
+  
 template<unsigned short Dim>
 class Simplex {
+  
+  using Point = geometry::Point<Dim>;
 
   public:
     static constexpr ushort n_points = Dim+1;
-    std::array<Point<Dim>, n_points> vertices_;
+    std::array<Point, n_points> vertices_;
 
     Simplex(){};
     ~Simplex(){};
 };
 
+} // namespace geometry
 #endif

@@ -1,6 +1,15 @@
 #include <Eigen/Dense>
+#include <array>
+#include <functional>
+#include <iostream> 
+#include <vector>
+
 
 #include"header_files.h"
+
+#include "src/GeneralConcepts.h"
+
+
 #include "src/domain/IntegrationPoint.h"
 #include "src/domain/elements/ContinuumElement.h"
 #include "src/domain/elements/Element.h"
@@ -9,10 +18,9 @@
 
 #include "src/domain/DoF.h"
 
-#include <array>
-#include <functional>
-#include <iostream> 
-#include <vector>
+
+#include "src/geometry/geometry.h"
+
 
 #include "src/numerics/Tensor.h"
 #include "src/numerics/Interpolation/GenericInterpolant.h"
@@ -30,7 +38,8 @@ typedef unsigned int   uint  ;
 int main(){
     constexpr int dim = 3;
 
-    Domain<dim> D; //Domain Aggregator Object
+    domain::Domain<dim> D; //Domain Aggregator Object
+    
     D.preallocate_node_capacity(20);
  
     D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
@@ -44,21 +53,28 @@ int main(){
     D.add_node( Node<dim>(9, 0.5, 0.5, 0.5) );
 
     auto integrationScheme = [](auto const & e){/**integrate*/};
+    
+    //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
+    
+    //Element test1{ElementBase<dim,9,42>{1, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
+    
+    
+    
+    //Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
+    //Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
+    //Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
+    //
+    //ElementConstRef test5 = ElementConstRef(test1);
+    //Element test6(test2 );
+    //
+    //integrate(test1);
+    //integrate(test2);
+    //integrate(test3);
+    //integrate(test4);
+    //integrate(test5);
+    //integrate(test6);
 
-    Element test1{ElementBase<dim,9>{3, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
-
-    integrate(test1);
-
-    ElementConstRef test2 = ElementConstRef(test1);
-
-    integrate(test2);
-
-    Element test3(test2 );
-
-    integrate(test3);
-
-    D.make_element<ElementBase<dim,9> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
-
+    //D.make_element<ElementBase<dim,9> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
     //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});

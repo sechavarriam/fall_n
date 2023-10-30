@@ -15,6 +15,9 @@
 #include "elements/ElementBase.h"
 
 
+
+namespace domain{
+
 // Templatizar tipo contenedor de nodos y elementos usado concepto Is_Container?
 // Template dim?
 
@@ -23,8 +26,8 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim> requires Topology::EmbeddableInSpace<Dim>
-class Domain{ //Spacial Domain. Where the simulation takes place
+template<ushort Dim> requires topology::EmbeddableInSpace<Dim>
+class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
 
     uint num_nodes_{0};
     uint num_elements_{0};
@@ -57,7 +60,6 @@ class Domain{ //Spacial Domain. Where the simulation takes place
     //    elements_.emplace_back(ElementType{std::forward<Args>(args)...});
     //};
     
-
     void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
     
     // Tol increases capacity by default in 20%.
@@ -71,18 +73,14 @@ class Domain{ //Spacial Domain. Where the simulation takes place
         }     
     };
     
-
     // TODO: Preallocated constructor.
     //Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
     //
     Domain(){};
     ~Domain(){};
-
-
-
 };
 
-
+} // namespace Domain
 
 #endif
 

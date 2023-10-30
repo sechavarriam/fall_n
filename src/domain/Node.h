@@ -15,7 +15,7 @@ typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 template<ushort Dim, ushort nDoF=Dim> 
-class Node : public Point<Dim>{
+class Node : public geometry::Point<Dim>{
 
  private:
 
@@ -30,7 +30,7 @@ class Node : public Point<Dim>{
 
     // forwardeing constructor
     template<typename... Args>
-    Node(int tag, Args&&... args) : id_(tag), Point<Dim>(std::forward<Args>(args)...){}
+    Node(int tag, Args&&... args) : id_(tag), geometry::Point<Dim>(std::forward<Args>(args)...){}
     
     ~Node(){} 
 

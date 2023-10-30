@@ -3,10 +3,13 @@
 
 //#include <concepts>
 
+namespace geometry{
 
-template<typename T, typename... Args>
-class Transformation{
+  template<typename T, typename... Args>
+  class Transformation{
+  
+  };
 
-};
+} // namespace geometry
 
 #endif
