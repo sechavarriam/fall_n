@@ -20,6 +20,9 @@
 
 
 #include "src/geometry/geometry.h"
+#include "src/geometry/Topology.h"
+#include "src/geometry/Cell.h"
+#include "src/geometry/Point.h"
 
 
 #include "src/numerics/Tensor.h"
@@ -37,6 +40,10 @@ typedef unsigned int   uint  ;
 
 int main(){
     constexpr int dim = 3;
+
+    geometry::Cell<dim,1>     C1;
+    geometry::Cell<dim,2,2,2> C2;
+
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -56,9 +63,10 @@ int main(){
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
     
-    //Element test1{ElementBase<dim,9,42>{1, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
+    Element test1{ElementBase<dim,9,42>{1, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
     
-    
+    //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
+
     
     //Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
     //Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
@@ -74,8 +82,7 @@ int main(){
     //integrate(test5);
     //integrate(test6);
 
-    //D.make_element<ElementBase<dim,9> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
-
+    //
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
     //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});
     //D.make_element<ElementBase<dim,7 ,42> > (5 , {1,2,3,4,5,6,7});
