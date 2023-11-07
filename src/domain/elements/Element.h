@@ -15,6 +15,7 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
+
 namespace impl{ //Implementation details
 
     class ElementConcept{
@@ -104,7 +105,7 @@ class ElementConstRef{
     friend class Element;
 
     // Expected size of a model instantiation: sizeof(ShapeT*) + sizeof(DrawStrategy*) + sizeof(vptr)
-    static constexpr std::size_t MODEL_SIZE = 3; // The 3 pointers of the NON_OwningElementModel,
+    static constexpr std::size_t MODEL_SIZE = 3; //The 3 pointers of the NON_OwningElementModel,
     alignas(void*) std::array<std::byte,MODEL_SIZE> raw_; //Raw storage (Aligned Byte array)
 
     impl::ElementConcept* pimpl(){
@@ -136,7 +137,6 @@ class ElementConstRef{
         raw_.swap(copy.raw_);
         return *this;
     };
-
     ~ElementConstRef(){std::destroy_at(pimpl());}; // OR: ~ElementConstRef(){pimpl()->~ElementConcept();};
     // Move operations explicitly not declared
 
@@ -145,7 +145,6 @@ class ElementConstRef{
         element.pimpl()->compute_integral(/*args...*/);
         std::cout << "Element " << element.pimpl()->get_id() << " integrated" << std::endl;
         };
-
 };
 
 class Element{
