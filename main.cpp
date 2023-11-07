@@ -39,10 +39,12 @@ typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 int main(){
-    constexpr int dim = 3;
+    static constexpr int dim = 3;
 
-    geometry::Cell<dim,1>     C1;
-    geometry::Cell<dim,2,2,2> C2;
+    geometry::Cell<dim, 1, 1, 2> C1;
+
+    //geometry::Cell<dim,1>     C1;
+    //geometry::Cell<dim,2,2,2> C2;
 
 
     domain::Domain<dim> D; //Domain Aggregator Object
