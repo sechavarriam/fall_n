@@ -23,7 +23,7 @@
 #include "src/geometry/Topology.h"
 #include "src/geometry/Cell.h"
 #include "src/geometry/Point.h"
-
+#include "src/geometry/ReferenceElement.h"
 
 #include "src/numerics/Tensor.h"
 #include "src/numerics/Interpolation/GenericInterpolant.h"

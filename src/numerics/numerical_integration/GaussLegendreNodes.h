@@ -8,7 +8,7 @@ namespace GaussLegendre{
 
     //Gauss-Legendre points for 1D
     template<unsigned short Order> requires (Order>0)
-    consteval std::array<double,Order> evalPoints1D(){
+    static consteval std::array<double,Order> evalPoints1D(){
         if constexpr (Order==1){
             return std::array<double,Order>{0.00000000000000000000000};
         }else if constexpr (Order==2){
@@ -55,7 +55,7 @@ namespace GaussLegendre{
     };
 
     template<unsigned short OrderX,unsigned short OrderY=OrderX> requires (OrderX>0 && OrderY>0)
-    consteval std::array<double[2],OrderX*OrderY> evalPoints2D(){
+    static consteval std::array<double[2],OrderX*OrderY> evalPoints2D(){
         std::array<std::array<double, 2>,OrderX*OrderY> Points;
         int pos = 0;
         for (auto&& i:evalPoints1D<OrderX>()){
@@ -71,7 +71,7 @@ namespace GaussLegendre{
     // 3D
     template<unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
     requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    consteval std::array<double[3],OrderX*OrderY*OrderZ> evalPoints3D(){
+    static consteval std::array<double[3],OrderX*OrderY*OrderZ> evalPoints3D(){
         std::array<std::array<double, 3>,OrderX*OrderY*OrderZ> Points;
         int pos = 0;
         for (auto&& i:evalPoints1D<OrderX>()){
@@ -90,7 +90,7 @@ namespace GaussLegendre{
     // Wrapper
     template<unsigned short Dim, unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY>
     requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    consteval auto evalPoints(){
+    static consteval auto evalPoints(){
         if constexpr (Dim==1){
             return evalPoints1D<OrderX>();
         }else if constexpr (Dim==2){

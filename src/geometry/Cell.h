@@ -24,7 +24,7 @@ namespace geometry {
 template <ushort Dim, ushort... InterpolantOrder>
   requires(sizeof...(InterpolantOrder) == Dim ||
            sizeof...(InterpolantOrder) == 1)
-consteval std::size_t n_nodes_(){
+static consteval std::size_t n_nodes_(){
     auto constexpr n_params = sizeof...(InterpolantOrder);
     if constexpr (n_params == 1) {
       auto constexpr n = ((InterpolantOrder + 1)* ...);
@@ -42,7 +42,7 @@ consteval std::size_t n_nodes_(){
 template <ushort Dim, ushort... QuadratureOrder>
   requires(sizeof...(QuadratureOrder) == Dim ||
            sizeof...(QuadratureOrder) == 1)
-consteval std::size_t n_GaussPoints_(){
+static consteval std::size_t n_GaussPoints_(){
     auto constexpr n_params = sizeof...(QuadratureOrder);
     if constexpr (n_params == 1) {
       auto constexpr n = ((QuadratureOrder)* ...);
@@ -54,10 +54,8 @@ consteval std::size_t n_GaussPoints_(){
         static_assert(Dim<0||~topology::EmbeddableInSpace<Dim>, "Dimension not supported (yet...)");
       }
     } 
-    else if constexpr (n_params == Dim) {return ((QuadratureOrder)* ...);
-    };
+    else if constexpr (n_params == Dim) {return ((QuadratureOrder)* ...);};
   }
-
 
 template<ushort Dim, ushort... num_nodes_per_direction> //IntegrationPolicy (IntegrationStrategy)
   requires (sizeof...(num_nodes_per_direction) == Dim ||
@@ -66,8 +64,7 @@ class Cell{
   using Point = geometry::Point<Dim>;
 
 private:  
-  
-  std::array<ushort, Dim> nodes_per_direction{num_nodes_per_direction...}; //nx, ny, nz.
+  static constexpr std::array<ushort, Dim> nodes_per_direction{num_nodes_per_direction...}; //nx, ny, nz.
   
 public:
   static constexpr uint n_nodes = n_nodes_<Dim, num_nodes_per_direction...>();
