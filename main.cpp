@@ -46,6 +46,17 @@ int main(){
     //geometry::Cell<dim,1>     C1;
     //geometry::Cell<dim,2,2,2> C2;
 
+    static constexpr int nx = 5;
+    static constexpr int ny = 4;    
+    static constexpr int nz = 3;
+
+    for (int k=0; k<nz; ++k){
+        for (int j=0; j<ny; ++j){
+            for (int i=0; i<nx; ++i){
+                geometry::cell::cell_point<dim,nx,ny,nz>(i,j,k).print_coords();
+            };
+        };
+    };
 
     domain::Domain<dim> D; //Domain Aggregator Object
     

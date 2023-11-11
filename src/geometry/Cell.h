@@ -60,9 +60,14 @@ static consteval std::size_t n_nodes_(){
 //  }
 
 
-static consteval double delta_i(auto n){return 2.0/(n-1);}; // Interval size per direction i.
-static consteval double xi(auto i, auto n){return -1.0 + (i/*-1*/)*delta_i(n);}; // Coordinate of the i-th node in the reference cell.  
+static constexpr double delta_i(auto n){return 2.0/(n-1);}; // Interval size per direction i.
+static constexpr double xi(auto i, auto n){return -1.0 + (i/*-1*/)*delta_i(n);}; // Coordinate of the i-th node in the reference cell.  
 
+template <ushort Dim, ushort... num_nodes_per_direction>
+static constexpr Point<Dim> cell_point(auto... index)
+{
+  return Point<Dim>(xi(index, num_nodes_per_direction)... );
+};
 
 
 template<ushort Dim, ushort... num_nodes_per_direction> //IntegrationPolicy (IntegrationStrategy)
