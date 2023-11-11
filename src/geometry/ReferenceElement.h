@@ -21,14 +21,12 @@ namespace impl{ //Implementation details
     class ref_ElementConcept{
     public:
         virtual ~ref_ElementConcept() = default;  
-        //virtual void do_action(/*Args.. args*/) const = 0;
         
         virtual void compute_integral(/*function2integrate?*/) const = 0; //Maybe double? auto?
 
-        virtual std::unique_ptr<ref_ElementConcept> clone() const = 0;   // To allow copy construction of the wrapper
-        virtual void clone(ref_ElementConcept* memory_address) const = 0;// Instead of returning a newly instatiated ReferenceElement
-                                                                    // we pass the memory address of the ReferenceElement to be
-                                                                    // constructed. 
+        virtual std::unique_ptr<ref_ElementConcept> clone()   const = 0;
+        virtual void clone(ref_ElementConcept* memory_address)const = 0;
+
     public: 
         //constexpr virtual ushort get_num_nodes() const = 0;
         //constexpr virtual ushort get_num_dof()   const = 0;
@@ -39,7 +37,7 @@ namespace impl{ //Implementation details
     template <typename ElementType, typename IntegrationStrategy> 
     class NON_Owning_ref_ElementModel; //Forward declaration
 
-    template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
+    template <typename ElementType, typename IntegrationStrategy> 
     class Owning_ref_ElementModel: public ref_ElementConcept{ // Wrapper for all element types (of any kind) 
         
         ElementType         element_;    // Stores the ReferenceElement object
@@ -69,8 +67,8 @@ namespace impl{ //Implementation details
         //ushort const* get_nodes() const override {return element_.nodes();};
     };
 
-    template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
-    class NON_Owning_ref_ElementModel: public ref_ElementConcept{ // Reference semantic version of Owning_ref_ElementModel.
+    template <typename ElementType, typename IntegrationStrategy> 
+    class NON_Owning_ref_ElementModel: public ref_ElementConcept{ 
         ElementType*         element_{nullptr};    // Only stores a pointer to the ReferenceElement object (aka NonOwning)
         IntegrationStrategy* integrator_{nullptr}; // 
 
@@ -91,7 +89,7 @@ namespace impl{ //Implementation details
         };
 
     public:  // Implementation of the virtual operations derived from ref_ElementConcept (Accesing pointer members)
-        
+ 
         //ushort constexpr get_num_nodes()const override {return element_->num_nodes();};
         //ushort constexpr get_num_dof()  const override {return element_->num_dof()  ;};   
         //uint          get_id()    const override {return element_->id()   ;};
@@ -180,10 +178,7 @@ class ReferenceElement{
         element.pimpl_->compute_integral(/*args...*/);
     //    std::cout << "ReferenceElement " << element.pimpl_->get_id() << " integrated" << std::endl;
         };
-
-    //friend void action(ReferenceElement const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
-    //};
-    
+        
     //friend uint   id       (ReferenceElement const& element){return element.pimpl_->get_id()       ;};
     //friend ushort num_nodes(ReferenceElement const& element){return element.pimpl_->get_num_nodes();};
     //friend ushort num_dof  (ReferenceElement const& element){return element.pimpl_->get_num_dof()  ;};
@@ -194,15 +189,9 @@ class ReferenceElement{
     //        element.pimpl_->get_num_nodes() //Size of the span
     //        };
     //    };
-     
-    // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
-    // and call the virtual function do_action() on it. This function is implemented in the
-    // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
-    // -----------------------------------------------------------------------------------------------
 };
 
 inline ReferenceElementConstRef :: ReferenceElementConstRef(ReferenceElement&       other) {other.pimpl_->clone(pimpl());};
 inline ReferenceElementConstRef :: ReferenceElementConstRef(ReferenceElement const& other) {other.pimpl_->clone(pimpl());};
-
 
 #endif //FN_ELEMENT_H

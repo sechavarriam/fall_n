@@ -41,7 +41,7 @@ typedef unsigned int   uint  ;
 int main(){
     static constexpr int dim = 3;
 
-    geometry::Cell<dim, 1, 1, 2> C1;
+    geometry::cell::Cell<dim, 1, 1, 2> C1;
 
     //geometry::Cell<dim,1>     C1;
     //geometry::Cell<dim,2,2,2> C2;

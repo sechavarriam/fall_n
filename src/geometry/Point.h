@@ -1,6 +1,7 @@
 #ifndef FN_POINT
 #define FN_POINT
 
+#include <array>
 #include <cmath>
 
 #include <iostream> // Header that defines the standard input/output stream objects.
@@ -20,19 +21,16 @@ namespace geometry {
    
     private:
   
-      Vector<Dim> coord_; //Use of Eigen vector to facilitate operaitons.
-  
+      //Vector<Dim> coord_; //Use of Eigen vector to facilitate operaitons.
+      std::array<double, Dim> coord_;
+
     public:
   
       Point(){}; 
   
       template<typename... Args>
-      Point(Args&&... args) : coord_(std::forward<Args>(args)...){}
-  
-  
-  
-  
-  
+      Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}
+   
       ~Point(){} 
   
   };
