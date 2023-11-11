@@ -7,7 +7,7 @@
 namespace GaussLegendre{
 
     template<unsigned short Order> requires (Order>0)
-    consteval std::array<double,Order> Weights1D(){
+    static consteval std::array<double,Order> Weights1D(){
         if constexpr (Order==1){
             return std::array<double,Order>{2.000000000000000000000000};
         }else if constexpr (Order==2){
@@ -54,7 +54,7 @@ namespace GaussLegendre{
     };
 
     template<unsigned short OrderX,unsigned short OrderY=OrderX> requires (OrderX>0 && OrderY>0)
-    consteval std::array<double,OrderX*OrderY> Weights2D(){
+    static consteval std::array<double,OrderX*OrderY> Weights2D(){
         std::array<double,OrderX*OrderY> W;
         int pos = 0;
         for(auto&& i:Weights1D<OrderX>()){
@@ -68,7 +68,7 @@ namespace GaussLegendre{
 
     template<unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
     requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    consteval std::array<double,OrderX*OrderY*OrderZ> Weights3D(){
+    static consteval std::array<double,OrderX*OrderY*OrderZ> Weights3D(){
         std::array<double,OrderX*OrderY*OrderZ> W;
         int pos = 0;
         for(auto&& i:Weights1D<OrderX>()){
@@ -85,7 +85,7 @@ namespace GaussLegendre{
     // Wrapper
     template<unsigned short Dim, unsigned short OrderX,unsigned short OrderY=OrderX, unsigned short OrderZ=OrderY> 
     requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    consteval auto Weights(){
+    static consteval auto Weights(){
         if constexpr (Dim==1){
             return Weights1D<OrderX>();
         }else if constexpr (Dim==2){
