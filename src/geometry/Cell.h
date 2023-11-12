@@ -19,90 +19,121 @@ typedef unsigned int uint;
 
 namespace geometry::cell {
 
-// Helper function to compute the number of points in the reference cell in terms of 
-// the two interpolation orders sintaxes allowed.
-
+// Helper function to compute the number of points in the reference cell in
+// terms of the two interpolation orders sintaxes allowed.
 
 template <ushort Dim, ushort... InterpolantOrder>
   requires(sizeof...(InterpolantOrder) == Dim ||
            sizeof...(InterpolantOrder) == 1)
-static consteval std::size_t n_nodes_(){
+static consteval std::size_t n_nodes_() {
     auto constexpr n_params = sizeof...(InterpolantOrder);
     if constexpr (n_params == 1) {
-      auto constexpr n = ((InterpolantOrder + 1)* ...);
-      if constexpr (Dim == 0) {return 1;} 
-      else if constexpr (Dim == 1) {return n;} 
-      else if constexpr (Dim == 2) {return n*n;}
-      else if constexpr (Dim == 3) {return n*n*n;} 
+      auto constexpr n = ((InterpolantOrder + 1) * ...);
+      if constexpr (Dim == 0) {
+        return 1;
+      } 
+      else if constexpr (Dim == 1) {
+        return n;
+      } 
+      else if constexpr (Dim == 2) {
+        return n * n;
+      } 
+      else if constexpr (Dim == 3) {
+        return n * n * n;
+      } 
       else { // Unreachable for C++23 ( TODO: compilation directive)
-        static_assert(Dim<0||~topology::EmbeddableInSpace<Dim>, "Dimension not supported (yet...)");
+        static_assert(Dim < 0 || ~topology::EmbeddableInSpace<Dim>,
+                      "Dimension not supported (yet...)");
       }
-    } 
-    else if constexpr (n_params == Dim) {return ((InterpolantOrder + 1)* ...);};
-  }
+    } else if constexpr (n_params == Dim) {
+      return ((InterpolantOrder + 1) * ...);
+    };
+}
 
-//template <ushort Dim, ushort... QuadratureOrder>
-//  requires(sizeof...(QuadratureOrder) == Dim ||
-//           sizeof...(QuadratureOrder) == 1)
-//static consteval std::size_t n_GaussPoints_(){
-//    auto constexpr n_params = sizeof...(QuadratureOrder);
-//    if constexpr (n_params == 1) {
-//      auto constexpr n = ((QuadratureOrder)* ...);
-//      if constexpr (Dim == 0) {return 1;} 
-//      else if constexpr (Dim == 1) { return n;}
-//      else if constexpr (Dim == 2) { return n*n;} 
-//      else if constexpr (Dim == 3) { return n*n*n;}
-//      else { // Unreachable for C++23 ( TODO: compilation directive)
-//        static_assert(Dim<0||~topology::EmbeddableInSpace<Dim>, "Dimension not supported (yet...)");
-//      }
-//    } 
-//    else if constexpr (n_params == Dim) {return ((QuadratureOrder)* ...);};
-//  }
+template <ushort n> static inline constexpr double delta_i() {
+  if constexpr (n == 1)
+    return 0.0;
+  return 2.0 / (n - 1);
+}; // Interval size per direction i.
 
-template<ushort n>
-static inline constexpr double delta_i(){
-  if constexpr (n==1) return 0.0;
-    return 2.0/(n-1);
-    }; // Interval size per direction i.
-
-template<ushort n>
-static inline constexpr double xi(auto i){return -1.0 + (i/*-1*/)*delta_i<n>();}; // Coordinate of the i-th node in the reference cell.  
+template <ushort n> static inline constexpr double xi(auto i) {
+  return -1.0 + i*delta_i<n>();
+}; // Coordinate of the i-th node in the reference cell.
 
 template <ushort Dim, ushort... n>
-static inline constexpr Point<Dim> cell_point(auto... index)
-{
-  static_assert(sizeof...(n) == sizeof...(index), "Number of indices must match the number of template parameters");
-  static_assert(sizeof...(index) == Dim, "Number of indices must match the dimension of the cell");
-  return Point<Dim>(xi<n>(index)... );
+static inline constexpr Point<Dim> cell_ijk(auto... index) {
+  static_assert(sizeof...(n) == sizeof...(index),
+                "Number of indices must match the number of template "
+                "parameters (minus one)");
+  static_assert(sizeof...(index) == Dim,
+                "Number of indices must match the dimension of the cell");
+  return Point<Dim>(xi<n>(index)...);
+};
+
+//template <ushort Dim, ushort... n>
+//static consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes() {
+//  constexpr std::array<Point<Dim>, n_nodes_<Dim, n...>()> nodes;
+//  if constexpr (sizeof...(n) == 1) {
+//    for (auto i = 0; i < n_nodes_<Dim, n...>(); ++i) {
+//      nodes[i] = cell_ijk<Dim, n...>(i);
+//    }
+//  } else if constexpr (sizeof...(n) == Dim){
+//    for (auto i = 0; i < n_nodes_<Dim, n...>(); ++i) {
+//      nodes[i] = cell_ijk<Dim, n...>(i % n..., i / n..., i / (n * n)...);
+//    }
+//  }
+//};
+
+template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
+static constexpr inline auto index_2_ijk(auto i){
+    
+  constexpr uint nx_ny_nz[Dim]{n...};
+  constexpr uint ijk[Dim];
+  
+  for (auto d=0; d<Dim; ++d){
+    ijk[d] = i % nx_ny_nz[d];
+    i /= nx_ny_nz[d];
+  }
+  return ijk;
+}
+
+template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
+static consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes() {
+  constexpr std::array<Point<Dim>, n_nodes_<Dim, n...>()> nodes;
+
+  for (auto i = 0; i < n_nodes_<Dim, n...>(); ++i) {
+    nodes[i] = cell_ijk<Dim, n...>(index_2_ijk<Dim,n...>(i));
+  }
+  return nodes;
 };
 
 
-template<ushort Dim, ushort... num_nodes_per_direction> //IntegrationPolicy (IntegrationStrategy)
-  requires (sizeof...(num_nodes_per_direction) == Dim ||
-            sizeof...(num_nodes_per_direction) == 1)
-
-class Cell{
+template <ushort Dim, ushort... n> // n: Number of nodes per direction.
+  requires(sizeof...(n) == Dim || sizeof...(n) == 1)
+class Cell { 
   using Point = geometry::Point<Dim>;
 
-private:  
-  static constexpr std::array<ushort, Dim> nodes_per_direction{num_nodes_per_direction...}; //nx, ny, nz.
-  
-public:
-  static constexpr uint n_nodes = n_nodes_<Dim, num_nodes_per_direction...>();
-  std::array<Point , n_nodes> reference_nodes;
+private:
+  static constexpr std::array<ushort, Dim> nodes_per_direction{n...}; // nx, ny, nz.
 
-  Cell() {
-    if constexpr (sizeof...(num_nodes_per_direction) == 1) {
-      nodes_per_direction.fill(num_nodes_per_direction...);
+public:
+  static constexpr uint n_nodes = n_nodes_<Dim, n...>();
+
+  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
+
+  constexpr Cell() {
+    if constexpr (sizeof...(n) == 1) {
+      nodes_per_direction.fill(n...);
     }
+  
   };
 
-  ~Cell(){};
+  constexpr ~Cell(){};
 };
 // ==================================================================================================
 
 template <unsigned short Dim, unsigned short... Order> class ReferenceCell {};
 
-} // namespace geometry
+} // namespace geometry::cell
 
 #endif

@@ -26,21 +26,19 @@ namespace geometry {
 
     public:
   
-      void print_coords() const {
-        for (auto const& c : coord_) {
-          std::cout << c << " ";
-        }
-        std::cout << std::endl;
-      }
+      //void print_coords() const {
+      //  for (auto const& c : coord_) {
+      //    std::cout << c << " ";
+      //  }
+      //  std::cout << std::endl;
+      //}
 
       Point(){}; 
-
-
   
       template<typename... Args>
-      constexpr Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}
+      inline constexpr Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}
    
-      ~Point(){} 
+      constexpr ~Point(){} 
   
   };
 
