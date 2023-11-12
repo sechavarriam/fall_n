@@ -71,6 +71,8 @@ static inline constexpr double xi(auto i){return -1.0 + (i/*-1*/)*delta_i<n>();}
 template <ushort Dim, ushort... n>
 static inline constexpr Point<Dim> cell_point(auto... index)
 {
+  static_assert(sizeof...(n) == sizeof...(index), "Number of indices must match the number of template parameters");
+  static_assert(sizeof...(index) == Dim, "Number of indices must match the dimension of the cell");
   return Point<Dim>(xi<n>(index)... );
 };
 
