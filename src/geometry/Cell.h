@@ -59,14 +59,19 @@ static consteval std::size_t n_nodes_(){
 //    else if constexpr (n_params == Dim) {return ((QuadratureOrder)* ...);};
 //  }
 
+template<ushort n>
+static inline constexpr double delta_i(){
+  if constexpr (n==1) return 0.0;
+    return 2.0/(n-1);
+    }; // Interval size per direction i.
 
-static constexpr double delta_i(auto n){return 2.0/(n-1);}; // Interval size per direction i.
-static constexpr double xi(auto i, auto n){return -1.0 + (i/*-1*/)*delta_i(n);}; // Coordinate of the i-th node in the reference cell.  
+template<ushort n>
+static inline constexpr double xi(auto i){return -1.0 + (i/*-1*/)*delta_i<n>();}; // Coordinate of the i-th node in the reference cell.  
 
-template <ushort Dim, ushort... num_nodes_per_direction>
-static constexpr Point<Dim> cell_point(auto... index)
+template <ushort Dim, ushort... n>
+static inline constexpr Point<Dim> cell_point(auto... index)
 {
-  return Point<Dim>(xi(index, num_nodes_per_direction)... );
+  return Point<Dim>(xi<n>(index)... );
 };
 
 
