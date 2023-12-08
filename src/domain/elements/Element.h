@@ -70,6 +70,7 @@ namespace impl{ //Implementation details
         ushort const* get_nodes() const override {return element_.nodes();};
     };
 
+
     template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
     class NON_OwningElementModel: public ElementConcept{ // Reference semantic version of OwningElementModel.
         ElementType*         element_{nullptr};    // Only stores a pointer to the Element object (aka NonOwning)

@@ -6,11 +6,7 @@
 #include <iostream>
 #include <utility>
 #include <memory>
-#include <vector>
-#include <functional>
 
-#include <span>
-#include <ranges>
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
