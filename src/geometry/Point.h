@@ -20,19 +20,10 @@ namespace geometry {
   class Point {
    
     private:
-  
       //Vector<Dim> coord_; //Use of Eigen vector to facilitate operaitons.
       std::array<double, Dim> coord_;
 
     public:
-  
-      //void print_coords() const {
-      //  for (auto const& c : coord_) {
-      //    std::cout << c << " ";
-      //  }
-      //  std::cout << std::endl;
-      //}
-
       Point(){}; 
   
       template<typename... Args>

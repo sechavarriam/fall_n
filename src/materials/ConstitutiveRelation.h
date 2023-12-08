@@ -8,7 +8,7 @@
 // R Relation function type e.g. Elastic Tensor Matrix in Voight Notation
 
 template<typename F,typename R,typename U=F> // Dim?
-class ConstitutiveRelation{
+class ConstitutiveRelation{ //CONCEPT!
 
     F* cause_; //e.g. Takes strains or displacements by reference.
     U* efect_; //e.g. Return stresses of internal forces  

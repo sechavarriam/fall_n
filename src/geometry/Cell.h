@@ -2,10 +2,7 @@
 #define FALL_N_CELL
 
 #include <array>
-#include <cmath>
-#include <compare>
 #include <cstddef>
-#include <utility>
 
 #include "Point.h"
 #include "Topology.h"
@@ -70,19 +67,6 @@ static inline constexpr Point<Dim> cell_ijk(auto... index) {
   return Point<Dim>(xi<n>(index)...);
 };
 
-//template <ushort Dim, ushort... n>
-//static consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes() {
-//  constexpr std::array<Point<Dim>, n_nodes_<Dim, n...>()> nodes;
-//  if constexpr (sizeof...(n) == 1) {
-//    for (auto i = 0; i < n_nodes_<Dim, n...>(); ++i) {
-//      nodes[i] = cell_ijk<Dim, n...>(i);
-//    }
-//  } else if constexpr (sizeof...(n) == Dim){
-//    for (auto i = 0; i < n_nodes_<Dim, n...>(); ++i) {
-//      nodes[i] = cell_ijk<Dim, n...>(i % n..., i / n..., i / (n * n)...);
-//    }
-//  }
-//};
 
 template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
 static constexpr inline auto index_2_ijk(auto i){
@@ -110,7 +94,7 @@ static consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes() {
 
 template <ushort Dim, ushort... n> // n: Number of nodes per direction.
   requires(sizeof...(n) == Dim || sizeof...(n) == 1)
-class Cell { 
+class Cell { // (Lagrangian Cell?)
   using Point = geometry::Point<Dim>;
 
 private:
@@ -121,7 +105,7 @@ public:
 
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
 
-  constexpr Cell() {
+  consteval Cell() {
     if constexpr (sizeof...(n) == 1) {
       nodes_per_direction.fill(n...);
     }

@@ -26,7 +26,11 @@
 #include "src/geometry/ReferenceElement.h"
 
 #include "src/numerics/Tensor.h"
+
+
 #include "src/numerics/Interpolation/GenericInterpolant.h"
+#include "src/numerics/Interpolation/LagrangeInterpolation.h"
+
 
 #include "src/numerics/numerical_integration/Quadrature.h"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.h"
@@ -77,7 +81,10 @@ int main(){
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
     
-    Element test1{ElementBase<dim,9,42>{1, {1,2,3,4,5,6,7,8,9}}, integrationScheme};
+    Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
+
+    LagrangianInterpolant<2> LinearInterpolant({0.0,1.0},{0.0,1.0});
+    std::cout << LinearInterpolant(0.5) << std::endl;
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 
