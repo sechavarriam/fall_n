@@ -19,13 +19,13 @@ namespace geometry::cell {
 // Helper function to compute the number of points in the reference cell in
 // terms of the two interpolation orders sintaxes allowed.
 
-template <ushort Dim, ushort... InterpolantOrder>
-  requires(sizeof...(InterpolantOrder) == Dim ||
-           sizeof...(InterpolantOrder) == 1)
+template <ushort Dim, ushort... num_node_per_direction>
+  requires(sizeof...(num_node_per_direction) == Dim ||
+           sizeof...(num_node_per_direction) == 1)
 static consteval std::size_t n_nodes_() {
-    auto constexpr n_params = sizeof...(InterpolantOrder);
+    auto constexpr n_params = sizeof...(num_node_per_direction);
     if constexpr (n_params == 1) {
-      auto constexpr n = ((InterpolantOrder + 1) * ...);
+      auto constexpr n = ((num_node_per_direction) * ...);
       if constexpr (Dim == 0) {
         return 1;
       } 
@@ -43,7 +43,7 @@ static consteval std::size_t n_nodes_() {
                       "Dimension not supported (yet...)");
       }
     } else if constexpr (n_params == Dim) {
-      return ((InterpolantOrder + 1) * ...);
+      return ((num_node_per_direction) * ...);
     };
 }
 

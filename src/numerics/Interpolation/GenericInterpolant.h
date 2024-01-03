@@ -23,6 +23,10 @@ concept Interpolant = requires(Funtor f, PointType x)
 };
 
 
+//template<Interpolant T>
+//void TypeTest(T interpolant){
+//    std::cout << "Interpolant concept satisfied" << std::endl;
+//};
 
 
 

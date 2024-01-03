@@ -2,13 +2,6 @@
 #define FN_POINT
 
 #include <array>
-#include <cmath>
-
-#include <iostream> // Header that defines the standard input/output stream objects.
-#include <concepts>
-
-#include "../numerics/Vector.h"
-
 #include "Topology.h"
 
 typedef unsigned short ushort;
