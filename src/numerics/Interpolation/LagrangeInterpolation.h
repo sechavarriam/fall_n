@@ -7,15 +7,13 @@
 #include <numeric>
 
 template <unsigned short nPoints>
-class LagrangianInterpolant{
-    
+class LagrangianInterpolant{    
     std::array<double,nPoints> xPoints_;
     std::array<double,nPoints> yValues_;
 
   public:
-    
-    constexpr double points() const {return xPoints_;};
-    constexpr double values() const {return yValues_;};
+    inline constexpr double points() const {return xPoints_;};
+    inline constexpr double values() const {return yValues_;};
 
     constexpr LagrangianInterpolant(std::array<double,nPoints> xPoints, std::array<double,nPoints> yValues)
         : xPoints_(xPoints), yValues_(yValues){};
@@ -29,11 +27,7 @@ class LagrangianInterpolant{
             return yValues_[std::ranges::distance(std::ranges::begin(xPoints_), std::ranges::find(xPoints_, xi))] * L;
         });
     }
-
     constexpr ~LagrangianInterpolant(){};
-
 };
-
-
 
 #endif // __LAGRANGE_INTERPOLATION_H__

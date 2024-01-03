@@ -45,14 +45,17 @@ typedef unsigned int   uint  ;
 int main(){
     static constexpr int dim = 3;
 
-    geometry::cell::Cell<dim, 1, 1, 2> C1;
+    constexpr geometry::cell::Cell<dim, 1, 1, 2> C1;
 
     //geometry::Cell<dim,1>     C1;
     //geometry::Cell<dim,2,2,2> C2;
 
+
     static constexpr int nx = 5;
     static constexpr int ny = 4;    
     static constexpr int nz = 3;
+
+    constexpr geometry::cell::Cell<dim, nx,ny,nz> test_cell;
 
     //for (int k=0; k<nz; ++k){
     //    for (int j=0; j<ny; ++j){
@@ -80,11 +83,14 @@ int main(){
     auto integrationScheme = [](auto const & e){/**integrate*/};
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
+
+
     
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
     LagrangianInterpolant<2> LinearInterpolant({0.0,1.0},{0.0,1.0});
-    std::cout << LinearInterpolant(0.5) << std::endl;
+
+    std::cout << LinearInterpolant(0.75) << std::endl;
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 
