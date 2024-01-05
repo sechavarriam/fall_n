@@ -17,11 +17,15 @@ namespace geometry {
       std::array<double, Dim> coord_;
 
     public:
-      Point(){}; 
+      constexpr Point(){}; 
   
+      inline constexpr Point(std::array<double,Dim> coord_array) : coord_{coord_array}{}; 
+
       template<typename... Args>
       inline constexpr Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}
    
+
+
       constexpr ~Point(){} 
   
   };
