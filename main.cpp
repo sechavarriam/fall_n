@@ -57,14 +57,13 @@ int main(){
 
     constexpr geometry::cell::Cell<dim, nx,ny,nz> test_cell;
 
-    //for (int k=0; k<nz; ++k){
-    //    for (int j=0; j<ny; ++j){
-    //        for (int i=0; i<nx; ++i){
-    //            geometry::cell::cell_ijk
-    //            <dim,nx,ny,nz>(i,j,k).print_coords();
-    //        };
-    //    };
-    //};
+    auto test_node = test_cell.reference_nodes[0];
+    //
+    //}
+
+    
+
+    
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
