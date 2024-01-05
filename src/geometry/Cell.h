@@ -75,15 +75,6 @@ xi(std::array<double, sizeof...(dimensions)> index)
   return coordinates;
 };
 
-//template <ushort Dim, ushort... n>
-//static inline constexpr Point<Dim> node_ijk(auto... index) {
-//  static_assert(sizeof...(n) == sizeof...(index),
-//                "Number of indices must match the number of template "
-//                "parameters (minus one)");
-//  static_assert(sizeof...(index) == Dim,
-//                "Number of indices must match the dimension of the cell");
-//  return Point<Dim>( xi<n>(index)... );
-//};
 
 template <ushort Dim, ushort... n>
 static inline constexpr Point<Dim> node_ijk(std::array<uint,Dim> ijk) {
