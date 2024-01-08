@@ -52,7 +52,6 @@ static consteval std::size_t n_nodes_() {
     };
 }
 
-
 static inline constexpr double delta_i(int n ) {
   constexpr double interval_size = 2.0;
   if (n == 1)
@@ -60,13 +59,9 @@ static inline constexpr double delta_i(int n ) {
   return interval_size / (n - 1);
 }; // Interval size per direction i.
 
-//template <ushort n> 
-//static inline constexpr double xi(auto i) {
-//  return -1.0 + i*delta_i(n);
-//}; // Coordinate of the i-th node in the reference cell.
 
 template <ushort... dimensions> 
-static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array<double, sizeof...(dimensions)> index)
+static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array<std::size_t, sizeof...(dimensions)> index)
 { 
   constexpr std::size_t Dim =  sizeof...(dimensions);
   std::array<double,Dim> coordinates{dimensions...};
@@ -80,10 +75,10 @@ static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array
 
 
 template <ushort Dim, ushort... n>
-static inline constexpr Point<Dim> node_ijk(std::array<uint,Dim> ijk) {
-  std::array<double,Dim> coordinates;
-  return Point<Dim>(xi<n ...>(coordinates));
+static inline constexpr Point<Dim> node_ijk(std::array<std::size_t,Dim> md_array) {
+  return Point<Dim>(xi<n ...>(md_array));
 };
+
 
 template <ushort... N> // TODO: Optimize using ranges and fold expressions.
 static inline constexpr std::size_t md_index_2_list(auto... ijk) 
@@ -130,9 +125,6 @@ static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(co
 }; // Untested. //TODO: Check list_2_md_index and md_index_2_list are inverse functions.
                 //TODO: Check index is in the range of the cell.
   
-
-
-
 template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
 consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
   constexpr std::size_t num_nodes = n_nodes_<Dim, n...>();
