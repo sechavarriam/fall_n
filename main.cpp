@@ -1,9 +1,12 @@
 //#include <Eigen/Dense>
 #include <array>
+#include <concepts>
 #include <functional>
 #include <iostream> 
 #include <vector>
-
+#include <numeric>
+#include <algorithm>
+#include <ranges>
 
 #include"header_files.h"
 
@@ -42,6 +45,10 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
+
+
+
+
 int main(){
     static constexpr int dim = 3;
 
@@ -51,20 +58,16 @@ int main(){
     //geometry::Cell<dim,2,2,2> C2;
 
 
-    static constexpr int nx = 5;
-    static constexpr int ny = 4;    
-    static constexpr int nz = 3;
+    static constexpr uint nx = 5;
+    static constexpr uint ny = 4;    
+    static constexpr uint nz = 3;
 
     constexpr geometry::cell::Cell<dim, nx,ny,nz> test_cell;
 
     auto test_node = test_cell.reference_nodes[0];
+
     //
-    //}
-
     
-
-    
-
     domain::Domain<dim> D; //Domain Aggregator Object
     
     D.preallocate_node_capacity(20);
@@ -89,7 +92,7 @@ int main(){
 
     LagrangianInterpolant<2> LinearInterpolant({0.0,1.0},{0.0,1.0});
 
-    std::cout << LinearInterpolant(0.75) << std::endl;
+    //std::cout << LinearInterpolant(0.75) << std::endl;
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 

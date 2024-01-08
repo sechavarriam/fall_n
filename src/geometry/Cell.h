@@ -7,6 +7,10 @@
 #include "Point.h"
 #include "Topology.h"
 
+#include <ranges>
+#include <algorithm>
+#include <numeric>
+
 // Cada uno debe ser un Singleton (Solo debería poderse crear un único objeto de
 // esa clase.) Será que si? Porque cada punto de integración debe tener un
 // material...
@@ -24,7 +28,8 @@ template <ushort Dim, ushort... num_node_per_direction>
            sizeof...(num_node_per_direction) == 1)
 static consteval std::size_t n_nodes_() {
     auto constexpr n_params = sizeof...(num_node_per_direction);
-    if constexpr (n_params == 1) {
+    if constexpr (n_params == 1) 
+    {
       auto constexpr n = ((num_node_per_direction) * ...); // Es necesario reducirlo así sea solo un parametro.
       if constexpr (Dim == 0) {
         return 1;
@@ -61,9 +66,7 @@ static inline constexpr double delta_i(int n ) {
 //}; // Coordinate of the i-th node in the reference cell.
 
 template <ushort... dimensions> 
-static inline constexpr 
-std::array<double, sizeof...(dimensions)> 
-xi(std::array<double, sizeof...(dimensions)> index)
+static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array<double, sizeof...(dimensions)> index)
 { 
   constexpr std::size_t Dim =  sizeof...(dimensions);
   std::array<double,Dim> coordinates{dimensions...};
@@ -82,21 +85,53 @@ static inline constexpr Point<Dim> node_ijk(std::array<uint,Dim> ijk) {
   return Point<Dim>(xi<n ...>(coordinates));
 };
 
+template <ushort... N> // TODO: Optimize using ranges and fold expressions.
+static inline constexpr std::size_t md_index_2_list(auto... ijk) 
+requires(sizeof...(N) == sizeof...(ijk))
+{
+  constexpr std::size_t array_dimension = sizeof...(N);
 
-template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim) // Dim se debe poder extraer del numero de parámetros.
-static constexpr inline std::array<uint, Dim> index_2_ijk(auto list_index){
-  constexpr std::array<uint, Dim> nx_ny_nz{n...}; //Number of nodes per direction.
+  constexpr std::array<std::size_t, array_dimension> array_limits{N...  };
+  constexpr std::array<std::size_t, array_dimension> md_index    {ijk...}; 
+
+  constexpr std::size_t index = 0;
+  auto n = md_index[0];
+
+  for (auto i = 1; i < array_dimension; ++i) {
+    index = md_index[i] * n;
+    n *= array_limits[i];
+  }
+  return index;
+}; // NOTE: Untested and unused yet.
+
+
+template <uint... N> //<Nx, Ny, Nz ,...>
+static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(const int index) {
+  using IndexTuple = std::array<std::size_t, sizeof...(N)>;
+
+  constexpr std::size_t array_dimension = sizeof...(N); 
   
-  std::array<uint, Dim> ijk;
-  ijk[0] = 0; //nx_ny_nz[0]%list_index==0?  nx_ny_nz[0] : list_index%nx_ny_nz[0];
-  if constexpr(Dim>1){
-    ijk[1] = 0 ;//(list_index-ijk[0])/nx_ny_nz[0] + 1;
-    if constexpr(Dim>2){
-      ijk[2] = 0;
-    };
-  };
-  return ijk;
-}
+  IndexTuple array_limits{N...};
+  IndexTuple md_index; // to return.
+
+  std::integral auto num_positions = std::ranges::fold_left(array_limits, 1, std::multiplies<int>());
+  std::integral auto divisor = num_positions/int(array_limits.back()); //TODO: Check if this is integer division or use concepts  
+
+  std::integral auto I = index;
+
+  for (auto n = array_dimension-1; n>0; --n) {
+    md_index[n] = I/divisor; //TODO: Check if this is integer division or use concepts
+    I %= divisor;
+    divisor /= array_limits[n-1]; 
+  }
+  md_index[0] = I;
+
+  return md_index;
+}; // Untested. //TODO: Check list_2_md_index and md_index_2_list are inverse functions.
+                //TODO: Check index is in the range of the cell.
+  
+
+
 
 template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
 consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
@@ -104,9 +139,9 @@ consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
 
   std::array<Point<Dim>, num_nodes> nodes;
 
-  for (auto i = 0; i < num_nodes; ++i) 
+  for (auto i = 0; i < num_nodes; ++i) // TODO: Convert loop to range. 
   {
-    nodes[i] = node_ijk<Dim, n...>( index_2_ijk<Dim,n...>(i));
+    nodes[i] = node_ijk<Dim, n...>( list_2_md_index<n...>(i)); 
   }
   return nodes;
 };
@@ -133,7 +168,6 @@ public:
     }
     
   };
-
   constexpr ~Cell(){};
 };
 // ==================================================================================================
