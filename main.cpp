@@ -66,7 +66,27 @@ int main(){
 
     auto test_node = test_cell.reference_nodes[0];
 
-    //
+    std::cout << test_node.coord()[0] << std::endl;
+    std::cout << test_node.coord()[1] << std::endl;
+    std::cout << test_node.coord()[2] << std::endl;
+
+
+
+    test_cell.print_nodes();
+
+    
+    //geometry::cell::list_2_md_index<10,10,10>(1);
+
+    //for (auto n=0; n<1000; ++n){
+    //    std::cout << "[";
+    //    for (auto i : geometry::cell::xi<10,10,10>(geometry::cell::list_2_md_index<10,10,10>(n))){
+    //        std::cout << i << ",";
+    //    }
+    //    std::cout << "]" << std::endl;
+    //}
+
+    
+
     
     domain::Domain<dim> D; //Domain Aggregator Object
     

@@ -17,6 +17,14 @@ namespace geometry {
       std::array<double, Dim> coord_;
 
     public:
+
+      //Getters.
+      inline constexpr double coord(const ushort i) const { return coord_[i]; };
+
+      inline constexpr std::array<double,Dim> coord() const { return coord_; };
+
+
+
       constexpr Point(){}; 
   
       inline constexpr Point(std::array<double,Dim> coord_array) : coord_{coord_array}{}; 
