@@ -3,13 +3,14 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdio>
+//#include <print> //Not yet implemented in Clang.
+#include <iostream>
 
 #include "Point.h"
 #include "Topology.h"
 
 #include <ranges>
-#include <algorithm>
-#include <numeric>
 
 // Cada uno debe ser un Singleton (Solo debería poderse crear un único objeto de
 // esa clase.) Será que si? Porque cada punto de integración debe tener un
@@ -61,13 +62,15 @@ static inline constexpr double delta_i(int n ) {
 
 
 template <ushort... dimensions> 
-static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array<std::size_t, sizeof...(dimensions)> index)
+static inline constexpr std::array<double, sizeof...(dimensions)>  
+coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
 { 
   constexpr std::size_t Dim =  sizeof...(dimensions);
+
   std::array<double,Dim> coordinates{dimensions...};
 
   for(int position = 0; position<Dim; ++position){
-    coordinates[position] = -1 + position*delta_i(coordinates[position]);
+    coordinates[position] = - 1 + index_ijk[position]*delta_i(coordinates[position]);
   };
 
   return coordinates;
@@ -76,7 +79,7 @@ static inline constexpr std::array<double, sizeof...(dimensions)>  xi(std::array
 
 template <ushort Dim, ushort... n>
 static inline constexpr Point<Dim> node_ijk(std::array<std::size_t,Dim> md_array) {
-  return Point<Dim>(xi<n ...>(md_array));
+  return Point<Dim>(coordinate_xi<n ...>(md_array));
 };
 
 
@@ -97,10 +100,10 @@ requires(sizeof...(N) == sizeof...(ijk))
     n *= array_limits[i];
   }
   return index;
-}; // NOTE: Untested and unused yet.
+}; // NOTE: Untested.
 
 
-template <uint... N> //<Nx, Ny, Nz ,...>
+template <ushort... N> //<Nx, Ny, Nz ,...>
 static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(const int index) {
   using IndexTuple = std::array<std::size_t, sizeof...(N)>;
 
@@ -114,7 +117,8 @@ static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(co
 
   std::integral auto I = index;
 
-  for (auto n = array_dimension-1; n>0; --n) {
+  for (auto n = array_dimension-1; n>0; --n) 
+  {
     md_index[n] = I/divisor; //TODO: Check if this is integer division or use concepts
     I %= divisor;
     divisor /= array_limits[n-1]; 
@@ -154,6 +158,17 @@ public:
   static constexpr uint n_nodes = n_nodes_<Dim, n...>();
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
 
+  static constexpr void print_nodes() 
+  {
+    for (auto node : reference_nodes){
+      for (auto j: node.coord()){
+        std::cout << j << " ";
+      };
+      printf("\n");
+    }
+  };
+
+  // Constructor
   consteval Cell() {
     if constexpr (sizeof...(n) == 1) {
       nodes_per_direction.fill(n...);
