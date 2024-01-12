@@ -40,54 +40,9 @@ class LagrangeBasis{ //constexpr funtor
      : xPoints{xCoordinates} {};
 
     constexpr ~LagrangeBasis(){};
-    
 };
 
 
-
-template <unsigned short nPoints>
-class LagrangeShapeFunctions{
-    
-  private:
-   
-    //std::array<double, nPoints> xPoints_; // Maybe not needed
-    std::array<std::function<double(double)>, nPoints> L; // Lagrange basis
-
-  public:
-    constexpr LagrangeShapeFunctions(const std::array<double, nPoints>& xPoints)// : xPoints_(xPoints)
-    {
-        for (unsigned short i = 0; i < nPoints; ++i)
-        {
-            L[i] = [&, i](double x)
-            {
-                double L_i = 1.0;
-                for (auto j = 0; j < nPoints; ++j)
-                {
-                    (j != i)? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j]) : L_i *= 1.0;
-                }
-                return L_i;
-            };
-        }
-    };
-
-    constexpr double operator()(const std::array<double, nPoints>& yValues, double x) const
-    {
-        return std::inner_product
-        (
-            std::begin(yValues),
-            std::end  (yValues),
-            std::begin(L),
-            0.0,
-            std::plus<>(),
-            [&](auto y, auto l)
-            {
-                return y * l(x);
-            }
-        );
-    };
-
-    constexpr ~LagrangeShapeFunctions(){};
-};
 
 
 inline constexpr auto lagrange_interpolation_1d

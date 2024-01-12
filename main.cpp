@@ -60,7 +60,7 @@ int main(){
     static constexpr uint ny = 4;    
     static constexpr uint nz = 3;
 
-    constexpr geometry::cell::LagrangianCell<dim, nx,ny,nz> test_cell;
+    
     
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -80,9 +80,13 @@ int main(){
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
+    constexpr geometry::cell::LagrangianCell<dim, nx,ny,nz> test_cell;
+
+
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
-    
+
+
     interpolation::LagrangeBasis<2> L2({0.0,1.0});
 
     std::cout << L2[0](0.5) << std::endl;
@@ -97,7 +101,10 @@ int main(){
     std::cout << L3[0](0.5) << std::endl;
     std::cout << L3[1](0.5) << std::endl;
     std::cout << L3[2](0.5) << std::endl;
-    
+
+
+    //std::cout << test_cell.basis[0][0](0.5) << std::endl;
+
 
 
     //std::cout << LinearInterpolant({0.0,1.0}, 0.5) << std::endl;
