@@ -6,11 +6,15 @@
 #include <cstdio>
 //#include <print> //Not yet implemented in Clang.
 #include <iostream>
+#include <ranges>
 
 #include "Point.h"
 #include "Topology.h"
 
-#include <ranges>
+#include "../numerics/Interpolation/LagrangeInterpolation.h"
+
+
+
 
 // Cada uno debe ser un Singleton (Solo debería poderse crear un único objeto de
 // esa clase.) Será que si? Porque cada punto de integración debe tener un
@@ -32,23 +36,17 @@ static consteval std::size_t n_nodes_() {
     if constexpr (n_params == 1) 
     {
       auto constexpr n = ((num_node_per_direction) * ...); // Es necesario reducirlo así sea solo un parametro.
-      if constexpr (Dim == 0) {
-        return 1;
-      } 
-      else if constexpr (Dim == 1) {
-        return n;
-      } 
-      else if constexpr (Dim == 2) {
-        return n * n;
-      } 
-      else if constexpr (Dim == 3) {
-        return n * n * n;
-      } 
+      if constexpr (Dim == 0) {return 1;} 
+      else if constexpr (Dim == 1) {return n;} 
+      else if constexpr (Dim == 2) {return n*n;} 
+      else if constexpr (Dim == 3) {return n*n*n;} 
       else { // Unreachable for C++23 ( TODO: compilation directive)
         static_assert(Dim < 0 || ~topology::EmbeddableInSpace<Dim>,
                       "Dimension not supported (yet...)");
       }
-    } else if constexpr (n_params == Dim) {
+    } 
+    else if constexpr (n_params == Dim) 
+    {
       return ((num_node_per_direction) * ...);
     };
 }
@@ -113,9 +111,18 @@ static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(co
   IndexTuple md_index; // to return.
 
   std::integral auto num_positions = std::ranges::fold_left(array_limits, 1, std::multiplies<int>());
-  std::integral auto divisor = num_positions/int(array_limits.back()); //TODO: Check if this is integer division or use concepts  
 
-  std::integral auto I = index;
+  try { // TODO: Improve this error handling.
+    if (index >= num_positions) {
+      throw index >= num_positions;
+    }
+  } catch (bool out_of_range) {
+    std::cout << "Index out of range. Returning zero array." << std::endl;
+    return std::array<std::size_t, sizeof...(N)>{0};
+  }
+  
+  std::integral auto divisor = num_positions/int(array_limits.back()); //TODO: Check if this is integer division or use concepts  
+  std::integral auto I       = index;
 
   for (auto n = array_dimension-1; n>0; --n) 
   {
@@ -142,23 +149,40 @@ consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
   return nodes;
 };
 
-
-
 // ==================================================================================================
 
 template <ushort Dim, ushort... n> // n: Number of nodes per direction.
   requires(sizeof...(n) == Dim || sizeof...(n) == 1)
-class Cell { // (Lagrangian Cell?)
+class LagrangianCell { // (Lagrangian Cell?)
   using Point = geometry::Point<Dim>;
 
 private:
+  
   static constexpr std::array<ushort, Dim> nodes_per_direction{n...}; // nx, ny, nz.
+  static constexpr uint n_nodes{n_nodes_<Dim, n...>()};
+  //static constexpr interpolation::LagrangianBasis<n_nodes_<Dim, n...>()}> basis{};
+
 
 public:
-  static constexpr uint n_nodes = n_nodes_<Dim, n...>();
+  
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
 
-  static constexpr void print_nodes() 
+
+  static constexpr auto interpolate(const std::array<double, n_nodes> f_i , auto x) noexcept {
+  // Use Lagrange interpolation
+  };
+
+private:
+  
+  //interpolation::LagrangianBasis<n_nodes> basis{};
+
+public:
+  //static constexpr auto operator()(const std::size_t i) noexcept{
+  //  return reference_nodes[i];
+  //};
+
+
+  static constexpr void print_node_coords() noexcept
   {
     for (auto node : reference_nodes){
       for (auto j: node.coord()){
@@ -169,17 +193,17 @@ public:
   };
 
   // Constructor
-  consteval Cell() {
+  consteval LagrangianCell() noexcept {
     if constexpr (sizeof...(n) == 1) {
       nodes_per_direction.fill(n...);
     }
     
   };
-  constexpr ~Cell(){};
+  constexpr ~LagrangianCell(){};
 };
 // ==================================================================================================
 
-template <unsigned short Dim, unsigned short... Order> class ReferenceCell {};
+//template <unsigned short Dim, unsigned short... Order> class ReferenceCell {};
 
 } // namespace geometry::cell
 
