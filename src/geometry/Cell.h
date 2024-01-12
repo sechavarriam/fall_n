@@ -7,13 +7,12 @@
 //#include <print> //Not yet implemented in Clang.
 #include <iostream>
 #include <ranges>
+#include <tuple>
 
 #include "Point.h"
 #include "Topology.h"
 
 #include "../numerics/Interpolation/LagrangeInterpolation.h"
-
-
 
 
 // Cada uno debe ser un Singleton (Solo debería poderse crear un único objeto de
@@ -73,6 +72,17 @@ coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
 
   return coordinates;
 };
+
+template <ushort Ni>
+static inline constexpr auto equally_spaced_coordinates() 
+{
+  std::array<double, Ni> coordinates;
+  for (auto i = 0; i < Ni; ++i) {
+    coordinates[i] = -1 + i * delta_i(Ni);
+  }
+  return coordinates;
+};
+
 
 
 template <ushort Dim, ushort... n>
@@ -149,11 +159,13 @@ consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
   return nodes;
 };
 
+//inline constexpr std::array<double, 1> xi_coordinates() { return {1.0}; };
+
 // ==================================================================================================
 
 template <ushort Dim, ushort... n> // n: Number of nodes per direction.
-  requires(sizeof...(n) == Dim || sizeof...(n) == 1)
-class LagrangianCell { // (Lagrangian Cell?)
+  requires(sizeof...(n) == Dim)
+class LagrangianCell {
   using Point = geometry::Point<Dim>;
 
 private:
@@ -162,11 +174,28 @@ private:
   static constexpr uint n_nodes{n_nodes_<Dim, n...>()};
   //static constexpr interpolation::LagrangianBasis<n_nodes_<Dim, n...>()}> basis{};
 
+  static constexpr std::tuple<interpolation::LagrangeBasis<n>...> basis
+  {
+    interpolation::LagrangeBasis<n>{equally_spaced_coordinates<n>()}...
+  };
 
 public:
+
+  static constexpr auto L(const std::size_t i, const std::size_t j) noexcept
+  {
+    return std::get<i>(basis)[j];
+  };
+
+
+
+  //static constexpr std::array<Basis, Dim> basis
+  //{ //Braces are needed to initialize the array.
+  //  { //Braces are needed to initialize the set of basis functions un each direction.
+  //    interpolation::LagrangeBasis<n...>( equally_spaced_coordinates(n...) ) 
+  //  } 
+  //};
   
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
-
 
   static constexpr auto interpolate(const std::array<double, n_nodes> f_i , auto x) noexcept {
   // Use Lagrange interpolation
@@ -174,7 +203,7 @@ public:
 
 private:
   
-  //interpolation::LagrangianBasis<n_nodes> basis{};
+  
 
 public:
   //static constexpr auto operator()(const std::size_t i) noexcept{
