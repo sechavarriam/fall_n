@@ -160,57 +160,36 @@ consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
 };
 
 //inline constexpr std::array<double, 1> xi_coordinates() { return {1.0}; };
-
 // ==================================================================================================
 
 template <ushort Dim, ushort... n> // n: Number of nodes per direction.
   requires(sizeof...(n) == Dim)
 class LagrangianCell {
+
   using Point = geometry::Point<Dim>;
 
+  template<ushort... num_nodes_in_each_direction>
+  using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
+
 private:
   
+public:
+
   static constexpr std::array<ushort, Dim> nodes_per_direction{n...}; // nx, ny, nz.
   static constexpr uint n_nodes{n_nodes_<Dim, n...>()};
-
-  //static constexpr interpolation::LagrangianBasis<n_nodes_<Dim, n...>()}> basis{};
-
-  //static constexpr std::tuple<interpolation::LagrangeBasis<n>...> basis
-  //{
-  //  interpolation::LagrangeBasis<n>{equally_spaced_coordinates<n>()}...
-  //};
-
-public:
-
-  //static constexpr auto L_i(const std::size_t i) noexcept
-  //{
-  //  return std::get<i>(basis);
-  //};
+  static constexpr Basis<n...> basis{equally_spaced_coordinates<n...>()};
 
 
 
-  //static constexpr std::array<Basis, Dim> basis
-  //{ //Braces are needed to initialize the array.
-  //  { //Braces are needed to initialize the set of basis functions un each direction.
-  //    interpolation::LagrangeBasis<n...>( equally_spaced_coordinates(n...) ) 
-  //  } 
-  //};
-  
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
 
-  static constexpr auto interpolate(const std::array<double, n_nodes> f_i , auto x) noexcept {
-  // Use Lagrange interpolation
-  };
 
-private:
   
-  
-
-public:
-  //static constexpr auto operator()(const std::size_t i) noexcept{
-  //  return reference_nodes[i];
+  //static constexpr auto interpolate(const std::array<double, n_nodes> f_i , auto x) noexcept {
+  //// Use Lagrange interpolation
   //};
 
+public:
 
   static constexpr void print_node_coords() noexcept
   {

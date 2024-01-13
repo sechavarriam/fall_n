@@ -37,7 +37,10 @@ class LagrangeBasis_1D{ //constexpr funtor
         }; 
     };
 
-    consteval explicit LagrangeBasis_1D(const std::array<double, nPoints>& xCoordinates) noexcept
+    //Default constructor
+    //consteval LagrangeBasis_1D() noexcept = default;
+
+    consteval LagrangeBasis_1D(const std::array<double, nPoints>& xCoordinates) noexcept
      : xPoints{xCoordinates} {};
 
     constexpr ~LagrangeBasis_1D(){};
@@ -55,27 +58,29 @@ class LagrangeBasis_ND{
 
   public:
     std::tuple<Array<Ni>...> coordinates_i{};
-    std::tuple<Basis<Ni>...> basisL_i{};
+
+    std::tuple<Basis<Ni>...> Li{};
+
+    std::invocable auto&& get_function(std::integral auto dim, std::integral auto i) const noexcept
+    {
+        return std::get<dim>(Li)[i];
+    };
+
 
     //Constructor in terms of coordinate arrays.
-    consteval explicit LagrangeBasis_ND(const std::tuple<Array<Ni>...>& xCoordinates) noexcept : 
-        coordinates_i{xCoordinates}, 
-        basisL_i
-        {
-            std::apply(
-                [](auto&&... args)
-                    {
-                        return std::make_tuple(Basis<Ni>{args}...);
-                    },
-                coordinates_i)
-        }
-     {};
+
+    consteval LagrangeBasis_ND(const Array<Ni>&... xCoordinates) noexcept : 
+        coordinates_i{xCoordinates...},
+        Li{Basis<Ni>{xCoordinates}...}
+        {};
+
+
     constexpr ~LagrangeBasis_ND(){};
 
 };
 
 
-
+/*
 inline constexpr auto lagrange_interpolation_1d
 (
     std::ranges::range auto const&&  X,
@@ -105,8 +110,7 @@ inline constexpr auto lagrange_interpolation_1d
             return FX[std::ranges::distance(std::ranges::begin(X), std::ranges::find(X, xi))] * L;
             });
 };
-
-
+*/
 
 }
 
