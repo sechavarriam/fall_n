@@ -172,19 +172,20 @@ private:
   
   static constexpr std::array<ushort, Dim> nodes_per_direction{n...}; // nx, ny, nz.
   static constexpr uint n_nodes{n_nodes_<Dim, n...>()};
+
   //static constexpr interpolation::LagrangianBasis<n_nodes_<Dim, n...>()}> basis{};
 
-  static constexpr std::tuple<interpolation::LagrangeBasis<n>...> basis
-  {
-    interpolation::LagrangeBasis<n>{equally_spaced_coordinates<n>()}...
-  };
+  //static constexpr std::tuple<interpolation::LagrangeBasis<n>...> basis
+  //{
+  //  interpolation::LagrangeBasis<n>{equally_spaced_coordinates<n>()}...
+  //};
 
 public:
 
-  static constexpr auto L(const std::size_t i, const std::size_t j) noexcept
-  {
-    return std::get<i>(basis)[j];
-  };
+  //static constexpr auto L_i(const std::size_t i) noexcept
+  //{
+  //  return std::get<i>(basis);
+  //};
 
 
 

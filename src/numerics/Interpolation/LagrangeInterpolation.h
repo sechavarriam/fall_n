@@ -10,6 +10,7 @@
 
 #include <concepts>
 #include <functional>
+#include <tuple>
 
 //#include "../../utils/constexpr_function.h"
 
@@ -17,7 +18,7 @@
 namespace interpolation{
 
 template<unsigned short nPoints>
-class LagrangeBasis{ //constexpr funtor
+class LagrangeBasis_1D{ //constexpr funtor
 
   std::array<double, nPoints>xPoints{};
 
@@ -36,12 +37,42 @@ class LagrangeBasis{ //constexpr funtor
         }; 
     };
 
-    consteval explicit LagrangeBasis(const std::array<double, nPoints>& xCoordinates) noexcept
+    consteval explicit LagrangeBasis_1D(const std::array<double, nPoints>& xCoordinates) noexcept
      : xPoints{xCoordinates} {};
 
-    constexpr ~LagrangeBasis(){};
+    constexpr ~LagrangeBasis_1D(){};
 };
 
+
+template<unsigned short... Ni>
+class LagrangeBasis_ND{ 
+    
+    template<unsigned short n>
+    using Array = std::array<double, n>;
+    
+    template<unsigned short n>
+    using Basis = interpolation::LagrangeBasis_1D<n>;
+
+  public:
+    std::tuple<Array<Ni>...> coordinates_i{};
+    std::tuple<Basis<Ni>...> basisL_i{};
+
+    //Constructor in terms of coordinate arrays.
+    consteval explicit LagrangeBasis_ND(const std::tuple<Array<Ni>...>& xCoordinates) noexcept : 
+        coordinates_i{xCoordinates}, 
+        basisL_i
+        {
+            std::apply(
+                [](auto&&... args)
+                    {
+                        return std::make_tuple(Basis<Ni>{args}...);
+                    },
+                coordinates_i)
+        }
+     {};
+    constexpr ~LagrangeBasis_ND(){};
+
+};
 
 
 
