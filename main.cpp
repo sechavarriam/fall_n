@@ -83,9 +83,7 @@ int main(){
 
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
-    interpolation::LagrangeBasis_ND<2,3> L2_3({{0.0,1.0},{-1.0, 0.0, 1.0}});
-
-    
+    interpolation::LagrangeBasis_ND<2,3> L2_3({0.0,1.0},{-1.0, 0.0, 1.0});
 
     std::cout << "---------------------------------------" << std::endl;
     for (auto const& i: std::get<0>(L2_3.coordinates_i)){
@@ -100,6 +98,10 @@ int main(){
     std::cout << "---------------------------------------" << std::endl;
     //std::cout << std::get<0>(L2_3.coordinates_i)[0] << std::endl;
 
+    std::cout << std::get<0>(L2_3.Li)[0](0.5) << std::endl;
+    std::cout << std::get<1>(L2_3.Li)[0](0.5) << std::endl;
+    std::cout << "---------------------------------------" << std::endl;
+
     interpolation::LagrangeBasis_1D<2> L2({0.0,1.0});
 
     std::cout << L2[0](0.5) << std::endl;
@@ -107,7 +109,6 @@ int main(){
 
     std::cout << L2[0](0.0) << std::endl;
     std::cout << L2[1](0.0) << std::endl;
-
 
     interpolation::LagrangeBasis_1D<3> L3({-1.0, 0.0, 1.0});
 
