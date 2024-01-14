@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <ranges>
 #include <numeric>
@@ -11,11 +12,12 @@
 #include <concepts>
 #include <functional>
 #include <tuple>
-
+#include <variant>
 //#include "../../utils/constexpr_function.h"
 
 
 namespace interpolation{
+
 
 template<unsigned short nPoints>
 class LagrangeBasis_1D{ //constexpr funtor
@@ -37,15 +39,11 @@ class LagrangeBasis_1D{ //constexpr funtor
         }; 
     };
 
-    //Default constructor
-    //consteval LagrangeBasis_1D() noexcept = default;
-
     consteval LagrangeBasis_1D(const std::array<double, nPoints>& xCoordinates) noexcept
      : xPoints{xCoordinates} {};
 
     constexpr ~LagrangeBasis_1D(){};
 };
-
 
 template<unsigned short... Ni>
 class LagrangeBasis_ND{ 
@@ -56,31 +54,60 @@ class LagrangeBasis_ND{
     template<unsigned short n>
     using Basis = interpolation::LagrangeBasis_1D<n>;
 
+    static constexpr auto Dim = sizeof...(Ni);
+
   public:
+
     std::tuple<Array<Ni>...> coordinates_i{};
+    std::tuple<Basis<Ni>...> L{};  
 
-    std::tuple<Basis<Ni>...> Li{};
-
-    std::invocable auto&& get_function(std::integral auto dim, std::integral auto i) const noexcept
-    {
-        return std::get<dim>(Li)[i];
-    };
-
-
-    //Constructor in terms of coordinate arrays.
+  public:
 
     consteval LagrangeBasis_ND(const Array<Ni>&... xCoordinates) noexcept : 
         coordinates_i{xCoordinates...},
-        Li{Basis<Ni>{xCoordinates}...}
+        L{Basis<Ni>{xCoordinates}...}
         {};
-
 
     constexpr ~LagrangeBasis_ND(){};
 
 };
 
 
+
+
 /*
+
+template<unsigned short... Ni>
+class LagrangeBasis_ND_v2{ 
+    
+    template<unsigned short n>
+    using Array = std::array<double, n>;
+    
+    template<unsigned short n>
+    using Basis = interpolation::LagrangeBasis_1D<n>;
+
+    static constexpr auto Dim = sizeof...(Ni);
+
+  public:
+
+    std::array<std::variant<Array<Ni>...>, Dim> coordinates_i{};
+    //std::array<std::variant<Basis<Ni>>..., Dim> L{};
+
+
+  public:
+  
+    consteval LagrangeBasis_ND_v2(const Array<Ni>&... xCoordinates) noexcept : 
+        coordinates_i{std::variant<Array<Ni>...>{xCoordinates}...}
+        //L{std::variant<Basis<Ni>>{Basis<Ni>{xCoordinates}}...}
+        {};
+
+
+    constexpr ~LagrangeBasis_ND_v2(){};
+
+};
+
+
+
 inline constexpr auto lagrange_interpolation_1d
 (
     std::ranges::range auto const&&  X,
