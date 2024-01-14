@@ -2,6 +2,7 @@
 #define FALL_N_CELL
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdio>
 //#include <print> //Not yet implemented in Clang.
@@ -27,7 +28,7 @@ namespace geometry::cell {
 // Helper function to compute the number of points in the reference cell in
 // terms of the two interpolation orders sintaxes allowed.
 
-template <ushort Dim, ushort... num_node_per_direction>
+template <ushort Dim, ushort... num_node_per_direction> //DEPRECATED.
   requires(sizeof...(num_node_per_direction) == Dim ||
            sizeof...(num_node_per_direction) == 1)
 static consteval std::size_t n_nodes_() {
@@ -73,7 +74,9 @@ coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
   return coordinates;
 };
 
-template <ushort Ni>
+
+
+template <ushort Ni> // TODO: Redefine as policy.
 static inline constexpr auto equally_spaced_coordinates() 
 {
   std::array<double, Ni> coordinates;
@@ -85,9 +88,10 @@ static inline constexpr auto equally_spaced_coordinates()
 
 
 
-template <ushort Dim, ushort... n>
-static inline constexpr Point<Dim> node_ijk(std::array<std::size_t,Dim> md_array) {
-  return Point<Dim>(coordinate_xi<n ...>(md_array));
+template <ushort... n>
+static inline constexpr Point<sizeof...(n)> 
+node_ijk(std::array<std::size_t,sizeof...(n)> md_array) {
+  return Point<sizeof...(n)>(coordinate_xi<n ...>(md_array));
 };
 
 
@@ -146,15 +150,17 @@ static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(co
 }; // Untested. //TODO: Check list_2_md_index and md_index_2_list are inverse functions.
                 //TODO: Check index is in the range of the cell.
   
-template<ushort Dim, ushort... n> requires(sizeof...(n) == Dim)
-consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
-  constexpr std::size_t num_nodes = n_nodes_<Dim, n...>();
+template<ushort... n>
+consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
+  constexpr std::size_t num_nodes = (n * ...);
+
+  static constexpr std::size_t Dim = sizeof...(n);
 
   std::array<Point<Dim>, num_nodes> nodes;
 
   for (auto i = 0; i < num_nodes; ++i) // TODO: Convert loop to range. 
   {
-    nodes[i] = node_ijk<Dim, n...>( list_2_md_index<n...>(i)); 
+    nodes[i] = node_ijk<n...>( list_2_md_index<n...>(i)); 
   }
   return nodes;
 };
@@ -162,11 +168,12 @@ consteval std::array<Point<Dim>, n_nodes_<Dim, n...>()> cell_nodes(){
 //inline constexpr std::array<double, 1> xi_coordinates() { return {1.0}; };
 // ==================================================================================================
 
-template <ushort Dim, ushort... n> // n: Number of nodes per direction.
-  requires(sizeof...(n) == Dim)
+template <ushort... n> // n: Number of nodes per direction.
 class LagrangianCell {
 
-  using Point = geometry::Point<Dim>;
+  static constexpr std::size_t dim = sizeof...(n);
+
+  using Point = geometry::Point<dim>;
 
   template<ushort... num_nodes_in_each_direction>
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
@@ -175,21 +182,29 @@ private:
   
 public:
 
-  static constexpr std::array<ushort, Dim> nodes_per_direction{n...}; // nx, ny, nz.
-  static constexpr uint n_nodes{n_nodes_<Dim, n...>()};
-  static constexpr Basis<n...> basis{equally_spaced_coordinates<n...>()};
+  static constexpr std::array<ushort, dim> nodes_per_direction{n...}; // nx, ny, nz.
 
+  static constexpr uint n_nodes{(n*...)};
 
+  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<dim, n...>()};
 
-  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<Dim, n...>()};
-
-
-  
-  //static constexpr auto interpolate(const std::array<double, n_nodes> f_i , auto x) noexcept {
-  //// Use Lagrange interpolation
-  //};
 
 public:
+
+  static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
+
+
+
+  static inline constexpr auto evaluate_basis_function(const std::array<double,dim>& X) noexcept
+  {
+    return std::apply([&X](auto&&... args) 
+    { 
+      return std::make_tuple(args(X)...); 
+    },
+    basis.L);
+  };
+
+
 
   static constexpr void print_node_coords() noexcept
   {

@@ -56,9 +56,9 @@ int main(){
     //geometry::Cell<dim,1>     C1;
     //geometry::Cell<dim,2,2,2> C2;
 
-    static constexpr uint nx = 5;
-    static constexpr uint ny = 4;    
-    static constexpr uint nz = 3;
+    static constexpr uint nx = 2;
+    static constexpr uint ny = 3;    
+    static constexpr uint nz = 4;
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -78,17 +78,18 @@ int main(){
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
-    constexpr geometry::cell::LagrangianCell<dim, nx,ny,nz> test_cell;
+    constexpr geometry::cell::LagrangianCell<nx,ny,nz> test_cell;
 
 
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
-    interpolation::LagrangeBasis_ND<2,3> L2_3({0.0,1.0},{-1.0, 0.0, 1.0});
+    interpolation::LagrangeBasis_ND   <2,3> L2_3({0.0,1.0},{-1.0, 0.0, 1.0});
 
     std::cout << "---------------------------------------" << std::endl;
     for (auto const& i: std::get<0>(L2_3.coordinates_i)){
         std::cout << i << " ";
     }
+
     std::cout << std::endl;
     std::cout << "---------------------------------------" << std::endl;
     for (auto const& i: std::get<1>(L2_3.coordinates_i)){
@@ -98,8 +99,12 @@ int main(){
     std::cout << "---------------------------------------" << std::endl;
     //std::cout << std::get<0>(L2_3.coordinates_i)[0] << std::endl;
 
-    std::cout << std::get<0>(L2_3.Li)[0](0.5) << std::endl;
-    std::cout << std::get<1>(L2_3.Li)[0](0.5) << std::endl;
+    std::cout << std::get<0>(L2_3.L)[0](0.5) << std::endl;
+    std::cout << std::get<1>(L2_3.L)[0](0.5) << std::endl;
+
+    //std::cout << L2_3.Li(0)[0](0.5) << std::endl;
+
+    //std::cout << std::invoke(L2_3.get_function(0,0), 0.5) << std::endl;
     std::cout << "---------------------------------------" << std::endl;
 
     interpolation::LagrangeBasis_1D<2> L2({0.0,1.0});
@@ -116,9 +121,10 @@ int main(){
     std::cout << L3[1](0.5) << std::endl;
     std::cout << L3[2](0.5) << std::endl;
 
-    
+    std::cout << "-- TEST CELL ---------------------------------" << std::endl;
 
-    //std::cout << test_cell.L(0,0.5) << std::endl;
+    std::cout << std::get<0>(test_cell.basis.L)[0](0.5) << std::endl;
+    //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
 
 
 
