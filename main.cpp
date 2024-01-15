@@ -124,7 +124,15 @@ int main(){
     std::cout << "-- TEST CELL ---------------------------------" << std::endl;
 
     std::cout << std::get<0>(test_cell.basis.L)[0](0.5) << std::endl;
+    
+    std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
+
+    decltype(auto) F = interpolation::LagrangeInterpolator_1D<2>{ {-1.0, 1.0} , {2.0,4.0} };
+    std::cout << F(0) << std::endl;
+
+
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
+
 
 
 
