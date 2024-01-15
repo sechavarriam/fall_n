@@ -45,6 +45,81 @@ class LagrangeBasis_1D{ //constexpr funtor
     constexpr ~LagrangeBasis_1D(){};
 };
 
+
+template<unsigned short nPoints>
+class LagrangeInterpolator_1D{
+    
+    using Array = std::array<double, nPoints>;
+    using Basis = LagrangeBasis_1D<nPoints>;
+
+    Basis L      {}; // Owing or reference? 
+    Array yValues{};
+
+    public:
+    
+
+    constexpr double operator()(double x) const noexcept
+    {
+        auto value = 0;
+        for (auto i = 0; i < nPoints; ++i)
+        {
+            value += yValues[i] * L[i](x);
+        }
+        return value;
+    };
+
+    consteval LagrangeInterpolator_1D(const Array& xPoints_, const Array& yValues_) noexcept:
+        L{std::forward<const Array&>(xPoints_)},
+        yValues{yValues_} 
+        {};
+
+    consteval LagrangeInterpolator_1D(const Basis& basis_, const Array& yValues_ ) noexcept:
+        L{basis_},
+        yValues{yValues_} 
+        {};
+
+    constexpr ~LagrangeInterpolator_1D(){};
+
+
+};
+
+
+
+
+template <class Tuple, class F> // From https://www.fluentcpp.com/2021/03/05/stdindex_sequence-and-its-improvement-in-c20/
+                                // TODO: Move to utils folder and namespace.
+    constexpr decltype(auto) for_each(Tuple&& tuple, F&& f)
+    {
+        return [] <std::size_t... I>
+        (Tuple&& tuple, F&& f, std::index_sequence<I...>)
+        {
+            (f(std::get<I>(tuple)), ...);
+            return f;
+        } // End of lambda
+        (/*inmediate invocation (use std::invoke to clarify?)*/
+            std::forward<Tuple>(tuple),
+            std::forward<F>(f),
+            std::make_index_sequence<std::tuple_size<std::remove_reference_t<Tuple>>::value>{}
+        );
+    }
+
+template <class Tuple, class Array, class F> // TODO: requires size of tuple = size of array
+    constexpr decltype(auto) for_each_tuple_each_arrayelem(Tuple&& tuple, Array&& array, F&& f)
+    {
+        return [] <std::size_t... I>
+        (Tuple&& tuple, Array&& array, F&& f, std::index_sequence<I...>)
+        {
+            (f(std::get<I>(tuple), array[I]), ...);
+            return f;
+        } // End of lambda
+        (/*inmediate invocation (use std::invoke to clarify?)*/
+            std::forward<Tuple>(tuple),
+            std::forward<Array>(array),
+            std::forward<F>(f),
+            std::make_index_sequence<std::tuple_size<std::remove_reference_t<Tuple>>::value>{}
+        );
+    }
+
 template<unsigned short... Ni>
 class LagrangeBasis_ND{ 
     
@@ -54,14 +129,23 @@ class LagrangeBasis_ND{
     template<unsigned short n>
     using Basis = interpolation::LagrangeBasis_1D<n>;
 
-    static constexpr auto Dim = sizeof...(Ni);
+    static constexpr auto dim = sizeof...(Ni);
 
   public:
 
     std::tuple<Array<Ni>...> coordinates_i{};
     std::tuple<Basis<Ni>...> L{};  
 
-  public:
+
+    constexpr decltype(auto) evaluate_basis_function (const Array<dim>& X) const noexcept
+    {
+        return for_each_tuple_each_arrayelem(L, X,
+            [](auto&& basis, auto&& x){
+                return basis[x];
+                }
+            );
+    };
+
 
     consteval LagrangeBasis_ND(const Array<Ni>&... xCoordinates) noexcept : 
         coordinates_i{xCoordinates...},
@@ -73,71 +157,6 @@ class LagrangeBasis_ND{
 };
 
 
-
-
-/*
-
-template<unsigned short... Ni>
-class LagrangeBasis_ND_v2{ 
-    
-    template<unsigned short n>
-    using Array = std::array<double, n>;
-    
-    template<unsigned short n>
-    using Basis = interpolation::LagrangeBasis_1D<n>;
-
-    static constexpr auto Dim = sizeof...(Ni);
-
-  public:
-
-    std::array<std::variant<Array<Ni>...>, Dim> coordinates_i{};
-    //std::array<std::variant<Basis<Ni>>..., Dim> L{};
-
-
-  public:
-  
-    consteval LagrangeBasis_ND_v2(const Array<Ni>&... xCoordinates) noexcept : 
-        coordinates_i{std::variant<Array<Ni>...>{xCoordinates}...}
-        //L{std::variant<Basis<Ni>>{Basis<Ni>{xCoordinates}}...}
-        {};
-
-
-    constexpr ~LagrangeBasis_ND_v2(){};
-
-};
-
-
-
-inline constexpr auto lagrange_interpolation_1d
-(
-    std::ranges::range auto const&&  X,
-    std::ranges::range auto const&& FX,
-    auto const&& x
-)
-{
-    return std::transform_reduce
-    (
-        std::ranges::begin(X), 
-        std::ranges::end(X),
-        0.0,
-        std::plus{},
-        [&](auto xi) 
-            {
-            auto L = std::transform_reduce
-            (
-                std::ranges::begin(X),
-                std::ranges::end(X),
-                1.0,
-                std::multiplies{},
-                [x, xi](auto xj)
-                {
-                    return xi != xj ? (x - xj) / (xi - xj) : 1.0; 
-                }
-            );
-            return FX[std::ranges::distance(std::ranges::begin(X), std::ranges::find(X, xi))] * L;
-            });
-};
-*/
 
 }
 

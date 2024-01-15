@@ -171,27 +171,24 @@ consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 template <ushort... n> // n: Number of nodes per direction.
 class LagrangianCell {
 
-  static constexpr std::size_t dim = sizeof...(n);
+  static constexpr std::size_t dim    {sizeof...(n)};
+  static constexpr std::size_t n_nodes{(n*...)};
+
 
   using Point = geometry::Point<dim>;
-
+  
   template<ushort... num_nodes_in_each_direction>
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
 
-private:
+
+
   
 public:
-
-  static constexpr std::array<ushort, dim> nodes_per_direction{n...}; // nx, ny, nz.
-
-  static constexpr uint n_nodes{(n*...)};
-
-  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<dim, n...>()};
-
-
-public:
+  
+  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<n...>()};
 
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
+
 
 
 
@@ -205,7 +202,6 @@ public:
   };
 
 
-
   static constexpr void print_node_coords() noexcept
   {
     for (auto node : reference_nodes){
@@ -217,12 +213,8 @@ public:
   };
 
   // Constructor
-  consteval LagrangianCell() noexcept {
-    if constexpr (sizeof...(n) == 1) {
-      nodes_per_direction.fill(n...);
-    }
+  consteval LagrangianCell() = default;
     
-  };
   constexpr ~LagrangianCell(){};
 };
 // ==================================================================================================
