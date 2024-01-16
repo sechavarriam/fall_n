@@ -7,6 +7,7 @@
 #include <numeric>
 #include <algorithm>
 #include <ranges>
+#include<tuple>
 
 #include"header_files.h"
 
@@ -42,7 +43,6 @@
 #include "src/numerics/Polynomial.h"
 #include "src/numerics/Vector.h"
 
-#include "src/utils/constexpr_function.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -52,13 +52,6 @@ int main(){
     static constexpr int dim = 3;
 
     //constexpr geometry::cell::LagrangianCell<dim, 1, 1, 2> C1;
-
-    //geometry::Cell<dim,1>     C1;
-    //geometry::Cell<dim,2,2,2> C2;
-
-    static constexpr uint nx = 2;
-    static constexpr uint ny = 3;    
-    static constexpr uint nz = 4;
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -78,11 +71,32 @@ int main(){
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
-    constexpr geometry::cell::LagrangianCell<nx,ny,nz> test_cell;
 
+    static constexpr uint nx = 2;
+    static constexpr uint ny = 3;    
+    static constexpr uint nz = 4;
+    constexpr geometry::cell::LagrangianCell<nx,ny,nz> test_cell;
 
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
+
+    auto tup_test{std::make_tuple(1,2.0,3,4,5,6,7,8,9,10)};
+    auto ary_test{std::array{2,4,6,8,10,12,14,16,18,20}};
+
+    auto f = [](auto const& x){return x*x;};
+
+    interpolation::for_each(tup_test, [&f](auto const& i){std::cout << f(i) << " ";});
+    std::cout << std::endl;
+
+    interpolation::for_each(ary_test, [&f](auto const& i){std::cout << f(i) << " ";});
+    std::cout << std::endl;
+
+    std::cout << std::get<1>(tup_test) << std::endl;
+
+
+    std::cout << "===================================================" << std::endl;
+
+/*
     interpolation::LagrangeBasis_ND   <2,3> L2_3({0.0,1.0},{-1.0, 0.0, 1.0});
 
     std::cout << "---------------------------------------" << std::endl;
@@ -120,6 +134,7 @@ int main(){
     std::cout << L3[0](0.5) << std::endl;
     std::cout << L3[1](0.5) << std::endl;
     std::cout << L3[2](0.5) << std::endl;
+*/
 
     std::cout << "-- TEST CELL ---------------------------------" << std::endl;
 
@@ -129,6 +144,13 @@ int main(){
 
     decltype(auto) F = interpolation::LagrangeInterpolator_1D<2>{ {-1.0, 1.0} , {2.0,4.0} };
     std::cout << F(0) << std::endl;
+
+    std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
+    
+    static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
+
+    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.0, 0.0, 0.0});
+    //std::cout << F2_2({0.5,0.5}) << std::endl;
 
 
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;

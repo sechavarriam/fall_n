@@ -115,7 +115,7 @@ requires(sizeof...(N) == sizeof...(ijk))
 }; // NOTE: Untested.
 
 
-template <ushort... N> //<Nx, Ny, Nz ,...>
+template <ushort... N> //<Nx, Ny, Nz ,...> // TODO: Put and classify in utils.
 static inline constexpr std::array<std::size_t, sizeof...(N)> list_2_md_index(const int index) {
   using IndexTuple = std::array<std::size_t, sizeof...(N)>;
 
