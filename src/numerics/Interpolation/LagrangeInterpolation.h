@@ -168,7 +168,7 @@ class LagrangeInterpolator_ND { // In regular grid (define as policy?)
   template <unsigned short... n>
   using Basis = interpolation::LagrangeBasis_ND<n...>;
 
-  static constexpr auto dim = sizeof...(Ni);
+  static constexpr std::size_t dim = sizeof...(Ni);
 
   // Using structured bindings ?
 
@@ -182,8 +182,8 @@ public:
     for (auto i = 0; i < (Ni * ...); ++i) {
       auto md_index = list_2_md_index<Ni...>(i);
 
-      value +=[&]<std::size_t... I>(const auto &x, std::index_sequence<dim>){// Templated Lambda
-          (std::get<I>(basis).L[md_index[I]](x[I]) *...); // Fold expression
+      value +=[&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){// Templated Lambda
+          return (std::get<I>(basis.L)[md_index[I]](x[I]) * ...); // Fold expression
           }(                                              // Inmediate invocation
           std::forward<const Array<dim> &>(X),
           std::make_index_sequence<dim>{});
