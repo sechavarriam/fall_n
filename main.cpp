@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <ranges>
 #include<tuple>
+#include<utility>
 
 #include"header_files.h"
 
@@ -150,7 +151,7 @@ int main(){
     static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
 
     interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.0, 0.0, 0.0});
-    //std::cout << F2_2({0.5,0.5}) << std::endl;
+    std::cout << F2_2({0.5,0.5}) << std::endl;
 
 
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
