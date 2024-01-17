@@ -74,8 +74,6 @@ coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
   return coordinates;
 };
 
-
-
 template <ushort Ni> // TODO: Redefine as policy.
 static inline constexpr auto equally_spaced_coordinates() 
 {
@@ -179,8 +177,6 @@ class LagrangianCell {
   
   template<ushort... num_nodes_in_each_direction>
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
-
-
 
   
 public:
