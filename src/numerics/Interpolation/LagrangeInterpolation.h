@@ -103,11 +103,10 @@ constexpr decltype(auto) for_each_tuple_pair(Tuple &&tuple, Array &&array,
              std::tuple_size<std::remove_reference_t<Tuple>>::value>{});
 }
 
-template <unsigned short... Ni> class LagrangeBasis_ND {
+template <std::size_t... Ni> class LagrangeBasis_ND {
 
-  template <unsigned short n> using Array = std::array<double, n>;
-
-  template <unsigned short n> using Basis = interpolation::LagrangeBasis_1D<n>;
+  template <std::size_t n> using Array = std::array<double, n>;
+  template <std::size_t n> using Basis = interpolation::LagrangeBasis_1D<n>;
 
   static constexpr auto dim = sizeof...(Ni);
 
@@ -183,7 +182,7 @@ public:
       auto md_index = list_2_md_index<Ni...>(i);
 
       value +=[&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){// Templated Lambda
-          return (std::get<I>(basis.L)[md_index[I]](x[I]) * ...); // Fold expression
+          return (fValues[i]*(std::get<I>(basis.L)[md_index[I]](x[I]) * ... )); // Fold expression
           }(                                              // Inmediate invocation
           std::forward<const Array<dim> &>(X),
           std::make_index_sequence<dim>{});

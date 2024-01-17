@@ -44,12 +44,45 @@
 #include "src/numerics/Polynomial.h"
 #include "src/numerics/Vector.h"
 
+#include "matplotlibcpp.h"
+
+#include "Eigen/Dense"
+
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 
+
+
 int main(){
+
+    namespace plt = matplotlibcpp;
+
+    Eigen::VectorXd x = Eigen::VectorXd::LinSpaced(200, 0, 6);
+    Eigen::VectorXd y, z;
+
+    // y = exp(sin(x)), z = exp(cos(z))
+    y = x.array().sin().exp().matrix();
+    z = x.array().cos().exp().matrix();
+
+    // Convert Eigen::Vector to std::vector
+    auto X = std::vector<double>(x.data(), x.data() + x.size());
+    auto Y = std::vector<double>(y.data(), y.data() + y.size());
+    auto Z = std::vector<double>(z.data(), z.data() + z.size());
+
+    plt::figure();
+
+    plt::semilogx(X, Y, "tab:red");
+    plt::semilogx(X, Z, "tab:blue");
+
+    plt::xlabel("Time in lecture");
+    plt::ylabel("Student confusion");
+
+    //plt::grid();
+    plt::show(); // show the figure instead of saving it
+
+
     static constexpr int dim = 3;
 
     //constexpr geometry::cell::LagrangianCell<dim, 1, 1, 2> C1;
@@ -71,7 +104,6 @@ int main(){
     auto integrationScheme = [](auto const & e){/**integrate*/};
     
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
-
 
     static constexpr uint nx = 2;
     static constexpr uint ny = 3;    
@@ -151,6 +183,7 @@ int main(){
     static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
 
     interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.0, 0.0, 0.0});
+    
     std::cout << F2_2({0.5,0.5}) << std::endl;
 
 

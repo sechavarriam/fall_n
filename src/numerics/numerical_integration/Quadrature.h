@@ -17,8 +17,11 @@
 // a Function Template?
 typedef unsigned short ushort;
 
-template<ushort Dim,ushort Order> using defaultWeightContainer = std::array<double, Order*Dim>;
-template<ushort Dim,ushort Order> using defaultPointsContainer = std::array<double, Order*Dim>;
+template<ushort Dim,ushort Order> 
+using defaultWeightContainer = std::array<double, Order*Dim>;
+
+template<ushort Dim,ushort Order> 
+using defaultPointsContainer = std::array<double, Order*Dim>;
 
 template<ushort Dim, ushort Order, typename W=defaultWeightContainer<Dim,Order>, typename P=defaultPointsContainer<Dim,Order>>
 class Quadrature{
@@ -28,7 +31,7 @@ class Quadrature{
   public:
 
    template<typename F>
-   double operator()(F function2eval){
+   constexpr double operator()(F function2eval){
        return std::inner_product(
            weights_.begin(),weights_.end(),
            evalPoints_.begin(), 
@@ -51,23 +54,23 @@ class Quadrature{
    //};
 
 
-    Quadrature(){};
+    constexpr Quadrature(){};
 
     //Quadrature(W w, P p):weights_(w),evalPoints_(p){
     //    std::cout << "value constructor called." << std::endl;
     //} ;
 
-    Quadrature(const W& w,const P& p):weights_(w),evalPoints_(p){
+    constexpr Quadrature(const W& w,const P& p):weights_(w),evalPoints_(p){
         std::cout << "ref constructor called." << std::endl;
     } ;
     
-    Quadrature(W&& w, P&& p):
+    constexpr Quadrature(W&& w, P&& p):
         weights_(std::forward<W>(w)),
         evalPoints_(std::forward<P>(p)){
             std::cout << "rvalue ref constructor called." <<std::endl;
         } ;
     
-    ~Quadrature(){};
+    constexpr ~Quadrature(){};
 
 };
 
