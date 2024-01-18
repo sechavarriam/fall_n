@@ -12,7 +12,6 @@
 
 #include"header_files.h"
 
-#include "src/GeneralConcepts.h"
 
 
 #include "src/domain/IntegrationPoint.h"
@@ -83,61 +82,9 @@ int main(){
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
 
-    auto tup_test{std::make_tuple(1,2.0,3,4,5,6,7,8,9,10)};
-    auto ary_test{std::array{2,4,6,8,10,12,14,16,18,20}};
-
-    auto f = [](auto const& x){return x*x;};
-
-    interpolation::for_each(tup_test, [&f](auto const& i){std::cout << f(i) << " ";});
-    std::cout << std::endl;
-
-    interpolation::for_each(ary_test, [&f](auto const& i){std::cout << f(i) << " ";});
-    std::cout << std::endl;
-
-    std::cout << std::get<1>(tup_test) << std::endl;
-
 
     std::cout << "===================================================" << std::endl;
 
-/*
-    interpolation::LagrangeBasis_ND   <2,3> L2_3({0.0,1.0},{-1.0, 0.0, 1.0});
-
-    std::cout << "---------------------------------------" << std::endl;
-    for (auto const& i: std::get<0>(L2_3.coordinates_i)){
-        std::cout << i << " ";
-    }
-
-    std::cout << std::endl;
-    std::cout << "---------------------------------------" << std::endl;
-    for (auto const& i: std::get<1>(L2_3.coordinates_i)){
-        std::cout << i << " ";
-    }
-    std::cout << std::endl;
-    std::cout << "---------------------------------------" << std::endl;
-    //std::cout << std::get<0>(L2_3.coordinates_i)[0] << std::endl;
-
-    std::cout << std::get<0>(L2_3.L)[0](0.5) << std::endl;
-    std::cout << std::get<1>(L2_3.L)[0](0.5) << std::endl;
-
-    //std::cout << L2_3.Li(0)[0](0.5) << std::endl;
-
-    //std::cout << std::invoke(L2_3.get_function(0,0), 0.5) << std::endl;
-    std::cout << "---------------------------------------" << std::endl;
-
-    interpolation::LagrangeBasis_1D<2> L2({0.0,1.0});
-
-    std::cout << L2[0](0.5) << std::endl;
-    std::cout << L2[1](0.5) << std::endl;
-
-    std::cout << L2[0](0.0) << std::endl;
-    std::cout << L2[1](0.0) << std::endl;
-
-    interpolation::LagrangeBasis_1D<3> L3({-1.0, 0.0, 1.0});
-
-    std::cout << L3[0](0.5) << std::endl;
-    std::cout << L3[1](0.5) << std::endl;
-    std::cout << L3[2](0.5) << std::endl;
-*/
 
     std::cout << "-- TEST CELL ---------------------------------" << std::endl;
 
@@ -156,43 +103,25 @@ int main(){
     
     std::cout << F2_2({0.5,0.5}) << std::endl;
 
+    static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
+
+    interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
+                                                            5,-5,3,
+                                                            2,3,4,
+                                                            1,2,3});
+
+
     using namespace matplot;
-    auto [X, Y] = meshgrid(linspace(0, 1, 100), linspace(0, 1, 100));
+    auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
     auto Z = transform(X, Y, [=](double x, double y) {
-        return F2_2({x,y});
+        return F3_4({x,y});
     });
     surf(X, Y, Z);
 
     show();
 
-    //std::vector<std::vector<double>> x, y, z;
-    //for (double i = 0; i <= 1;  i += 0.01) {
-    //    std::vector<double> x_row, y_row, z_row;
-    //    for (double j = 0; j <= 1; j += 0.01) {
-    //        x_row.push_back(i);
-    //        y_row.push_back(j);
-    //        z_row.push_back(F2_2({i,j}));
-    //    }
-    //    x.push_back(x_row);
-    //    y.push_back(y_row);
-    //    z.push_back(z_row);
-    //}
-//
-    //plt::plot_surface(x, y, z);
-    //plt::show();
-
-
-
-    
-    
-
-
 
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
-
-
-
-
     //std::cout << LinearInterpolant({0.0,1.0}, 0.5) << std::endl;
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
@@ -210,7 +139,6 @@ int main(){
     //integrate(test4);
     //integrate(test5);
     //integrate(test6);
-
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
     //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});
     //D.make_element<ElementBase<dim,7 ,42> > (5 , {1,2,3,4,5,6,7});
