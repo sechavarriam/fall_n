@@ -44,44 +44,14 @@
 #include "src/numerics/Polynomial.h"
 #include "src/numerics/Vector.h"
 
-#include "matplotlibcpp.h"
-
-#include "Eigen/Dense"
+#include <matplot/matplot.h>
 
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
 
-
-
 int main(){
-
-    namespace plt = matplotlibcpp;
-
-    Eigen::VectorXd x = Eigen::VectorXd::LinSpaced(200, 0, 6);
-    Eigen::VectorXd y, z;
-
-    // y = exp(sin(x)), z = exp(cos(z))
-    y = x.array().sin().exp().matrix();
-    z = x.array().cos().exp().matrix();
-
-    // Convert Eigen::Vector to std::vector
-    auto X = std::vector<double>(x.data(), x.data() + x.size());
-    auto Y = std::vector<double>(y.data(), y.data() + y.size());
-    auto Z = std::vector<double>(z.data(), z.data() + z.size());
-
-    plt::figure();
-
-    plt::semilogx(X, Y, "tab:red");
-    plt::semilogx(X, Z, "tab:blue");
-
-    plt::xlabel("Time in lecture");
-    plt::ylabel("Student confusion");
-
-    //plt::grid();
-    plt::show(); // show the figure instead of saving it
-
 
     static constexpr int dim = 3;
 
@@ -182,9 +152,40 @@ int main(){
     
     static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
 
-    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.0, 0.0, 0.0});
+    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
     
     std::cout << F2_2({0.5,0.5}) << std::endl;
+
+    using namespace matplot;
+    auto [X, Y] = meshgrid(linspace(0, 1, 100), linspace(0, 1, 100));
+    auto Z = transform(X, Y, [=](double x, double y) {
+        return F2_2({x,y});
+    });
+    surf(X, Y, Z);
+
+    show();
+
+    //std::vector<std::vector<double>> x, y, z;
+    //for (double i = 0; i <= 1;  i += 0.01) {
+    //    std::vector<double> x_row, y_row, z_row;
+    //    for (double j = 0; j <= 1; j += 0.01) {
+    //        x_row.push_back(i);
+    //        y_row.push_back(j);
+    //        z_row.push_back(F2_2({i,j}));
+    //    }
+    //    x.push_back(x_row);
+    //    y.push_back(y_row);
+    //    z.push_back(z_row);
+    //}
+//
+    //plt::plot_surface(x, y, z);
+    //plt::show();
+
+
+
+    
+    
+
 
 
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
