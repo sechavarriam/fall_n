@@ -11,12 +11,12 @@
 #include <numeric>
 #include <ranges>
 
-#include <concepts>
-#include <functional>
+
 #include <tuple>
 #include <utility>
 
-// #include "../../utils/constexpr_function.h"
+
+#include "../../utils/index.hh"
 
 namespace interpolation {
 
@@ -74,35 +74,6 @@ public:
   constexpr ~LagrangeInterpolator_1D(){};
 };
 
-template <
-    class Tuple, class
-    F> // From
-       // https://www.fluentcpp.com/2021/03/05/stdindex_sequence-and-its-improvement-in-c20/
-       // TODO: Move to utils folder and namespace.
-       constexpr decltype(auto) for_each(Tuple &&tuple, F &&f) {
-  return []<std::size_t... I>(Tuple &&tuple, F &&f, std::index_sequence<I...>) {
-    (f(std::get<I>(tuple)), ...);
-    return f;
-  } // End of lambda
-  ( /*inmediate invocation (use std::invoke to clarify?)*/
-   std::forward<Tuple>(tuple), std::forward<F>(f),
-   std::make_index_sequence<
-       std::tuple_size<std::remove_reference_t<Tuple>>::value>{});
-}
-
-template <class Tuple, class Array,
-          class F> // TODO: requires size of tuple = size of array
-constexpr decltype(auto) for_each_tuple_pair(Tuple &&tuple, Array &&array,
-                                             F &&f) {
-  return []<std::size_t... I>(Tuple &&tuple, Array &&array, F &&f,
-                              std::index_sequence<I...>) {
-    (f(std::get<I>(tuple), std::get<I>(array)), ...);
-    return f;
-  }(std::forward<Tuple>(tuple), std::forward<Array>(array), std::forward<F>(f),
-         std::make_index_sequence<
-             std::tuple_size<std::remove_reference_t<Tuple>>::value>{});
-}
-
 template <std::size_t... Ni> class LagrangeBasis_ND {
 
   template <std::size_t n> using Array = std::array<double, n>;
@@ -120,44 +91,7 @@ public:
   constexpr ~LagrangeBasis_ND(){};
 };
 
-template <ushort... N> //<Nx, Ny, Nz ,...> // TODO: Put and classify in utils.
-static inline constexpr std::array<std::size_t, sizeof...(N)>
-list_2_md_index(const int index) {
-  using IndexTuple = std::array<std::size_t, sizeof...(N)>;
 
-  constexpr std::size_t array_dimension = sizeof...(N);
-
-  IndexTuple array_limits{N...};
-  IndexTuple md_index; // to return.
-
-  std::integral auto num_positions =
-      std::ranges::fold_left(array_limits, 1, std::multiplies<int>());
-
-  try { // TODO: Improve this error handling.
-    if (index >= num_positions) {
-      throw index >= num_positions;
-    }
-  } catch (bool out_of_range) {
-    std::cout << "Index out of range. Returning zero array." << std::endl;
-    return std::array<std::size_t, sizeof...(N)>{0};
-  }
-
-  std::integral auto divisor =
-      num_positions /
-      int(array_limits.back()); // TODO: Check if this is integer division or
-                                // use concepts
-  std::integral auto I = index;
-
-  for (auto n = array_dimension - 1; n > 0; --n) {
-    md_index[n] =
-        I / divisor; // TODO: Check if this is integer division or use concepts
-    I %= divisor;
-    divisor /= array_limits[n - 1];
-  }
-  md_index[0] = I;
-
-  return md_index;
-}; // TODO:  IN CELL TOO (REMOVE BOTH AND MOVE TO UTILS)
 
 template <unsigned short... Ni>
 class LagrangeInterpolator_ND { // In regular grid (define as policy?)
@@ -179,7 +113,7 @@ public:
     std::floating_point auto value{0.0};
 
     for (auto i = 0; i < (Ni * ...); ++i) {
-      auto md_index = list_2_md_index<Ni...>(i);
+      auto md_index = utils::list_2_md_index<Ni...>(i);
 
       value +=[&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){// Templated Lambda
           return (fValues[i]*(std::get<I>(basis.L)[md_index[I]](x[I]) * ... )); // Fold expression
