@@ -51,7 +51,7 @@ class ElementBase{
     void compute_damping_matrix(){};              //Policy
 
   private:
-    uint id_ ; //tag
+    std::size_t id_ ; //tag
 
     //Array of node tags
     std::array<ushort,nNodes> nodes_; 

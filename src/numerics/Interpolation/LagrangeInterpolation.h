@@ -45,7 +45,7 @@ public:
   constexpr ~LagrangeBasis_1D(){};
 };
 
-template <unsigned short nPoints> class LagrangeInterpolator_1D {
+template <std::size_t nPoints> class LagrangeInterpolator_1D {
 
   using Array = std::array<double, nPoints>;
   using Basis = LagrangeBasis_1D<nPoints>;
