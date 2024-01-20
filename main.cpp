@@ -23,6 +23,7 @@
 #include "src/domain/DoF.h"
 
 
+#include "src/domain/elements/LagrangeElement.hh"
 #include "src/geometry/geometry.h"
 #include "src/geometry/Topology.h"
 #include "src/geometry/Cell.h"
@@ -81,35 +82,40 @@ int main(){
 
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
+    LagrangeElement<nx,ny,nz> E1;
 
 
-    std::cout << "===================================================" << std::endl;
 
-
-    std::cout << "-- TEST CELL ---------------------------------" << std::endl;
-
-    std::cout << std::get<0>(test_cell.basis.L)[0](0.5) << std::endl;
-    
+/*  
     std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
 
     decltype(auto) F = interpolation::LagrangeInterpolator_1D<2>{ {-1.0, 1.0} , {2.0,4.0} };
-    std::cout << F(0) << std::endl;
 
+    decltype(auto) f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-1.0, 1.0}} , {2.0,4.0}};
+    
+    using namespace matplot;
+    auto x = linspace(-1.0 , 1.0, 100);
+    auto y = transform(x, [=](double x) { return F(x); });
+    auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
+    plot(x, y);
+    //plot(x, z);
+    show();
+*/
+
+
+  
+
+/*
     std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
     
     static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
-
     interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
-    
     std::cout << F2_2({0.5,0.5}) << std::endl;
-
     static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
-
     interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
                                                             5,-5,3,
                                                             2,3,4,
                                                             1,2,3});
-
 
     using namespace matplot;
     auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
@@ -117,9 +123,8 @@ int main(){
         return F3_4({x,y});
     });
     surf(X, Y, Z);
-
     show();
-
+*/
 
     //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
     //std::cout << LinearInterpolant({0.0,1.0}, 0.5) << std::endl;
