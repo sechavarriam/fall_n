@@ -14,12 +14,12 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim, ushort nDoF=Dim> 
+template<std::size_t Dim>//, ushort nDoF=Dim> 
 class Node : public geometry::Point<Dim>{
 
  private:
 
-    uint id_ ; 
+    std::size_t id_ ; 
 
  // DOF?
 

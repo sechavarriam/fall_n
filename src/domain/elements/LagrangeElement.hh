@@ -1,41 +1,48 @@
-#ifndef FALL_N_LAGRANGIAN_FINITE_ELEMENT  
+#ifndef FALL_N_LAGRANGIAN_FINITE_ELEMENT
 #define FALL_N_LAGRANGIAN_FINITE_ELEMENT
 
 #include <array>
 #include <cstddef>
-
+#include <memory>
+#include <variant>
 
 #include "../Node.h"
 
-//#include "../../geometry/ReferenceElement.h"
-//#include "../../numerics/Interpolation/LagrangeInterpolation.h"
-//#include "../../numerics/numerical_integration/Quadrature.h"
-//#include "../../numerics/numerical_integration/GaussLegendreNodes.h"
-//#include "../../numerics/numerical_integration/GaussLegendreWeights.h"
-//#include "../../numerics/Polynomial.h"
-//#include "../../numerics/Vector.h"
+#include "../../geometry/Cell.h"
 
+#include "../Domain.h" //?
 
+template <std::size_t... N> class LagrangeElement {
+  // using Node_ID       = std::variant<Node<sizeof...(N)>*, std::size_t>;
+  using ReferenceCell = geometry::cell::LagrangianCell<N...>;
 
-template<std::size_t... N>
-class LagrangeElement
-{
-static inline constexpr std::size_t dim       = sizeof...(N);
-static inline constexpr std::size_t num_nodes = (... * N);
+  static inline constexpr std::size_t dim = sizeof...(N);
+  static inline constexpr std::size_t num_nodes = (... * N);
 
-std::size_t id_;
+  std::array<Node<dim> *, num_nodes> nodes_;
 
-std::array<Node<dim>, num_nodes> nodes_;
+  std::shared_ptr<ReferenceCell> reference_element_{
+      std::make_shared<ReferenceCell>()};
 
-  public:
-    LagrangeElement() = default;
+public:
+  
+  void print_node_coords() noexcept {
+    for (auto node : nodes_) {
+      for (auto j : node->coord()) {
+        std::cout << j << " ";
+      };
+      printf("\n");
+    }
+  };
 
-    LagrangeElement(std::array<Node<dim>, num_nodes> nodes) : nodes_(nodes){};
+  // LagrangeElement() = default;
 
+  LagrangeElement(std::array<Node<dim> *, num_nodes> nodes)
+      : nodes_{std::forward<std::array<Node<dim> *, num_nodes>>(nodes)} {};
 
-    ~LagrangeElement() = default;
+  LagrangeElement();
 
+  ~LagrangeElement() = default;
 };
-
 
 #endif
