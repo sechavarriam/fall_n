@@ -2,6 +2,7 @@
 #define FN_DOMAIN
 
 
+#include <cstddef>
 #include <functional>
 #include <utility>
 #include <optional>
@@ -26,19 +27,25 @@ namespace domain{
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim> requires topology::EmbeddableInSpace<Dim>
+template<std::size_t Dim> //requires topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
 
-    uint num_nodes_{0};
-    uint num_elements_{0};
+    static constexpr std::size_t dim = Dim;
+
+    std::size_t num_nodes_{0};
+    std::size_t num_elements_{0};
     
-    public:
-    std::vector<Node<Dim>> nodes_     ; //Could have an init preallocating parameter for eficiency!
-    std::vector<double>    dof_vector_;
+    std::vector<Node<dim>> nodes_     ; 
+    std::vector<Element  > elements_  ; 
+
+    std::vector<double>  dof_vector_; //??
+
 
   public:
 
-    std::vector<Element> elements_  ; 
+    // Getters
+    Node<Dim>* node_p(std::size_t i){return &nodes_[i];};
+    Node<Dim>  node  (std::size_t i){return  nodes_[i];};
 
     // ===========================================================================================================
     template<typename ElementType, typename IntegrationStrategy, typename ...Args>
