@@ -29,7 +29,7 @@ namespace geometry {
   
       inline constexpr Point(std::array<double,Dim> coord_array) : coord_{coord_array}{}; 
 
-      template<typename... Args>
+      template<typename... Args> // Giving error with this constructor.
       inline constexpr Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}
    
       //Copy constructor and assignment operator.

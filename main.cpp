@@ -15,6 +15,7 @@
 
 
 #include "src/domain/IntegrationPoint.h"
+#include "src/domain/Node.h"
 #include "src/domain/elements/ContinuumElement.h"
 #include "src/domain/elements/Element.h"
 #include "src/domain/elements/ElementBase.h"
@@ -52,10 +53,8 @@ typedef unsigned int   uint  ;
 
 
 int main(){
-
+    
     static constexpr int dim = 3;
-
-    //constexpr geometry::cell::LagrangianCell<dim, 1, 1, 2> C1;
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -70,7 +69,6 @@ int main(){
     //D.add_node( Node<dim>(7, 1.0, 1.0, 1.0) );
     //D.add_node( Node<dim>(8, 0.0, 1.0, 1.0) );
     //D.add_node( Node<dim>(9, 0.5, 0.5, 0.5) );
-
 
     D.add_node( Node<dim>(0 , 2.0, 2.0, 4.0) );
     D.add_node( Node<dim>(1 , 4.0, 3.0, 3.0) );
@@ -114,6 +112,18 @@ int main(){
                                    D.node_p(9 ),D.node_p(10),D.node_p(11),
                                    D.node_p(12),D.node_p(13),D.node_p(14),
                                    D.node_p(15),D.node_p(16),D.node_p(17)}};
+
+    Node<dim> N1{1,0.0,0.0,0.0};
+    Node<dim> N2{2,1.0,0.0,0.0};
+    Node<dim> N3{3,1.0,1.0,0.0};
+    Node<dim> N4{4,0.0,1.0,0.0};
+    Node<dim> N5{5,0.0,0.0,1.0};
+    Node<dim> N6{6,1.0,0.0,1.0};
+    Node<dim> N7{7,1.0,1.0,1.0};
+    Node<dim> N8{8,0.0,1.0,1.0};
+    Node<dim> N9{9,0.5,0.5,0.5};
+//
+    //N1.set_dof_index({0,1,2});
 
     //E1.print_node_coords();
 
