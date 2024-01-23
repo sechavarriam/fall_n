@@ -24,6 +24,8 @@ class Node : public geometry::Point<Dim>{
 
     std::size_t id_{} ; 
     std::size_t num_dof_{0}; 
+  
+  public:
 
     domain::DoF_Interfase dof_;
 
@@ -35,12 +37,12 @@ class Node : public geometry::Point<Dim>{
     void set_id     (const std::size_t& id) noexcept {id_ = id;};
     void set_num_dof(const std::size_t& n ) noexcept {num_dof_ = n;};    
 
-    template<std::size_t nDofs>
+    
     void set_dof_interfase(std::initializer_list<std::size_t>&& dofs_index)
     {
      // using Handler = domain::DoF_Handler;
     // 1. Create new handler using initializer list
-      dof_.set_handler(std::forward<std::initializer_list<std::size_t>>(dofs_index));
+      dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
     //     // 2. Direct the interfase to the new handler (set_handler)
     //     dof_.set_handler<Handler>(*handler);
     //     // 3. 
