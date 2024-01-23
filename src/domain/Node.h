@@ -43,18 +43,14 @@ class Node : public geometry::Point<Dim>{
       dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
     };
 
-    void set_dof_interfase()
-    {
-      dof_.set_handler();
-    };   
+    void set_dof_interfase(){dof_.set_handler();};   
 
-    //  static_cast<domain::DoF_Handler<Dim>*>(dof_.dof_handler())->set_dof_index(dofs);
-    //};
+
     
     Node() = delete;
 
     // forwarding constructor
-    template<typename... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can be a unique_ptr.
+    template<typename... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.
     Node(int tag, Args&&... args) : 
       id_(tag),
       geometry::Point<Dim>(std::forward<Args>(args)...)
@@ -67,39 +63,9 @@ class Node : public geometry::Point<Dim>{
       id_{tag},
       geometry::Point<Dim>{std::forward<std::array<double,Dim>>(coord_list)}
       {
-        //std::cout << "Node Forwarding constructor" << std::endl;
+        //std::cout << "Node Coord Forwarding constructor" << std::endl;
       }; 
 
-
-    ////Copy constructor and assignment operator.
-    //Node(const Node& other) : 
-    //  id_(other.id_),
-    //  geometry::Point<Dim>(other)
-    //  {
-    //    std::cout << "Node Copy constructor" << std::endl;
-    //  }
-    //Node& operator=(const Node& other) {
-
-    //  id_ = other.id_;
-    //  geometry::Point<Dim>::operator=(other);
-    //  return *this; 
-    //};
-
-    //Move constructor and assignment operator.
-    //Node(Node&& other) noexcept : 
-    //  id_(std::move(other.id_)),
-    //  geometry::Point<Dim>(std::move(other))
-    //  {
-    //    std::cout << "Node Move constructor" << std::endl;
-    //  }
-
-    //Node& operator=(Node&& other) noexcept {
-    //  id_ = std::move(other.id_);
-    //  geometry::Point<Dim>::operator=(std::move(other));
-    //  return *this; 
-    //};
-
-    //Destructor.
 
     ~Node(){} 
 
