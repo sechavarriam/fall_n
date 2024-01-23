@@ -123,13 +123,14 @@ int main(){
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
 //
-    N1.set_dof_interfase({0,1,2});
+    N1.set_dof_interfase({0,1,2,5});
 
     std::cout << "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"<< std::endl;
-    
+
     for (auto const& dof: N1.dof_.dof_handler_->dof_index_){
         std::cout << dof << " ";
     }
+    std::cout << std::endl;
     std::cout << "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"<< std::endl;
 
     //E1.print_node_coords();
