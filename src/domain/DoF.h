@@ -12,34 +12,13 @@
 #include <span>
 // #include "../numerics/Vector.h"
 
-
-// https://stackoverflow.com/questions/39288891/why-is-shared-ptrvoid-legal-while-unique-ptrvoid-is-ill-formed 
-//using unique_void_ptr = std::unique_ptr<void, void(*)(void const*)>;
-//
-//template<typename T>
-//auto unique_void(T* ptr) -> unique_void_ptr
-//{
-//    return unique_void_ptr(ptr, [](void const* data) {
-//         T const* p = static_cast<T const*>(data);
-//         delete p;
-//    });
-//}
-//
-//template<typename T, typename... Args>
-//auto make_unique_void(Args&&... args)
-//{
-//     return unique_void(new T(std::forward<Args>(args)...));
-//}
-// ============================================================================================================
-
-
 namespace domain {
 
-//template <std::size_t nDoF> 
+
 class DoF_Handler {
   public:
 
-  std::vector<std::size_t> dof_index_{}; //veiw?
+  std::vector<std::size_t> dof_index_{}; 
 
   DoF_Handler() = default;
 
@@ -65,12 +44,8 @@ class DoF_Interfase{
     };
 
     void set_index(std::initializer_list<std::size_t>&& dofs){
-
-      //if(!dof_handler_) dof_handler_ = std::make_shared<DoF_Handler>(std::forward<std::initializer_list<std::size_t>>(dofs));
-
       if(!dof_handler_) set_handler();
       
-
       dof_handler_->dof_index_.reserve(dofs.size());
       std::move(dofs.begin(), dofs.end(), std::back_inserter(dof_handler_->dof_index_));
 
