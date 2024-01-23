@@ -41,11 +41,6 @@ class DoF_Handler {
 
   std::vector<std::size_t> dof_index_{}; //veiw?
 
-
-  //void set_dof_index(std::initializer_list<std::size_t> dofs){
-  //  std::move(dofs.begin(), dofs.end(), dof_index_.begin());
-  //};
-
   DoF_Handler() = default;
 
   DoF_Handler(std::initializer_list<std::size_t> dofs){
@@ -60,17 +55,25 @@ class DoF_Interfase{
   private:
   public:
     //class DoF_Handler;
-    std::shared_ptr<DoF_Handler> dof_handler_ ; // It should be a raw pointer to avoid smart pointer overhead (?).  
+    std::shared_ptr<DoF_Handler> dof_handler_{nullptr}; // It should be a raw pointer to avoid smart pointer overhead (?).  
                                                 // Node copy constructor forbids the use of unique_ptr in the way it is used here.
                                                 // Beeng shared_pts has its advantages. It can be used to share the same handler 
                                                 // between nodes, that is, manage the same dofs for two or more nodes.                                               
     
-    void set_handler(DoF_Handler& handler){
-      dof_handler_ = std::make_shared<DoF_Handler>(handler);
+    void set_handler(){
+      dof_handler_ = std::make_shared<DoF_Handler>();
     };
 
     void set_index(std::initializer_list<std::size_t>&& dofs){
-      dof_handler_ = std::make_shared<DoF_Handler>(std::forward<std::initializer_list<std::size_t>>(dofs));
+
+      //if(!dof_handler_) dof_handler_ = std::make_shared<DoF_Handler>(std::forward<std::initializer_list<std::size_t>>(dofs));
+
+      if(!dof_handler_) set_handler();
+      
+
+      dof_handler_->dof_index_.reserve(dofs.size());
+      std::move(dofs.begin(), dofs.end(), std::back_inserter(dof_handler_->dof_index_));
+
     };
 
 

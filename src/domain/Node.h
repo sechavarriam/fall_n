@@ -40,12 +40,12 @@ class Node : public geometry::Point<Dim>{
     
     void set_dof_interfase(std::initializer_list<std::size_t>&& dofs_index)
     {
-     // using Handler = domain::DoF_Handler;
-    // 1. Create new handler using initializer list
       dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
-    //     // 2. Direct the interfase to the new handler (set_handler)
-    //     dof_.set_handler<Handler>(*handler);
-    //     // 3. 
+    };
+
+    void set_dof_interfase()
+    {
+      dof_.set_handler();
     };   
 
     //  static_cast<domain::DoF_Handler<Dim>*>(dof_.dof_handler())->set_dof_index(dofs);
