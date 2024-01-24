@@ -45,7 +45,7 @@
 #include "src/numerics/Polynomial.h"
 #include "src/numerics/Vector.h"
 
-//#include <matplot/matplot.h>
+#include <matplot/matplot.h>
 
 
 typedef unsigned short ushort;
@@ -60,15 +60,6 @@ int main(){
     
     D.preallocate_node_capacity(20);
  
-    //D.add_node( Node<dim>(1, 0.0, 0.0, 0.0) );
-    //D.add_node( Node<dim>(2, 1.0, 0.0, 0.0) );
-    //D.add_node( Node<dim>(3, 1.0, 1.0, 0.0) );
-    //D.add_node( Node<dim>(4, 0.0, 1.0, 0.0) );
-    //D.add_node( Node<dim>(5, 0.0, 0.0, 1.0) );
-    //D.add_node( Node<dim>(6, 1.0, 0.0, 1.0) );
-    //D.add_node( Node<dim>(7, 1.0, 1.0, 1.0) );
-    //D.add_node( Node<dim>(8, 0.0, 1.0, 1.0) );
-    //D.add_node( Node<dim>(9, 0.5, 0.5, 0.5) );
 
     D.add_node( Node<dim>(0 , 2.0, 2.0, 4.0) );
     D.add_node( Node<dim>(1 , 4.0, 3.0, 3.0) );
@@ -122,16 +113,6 @@ int main(){
     Node<dim> N7{7,1.0,1.0,1.0};
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
-//
-    N1.set_dof_interfase({0,1,2,5});
-
-    std::cout << "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"<< std::endl;
-
-    for (auto const& dof: N1.dof_.dof_handler_->dof_index_){
-        std::cout << dof << " ";
-    }
-    std::cout << std::endl;
-    std::cout << "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"<< std::endl;
 
     //E1.print_node_coords();
 
@@ -139,21 +120,28 @@ int main(){
 
 
 
-/*  
+  
     std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
 
-    decltype(auto) F = interpolation::LagrangeInterpolator_1D<2>{ {-1.0, 1.0} , {2.0,4.0} };
+
+    
+
+    auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
+    //auto F = interpolation::LagrangeInterpolator_1D<2>{ {-10, 10} , {2.0,4.0} };
+
+
+
 
     decltype(auto) f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-1.0, 1.0}} , {2.0,4.0}};
     
     using namespace matplot;
-    auto x = linspace(-1.0 , 1.0, 100);
+    auto x = linspace(-10 , 10, 100);
     auto y = transform(x, [=](double x) { return F(x); });
     auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
     plot(x, y);
     //plot(x, z);
     show();
-*/
+
 
 
   

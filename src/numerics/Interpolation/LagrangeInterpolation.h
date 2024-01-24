@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <iostream>
 #include <limits>
@@ -55,7 +56,7 @@ template <std::size_t nPoints> class LagrangeInterpolator_1D {
 
 public:
   constexpr double operator()(double x) const noexcept {
-    auto value = 0;
+    double value = 0.0;
 
     for (auto i = 0; i < nPoints; ++i) {
       value += fValues[i] * L[i](x);
@@ -64,8 +65,10 @@ public:
   };
 
   consteval LagrangeInterpolator_1D(const Array &xPoints_,
-                                    const Array &yValues_) noexcept
-      : L{std::forward<const Array &>(xPoints_)}, fValues{yValues_} {};
+                                    const Array &yValues_) noexcept : 
+      L{std::forward<const Array &>(xPoints_)},
+      fValues{yValues_} 
+      {};
 
   consteval LagrangeInterpolator_1D(const Basis &basis_,
                                     const Array &yValues_) noexcept
@@ -103,7 +106,6 @@ class LagrangeInterpolator_ND { // In regular grid (define as policy?)
 
   static constexpr std::size_t dim = sizeof...(Ni);
 
-  // Using structured bindings ?
 
 public:
   Basis<Ni...> basis{};
