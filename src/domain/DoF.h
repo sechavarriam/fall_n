@@ -29,7 +29,7 @@ class DoF_Handler {
 };
 
 
-class DoF_Interfase{
+class DoF_Interface{
   
   private:
   public:
@@ -52,8 +52,8 @@ class DoF_Interfase{
     };
 
 
-    DoF_Interfase() = default;
-    ~DoF_Interfase(){};
+    DoF_Interface() = default;
+    ~DoF_Interface(){};
 
 };
 

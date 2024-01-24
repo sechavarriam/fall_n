@@ -2,17 +2,15 @@
 #define FN_NODE
 
 #include <array>
-#include <cmath>
 
-#include <iostream>
-#include <memory> 
-#include <concepts>
+#include <stdexcept>
 #include <initializer_list>
 #include <utility>
+#include <span>
+
 
 #include "DoF.h"
 #include "../geometry/Point.h"
-#include "../geometry/Topology.h"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
@@ -24,10 +22,8 @@ class Node : public geometry::Point<Dim>{
 
     std::size_t id_{} ; 
     std::size_t num_dof_{0}; 
-  
-  public:
 
-    domain::DoF_Interfase dof_;
+    domain::DoF_Interface dof_;
 
   public:
 
@@ -37,15 +33,28 @@ class Node : public geometry::Point<Dim>{
     void set_id     (const std::size_t& id) noexcept {id_ = id;};
     void set_num_dof(const std::size_t& n ) noexcept {num_dof_ = n;};    
 
-    
-    void set_dof_interfase(std::initializer_list<std::size_t>&& dofs_index)
+    std::span<std::size_t> dof_index(){
+      if (!dof_.dof_handler_) {
+        throw std::runtime_error("DoF Handler not set");
+      }
+      return std::span<std::size_t>(dof_.dof_handler_->dof_index_);
+      };
+
+    std::size_t dof_index(std::size_t i){
+      if (!dof_.dof_handler_) {
+        throw std::runtime_error("DoF Handler not set");
+      }
+      return dof_.dof_handler_->dof_index_[i];
+      };
+
+
+    void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index)
     {
       dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
+      num_dof_ = dofs_index.size();
     };
 
-    void set_dof_interfase(){dof_.set_handler();};   
-
-
+    void set_dof_interface(){dof_.set_handler();};   
     
     Node() = delete;
 
@@ -54,17 +63,13 @@ class Node : public geometry::Point<Dim>{
     Node(int tag, Args&&... args) : 
       id_(tag),
       geometry::Point<Dim>(std::forward<Args>(args)...)
-      {
-        //std::cout << "Node Full Forwarding constructor" << std::endl;
-      }
+      {}
 
 
     Node(std::size_t tag, std::array<double,Dim>&& coord_list) : 
       id_{tag},
       geometry::Point<Dim>{std::forward<std::array<double,Dim>>(coord_list)}
-      {
-        //std::cout << "Node Coord Forwarding constructor" << std::endl;
-      }; 
+      {}; 
 
 
     ~Node(){} 
