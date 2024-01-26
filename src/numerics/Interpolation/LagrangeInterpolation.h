@@ -21,34 +21,6 @@
 
 namespace interpolation {
 
-template <std::size_t nPoints> class LagrangeBasis_1D; // Forward declaration
-
-
-//template <std::size_t nPoints> 
-//class d_dx
-//{ 
-//  using Basis = LagrangeBasis_1D<nPoints>;
-//  
-//  public:
-//  constexpr static void* owner {nullptr};
-//
-//    constexpr auto operator[](std::integral auto i) const noexcept
-//    {
-//      return [&, i](std::floating_point auto x) {
-//        double dL_i = 0.0;
-//        for (auto j = 0; j < nPoints; ++j) {
-//          (j != i) ? dL_i += 1.0/(static_cast<Basis*>(owner)->x(i) - static_cast<Basis*>(owner)->x(j))
-//                   : dL_i += 0.0;
-//        }
-//        return dL_i * static_cast<Basis*>(owner)->operator[](i)(x);
-//      };
-//    };
-//
-//   constexpr d_dx() = default;
-//   constexpr d_dx(Basis* owner_) noexcept : owner{owner_} {};
-//   constexpr ~d_dx() = default;
-//};
-
 
 template <std::size_t nPoints> 
 class LagrangeBasis_1D { // constexpr funtor
@@ -133,13 +105,8 @@ public:
     double value = 0.0;
 
     for (auto i = 0; i < nPoints; ++i) {
-      value += fValues[i] * std::invoke(L.derivative(i),x);//L.derivative(i)(x);
-      std::cout << "Li="<< std::invoke(L.derivative(i),x) << std::endl;      
+      value += fValues[i] * std::invoke(L.derivative(i),x);     
     }
-    std::cout << "------------" << std::endl;
-    std::cout << "x="<<x<<"  value="<< value << std::endl;
-
-    std::cout << "-------------------------------------------" << std::endl;
     return value;
   };
 
@@ -205,8 +172,17 @@ public:
     return value;
   };
 
-  consteval LagrangeInterpolator_ND(const Basis<Ni...> &basis_,
-                                    Array<(Ni * ...)> fi_)
+  template<std::size_t... d_dxi> // d_dxi is a list of partial derivatives
+  constexpr auto derivative(const Array<dim> &X) const noexcept {
+    std::floating_point auto value{0.0};
+    
+    // TODO: Implement.
+
+    return value;
+  };
+
+
+  consteval LagrangeInterpolator_ND(const Basis<Ni...> &basis_, Array<(Ni * ...)> fi_)
       : basis{basis_}, fValues{fi_} {};
 
   constexpr ~LagrangeInterpolator_ND(){};
