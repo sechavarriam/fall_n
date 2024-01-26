@@ -21,11 +21,44 @@
 
 namespace interpolation {
 
-template <unsigned short nPoints> class LagrangeBasis_1D { // constexpr funtor
+template <std::size_t nPoints> class LagrangeBasis_1D; // Forward declaration
 
-  std::array<double, nPoints> xPoints{};
+
+//template <std::size_t nPoints> 
+//class d_dx
+//{ 
+//  using Basis = LagrangeBasis_1D<nPoints>;
+//  
+//  public:
+//  constexpr static void* owner {nullptr};
+//
+//    constexpr auto operator[](std::integral auto i) const noexcept
+//    {
+//      return [&, i](std::floating_point auto x) {
+//        double dL_i = 0.0;
+//        for (auto j = 0; j < nPoints; ++j) {
+//          (j != i) ? dL_i += 1.0/(static_cast<Basis*>(owner)->x(i) - static_cast<Basis*>(owner)->x(j))
+//                   : dL_i += 0.0;
+//        }
+//        return dL_i * static_cast<Basis*>(owner)->operator[](i)(x);
+//      };
+//    };
+//
+//   constexpr d_dx() = default;
+//   constexpr d_dx(Basis* owner_) noexcept : owner{owner_} {};
+//   constexpr ~d_dx() = default;
+//};
+
+
+template <std::size_t nPoints> 
+class LagrangeBasis_1D { // constexpr funtor
+
+std::array<double, nPoints> xPoints{};
 
 public:
+
+constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
+
   std::size_t size() const noexcept { return nPoints; };
 
   constexpr auto operator[](std::integral auto i) const noexcept {
@@ -39,12 +72,44 @@ public:
     };
   };
 
-  consteval LagrangeBasis_1D(
-      const std::array<double, nPoints> &xCoordinates) noexcept
-      : xPoints{xCoordinates} {};
+  constexpr auto derivative(std::size_t i) const noexcept 
+  {
+    return [&, i](double x) 
+    {
+      double dL_i{0.0};
+      double num{1.0};
+      double den{1.0};
 
+      for (auto j = 0; j < nPoints; ++j){
+        if (j != i){
+          for (auto k = 0; k < nPoints; ++k){
+            if (k != i){
+              den *= (xPoints[i] - xPoints[k]);
+              if (k != j) {
+                num *= (x - xPoints[k]);
+              }
+            }
+          }
+          dL_i += num / den;
+          num = 1.0;
+          den = 1.0;
+        }
+      }
+      return dL_i;
+    };
+  };
+
+
+  consteval LagrangeBasis_1D( const std::array<double, nPoints> &xCoordinates) noexcept : 
+    xPoints{xCoordinates}
+    {};
+  
   constexpr ~LagrangeBasis_1D(){};
 };
+
+
+
+
 
 template <std::size_t nPoints> class LagrangeInterpolator_1D {
 
@@ -61,6 +126,20 @@ public:
     for (auto i = 0; i < nPoints; ++i) {
       value += fValues[i] * L[i](x);
     }
+    return value;
+  };
+
+  constexpr double derivative(const double x) const noexcept {
+    double value = 0.0;
+
+    for (auto i = 0; i < nPoints; ++i) {
+      value += fValues[i] * std::invoke(L.derivative(i),x);//L.derivative(i)(x);
+      std::cout << "Li="<< std::invoke(L.derivative(i),x) << std::endl;      
+    }
+    std::cout << "------------" << std::endl;
+    std::cout << "x="<<x<<"  value="<< value << std::endl;
+
+    std::cout << "-------------------------------------------" << std::endl;
     return value;
   };
 
