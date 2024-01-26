@@ -1,8 +1,8 @@
 #ifndef FN_STRUCTURAL_ELEMENT
 #define FN_STRUCTURAL_ELEMENT
 
-#include "../Node.h"
-#include "ElementBase.h"
+#include "../Node.hh"
+#include "ElementBase.hh"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

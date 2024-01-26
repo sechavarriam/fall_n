@@ -1,8 +1,8 @@
 #ifndef FN_EULER_2D_BEAM
 #define FN_EULER_2D_BEAM
 
-#include "../Node.h"
-#include "LineElement.h"
+#include "../Node.hh"
+#include "LineElement.hh"
 
 
 // Classical Euler-Bernoulli 2D Beam-Column Element

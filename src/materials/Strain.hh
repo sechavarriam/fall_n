@@ -2,7 +2,7 @@
 #define FN_ABSTRACT_STRAIN
 
 
-#include "../numerics/Tensor.h"
+#include "../numerics/Tensor.hh"
 
 // Derivatives of displacement Field (DoF)
 // nVars: Number of model state variables (strains)

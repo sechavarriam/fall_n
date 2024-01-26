@@ -11,11 +11,11 @@
 
 //#include "../../numerics/Matrix.h"
 
-#include "../../geometry/Topology.h"
+#include "../../geometry/Topology.hh"
 
-#include "Element.h"
-#include "../Node.h"
-#include "../../numerics/numerical_integration/Quadrature.h"
+#include "Element.hh"
+#include "../Node.hh"
+#include "../../numerics/numerical_integration/Quadrature.hh"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

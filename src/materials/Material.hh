@@ -5,8 +5,8 @@
 #include <Eigen/Dense>
 #include <vector>
 
-#include "../numerics/Tensor.h"
-#include "Strain.h"
+#include "../numerics/Tensor.hh"
+#include "Strain.hh"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

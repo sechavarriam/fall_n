@@ -4,13 +4,13 @@
 #include <array>
 #include <cstddef>
 #include <memory>
-#include <variant>
 
-#include "../Node.h"
 
-#include "../../geometry/Cell.h"
+#include "../Node.hh"
 
-#include "../Domain.h" //?
+#include "../../geometry/Cell.hh"
+
+
 
 template <std::size_t... N> class LagrangeElement {
   // using Node_ID       = std::variant<Node<sizeof...(N)>*, std::size_t>;
@@ -21,8 +21,7 @@ template <std::size_t... N> class LagrangeElement {
 
   std::array<Node<dim> *, num_nodes> nodes_;
 
-  std::shared_ptr<ReferenceCell> reference_element_{
-      std::make_shared<ReferenceCell>()};
+  std::shared_ptr<ReferenceCell> reference_element_{std::make_shared<ReferenceCell>()};
 
 public:
   

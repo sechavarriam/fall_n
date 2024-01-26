@@ -14,8 +14,8 @@
 #include <variant>
 #include <any>
 
-#include "Vector.h"
-#include "Matrix.h"
+#include "Vector.hh"
+#include "Matrix.hh"
 
 template<typename T,typename X>
 concept Multipliable = requires(T t, X x){

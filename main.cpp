@@ -10,40 +10,40 @@
 #include<tuple>
 #include<utility>
 
-#include"header_files.h"
+#include"header_files.hh"
 
 
 
-#include "src/domain/IntegrationPoint.h"
-#include "src/domain/Node.h"
-#include "src/domain/elements/ContinuumElement.h"
-#include "src/domain/elements/Element.h"
-#include "src/domain/elements/ElementBase.h"
-#include "src/domain/elements/ContinuumElement.h"
+#include "src/domain/IntegrationPoint.hh"
+#include "src/domain/Node.hh"
+#include "src/domain/elements/ContinuumElement.hh"
+#include "src/domain/elements/Element.hh"
+#include "src/domain/elements/ElementBase.hh"
+#include "src/domain/elements/ContinuumElement.hh"
 
-#include "src/domain/DoF.h"
+#include "src/domain/DoF.hh"
 
 
 #include "src/domain/elements/LagrangeElement.hh"
-#include "src/geometry/geometry.h"
-#include "src/geometry/Topology.h"
-#include "src/geometry/Cell.h"
-#include "src/geometry/Point.h"
-#include "src/geometry/ReferenceElement.h"
+#include "src/geometry/geometry.hh"
+#include "src/geometry/Topology.hh"
+#include "src/geometry/Cell.hh"
+#include "src/geometry/Point.hh"
+#include "src/geometry/ReferenceElement.hh"
 
-#include "src/numerics/Tensor.h"
-
-
-#include "src/numerics/Interpolation/GenericInterpolant.h"
-#include "src/numerics/Interpolation/LagrangeInterpolation.h"
+#include "src/numerics/Tensor.hh"
 
 
-#include "src/numerics/numerical_integration/Quadrature.h"
-#include "src/numerics/numerical_integration/GaussLegendreNodes.h"
-#include "src/numerics/numerical_integration/GaussLegendreWeights.h"
+#include "src/numerics/Interpolation/GenericInterpolant.hh"
+#include "src/numerics/Interpolation/LagrangeInterpolation.hh"
 
-#include "src/numerics/Polynomial.h"
-#include "src/numerics/Vector.h"
+
+#include "src/numerics/numerical_integration/Quadrature.hh"
+#include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
+#include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
+
+#include "src/numerics/Polynomial.hh"
+#include "src/numerics/Vector.hh"
 
 #include <matplot/matplot.h>
 

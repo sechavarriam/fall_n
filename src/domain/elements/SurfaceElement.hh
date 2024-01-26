@@ -1,7 +1,7 @@
 #ifndef FN_SURFACE_ELEMENT
 #define FN_SURFACE_ELEMENT
 
-#include "StructuralElement.h"
+#include "StructuralElement.hh"
 
 //template<int nDoF>
 //class LineElement: virtual public StructuralElement<nDoF>{

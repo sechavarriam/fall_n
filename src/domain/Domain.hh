@@ -11,9 +11,9 @@
 #include <memory>
 #include <vector>
 
-#include "../geometry/Topology.h"
-#include "Node.h"
-#include "elements/ElementBase.h"
+#include "../geometry/Topology.hh"
+#include "Node.hh"
+#include "elements/ElementBase.hh"
 
 
 

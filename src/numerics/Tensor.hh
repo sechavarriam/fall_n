@@ -4,10 +4,10 @@
 #include <utility>
 #include <concepts>
 
-#include "../geometry/Topology.h"
+#include "../geometry/Topology.hh"
 
-#include "Matrix.h"
-#include "Vector.h"
+#include "Matrix.hh"
+#include "Vector.hh"
 
 
 typedef unsigned short ushort;
