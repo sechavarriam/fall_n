@@ -126,19 +126,19 @@ int main(){
 
     
 
-    auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
-    //auto F = interpolation::LagrangeInterpolator_1D<2>{ {-10, 10} , {2.0,4.0} };
+    //auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
+    auto F = interpolation::LagrangeInterpolator_1D<3>{ {-1.0, 0.0, 1.0} , {1.0, 0.0, 1.0} };
 
-
-
-
-    decltype(auto) f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-1.0, 1.0}} , {2.0,4.0}};
+    //auto f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-10, 10}} , {2.0,4.0}};
     
     using namespace matplot;
-    auto x = linspace(-10 , 10, 100);
-    auto y = transform(x, [=](double x) { return F(x); });
-    auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
-    plot(x, y);
+    auto x  = linspace(-1 , 1, 101);
+    //auto y  = transform(x, [=](double x) { return F(x); });  
+
+    auto yy = transform(x, [=](double x) { return F.derivative(x); });
+
+    //auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
+    plot(x, yy);
     //plot(x, z);
     show();
 
@@ -150,6 +150,7 @@ int main(){
     std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
     
     static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
+
     interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
     std::cout << F2_2({0.5,0.5}) << std::endl;
     static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
