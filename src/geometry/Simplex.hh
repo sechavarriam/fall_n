@@ -4,9 +4,9 @@
 #include <array>
 #include <utility>
 
-#include "Point.h"
+#include "Point.hh"
 
-#include "../numerics/Vector.h"
+#include "../numerics/Vector.hh"
 
 namespace geometry {
   

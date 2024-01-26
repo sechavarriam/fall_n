@@ -1,7 +1,7 @@
 #ifndef FN_ABSTRACT_STRESS
 #define FN_ABSTRACT_STRESS
 
-#include "../numerics/Tensor.h"
+#include "../numerics/Tensor.hh"
 
 
 template<unsigned short nVars> // Dim?

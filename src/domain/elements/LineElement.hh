@@ -1,8 +1,8 @@
 #ifndef FN_LINE_ELEMENT
 #define FN_LINE_ELEMENT
 
-#include "../Node.h"
-#include "StructuralElement.h"
+#include "../Node.hh"
+#include "StructuralElement.hh"
 
 /*Line elements or 1D elements have an initial node ni, a final node nk and 
   num_nodes-2 optional internal nodes nk*/

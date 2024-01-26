@@ -3,8 +3,8 @@
 
 #include <iostream> 
 
-#include "../geometry/Point.h"
-#include "../geometry/Topology.h"
+#include "../geometry/Point.hh"
+#include "../geometry/Topology.hh"
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

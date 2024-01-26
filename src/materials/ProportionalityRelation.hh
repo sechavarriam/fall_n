@@ -4,10 +4,10 @@
 #include <Eigen/Dense>
 
 
-#include "Strain.h"
-#include "Stress.h" // REVISAR. PENSAR EN LA CLASE TENSOR.
+#include "Strain.hh"
+#include "Stress.hh" // REVISAR. PENSAR EN LA CLASE TENSOR.
 
-#include "ConstitutiveRelation.h"
+#include "ConstitutiveRelation.hh"
 
 // F cause
 // U efect

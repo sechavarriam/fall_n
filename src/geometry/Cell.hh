@@ -10,11 +10,11 @@
 #include <ranges>
 #include <tuple>
 
-#include "Point.h"
-#include "Topology.h"
+#include "Point.hh"
+#include "Topology.hh"
 
 #include "../utils/index.hh"
-#include "../numerics/Interpolation/LagrangeInterpolation.h"
+#include "../numerics/Interpolation/LagrangeInterpolation.hh"
 
 
 
