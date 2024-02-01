@@ -23,6 +23,12 @@ find_package(PkgConfig REQUIRED)
 pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc)
 target_link_libraries(fall_n PUBLIC PkgConfig::PETSC)
   
+# https://stackoverflow.com/questions/23163075/how-to-compile-an-mpi-included-c-program-using-cmake
+find_package(MPI REQUIRED)
+# add this line only when you are using openmpi which has a different c++ bindings
+#add_definitions(-DOMPI_SKIP_MPICXX)
+target_link_libraries(fall_n PUBLIC MPI::MPI_CXX)
+
 
 
 FetchContent_Declare(
