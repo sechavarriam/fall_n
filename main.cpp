@@ -47,6 +47,8 @@
 
 #include <matplot/matplot.h>
 
+#include <petsc.h>
+
 
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;

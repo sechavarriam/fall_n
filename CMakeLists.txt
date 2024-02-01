@@ -10,6 +10,20 @@ enable_testing()
 
 include (FetchContent) #
 
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+# set root of location to find PETSc's pkg-config
+set(PETSC $ENV{PETSC_DIR}/$ENV{PETSC_ARCH})
+set(ENV{PKG_CONFIG_PATH} ${PETSC}/lib/pkgconfig)
+
+  #  tells CMake to build the application ex1 from the source file ex1.c
+  #  this must appear AFTER the compilers are set
+  
+find_package(PkgConfig REQUIRED)
+pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc)
+target_link_libraries(fall_n PUBLIC PkgConfig::PETSC)
+  
+
 
 FetchContent_Declare(
     matplotplusplus
@@ -20,9 +34,14 @@ FetchContent_GetProperties(matplotplusplus)
 if(NOT matplotplusplus_POPULATED)
     FetchContent_Populate(matplotplusplus)
     add_subdirectory(${matplotplusplus_SOURCE_DIR} ${matplotplusplus_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()        
+endif()       
+
+
+
 
 target_link_libraries(fall_n PUBLIC matplot)
+
+
 
 ### find python libraries
 ##find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
