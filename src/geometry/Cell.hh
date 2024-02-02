@@ -93,10 +93,9 @@ class LagrangianCell {
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
 
   
-public:
-  
+public:  
   static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<n...>()};
-
+  
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 
   static constexpr void print_node_coords() noexcept

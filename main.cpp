@@ -120,6 +120,10 @@ int main(int argc, char **args){
                                    D.node_p(12),D.node_p(13),D.node_p(14),
                                    D.node_p(15),D.node_p(16),D.node_p(17)}};
 
+    std::cout << "LagrangeElement: " << std::endl;
+    // Print the coordinates of the nodes of the reference element
+    
+
     Node<dim> N1{1,0.0,0.0,0.0};
     Node<dim> N2{2,1.0,0.0,0.0};
     Node<dim> N3{3,1.0,1.0,0.0};
@@ -133,7 +137,7 @@ int main(int argc, char **args){
     //E1.print_node_coords();
 
     //LagrangeElement<nx,ny,nz> E2 {D*,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17};
-  
+/*  
     std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
     //auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
     auto F = interpolation::LagrangeInterpolator_1D<3>{ {-1.0, 0.0, 1.0} , {1.0, 0.0, 1.0} };
@@ -150,7 +154,7 @@ int main(int argc, char **args){
     plot(xx, yy);
     //plot(x, z);
     show();
-
+*/
 /*
     std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
     

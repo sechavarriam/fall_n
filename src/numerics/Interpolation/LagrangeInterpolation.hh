@@ -134,6 +134,23 @@ public:
   std::tuple<Array<Ni>...> coordinates_i{};
   std::tuple<Basis<Ni>...> L{};
 
+  //template<std::size_t i>
+  constexpr auto shape_function(std::size_t i) const noexcept 
+  { 
+    auto md_index = utils::list_2_md_index<Ni...>(i);
+    return [&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){
+      return (std::get<I>(L)[md_index[I]](x[I])*...);
+    }; 
+  };
+
+  constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept 
+  {// $frac{\partial h_i}{\partial x_j}$ 
+    auto md_index = utils::list_2_md_index<Ni...>(i);
+    return [&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){ 
+      return (((I != j)? std::get<I>(L)[md_index[I]](x[I]) : std::get<I>(L).derivative(md_index[I])(x[I]) )*...); 
+    }; 
+  };
+
   consteval LagrangeBasis_ND(const Array<Ni> &...xCoordinates) noexcept
       : coordinates_i{xCoordinates...}, L{Basis<Ni>{xCoordinates}...} {};
 
@@ -151,7 +168,6 @@ class LagrangeInterpolator_ND { // In regular grid (define as policy?)
   using Basis = interpolation::LagrangeBasis_ND<n...>;
 
   static constexpr std::size_t dim = sizeof...(Ni);
-
 
 public:
   Basis<Ni...> basis{};
@@ -171,16 +187,6 @@ public:
     };
     return value;
   };
-
-  template<std::size_t... d_dxi> // d_dxi is a list of partial derivatives
-  constexpr auto derivative(const Array<dim> &X) const noexcept {
-    std::floating_point auto value{0.0};
-    
-    // TODO: Implement.
-
-    return value;
-  };
-
 
   consteval LagrangeInterpolator_ND(const Basis<Ni...> &basis_, Array<(Ni * ...)> fi_)
       : basis{basis_}, fValues{fi_} {};
