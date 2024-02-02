@@ -38,7 +38,7 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     std::vector<Node<dim>> nodes_     ; 
     std::vector<Element  > elements_  ; 
 
-    std::vector<double>  dof_vector_; //??
+    
 
 
   public:
