@@ -1,8 +1,11 @@
 #ifndef FALL_N_ANALYSIS_INTERFACE
 #define FALL_N_ANALYSIS_INTERFACE
 
+
+
 template<typename T> // Concept? CRTP? Policy?
 class Analysis {
+
 
     // Mesh
     // Model

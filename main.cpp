@@ -46,13 +46,19 @@
 #include "src/numerics/Vector.hh"
 
 #include "src/mesh/Mesh.hh"
-
 #include "src/mesh/gmsh/ReadGmsh.hh"
+
+
+#include "src/model/Model.hh"
+
+#include "src/analysis/Analysis.hh"
+
+
 
 #include <matplot/matplot.h>
 
-//#include <petsc.h>
-#include <petscksp.h>
+#include <petsc.h>
+//#include <petscksp.h>
 
 
 typedef unsigned short ushort;
