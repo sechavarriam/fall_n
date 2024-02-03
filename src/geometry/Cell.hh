@@ -7,6 +7,7 @@
 #include <cstdio>
 //#include <print> //Not yet implemented in Clang.
 #include <iostream>
+#include <petscsnes.h>
 #include <ranges>
 #include <tuple>
 

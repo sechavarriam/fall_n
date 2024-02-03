@@ -3,17 +3,34 @@
 
 #include <array>
 #include <cstddef>
+#include <iterator>
 #include <memory>
 
 
 #include "../Node.hh"
 
+#include "../../geometry/Topology.hh"
 #include "../../geometry/Cell.hh"
 
 
 
-template <std::size_t... N> class LagrangeElement {
-  // using Node_ID       = std::variant<Node<sizeof...(N)>*, std::size_t>;
+template<std::size_t dim> requires  topology::EmbeddableInSpace<dim>
+inline constexpr auto det(std::array<std::array<double, dim>, dim> A) noexcept
+{
+  if constexpr (dim == 1){
+    return A[0][0];}
+  else if constexpr (dim == 2){
+    return A[0][0] * A[1][1] - A[0][1] * A[1][0];}
+  else if constexpr (dim == 3){
+    return A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) 
+         - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) 
+         + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);}
+  else {std::unreachable();}
+};
+
+template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
+class LagrangeElement {
+
   using ReferenceCell = geometry::cell::LagrangianCell<N...>;
 
   static inline constexpr std::size_t dim = sizeof...(N);
@@ -25,9 +42,7 @@ template <std::size_t... N> class LagrangeElement {
 
 public:
 
-  auto detJ() const noexcept {
-    //return reference_element.detJ();
-  };
+  
 
   auto Jacobian() const noexcept {
     //return reference_element.Jacobian();
