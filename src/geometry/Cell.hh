@@ -14,17 +14,10 @@
 #include "Point.hh"
 #include "Topology.hh"
 
+
 #include "../utils/index.hh"
 #include "../numerics/Interpolation/LagrangeInterpolation.hh"
 
-
-
-// Cada uno debe ser un Singleton (Solo debería poderse crear un único objeto de
-// esa clase.) Será que si? Porque cada punto de integración debe tener un
-// material...
-
-typedef unsigned short ushort;
-typedef unsigned int uint;
 
 namespace geometry::cell {
 
@@ -63,8 +56,7 @@ static inline constexpr auto equally_spaced_coordinates()
 
 
 template <std::size_t... n>
-static inline constexpr Point<sizeof...(n)> node_ijk(std::array<std::size_t,sizeof...(n)> md_array)
-{
+static inline constexpr Point<sizeof...(n)> node_ijk(std::array<std::size_t,sizeof...(n)> md_array){
   return Point<sizeof...(n)>(coordinate_xi<n ...>(md_array));
 };
 
@@ -115,6 +107,10 @@ public:
   constexpr ~LagrangianCell(){};
 };
 // ==================================================================================================
+
+
+
+
 
 } // namespace geometry::cell
 

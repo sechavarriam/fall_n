@@ -12,7 +12,6 @@
 #include <numeric>
 #include <ranges>
 
-
 #include <tuple>
 #include <utility>
 
@@ -21,14 +20,12 @@
 
 namespace interpolation {
 
-
 template <std::size_t nPoints> 
 class LagrangeBasis_1D { // constexpr funtor
 
 std::array<double, nPoints> xPoints{};
 
 public:
-
 constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
 
   std::size_t size() const noexcept { return nPoints; };
@@ -71,17 +68,11 @@ constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
     };
   };
 
-
   consteval LagrangeBasis_1D( const std::array<double, nPoints> &xCoordinates) noexcept : 
-    xPoints{xCoordinates}
-    {};
+    xPoints{xCoordinates}{};
   
   constexpr ~LagrangeBasis_1D(){};
 };
-
-
-
-
 
 template <std::size_t nPoints> class LagrangeInterpolator_1D {
 
@@ -93,20 +84,14 @@ template <std::size_t nPoints> class LagrangeInterpolator_1D {
 
 public:
   constexpr double operator()(double x) const noexcept {
-    double value = 0.0;
-
-    for (auto i = 0; i < nPoints; ++i) {
-      value += fValues[i] * L[i](x);
-    }
+    double value{0.0};
+    for (auto i = 0; i < nPoints; ++i) value += fValues[i] * L[i](x);
     return value;
   };
 
   constexpr double derivative(const double x) const noexcept {
-    double value = 0.0;
-
-    for (auto i = 0; i < nPoints; ++i) {
-      value += fValues[i] * std::invoke(L.derivative(i),x);     
-    }
+    double value{0.0};
+    for (auto i = 0; i < nPoints; ++i) value += fValues[i] * std::invoke(L.derivative(i),x);  
     return value;
   };
 
@@ -157,12 +142,11 @@ public:
   constexpr ~LagrangeBasis_ND(){};
 };
 
-
-
 template <unsigned short... Ni>
 class LagrangeInterpolator_ND { // In regular grid (define as policy?)
 
-  template <unsigned short n> using Array = std::array<double, n>;
+  template <unsigned short n> 
+  using Array = std::array<double, n>;
 
   template <unsigned short... n>
   using Basis = interpolation::LagrangeBasis_ND<n...>;
@@ -197,3 +181,44 @@ public:
 } // End of namespace interpolation
 
 #endif // __LAGRANGE_INTERPOLATION_H__
+
+
+/*  TO TEST IN MAIN:
+
+    std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
+    //auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
+    auto F = interpolation::LagrangeInterpolator_1D<3>{ {-1.0, 0.0, 1.0} , {1.0, 0.0, 1.0} };
+
+    //auto f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-10, 10}} , {2.0,4.0}};
+    
+    using namespace matplot;
+    auto xx  = linspace(-1 , 1, 101);
+    //auto y  = transform(x, [=](double x) { return F(x); });  
+
+    auto yy = transform(xx, [=](double xx) { return F.derivative(xx); });
+
+    //auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
+    plot(xx, yy);
+    //plot(x, z);
+    show();
+*/
+/*
+    std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
+    
+    static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
+
+    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
+    std::cout << F2_2({0.5,0.5}) << std::endl;
+    static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
+    interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
+                                                            5,-5,3,
+                                                            2,3,4,
+                                                            1,2,3})
+    using namespace matplot;
+    auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
+    auto Z = transform(X, Y, [=](double x, double y) {
+        return F3_4({x,y});
+    });
+    surf(X, Y, Z);
+    show();
+*/

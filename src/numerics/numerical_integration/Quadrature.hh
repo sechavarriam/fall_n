@@ -3,62 +3,38 @@
 
 #include <array>
 #include <iostream>
-#include <functional> // https://en.cppreference.com/w/cpp/header/functional
-#include <algorithm>  // https://en.cppreference.com/w/cpp/algorithm
-#include <numeric>    // https://en.cppreference.com/w/cpp/header/numeric
+#include <functional> 
+#include <algorithm>  
+#include <numeric>   
+#include <utility>
+#include <cstdlib>
 
-// Algoritmos candidatos a ser usados.
-// https://en.cppreference.com/w/cpp/algorithm/accumulate
-// https://en.cppreference.com/w/cpp/algorithm/inner_product
+#include "../../geometry/Point.hh"
 
 
-// a Class?
-// a Functor?
-// a Function Template?
-typedef unsigned short ushort;
+template<std::size_t Dim,std::size_t nPoints> 
+using defaultWeightContainer = std::array<double, nPoints*Dim>;
 
-template<ushort Dim,ushort Order> 
-using defaultWeightContainer = std::array<double, Order*Dim>;
+template<std::size_t Dim,std::size_t nPoints> 
+using defaultPointsContainer = std::array<double, nPoints*Dim>;
 
-template<ushort Dim,ushort Order> 
-using defaultPointsContainer = std::array<double, Order*Dim>;
-
-template<ushort Dim, ushort Order, typename W=defaultWeightContainer<Dim,Order>, typename P=defaultPointsContainer<Dim,Order>>
+template<std::size_t Dim, std::size_t nPoints, typename P=defaultPointsContainer<Dim,nPoints>, typename W=defaultWeightContainer<Dim,nPoints>>
 class Quadrature{
-    W weights_   ; // Punteros a un contenedor estático?
+    
     P evalPoints_;
+    W weights_   ; // Punteros a un contenedor estático?
+    
 
   public:
 
    template<typename F>
+   
    constexpr double operator()(F function2eval){
-       return std::inner_product(
-           weights_.begin(),weights_.end(),
-           evalPoints_.begin(), 
-           double(0),
-           std::plus<>(),
-           [&](const auto& w, const auto& x){return w*function2eval(x);}
-           );
+       return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),std::plus<>(),
+           [&](const auto& w, const auto& x){
+            return w*function2eval(x);});
    };
-
-   // DEFINIR EL TERMINOS DE PUNTERO A FUNCION?
-   //template<typename F>
-   //double operator()(F& function2eval){
-   //    return std::inner_product(
-   //        weights_.begin(), weights_.end(),
-   //        evalPoints_.begin(),0,
-   //        std::plus<>(),
-   //        [&](const double& w, const double& x){
-   //            return w*function2eval(x);}
-   //        );
-   //};
-
-
     constexpr Quadrature(){};
-
-    //Quadrature(W w, P p):weights_(w),evalPoints_(p){
-    //    std::cout << "value constructor called." << std::endl;
-    //} ;
 
     constexpr Quadrature(const W& w,const P& p):weights_(w),evalPoints_(p){
         std::cout << "ref constructor called." << std::endl;
@@ -71,6 +47,51 @@ class Quadrature{
         } ;
     
     constexpr ~Quadrature(){};
+
+};
+
+template <std::size_t... n> // n: Number of quadrature points per direction.
+class CellIntegrator : public Quadrature<sizeof...(n), (n*...), std::array<geometry::Point<sizeof...(n)>*,(n*...)>>
+{
+  
+  using Point = geometry::Point<sizeof...(n)>;
+
+  static constexpr std::size_t dim    {sizeof...(n)};
+  static constexpr std::size_t n_nodes{(n*...)};
+
+  constexpr void set_integration_points(){
+
+  };
+  
+  std::array<std::size_t,dim> orders {n...};
+
+
+
+  //using Point = geometry::Point<dim>;
+
+  //std::array<Point*, n_nodes> integration_points_; //Pointer to IntegrationPoint base class.
+  //std::array<double, n_nodes> weights_;  
+
+    public:
+
+
+    
+        constexpr CellIntegrator()
+        {
+            std::cout << "CellIntegrator constructor called." << std::endl;
+
+        };
+    
+        constexpr ~CellIntegrator(){};
+    
+        //template<typename F>
+        //constexpr double operator()(F function2eval){
+        //    return std::accumulate(integration_points_.begin(), integration_points_.end(), double(0.0),
+        //        [&](const auto& sum, const auto& point){
+        //            return sum + function2eval(*point);
+        //        });
+        //};
+
 
 };
 

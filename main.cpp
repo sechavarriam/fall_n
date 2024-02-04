@@ -103,7 +103,11 @@ int main(int argc, char **args){
 
 
     auto integrationScheme = [](auto const & e){/**integrate*/};
+    Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
+
+
     
+
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
     static constexpr uint nx = 3;
@@ -111,19 +115,13 @@ int main(int argc, char **args){
     static constexpr uint nz = 2;
     constexpr geometry::cell::LagrangianCell<nx,ny,nz> test_cell;
 
-    Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
-
     LagrangeElement<nx,ny,nz> E1 {{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
                                    D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
                                    D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
                                    D.node_p(9 ),D.node_p(10),D.node_p(11),
                                    D.node_p(12),D.node_p(13),D.node_p(14),
                                    D.node_p(15),D.node_p(16),D.node_p(17)}};
-
-    std::cout << "LagrangeElement: " << std::endl;
-    // Print the coordinates of the nodes of the reference element
     
-
     Node<dim> N1{1,0.0,0.0,0.0};
     Node<dim> N2{2,1.0,0.0,0.0};
     Node<dim> N3{3,1.0,1.0,0.0};
@@ -134,67 +132,32 @@ int main(int argc, char **args){
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
 
-    //E1.print_node_coords();
+    E1.print_node_coords();
 
-    //LagrangeElement<nx,ny,nz> E2 {D*,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17};
-/*  
-    std::cout << "-- 1D INTERPOLATOR ---------------------------------" << std::endl;
-    //auto F = interpolation::LagrangeInterpolator_1D<2>{ interpolation::LagrangeBasis_1D<2>{{-10, 10}} , {2.0,4.0} };
-    auto F = interpolation::LagrangeInterpolator_1D<3>{ {-1.0, 0.0, 1.0} , {1.0, 0.0, 1.0} };
-
-    //auto f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-10, 10}} , {2.0,4.0}};
-    
-    using namespace matplot;
-    auto xx  = linspace(-1 , 1, 101);
-    //auto y  = transform(x, [=](double x) { return F(x); });  
-
-    auto yy = transform(xx, [=](double xx) { return F.derivative(xx); });
-
-    //auto z = transform(x, [=](double x) { return f(std::array<double,1>{x}); }); //OK!
-    plot(xx, yy);
-    //plot(x, z);
-    show();
-*/
-/*
-    std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
-    
-    static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
-
-    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
-    std::cout << F2_2({0.5,0.5}) << std::endl;
-    static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
-    interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
-                                                            5,-5,3,
-                                                            2,3,4,
-                                                            1,2,3});
-
-    using namespace matplot;
-    auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
-    auto Z = transform(X, Y, [=](double x, double y) {
-        return F3_4({x,y});
-    });
-    surf(X, Y, Z);
-    show();
-*/
-
-    //std::cout << test_cell.basis_function(0, 0)(0.5) << std::endl;
-    //std::cout << LinearInterpolant({0.0,1.0}, 0.5) << std::endl;
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
 
-    //Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
-    //Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
-    //Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
-    //
-    //ElementConstRef test5 = ElementConstRef(test1);
-    //Element test6(test2 );
-    //
-    //integrate(test1);
-    //integrate(test2);
-    //integrate(test3);
-    //integrate(test4);
-    //integrate(test5);
-    //integrate(test6);
+    Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
+    Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
+    Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
+
+    Element testL{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
+                                             D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
+                                             D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
+                                             D.node_p(9 ),D.node_p(10),D.node_p(11),
+                                             D.node_p(12),D.node_p(13),D.node_p(14),
+                                             D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
+    
+    ElementConstRef test5 = ElementConstRef(test1);
+    Element test6(test2 );
+    
+    integrate(test1);
+    integrate(test2);
+    integrate(test3);
+    integrate(test4);
+    integrate(test5);
+    integrate(test6);
+
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
     //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});
     //D.make_element<ElementBase<dim,7 ,42> > (5 , {1,2,3,4,5,6,7});
@@ -204,7 +167,7 @@ int main(int argc, char **args){
     //D.make_element<ElementBase<dim,5    > > (42, {1,2,3,4,5}); 
     //D.make_element<ElementBase<dim,9    > > (44, {1,2,3,4,5,6,7,8,9}); 
     //D.make_element<ElementBase<dim,13   > > (50, {1,2,3,4,5,6,7,8,9,10,11,12,13});
-                        
+    //                    
     //for (auto const& e: D.elements_){
     //    std::cout << id(e)<< " " << num_nodes(e)<< " " << num_dof(e)<< " ";
     //        for (auto const& n: nodes(e)){

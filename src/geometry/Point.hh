@@ -21,7 +21,7 @@ namespace geometry {
       //Getters.
       inline constexpr double coord(const ushort i) const { return coord_[i]; };
 
-      inline constexpr std::array<double,Dim> coord() const { return coord_; };
+      //inline constexpr std::array<double,Dim> coord() const { return &coord_; };
 
 
 
