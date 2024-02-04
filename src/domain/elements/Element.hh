@@ -12,13 +12,13 @@
 #include <span>
 #include <ranges>
 
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
-
+#include "../Node.hh"
 
 namespace impl{ //Implementation details
 
-    class ElementConcept{
+
+
+    class ElementConcept{ //Define the minimum interface for all element types (of any kind)
     public:
         virtual ~ElementConcept() = default;  
         //virtual void do_action(/*Args.. args*/) const = 0;
@@ -30,11 +30,12 @@ namespace impl{ //Implementation details
                                                                     // we pass the memory address of the Element to be
                                                                     // constructed. 
     public: 
-        constexpr virtual ushort get_num_nodes() const = 0;
-        constexpr virtual ushort get_num_dof()   const = 0;
+        constexpr virtual std::size_t num_nodes() const = 0;
+        //constexpr virtual std::size_t num_dof()   const = 0;
 
-        virtual uint          get_id()    const = 0;
-        virtual ushort const* get_nodes() const = 0;
+        virtual std::size_t        id()    const = 0;
+        
+        //virtual std::size_t const* nodes() const = 0;
     };  
 
     template <typename ElementType, typename IntegrationStrategy> 
@@ -63,11 +64,11 @@ namespace impl{ //Implementation details
         };
 
     public: // Implementation of the virtual operations derived from ElementConcept
-        ushort constexpr get_num_nodes()const override {return element_.num_nodes();};
-        ushort constexpr get_num_dof()  const override {return element_.num_dof()  ;};
+        std::size_t constexpr num_nodes()const override {return element_.num_nodes();};
+        //std::size_t constexpr num_dof()  const override {return element_.num_dof()  ;};
         
-        uint          get_id()    const override {return element_.id()   ;};
-        ushort const* get_nodes() const override {return element_.nodes();};
+        std::size_t        id()    const override {return element_.id()   ;};
+        //std::size_t const* nodes() const override {return element_.nodes();};
     };
 
 
@@ -93,11 +94,11 @@ namespace impl{ //Implementation details
         };
 
     public:  // Implementation of the virtual operations derived from ElementConcept (Accesing pointer members)
-        ushort constexpr get_num_nodes()const override {return element_->num_nodes();};
-        ushort constexpr get_num_dof()  const override {return element_->num_dof()  ;};
+        std::size_t constexpr num_nodes()const override {return element_->num_nodes();};
+        //std::size_t constexpr num_dof()  const override {return element_->num_dof()  ;};
         
-        uint          get_id()    const override {return element_->id()   ;};
-        ushort const* get_nodes() const override {return element_->nodes();};
+        std::size_t        id()    const override {return element_->id()   ;};
+        //std::size_t const* nodes() const override {return element_->nodes();};
     };
 } //impl
 
@@ -106,7 +107,7 @@ class ElementConstRef{
     friend class Element;
 
     // Expected size of a model instantiation: sizeof(ShapeT*) + sizeof(DrawStrategy*) + sizeof(vptr)
-    static constexpr std::size_t MODEL_SIZE = 3; //The 3 pointers of the NON_OwningElementModel,
+    static constexpr std::size_t MODEL_SIZE = 3;          //The 3 pointers of the NON_OwningElementModel,
     alignas(void*) std::array<std::byte,MODEL_SIZE> raw_; //Raw storage (Aligned Byte array)
 
     impl::ElementConcept* pimpl(){
@@ -144,7 +145,7 @@ class ElementConstRef{
   private: //Operations with references
     friend void integrate(ElementConstRef const& element){
         element.pimpl()->compute_integral(/*args...*/);
-        std::cout << "Element " << element.pimpl()->get_id() << " integrated" << std::endl;
+        std::cout << "Element " << element.pimpl()->id() << " integrated" << std::endl;
         };
 };
 
@@ -180,21 +181,21 @@ class Element{
 
     friend void integrate(Element const& element){
         element.pimpl_->compute_integral(/*args...*/);
-        std::cout << "Element " << element.pimpl_->get_id() << " integrated" << std::endl;
+        std::cout << "Element " << element.pimpl_->id() << " integrated" << std::endl;
         };
 
     //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
-    friend uint   id       (Element const& element){return element.pimpl_->get_id()       ;};
-    friend ushort num_nodes(Element const& element){return element.pimpl_->get_num_nodes();};
-    friend ushort num_dof  (Element const& element){return element.pimpl_->get_num_dof()  ;};
+    friend std::size_t id       (Element const& element){return element.pimpl_->id()       ;};
+    friend std::size_t num_nodes(Element const& element){return element.pimpl_->num_nodes();};
+    //friend std::size_t num_dof  (Element const& element){return element.pimpl_->num_dof()  ;};
      
-    friend auto nodes(Element const& element){
-        return std::span{
-            element.pimpl_->get_nodes(),    //Pointer to data
-            element.pimpl_->get_num_nodes() //Size of the span
-            };
-        };
+    //friend auto nodes(Element const& element){
+    //    return std::span{
+    //        element.pimpl_->nodes(),    //Pointer to data
+    //        element.pimpl_->num_nodes() //Size of the span
+    //        };
+    //    };
      
     // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
     // and call the virtual function do_action() on it. This function is implemented in the

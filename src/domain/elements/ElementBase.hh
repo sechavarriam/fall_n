@@ -17,8 +17,6 @@
 #include "../Node.hh"
 #include "../../numerics/numerical_integration/Quadrature.hh"
 
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
 /*
 Every element type must have defined:
@@ -30,31 +28,31 @@ This has to be known at compile time.
 */
 
 
-template<ushort Dim, ushort nNodes, ushort nDoF=Dim*nNodes> 
+template<std::size_t Dim, std::size_t nNodes, std::size_t nDoF=Dim*nNodes> 
 requires topology::EmbeddableInSpace<Dim>
 class ElementBase{
   public:
-    //static constexpr ushort dim     = Dim   ;
+    //static constexpr std::size_t dim     = Dim   ;
 
-    static constexpr ushort num_nodes(){return nNodes;}; // to be used in element concept 
-    static constexpr ushort num_dof  (){return nDoF  ;}; // to be used in element concept
+    static constexpr std::size_t num_nodes(){return nNodes;}; // to be used in element concept 
+    static constexpr std::size_t num_dof  (){return nDoF  ;}; // to be used in element concept
 
     uint  id()    const {return id_   ;};
-    ushort const* nodes() const {return nodes_.data();};   
+    std::size_t const* nodes() const {return nodes_.data();};   
 
 
-    void compute_measure(){};
-    void compute_shape_functions(){};             //Policy
-    void compute_shape_functions_derivatives(){}; //Policy
-    void compute_stiffness_matrix(){};
-    void compute_mass_matrix(){};
-    void compute_damping_matrix(){};              //Policy
+    //void compute_measure(){};
+    //void compute_shape_functions(){};             //Policy
+    //void compute_shape_functions_derivatives(){}; //Policy
+    //void compute_stiffness_matrix(){};
+    //void compute_mass_matrix(){};
+    //void compute_damping_matrix(){};              //Policy
 
   private:
     std::size_t id_ ; //tag
 
     //Array of node tags
-    std::array<ushort,nNodes> nodes_; 
+    std::array<std::size_t,nNodes> nodes_; 
 
   protected:
     // Shape functions and derivatives.
@@ -65,10 +63,10 @@ class ElementBase{
     ~ElementBase(){};
     ElementBase() = delete;
 
-    ElementBase(uint&  tag, std::array<ushort,nNodes>&  NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
-    ElementBase(uint&& tag, std::array<ushort,nNodes>&& NodeTAGS)
+    ElementBase(uint&  tag, std::array<std::size_t,nNodes>&  NodeTAGS): id_{tag}, nodes_{NodeTAGS}{};
+    ElementBase(uint&& tag, std::array<std::size_t,nNodes>&& NodeTAGS)
       : id_{tag},
-        nodes_{std::forward<std::array<ushort,nNodes>>(NodeTAGS)}{};
+        nodes_{std::forward<std::array<std::size_t,nNodes>>(NodeTAGS)}{};
         
     
     // TODO: Implement static_asserts to check in derived elements that the imput matches nNodes.   
@@ -83,8 +81,8 @@ template<typename E>
 concept ElementType = requires(E element){
     {element.id()       } -> std::convertible_to<uint  >        ;
     {element.nodes()    } -> std::convertible_to<uint const*>   ;
-    {element.num_nodes()} -> std::convertible_to<ushort>        ;
-    {element.num_dof()  } -> std::convertible_to<ushort>        ;
+    {element.num_nodes()} -> std::convertible_to<std::size_t>        ;
+    {element.num_dof()  } -> std::convertible_to<std::size_t>        ;
     {element.compute_measure()};
 };
 

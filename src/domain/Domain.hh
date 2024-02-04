@@ -49,7 +49,7 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
 
     // ===========================================================================================================
     template<typename ElementType, typename IntegrationStrategy, typename ...Args>
-    void make_element(IntegrationStrategy&& integrator, uint&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){
+    void make_element(IntegrationStrategy&& integrator, std::size_t&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){
         elements_.emplace_back(
             Element(
                 ElementType{
