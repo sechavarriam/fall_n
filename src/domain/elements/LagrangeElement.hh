@@ -33,13 +33,17 @@ class LagrangeElement {
   using pNodeArray = std::array<Node<dim> *, num_nodes_>;
   using JacobianMatrix = std::array<std::array<double, dim>, dim>;
 
+
+
   std::size_t tag_;
 
   pNodeArray nodes_;
 
-  std::vector <IntegrationPoint<dim>> integration_points_;
+  std::vector <IntegrationPoint<dim>> integration_points_;  
 
 public:
+
+  
   
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
@@ -49,6 +53,10 @@ public:
   //std::size_t num_nodes() const { return num_nodes; };
 
   void set_id(std::size_t id) noexcept { tag_ = id; };
+
+  void set_num_integration_points(std::size_t num) noexcept {
+    integration_points_.resize(num);
+  };
 
   void set_integration_points(std::vector <IntegrationPoint<dim>> points) noexcept {
     integration_points_ = std::move(points);

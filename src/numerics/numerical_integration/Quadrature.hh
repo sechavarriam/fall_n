@@ -99,13 +99,13 @@ public:
 
   public: 
 
-    constexpr CellIntegrator()
-    {
+    CellIntegrator() = delete;
+
+    constexpr CellIntegrator(pPointArray&& p):Quadr(std::forward<pPointArray>(p)){
         set_weights();
         set_integration_points();
-    };  
-
-    
+    };
+        
     constexpr ~CellIntegrator(){};  
     //template<typename F>
     //constexpr double operator()(F function2eval){
