@@ -1,7 +1,9 @@
 #ifndef FN_POINT
 #define FN_POINT
 
+#include <iostream>
 #include <array>
+#include <cstddef>
 #include "Topology.hh"
 
 typedef unsigned short ushort;
@@ -19,7 +21,15 @@ namespace geometry {
     public:
 
       //Getters.
-      inline constexpr double coord(const ushort i) const { return coord_[i]; };
+      inline constexpr auto coord(const std::size_t i) const { return &coord_[i]; };
+
+
+      inline constexpr void set_coord(const std::size_t i, const double value) { coord_[i] = value; };
+
+      inline constexpr void set_coord(const std::array<double,Dim>&& coord_array) { 
+        std::move(coord_array.begin(),coord_array.end(),coord_.begin()); 
+        std::cout << "Coord setted" << std::endl;
+        };
 
       //inline constexpr std::array<double,Dim> coord() const { return &coord_; };
 
