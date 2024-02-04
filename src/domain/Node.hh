@@ -58,18 +58,27 @@ class Node : public geometry::Point<Dim>{
     
     Node() = delete;
 
-    // forwarding constructor
-    template<typename... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.
+    //forwarding constructor
+    template<std::floating_point... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.
     Node(int tag, Args&&... args) : 
       id_(tag),
       geometry::Point<Dim>(std::forward<Args>(args)...)
       {}
 
 
-    Node(std::size_t tag, std::array<double,Dim>&& coord_list) : 
-      id_{tag},
-      geometry::Point<Dim>{std::forward<std::array<double,Dim>>(coord_list)}
-      {}; 
+    //Node(std::size_t tag, std::initializer_list<double>&& coord_list) : 
+    //  id_{tag},
+    //  geometry::Point<Dim>{std::forward<std::initializer_list<double>>(coord_list)}
+    //  {
+    //    std::cout << "Hiiii" << id_ << std::endl;
+    //  };
+
+    //Node(std::size_t tag, std::array<double,Dim>&& coord_list) : 
+    //  id_{tag},
+    //  geometry::Point<Dim>{std::forward<std::array<double,Dim>>(coord_list)}
+    //  {
+    //    std::cout << "Hi" << id_ << std::endl;
+    //  }; 
 
 
     ~Node(){} 

@@ -23,8 +23,8 @@
 
 #include "src/domain/DoF.hh"
 
-
 #include "src/domain/elements/LagrangeElement.hh"
+
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
 #include "src/geometry/Cell.hh"
@@ -77,29 +77,24 @@ int main(int argc, char **args){
     D.preallocate_node_capacity(20);
  
 
-    D.add_node( Node<dim>(0 , 2.0, 2.0, 4.0) );
-    D.add_node( Node<dim>(1 , 4.0, 3.0, 3.0) );
-    D.add_node( Node<dim>(2 , 9.0, 3.0, 3.0) );
-
-    D.add_node( Node<dim>(3 , 2.0, 4.0, 3.0) );
-    D.add_node( Node<dim>(4 , 5.0, 5.0, 1.0) );
-    D.add_node( Node<dim>(5 ,10.0, 5.0, 1.0) );
-
-    D.add_node( Node<dim>(6 , 2.0, 7.0, 3.0) );
-    D.add_node( Node<dim>(7 , 4.0, 7.0, 2.0) );
-    D.add_node( Node<dim>(8 , 9.0, 6.0, 2.0) );
-
-    D.add_node( Node<dim>(9 , 3.0, 2.0, 8.0) );
-    D.add_node( Node<dim>(10, 5.0, 2.0, 7.0) );
-    D.add_node( Node<dim>(11, 9.0, 2.0, 8.5) );
-
-    D.add_node( Node<dim>(12, 4.0, 4.0, 8.5) );
-    D.add_node( Node<dim>(13, 6.0, 4.0, 8.0) );
-    D.add_node( Node<dim>(14, 9.0, 4.5, 9.0) );
-
-    D.add_node( Node<dim>(15, 3.0, 6.0, 8.0) );
-    D.add_node( Node<dim>(16, 6.0, 7.5, 7.0) );
-    D.add_node( Node<dim>(17, 9.0, 6.0, 8.0) );
+    D.add_node( Node<dim>(0 ,  2.0, 2.0, 4.0) );
+    D.add_node( Node<dim>(1 ,  4.0, 3.0, 3.0) );
+    D.add_node( Node<dim>(2 ,  9.0, 3.0, 3.0) );
+    D.add_node( Node<dim>(3 ,  2.0, 4.0, 3.0) );
+    D.add_node( Node<dim>(4 ,  5.0, 5.0, 1.0) );
+    D.add_node( Node<dim>(5 , 10.0, 5.0, 1.0) );
+    D.add_node( Node<dim>(6 ,  2.0, 7.0, 3.0) );
+    D.add_node( Node<dim>(7 ,  4.0, 7.0, 2.0) );
+    D.add_node( Node<dim>(8 ,  9.0, 6.0, 2.0) );
+    D.add_node( Node<dim>(9 ,  3.0, 2.0, 8.0) );
+    D.add_node( Node<dim>(10,  5.0, 2.0, 7.0) );
+    D.add_node( Node<dim>(11,  9.0, 2.0, 8.5) );
+    D.add_node( Node<dim>(12,  4.0, 4.0, 8.5) );
+    D.add_node( Node<dim>(13,  6.0, 4.0, 8.0) );
+    D.add_node( Node<dim>(14,  9.0, 4.5, 9.0) );
+    D.add_node( Node<dim>(15,  3.0, 6.0, 8.0) );
+    D.add_node( Node<dim>(16,  6.0, 7.5, 7.0) );
+    D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
 
 
     auto integrationScheme = [](auto const & e){/**integrate*/};
@@ -155,16 +150,37 @@ int main(int argc, char **args){
     integrate(test5);
     integrate(test6);
 
-    CellIntegrator<nx-1, ny-1, nz-1> CellQuad;
-    //CellIntegrator<2,2,2> CellQuad;
+    //E1.set_num_integration_points((nx-1)*(ny-1)*(nz-1));
 
-    std::cout << "Weights:" << std::endl;
-    for (auto w : std::get<0>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl; 
-    for (auto w : std::get<1>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
-    for (auto w : std::get<2>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
-    std::cout << "____________________________________________________________________________" << std::endl;
+    IntegrationPoint<dim> IP_1{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_2{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_3{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_4{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_5{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_6{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_7{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_8{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_9{0.0,0.0,0.0};
+
+
+    std::cout << "Integration Points:" << std::endl;
+    std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
+
+    std::vector<IntegrationPoint<dim>>  IP_list = {IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
     
-    for (auto w : CellQuad.weights_) std::cout << w << " "; std::cout << std::endl;
+    //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9};
+    //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
+
+    //CellIntegrator<nx-1, ny-1, nz-1> CellQuad(IP_list_p);
+    ////CellIntegrator<2,2,2> CellQuad;
+    //    
+    //std::cout << "Weights:" << std::endl;
+    //for (auto w : std::get<0>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl; 
+    //for (auto w : std::get<1>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
+    //for (auto w : std::get<2>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
+    //std::cout << "____________________________________________________________________________" << std::endl;
+    //
+    //for (auto w : CellQuad.weights_) std::cout << w << " "; std::cout << std::endl;
 
 
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
