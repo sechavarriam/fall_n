@@ -105,9 +105,6 @@ int main(int argc, char **args){
     auto integrationScheme = [](auto const & e){/**integrate*/};
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
-
-    
-
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
     static constexpr uint nx = 3;
@@ -132,7 +129,7 @@ int main(int argc, char **args){
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
 
-    E1.print_node_coords();
+    //E1.print_node_coords();
 
     
     //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
@@ -157,6 +154,18 @@ int main(int argc, char **args){
     integrate(test4);
     integrate(test5);
     integrate(test6);
+
+    CellIntegrator<nx-1, ny-1, nz-1> CellQuad;
+    //CellIntegrator<2,2,2> CellQuad;
+
+    std::cout << "Weights:" << std::endl;
+    for (auto w : std::get<0>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl; 
+    for (auto w : std::get<1>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
+    for (auto w : std::get<2>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
+    std::cout << "____________________________________________________________________________" << std::endl;
+    
+    for (auto w : CellQuad.weights_) std::cout << w << " "; std::cout << std::endl;
+
 
     //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
     //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});
