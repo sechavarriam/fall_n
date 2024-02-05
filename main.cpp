@@ -151,27 +151,29 @@ int main(int argc, char **args){
     integrate(test6);
 
     //E1.set_num_integration_points((nx-1)*(ny-1)*(nz-1));
-
-    IntegrationPoint<dim> IP_1{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_2{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_3{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_4{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_5{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_6{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_7{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_8{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_9{0.0,0.0,0.0};
-
+ 
+    IntegrationPoint<dim> IP_1 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_3 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_4 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_5 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_6 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_7 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_8 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_9 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_10{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_11{0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_12{0.0,0.0,0.0};
 
     std::cout << "Integration Points:" << std::endl;
     std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
 
     std::vector<IntegrationPoint<dim>>  IP_list = {IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
     
-    //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9};
+    std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
 
-    //CellIntegrator<nx-1, ny-1, nz-1> CellQuad(IP_list_p);
+    CellIntegrator<3, 2, 2> CellQuad(IP_list_p);
     ////CellIntegrator<2,2,2> CellQuad;
     //    
     //std::cout << "Weights:" << std::endl;

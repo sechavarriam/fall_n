@@ -11,15 +11,14 @@
 typedef unsigned short ushort;
 typedef unsigned int   uint  ;
 
-template<ushort Dim, ushort Order> // Dim?
+//template<ushort Dim, ushort Order> // Dim?
 class Material{
 
     // nVars: Number of state variables (strains)
     private:
         
-        Tensor<Dim,Order> strain;
-
-        std::vector<Tensor<Dim,Order>> strain_t_; //Store history of strains in simulation for memory materials
+        //Tensor<Dim,Order> strain;
+        //std::vector<Tensor<Dim,Order>> strain_t_; //Store history of strains in simulation for memory materials
 
 
     public:
