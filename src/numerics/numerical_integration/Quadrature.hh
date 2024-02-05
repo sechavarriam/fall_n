@@ -33,7 +33,7 @@ class Quadrature{
     public:
     
     P evalPoints_;
-    W weights_   ; // Punteros a un contenedor estático?
+    W weights_   ; 
 
    template<std::invocable F>   
    constexpr double operator()(F function2eval){
@@ -102,6 +102,13 @@ public:
     CellIntegrator() = delete;
 
     constexpr CellIntegrator(pPointArray&& p):Quadr(std::forward<pPointArray>(p)){
+        set_weights();
+        set_integration_points();
+    };
+
+    using pPointVector = std::vector<Point*>;
+    constexpr CellIntegrator(pPointVector& p){
+        std::move(p.begin(), p.end(), Quadr::evalPoints_.begin());
         set_weights();
         set_integration_points();
     };

@@ -3,17 +3,23 @@
 
 #include <initializer_list>
 #include <iostream> 
+#include <memory>
 
 #include "../geometry/Point.hh"
 #include "../geometry/Topology.hh"
+#include "../materials/Material.hh"
 
 template<std::size_t dim> 
 class IntegrationPoint : public geometry::Point<dim>{
   
     using Point = geometry::Point<dim>;
 
-  private:
+    std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
+                                         // El puntero es util en caso de un material lineal... Puesto que no se repetirían instancias.
+                                         
 
+
+    //std::unique_ptr<Material> material_;
   public:
 
     IntegrationPoint(){};  
