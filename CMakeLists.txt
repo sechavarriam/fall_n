@@ -29,19 +29,29 @@ find_package(MPI REQUIRED)
 #add_definitions(-DOMPI_SKIP_MPICXX)
 target_link_libraries(fall_n PUBLIC MPI::MPI_CXX)
 
+#if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+#  # using Clang
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+#  # using GCC
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+#  # using Intel C++
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+#  # using Visual Studio C++
+#endif()
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  FetchContent_Declare(
+      matplotplusplus
+      GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus
+      GIT_TAG origin/master) # or whatever tag you want
 
-FetchContent_Declare(
-    matplotplusplus
-    GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus
-    GIT_TAG origin/master) # or whatever tag you want
+  FetchContent_GetProperties(matplotplusplus)
+  if(NOT matplotplusplus_POPULATED)
+      FetchContent_Populate(matplotplusplus)
+      add_subdirectory(${matplotplusplus_SOURCE_DIR} ${matplotplusplus_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
 
-FetchContent_GetProperties(matplotplusplus)
-if(NOT matplotplusplus_POPULATED)
-    FetchContent_Populate(matplotplusplus)
-    add_subdirectory(${matplotplusplus_SOURCE_DIR} ${matplotplusplus_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()       
-
+endif()
 
 
 
