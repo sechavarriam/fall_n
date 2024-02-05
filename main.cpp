@@ -55,7 +55,8 @@
 
 
 
-#include <matplot/matplot.h>
+//#include <matplot/matplot.h>
+
 
 #include <petsc.h>
 //#include <petscksp.h>
@@ -173,7 +174,17 @@ int main(int argc, char **args){
     std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
 
+    auto J = [](auto const& point){return 1.0;};
+
+    //std::cout << J(IP_1) << std::endl;
+
+
     CellIntegrator<3, 2, 2> CellQuad(IP_list_p);
+
+    auto Cell_Volume = CellQuad(J);
+    
+    std::cout << "Cell Volume: " << Cell_Volume << std::endl;
+
     ////CellIntegrator<2,2,2> CellQuad;
     //    
     //std::cout << "Weights:" << std::endl;

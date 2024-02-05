@@ -35,14 +35,20 @@ class Quadrature{
     P evalPoints_;
     W weights_   ; 
 
-   template<std::invocable F>   
-   constexpr double operator()(F function2eval){
+
+
+   template<typename F>   
+   constexpr auto operator()(F function2eval){
        return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),std::plus<>(),
            [&](const auto& w, const auto& x){
             return w*function2eval(x);});
    };
+
+
+
     constexpr Quadrature(){};
 
+    /*
     constexpr Quadrature(const W& w,const P& p):weights_(w),evalPoints_(p){
         std::cout << "ref constructor called." << std::endl;
     } ;
@@ -52,7 +58,7 @@ class Quadrature{
         evalPoints_(std::forward<P>(p)){
             std::cout << "rvalue ref constructor called." <<std::endl;
         } ;
-    
+    */    
     constexpr ~Quadrature(){};
 
 };
@@ -68,13 +74,16 @@ class CellIntegrator : public Quadrature<(n*...), std::array<geometry::Point<siz
   using pPointArray = std::array<Point*, n_nodes>;
 
   using Quadr = Quadrature<n_nodes, pPointArray>;
+  
 
 public:
+  using Quadr::operator();
 
   static constexpr std::tuple< std::array<double,n>...> dir_eval_coords{GaussLegendre::evalPoints<n>()...}; //Coordinates in each direction.
   static constexpr std::tuple< std::array<double,n>...> dir_weights    {GaussLegendre::Weights   <n>()...}; //Weights in each direction.
 
-  static constexpr std::array<std::size_t,dim> orders {(n-1)...};
+  //using Quadrature;
+  //static constexpr std::array<std::size_t,dim> orders {(n-1)...};
 
   constexpr void set_weights() noexcept{
     for(auto i = 0; i < n_nodes; ++i){
