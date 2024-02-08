@@ -20,10 +20,13 @@
 #include "src/domain/elements/Element.hh"
 #include "src/domain/elements/ElementBase.hh"
 #include "src/domain/elements/ContinuumElement.hh"
+#include "src/domain/elements/LagrangeElement.hh"
+
 
 #include "src/domain/DoF.hh"
 
-#include "src/domain/elements/LagrangeElement.hh"
+#include "src/materials/Material.hh"
+
 
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
@@ -53,31 +56,19 @@
 
 #include "src/analysis/Analysis.hh"
 
-
-
 //#include <matplot/matplot.h>
-
 
 #include <petsc.h>
 //#include <petscksp.h>
 
-
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
-
-
 int main(int argc, char **args){
-
     PetscInitialize(&argc, &args, nullptr, nullptr);
-
 
     static constexpr int dim = 3;
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
     D.preallocate_node_capacity(20);
- 
-
     D.add_node( Node<dim>(0 ,  2.0, 2.0, 4.0) );
     D.add_node( Node<dim>(1 ,  4.0, 3.0, 3.0) );
     D.add_node( Node<dim>(2 ,  9.0, 3.0, 3.0) );
@@ -125,11 +116,6 @@ int main(int argc, char **args){
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
 
-    //E1.print_node_coords();
-
-    
-    //D.make_element<ElementBase<dim,9,5> >(integrationScheme, 1, {1,2,3,4,5,6,7,8,9});   
-
     Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
     Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
     Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
@@ -144,16 +130,10 @@ int main(int argc, char **args){
     ElementConstRef test5 = ElementConstRef(test1);
     Element test6(test2 );
     
-    integrate(test1);
-    integrate(test2);
-    integrate(test3);
-    integrate(test4);
-    integrate(test5);
-    integrate(test6);
+    integrate(test1); integrate(test2); integrate(test3);
+    integrate(test4); integrate(test5); integrate(test6);
 
-    //E1.set_num_integration_points((nx-1)*(ny-1)*(nz-1));
- 
-    IntegrationPoint<dim> IP_1 {0.0,0.0,0.0};
+    IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
     IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};
     IntegrationPoint<dim> IP_3 {0.0,0.0,0.0};
     IntegrationPoint<dim> IP_4 {0.0,0.0,0.0};
@@ -171,19 +151,19 @@ int main(int argc, char **args){
 
     std::vector<IntegrationPoint<dim>>  IP_list = {IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
     
-    std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
+    //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
 
-    auto J = [](auto const& point){return 1.0;};
+    //auto J = [](auto const& point){return 1.0;};
 
     //std::cout << J(IP_1) << std::endl;
 
 
-    CellIntegrator<3, 2, 2> CellQuad(IP_list_p);
+    //CellIntegrator<3, 2, 2> CellQuad(IP_list_p);
 
-    auto Cell_Volume = CellQuad(J);
+    //auto Cell_Volume = CellQuad(J);
     
-    std::cout << "Cell Volume: " << Cell_Volume << std::endl;
+    //std::cout << "Cell Volume: " << Cell_Volume << std::endl;
 
     ////CellIntegrator<2,2,2> CellQuad;
     //    

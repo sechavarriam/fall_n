@@ -27,8 +27,8 @@ namespace impl{ //Implementation details
 
         virtual std::unique_ptr<ElementConcept> clone() const = 0;   // To allow copy construction of the wrapper
         virtual void clone(ElementConcept* memory_address) const = 0;// Instead of returning a newly instatiated Element
-                                                                    // we pass the memory address of the Element to be
-                                                                    // constructed. 
+                                                                     // we pass the memory address of the Element to be
+                                                                     // constructed. 
     public: 
         constexpr virtual std::size_t num_nodes() const = 0;
         //constexpr virtual std::size_t num_dof()   const = 0;
@@ -158,8 +158,8 @@ class Element{
     Element(ElementType element, IntegrationStrategy integrator){
         using Model = impl::OwningElementModel<ElementType,IntegrationStrategy>;
         pimpl_ = std::make_unique<Model>(
-            std::move(element),
-            std::move(integrator));
+            std::move(element),      // forward perhaphs?=
+            std::move(integrator));  //
     };
 
     Element( Element         const& other) : pimpl_{other.pimpl_ ->clone()} {};
