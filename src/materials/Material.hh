@@ -29,24 +29,24 @@ class Material
                auto* const model = static_cast<Model*>(materialBytes);
                delete model;
             } )
-      , getStress_(
-            []( void* materialBytes ){
-               using Model = OwningModel<MaterialType,UpdateStrategy>;
-               auto* const model = static_cast<Model*>(materialBytes);
-               (model->updater_)( model->shape_ );
-            } )
       , clone_(
             []( void* materialBytes ) -> void* {
                using Model = OwningModel<MaterialType,UpdateStrategy>;
                auto* const model = static_cast<Model*>(materialBytes);
                return new Model( *model );
             } )
+      , getStress_(
+      []( void* materialBytes ){
+         using Model = OwningModel<MaterialType,UpdateStrategy>;
+         auto* const model = static_cast<Model*>(materialBytes);
+         (model->updater_)( model->shape_ );
+      } )
    {}
 
    Material( Material const& other )
       : pimpl_( other.clone_( other.pimpl_.get() ), other.pimpl_.get_deleter() )
-      , getStress_ ( other.getStress_ )
       , clone_( other.clone_ )
+      , getStress_ ( other.getStress_ )
    {}
 
    Material& operator=( Material const& other )
@@ -55,8 +55,10 @@ class Material
       using std::swap;
       Material copy( other );
       swap( pimpl_, copy.pimpl_ );
-      swap( getStress_, copy.getStress_ );
       swap( clone_, copy.clone_ );
+
+      swap( getStress_, copy.getStress_ );
+      
       return *this;
    }
 
@@ -84,12 +86,16 @@ class Material
    };
 
    using DestroyOperation = void(void*);
-   using UpdaterOperation    = void(void*);
    using CloneOperation   = void*(void*);
 
+   using UpdaterOperation    = void(void*);
+   
+
    std::unique_ptr<void,DestroyOperation*> pimpl_;
-   UpdaterOperation*  getStress_ { nullptr };
    CloneOperation* clone_{ nullptr };
+
+   UpdaterOperation*  getStress_ { nullptr };
+   
 };
 
 
