@@ -12,66 +12,87 @@
 #include "Strain.hh"
 
 
+// TypeErasure with Manual Virtual dispatch.
 
-namespace impl { //implementation details
-
-class MaterialConcept 
+//template<typename MaterialPolicy> // MaterialPolicy is a concept that defines the material behavior (uniaxial, continuum, plane....)
+class Material
 {
-    public:
-    virtual ~MaterialConcept() = default;
+ public:
+   template< typename MaterialType
+           , typename UpdateStrategy >
+   Material( MaterialType material, UpdateStrategy updater )
+      : pimpl_(
+            new OwningModel<MaterialType,UpdateStrategy>( std::move(material)
+                                                        , std::move(updater) )
+          , []( void* materialBytes ){
+               using Model = OwningModel<MaterialType,UpdateStrategy>;
+               auto* const model = static_cast<Model*>(materialBytes);
+               delete model;
+            } )
+      , getStress_(
+            []( void* materialBytes ){
+               using Model = OwningModel<MaterialType,UpdateStrategy>;
+               auto* const model = static_cast<Model*>(materialBytes);
+               (model->updater_)( model->shape_ );
+            } )
+      , clone_(
+            []( void* materialBytes ) -> void* {
+               using Model = OwningModel<MaterialType,UpdateStrategy>;
+               auto* const model = static_cast<Model*>(materialBytes);
+               return new Model( *model );
+            } )
+   {}
 
-    virtual void get_stress() const = 0;    // get cause 
-    //virtual void update_strain() const = 0; // update effect
-    
-     // virtual void commit_state() const = 0; // From OpenSees Material  
+   Material( Material const& other )
+      : pimpl_( other.clone_( other.pimpl_.get() ), other.pimpl_.get_deleter() )
+      , getStress_ ( other.getStress_ )
+      , clone_( other.clone_ )
+   {}
 
-    virtual std::unique_ptr<MaterialConcept> clone() const = 0; 
+   Material& operator=( Material const& other )
+   {
+      // Copy-and-Swap Idiom
+      using std::swap;
+      Material copy( other );
+      swap( pimpl_, copy.pimpl_ );
+      swap( getStress_, copy.getStress_ );
+      swap( clone_, copy.clone_ );
+      return *this;
+   }
+
+   ~Material() = default;
+   Material( Material&& ) = default;
+   Material& operator=( Material&& ) = default;
+
+ private:
+   friend void getStress( Material const& material )
+   {
+      material.getStress_( material.pimpl_.get() );
+   }
+
+   template< typename MaterialType
+           , typename UpdateStrategy >
+   struct OwningModel
+   {
+      OwningModel( MaterialType value, UpdateStrategy updater )
+         : shape_( std::move(value) )
+         , updater_( std::move(updater) )
+      {}
+
+      MaterialType shape_;
+      UpdateStrategy updater_;
+   };
+
+   using DestroyOperation = void(void*);
+   using UpdaterOperation    = void(void*);
+   using CloneOperation   = void*(void*);
+
+   std::unique_ptr<void,DestroyOperation*> pimpl_;
+   UpdaterOperation*  getStress_ { nullptr };
+   CloneOperation* clone_{ nullptr };
 };
 
-template<typename MaterialType, typename MaterialPolicy>
-class OwningMaterialModel : public MaterialConcept{
 
-    MaterialType   material_;
-    MaterialPolicy policy_  ; // Uniaxial, Continuum, Hysteretic, Force-Displacement...
-
-  public:
-    std::unique_ptr<MaterialConcept> clone() const override{
-        return std::make_unique<OwningMaterialModel<MaterialType,MaterialPolicy>>(*this);}; 
-
-    explicit OwningMaterialModel(MaterialType mat , MaterialPolicy pol) :
-        material_(std::move(mat)),
-        policy_  (std::move(pol)){};
-
-  public: //Implementations
-
-  void get_stress(){material_.get_stress();};      
-};
-
-}
-//template<ushort Dim, ushort Order> // Dim?
-class Material{
-    std::unique_ptr<impl::MaterialConcept> pimpl_; //Pointer to implementation details 
-
-  public:
-    template<typename MaterialType, typename MaterialPolicy>
-    Material (MaterialType mat_, MaterialPolicy pol_)
-    {
-        using Model = impl::OwningMaterialModel<MaterialType,MaterialPolicy>;
-
-        pimpl_ = std::make_unique<Model>(
-            std::move(mat_),
-            std::move(pol_));
-    }
-
-    ~Material() = default;
-    // nVars: Number of state variables (strains)
-    //private:        
-        //Tensor<Dim,Order> strain;
-        //std::vector<Tensor<Dim,Order>> strain_t_; //Store history of strains in simulation for memory materials
-    //public:
-    //    void preallocate_strain_t_(){};
-
-};
 
 
 #endif
