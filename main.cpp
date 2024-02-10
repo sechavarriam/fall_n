@@ -64,6 +64,7 @@
 int main(int argc, char **args){
     PetscInitialize(&argc, &args, nullptr, nullptr);
 
+
     static constexpr int dim = 3;
 
     domain::Domain<dim> D; //Domain Aggregator Object
@@ -126,7 +127,9 @@ int main(int argc, char **args){
                                              D.node_p(9 ),D.node_p(10),D.node_p(11),
                                              D.node_p(12),D.node_p(13),D.node_p(14),
                                              D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
-    
+
+    static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>);
+
     ElementConstRef test5 = ElementConstRef(test1);
     Element test6(test2 );
     
@@ -152,11 +155,7 @@ int main(int argc, char **args){
     std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
     std::cout << IP_12.coord(0) << " " << IP_12.coord(1) << " " << IP_12.coord(2) << std::endl;
 
-    std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
-
-
-
-
+    std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_12};
 
 
 
