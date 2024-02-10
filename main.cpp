@@ -144,13 +144,22 @@ int main(int argc, char **args){
     IntegrationPoint<dim> IP_9 {0.0,0.0,0.0};
     IntegrationPoint<dim> IP_10{0.0,0.0,0.0};
     IntegrationPoint<dim> IP_11{0.0,0.0,0.0};
-    IntegrationPoint<dim> IP_12{0.0,0.0,0.0};
+
+    IntegrationPoint<dim> IP_12(N3);
+ 
 
     std::cout << "Integration Points:" << std::endl;
     std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
+    std::cout << IP_12.coord(0) << " " << IP_12.coord(1) << " " << IP_12.coord(2) << std::endl;
 
-    std::vector<IntegrationPoint<dim>>  IP_list = {IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
-    
+    std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_9};
+
+
+
+
+
+
+
     //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
 

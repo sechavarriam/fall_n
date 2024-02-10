@@ -57,7 +57,7 @@ public:
   void set_num_integration_points(std::size_t num) noexcept {
     integration_points_.resize(num);
   };
-
+  
   void set_integration_points(std::vector <IntegrationPoint<dim>> points) noexcept {
     integration_points_ = std::move(points);
   };
