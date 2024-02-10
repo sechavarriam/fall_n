@@ -134,7 +134,8 @@ int main(int argc, char **args){
     Element test6(test2 );
     
     integrate(test1); integrate(test2); integrate(test3);
-    integrate(test4); integrate(test5); integrate(test6);
+    integrate(test4); integrate(test5); integrate(testL);
+
 
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
     IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};

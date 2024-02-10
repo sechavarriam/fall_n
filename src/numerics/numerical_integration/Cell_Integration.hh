@@ -5,10 +5,13 @@
 #include <cstddef>
 
 template <std::size_t... N>
-class Cell_Integration {
+class CellIntegrator {
+
+  
   public:
-    Cell_Integration() = default;
-    ~Cell_Integration() = default;
+
+    CellIntegrator() = default;
+    ~CellIntegrator() = default;
 
     template <typename F>
     constexpr auto integrate(F&& f) const noexcept {

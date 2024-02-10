@@ -5,9 +5,11 @@
 #include <cstddef>
 #include <iterator>
 #include <memory>
+#include <ranges>
 #include <tuple>
 #include <vector>
 #include <type_traits>
+#include <ranges>
 
 
 #include "../Node.hh"
@@ -71,12 +73,17 @@ public:
 
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  //void set_num_integration_points(std::size_t num) noexcept {
-  //  integration_points_.resize(num);
-  //};
-  //void set_integration_points(std::vector <IntegrationPoint<dim>> points) noexcept {
-  //  integration_points_ = std::move(points);
-  //};
+  void set_num_integration_points(std::size_t num) noexcept {
+    integration_points_.resize(num);
+  };
+
+  void set_integration_point(std::size_t i, IntegrationPoint<dim>&& point) noexcept {
+    integration_points_[i] = std::move(point);
+  };
+
+  void set_integration_points(std::ranges::range auto&& points) noexcept {
+    std::move(points.begin(), points.end(), integration_points_.begin());
+  };
 
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
@@ -118,15 +125,8 @@ public:
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
-    for (auto node : nodes_) {
-      for (auto j = 0; j < dim; ++j) {
-        printf("%f ", node->coord(j));
-      };
-      printf("\n");
-    }
+    for (auto node : nodes_) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
   };
-
-  // LagrangeElement() = default;
 
   LagrangeElement(std::array<Node<dim> *, num_nodes_> nodes)
       : nodes_{std::forward<std::array<Node<dim> *, num_nodes_>>(nodes)}{};
