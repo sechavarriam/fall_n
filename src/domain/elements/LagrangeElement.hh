@@ -6,6 +6,8 @@
 #include <iterator>
 #include <memory>
 #include <tuple>
+#include <vector>
+#include <type_traits>
 
 
 #include "../Node.hh"
@@ -20,19 +22,34 @@
 #include "../../utils/small_math.hh"
 
 
+template<typename T>
+concept private_Lagrange_check_ = requires(T t){
+  requires std::same_as<decltype(t._is_LagrangeElement()), bool>;
+  };
+
+template<typename T> 
+struct LagrangeConceptTester{
+  static inline constexpr bool _is_in_Lagrange_Family = private_Lagrange_check_<T>;  
+};
+
+template<typename T>
+concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
+
+
 template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
 class LagrangeElement {
+  
+  template<typename T> friend class LagrangeConceptTester;  
+  static inline constexpr bool _is_LagrangeElement(){return true;};
 
   using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
-  
-  static inline constexpr std::size_t dim = sizeof...(N);
 
+  static inline constexpr std::size_t dim = sizeof...(N);
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
   using pNodeArray = std::array<Node<dim> *, num_nodes_>;
   using JacobianMatrix = std::array<std::array<double, dim>, dim>;
-
 
 
   std::size_t tag_;
@@ -42,7 +59,7 @@ class LagrangeElement {
   std::vector <IntegrationPoint<dim>> integration_points_;  
 
 public:
-
+  
   
   
   auto num_nodes() const noexcept { return num_nodes_; };
@@ -54,13 +71,12 @@ public:
 
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  void set_num_integration_points(std::size_t num) noexcept {
-    integration_points_.resize(num);
-  };
-  
-  void set_integration_points(std::vector <IntegrationPoint<dim>> points) noexcept {
-    integration_points_ = std::move(points);
-  };
+  //void set_num_integration_points(std::size_t num) noexcept {
+  //  integration_points_.resize(num);
+  //};
+  //void set_integration_points(std::vector <IntegrationPoint<dim>> points) noexcept {
+  //  integration_points_ = std::move(points);
+  //};
 
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
@@ -119,5 +135,10 @@ public:
 
   ~LagrangeElement() = default;
 };
+
+
+
+
+
 
 #endif

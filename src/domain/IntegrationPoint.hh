@@ -22,13 +22,14 @@ class IntegrationPoint{// : public geometry::Point<dim>{
     std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
                                          // El puntero es util en caso de un material lineal... Puesto que no se repetirían instancias.
                                         
-                                         // Another type erased class with strategies (this!)   - 
-
-          //std::unique_ptr<Material> material_;
   public:
     double coord(std::size_t i) const {return Point_->coord( i );};
 
 
+    // Constructors
+    IntegrationPoint() =  default;  
+
+    // Coordinate constructor.
     template<std::floating_point... Args>
     IntegrationPoint(Args&&... args) : Point_(std::make_unique<Point>(std::forward<Args>(args)...)){};
 
@@ -70,22 +71,6 @@ class IntegrationPoint{// : public geometry::Point<dim>{
     };
 
     IntegrationPoint& operator=(IntegrationPoint&& other) = default;
-
-    // Constructors
-
-    IntegrationPoint() =  default;  
-
-    
-    
-    //std::forward<Args>(args)...){};
-
-
-
-    // Copy, move constructors and assignment operators
-    // IntegrationPoint(const IntegrationPoint& other):Point(other){};
-    // IntegrationPoint& operator=(const IntegrationPoint& other){Point::operator=(other); return *this;};
-    //IntegrationPoint(IntegrationPoint&& other) noexcept:Point(std::move(other)){};
-    //IntegrationPoint& operator=(IntegrationPoint&& other) noexcept{Point::operator=(std::move(other)); return *this;}
 
     ~IntegrationPoint() = default;
 };
