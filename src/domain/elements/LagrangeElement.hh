@@ -2,6 +2,7 @@
 #define FALL_N_LAGRANGIAN_FINITE_ELEMENT
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <iterator>
 #include <memory>
@@ -22,6 +23,11 @@
 
 
 #include "../../utils/small_math.hh"
+
+#include "../../numerics/numerical_integration/Quadrature.hh"
+
+#include "../../integrator/MaterialIntegrator.hh"
+
 
 
 template<typename T>
@@ -58,32 +64,37 @@ class LagrangeElement {
 
   pNodeArray nodes_;
 
-  std::vector <IntegrationPoint<dim>> integration_points_;  
+  std::unique_ptr<MaterialIntegrator> material_integrator_;
+
+  //std::vector <IntegrationPoint<dim>> integration_points_;  
 
 public:
   
-  
+
+  //std::vector <IntegrationPoint<dim>> integration_points_;  
   
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
   
   auto node(std::size_t i) const noexcept { return nodes_[i]; };
 
-  //std::size_t num_nodes() const { return num_nodes; };
-
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  void set_num_integration_points(std::size_t num) noexcept {
-    integration_points_.resize(num);
+  void set_material_integrator(std::unique_ptr<MaterialIntegrator>&& integrator) noexcept {
+    material_integrator_ = std::move(integrator);
   };
 
-  void set_integration_point(std::size_t i, IntegrationPoint<dim>&& point) noexcept {
-    integration_points_[i] = std::move(point);
-  };
-
-  void set_integration_points(std::ranges::range auto&& points) noexcept {
-    std::move(points.begin(), points.end(), integration_points_.begin());
-  };
+  //void set_num_integration_points(std::size_t num) noexcept {
+  //  integration_points_.resize(num);
+  //};
+//
+  //void set_integration_point(std::size_t i, IntegrationPoint<dim>&& point) noexcept {
+  //  integration_points_[i] = std::move(point);
+  //};
+//
+  //void set_integration_points(std::ranges::range auto&& points) noexcept {
+  //  std::move(points.begin(), points.end(), integration_points_.begin());
+  //};
 
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
@@ -118,24 +129,68 @@ public:
   };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  auto detJ(const geometry::Point<dim>&    X) noexcept {return utils::det(evaluate_jacobian(X));};
-  auto detJ(      std::array<double,dim>&& X) noexcept {return utils::det(evaluate_jacobian(X));};
-  auto detJ(const std::array<double,dim>&  X) noexcept {return utils::det(evaluate_jacobian(X));};
-
+  decltype(auto) detJ(const geometry::Point<dim>&    X) noexcept {return utils::det(evaluate_jacobian(X));};
+  decltype(auto) detJ(      std::array<double,dim>&& X) noexcept {return utils::det(evaluate_jacobian(X));};
+  decltype(auto) detJ(const std::array<double,dim>&  X) noexcept {return utils::det(evaluate_jacobian(X));};
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
     for (auto node : nodes_) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
   };
 
-  LagrangeElement(std::array<Node<dim> *, num_nodes_> nodes)
-      : nodes_{std::forward<std::array<Node<dim> *, num_nodes_>>(nodes)}{};
+  //Constructor
+  LagrangeElement()  = default;
+  LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
 
-  LagrangeElement();
+  // Copy and Move Constructors and Assignment Operators
+  LagrangeElement(const LagrangeElement& other) : 
+    tag_                {other.tag_},
+    nodes_              {other.nodes_},
+    material_integrator_{std::make_unique<MaterialIntegrator>()}
+    {};
+
+  LagrangeElement(LagrangeElement&& other) = default;
+
+  LagrangeElement& operator=(const LagrangeElement& other){
+    tag_                 = other.tag_;
+    nodes_               = other.nodes_;
+    material_integrator_ = std::make_unique<MaterialIntegrator>();
+    return *this;
+  };
+
+  LagrangeElement& operator=(LagrangeElement&& other) = default;
 
   ~LagrangeElement() = default;
+
 };
 
+
+template <std::size_t... N>
+class GaussIntegrator : public MaterialIntegrator {
+    using  CellQuadrature = GaussLegendre::CellQuadrature<N...>;
+
+
+    std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
+
+    CellQuadrature integrator_{};
+
+    std::floating_point auto operator()
+    (const is_LagrangeElement auto& element, std::invocable auto&& f) const noexcept {
+        return integrator_([&](auto x){
+            return f(x) * element.detJ(x);
+        });
+    };
+
+    public:
+
+    constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
+        element.set_integration_points(integrator_.evalPoints_);
+        };
+
+    constexpr GaussIntegrator(is_LagrangeElement auto* element) noexcept :
+    integrator_(element->integration_points_){};
+    
+};
 
 
 

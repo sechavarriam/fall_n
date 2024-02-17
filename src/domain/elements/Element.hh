@@ -14,6 +14,8 @@
 
 #include "../Node.hh"
 
+#include "../../integrator/MaterialIntegrator.hh"
+
 namespace impl{ //Implementation details
 
 
@@ -31,11 +33,9 @@ namespace impl{ //Implementation details
                                                                      // constructed. 
     public: 
         constexpr virtual std::size_t num_nodes() const = 0;
-        //constexpr virtual std::size_t num_dof()   const = 0;
+        constexpr virtual std::size_t        id() const = 0;
 
-        virtual std::size_t        id()    const = 0;
-        
-        //virtual std::size_t const* nodes() const = 0;
+        //virtual void set_material_integrator() const = 0;
     };  
 
     template <typename ElementType, typename IntegrationStrategy> 
@@ -50,9 +50,9 @@ namespace impl{ //Implementation details
     public:
         void compute_integral(/*function2integrate?*/) const override {integrator_(element_);}; //Maybe double?
 
-        explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) 
-            : element_   (std::move(element)),
-              integrator_(std::move(integrator)){};
+        explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
+            element_   (std::move(element   )),
+            integrator_(std::move(integrator)){};
 
         std::unique_ptr<ElementConcept> clone() const override {
             return std::make_unique<OwningElementModel<ElementType,IntegrationStrategy>>(*this);
@@ -64,11 +64,10 @@ namespace impl{ //Implementation details
         };
 
     public: // Implementation of the virtual operations derived from ElementConcept
-        std::size_t constexpr num_nodes()const override {return element_.num_nodes();};
-        //std::size_t constexpr num_dof()  const override {return element_.num_dof()  ;};
+        constexpr std::size_t  num_nodes() const override {return element_.num_nodes();};
+        constexpr std::size_t         id() const override {return element_.id()       ;};
         
-        std::size_t        id()    const override {return element_.id()   ;};
-        //std::size_t const* nodes() const override {return element_.nodes();};
+        //void set_material_integrator() const override {element_.set_material_integrator();};
     };
 
 
@@ -94,10 +93,10 @@ namespace impl{ //Implementation details
         };
 
     public:  // Implementation of the virtual operations derived from ElementConcept (Accesing pointer members)
-        std::size_t constexpr num_nodes()const override {return element_->num_nodes();};
-        //std::size_t constexpr num_dof()  const override {return element_->num_dof()  ;};
+        constexpr std::size_t  num_nodes() const override {return element_->num_nodes();};
+        constexpr std::size_t         id() const override {return element_->id()       ;};
         
-        std::size_t        id()    const override {return element_->id()   ;};
+        //void set_material_integrator() const override {element_->set_material_integrator();};
         //std::size_t const* nodes() const override {return element_->nodes();};
     };
 } //impl
@@ -110,13 +109,8 @@ class ElementConstRef{
     static constexpr std::size_t MODEL_SIZE = 3;          //The 3 pointers of the NON_OwningElementModel,
     alignas(void*) std::array<std::byte,MODEL_SIZE> raw_; //Raw storage (Aligned Byte array)
 
-    impl::ElementConcept* pimpl(){
-        return reinterpret_cast<impl::ElementConcept*>(raw_.data());
-    };
-
-    impl::ElementConcept const* pimpl() const{
-        return reinterpret_cast<impl::ElementConcept const*>(raw_.data());
-    };
+    impl::ElementConcept      * pimpl()      {return reinterpret_cast<impl::ElementConcept      *>(raw_.data());};
+    impl::ElementConcept const* pimpl() const{return reinterpret_cast<impl::ElementConcept const*>(raw_.data());};
 
   public:
     template<typename ElementType, typename IntegrationStrategy>
@@ -147,14 +141,23 @@ class ElementConstRef{
         element.pimpl()->compute_integral(/*args...*/);
         std::cout << "Element " << element.pimpl()->id() << " integrated" << std::endl;
         };
+
+    friend std::size_t id       (ElementConstRef const& element){return element.pimpl()->id()       ;};
+    friend std::size_t num_nodes(ElementConstRef const& element){return element.pimpl()->num_nodes();};
+
+    //friend void set_material_integrator(ElementConstRef& element){
+    //    element.pimpl()->set_material_integrator();
+    //};
 };
 
 class Element{
     friend class ElementConstRef;
     std::unique_ptr<impl::ElementConcept> pimpl_; // Bridge to implementation details (compiler generated).
 
+    //MaterialIntegrator material_integrator_; // Spacial integration strategy (e.g. GaussLegendre::CellQuadrature)
+
   public:
-    template<typename ElementType, typename IntegrationStrategy>
+    template<typename ElementType, typename IntegrationStrategy> //CAN BE CONSTRAINED WITH CONCEPTS!
     Element(ElementType element, IntegrationStrategy integrator){
         using Model = impl::OwningElementModel<ElementType,IntegrationStrategy>;
         pimpl_ = std::make_unique<Model>(
@@ -188,8 +191,11 @@ class Element{
     //};
     friend std::size_t id       (Element const& element){return element.pimpl_->id()       ;};
     friend std::size_t num_nodes(Element const& element){return element.pimpl_->num_nodes();};
-    //friend std::size_t num_dof  (Element const& element){return element.pimpl_->num_dof()  ;};
-     
+
+    //friend void set_material_integrator(Element& element){
+    //    element.pimpl_->set_material_integrator();
+    //};
+    
     //friend auto nodes(Element const& element){
     //    return std::span{
     //        element.pimpl_->nodes(),    //Pointer to data

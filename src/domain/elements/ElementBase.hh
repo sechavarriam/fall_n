@@ -40,13 +40,11 @@ class ElementBase{
     uint  id()    const {return id_   ;};
     std::size_t const* nodes() const {return nodes_.data();};   
 
+    void set_material_integrator()
+    {
+      std::cout << "Unreachable thing " << std::endl;
+    };
 
-    //void compute_measure(){};
-    //void compute_shape_functions(){};             //Policy
-    //void compute_shape_functions_derivatives(){}; //Policy
-    //void compute_stiffness_matrix(){};
-    //void compute_mass_matrix(){};
-    //void compute_damping_matrix(){};              //Policy
 
   private:
     std::size_t id_ ; //tag

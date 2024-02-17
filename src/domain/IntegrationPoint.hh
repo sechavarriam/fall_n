@@ -18,7 +18,8 @@ class IntegrationPoint{// : public geometry::Point<dim>{
   
     using Point = geometry::Point<dim>;
 
-    std::unique_ptr<Point> Point_;
+    std::shared_ptr<Point> Point_;
+    
     std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
                                          // El puntero es util en caso de un material lineal... Puesto que no se repetirían instancias.
                                         
@@ -36,36 +37,36 @@ class IntegrationPoint{// : public geometry::Point<dim>{
 
     // Point and Material provided
     IntegrationPoint(Point&& p, Material&& m):
-         Point_   (std::make_unique<Point>   (std::move(p))),
+         Point_   (std::make_shared<Point>   (std::move(p))),
          material_(std::make_shared<Material>(std::move(m))){};
 
     IntegrationPoint(const Point& p, const Material& m):
-         Point_   (std::make_unique<Point>   (p)),
+         Point_   (std::make_shared<Point>   (p)),
          material_(std::make_shared<Material>(m)){};
     
     IntegrationPoint(std::unique_ptr<Point> p, Material m):
-         Point_   (std::move(p)),
+         Point_   (std::make_shared<Point>   (std::move(p))),
          material_(std::make_shared<Material>(std::move(m))){};
 
     //Only Point provided
     IntegrationPoint(Point&& p):
-         Point_(std::make_unique<Point>(std::move(p))){};
+         Point_(std::make_shared<Point>(std::move(p))){};
 
     IntegrationPoint(const Point& p):
-         Point_(std::make_unique<Point>(p)){};
+         Point_(std::make_shared<Point>(p)){};
 
-    IntegrationPoint(std::unique_ptr<Point> p):
+    IntegrationPoint(std::shared_ptr<Point> p):
          Point_(std::move(p)){};
 
     //Other IntegrarionPoint provided (copy and move constructors and assignment operators)
     IntegrationPoint(const IntegrationPoint& other):
-            Point_   (std::make_unique<Point>()),
+            Point_   (std::make_shared<Point>()),
             material_(other.material_){};
 
     IntegrationPoint(IntegrationPoint&& other) = default;
 
     IntegrationPoint& operator=(const IntegrationPoint& other){
-        Point_    = std::make_unique<Point>();
+        Point_    = std::make_shared<Point>();
         material_ = other.material_;
         return *this;
     };
