@@ -56,6 +56,8 @@
 
 #include "src/analysis/Analysis.hh"
 
+#include "src/integrator/MaterialIntegrator.hh"
+
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
@@ -63,7 +65,6 @@
 
 int main(int argc, char **args){
     PetscInitialize(&argc, &args, nullptr, nullptr);
-
 
     static constexpr int dim = 3;
 
@@ -89,12 +90,12 @@ int main(int argc, char **args){
     D.add_node( Node<dim>(16,  6.0, 7.5, 7.0) );
     D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
 
-
     auto integrationScheme = [](auto const & e){/**integrate*/};
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
+    /*
     static constexpr uint nx = 3;
     static constexpr uint ny = 3;    
     static constexpr uint nz = 2;
@@ -121,12 +122,18 @@ int main(int argc, char **args){
     Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
     Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
 
+
+    
+
     Element testL{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
                                              D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
                                              D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
                                              D.node_p(9 ),D.node_p(10),D.node_p(11),
                                              D.node_p(12),D.node_p(13),D.node_p(14),
                                              D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
+
+
+    //GaussIntegrator<2,2,2> LagElem_integrator(E1);
 
     static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>);
 
@@ -158,7 +165,7 @@ int main(int argc, char **args){
 
     std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_12};
 
-
+*/
 
     //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
