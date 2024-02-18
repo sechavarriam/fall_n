@@ -5,6 +5,7 @@
 #include "Matrix.hh"
 
 #include <concepts>
+#include <cstdio>
 #include <iostream>
 #include <array>
 #include <initializer_list>
@@ -34,14 +35,46 @@ class Vector //Wrapper Around PETSc Seq Vector
         return std::span<PetscScalar>(p_data, size);
     }
 
-    void print_contents(){
-        for (auto i : data()){
-            std::cout << i << std::endl;
-        };
-        
+    void print_content(){for(auto i:data()) printf("%f ", i);printf("\n");};
+
+    //Operators
+    Vector& operator+=(const Vector& other){//Chek sizes
+        VecAXPY(vec_, 1.0, other.vec_);
+        return *this;
     };
 
+    Vector operator-= (const Vector& other){
+        VecAXPY(vec_, -1.0, other.vec_);
+        return *this;
+    };
 
+    Vector operator*=(const PetscScalar& scalar){
+        VecScale(vec_, scalar);
+        return *this;
+    };
+
+    Vector operator/=(const PetscScalar& scalar){
+        VecScale(vec_, 1.0/scalar);
+        return *this;
+    };
+
+    Vector operator+(const Vector& other){
+        Vector result;
+        VecDuplicate(vec_, &result.vec_);
+        VecCopy(vec_, result.vec_);
+        VecAXPY(result.vec_, 1.0, other.vec_);
+        return result;
+    };
+
+    Vector operator-(const Vector& other){
+        Vector result;
+        VecDuplicate(vec_, &result.vec_);
+        VecCopy(vec_, result.vec_);
+        VecAXPY(result.vec_, -1.0, other.vec_);
+        return result;
+    };
+
+    // Accessors
     std::floating_point auto operator[](std::size_t i){
         PetscScalar* data;
         VecGetArray(vec_, &data);
@@ -49,8 +82,12 @@ class Vector //Wrapper Around PETSc Seq Vector
     };
 
     
-
     // Constructors
+    Vector(){
+        VecCreateSeq(PETSC_COMM_SELF, 0, &vec_);
+        std::cout << "Default" << std::endl;
+    };
+
     Vector(std::initializer_list<PetscScalar>data){
         VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
         VecPlaceArray(vec_, data.begin());
