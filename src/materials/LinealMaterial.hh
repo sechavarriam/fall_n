@@ -23,12 +23,12 @@ namespace material{
 //    {m.temperature_rate} -> std::same_as<double>;
 //};
 
-template <typename T>
-concept StoragePolicy = requires(T t){
-    {t.id()} -> std::same_as<std::size_t>;
-    {t.name()} -> std::same_as<std::string>;
-    {t.description()} -> std::same_as<std::string>;
-};
+//template <typename T>
+//concept StoragePolicy = requires(T t){
+//    {t.id()} -> std::same_as<std::size_t>;
+//    {t.name()} -> std::same_as<std::string>;
+//    {t.description()} -> std::same_as<std::string>;
+//};
 
 
 //Some concept

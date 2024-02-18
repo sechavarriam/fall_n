@@ -7,11 +7,12 @@
 #include <iterator>
 #include <memory>
 #include <ranges>
+#include <span>
 #include <tuple>
 #include <vector>
 #include <type_traits>
 #include <ranges>
-
+#include <span>
 
 #include "../Node.hh"
 
@@ -182,6 +183,14 @@ class GaussIntegrator : public MaterialIntegrator {
     };
 
     public:
+
+    auto integration_point(std::size_t i) const noexcept {
+        return &integration_points_[i];
+    };
+
+    std::span<IntegrationPoint<sizeof...(N)>,(N*...)> integration_points() const noexcept {
+        return integration_points_;
+    };
 
     constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
         element.set_integration_points(integrator_.evalPoints_);

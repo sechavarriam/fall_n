@@ -56,7 +56,12 @@
 
 #include "src/analysis/Analysis.hh"
 
+#include "src/materials/ConstitutiveRelation.hh"
 #include "src/integrator/MaterialIntegrator.hh"
+
+
+#include "src/numerics/Matrix.hh"
+#include "src/numerics/Vector.hh"
 
 //#include <matplot/matplot.h>
 
@@ -68,6 +73,30 @@ int main(int argc, char **args){
 
     static constexpr int dim = 3;
 
+
+    std::array<double, 5> vecData1{1.0,2.0,3.0,4.0,5.0};
+    
+    std::vector<double> vecData2{10,20,30,40,50};
+
+
+    Vector X1{vecData1};
+    Vector X2{vecData2};
+
+    Vector X{1.0,2.0,3.0}; 
+
+    X.print_contents();
+    std::cout << "_____________________" << std::endl;
+    X1.print_contents();
+    std::cout << "_____________________" << std::endl;
+    X2.print_contents();
+    std::cout << "_____________________" << std::endl;
+
+
+
+
+
+
+
     domain::Domain<dim> D; //Domain Aggregator Object
     
     D.preallocate_node_capacity(20);
@@ -75,12 +104,12 @@ int main(int argc, char **args){
     D.add_node( Node<dim>(1 ,  4.0, 3.0, 3.0) );
     D.add_node( Node<dim>(2 ,  9.0, 3.0, 3.0) );
     D.add_node( Node<dim>(3 ,  2.0, 4.0, 3.0) );
-    D.add_node( Node<dim>(4 ,  5.0, 5.0, 1.0) );
-    D.add_node( Node<dim>(5 , 10.0, 5.0, 1.0) );
-    D.add_node( Node<dim>(6 ,  2.0, 7.0, 3.0) );
-    D.add_node( Node<dim>(7 ,  4.0, 7.0, 2.0) );
-    D.add_node( Node<dim>(8 ,  9.0, 6.0, 2.0) );
-    D.add_node( Node<dim>(9 ,  3.0, 2.0, 8.0) );
+    D.add_node( Node<dim>(4 ,  4.0, 5.0, 2.0) );
+    D.add_node( Node<dim>(5 ,  9.0, 4.0, 2.0) );
+    D.add_node( Node<dim>(6 ,  2.0, 6.0, 2.0) );
+    D.add_node( Node<dim>(7 ,  4.0, 7.0, 1.0) );
+    D.add_node( Node<dim>(8 ,  9.0, 6.0, 1.0) );
+    D.add_node( Node<dim>(9 ,  2.0, 8.0, 1.0) );
     D.add_node( Node<dim>(10,  5.0, 2.0, 7.0) );
     D.add_node( Node<dim>(11,  9.0, 2.0, 8.5) );
     D.add_node( Node<dim>(12,  4.0, 4.0, 8.5) );
