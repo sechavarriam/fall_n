@@ -4,9 +4,11 @@
 
 #include "Matrix.hh"
 
+#include <concepts>
 #include <iostream>
 #include <array>
 #include <initializer_list>
+#include <span>
 
 #include <memory>
 #include <ranges>
@@ -23,18 +25,26 @@ class Vector //Wrapper Around PETSc Vector
         PETSc_Vector vec_;
     public:
 
-    void print_contents(){
-        PetscScalar* data;
+    auto data(){
         PetscInt size;
-
+        PetscScalar* p_data;
         VecGetSize(vec_, &size);
-        VecGetArray(vec_, &data);
-        for (int i = 0; i < size; i++){
-            std::cout << data[i] << std::endl;
-        }
-        VecRestoreArray(vec_, &data);
+        VecGetArray(vec_, &p_data);
+        return std::span<PetscScalar>(p_data, size);
     }
 
+
+    std::floating_point auto operator[](std::size_t i){
+        PetscScalar* data;
+        VecGetArray(vec_, &data);
+        return data[i];
+    };
+
+    void print_contents(){
+        for (auto i : data()){
+            std::cout << i << std::endl;
+        };
+    };
 
     // Constructors
     Vector(std::initializer_list<PetscScalar>data){
@@ -56,9 +66,6 @@ class Vector //Wrapper Around PETSc Vector
     }
         
 };
-// Vector defined in terms of the matrix wrapper.
-//template<unsigned int N, typename ScalarType = double>
-//using Vector = Matrix<N,1,ScalarType> ;
 
 
 
