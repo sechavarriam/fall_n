@@ -19,7 +19,6 @@
 namespace impl{ //Implementation details
 
 
-
     class ElementConcept{ //Define the minimum interface for all element types (of any kind)
     public:
         virtual ~ElementConcept() = default;  
@@ -48,6 +47,7 @@ namespace impl{ //Implementation details
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
     public:
+
         void compute_integral(/*function2integrate?*/) const override {integrator_(element_);}; //Maybe double?
 
         explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
@@ -154,7 +154,11 @@ class Element{
     friend class ElementConstRef;
     std::unique_ptr<impl::ElementConcept> pimpl_; // Bridge to implementation details (compiler generated).
 
+    std::size_t id() const{return pimpl_->id();};
+
     //MaterialIntegrator material_integrator_; // Spacial integration strategy (e.g. GaussLegendre::CellQuadrature)
+
+
 
   public:
     template<typename ElementType, typename IntegrationStrategy> //CAN BE CONSTRAINED WITH CONCEPTS!
