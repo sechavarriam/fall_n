@@ -69,7 +69,7 @@
 //#include <petscksp.h>
 
 int main(int argc, char **args){
-    PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
+PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     static constexpr int dim = 3;
 
@@ -83,11 +83,17 @@ int main(int argc, char **args){
     Vector X2{vecData2};
     Vector X{1.0,2.0,3.0}; 
 
-    X.print_contents();
+    X.print_content();
     std::cout << "_____________________" << std::endl;
-    X1.print_contents();
+    X1.print_content();
     std::cout << "_____________________" << std::endl;
-    X2.print_contents();
+    X2.print_content();
+    std::cout << "_____________________" << std::endl;
+    
+    X1 += X2;   
+
+    
+    X1.print_content();
     std::cout << "_____________________" << std::endl;
 
 
@@ -241,6 +247,6 @@ int main(int argc, char **args){
     //}
 
 }// PETSc Scope ends here
-    PetscFinalize();
-};
+PetscFinalize(); //This is necessary to avoid memory leaks and MPI errors.
+}; 
 
