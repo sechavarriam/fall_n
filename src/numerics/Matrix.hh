@@ -35,7 +35,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         };
 
 
-        Matrix(std::ranges::contiguous_range auto data, PetscInt extent1, PetscInt extent2){
+        Matrix(std::ranges::contiguous_range auto& data, PetscInt extent1, PetscInt extent2){
             MatCreateSeqDense(PETSC_COMM_SELF, extent1, extent2, std::to_address(data.begin()), &mat_);
         };
         
