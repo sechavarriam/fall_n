@@ -27,11 +27,12 @@ class Vector //Wrapper Around PETSc Seq Vector
         PETSc_Vector vec_;
     public:
 
-    auto data(){
+    std::span<PetscScalar> data(){
         PetscInt size;
         PetscScalar* p_data;
         VecGetSize(vec_, &size);
         VecGetArray(vec_, &p_data);
+        //co_yield std::span<PetscScalar>(p_data, size);
         return std::span<PetscScalar>(p_data, size);
     }
 
@@ -130,9 +131,7 @@ class Vector //Wrapper Around PETSc Seq Vector
     };
 
     // Destructor
-    ~Vector(){
-        VecDestroy(&vec_);
-    };
+    ~Vector(){VecDestroy(&vec_);};
 };
 
 

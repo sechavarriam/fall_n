@@ -73,36 +73,14 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     static constexpr int dim = 3;
 
+    std::array<double,3*3> A{1,2,3,4,5,6,7,8,9};
 
-    std::array<double, 5> vecData1{1.0,2.0,3.0,4.0,5.0};
-    
-    std::vector<double> vecData2{10,20,30,40,50};
+    Matrix M{&A[0], 3,3};
+    Matrix N{A, 3,3};
 
-
-    Vector X1{vecData1};
-    Vector X2{vecData2};
-    Vector X{1.0,2.0,3.0}; 
-
-    X.print_content();
-    std::cout << "_____________________" << std::endl;
-    X1.print_content();
-    std::cout << "_____________________" << std::endl;
-    X2.print_content();
-    std::cout << "_____________________" << std::endl;
-    
-    X1 += X2;   
-
-    
-    X1.print_content();
-    std::cout << "_____________________" << std::endl;
-
-
-    for (auto i=0; i<5; i++){
-        std::cout << X1[i] << " " << X2[i] << std::endl;
-    }
-
-
-
+    M.print_content();
+    std::cout << std::endl;
+    N.print_content();
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
