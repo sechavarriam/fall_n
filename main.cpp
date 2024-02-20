@@ -78,9 +78,28 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Matrix M{&A[0], 3,3};
     Matrix N{A, 3,3};
 
+    auto SumM = M + N;
+    auto DiffM = M - N;
+
+    auto ScalarM = M * 2.0;
+
+    auto DivM = M / 2.0;
+
+
+
     M.print_content();
     std::cout << std::endl;
     N.print_content();
+    std::cout << std::endl;
+    SumM.print_content();
+    std::cout << std::endl;
+    DiffM.print_content();
+    std::cout << std::endl;
+    ScalarM.print_content();
+    std::cout << std::endl;
+    DivM.print_content();
+    std::cout << std::endl;
+    
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
