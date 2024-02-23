@@ -14,8 +14,8 @@
 #include <variant>
 #include <any>
 
-#include "Vector.hh"
-#include "Matrix.hh"
+//#include "Vector.hh"
+//#include "Matrix.hh"
 
 template<typename T,typename X>
 concept Multipliable = requires(T t, X x){
@@ -65,11 +65,12 @@ class Polynomial {
                 static_cast<X>(coeff_.back()),// Initial value casted to X type ........(cn)
                 [&x](const X& fx, const auto& c){return fx*x + c;} //Lambda function, Horner's method (captures x)
             );
-        }else{ //Eigen Types (TODO: Impreve efficiency!)
-            X fx = coeff_.back()*X::Ones();
-            for(const auto& c : coeff_|std::views::drop(1)) fx = fx.cwiseProduct(x)+c*X::Ones();
-            return fx-X::Ones(); //(TODO: Impreve efficiency!)
         }
+        //else{ //Eigen Types (TODO: Impreve efficiency!)
+        //    X fx = coeff_.back()*X::Ones();
+        //    for(const auto& c : coeff_|std::views::drop(1)) fx = fx.cwiseProduct(x)+c*X::Ones();
+        //    return fx-X::Ones(); //(TODO: Impreve efficiency!)
+        //}
     }
 };
 

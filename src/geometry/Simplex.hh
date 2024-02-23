@@ -6,7 +6,7 @@
 
 #include "Point.hh"
 
-#include "../numerics/Vector.hh"
+//#include "../numerics/Vector.hh"
 
 namespace geometry {
   

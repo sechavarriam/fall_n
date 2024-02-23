@@ -12,8 +12,6 @@
 
 #include"header_files.hh"
 
-
-
 #include "src/domain/IntegrationPoint.hh"
 #include "src/domain/Node.hh"
 #include "src/domain/elements/ContinuumElement.hh"
@@ -22,11 +20,7 @@
 #include "src/domain/elements/ContinuumElement.hh"
 #include "src/domain/elements/LagrangeElement.hh"
 
-
 #include "src/domain/DoF.hh"
-
-#include "src/materials/Material.hh"
-
 
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
@@ -34,19 +28,23 @@
 #include "src/geometry/Point.hh"
 #include "src/geometry/ReferenceElement.hh"
 
+#include "src/numerics/Polynomial.hh"
 #include "src/numerics/Tensor.hh"
-
 
 #include "src/numerics/Interpolation/GenericInterpolant.hh"
 #include "src/numerics/Interpolation/LagrangeInterpolation.hh"
-
 
 #include "src/numerics/numerical_integration/Quadrature.hh"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
 
-#include "src/numerics/Polynomial.hh"
-#include "src/numerics/Vector.hh"
+#include "src/numerics/linear_algebra/Matrix.hh"
+#include "src/numerics/linear_algebra/Vector.hh"
+#include "src/numerics/linear_algebra/Operations.hh"
+
+#include "src/analysis/Analysis.hh"
+
+
 
 #include "src/mesh/Mesh.hh"
 #include "src/mesh/gmsh/ReadGmsh.hh"
@@ -54,19 +52,18 @@
 
 #include "src/model/Model.hh"
 
-#include "src/analysis/Analysis.hh"
 
 #include "src/materials/ConstitutiveRelation.hh"
 #include "src/integrator/MaterialIntegrator.hh"
 
 
-#include "src/numerics/Matrix.hh"
-#include "src/numerics/Vector.hh"
 
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
 //#include <petscksp.h>
+#include <petscsys.h>
+
 
 int main(int argc, char **args){
 PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
@@ -99,7 +96,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::cout << std::endl;
     DivM.print_content();
     std::cout << std::endl;
-    
+
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
