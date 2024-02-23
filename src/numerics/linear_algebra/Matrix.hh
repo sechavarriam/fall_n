@@ -14,11 +14,7 @@
 #include <ranges>
 #include <span>
 
-
-
 #include "Vector.hh"
-
-
 
 class Matrix // Wrapper Around PETSc DenseMatrix
 {
@@ -77,9 +73,16 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         return Matrix(B);
     };
 
+    // Basic Operators With Vectors
+    //Vector operator*(const Vector& vec){
+    //    Vec b;
+    //    VecDuplicate(vec.vec_, &b);
+    //    MatMult(mat_, vec.vec_, b);
+    //    return Vector(b);
+    //};
 
 
-        //Constructors
+    //Constructors
 
     Matrix(PETSc_DENSE_SEQ_Matrix mat): mat_(std::move(mat)){};
 
@@ -123,22 +126,8 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         return *this;
     };
 
-
-
     ~Matrix(){MatDestroy(&mat_);};
 };
-
-
-// Blaze
-
-// --------------------------------------
-
-// if Eigen is used, the following aliases are defined.
-//template<unsigned int N, typename ScalarType = double> 
-//using SqMatrix = Eigen::Matrix<ScalarType, N, N> ;
-//
-//template<unsigned int N_rows, unsigned int N_cols, typename ScalarType = double> 
-//using Matrix = Eigen::Matrix<ScalarType, N_rows, N_cols> ;
 
 
 

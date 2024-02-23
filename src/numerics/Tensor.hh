@@ -6,8 +6,8 @@
 
 #include "../geometry/Topology.hh"
 
-#include "Matrix.hh"
-#include "Vector.hh"
+#include "linear_algebra/Matrix.hh"
+#include "linear_algebra/Vector.hh"
 
 
 typedef unsigned short ushort;

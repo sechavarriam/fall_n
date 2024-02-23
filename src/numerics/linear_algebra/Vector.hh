@@ -2,7 +2,6 @@
 #define FALL_N_VECTOR_WRAPPER
 
 
-#include "Matrix.hh"
 
 #include <concepts>
 #include <cstdio>
@@ -19,9 +18,14 @@
 #include <petscsystypes.h>
 #include <petscvec.h>
 
+//#include "Operations.hh"
+#include "Matrix.hh"
+
+
 
 class Vector //Wrapper Around PETSc Seq Vector
 {
+    using namespace linalg;
     using PETSc_Vector = Vec;
     private:
         PETSc_Vector vec_;
@@ -38,6 +42,8 @@ class Vector //Wrapper Around PETSc Seq Vector
 
     void print_content(){for(auto i:data()) printf("%f ", i);printf("\n");};
 
+    friend std::floating_point auto linalg::dot(const Vector& vec1, const Vector& vec2);
+
     //Operators
     Vector& operator+=(const Vector& other){//Chek sizes
         VecAXPY(vec_, 1.0, other.vec_);
@@ -52,6 +58,7 @@ class Vector //Wrapper Around PETSc Seq Vector
     Vector operator*=(const PetscScalar& scalar){
         VecScale(vec_, scalar);
         return *this;
+        
     };
 
     Vector operator/=(const PetscScalar& scalar){
