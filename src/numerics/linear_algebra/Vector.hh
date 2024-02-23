@@ -19,13 +19,18 @@
 #include <petscvec.h>
 
 //#include "Operations.hh"
-#include "Matrix.hh"
+//#include "Matrix.hh"
 
+
+class Vector;
+namespace linalg{
+    std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
+} //namespace linalg
 
 
 class Vector //Wrapper Around PETSc Seq Vector
 {
-    using namespace linalg;
+    //using namespace linalg;
     using PETSc_Vector = Vec;
     private:
         PETSc_Vector vec_;
