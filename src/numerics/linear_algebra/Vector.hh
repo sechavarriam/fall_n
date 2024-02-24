@@ -23,8 +23,12 @@
 
 
 class Vector;
+class Matrix;
 namespace linalg{
     std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
+
+    std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
+    Vector             mat_vec_mult(const Matrix& A, const Vector& x);
 } //namespace linalg
 
 
@@ -48,7 +52,9 @@ class Vector //Wrapper Around PETSc Seq Vector
     void print_content(){for(auto i:data()) printf("%f ", i);printf("\n");};
 
     friend std::floating_point auto linalg::dot(const Vector& vec1, const Vector& vec2);
-
+    friend std::integral       auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
+    friend Vector                   linalg::mat_vec_mult(const Matrix& A, const Vector& x);
+    
     //Operators
     Vector& operator+=(const Vector& other){//Chek sizes
         VecAXPY(vec_, 1.0, other.vec_);
@@ -101,11 +107,11 @@ class Vector //Wrapper Around PETSc Seq Vector
         std::cout << "Default" << std::endl;
     };
 
-    Vector(std::initializer_list<PetscScalar>data){
-        VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
-        VecPlaceArray(vec_, data.begin());
-        std::cout << "Initializer List" << std::endl;
-    };
+    //Vector(std::initializer_list<PetscScalar>data){ //Does weird things
+    //    VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
+    //    VecPlaceArray(vec_, data.begin());
+    //    std::cout << "Initializer List" << std::endl;
+    //};
 
     Vector(std::ranges::contiguous_range auto const& data){
         VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);

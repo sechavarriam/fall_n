@@ -14,8 +14,15 @@
 #include <ranges>
 #include <span>
 
-#include "Vector.hh"
+class Vector;
+class Matrix;
+namespace linalg{
+    std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
 
+    std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
+    Vector             mat_vec_mult(const Matrix& A, const Vector& x);
+
+} //namespace linalg
 class Matrix // Wrapper Around PETSc DenseMatrix
 {
     using PETSc_DENSE_SEQ_Matrix = Mat;
@@ -25,6 +32,9 @@ class Matrix // Wrapper Around PETSc DenseMatrix
 
     
     public:
+
+    friend std::integral       auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
+    friend Vector                   linalg::mat_vec_mult(const Matrix& A, const Vector& x);
 
     void print_content(){MatView(mat_, PETSC_VIEWER_STDOUT_SELF);};
     //Operators
