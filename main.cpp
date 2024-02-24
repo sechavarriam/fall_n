@@ -82,20 +82,36 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     auto DivM = M / 2.0;
 
+    std::array data1{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
+    std::array data2{2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+
+    Vector v1{data1};
+    Vector v2{data2};
+
+    Vector V1{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
+    Vector V2{2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+
+    auto Dotv = linalg::dot(v1,v2);
+    auto DotV = linalg::dot(V1,V2);
 
 
-    M.print_content();
-    std::cout << std::endl;
-    N.print_content();
-    std::cout << std::endl;
-    SumM.print_content();
-    std::cout << std::endl;
-    DiffM.print_content();
-    std::cout << std::endl;
-    ScalarM.print_content();
-    std::cout << std::endl;
-    DivM.print_content();
-    std::cout << std::endl;
+    std::cout << "Dot Product: " << Dotv << std::endl;
+    std::cout << "Dot Product: " << DotV << std::endl;
+
+
+
+    //M.print_content();
+    //std::cout << std::endl;
+    //N.print_content();
+    //std::cout << std::endl;
+    //SumM.print_content();
+    //std::cout << std::endl;
+    //DiffM.print_content();
+    //std::cout << std::endl;
+    //ScalarM.print_content();
+    //std::cout << std::endl;
+    //DivM.print_content();
+    //std::cout << std::endl;
 
 
     domain::Domain<dim> D; //Domain Aggregator Object
