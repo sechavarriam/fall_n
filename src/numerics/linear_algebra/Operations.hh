@@ -13,11 +13,16 @@
 
 
 namespace linalg{
-    std::floating_point auto dot(const Vector& vec1, const Vector& vec2){
-        PetscScalar result;
-        VecDot(vec1.vec_, vec2.vec_, &result);
+
+    inline std::floating_point auto dot(const Vector& vec1, const Vector& vec2){
+        PetscScalar result{0};
+        VecTDot(vec1.vec_, vec2.vec_, &result);
         return result;
-    }  
+    }
+
+
+
+    
 } //namespace linalg
 
 
