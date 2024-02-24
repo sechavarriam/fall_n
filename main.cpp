@@ -40,7 +40,7 @@
 
 #include "src/numerics/linear_algebra/Matrix.hh"
 #include "src/numerics/linear_algebra/Vector.hh"
-#include "src/numerics/linear_algebra/Operations.hh"
+#include "src/numerics/linear_algebra/LinalgOperations.hh"
 
 #include "src/analysis/Analysis.hh"
 
@@ -78,20 +78,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Matrix A{dataA, 3,3};
     Vector x{data1};
 
-    Vector r{data2};
+    auto y = A*x;
 
-    std::cout << "A:" << std::endl;
-    A.print_content();
-    std::cout << "x:" << std::endl;
-    x.print_content();
 
-    Vector y = linalg::mat_vec_mult(A,x);
-    std::cout << "y:" << std::endl;
-    y.print_content();
-
-    linalg::mat_vec_mult(A,x,r);
-    std::cout << "r:" << std::endl;
-    r.print_content();
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
