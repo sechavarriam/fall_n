@@ -34,7 +34,6 @@ namespace linalg{
 
 class Vector //Wrapper Around PETSc Seq Vector
 {
-    //using namespace linalg;
     using PETSc_Vector = Vec;
     private:
         PETSc_Vector vec_;
@@ -56,26 +55,10 @@ class Vector //Wrapper Around PETSc Seq Vector
     friend Vector                   linalg::mat_vec_mult(const Matrix& A, const Vector& x);
     
     //Operators
-    Vector& operator+=(const Vector& other){//Chek sizes
-        VecAXPY(vec_, 1.0, other.vec_);
-        return *this;
-    };
-
-    Vector operator-= (const Vector& other){
-        VecAXPY(vec_, -1.0, other.vec_);
-        return *this;
-    };
-
-    Vector operator*=(const PetscScalar& scalar){
-        VecScale(vec_, scalar);
-        return *this;
-        
-    };
-
-    Vector operator/=(const PetscScalar& scalar){
-        VecScale(vec_, 1.0/scalar);
-        return *this;
-    };
+    Vector& operator+=(const Vector& other)  {VecAXPY(vec_, 1.0, other.vec_);return *this;};
+    Vector& operator-=(const Vector& other)  {VecAXPY(vec_,-1.0, other.vec_);return *this;};
+    Vector& operator*=(const PetscScalar& scalar){VecScale(vec_,     scalar);return *this;};
+    Vector& operator/=(const PetscScalar& scalar){VecScale(vec_, 1.0/scalar);return *this;};
 
     Vector operator+(const Vector& other){
         Vector result;
@@ -94,13 +77,12 @@ class Vector //Wrapper Around PETSc Seq Vector
     };
 
     // Accessors
-    std::floating_point auto operator[](std::size_t i){
+    std::floating_point auto& operator[](std::size_t i){
         PetscScalar* data;
         VecGetArray(vec_, &data);
         return data[i];
     };
-
-    
+   
     // Constructors
     Vector(){
         VecCreateSeq(PETSC_COMM_SELF, 0, &vec_);

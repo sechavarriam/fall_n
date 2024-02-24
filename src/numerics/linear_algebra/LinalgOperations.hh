@@ -21,6 +21,9 @@ namespace linalg{
     }
 
     inline std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y){
+        //if (y.vec_ == nullptr){
+        //    VecDuplicate(x.vec_, &y.vec_);
+        //};
         return MatMult(A.mat_, x.vec_, y.vec_);
     }
 

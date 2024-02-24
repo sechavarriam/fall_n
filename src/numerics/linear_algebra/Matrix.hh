@@ -14,7 +14,7 @@
 #include <ranges>
 #include <span>
 
-class Vector;
+#include "Vector.hh"
 class Matrix;
 namespace linalg{
     std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
@@ -33,8 +33,8 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     public:
 
-    friend std::integral       auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
-    friend Vector                   linalg::mat_vec_mult(const Matrix& A, const Vector& x);
+    friend std::integral auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
+    friend Vector             linalg::mat_vec_mult(const Matrix& A, const Vector& x);
 
     void print_content(){MatView(mat_, PETSC_VIEWER_STDOUT_SELF);};
     //Operators
@@ -62,6 +62,8 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         return Matrix(B);
     };
 
+    Vector operator*(const Vector& x){return linalg::mat_vec_mult(*this, x);};
+
     Matrix operator/(const PetscScalar& scalar){
         Mat B;
         MatDuplicate(mat_, MAT_COPY_VALUES, &B);
@@ -83,17 +85,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         return Matrix(B);
     };
 
-    // Basic Operators With Vectors
-    //Vector operator*(const Vector& vec){
-    //    Vec b;
-    //    VecDuplicate(vec.vec_, &b);
-    //    MatMult(mat_, vec.vec_, b);
-    //    return Vector(b);
-    //};
-
-
     //Constructors
-
     Matrix(PETSc_DENSE_SEQ_Matrix mat): mat_(std::move(mat)){};
 
     Matrix(PetscInt rows, PetscInt cols){
@@ -113,9 +105,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     };
     
     //Copy Constructor
-    Matrix(const Matrix& other){
-        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
-    };
+    Matrix(const Matrix& other){MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);};
     
     //Move Constructor
     Matrix(Matrix&& other){
