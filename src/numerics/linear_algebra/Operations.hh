@@ -20,9 +20,19 @@ namespace linalg{
         return result;
     }
 
+    inline std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y){
+        return MatMult(A.mat_, x.vec_, y.vec_);
+    }
 
+    inline Vector mat_vec_mult(const Matrix& A, const Vector& x){
+        Vector y;
+        MatCreateVecs(A.mat_, nullptr, &y.vec_);
+        MatMult(A.mat_, x.vec_, y.vec_);
+        return y;
+    }
 
     
+
 } //namespace linalg
 
 

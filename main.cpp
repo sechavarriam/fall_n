@@ -70,49 +70,28 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     static constexpr int dim = 3;
 
-    std::array<double,3*3> A{1,2,3,4,5,6,7,8,9};
-
-    Matrix M{&A[0], 3,3};
-    Matrix N{A, 3,3};
-
-    auto SumM = M + N;
-    auto DiffM = M - N;
-
-    auto ScalarM = M * 2.0;
-
-    auto DivM = M / 2.0;
-
-    std::array data1{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
-    std::array data2{2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
-
-    Vector v1{data1};
-    Vector v2{data2};
-
-    Vector V1{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
-    Vector V2{2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
-
-    auto Dotv = linalg::dot(v1,v2);
-    auto DotV = linalg::dot(V1,V2);
+    std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
+    std::array data1{1.0, 2.0, 3.0};
+    std::array data2{0.0, 0.0, 0.0};
 
 
-    std::cout << "Dot Product: " << Dotv << std::endl;
-    std::cout << "Dot Product: " << DotV << std::endl;
+    Matrix A{dataA, 3,3};
+    Vector x{data1};
 
+    Vector r{data2};
 
+    std::cout << "A:" << std::endl;
+    A.print_content();
+    std::cout << "x:" << std::endl;
+    x.print_content();
 
-    //M.print_content();
-    //std::cout << std::endl;
-    //N.print_content();
-    //std::cout << std::endl;
-    //SumM.print_content();
-    //std::cout << std::endl;
-    //DiffM.print_content();
-    //std::cout << std::endl;
-    //ScalarM.print_content();
-    //std::cout << std::endl;
-    //DivM.print_content();
-    //std::cout << std::endl;
+    Vector y = linalg::mat_vec_mult(A,x);
+    std::cout << "y:" << std::endl;
+    y.print_content();
 
+    linalg::mat_vec_mult(A,x,r);
+    std::cout << "r:" << std::endl;
+    r.print_content();
 
     domain::Domain<dim> D; //Domain Aggregator Object
     
