@@ -22,7 +22,54 @@ class CauchyStrain{
     ~CauchyStrain(){};
 };
 
+template<std::size_t N> requires (N > 0)
+class VoigtStrain{
+    private:
+        std::array<double, N> component_;
+    
+    public:
+        static constexpr std::size_t num_components = N;
 
+        Vector tensor{component_};
+
+        constexpr std::span<const double, N> get_strain() const{return component_;};
+        constexpr std::floating_point auto get_stain(std::size_t i) const{return component_[i];};
+
+        template<typename... S> requires (sizeof...(S) == N)
+        constexpr void set_strain(S... s){
+            std::size_t i{0};
+            ((component_[++i]=s), ...);
+        };
+
+        template<typename... S> requires (sizeof...(S) == N)
+        VoigtStrain(S... s) : component_{s...}{};
+
+        VoigtStrain() = default;
+        ~VoigtStrain() = default;
+};
+
+//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
+template<>
+class VoigtStrain<1>{
+    private:
+        double component_{0.0};
+    
+    public:
+        static constexpr std::size_t num_components = 1;
+
+        double tensor{component_};
+
+        constexpr void set_strain(double e){component_ = e;};
+
+        constexpr std::floating_point auto get_strain() const{return component_;};
+
+        VoigtStrain() = default;
+        ~VoigtStrain() = default;
+};
+
+
+
+/*
 class UniaxialStrain{
     private:
         double component_{0.0};
@@ -82,7 +129,7 @@ class ContinuumStrain{
     ~ContinuumStrain(){};
 };
 
-
+*/
 
 
 

@@ -32,7 +32,7 @@ class CauchyStress{
 
 
 
-template<std::size_t N>
+template<std::size_t N> requires (N > 0)
 class VoigtStress{
     private:
         std::array<double, N> component_;
@@ -51,19 +51,35 @@ class VoigtStress{
             ((component_[++i]=s), ...);
         };
 
+        template<typename... S> requires (sizeof...(S) == N)
+        VoigtStress(S... s) : component_{s...}{};
+
+        VoigtStress() = default;
+        ~VoigtStress() = default;
+};
+
+//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
+template<>
+class VoigtStress<1>{
+    private:
+        double component_{0.0};
     
-    
-    VoigtStress(){};
-    ~VoigtStress(){};
+    public:
+        static constexpr std::size_t num_components = 1;
 
+        double tensor{component_};
 
+        constexpr void set_stress(double s){component_ = s;};
 
+        constexpr std::floating_point auto get_stress() const{return component_;};
 
+        VoigtStress() = default;
+        ~VoigtStress() = default;
 };
 
 
 
-
+/*
 
 class UniaxialStress{
     private:
@@ -129,12 +145,7 @@ class ContinuumStress{
     ~ContinuumStress(){};
 };
 
-
-
-
-
-
-
+*/
 
 
 
