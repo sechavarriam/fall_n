@@ -2,8 +2,6 @@
 #define FN_MATERIAL
 
 
-#include <Eigen/Dense>
-#include <asm-generic/errno.h>
 #include <memory>
 #include <random>
 #include <vector>
@@ -87,10 +85,8 @@ class Material
 
    using DestroyOperation = void(void*);
    using CloneOperation   = void*(void*);
-
-   using UpdaterOperation    = void(void*);
+   using UpdaterOperation = void(void*);
    
-
    std::unique_ptr<void,DestroyOperation*> pimpl_;
    CloneOperation* clone_{ nullptr };
 

@@ -43,20 +43,19 @@
 #include "src/numerics/linear_algebra/LinalgOperations.hh"
 
 #include "src/analysis/Analysis.hh"
-
-
-
 #include "src/mesh/Mesh.hh"
 #include "src/mesh/gmsh/ReadGmsh.hh"
 
 
 #include "src/model/Model.hh"
-
-
-#include "src/materials/ConstitutiveRelation.hh"
 #include "src/integrator/MaterialIntegrator.hh"
 
 
+
+#include "src/materials/ConstitutiveRelation.hh"
+
+#include "src/materials/Stress.hh"
+#include "src/materials/Strain.hh"
 
 //#include <matplot/matplot.h>
 
@@ -74,13 +73,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::array data1{1.0, 2.0, 3.0};
     std::array data2{0.0, 0.0, 0.0};
 
-
     Matrix A{dataA, 3,3};
     Vector x{data1};
 
     auto y = A*x;
-
-
 
     domain::Domain<dim> D; //Domain Aggregator Object
     

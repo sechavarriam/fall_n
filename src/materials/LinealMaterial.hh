@@ -7,41 +7,21 @@
 #include <type_traits>
 #include <concept>
 
+#include "Stress.hh"
+#include "Strain.hh"
+
+
 namespace material{
-
-//template<typename M>
-//concept MaterialPolicy = requires(M m){
-//    {m.stress()} -> std::same_as<double>;
-//    {m.strain()} -> std::same_as<double>;
-//    {m.elastic_modulus()} -> std::same_as<double>;
-//    {m.poisson_ratio()} -> std::same_as<double>;
-//    {m.yield_stress()} -> std::same_as<double>;
-//    {m.hardening_modulus()} -> std::same_as<double>;
-//    {m.strain_rate()} -> std::same_as<double>;
-//    {m.stress_rate()} -> std::same_as<double>;
-//    {m.temperature} -> std::same_as<double>;
-//    {m.temperature_rate} -> std::same_as<double>;
-//};
-
-//template <typename T>
-//concept StoragePolicy = requires(T t){
-//    {t.id()} -> std::same_as<std::size_t>;
-//    {t.name()} -> std::same_as<std::string>;
-//    {t.description()} -> std::same_as<std::string>;
-//};
 
 
 //Some concept
-template<typename MaterialPolicy> //Continuum, Uniaxial, Plane, etc. 
-class LinealMaterial{
-    
-    MaterialPolicy policy_{}; 
-
-    std::size_t id_{0};
-    
-    
+template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Uniaxial, Plane, etc. 
+class LinealMaterial{ //Or materialBase
 
 
+    private:
+        std::array components_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        
 
 };
 
