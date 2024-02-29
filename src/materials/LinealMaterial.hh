@@ -11,7 +11,7 @@
 #include "Strain.hh"
 
 # include "../numerics/linear_algebra/Matrix.hh"
-# include "../utilis/index.hh"
+# include "../utils/index.hh"
 
 
 
@@ -24,11 +24,18 @@ namespace material{
 template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Uniaxial, Plane, etc. 
 class LinealMaterial{ //Or materialBase
 
-    static constexpr std::size_t total_parameters_ = StressPolicy::num_components*StrainPolicy::num_components;
+    static constexpr std::size_t num_stresses_ = StressPolicy::num_components;
+    static constexpr std::size_t num_strains_  = StrainPolicy::num_components;
+
+    static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
 
     std::array<double, total_parameters_> material_parameters_{0.0};
 
   public:
+
+    constexpr void set_parameter(std::size_t i, std::size_t j, double value){
+        material_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
+    };
 
     Matrix compliance_tensor{material_parameters_}; //elasticity tensor or material stiffness matrix 
 
@@ -67,31 +74,20 @@ class IsotropicMaterial : public ContinuumMaterial3D{
     constexpr double lambda() const{return young_modulus_*poisson_ratio_/((1.0+poisson_ratio_)*(1.0-2.0*poisson_ratio_));}; //Lamé's first parameter
     constexpr double mu()     const{return young_modulus_/(2.0*(1.0+poisson_ratio_));}; //Lamé's second parameter
 
-    constexpr update_stiffness_matrix(){
-        material_parameters_[utils::md_index_2_list<6,6>(0,0)] = lambda()+ 2.0*mu_();
-        material_parameters_[utils::md_index_2_list<6,6>(1,1)] = lambda()+ 2.0*mu_();
-        material_parameters_[utils::md_index_2_list<6,6>(2,2)] = lambda()+ 2.0*mu_();
-        material_parameters_[utils::md_index_2_list<6,6>(3,3)] = mu_();
-        material_parameters_[utils::md_index_2_list<6,6>(4,4)] = mu_();
-        material_parameters_[utils::md_index_2_list<6,6>(5,5)] = mu_()
-        material_parameters_[utils::md_index_2_list<6,6>(0,1)] = lambda();
-        material_parameters_[utils::md_index_2_list<6,6>(0,2)] = lambda();
-        material_parameters_[utils::md_index_2_list<6,6>(1,2)] = lambda();
-        material_parameters_[utils::md_index_2_list<6,6>(1,0)] = lambda();
-        material_parameters_[utils::md_index_2_list<6,6>(2,0)] = lambda();
-        material_parameters_[utils::md_index_2_list<6,6>(2,1)] = lambda();
+    constexpr void update_stiffness_matrix(){ //ensamblar con threads 
+        set_parameter(0,0,lambda()+2.0*mu());
+        set_parameter(1,1,lambda()+2.0*mu());
+        set_parameter(2,2,lambda()+2.0*mu());
+        set_parameter(3,3,mu());
+        set_parameter(4,4,mu());
+        set_parameter(5,5,mu());
+        set_parameter(0,1,lambda());
+        set_parameter(0,2,lambda());
+        set_parameter(1,0,lambda());
+        set_parameter(1,2,lambda());
+        set_parameter(2,0,lambda());
+        set_parameter(2,1,lambda());
     };
-
-        //proportionality_matrix = material_parameters_;
-    }
-
-    
-
-    //static constexpr std::size_t num_parameters = 2;
-
-    
-
-
 
 
 };
