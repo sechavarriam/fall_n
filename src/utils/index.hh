@@ -17,10 +17,9 @@ requires(sizeof...(N) == sizeof...(ijk))
 {
   constexpr std::size_t array_dimension = sizeof...(N);
 
-  constexpr std::array<std::size_t, array_dimension> array_limits{N...  };
-  constexpr std::array<std::size_t, array_dimension> md_index    {ijk...}; 
-
-  constexpr std::size_t index = 0;
+  std::array<std::size_t, array_dimension> array_limits{N...  };
+  std::array<std::size_t, array_dimension> md_index    {ijk...}; 
+  std::size_t index = 0;
   auto n = md_index[0];
 
   for (auto i = 1; i < array_dimension; ++i) {
