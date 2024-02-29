@@ -2,10 +2,9 @@
 #define FN_ABSTRACT_STRAIN
 
 
-
-
 template<typename StrainType>
 concept Strain = requires(StrainType e){
+    {e.num_components}->std::convertible_to<std::size_t>;
     {e.tensor};
     {e.get_strain()};
 };
@@ -48,7 +47,6 @@ class VoigtStrain{
         ~VoigtStrain() = default;
 };
 
-//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 template<>
 class VoigtStrain<1>{
     private:

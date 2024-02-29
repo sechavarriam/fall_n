@@ -54,6 +54,9 @@
 
 #include "src/materials/ConstitutiveRelation.hh"
 
+#include "src/materials/Material.hh"
+#include "src/materials/LinealMaterial.hh"
+
 #include "src/materials/Stress.hh"
 #include "src/materials/Strain.hh"
 

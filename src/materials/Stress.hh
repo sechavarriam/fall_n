@@ -10,10 +10,9 @@
 # include "../numerics/linear_algebra/Vector.hh"
 
 
-
-
 template<typename StressType>
 concept Stress = requires(StressType s){
+    {s.num_components}->std::convertible_to<std::size_t>;
     {s.tensor};
     {s.get_stress()};
 };
@@ -29,7 +28,6 @@ class CauchyStress{
     CauchyStress(){};
     ~CauchyStress(){};
 };
-
 
 
 template<std::size_t N> requires (N > 0)
