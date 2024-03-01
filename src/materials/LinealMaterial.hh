@@ -31,6 +31,11 @@ class LinealRelation{ //Or materialBase
 
   public:
 
+    void compute_stress(const StrainPolicy& strain, StressPolicy& stress){
+        stress.tensor = compliance_matrix*strain.tensor;
+    };
+
+
     constexpr inline void set_parameter(std::size_t i, std::size_t j, double value){
         //std::cout << "Setting parameter " << i << " " << j << " (" <<utils::md_index_2_list<num_stresses_,num_strains_>(i,j)<<")" <<" to " << value << std::endl;
         material_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
@@ -42,6 +47,7 @@ class LinealRelation{ //Or materialBase
     constexpr ~LinealRelation() = default;
 };
 
+ 
 
 typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
 typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;
@@ -53,12 +59,13 @@ class IsotropicMaterial : public ContinuumMaterial3D{
     double young_modulus_{0.0};
     double poisson_ratio_{0.0};
 
-
     public:
-    constexpr inline double E() const{return young_modulus_;};
-    constexpr inline double v() const{return poisson_ratio_;};
     constexpr inline void set_E(double E){young_modulus_ = E;};
     constexpr inline void set_v(double v){poisson_ratio_ = v;};
+    
+    constexpr inline double E() const{return young_modulus_;};
+    constexpr inline double v() const{return poisson_ratio_;};
+    
     constexpr inline double G()      const{return young_modulus_/(2.0*(1.0+poisson_ratio_));};     //Shear Modulus
     constexpr inline double K()      const{return young_modulus_/(3.0*(1.0-2.0*poisson_ratio_));}; //Bulk Modulus
     constexpr inline double lambda() const{return young_modulus_*poisson_ratio_/((1.0+poisson_ratio_)*(1.0-2.0*poisson_ratio_));}; //Lamé's first parameter
