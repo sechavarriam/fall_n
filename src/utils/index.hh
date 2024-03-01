@@ -19,15 +19,18 @@ requires(sizeof...(N) == sizeof...(ijk))
 
   std::array<std::size_t, array_dimension> array_limits{N...  };
   std::array<std::size_t, array_dimension> md_index    {ijk...}; 
-  std::size_t index = 0;
+  
   auto n = md_index[0];
 
+  //Row major order
   for (auto i = 1; i < array_dimension; ++i) {
-    index = md_index[i] * n;
     n *= array_limits[i];
+    n += md_index[i];
   }
-  return index;
-}; // NOTE: Untested.
+  
+
+  return n;
+}; 
 
 template <std::size_t... N> //<Nx, Ny, Nz ,...> // TODO: Put and classify in utils.
 static inline constexpr std::array<std::size_t, sizeof...(N)>
