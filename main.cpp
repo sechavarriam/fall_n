@@ -79,6 +79,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Matrix A{dataA, 3,3};
     Vector x{data1};
 
+    IsotropicMaterial steel{200, 0.3};
+
+    steel.compliance_matrix.print_content();
+
     auto y = A*x;
 
     domain::Domain<dim> D; //Domain Aggregator Object
