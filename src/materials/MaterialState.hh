@@ -21,18 +21,23 @@ concept MaterialState = requires(StateType s){
 template<typename ContainerType, typename EfectType>
 class MaterialState{
     private:
-        ContainerType state_{};
-
-        //INTERFASE
+        ContainerType state_variable_{};
 
     public:
+
+        auto current_state() const{return state_variable_;};
+
+
+        void update_state(const ContainerType& q){state_variable_ = q;};
+
+
         MaterialState(){};
         ~MaterialState(){};
 };
 
 
 template<typename StrainType>
-using ElasticMaterialState = MaterialState<StrainType,StrainType> ; //Non-memory material state
+using ElasticMaterialState = MaterialState<StrainType,StrainType> ; //Non-memory material q
 
 template<typename StrainType>
 using MemoryMaterialState = MaterialState<std::vector<StrainType>,StrainType>;  
