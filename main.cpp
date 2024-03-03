@@ -50,8 +50,6 @@
 #include "src/model/Model.hh"
 #include "src/integrator/MaterialIntegrator.hh"
 
-
-
 #include "src/materials/ConstitutiveRelation.hh"
 #include "src/materials/LinealRelation.hh"
 #include "src/materials/IsotropicRelation.hh"
@@ -59,7 +57,7 @@
 #include "src/materials/Material.hh"
 
 #include "src/materials/MaterialState.hh"
-
+#include "src/materials/LinealElasticMaterial.hh"
 
 #include "src/materials/Stress.hh"
 #include "src/materials/Strain.hh"
@@ -86,6 +84,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     ContinuumIsotropicRelation steel{200, 0.3};
 
     steel.compliance_matrix.print_content();
+
+    IsotropicElasticMaterial steel_mat{200, 0.3};
 
     auto y = A*x;
 

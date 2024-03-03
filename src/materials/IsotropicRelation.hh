@@ -38,13 +38,13 @@ class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtSt
         set_parameter(2,1, lambda()         );
     };
 
-    constexpr void update_elasticity(double young_modulos, double poisson_ratio){
-        E_ = young_modulos;
+    constexpr void update_elasticity(double young_modulus, double poisson_ratio){
+        E_ = young_modulus;
         v_ = poisson_ratio;
         update_elasticity();
     };
 
-    constexpr ContinuumIsotropicRelation(double young_modulos, double poisson_ratio) : E_{young_modulos}, v_{poisson_ratio}{
+    constexpr ContinuumIsotropicRelation(double young_modulus, double poisson_ratio) : E_{young_modulus}, v_{poisson_ratio}{
         update_elasticity();
     };
 };
