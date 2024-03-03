@@ -1,0 +1,46 @@
+
+#ifndef FALL_N_CONSTUTUTIVE_LINEAL_RELATION
+#define FALL_N_CONSTUTUTIVE_LINEAL_RELATION
+
+
+#include <cstddef>
+#include <type_traits>
+#include <concepts>
+
+#include "Stress.hh"
+#include "Strain.hh"
+
+#include "../numerics/linear_algebra/Matrix.hh"
+#include "../utils/index.hh"
+
+//Some concept
+template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Uniaxial, Plane, etc. 
+class LinealRelation{ //Or materialBase
+
+    static constexpr std::size_t num_stresses_     = StressPolicy::num_components;
+    static constexpr std::size_t num_strains_      = StrainPolicy::num_components;
+    static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
+
+    std::array<double, total_parameters_> compliance_parameters_{0.0};
+
+  public:
+
+    void compute_stress(const StrainPolicy& strain, StressPolicy& stress){
+        stress.tensor = compliance_matrix*strain.tensor;
+    };
+    
+    constexpr inline void set_parameter(std::size_t i, std::size_t j, double value){
+        compliance_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
+    };
+
+    Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
+
+    constexpr LinealRelation(){compliance_parameters_.fill(0.0);};
+    constexpr ~LinealRelation() = default;
+};
+
+typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
+typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;
+typedef LinealRelation<VoigtStress<6>, VoigtStrain<6>> ContinuumMaterial3D;
+
+#endif // FALL_N_LINEAL_MATERIAL
