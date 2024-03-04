@@ -2,12 +2,27 @@
 #define FN_ABSTRACT_STRAIN
 
 
+#include <concepts>
+#include <ranges>
+
 template<typename StrainType>
 concept Strain = requires(StrainType e){
     {e.num_components}->std::convertible_to<std::size_t>;
     {e.tensor};
     {e.get_strain()};
 };
+
+template<typename T>
+concept StrainRange = std::ranges::range<T> && requires(T s){
+    {s.begin().num_components}->std::convertible_to<std::size_t>;
+    {s.begin().tensor};
+    {s.begin().get_strain()};
+};
+
+// https://stackoverflow.com/questions/64228197/range-concept-for-a-specific-type
+template <typename R, typename V>
+concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
+
 
 
 template<typename StrainPolicy>
@@ -64,72 +79,6 @@ class VoigtStrain<1>{
         VoigtStrain() = default;
         ~VoigtStrain() = default;
 };
-
-
-
-/*
-class UniaxialStrain{
-    private:
-        double component_{0.0};
-
-    public:
-
-        double tensor{component_};
-
-        constexpr void set_strain(double s){component_ = s;};
-
-    UniaxialStrain(){};
-    ~UniaxialStrain(){};
-};
-
-class PlaneStrain{
-
-    private:
-        std::array<double, 3> component_{0.0, 0.0, 0.0};
-    public:
-
-        Vector tensor{component_}; 
-
-        constexpr std::span<const double, 3> get_strain() const{return component_;};
-        constexpr std::floating_point auto   get_strain(std::size_t i) const{return component_[i];};
-
-        constexpr void set_strain(double e11, double e22, double e12){
-            component_[0] = e11; component_[1] = e22; // Normal stresses
-            component_[2] = e12;                      // Shear Strain
-        };
-
-    PlaneStrain(double e11, double e22, double e12) : component_{e11, e22, e12}{};
-
-    PlaneStrain(){};
-    ~PlaneStrain(){};
-};
-
-
-class ContinuumStrain{
-    private:
-        std::array<double, 6> component_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-
-    public:
-
-        Vector tensor{component_};
-
-        constexpr std::span<const double, 6> get_strain() const{return component_;};
-        constexpr std::floating_point auto   get_strain(std::size_t i) const{return component_[i];};
-
-        constexpr void set_strain(double e11, double e22, double e33, double e12, double e23, double e13){
-            component_[0] = e11; component_[1] = e22; component_[2] = e33; // Normal stresses
-            component_[3] = e12; component_[4] = e23; component_[5] = e13; // Shear  stresses
-        };
-
-    ContinuumStrain(double e11, double e22, double e33, double e12, double e23, double e13) : component_{e11, e22, e33, e12, e23, e13}{};
-
-    ContinuumStrain(){};
-    ~ContinuumStrain(){};
-};
-
-*/
-
-
 
 
 

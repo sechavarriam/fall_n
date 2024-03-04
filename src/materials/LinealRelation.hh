@@ -39,8 +39,30 @@ class LinealRelation{ //Or materialBase
     constexpr ~LinealRelation() = default;
 };
 
-typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
-typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;
-typedef LinealRelation<VoigtStress<6>, VoigtStrain<6>> ContinuumMaterial3D;
+//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
+template<>
+class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ //Or materialBase
+
+    double E_{0.0}; // E
+
+  public:
+
+    void compute_stress(const VoigtStrain<1>& strain, VoigtStress<1>& stress){
+        stress.tensor = E_*strain.tensor;
+    };
+    
+    constexpr inline void set_parameter    (double value)        {E_ = value;};
+    constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
+
+
+    constexpr LinealRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
+
+    constexpr LinealRelation() = default;
+    constexpr ~LinealRelation() = default;
+};
+
+//typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
+//typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;
+//typedef LinealRelation<VoigtStress<6>, VoigtStrain<6>> ContinuumMaterial3D;
 
 #endif // FALL_N_LINEAL_MATERIAL

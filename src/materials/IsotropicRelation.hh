@@ -5,6 +5,20 @@
 
 #include "LinealRelation.hh"
 
+//template<std::size_t dim> requires topology::EmbeddableInSpace<dim>
+//consteval std::size_t Voigt_Dim(){
+//    if      constexpr(dim==1){return 1;}
+//    else if constexpr(dim==2){return 3;}
+//    else if constexpr(dim==3){return 6;};
+//};
+//
+//
+//template<std::size_t N>
+//class IsotropicRelation : public LinealRelation<VoigtStress<N>, VoigtStrain<N>>{
+//};
+
+
+
 class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtStrain<6>> {
     
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
@@ -48,6 +62,10 @@ class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtSt
         update_elasticity();
     };
 };
+
+
+typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialIsotropicRelation;
+
 
 
 #endif // FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
