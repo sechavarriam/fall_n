@@ -8,27 +8,32 @@
 #include <array>
 #include <vector>
 #include <span>
+#include <ranges>
 
-/*
-template<typename StateType>
-concept MaterialState = requires(StateType s){
-//    {s.num_components}->std::convertible_to<std::size_t>;
-//    {s.tensor};
-//    {s.get_state()};
-};
-*/
+#include "Strain.hh"
 
-template<typename ContainerType, typename EfectType>
+
+template<typename T>
 class MaterialState{
     private:
-        ContainerType state_variable_{};
+        T state_variable_{}; //Array of pointers? Array of references? Array of values? (vector?)
 
     public:
 
-        auto current_state() const{return state_variable_;};
+        auto current_state() const{
+            if constexpr (StrainRange<T>){
+                return state_variable_.end();
+            }
+            else if constexpr (Strain<T>){
+                return state_variable_;
+            }
+            else{
+                std::unreachable();
+            };
+        };
 
 
-        void update_state(const ContainerType& q){state_variable_ = q;};
+        void update_state(const T& q){state_variable_ = q;};
 
 
         MaterialState(){};
@@ -37,10 +42,10 @@ class MaterialState{
 
 
 template<typename StrainType>
-using ElasticMaterialState = MaterialState<StrainType,StrainType> ; //Non-memory material q
+using ElasticMaterialState = MaterialState<StrainType>;//,StrainType> ; //Non-memory material q
 
 template<typename StrainType>
-using MemoryMaterialState = MaterialState<std::vector<StrainType>,StrainType>;  
+using MemoryMaterialState = MaterialState<std::vector<StrainType>>;//,StrainType>;  
 
 
 
