@@ -80,8 +80,19 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     // TODO: Preallocated constructor.
     //Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
     //
-    Domain(){};
-    ~Domain(){};
+
+    // Constructors
+    // Copy Constructor
+    Domain(const Domain& other) = default;
+    // Move Constructor
+    Domain(Domain&& other) = default;
+    // Copy Assignment
+    Domain& operator=(const Domain& other) = default;
+    // Move Assignment
+    Domain& operator=(Domain&& other) = default;
+    
+    Domain() = default;
+    ~Domain() = default;
 };
 
 } // namespace Domain

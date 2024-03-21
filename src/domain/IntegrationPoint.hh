@@ -18,8 +18,7 @@ class IntegrationPoint{// : public geometry::Point<dim>{
   
     using Point = geometry::Point<dim>;
 
-    std::shared_ptr<Point> Point_;
-    
+    std::shared_ptr<Point   > Point_   ;
     std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
                                          // El puntero es util en caso de un material lineal... Puesto que no se repetirían instancias.
                                         

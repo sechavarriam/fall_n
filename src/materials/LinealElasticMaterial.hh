@@ -12,7 +12,6 @@
 
 class LinealElasticMaterial{};
 
-
 template<typename StrainType, typename ConstitutiveLaw>
 class IsotropicElasticMaterial{
     using State = ElasticMaterialState<StrainType>;
@@ -21,6 +20,17 @@ class IsotropicElasticMaterial{
     std::shared_ptr<ConstitutiveLaw> constitutive_law_;
 
   public:
+
+    void update_state(const StrainType& strain){state_->update_state(strain);};
+    
+    auto compute_stress(const StrainType& strain) const{
+        return constitutive_law_->compute_stress(strain);
+    };
+    
+    void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
+    
+
+
     auto get_state() const{return state_->current_state();};
     
     template<typename... Args>  
@@ -28,16 +38,21 @@ class IsotropicElasticMaterial{
         constitutive_law_->update_elasticity(std::move(args)...);
     };
 
-
     template<std::floating_point... Args>
     IsotropicElasticMaterial(Args... args) : 
         state_{std::make_unique<State>()},
-        constitutive_law_{std::make_shared<ConstitutiveLaw>(td::forward<Args>(args)...)}
+        constitutive_law_{std::make_shared<ConstitutiveLaw>(std::forward<Args>(args)...)}
         {};
-
 };
 
-typedef IsotropicElasticMaterial<VoigtStrain<6>, ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
-typedef IsotropicElasticMaterial<VoigtStrain<1>, UniaxialIsotropicRelation> UniaxialIsotropicElasticMaterial;
 
-#endif // LINEALMATERIAL_HH
+//inline void IsotropicElasticMaterial::print_material_parameters() const{
+//    std::cout << "Elasticity tensor: " << std::endl;
+//    std::cout << constitutive_law_->compliance_matrix << std::endl;
+//};
+
+
+typedef IsotropicElasticMaterial<VoigtStrain<6>, ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
+typedef IsotropicElasticMaterial<VoigtStrain<1>, UniaxialIsotropicRelation>  UniaxialIsotropicElasticMaterial;
+
+#endif // FALL_LINEAL_MATERIAL_ABSTRACTION_HH

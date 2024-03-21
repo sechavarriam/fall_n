@@ -62,6 +62,8 @@
 #include "src/materials/Stress.hh"
 #include "src/materials/Strain.hh"
 
+#include "src/model/Model.hh"
+
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
@@ -86,11 +88,12 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     
     UniaxialIsotropicRelation steel1D{200.0};
 
-    steel3D.compliance_matrix.print_content();
-
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
 
+    steel_mat3D.print_material_parameters();
+    steel_mat1D.print_material_parameters();
+    
     
 
     domain::Domain<dim> D; //Domain Aggregator Object
@@ -117,6 +120,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     auto integrationScheme = [](auto const & e){/**integrate*/};
     Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
+
+    Model<dim> model{D};
 
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
