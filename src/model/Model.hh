@@ -9,16 +9,24 @@
 template<std::size_t dim> //Revisar como hacer un Wrapper para evitarse este parámetro.
 class Model {
 
-    std::shared_ptr<domain::Domain<dim>> domain_;
+    using Domain = domain::Domain<dim>;
+
+    std::shared_ptr<Domain> domain_;
 
     std::vector<double>  dof_vector_; 
 
 public:
-    // Constructor
-    Model();
+
+    // Constructors
+
+    Model(std::shared_ptr<Domain> domain) : domain_{domain} {};
+
+    Model(Domain& domain) : domain_{std::make_shared<Domain>(domain)} {};
+
+    Model() = default;
 
     // Destructor
-    ~Model();
+    ~Model() = default;
 
     // Other members
 };

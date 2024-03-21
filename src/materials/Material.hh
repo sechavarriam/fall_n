@@ -15,9 +15,25 @@
 //template<typename MaterialPolicy> // MaterialPolicy is a concept that defines the material behavior (uniaxial, continuum, plane....)
 class Material
 {
+   using DestroyOperation = void(void*);
+   using CloneOperation   = void*(void*);
+   using UpdaterOperation = void(void*);
+   
+   std::unique_ptr<void,DestroyOperation*> pimpl_;
+   
+   CloneOperation*    clone_{nullptr};
+
+   //Interfase for the material 
+
+   UpdaterOperation*  getStress_ {nullptr };
+
+   void print_material_parameters( void* materialBytes )
+   {
+      //static_cast<MaterialPolicy*>(materialBytes)->print_constitutive_parameters();
+   }
+
  public:
-   template< typename MaterialType
-           , typename UpdateStrategy >
+   template< typename MaterialType, typename UpdateStrategy >
    Material( MaterialType material, UpdateStrategy updater )
       : pimpl_(
             new OwningModel<MaterialType,UpdateStrategy>( std::move(material)
@@ -65,33 +81,24 @@ class Material
    Material& operator=( Material&& ) = default;
 
  private:
-   friend void getStress( Material const& material )
+   friend void print_material_parameters( Material const& material )
    {
-      material.getStress_( material.pimpl_.get() );
+      //material.print_material_parameters( material.pimpl_.get() );
    }
 
-   template< typename MaterialType
-           , typename UpdateStrategy >
+   template< typename MaterialType, typename UpdateStrategy >
    struct OwningModel
    {
-      OwningModel( MaterialType value, UpdateStrategy updater )
-         : shape_( std::move(value) )
-         , updater_( std::move(updater) )
+      OwningModel( MaterialType mat, UpdateStrategy updater )
+         : material_( std::move(mat) )
+         , updater_ ( std::move(updater))
       {}
 
-      MaterialType shape_;
+      MaterialType   material_;
       UpdateStrategy updater_;
    };
 
-   using DestroyOperation = void(void*);
-   using CloneOperation   = void*(void*);
-   using UpdaterOperation = void(void*);
-   
-   std::unique_ptr<void,DestroyOperation*> pimpl_;
-   CloneOperation* clone_{ nullptr };
-
-   UpdaterOperation*  getStress_ { nullptr };
-   
+    
 };
 
 

@@ -156,6 +156,11 @@ class Element{
 
     std::size_t id() const{return pimpl_->id();};
 
+    
+    std::size_t num_nodes() const{return pimpl_->num_nodes();};
+    std::size_t num_dofs()  const{return num_nodes()*3;};
+
+
     //MaterialIntegrator material_integrator_; // Spacial integration strategy (e.g. GaussLegendre::CellQuadrature)
 
 

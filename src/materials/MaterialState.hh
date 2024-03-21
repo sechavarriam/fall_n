@@ -16,28 +16,34 @@
 template<typename T>
 class MaterialState{
     private:
-        T state_variable_{}; //Array of pointers? Array of references? Array of values? (vector?)
+        std::unique_ptr<T> state_variable_; // Pointer to state variable in the domain (DOF, Integration Point, etc.)
 
     public:
-
-        auto current_state() const{
-            if constexpr (StrainRange<T>){
-                return state_variable_.end();
-            }
-            else if constexpr (Strain<T>){
-                return state_variable_;
-            }
-            else{
-                std::unreachable();
-            };
-        };
-
 
         void update_state(const T& q){state_variable_ = q;};
 
 
-        MaterialState(){};
-        ~MaterialState(){};
+        //copy constructor
+        MaterialState(const MaterialState& other){
+            state_variable_ = std::make_unique<T>(*other.state_variable_);
+        };
+        //move constructor
+        MaterialState(MaterialState&& other){
+            state_variable_ = std::move(other.state_variable_);
+        };
+        //copy assignment
+        MaterialState& operator=(const MaterialState& other){
+            state_variable_ = std::make_unique<T>(*other.state_variable_);
+            return *this;
+        };
+        //move assignment
+        MaterialState& operator=(MaterialState&& other){
+            state_variable_ = std::move(other.state_variable_);
+            return *this;
+        };
+
+        MaterialState() = default;
+        ~MaterialState() =  default;
 };
 
 

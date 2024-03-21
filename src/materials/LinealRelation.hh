@@ -3,6 +3,7 @@
 #define FALL_N_CONSTUTUTIVE_LINEAL_RELATION
 
 
+#include <iostream>
 #include <cstddef>
 #include <type_traits>
 #include <concepts>
@@ -14,8 +15,8 @@
 #include "../utils/index.hh"
 
 //Some concept
-template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Uniaxial, Plane, etc. 
-class LinealRelation{ //Or materialBase
+template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Plane, etc. 
+class LinealRelation{
 
     static constexpr std::size_t num_stresses_     = StressPolicy::num_components;
     static constexpr std::size_t num_strains_      = StrainPolicy::num_components;
@@ -35,17 +36,28 @@ class LinealRelation{ //Or materialBase
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
 
+
+    void print_constitutive_parameters(){
+        std::cout << "Elasticity Tensor Components: " << std::endl;
+        compliance_matrix.print_content();
+    };
+
     constexpr LinealRelation(){compliance_parameters_.fill(0.0);};
     constexpr ~LinealRelation() = default;
 };
 
-//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
-template<>
-class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ //Or materialBase
+
+
+template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
+class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ 
 
     double E_{0.0}; // E
 
   public:
+
+    void print_constitutive_parameters() const{
+        std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
+    };
 
     void compute_stress(const VoigtStrain<1>& strain, VoigtStress<1>& stress){
         stress.tensor = E_*strain.tensor;
@@ -53,7 +65,6 @@ class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ //Or materialBase
     
     constexpr inline void set_parameter    (double value)        {E_ = value;};
     constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
-
 
     constexpr LinealRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
 
