@@ -11,11 +11,16 @@ class Model {
 
     using Domain = domain::Domain<dim>;
 
+    std::size_t num_dofs_{0};
+
+
     std::shared_ptr<Domain> domain_;
 
     std::vector<double>  dof_vector_; 
 
 public:
+
+    
 
     // Constructors
 

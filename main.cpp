@@ -94,8 +94,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     steel_mat3D.print_material_parameters();
     steel_mat1D.print_material_parameters();
     
-    
-
     domain::Domain<dim> D; //Domain Aggregator Object
     
     D.preallocate_node_capacity(20);
@@ -125,7 +123,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
-    /*
+    
     static constexpr uint nx = 3;
     static constexpr uint ny = 3;    
     static constexpr uint nz = 2;
@@ -137,6 +135,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
                                    D.node_p(9 ),D.node_p(10),D.node_p(11),
                                    D.node_p(12),D.node_p(13),D.node_p(14),
                                    D.node_p(15),D.node_p(16),D.node_p(17)}};
+
+    
     
     Node<dim> N1{1,0.0,0.0,0.0};
     Node<dim> N2{2,1.0,0.0,0.0};
@@ -148,21 +148,20 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Node<dim> N8{8,0.0,1.0,1.0};
     Node<dim> N9{9,0.5,0.5,0.5};
 
+    N1.set_num_dof(6);
+
     Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
     Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
     Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
 
-
-    
-
-    Element testL{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
+    Element test_L0{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
                                              D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
                                              D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
                                              D.node_p(9 ),D.node_p(10),D.node_p(11),
                                              D.node_p(12),D.node_p(13),D.node_p(14),
                                              D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
 
-
+    Element test_L1{E1, integrationScheme};
     //GaussIntegrator<2,2,2> LagElem_integrator(E1);
 
     static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>);
@@ -171,7 +170,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Element test6(test2 );
     
     integrate(test1); integrate(test2); integrate(test3);
-    integrate(test4); integrate(test5); integrate(testL);
+    integrate(test4); integrate(test5); integrate(test_L0);
 
 
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
@@ -187,7 +186,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     IntegrationPoint<dim> IP_11{0.0,0.0,0.0};
 
     IntegrationPoint<dim> IP_12(N3);
- 
+
 
     std::cout << "Integration Points:" << std::endl;
     std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
@@ -195,7 +194,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_12};
 
-*/
 
     //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;

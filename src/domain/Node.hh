@@ -21,30 +21,34 @@ class Node : public geometry::Point<Dim>{
  using DoF_Interface = domain::DoF_Interface;
  
     std::size_t id_{} ; 
-    //std::size_t num_dof_{0}; 
+    std::size_t num_dof_{0}; 
 
-    domain::DoF_Interface dof_;
+    DoF_Interface dof_;
 
   public:
 
     std::integral auto id()     {return id_     ;}
-    std::integral auto num_dof(){return dof_.dof_handler_->dof_index_.size();}
+    std::integral auto num_dof(){return dof_.handler_->dof_index_.size();}
 
-    void set_id     (const std::size_t& id) noexcept {id_ = id;};
+    constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
+    constexpr void set_num_dof(const std::size_t& n ) noexcept {
+      num_dof_ = n;
+      if (!dof_.handler_) dof_.set_handler();
+      dof_.handler_->set_num_dof(n);
+      };
 
     auto dof_index(){
-      if (!dof_.dof_handler_) throw std::runtime_error("DoF Handler not set");
-      return std::span<std::size_t>(dof_.dof_handler_->dof_index_);
+      if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
+      return std::span<std::size_t>(dof_.handler_->dof_index_);
       };
 
     std::integral auto dof_index(std::size_t i){
-      if (!dof_.dof_handler_) throw std::runtime_error("DoF Handler not set");
-      return dof_.dof_handler_->dof_index_[i];
+      if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
+      return dof_.handler_->dof_index_[i];
       };
 
 
-    void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index)
-    {
+    void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index){
       dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
     };
 

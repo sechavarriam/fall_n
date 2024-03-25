@@ -37,6 +37,11 @@ class ElementBase{
     static constexpr std::size_t num_nodes(){return nNodes;}; // to be used in element concept 
     static constexpr std::size_t num_dof  (){return nDoF  ;}; // to be used in element concept
 
+    void set_num_dofs() 
+    {
+      std::cout << "Unreachable thing " << std::endl;
+    };
+
     uint  id()    const {return id_   ;};
     std::size_t const* nodes() const {return nodes_.data();};   
 
