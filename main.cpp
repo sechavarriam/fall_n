@@ -63,6 +63,7 @@
 #include "src/materials/Strain.hh"
 
 #include "src/model/Model.hh"
+#include "src/model/ModelBuilder.hh"
 
 //#include <matplot/matplot.h>
 
