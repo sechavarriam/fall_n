@@ -14,19 +14,30 @@ class Model {
     std::size_t num_dofs_{0};
 
 
-    std::shared_ptr<Domain> domain_;
+    //std::shared_ptr<Domain> domain_; //Probablemente haga parte solo del model builder...
 
     std::vector<double>  dof_vector_; 
 
 public:
 
+    // Getters
+    //nodes
+    //Node<dim>* node_p(std::size_t i){return domain_->node_p(i);};
+    //Node<dim>  node  (std::size_t i){return domain_->node(i);};
+    //std::span<Node<dim>> nodes(){return domain_->nodes();};
+
+    void set_num_dofs(std::size_t n){
+        num_dofs_ = n;
+        dof_vector_.reserve(n);
+    };
+
     
 
     // Constructors
 
-    Model(std::shared_ptr<Domain> domain) : domain_{domain} {};
+    //Model(std::shared_ptr<Domain> domain) : domain_{domain} {};
 
-    Model(Domain& domain) : domain_{std::make_shared<Domain>(domain)} {};
+    //Model(Domain& domain) : domain_{std::make_shared<Domain>(domain)} {};
 
     Model() = default;
 

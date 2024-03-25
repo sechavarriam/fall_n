@@ -44,6 +44,10 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     Node<Dim>* node_p(std::size_t i){return &nodes_[i];};
     Node<Dim>  node  (std::size_t i){return  nodes_[i];};
 
+    std::span<Node<Dim>> nodes(){return nodes_;};
+
+
+
     // ===========================================================================================================
     template<typename ElementType, typename IntegrationStrategy, typename ...Args>
     void make_element(IntegrationStrategy&& integrator, std::size_t&& tag,std::array<ushort,ElementType::n_nodes>&& nodeTags,Args&&... constructorArgs){

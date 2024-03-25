@@ -23,7 +23,7 @@ class DoF_Handler {
   public:
 
   std::vector<std::size_t> dof_index_{};
-  std::vector<double*>     dofs_{}; //Alt: GlobalDofs or ModelDofs.
+  std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs.
 
 
   constexpr void set_num_dof(std::size_t num_dof){
@@ -35,9 +35,6 @@ class DoF_Handler {
     std::ranges::move(dofs, std::back_inserter(dofs_));
   };
 
-
-
-
   DoF_Handler() = default;
 
   DoF_Handler(std::initializer_list<std::size_t> dofs){
@@ -45,9 +42,6 @@ class DoF_Handler {
     std::move(dofs.begin(), dofs.end(), std::back_inserter(dof_index_));
   };
 };
-
-
-
 
 
 class DoF_Interface{
