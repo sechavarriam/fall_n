@@ -20,7 +20,6 @@ class IsotropicElasticMaterial{
     std::shared_ptr<ConstitutiveLaw> constitutive_law_;
 
   public:
-
     void update_state(const StrainType& strain){state_->update_state(strain);};
     
     auto compute_stress(const StrainType& strain) const{
@@ -29,8 +28,6 @@ class IsotropicElasticMaterial{
     
     void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
     
-
-
     auto get_state() const{return state_->current_state();};
     
     template<typename... Args>  

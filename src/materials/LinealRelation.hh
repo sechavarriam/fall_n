@@ -68,7 +68,7 @@ class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{
 
     constexpr LinealRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
 
-    constexpr LinealRelation() = default;
+    constexpr  LinealRelation() = default;
     constexpr ~LinealRelation() = default;
 };
 

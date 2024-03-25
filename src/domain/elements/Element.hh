@@ -34,7 +34,7 @@ namespace impl{ //Implementation details
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t        id() const = 0;
 
-        //virtual void set_material_integrator() const = 0;
+        //constexpr virtual void set_num_dofs() const = 0;
     };  
 
     template <typename ElementType, typename IntegrationStrategy> 

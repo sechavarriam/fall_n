@@ -57,9 +57,8 @@ class LagrangeElement {
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
-  using pNodeArray = std::array<Node<dim> *, num_nodes_>;
+  using pNodeArray     = std::array<Node<dim> *, num_nodes_>;
   using JacobianMatrix = std::array<std::array<double, dim>, dim>;
-
 
   std::size_t tag_;
 
@@ -71,9 +70,7 @@ class LagrangeElement {
 
 public:
   
-
   //std::vector <IntegrationPoint<dim>> integration_points_;  
-  
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
   
@@ -85,17 +82,7 @@ public:
     material_integrator_ = std::move(integrator);
   };
 
-  //void set_num_integration_points(std::size_t num) noexcept {
-  //  integration_points_.resize(num);
-  //};
-//
-  //void set_integration_point(std::size_t i, IntegrationPoint<dim>&& point) noexcept {
-  //  integration_points_[i] = std::move(point);
-  //};
-//
-  //void set_integration_points(std::ranges::range auto&& points) noexcept {
-  //  std::move(points.begin(), points.end(), integration_points_.begin());
-  //};
+
 
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
