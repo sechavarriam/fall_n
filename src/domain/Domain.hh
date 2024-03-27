@@ -24,8 +24,6 @@ namespace domain{
 
 //Contar cuantos nodos hay. y con esto separar un espacio en memoria con algun contenedor.
 //Los elementos guardarían solo en índice en el arreglo en vez de un puntero al nodo?
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
 template<std::size_t Dim> //requires topology::EmbeddableInSpace<Dim>
 class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
@@ -40,11 +38,13 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
 
   public:
 
+    std::size_t num_nodes() const {return num_nodes_;};
+
     // Getters
     Node<Dim>* node_p(std::size_t i){return &nodes_[i];};
-    Node<Dim>  node  (std::size_t i){return  nodes_[i];};
+    //Node<Dim>  node  (std::size_t i){return nodes_[i];};
 
-    std::span<Node<Dim>> nodes(){return nodes_;};
+    std::span<Node<Dim>> nodes(){return std::span<Node<Dim>>(nodes_);}; 
 
 
 
@@ -68,7 +68,10 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     //    elements_.emplace_back(ElementType{std::forward<Args>(args)...});
     //};
     
-    void add_node(Node<Dim>&& node){nodes_.emplace_back(std::forward<Node<Dim>>(node));};
+    void add_node(Node<Dim>&& node){
+        nodes_.emplace_back(std::forward<Node<Dim>>(node));
+        ++num_nodes_;
+        };
     
     // Tol increases capacity by default in 20%.
     void preallocate_node_capacity(int n, double tol=1.20){

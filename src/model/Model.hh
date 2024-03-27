@@ -16,9 +16,12 @@ class Model {
 
     //std::shared_ptr<Domain> domain_; //Probablemente haga parte solo del model builder...
 
+public:
+
     std::vector<double>  dof_vector_; 
 
-public:
+
+
 
     // Getters
     //nodes
@@ -26,9 +29,8 @@ public:
     //Node<dim>  node  (std::size_t i){return domain_->node(i);};
     //std::span<Node<dim>> nodes(){return domain_->nodes();};
 
-    void set_num_dofs(std::size_t n){
-        num_dofs_ = n;
-        dof_vector_.reserve(n);
+    void set_total_dofs(std::size_t n){
+        dof_vector_.resize(n,0.0);
     };
 
     
