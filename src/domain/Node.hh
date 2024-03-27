@@ -8,12 +8,8 @@
 #include <utility>
 #include <span>
 
-
 #include "DoF.hh"
 #include "../geometry/Point.hh"
-
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
 template<std::size_t Dim>//, ushort nDoF=Dim> 
 class Node : public geometry::Point<Dim>{
@@ -27,24 +23,31 @@ class Node : public geometry::Point<Dim>{
 
   public:
 
-    std::integral auto id()     {return id_     ;}
-    std::integral auto num_dof(){return dof_.handler_->dof_index_.size();}
+    std::size_t id()       {return id_     ;}
+    std::size_t num_dof()  {return num_dof_;}
+    std::size_t num_dof_h(){return dof_.num();}
+
+    std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
-    constexpr void set_num_dof(const std::size_t& n ) noexcept {
+    
+
+    constexpr void set_num_dof(std::size_t n ) noexcept {
       num_dof_ = n;
-      if (!dof_.handler_) dof_.set_handler();
       dof_.handler_->set_num_dof(n);
       };
+
+    constexpr void set_dof(std::size_t i, double* p_model_dof){
+      dof_.handler_->dofs_[i] = p_model_dof;
+    };
+
+    //constexpr void set_dofs(std::ranges::contiguous_range auto&& dofs){
+    //  dof_.handler_->set_dofs(dofs);
+    //};
 
     auto dof_index(){
       if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
       return std::span<std::size_t>(dof_.handler_->dof_index_);
-      };
-
-    std::integral auto dof_index(std::size_t i){
-      if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
-      return dof_.handler_->dof_index_[i];
       };
 
 
@@ -62,22 +65,6 @@ class Node : public geometry::Point<Dim>{
       id_(tag),
       geometry::Point<Dim>(std::forward<Args>(args)...)
       {}
-
-
-    //Node(std::size_t tag, std::initializer_list<double>&& coord_list) : 
-    //  id_{tag},
-    //  geometry::Point<Dim>{std::forward<std::initializer_list<double>>(coord_list)}
-    //  {
-    //    std::cout << "Hiiii" << id_ << std::endl;
-    //  };
-
-    //Node(std::size_t tag, std::array<double,Dim>&& coord_list) : 
-    //  id_{tag},
-    //  geometry::Point<Dim>{std::forward<std::array<double,Dim>>(coord_list)}
-    //  {
-    //    std::cout << "Hi" << id_ << std::endl;
-    //  }; 
-
 
     ~Node(){} 
 

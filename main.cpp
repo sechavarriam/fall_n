@@ -124,13 +124,11 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     Model<dim> model;
 
-    ModelBuilder<dim> model_builder (model,D);
+    std::size_t num_dofs = 6;
 
-    model_builder.set_node_num_dofs(6);
+    ModelBuilder<dim> model_builder (model,D,num_dofs);
 
 
-    //ModelBuilder<dim> model_builder{model};
-    //model_builder.set_node_num_dofs(6);
 
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
 
@@ -160,6 +158,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Node<dim> N9{9,0.5,0.5,0.5};
 
     N1.set_num_dof(6);
+    N2.set_num_dof(3);
+
+    std::cout << N1.num_dof()   << " " << N2.num_dof()   << std::endl;
+    std::cout << N1.num_dof_h() << " " << N2.num_dof_h() << std::endl;
 
     Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
     Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};

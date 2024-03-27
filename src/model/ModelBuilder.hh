@@ -18,44 +18,68 @@ class ModelBuilder{
     template<std::size_t D>
     using Domain = domain::Domain<D>;
 
-    std::size_t defaulted_num_dofs_{0};
+    Model <dim>* model_;
+    Domain<dim>* domain_; 
 
-    std::shared_ptr<Domain<dim>> domain_;
-    std::shared_ptr<Model <dim>> model_;
+    std::size_t default_num_dofs_{0}; //Default num_dofs for the nodes in the domain.
 
-  public:
+    public:
+    
 
-    void set_model(Model<dim>& model){
-        model_ = std::make_shared<Model<dim>>(model);
-    };
 
-    void set_domain(Domain<dim>& domain){
-        domain_ = std::make_shared<Domain<dim>>(domain);
-    };
 
-    void set_node_num_dofs(std::size_t n){
-        defaulted_num_dofs_ = n;
-        for (auto node : domain_->nodes()){
-            node.set_num_dof(n);
+    void setup_model(){
+        
+        // 1. set dof_vector_ size in the model.
+        model_->set_total_dofs(domain_->num_nodes() * default_num_dofs_);
+
+        auto dof_position = model_->dof_vector_.begin();
+
+        // 2. set dof_vector_ size in the nodes and link the dofs to the model.
+        for (auto& node : domain_->nodes()){
+            node.set_num_dof(default_num_dofs_);
+
+            for(auto dof : node.dofs()){
+                dof = std::addressof(*dof_position);
+                dof_position ++;
+            }
         }
+
+        // 3.
+    };
+    
+
+    void update_model(){
+        // 1. If domain changed, update the model (put observer in domain).
     };
 
-    void update_model(){}; //This function shound be called if some element changes his defaulted num_dofs.
 
-    
-    ModelBuilder(Model<dim>& model) : model_{std::make_shared<Model<dim>>(model)}{};
-    
-    ModelBuilder(Model<dim>& model,Domain<dim>& domain) : 
-        domain_{std::make_shared<Domain<dim>>(domain)},
-        model_ {std::make_shared<Model<dim>>(model)}
-        {};
+    void set_default_num_dofs_per_node(std::size_t n){
+        default_num_dofs_ = n;
+        for (auto& node : domain_->nodes())node.set_num_dof(default_num_dofs_);
+    };
+
+    //void set_model_dofs(){
+    //    for (auto& node : domain_->nodes())model_->add_dofs(node.dofs_);
+    //};
+
+    void link_dofs_to_model(){
+        
+    };
 
 
 
-    //ModelBuilder(std::size_t ndofs) : 
-    //    defaulted_num_dofs_{ndofs},
-    //    model_{std::make_shared<Model<dim>>()}
-    //    {};
+    ModelBuilder(Model<dim>& model,Domain<dim>& domain):model_{&model},domain_{&domain}{};
+
+    ModelBuilder(Model<dim>& model,Domain<dim>& domain, std::size_t def_ndof) : 
+        model_{&model},
+        domain_{&domain},
+        default_num_dofs_{def_ndof}
+        {
+            setup_model();
+        };
+
+
     
     ModelBuilder() = default;
     ~ModelBuilder() = default;
