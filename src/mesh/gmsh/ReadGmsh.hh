@@ -1,6 +1,10 @@
 #ifndef FALL_N_READ_GMSH
 #define FALL_N_READ_GMSH
 
+#include <string>
+#include <fstream>
+#include <iostream>
+
 #include "../Mesh.hh"
 #include "../../domain/Domain.hh"
 

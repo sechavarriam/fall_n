@@ -93,8 +93,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
 
-    steel_mat3D.print_material_parameters();
-    steel_mat1D.print_material_parameters();
+    //steel_mat3D.print_material_parameters();
+    //steel_mat1D.print_material_parameters();
     
     domain::Domain<dim> D; //Domain Aggregator Object
     
@@ -127,7 +127,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::size_t num_dofs = 6;
 
     ModelBuilder<dim> model_builder (model,D,num_dofs);
-
 
 
     //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
