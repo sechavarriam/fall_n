@@ -22,11 +22,8 @@ class DoF_Handler {
   std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs.
 
   inline constexpr std::size_t num_dof() const {return dof_index_.size();};
-
-  constexpr void set_num_dof(std::size_t num_dof){
-    dofs_.resize(num_dof,nullptr);
-    };
-
+  
+  inline constexpr void set_num_dof(std::size_t num_dof){dofs_.resize(num_dof,nullptr);};
 
   DoF_Handler() = default;
 
