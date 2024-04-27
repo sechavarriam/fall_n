@@ -14,6 +14,12 @@ namespace mesh {
     template <std::size_t dim>
     class ReadGmsh : public Mesh<dim> {
     public:
+    
+
+
+
+
+
         ReadGmsh(domain::Domain<dim>* domain) : Mesh<dim>::domain(domain) {}
         ~ReadGmsh() = default;
 
@@ -21,7 +27,7 @@ namespace mesh {
             // Read the file
     
         }
-    };
+    };  
 
 }
 

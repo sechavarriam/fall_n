@@ -7,8 +7,13 @@
 #include <numeric>
 #include <algorithm>
 #include <ranges>
-#include<tuple>
-#include<utility>
+#include <tuple>
+#include <utility>
+
+#include <string>
+#include <string_view>
+#include <fstream>
+#include <filesystem>
 
 #include"header_files.hh"
 
@@ -73,8 +78,45 @@
 #include <petscsys.h>
 
 
+
 int main(int argc, char **args){
 PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
+
+    // Mesh File Location
+    std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+
+
+    std::vector<std::string> msh_keywords{"$Nodes", "$Elements", "$EndNodes", "$EndElements"};
+
+    std::ifstream file(mesh_file);
+    //file.open(mesh_file);
+    if (!file.is_open()){
+        std::cerr << "Error: Could not open file " << mesh_file << std::endl;
+        return 1;
+    }
+
+
+
+    std::string buffer;
+    file.seekg(0, std::ios::end);
+    //
+    buffer.resize(file.tellg());
+    file.seekg(0);
+    file.read(buffer.data(), buffer.size());
+
+    for (auto const& keyword : msh_keywords){
+        std::size_t pos = buffer.find(keyword);
+        if (pos != std::string::npos){
+            std::cout << "Found " << keyword << " at position " << pos << std::endl;
+        }
+    }
+
+
+    std::string_view file_view(buffer);
+
+
+
+
 
     static constexpr int dim = 3;
 
