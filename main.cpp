@@ -48,9 +48,6 @@
 #include "src/numerics/linear_algebra/LinalgOperations.hh"
 
 #include "src/analysis/Analysis.hh"
-#include "src/mesh/Mesh.hh"
-#include "src/mesh/gmsh/ReadGmsh.hh"
-
 
 #include "src/model/Model.hh"
 #include "src/integrator/MaterialIntegrator.hh"
@@ -71,6 +68,9 @@
 #include "src/model/ModelBuilder.hh"
 #include "src/model/Graph.hh"
 
+#include "src/mesh/Mesh.hh"
+#include "src/mesh/gmsh/ReadGmsh.hh"
+
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
@@ -86,33 +86,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
 
-    std::vector<std::string> msh_keywords{"$Nodes", "$Elements", "$EndNodes", "$EndElements"};
-
-    std::ifstream file(mesh_file);
-    //file.open(mesh_file);
-    if (!file.is_open()){
-        std::cerr << "Error: Could not open file " << mesh_file << std::endl;
-        return 1;
-    }
-
-
-
-    std::string buffer;
-    file.seekg(0, std::ios::end);
-    //
-    buffer.resize(file.tellg());
-    file.seekg(0);
-    file.read(buffer.data(), buffer.size());
-
-    for (auto const& keyword : msh_keywords){
-        std::size_t pos = buffer.find(keyword);
-        if (pos != std::string::npos){
-            std::cout << "Found " << keyword << " at position " << pos << std::endl;
-        }
-    }
-
-
-    std::string_view file_view(buffer);
+    //std::string_view file_view(buffer);
 
 
 
