@@ -25,3 +25,5 @@ Transfinite Volume {1};
 
 //+
 
+//+
+Physical Surface("Fixed", 13) = {5};
