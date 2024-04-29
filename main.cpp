@@ -86,12 +86,16 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
 
-    //std::string_view file_view(buffer);
+    MSHReader reader(mesh_file);
+    
+    //reader.print_positions();
+   
+    std::cout <<  reader.view_Nodes() << std::endl;
+    
 
 
 
-
-
+    
     static constexpr int dim = 3;
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
