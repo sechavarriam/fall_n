@@ -5,6 +5,8 @@
 #include <fstream>
 #include <iostream>
 #include <string_view>
+
+#include <cstdlib>
 #include <charconv>
 
 #include <array>
@@ -18,6 +20,7 @@
 
 //namespace mesh {
 
+namespace gmsh{
 
 class MSHReader {
 
@@ -55,7 +58,7 @@ std::array<std::size_t, msh_keywords.size()> keyword_position_{0,0,0,0,0,0,0,0,0
 
 
 std::string filename_;
-std::string buffer_  ;
+std::string buffer_  ; //Podría ser un char*
 
 std::string_view buffer_view_;
 
@@ -63,7 +66,9 @@ public:
 
 template<std::size_t N>
 inline constexpr auto view_keyword_info(){
-    std::size_t pos = keyword_position_[N];
+    std::string_view keyword = msh_keywords[N];
+
+    std::size_t pos = keyword_position_[N]+keyword.size();
     std::size_t end = keyword_position_[N+1];
 
     std::size_t count = end - pos;
@@ -112,12 +117,8 @@ MSHReader(std::string_view filename): filename_(filename){
             std::cout << "Found " << keyword << " at position " << pos << std::endl;
         }
         ++i;
-
-        
     }
-
     buffer_view_ = std::string_view(buffer_.data());
-    
 }; 
 
 
@@ -125,15 +126,36 @@ MSHReader(std::string_view filename): filename_(filename){
 
 };  
 
-namespace gmsh{
+
 
 struct MeshFormat{
-    double version;
-    int    file_type;
-    int    data_size;
+    double  version{0.0} ;
+    int    file_type{-1};
+    int    data_size{-1};
+
+    MeshFormat(const std::string_view keword_info){
+        std::size_t pos = 0;
+
+        //https://stackoverflow.com/questions/73333331/convert-stdstring-view-to-float
+        //https://lemire.me/blog/2022/07/27/comparing-strtod-with-from_chars-gcc-12/
+
+        auto [p, ec] = std::from_chars(keword_info.data(), keword_info.data()+keword_info.size(), version);
+        if (p == keword_info.data()){
+            std::cerr << "Error parsing version" << std::endl;
+      //you have errors!
+        }
+
+        //pos = keword_info.find_first_of(" \t", pos);
+        //pos = keword_info.find_first_not_of(" \t", pos);
+        //auto [p1, ec1] = std::from_chars(keword_info.data()+pos, keword_info.data()+keword_info.size(), file_type);
+        //pos = keword_info.find_first_of(" \t", pos);
+        //pos = keword_info.find_first_not_of(" \t", pos);
+        //auto [p2, ec2] = std::from_chars(keword_info.data()+pos, keword_info.data()+keword_info.size(), data_size);
+    
+    };
 };
 
-}
+} // namespace gmsh
 
 
 #endif // FALL_N_MESH_INTERFACE
