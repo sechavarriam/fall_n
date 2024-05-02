@@ -129,21 +129,30 @@ MSHReader(std::string_view filename): filename_(filename){
 
 
 struct MeshFormat{
-    double  version{0.0} ;
+    double  version{0.0};
     int    file_type{-1};
     int    data_size{-1};
 
-    MeshFormat(const std::string_view keword_info){
-        std::size_t pos = 0;
+    MeshFormat(std::string_view keword_info){
+        
+        //std::size_t first{0};
+        //std::size_t last{0};
+
+        std::size_t pos{0};
 
         //https://stackoverflow.com/questions/73333331/convert-stdstring-view-to-float
         //https://lemire.me/blog/2022/07/27/comparing-strtod-with-from_chars-gcc-12/
 
-        auto [p, ec] = std::from_chars(keword_info.data(), keword_info.data()+keword_info.size(), version);
-        if (p == keword_info.data()){
-            std::cerr << "Error parsing version" << std::endl;
-      //you have errors!
+        //for (auto c : keword_info){
+        //    
+        //}
+        |
+        auto [ptr, ec] = std::from_chars( keword_info.data(), keword_info.data()+3, version);
+        if (ptr == keword_info.data()){
+            std::cerr << "Error parsing version " << std::endl; //you have errors!
+        //you have errors!
         }
+        
 
         //pos = keword_info.find_first_of(" \t", pos);
         //pos = keword_info.find_first_not_of(" \t", pos);
