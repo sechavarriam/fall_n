@@ -68,7 +68,7 @@ template<std::size_t N>
 inline constexpr auto view_keyword_info(){
     std::string_view keyword = msh_keywords[N];
 
-    std::size_t pos = keyword_position_[N]+keyword.size();
+    std::size_t pos = keyword_position_[N]+keyword.size() +1; //+1 to skip the newline character
     std::size_t end = keyword_position_[N+1];
 
     std::size_t count = end - pos;
@@ -138,31 +138,38 @@ struct MeshFormat{
         //std::size_t first{0};
         //std::size_t last{0};
 
-        std::size_t pos{0};
+        auto pos{keword_info.data()};
 
         //https://stackoverflow.com/questions/73333331/convert-stdstring-view-to-float
         //https://lemire.me/blog/2022/07/27/comparing-strtod-with-from_chars-gcc-12/
-
-        //for (auto c : keword_info){
-        //    
-        //}
-        |
-        auto [ptr, ec] = std::from_chars( keword_info.data(), keword_info.data()+3, version);
-        if (ptr == keword_info.data()){
-            std::cerr << "Error parsing version " << std::endl; //you have errors!
-        //you have errors!
-        }
         
+        //auto [ptr, ec] = std::from_chars( reader.view_MeshFormat().data(), reader.view_MeshFormat().data()+4, version);
 
-        //pos = keword_info.find_first_of(" \t", pos);
-        //pos = keword_info.find_first_not_of(" \t", pos);
-        //auto [p1, ec1] = std::from_chars(keword_info.data()+pos, keword_info.data()+keword_info.size(), file_type);
-        //pos = keword_info.find_first_of(" \t", pos);
-        //pos = keword_info.find_first_not_of(" \t", pos);
-        //auto [p2, ec2] = std::from_chars(keword_info.data()+pos, keword_info.data()+keword_info.size(), data_size);
-    
+        auto [ptr, ec] = std::from_chars( pos, pos+3, version);
+        if (ptr == pos){
+            std::cerr << "Error parsing MSH file format version.  " << std::endl; 
+        }
+
+        pos = ptr+1; //skip the space character
+        auto [ptr2, ec2] = std::from_chars( pos, pos+1, file_type);
+        if (ptr2 == pos){
+            std::cerr << "Error parsing MSH file format file type.  " << std::endl; 
+        }
+
+        pos = ptr2+1; //skip the space character
+        auto [ptr3, ec3] = std::from_chars( pos, pos+1, data_size);
+        if (ptr3 == pos){
+            std::cerr << "Error parsing MSH file format data size.  " << std::endl; 
+        }
+
     };
 };
+
+
+// $Entities store the boundary representation of the model geometrical entities,
+// $Nodes and $Elements store mesh data classified on these entities
+// $PhysicalNames store the names of the physical entities  
+
 
 } // namespace gmsh
 
