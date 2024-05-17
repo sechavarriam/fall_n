@@ -143,11 +143,15 @@ struct MeshFormat{
         //https://stackoverflow.com/questions/73333331/convert-stdstring-view-to-float
         //https://lemire.me/blog/2022/07/27/comparing-strtod-with-from_chars-gcc-12/
         
-        //auto [ptr, ec] = std::from_chars( reader.view_MeshFormat().data(), reader.view_MeshFormat().data()+4, version);
+
 
         auto [ptr, ec] = std::from_chars( pos, pos+3, version);
         if (ptr == pos){
             std::cerr << "Error parsing MSH file format version.  " << std::endl; 
+        }
+
+        if (version < 4.1){
+            std::cerr << "Error: Gmsh version must be 4.1 or higher.  " << std::endl; 
         }
 
         pos = ptr+1; //skip the space character
