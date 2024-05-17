@@ -97,16 +97,25 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
 
 
-
+    std::cout << "=======================================================================================" << std::endl;
     gmsh::MeshFormatInfo mesh_format(reader.view_MeshFormat());
     std::cout << "Version:   " << mesh_format.version   << " data size: " << sizeof(mesh_format.version  ) << std::endl;
     std::cout << "File Type: " << mesh_format.file_type << " data size: " << sizeof(mesh_format.file_type) << std::endl;
     std::cout << "Data Size: " << mesh_format.data_size << " data size: " << sizeof(mesh_format.data_size) << std::endl;    
 
+    std::cout << "=======================================================================================" << std::endl;
     gmsh::EntitiesInfo entities(reader.view_Entities());
     std::cout << "Number of Entities per type : " << std::endl;
     for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;
     
+    for (auto p : entities.points) p.print_raw();
+    
+    std::cout << "=======================================================================================" << std::endl;
+    std::cout << "=======================================================================================" << std::endl;
+
+
+
+
     static constexpr int dim = 3;
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
