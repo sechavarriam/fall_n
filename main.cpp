@@ -97,47 +97,15 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
 
 
-    gmsh::MeshFormat mesh_format(reader.view_MeshFormat());
+
+    gmsh::MeshFormatInfo mesh_format(reader.view_MeshFormat());
     std::cout << "Version:   " << mesh_format.version   << " data size: " << sizeof(mesh_format.version  ) << std::endl;
     std::cout << "File Type: " << mesh_format.file_type << " data size: " << sizeof(mesh_format.file_type) << std::endl;
     std::cout << "Data Size: " << mesh_format.data_size << " data size: " << sizeof(mesh_format.data_size) << std::endl;    
 
-    double  version{0.0};
-    int    file_type{-1};
-    int    data_size{-1};
-
-
-    auto [ptr, ec] = std::from_chars( reader.view_MeshFormat().data(), reader.view_MeshFormat().data()+4, version);
-
-    if (ptr == reader.view_MeshFormat().data()){
-        std::cerr << "Error parsing version TEST:" << std::endl; //you have errors!
-    //you have errors!
-    }
-
-
-    //std::string_view test_1 {"3.141593"};
-    //
-    //auto [ptr, ec] = std::from_chars( test_1.data(), test_1.data()+test_1.size(), version);
-    //
-    //if (ptr == test_1.data()){
-    //    std::cerr << "Error parsing version TEST:" << std::endl; //you have errors!
-    //you have errors!
-    //}
-
-    std::cout << "Version: " << version << std::endl;
-
-
-    //std::cout << "Version:   " << version   << " data size: " << sizeof(version  ) << std::endl;
-    //std::cout << "File Type: " << file_type << " data size: " << sizeof(file_type) << std::endl;
-    //std::cout << "Data Size: " << data_size << " data size: " << sizeof(data_size) << std::endl;    
-
-
-    //std::cout <<  reader.view_Nodes() << std::endl;    
-    //std::cout <<  reader.view_Elements() << std::endl;
-
-
-
-
+    gmsh::EntitiesInfo entities(reader.view_Entities());
+    std::cout << "Number of Entities per type : " << std::endl;
+    for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;
     
     static constexpr int dim = 3;
 
