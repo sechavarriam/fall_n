@@ -127,50 +127,233 @@ MSHReader(std::string_view filename): filename_(filename){
 };  
 
 
-
-struct MeshFormat{
+struct MeshFormatInfo{
     double  version{0.0};
     int    file_type{-1};
     int    data_size{-1};
 
-    MeshFormat(std::string_view keword_info){
-        
-        //std::size_t first{0};
-        //std::size_t last{0};
-
+    MeshFormatInfo(std::string_view keword_info){
         auto pos{keword_info.data()};
-
         //https://stackoverflow.com/questions/73333331/convert-stdstring-view-to-float
         //https://lemire.me/blog/2022/07/27/comparing-strtod-with-from_chars-gcc-12/
         
-
-
         auto [ptr, ec] = std::from_chars( pos, pos+3, version);
-        if (ptr == pos){
-            std::cerr << "Error parsing MSH file format version.  " << std::endl; 
-        }
+        if (ptr == pos){std::cerr << "Error parsing MSH file format version.  " << std::endl;}
 
-        if (version < 4.1){
-            std::cerr << "Error: Gmsh version must be 4.1 or higher.  " << std::endl; 
-        }
+        if (version < 4.1){std::cerr << "Error: Gmsh version must be 4.1 or higher.  " << std::endl;}
 
         pos = ptr+1; //skip the space character
         auto [ptr2, ec2] = std::from_chars( pos, pos+1, file_type);
-        if (ptr2 == pos){
-            std::cerr << "Error parsing MSH file format file type.  " << std::endl; 
-        }
+        if (ptr2 == pos){std::cerr << "Error parsing MSH file format file type.  " << std::endl;}
 
         pos = ptr2+1; //skip the space character
         auto [ptr3, ec3] = std::from_chars( pos, pos+1, data_size);
-        if (ptr3 == pos){
-            std::cerr << "Error parsing MSH file format data size.  " << std::endl; 
+        if (ptr3 == pos){std::cerr << "Error parsing MSH file format data size.  " << std::endl;}
+    };
+};
+
+
+/*
+$PhysicalNames // same as MSH version 2
+  numPhysicalNames(ASCII int)
+  dimension(ASCII int) physicalTag(ASCII int) "name"(127 characters max)
+  ...
+$EndPhysicalNames
+*/
+struct PhysicalNamesInfo{
+    using PhysicalEntity = std::tuple<int, int, std::string>;
+
+    std::vector<PhysicalEntity> physical_entities;
+
+};
+
+// $Entities store the boundary representation of the model geometrical entities,
+
+/*
+$Entities
+  numPoints(size_t) numCurves(size_t)
+    numSurfaces(size_t) numVolumes(size_t)
+  pointTag(int) X(double) Y(double) Z(double)
+    numPhysicalTags(size_t) physicalTag(int) ...
+  ...
+  curveTag(int) minX(double) minY(double) minZ(double)
+    maxX(double) maxY(double) maxZ(double)
+    numPhysicalTags(size_t) physicalTag(int) ...
+    numBoundingPoints(size_t) pointTag(int; sign encodes orientation) ...
+  ...
+  surfaceTag(int) minX(double) minY(double) minZ(double)
+    maxX(double) maxY(double) maxZ(double)
+    numPhysicalTags(size_t) physicalTag(int) ...
+    numBoundingCurves(size_t) curveTag(int; sign encodes orientation) ...
+  ...
+  volumeTag(int) minX(double) minY(double) minZ(double)
+    maxX(double) maxY(double) maxZ(double
+    numPhysicalTags(size_t) physicalTag(int) ...
+    numBoundngSurfaces(size_t) surfaceTag(int; sign encodes orientation) ...
+  ...
+$EndEntities
+*/
+
+
+namespace Entity{
+    struct Point{
+        int tag;
+        double X;
+        double Y;
+        double Z;
+        std::size_t num_physical_tags;
+        std::vector<int> physical_tags;
+    };
+    
+    struct Curve{
+        int tag;
+        double minX;
+        double minY;
+        double minZ;
+        double maxX;
+        double maxY;
+        double maxZ;
+        std::size_t num_physical_tags;
+        std::vector<int> physical_tags;
+        std::size_t num_bounding_points;
+        std::vector<int> bounding_points;
+    };
+
+    struct Surface{
+        int tag;
+        double minX;
+        double minY;
+        double minZ;
+        double maxX;
+        double maxY;
+        double maxZ;
+        std::size_t num_physical_tags;
+        std::vector<int> physical_tags;
+        std::size_t num_bounding_curves;
+        std::vector<int> bounding_curves;
+    };
+
+    struct Volume{
+        int tag;
+        double minX;
+        double minY;
+        double minZ;
+        double maxX;
+        double maxY;
+        double maxZ;
+        std::size_t num_physical_tags;
+        std::vector<int> physical_tags;
+        std::size_t num_bounding_surfaces;
+        std::vector<int> bounding_surfaces;
+    };
+};
+
+struct EntitiesInfo{
+    std::array<std::size_t,4> num_entities{0,0,0,0}; //numPoints(size_t) numCurves(size_t) numSurfaces(size_t) numVolumes(size_t)
+    
+    std::vector<Entity::Point>   points;
+    std::vector<Entity::Curve>   curves;
+    std::vector<Entity::Surface> surfaces;
+    std::vector<Entity::Volume>  volumes;
+
+    
+    //auto parse_point = [&points](std::string_view line_extent){};
+
+
+    EntitiesInfo(std::string_view keword_info){
+
+        
+        
+
+        std::size_t char_pos{0};
+        auto pos{keword_info.data()};
+        
+        auto line_limit = keword_info.find_first_of('\n');
+
+        std::size_t N{0};
+
+        for (auto i = char_pos; i < line_limit+1; ++i){ //parse the first line
+            if (keword_info[i] == ' ' || keword_info[i] == '\n'){
+                std::from_chars(pos+char_pos, pos+i, num_entities[N++]);
+                char_pos = i+1;
+            }
         }
+
+        auto [num_points, num_curves, num_surfaces, num_volumes] = num_entities;
+
+        [&](std::string_view line_extent){
+
+            int tag; //Organizar como tupla para recorrer rápido?
+            double X;
+            double Y;
+            double Z;
+            std::size_t num_physical_tags;
+            std::vector<int> physical_tags;
+
+            std::size_t char_pos{0};
+            auto pos{line_extent.data()};
+  
+
+            // TODO:  ESTO DEFINITIVAMENTE SE  PUEDE OPTIMIZAR Y SIMPLIFICAR (DRY PRINCIPLE)
+            auto line_limit   = line_extent.find_first_of('\n', char_pos);
+            auto number_limit = line_extent.find_first_of(' ' , char_pos);
+
+            std::from_chars(pos+char_pos, pos+number_limit, tag);
+            char_pos = number_limit+1;
+
+            auto line_limit   = line_extent.find_first_of('\n', char_pos);
+            auto number_limit = line_extent.find_first_of(' ' , char_pos);
+
+            std::from_chars(pos+char_pos, pos+number_limit, X);
+            char_pos = number_limit+1;
+
+            auto line_limit   = line_extent.find_first_of('\n', char_pos);
+            auto number_limit = line_extent.find_first_of(' ' , char_pos);
+
+            std::from_chars(pos+char_pos, pos+number_limit, Y);
+            char_pos = number_limit+1;
+
+            auto line_limit   = line_extent.find_first_of('\n', char_pos);
+            auto number_limit = line_extent.find_first_of(' ' , char_pos);
+
+            std::from_chars(pos+char_pos, pos+number_limit, Z);
+            char_pos = number_limit+1;
+
+            auto line_limit   = line_extent.find_first_of('\n', char_pos);
+            auto number_limit = line_extent.find_first_of(' ' , char_pos);
+
+            std::from_chars(pos+char_pos, pos+number_limit, num_physical_tags);
+            char_pos = number_limit+1;
+
+            for (auto i = char_pos; i < line_limit+1; ++i){ //parse the first line
+                if (line_extent[i] == ' ' || line_extent[i] == '\n'){
+                    int physical_tag;
+                    std::from_chars(pos+char_pos, pos+i, physical_tag);
+                    physical_tags.push_back(physical_tag);
+                    char_pos = i+1;
+                }
+            }
+
+            points.push_back({tag, X, Y, Z, num_physical_tags, physical_tags});
+        };
+
+
+
+
+        
+        };
+
+
+            
+        }
+
 
     };
 };
 
 
-// $Entities store the boundary representation of the model geometrical entities,
+
+
 // $Nodes and $Elements store mesh data classified on these entities
 // $PhysicalNames store the names of the physical entities  
 
