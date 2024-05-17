@@ -107,9 +107,17 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     gmsh::EntitiesInfo entities(reader.view_Entities());
     std::cout << "Number of Entities per type : " << std::endl;
     for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;
-    
+
+
+    std::cout << "_______________________________________________________________________________________" << std::endl;
     for (auto p : entities.points) p.print_raw();
-    
+    std::cout << "_______________________________________________________________________________________" << std::endl;
+    for (auto c : entities.curves) c.print_raw();
+    std::cout << "_______________________________________________________________________________________" << std::endl;
+    for (auto s : entities.surfaces) s.print_raw();
+    std::cout << "_______________________________________________________________________________________" << std::endl;
+    for (auto v : entities.volumes) v.print_raw();
+
     std::cout << "=======================================================================================" << std::endl;
     std::cout << "=======================================================================================" << std::endl;
 
