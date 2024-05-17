@@ -272,19 +272,15 @@ namespace gmsh
         std::vector<Curve>   curves;
         std::vector<Surface> surfaces;
         std::vector<Volume>  volumes;
-
-        // auto parse_point = [&points](std::string_view line_extent){};
-
+        
         EntitiesInfo(std::string_view keword_info)
         {
+            const auto pos{keword_info.data()};
 
             std::size_t char_pos{0};
-            auto pos{keword_info.data()};
-
             auto line_limit = keword_info.find_first_of('\n');
 
             std::size_t N{0};
-
             for (auto i = char_pos; i < line_limit + 1; ++i)
             { // parse the first line
                 if (keword_info[i] == ' ' || keword_info[i] == '\n')
@@ -296,8 +292,7 @@ namespace gmsh
 
             auto [num_points, num_curves, num_surfaces, num_volumes] = num_entities;
 
-
-            auto get_number = [&pos, &char_pos, &line_limit, &keword_info](auto &number)
+            auto get_number = [&](auto &number)
             {
                 auto number_limit = keword_info.find_first_of(" \n", char_pos);
                 std::from_chars(pos + char_pos, pos + number_limit, number);
@@ -307,14 +302,11 @@ namespace gmsh
             
             auto parse_point = [&]()
             {
-                int tag; // Organizar como tupla para recorrer rápido?
+                int tag; 
                 double X, Y, Z;
-
                 std::size_t  num_physical_tags;
                 std::vector<int> physical_tags;
 
-                //std::size_t char_pos{0};
-                //auto pos{keword_info.data()};
                 line_limit = keword_info.find_first_of('\n', char_pos);
 
                 get_number(tag);
@@ -331,41 +323,50 @@ namespace gmsh
                 char_pos = line_limit + 1;
             };
 
-            for (auto i = 0; i < num_points; ++i)
-            {
-                parse_point();
-            }
-
-
-
-            auto parse_entity = [&]()
+            auto parse_entity = [&](std::vector<Entity::GeneralEntity> &container)
             {
                 int tag; // Organizar como tupla para recorrer rápido?
-                double X, Y, Z;
+                double minX, minY, minZ;
+                double maxX, maxY, maxZ;
 
                 std::size_t  num_physical_tags;
                 std::vector<int> physical_tags;
 
+                std::size_t  num_bounding_entities;
+                std::vector<int> bounding_entities;
+
                 auto line_limit = keword_info.find_first_of('\n', char_pos);
 
                 get_number(tag);
-                get_number(X);
-                get_number(Y);
-                get_number(Z);
+                get_number(minX);
+                get_number(minY);
+                get_number(minZ);
+                get_number(maxX);
+                get_number(maxY);
+                get_number(maxZ);
                 get_number(num_physical_tags);
-
+    
                 for (auto j = 0; j < num_physical_tags; ++j)
                 {
                     int physical_tag;
                     physical_tags.push_back(get_number(physical_tag));
                 }
+
+                get_number(num_bounding_entities);
+                for (auto j = 0; j < num_bounding_entities; ++j)
+                {
+                    int bounding_entity;
+                    bounding_entities.push_back(get_number(bounding_entity));
+                }
+
+                container.emplace_back(std::move(Entity::GeneralEntity{tag, minX, minY, minZ, maxX, maxY, maxZ, num_physical_tags, physical_tags, num_bounding_entities, bounding_entities}));
+                char_pos = line_limit + 1;
             };
 
-
-
-
-
-
+            for (auto i = 0; i < num_points;   ++i) parse_point();
+            for (auto i = 0; i < num_curves;   ++i) parse_entity(curves);
+            for (auto i = 0; i < num_surfaces; ++i) parse_entity(surfaces);
+            for (auto i = 0; i < num_volumes;  ++i) parse_entity(volumes);
         };
     };
 
