@@ -20,10 +20,8 @@
 
 namespace gmsh
 {
-
     class MSHReader
     {
-
         // https://stackoverflow.com/questions/71882752/c-constexpr-stdarray-of-string-literals
         static constexpr std::array msh_keywords{
             "$MeshFormat",             // 0  //required always
@@ -180,9 +178,7 @@ namespace gmsh
         using PhysicalEntity = std::tuple<int, int, std::string>;
         std::vector<PhysicalEntity> physical_entities;
 
-        
     };
-
 
 
     namespace Entity
@@ -463,7 +459,7 @@ $EndNodes
 
     };
 
-    /*
+/*
 $Elements
   numEntityBlocks(size_t) numElements(size_t)
     minElementTag(size_t) maxElementTag(size_t)
@@ -546,7 +542,6 @@ $EndElements
                     do
                     {
                         node_tags.push_back(get_number(n_tag));
-                        std::cout << n_tag << " ";
                     } while (char_pos < line_limit);
 
                     char_pos = line_limit + 1; //next line
@@ -555,7 +550,6 @@ $EndElements
                 }
                 entityBlocks.emplace_back(std::move(Element::EntityBlock{entityDim, entityTag, elementType, numElementsInBlock, elementTags}));
             };
-
             for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
     };
@@ -563,8 +557,4 @@ $EndElements
 
 
 };// namespace gmsh
-
-
- 
-
 #endif // FALL_N_MESH_INTERFACE
