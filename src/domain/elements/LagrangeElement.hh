@@ -190,6 +190,4 @@ class GaussIntegrator : public MaterialIntegrator {
 
 
 
-
-
 #endif

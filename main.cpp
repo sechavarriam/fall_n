@@ -131,10 +131,22 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         block.print_raw();
         std::cout << "-----------------------------------------------------" << std::endl;
     }
-
-
     
     std::cout << "=======================================================================================" << std::endl;
+    gmsh::ElementInfo elements(reader.view_Elements());
+    std::cout << "numEntityBlocks: " << elements.numEntityBlocks << std::endl;
+    std::cout << "numElements:     " << elements.numElements << std::endl;
+    std::cout << "minElementTag:   " << elements.minElementTag << std::endl;
+    std::cout << "maxElementTag:   " << elements.maxElementTag << std::endl;
+    std::cout << "_______________________________________________________________________________________" << std::endl;
+
+    for (auto block : elements.entityBlocks){
+        block.print_raw();
+        std::cout << "-----------------------------------------------------" << std::endl;
+    }
+
+    std::cout << "=======================================================================================" << std::endl;
+
 
 
 
