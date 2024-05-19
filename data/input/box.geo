@@ -24,6 +24,8 @@ Recombine Surface   {1:6};
 Transfinite Volume {1};
 
 //+
-
+Physical Volume("domain", 13) = {1};
 //+
-Physical Surface("Fixed", 13) = {5};
+Physical Surface("Fixed", 14) = {5};
+//+
+
