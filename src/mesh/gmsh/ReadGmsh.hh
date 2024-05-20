@@ -341,8 +341,6 @@ namespace gmsh
             for (auto i = 0; i < num_volumes;  ++i) parse_entity(volumes);
         };
     };
-
-
 /*
 $Nodes
   numEntityBlocks(size_t) numNodes(size_t)
@@ -358,26 +356,7 @@ $Nodes
     ...
   ...
 $EndNodes
-
-Example
-$Nodes
-1 6 1 6     1 entity bloc, 6 nodes total, min/max node tags: 1 and 6
-2 1 0 6     2D entity (surface) 1, no parametric coordinates, 6 nodes
-1             node tag #1
-2             node tag #2
-3             etc.
-4
-5
-6
-0. 0. 0.      node #1 coordinates (0., 0., 0.)
-1. 0. 0.      node #2 coordinates (1., 0., 0.)
-1. 1. 0.      etc.
-0. 1. 0.
-2. 0. 0.
-2. 1. 0.
-$EndNodes
 */
-
     namespace Node{
         struct EntityBlock
         {
@@ -442,7 +421,6 @@ $EndNodes
                 double x, y, z;
 
                 for (auto j = 0; j < numNodesInBlock; ++j)nodeTag.push_back(get_number(node_tag));
-
                 for (auto j = 0; j < numNodesInBlock; ++j)
                 {
                     get_number(x);
@@ -450,10 +428,8 @@ $EndNodes
                     get_number(z);
                     coordinates.push_back({x, y, z});
                 }
-
                 entityBlocks.emplace_back(std::move(Node::EntityBlock{entityDim, entityTag, parametric, numNodesInBlock, nodeTag, coordinates}));
             };
-
             for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
 
@@ -553,8 +529,6 @@ $EndElements
             for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
     };
-
-
 
 };// namespace gmsh
 #endif // FALL_N_MESH_INTERFACE
