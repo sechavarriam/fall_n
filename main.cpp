@@ -70,7 +70,13 @@
 #include "src/model/Graph.hh"
 
 #include "src/mesh/Mesh.hh"
+
 #include "src/mesh/gmsh/ReadGmsh.hh"
+#include "src/mesh/gmsh/MeshFormatInfo.hh"
+#include "src/mesh/gmsh/EntitiesInfo.hh"
+#include "src/mesh/gmsh/NodesInfo.hh"
+#include "src/mesh/gmsh/ElementInfo.hh"
+
 
 //#include <matplot/matplot.h>
 
@@ -87,15 +93,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
 
-    gmsh::MSHReader reader(mesh_file);
-    
-    //reader.print_positions();
-   
-
-   
+    gmsh::MSHReader reader(mesh_file);   
     std::cout <<  reader.view_MeshFormat() << std::endl;
-
-
 
     std::cout << "=======================================================================================" << std::endl;
     gmsh::MeshFormatInfo mesh_format(reader.view_MeshFormat());
@@ -107,7 +106,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     gmsh::EntitiesInfo entities(reader.view_Entities());
     std::cout << "Number of Entities per type : " << std::endl;
     for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;
-
 
     std::cout << "_______________________________________________________________________________________" << std::endl;
     for (auto p : entities.points) p.print_raw();
@@ -144,7 +142,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         block.print_raw();
         std::cout << "-----------------------------------------------------" << std::endl;
     }
-
     std::cout << "=======================================================================================" << std::endl;
 
 
