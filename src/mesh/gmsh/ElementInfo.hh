@@ -56,6 +56,9 @@ $EndElements
 
         std::vector<Element::EntityBlock> entityBlocks;
 
+        //Default constructor
+        ElementInfo() = default;
+
         ElementInfo(std::string_view keword_info)
         {
             const auto pos{keword_info.data()};

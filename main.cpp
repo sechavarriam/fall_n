@@ -103,6 +103,12 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::cout << "Data Size: " << mesh_format.data_size << " data size: " << sizeof(mesh_format.data_size) << std::endl;    
 
     std::cout << "=======================================================================================" << std::endl;
+    gmsh::PhysicalNamesInfo physical_names(reader.view_PhysicalNames());
+    std::cout << "Number of Physical Names: " << physical_names.numPhysicalNames << std::endl;
+    physical_names.print_raw();
+
+    std::cout << "=======================================================================================" << std::endl;
+
     gmsh::EntitiesInfo entities(reader.view_Entities());
     std::cout << "Number of Entities per type : " << std::endl;
     for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;

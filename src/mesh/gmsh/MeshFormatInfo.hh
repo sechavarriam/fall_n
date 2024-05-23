@@ -21,6 +21,9 @@ namespace gmsh
         int file_type{-1};
         int data_size{-1};
 
+        //default constructor
+        MeshFormatInfo() = default;
+
         MeshFormatInfo(std::string_view keword_info)
         {
             auto pos{keword_info.data()};
