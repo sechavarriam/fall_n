@@ -58,6 +58,9 @@ $EndNodes
 
         std::vector<Node::EntityBlock> entityBlocks;
 
+        //default constructor
+        NodesInfo() = default;
+
         NodesInfo(std::string_view keword_info)
         {
             const auto pos{keword_info.data()};

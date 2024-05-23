@@ -12,20 +12,59 @@
 #include <array>
 #include <map>
 #include <vector>
+#include <optional>
 
 #include "../Mesh.hh"
 #include "../../domain/Domain.hh"
 
 #include "MeshFormatInfo.hh"
+#include "PhysicalNamesInfo.hh"
 #include "EntitiesInfo.hh"
+#include "PartitionedEntitiesInfo.hh"
 #include "NodesInfo.hh"
 #include "ElementInfo.hh"
+#include "PeriodicInfo.hh"
+#include "GhostElementsInfo.hh"
+#include "ParametrizationsInfo.hh"
+#include "NodeDataInfo.hh"
+#include "ElementDataInfo.hh"
+#include "ElementNodeDataInfo.hh"
+#include "InterpolationSchemeInfo.hh"
+
 
 // namespace mesh {
 namespace gmsh
 {
     class MSHReader
     {
+        using MeshFormat          = MeshFormatInfo;
+        using PhysicalNames       = std::optional<PhysicalNamesInfo>;
+        using Entities            = std::optional<EntitiesInfo>;
+        using PartitionedEntities = std::optional<PartitionedEntitiesInfo>;
+        using Nodes               = NodesInfo;
+        using Elements            = ElementInfo;
+        using Periodic            = std::optional<PeriodicInfo>;
+        using GhostElements       = std::optional<GhostElementsInfo>;
+        using Parametrizations    = std::optional<ParametrizationsInfo>;
+        using NodeData            = std::optional<NodeDataInfo>;
+        using ElementData         = std::optional<ElementDataInfo>;
+        using ElementNodeData     = std::optional<ElementNodeDataInfo>;
+        using InterpolationScheme = std::optional<InterpolationSchemeInfo>;
+
+        MeshFormat          mesh_format_info_;
+        PhysicalNames       physical_names_info_;
+        Entities            entities_info_;
+        PartitionedEntities partitioned_entities_info_;
+        Nodes               nodes_info_;
+        Elements            elements_info_;
+        Periodic            periodic_info_;
+        GhostElements       ghost_elements_info_;
+        Parametrizations    parametrizations_info_;
+        NodeData            node_data_info_;
+        ElementData         element_data_info_;
+        ElementNodeData     element_node_data_info_;
+        InterpolationScheme interpolation_scheme_info_;
+    
         // https://stackoverflow.com/questions/71882752/c-constexpr-stdarray-of-string-literals
         static constexpr std::array msh_keywords{
             "$MeshFormat",             // 0  //required always
@@ -116,22 +155,25 @@ namespace gmsh
                 ++i;
             }
             buffer_view_ = std::string_view(buffer_.data());
+
+            mesh_format_info_          = MeshFormat         (view_MeshFormat());
+            physical_names_info_       = PhysicalNames      (view_PhysicalNames());
+            //entities_info_             = Entities           (view_Entities());
+            //partitioned_entities_info_ = PartitionedEntities(view_PartitionedEntities());
+            //nodes_info_                = Nodes              (view_Nodes());
+            //elements_info_             = Elements           (view_Elements());
+            //periodic_info_             = Periodic           (view_Periodic());
+            //ghost_elements_info_       = GhostElements      (view_GhostElements());
+            //parametrizations_info_     = Parametrizations   (view_Parametrizations());
+            //node_data_info_            = NodeData           (view_NodeData());
+            //element_data_info_         = ElementData        (view_ElementData());
+            //element_node_data_info_    = ElementNodeData    (view_ElementNodeData());
+            //interpolation_scheme_info_ = InterpolationScheme(view_InterpolationScheme());
+
         };
     };
 
-    /*
-    $PhysicalNames // same as MSH version 2
-      numPhysicalNames(ASCII int)
-      dimension(ASCII int) physicalTag(ASCII int) "name"(127 characters max)
-      ...
-    $EndPhysicalNames
-    */
-    struct PhysicalNamesInfo
-    {
-        using PhysicalEntity = std::tuple<int, int, std::string>;
-        std::vector<PhysicalEntity> physical_entities;
-
-    };
+    
 
 };// namespace gmsh
 #endif // FALL_N_MESH_INTERFACE
