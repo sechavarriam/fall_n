@@ -92,7 +92,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     // Mesh File Location
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-
     gmsh::MSHReader reader(mesh_file);   
     std::cout <<  reader.view_MeshFormat() << std::endl;
 
