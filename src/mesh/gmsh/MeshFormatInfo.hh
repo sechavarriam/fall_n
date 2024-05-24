@@ -13,6 +13,15 @@
 #include <map>
 #include <vector>
 
+/*
+$MeshFormat // same as MSH version 2
+  version(ASCII double; currently 4.1)
+    file-type(ASCII int; 0 for ASCII mode, 1 for binary mode)
+    data-size(ASCII int; sizeof(size_t))
+  < int with value one; only in binary mode, to detect endianness >
+$EndMeshFormat
+*/
+
 namespace gmsh
 {
     struct MeshFormatInfo

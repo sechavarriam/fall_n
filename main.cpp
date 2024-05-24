@@ -93,61 +93,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
     gmsh::MSHReader reader(mesh_file);   
-    std::cout <<  reader.view_MeshFormat() << std::endl;
 
-    std::cout << "=======================================================================================" << std::endl;
-    gmsh::MeshFormatInfo mesh_format(reader.view_MeshFormat());
-    std::cout << "Version:   " << mesh_format.version   << " data size: " << sizeof(mesh_format.version  ) << std::endl;
-    std::cout << "File Type: " << mesh_format.file_type << " data size: " << sizeof(mesh_format.file_type) << std::endl;
-    std::cout << "Data Size: " << mesh_format.data_size << " data size: " << sizeof(mesh_format.data_size) << std::endl;    
-
-    std::cout << "=======================================================================================" << std::endl;
-    gmsh::PhysicalNamesInfo physical_names(reader.view_PhysicalNames());
-    std::cout << "Number of Physical Names: " << physical_names.numPhysicalNames << std::endl;
-    physical_names.print_raw();
-
-    std::cout << "=======================================================================================" << std::endl;
-
-    gmsh::EntitiesInfo entities(reader.view_Entities());
-    std::cout << "Number of Entities per type : " << std::endl;
-    for (auto const& e : entities.num_entities) std::cout << e << " "; std::cout << std::endl;
-
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-    for (auto p : entities.points) p.print_raw();
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-    for (auto c : entities.curves) c.print_raw();
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-    for (auto s : entities.surfaces) s.print_raw();
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-    for (auto v : entities.volumes) v.print_raw();
-
-    std::cout << "=======================================================================================" << std::endl;
-    
-    gmsh::NodesInfo nodes(reader.view_Nodes());
-    std::cout << "numEntityBlocks: " << nodes.numEntityBlocks << std::endl;
-    std::cout << "numNodes:        " << nodes.numNodes << std::endl;
-    std::cout << "minNodeTag:      " << nodes.minNodeTag << std::endl;
-    std::cout << "maxNodeTag:      " << nodes.maxNodeTag << std::endl;
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-
-    for (auto block : nodes.entityBlocks){
-        block.print_raw();
-        std::cout << "-----------------------------------------------------" << std::endl;
-    }
-    
-    std::cout << "=======================================================================================" << std::endl;
-    gmsh::ElementInfo elements(reader.view_Elements());
-    std::cout << "numEntityBlocks: " << elements.numEntityBlocks << std::endl;
-    std::cout << "numElements:     " << elements.numElements << std::endl;
-    std::cout << "minElementTag:   " << elements.minElementTag << std::endl;
-    std::cout << "maxElementTag:   " << elements.maxElementTag << std::endl;
-    std::cout << "_______________________________________________________________________________________" << std::endl;
-
-    for (auto block : elements.entityBlocks){
-        block.print_raw();
-        std::cout << "-----------------------------------------------------" << std::endl;
-    }
-    std::cout << "=======================================================================================" << std::endl;
 
 
 
