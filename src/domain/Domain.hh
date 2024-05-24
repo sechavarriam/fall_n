@@ -15,6 +15,7 @@
 #include "Node.hh"
 #include "elements/ElementBase.hh"
 
+#include "../mesh/gmsh/ReadGmsh.hh"
 
 
 namespace domain{
@@ -68,9 +69,11 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     //    elements_.emplace_back(ElementType{std::forward<Args>(args)...});
     //};
     
-    void add_node(Node<Dim>&& node){
+    Node* add_node(Node<Dim>&& node){
         nodes_.emplace_back(std::forward<Node<Dim>>(node));
+        
         ++num_nodes_;
+        return &nodes_.back();
         };
     
     // Tol increases capacity by default in 20%.
@@ -89,6 +92,9 @@ class Domain{ //Spacial (Phisical) Domain. Where the simulation takes place
     //
 
     // Constructors
+    
+
+
     // Copy Constructor
     Domain(const Domain& other) = default;
     // Move Constructor
