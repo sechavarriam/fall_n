@@ -17,6 +17,7 @@
 #include "../Mesh.hh"
 #include "../../domain/Domain.hh"
 
+#include "GmshElementTypes.hh"
 #include "MeshFormatInfo.hh"
 #include "PhysicalNamesInfo.hh"
 #include "EntitiesInfo.hh"
@@ -30,7 +31,6 @@
 #include "ElementDataInfo.hh"
 #include "ElementNodeDataInfo.hh"
 #include "InterpolationSchemeInfo.hh"
-
 
 // namespace mesh {
 namespace gmsh
@@ -158,10 +158,10 @@ namespace gmsh
 
             mesh_format_info_          = MeshFormat         (view_MeshFormat());
             physical_names_info_       = PhysicalNames      (view_PhysicalNames());
-            //entities_info_             = Entities           (view_Entities());
+            entities_info_             = Entities           (view_Entities());
             //partitioned_entities_info_ = PartitionedEntities(view_PartitionedEntities());
-            //nodes_info_                = Nodes              (view_Nodes());
-            //elements_info_             = Elements           (view_Elements());
+            nodes_info_                = Nodes              (view_Nodes());
+            elements_info_             = Elements           (view_Elements());
             //periodic_info_             = Periodic           (view_Periodic());
             //ghost_elements_info_       = GhostElements      (view_GhostElements());
             //parametrizations_info_     = Parametrizations   (view_Parametrizations());
@@ -174,8 +174,11 @@ namespace gmsh
     };
 
 };// namespace gmsh
-#endif // FALL_N_MESH_INTERFACE
 
+
+
+
+#endif // FALL_N_MESH_INTERFACE
 
 
 /*
