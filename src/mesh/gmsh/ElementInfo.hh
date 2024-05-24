@@ -26,6 +26,7 @@ $Elements
   ...
 $EndElements
 */
+
     namespace Element{
         struct EntityBlock
         {
