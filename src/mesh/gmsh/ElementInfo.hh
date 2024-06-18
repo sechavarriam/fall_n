@@ -30,8 +30,8 @@ $EndElements
     namespace Element{
         struct EntityBlock
         {
-            int entityDim, entityTag, elementType;
             std::size_t numElementsInBlock;
+            int entityDim, entityTag, elementType;
 
             std::map<std::size_t, std::vector<std::size_t>> elementTags;
 
@@ -108,7 +108,7 @@ $EndElements
                     line_limit = keword_info.find_first_of('\n', char_pos);
                     elementTags.emplace(std::move(e_tag), std::move(node_tags));
                 }
-                entityBlocks.emplace_back(std::move(Element::EntityBlock{entityDim, entityTag, elementType, numElementsInBlock, elementTags}));
+                entityBlocks.emplace_back(std::move(Element::EntityBlock{numElementsInBlock,entityDim, entityTag, elementType, elementTags}));
             };
             for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };

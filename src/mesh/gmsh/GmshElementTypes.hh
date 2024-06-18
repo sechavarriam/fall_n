@@ -42,7 +42,7 @@ namespace gmsh
         MSH_TET_28  = 33, //
         MSH_POLYG_  = 34, //
         MSH_POLYH_  = 35, //
-        MSH_QUA_16  = 36, //
+        MSH_QUA_16  = 36, // 16-node third order quadrangle (4 nodes associated with the vertices, 8 with the edges, 4 with the face).
         MSH_QUA_25  = 37, //
         MSH_QUA_36  = 38, //
         MSH_QUA_12  = 39, //

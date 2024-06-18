@@ -77,6 +77,9 @@
 #include "src/mesh/gmsh/NodesInfo.hh"
 #include "src/mesh/gmsh/ElementInfo.hh"
 
+#include "src/graph/AdjacencyList.hh"
+#include "src/graph/AdjacencyMatrix.hh"
+
 
 //#include <matplot/matplot.h>
 
@@ -93,11 +96,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
     gmsh::MSHReader reader(mesh_file);   
-
-
-
-
-
 
     static constexpr int dim = 3;
 
