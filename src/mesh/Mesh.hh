@@ -3,12 +3,13 @@
 
 #include <cstddef>
 
-#include "../domain/Domain.hh"
+//#include "../domain/Domain.hh"
 
-template <std::size_t dim>
+
+//template <std::size_t dim>
 class Mesh { // Is a graph of nodes and elements 
 
- //EL dominio es la agregación de cosas. 
+ //EL dominio es la agregación de cosas.    
  //La malla da el orden (grafo). 
  
  //El modelo da el material y las propiedades. (Contiene la malla, las fuerzas...) 
@@ -17,7 +18,7 @@ class Mesh { // Is a graph of nodes and elements
 
 public:
 
-    domain::Domain<dim>* domain;
+    //domain::Domain<dim>* domain;
 
 
 };

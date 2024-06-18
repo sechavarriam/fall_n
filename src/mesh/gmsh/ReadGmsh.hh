@@ -106,7 +106,7 @@ namespace gmsh
         std::string buffer_; // Podría ser un char*
 
         std::string_view buffer_view_;
-
+        
     public:
         template <std::size_t N>
         inline constexpr auto view_keyword_info()
