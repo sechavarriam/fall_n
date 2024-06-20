@@ -37,19 +37,7 @@ public:
         }
     };
 
-    void process_elements(){
-        for (auto& block : mesh_info_.elements_info_.entityBlocks){
-            for (std::size_t elem = 0;  elem < block.numElementsInBlock; elem++){
-                //nodes_.emplace_back(
-                //    Node<3>(
-                //        std::move(block.nodeTag[node]),
-                //        std::move(block.coordinates[node][0]),
-                //        std::move(block.coordinates[node][1]),
-                //        std::move(block.coordinates[node][2]) 
-                //    )
-                //);
-            }
-        }
+
 
     GmshDomainBuilder_3D(std::string_view filename) : mesh_info_(filename)
     {
