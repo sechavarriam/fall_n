@@ -72,10 +72,7 @@
 #include "src/mesh/Mesh.hh"
 
 #include "src/mesh/gmsh/ReadGmsh.hh"
-#include "src/mesh/gmsh/MeshFormatInfo.hh"
-#include "src/mesh/gmsh/EntitiesInfo.hh"
-#include "src/mesh/gmsh/NodesInfo.hh"
-#include "src/mesh/gmsh/ElementInfo.hh"
+#include "src/mesh/gmsh/GmshDomainBuilder.hh"
 
 #include "src/graph/AdjacencyList.hh"
 #include "src/graph/AdjacencyMatrix.hh"
@@ -97,11 +94,18 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     gmsh::MSHReader reader(mesh_file);   
 
+
+    GmshDomainBuilder_3D domain_constructor(mesh_file);
+
+    std::cout << "Number of Nodes: " << domain_constructor.nodes_.size() << std::endl;
+
     static constexpr int dim = 3;
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
     std::array data2{0.0, 0.0, 1.0};
+
+    
 
     Matrix A{dataA, 3,3};
     Vector x{data1};
@@ -113,6 +117,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+
+
 
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();

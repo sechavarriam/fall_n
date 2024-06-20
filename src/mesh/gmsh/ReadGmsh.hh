@@ -51,21 +51,7 @@ namespace gmsh
         using ElementNodeData     = std::optional<ElementNodeDataInfo>;
         using InterpolationScheme = std::optional<InterpolationSchemeInfo>;
 
-        MeshFormat          mesh_format_info_;
-        PhysicalNames       physical_names_info_;
-        Entities            entities_info_;
-        PartitionedEntities partitioned_entities_info_;
-        Nodes               nodes_info_;
-        Elements            elements_info_;
-        Periodic            periodic_info_;
-        GhostElements       ghost_elements_info_;
-        Parametrizations    parametrizations_info_;
-        NodeData            node_data_info_;
-        ElementData         element_data_info_;
-        ElementNodeData     element_node_data_info_;
-        InterpolationScheme interpolation_scheme_info_;
-    
-        // https://stackoverflow.com/questions/71882752/c-constexpr-stdarray-of-string-literals
+                // https://stackoverflow.com/questions/71882752/c-constexpr-stdarray-of-string-literals
         static constexpr std::array msh_keywords{
             "$MeshFormat",             // 0  //required always
             "$EndMeshFormat",          // 1  //required always
@@ -94,6 +80,23 @@ namespace gmsh
             "$InterpolationScheme",    // 24
             "$EndInterpolationScheme"  // 25
         };
+
+    public:
+        MeshFormat          mesh_format_info_;
+        PhysicalNames       physical_names_info_;
+        Entities            entities_info_;
+        PartitionedEntities partitioned_entities_info_;
+        Nodes               nodes_info_;
+        Elements            elements_info_;
+        Periodic            periodic_info_;
+        GhostElements       ghost_elements_info_;
+        Parametrizations    parametrizations_info_;
+        NodeData            node_data_info_;
+        ElementData         element_data_info_;
+        ElementNodeData     element_node_data_info_;
+        InterpolationScheme interpolation_scheme_info_;
+    
+
 
         std::array<std::size_t, msh_keywords.size()> keyword_position_{
             [](){ // Inmediately invoked lambda expression to initialize the array with zeros 
@@ -174,9 +177,6 @@ namespace gmsh
     };
 
 };// namespace gmsh
-
-
-
 
 #endif // FALL_N_MESH_INTERFACE
 
