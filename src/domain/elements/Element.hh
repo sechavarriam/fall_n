@@ -16,6 +16,9 @@
 
 #include "../../integrator/MaterialIntegrator.hh"
 
+// HEADER FILES FOR ELEMENTS. 
+#include "LagrangeElement.hh"
+
 namespace impl{ //Implementation details
 
 

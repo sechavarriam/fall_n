@@ -24,17 +24,14 @@
 
 
 #include "../../utils/small_math.hh"
-
 #include "../../numerics/numerical_integration/Quadrature.hh"
 
 #include "../../integrator/MaterialIntegrator.hh"
 
-
-
 template<typename T>
 concept private_Lagrange_check_ = requires(T t){
   requires std::same_as<decltype(t._is_LagrangeElement()), bool>;
-  };
+};
 
 template<typename T> 
 struct LagrangeConceptTester{
@@ -43,6 +40,7 @@ struct LagrangeConceptTester{
 
 template<typename T>
 concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
+
 
 
 template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
@@ -81,8 +79,6 @@ public:
   void set_material_integrator(std::unique_ptr<MaterialIntegrator>&& integrator) noexcept {
     material_integrator_ = std::move(integrator);
   };
-
-
 
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
@@ -129,6 +125,11 @@ public:
   //Constructor
   LagrangeElement()  = default;
   LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
+  
+  LagrangeElement(std::size_t tag, std::ranges::contiguous_range auto&& node_references) : tag_{tag}
+  {
+    std::move(node_references.begin(), node_references.end(), nodes_.begin());
+  };
 
   // Copy and Move Constructors and Assignment Operators
   LagrangeElement(const LagrangeElement& other) : 
