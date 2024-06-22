@@ -96,8 +96,11 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
 
     GmshDomainBuilder_3D domain_constructor(mesh_file);
+    for (auto const& element : domain_constructor.elements_){
+        print_nodes_info(element);
+    }
 
-    std::cout << "Number of Nodes: " << domain_constructor.nodes_.size() << std::endl;
+
 
     static constexpr int dim = 3;
 
@@ -146,7 +149,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
 
     auto integrationScheme = [](auto const & e){/**integrate*/};
-    Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
+    //Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
 
     Model<dim> model;
@@ -189,10 +192,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::cout << N1.num_dof()   << " " << N2.num_dof()   << std::endl;
     std::cout << N1.num_dof_h() << " " << N2.num_dof_h() << std::endl;
 
-    Element test2{ElementBase<dim,8>{2, {1,2,3,4,5,6,7,8  }}, integrationScheme};
-    Element test3{ElementBase<dim,7>{3, {1,2,3,4,5,6,7    }}, integrationScheme};
-    Element test4{ElementBase<dim,6>{4, {1,2,3,4,5,6      }}, integrationScheme};
-
     Element test_L0{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
                                                D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
                                                D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
@@ -203,13 +202,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Element test_L1{E1, integrationScheme};
     //GaussIntegrator<2,2,2> LagElem_integrator(E1);
 
+
     static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>);
 
-    ElementConstRef test5 = ElementConstRef(test1);
-    Element test6(test2 );
-    
-    integrate(test1); integrate(test2); integrate(test3);
-    integrate(test4); integrate(test5); integrate(test_L0);
 
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
     IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};

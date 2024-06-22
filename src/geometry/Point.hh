@@ -6,8 +6,6 @@
 #include <cstddef>
 #include "Topology.hh"
 
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
 namespace geometry {
   
@@ -22,7 +20,6 @@ namespace geometry {
 
       //Getters.
       inline constexpr double coord(const std::size_t i) const { return coord_[i]; };
-
 
       inline constexpr void set_coord(const std::size_t i, const double value) { coord_[i] = value; };
 

@@ -80,6 +80,16 @@ public:
     material_integrator_ = std::move(integrator);
   };
 
+  void print_nodes_info() const noexcept {
+    for (auto node : nodes_) {
+      std::cout << "Node ID: " << node->id() << " ";
+      for (auto x=0; x<dim; ++x) {
+        printf("%f ", node->coord(x));
+      }
+      printf("\n");
+    }
+  };
+
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) noexcept { //Thread Candidate
@@ -129,6 +139,7 @@ public:
   LagrangeElement(std::size_t tag, std::ranges::contiguous_range auto&& node_references) : tag_{tag}
   {
     std::move(node_references.begin(), node_references.end(), nodes_.begin());
+    std::cout << "Lagrange Element Constructed" << std::endl;
   };
 
   // Copy and Move Constructors and Assignment Operators

@@ -34,6 +34,8 @@ namespace impl{ //Implementation details
                                                                      // we pass the memory address of the Element to be
                                                                      // constructed. 
     public: 
+
+        constexpr virtual void print_nodes_info() const = 0;
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t        id() const = 0;
 
@@ -69,6 +71,7 @@ namespace impl{ //Implementation details
     public: // Implementation of the virtual operations derived from ElementConcept
         constexpr std::size_t  num_nodes() const override {return element_.num_nodes();};
         constexpr std::size_t         id() const override {return element_.id()       ;};
+        constexpr void  print_nodes_info() const override {element_.print_nodes_info();};
         
         //void set_material_integrator() const override {element_.set_material_integrator();};
     };
@@ -98,6 +101,7 @@ namespace impl{ //Implementation details
     public:  // Implementation of the virtual operations derived from ElementConcept (Accesing pointer members)
         constexpr std::size_t  num_nodes() const override {return element_->num_nodes();};
         constexpr std::size_t         id() const override {return element_->id()       ;};
+        constexpr void  print_nodes_info() const override {element_->print_nodes_info();};
         
         //void set_material_integrator() const override {element_->set_material_integrator();};
         //std::size_t const* nodes() const override {return element_->nodes();};
@@ -147,6 +151,7 @@ class ElementConstRef{
 
     friend std::size_t id       (ElementConstRef const& element){return element.pimpl()->id()       ;};
     friend std::size_t num_nodes(ElementConstRef const& element){return element.pimpl()->num_nodes();};
+    friend void print_nodes_info(ElementConstRef const& element){element.pimpl()->print_nodes_info();};
 
     //friend void set_material_integrator(ElementConstRef& element){
     //    element.pimpl()->set_material_integrator();
@@ -162,6 +167,7 @@ class Element{
     
     std::size_t num_nodes() const{return pimpl_->num_nodes();};
     std::size_t num_dofs()  const{return num_nodes()*3;};
+
 
 
     //MaterialIntegrator material_integrator_; // Spacial integration strategy (e.g. GaussLegendre::CellQuadrature)
@@ -203,6 +209,7 @@ class Element{
     //};
     friend std::size_t id       (Element const& element){return element.pimpl_->id()       ;};
     friend std::size_t num_nodes(Element const& element){return element.pimpl_->num_nodes();};
+    friend void print_nodes_info(Element const& element){element.pimpl_->print_nodes_info();};
 
     //friend void set_material_integrator(Element& element){
     //    element.pimpl_->set_material_integrator();
