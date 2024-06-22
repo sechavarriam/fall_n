@@ -139,7 +139,6 @@ public:
   LagrangeElement(std::size_t tag, std::ranges::contiguous_range auto&& node_references) : tag_{tag}
   {
     std::move(node_references.begin(), node_references.end(), nodes_.begin());
-    std::cout << "Lagrange Element Constructed" << std::endl;
   };
 
   // Copy and Move Constructors and Assignment Operators
