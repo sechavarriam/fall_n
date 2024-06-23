@@ -77,7 +77,7 @@ template <std::size_t... n> // n: Number of nodes per direction.
 class LagrangianCell {
 
   static constexpr std::size_t dim    {sizeof...(n)};
-  static constexpr std::size_t n_nodes{(n*...)};
+  static constexpr std::size_t num_nodes_{(n*...)};
 
 
   using Point = geometry::Point<dim>;
@@ -87,7 +87,7 @@ class LagrangianCell {
 
   
 public:  
-  static constexpr std::array<Point, n_nodes> reference_nodes{cell_nodes<n...>()};
+  static constexpr std::array<Point, num_nodes_> reference_nodes{cell_nodes<n...>()};
   
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 

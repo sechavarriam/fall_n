@@ -25,7 +25,7 @@ class Material
 
    //Interfase for the material 
 
-   UpdaterOperation*  getStress_ {nullptr };
+   UpdaterOperation*  get_stress_ {nullptr };
 
    void print_material_parameters( void* materialBytes )
    {
@@ -49,7 +49,7 @@ class Material
                auto* const model = static_cast<Model*>(materialBytes);
                return new Model( *model );
             } )
-      , getStress_(
+      , get_stress_(
       []( void* materialBytes ){
          using Model = OwningModel<MaterialType,UpdateStrategy>;
          auto* const model = static_cast<Model*>(materialBytes);
@@ -60,7 +60,7 @@ class Material
    Material( Material const& other )
       : pimpl_( other.clone_( other.pimpl_.get() ), other.pimpl_.get_deleter() )
       , clone_( other.clone_ )
-      , getStress_ ( other.getStress_ )
+      , get_stress_ ( other.get_stress_ )
    {}
 
    Material& operator=( Material const& other )
@@ -71,7 +71,7 @@ class Material
       swap( pimpl_, copy.pimpl_ );
       swap( clone_, copy.clone_ );
 
-      swap( getStress_, copy.getStress_ );
+      swap( get_stress_, copy.get_stress_ );
       
       return *this;
    }

@@ -97,10 +97,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     GmshDomainBuilder_3D domain_constructor(mesh_file);
     for (auto const& element : domain_constructor.elements_){
+        std::cout << "element " << id(element) << std::endl;
         print_nodes_info(element);
     }
-
-
 
     static constexpr int dim = 3;
 
@@ -108,20 +107,15 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::array data1{1.0, 2.0, 3.0};
     std::array data2{0.0, 0.0, 1.0};
 
-    
-
     Matrix A{dataA, 3,3};
     Vector x{data1};
     auto y = A*x;
 
-    ContinuumIsotropicRelation steel3D{200.0, 0.3};
-    
-    UniaxialIsotropicRelation steel1D{200.0};
+    ContinuumIsotropicRelation steel3D{200.0, 0.3};    
+    UniaxialIsotropicRelation  steel1D{200.0};
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
-
-
 
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();
@@ -202,9 +196,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Element test_L1{E1, integrationScheme};
     //GaussIntegrator<2,2,2> LagElem_integrator(E1);
 
-
-    static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>);
-
+    static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>); //Concept test.
 
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
     IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};
@@ -217,32 +209,20 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     IntegrationPoint<dim> IP_9 {0.0,0.0,0.0};
     IntegrationPoint<dim> IP_10{0.0,0.0,0.0};
     IntegrationPoint<dim> IP_11{0.0,0.0,0.0};
-
     IntegrationPoint<dim> IP_12(N3);
-
-    std::cout << "Integration Points:" << std::endl;
-    std::cout << IP_1.coord(0) << " " << IP_1.coord(1) << " " << IP_1.coord(2) << std::endl;
-    std::cout << IP_12.coord(0) << " " << IP_12.coord(1) << " " << IP_12.coord(2) << std::endl;
 
     std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_12};
 
 
     //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;
-
     //auto J = [](auto const& point){return 1.0;};
-
     //std::cout << J(IP_1) << std::endl;
-
-
     //CellIntegrator<3, 2, 2> CellQuad(IP_list_p);
-
     //auto Cell_Volume = CellQuad(J);
-    
-    //std::cout << "Cell Volume: " << Cell_Volume << std::endl;
 
+    //std::cout << "Cell Volume: " << Cell_Volume << std::endl;
     ////CellIntegrator<2,2,2> CellQuad;
-    //    
     //std::cout << "Weights:" << std::endl;
     //for (auto w : std::get<0>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl; 
     //for (auto w : std::get<1>(CellQuad.dir_weights)) std::cout << w << " "; std::cout << std::endl;
@@ -250,25 +230,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //std::cout << "____________________________________________________________________________" << std::endl;
     //
     //for (auto w : CellQuad.weights_) std::cout << w << " "; std::cout << std::endl;
-
-
-    //D.make_element<ElementBase<dim,3 ,42> > (2 , {1,2,3});
-    //D.make_element<ElementBase<dim,5 ,42> > (4 , {1,2,3,4,5});
-    //D.make_element<ElementBase<dim,7 ,42> > (5 , {1,2,3,4,5,6,7});
-    //D.make_element<ElementBase<dim,14   > > (7 , {1,2,3,4,5,6,7,8,9,10,11,12,13,14});
-    //D.make_element<ElementBase<dim,5    > > (16, {1,2,3,4,5});
-    //D.make_element<ContinuumElement<dim,9>> (2 , {1,2,3,4,5,6,7,8,9});
-    //D.make_element<ElementBase<dim,5    > > (42, {1,2,3,4,5}); 
-    //D.make_element<ElementBase<dim,9    > > (44, {1,2,3,4,5,6,7,8,9}); 
-    //D.make_element<ElementBase<dim,13   > > (50, {1,2,3,4,5,6,7,8,9,10,11,12,13});
-    //                    
-    //for (auto const& e: D.elements_){
-    //    std::cout << id(e)<< " " << num_nodes(e)<< " " << num_dof(e)<< " ";
-    //        for (auto const& n: nodes(e)){
-    //            std::cout << n << " ";
-    //        }
-    //    std::cout << std::endl;
-    //}
 
 }// PETSc Scope ends here
 PetscFinalize(); //This is necessary to avoid memory leaks and MPI errors.

@@ -23,7 +23,6 @@ class CauchyStress{
         StressType stress_{};
 
     public:
-    
 
     CauchyStress(){};
     ~CauchyStress(){};
