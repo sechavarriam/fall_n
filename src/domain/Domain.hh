@@ -36,6 +36,7 @@ namespace domain
 
         std::vector<Node<dim>> nodes_;
         std::vector<Element> elements_;
+        //std::vector<Material> materials_;
 
     public:
         std::size_t num_nodes() const { return num_nodes_; };

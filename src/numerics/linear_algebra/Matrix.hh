@@ -29,7 +29,6 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     private:
     PETSc_DENSE_SEQ_Matrix mat_;
-
     
     public:
 

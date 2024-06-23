@@ -90,7 +90,6 @@ public:
     }
   };
 
-
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) noexcept { //Thread Candidate
     JacobianMatrix J;
@@ -167,7 +166,6 @@ public:
 template <std::size_t... N>
 class GaussIntegrator : public MaterialIntegrator {
     using  CellQuadrature = GaussLegendre::CellQuadrature<N...>;
-
 
     std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
 

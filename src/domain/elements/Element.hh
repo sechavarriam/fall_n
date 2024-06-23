@@ -34,7 +34,6 @@ namespace impl{ //Implementation details
                                                                      // we pass the memory address of the Element to be
                                                                      // constructed. 
     public: 
-
         constexpr virtual void print_nodes_info() const = 0;
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t        id() const = 0;
@@ -42,7 +41,7 @@ namespace impl{ //Implementation details
         //constexpr virtual void set_num_dofs() const = 0;
     };  
 
-    template <typename ElementType, typename IntegrationStrategy> 
+    template <typename ElementType, typename IntegrationStrategy>//, typename MaterialPolicy> 
     class NON_OwningElementModel; //Forward declaration
 
     template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
@@ -52,7 +51,6 @@ namespace impl{ //Implementation details
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
     public:
-
         void compute_integral(/*function2integrate?*/) const override {integrator_(element_);}; //Maybe double?
 
         explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
@@ -72,10 +70,8 @@ namespace impl{ //Implementation details
         constexpr std::size_t  num_nodes() const override {return element_.num_nodes();};
         constexpr std::size_t         id() const override {return element_.id()       ;};
         constexpr void  print_nodes_info() const override {element_.print_nodes_info();};
-        
         //void set_material_integrator() const override {element_.set_material_integrator();};
     };
-
 
     template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
     class NON_OwningElementModel: public ElementConcept{ // Reference semantic version of OwningElementModel.
@@ -162,9 +158,7 @@ class Element{
     friend class ElementConstRef;
     std::unique_ptr<impl::ElementConcept> pimpl_; // Bridge to implementation details (compiler generated).
 
-    std::size_t id() const{return pimpl_->id();};
-
-    
+    std::size_t id()        const{return pimpl_->id();};
     std::size_t num_nodes() const{return pimpl_->num_nodes();};
     std::size_t num_dofs()  const{return num_nodes()*3;};
 
@@ -195,14 +189,17 @@ class Element{
   private:
     // -----------------------------------------------------------------------------------------------
     // Hidden Friends (Free Functions)
+    // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
+    // and call the virtual function do_action() on it. This function is implemented in the
+    // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
+    //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
+    //};
 
     friend void integrate(Element const& element){
         element.pimpl_->compute_integral(/*args...*/);
         std::cout << "Element " << element.pimpl_->id() << " integrated" << std::endl;
         };
 
-    //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
-    //};
     friend std::size_t id       (Element const& element){return element.pimpl_->id()       ;};
     friend std::size_t num_nodes(Element const& element){return element.pimpl_->num_nodes();};
     friend void print_nodes_info(Element const& element){element.pimpl_->print_nodes_info();};
@@ -210,17 +207,13 @@ class Element{
     //friend void set_material_integrator(Element& element){
     //    element.pimpl_->set_material_integrator();
     //};
-    
+
     //friend auto nodes(Element const& element){
     //    return std::span{
     //        element.pimpl_->nodes(),    //Pointer to data
     //        element.pimpl_->num_nodes() //Size of the span
     //        };
-    //    };
-     
-    // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
-    // and call the virtual function do_action() on it. This function is implemented in the
-    // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.  
+    //    };     
     // -----------------------------------------------------------------------------------------------
 };
 
