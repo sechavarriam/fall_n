@@ -51,18 +51,21 @@
 
 
 
-        template <typename ElementType, typename IntegrationStrategy, typename... Args>
-        void make_element(IntegrationStrategy &&integrator, std::integral auto&& tag, std::ranges::contiguous_range auto&& nodeAdresses, Args &&...constructorArgs)
+        template <typename ElementType, typename IntegrationStrategy>
+        void make_element(
+            IntegrationStrategy &&integrator,
+            std::integral auto&& tag,
+            std::ranges::range auto&& nodeAdresses)
         {
             elements_.emplace_back(
                 Element(
                     ElementType{
-                        std::forward<std::size_t>(tag),
-                        std::forward<std::ranges::contiguous_range auto>(nodeAdresses),
-                        std::forward<Args>(constructorArgs)...},
+                        std::forward<std::integral auto>(tag),
+                        std::forward<std::ranges::range auto>(nodeAdresses)
+                        },
                     std::forward<IntegrationStrategy>(integrator)
                     ));
-        };
+        }
 
         // template<typename ElementType,typename... Args>
         // void make_element(Args&&... args){
@@ -70,12 +73,12 @@
         // };
 
 
-        Node<dim>* add_node(std::size_t id, std::floating_point auto&&... coords)
-        {
-            nodes_.emplace_back(Node<dim>(id, std::forward<std::floating_point auto>(coords)...));
-            ++num_nodes_;
-            return &nodes_.back();
-        };
+        //Node<dim>* add_node(std::size_t id, double&&... coords)
+        //{
+        //    nodes_.emplace_back(Node<dim>(id, std::forward<double>(coords)...));
+        //    ++num_nodes_;
+        //    return std::addressof(nodes_.back());
+        //};
 
 
         Node<dim>* add_node(Node<dim> &&node)

@@ -46,10 +46,10 @@ class VoigtStress{
         constexpr void set_stress(S... s){
             std::size_t i{0};
             ((component_[++i]=s), ...);
-        };
+        }
 
         template<typename... S> requires (sizeof...(S) == N)
-        VoigtStress(S... s) : component_{s...}{};
+        VoigtStress(S... s) : component_{s...}{}
 
         VoigtStress() = default;
         ~VoigtStress() = default;

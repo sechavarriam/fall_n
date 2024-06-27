@@ -126,7 +126,7 @@ namespace gmsh
                 return std::string_view{};
             }
             return buffer_view_.substr(pos, count);
-        };
+        }
 
         inline constexpr auto view_MeshFormat()          { return view_keyword_info<0>(); };
         inline constexpr auto view_PhysicalNames()       { return view_keyword_info<2>(); };

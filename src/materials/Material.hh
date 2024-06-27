@@ -27,10 +27,10 @@ class Material
 
    UpdaterOperation*  get_stress_ {nullptr };
 
-   void print_material_parameters( void* materialBytes )
-   {
-      //static_cast<MaterialPolicy*>(materialBytes)->print_constitutive_parameters();
-   }
+   //void print_material_parameters( void* materialBytes )
+   //{
+   //   //static_cast<MaterialPolicy*>(materialBytes)->print_constitutive_parameters();
+   //}
 
  public:
    template< typename MaterialType, typename UpdateStrategy >
@@ -81,10 +81,10 @@ class Material
    Material& operator=( Material&& ) = default;
 
  private:
-   friend void print_material_parameters( Material const& material )
-   {
-      //material.print_material_parameters( material.pimpl_.get() );
-   }
+   //friend void print_material_parameters( Material const& material )
+   //{
+   //   //material.print_material_parameters( material.pimpl_.get() );
+   //}
 
    template< typename MaterialType, typename UpdateStrategy >
    struct OwningModel

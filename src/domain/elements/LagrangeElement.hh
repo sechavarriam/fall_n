@@ -83,7 +83,7 @@ public:
   void print_nodes_info() const noexcept {
     for (auto node : nodes_) {
       std::cout << "Node ID: " << node->id() << " ";
-      for (auto x=0; x<dim; ++x) {
+      for (std::size_t x=0; x<dim; ++x) {
         printf("%f ", node->coord(x));
       }
       printf("\n");
@@ -135,7 +135,7 @@ public:
   LagrangeElement()  = default;
   LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
   
-  LagrangeElement(std::size_t tag, std::ranges::contiguous_range auto&& node_references) : tag_{tag}
+  LagrangeElement(std::size_t&& tag, std::ranges::contiguous_range auto&& node_references) : tag_{tag}
   {
     std::move(node_references.begin(), node_references.end(), nodes_.begin());
   };
