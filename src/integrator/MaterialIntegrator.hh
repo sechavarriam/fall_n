@@ -7,12 +7,12 @@
 #include <type_traits>
 
 
-class MaterialIntegrator {
-  public:
-    MaterialIntegrator() = default;
-    ~MaterialIntegrator() = default;
-
-};
+//class MaterialIntegrator {
+//  public:
+//    MaterialIntegrator() = default;
+//    ~MaterialIntegrator() = default;
+//
+//};
 
 
 #endif // FALL_N_MATERIAL_INTEGRATOR_ABSTRACTION

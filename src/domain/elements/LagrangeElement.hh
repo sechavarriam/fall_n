@@ -24,7 +24,7 @@
 
 
 #include "../../utils/small_math.hh"
-#include "../../numerics/numerical_integration/Quadrature.hh"
+#include "../../numerics/numerical_integration/CellQuadrature.hh"
 
 #include "../../integrator/MaterialIntegrator.hh"
 
@@ -62,7 +62,7 @@ class LagrangeElement {
 
   pNodeArray nodes_;
 
-  std::unique_ptr<MaterialIntegrator> material_integrator_;
+  //std::unique_ptr<MaterialIntegrator> material_integrator_;
 
   //std::vector <IntegrationPoint<dim>> integration_points_;  
 
@@ -76,9 +76,9 @@ public:
 
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  void set_material_integrator(std::unique_ptr<MaterialIntegrator>&& integrator) noexcept {
-    material_integrator_ = std::move(integrator);
-  };
+  //void set_material_integrator(std::unique_ptr<MaterialIntegrator>&& integrator) noexcept {
+  //  material_integrator_ = std::move(integrator);
+  //};
 
   void print_nodes_info() const noexcept {
     for (auto node : nodes_) {
@@ -143,8 +143,8 @@ public:
   // Copy and Move Constructors and Assignment Operators
   LagrangeElement(const LagrangeElement& other) : 
     tag_                {other.tag_},
-    nodes_              {other.nodes_},
-    material_integrator_{std::make_unique<MaterialIntegrator>()}
+    nodes_              {other.nodes_}//,
+    //material_integrator_{std::make_unique<MaterialIntegrator>()}
     {};
 
   LagrangeElement(LagrangeElement&& other) = default;
@@ -152,7 +152,7 @@ public:
   LagrangeElement& operator=(const LagrangeElement& other){
     tag_                 = other.tag_;
     nodes_               = other.nodes_;
-    material_integrator_ = std::make_unique<MaterialIntegrator>();
+    //material_integrator_ = std::make_unique<MaterialIntegrator>();
     return *this;
   };
 
@@ -164,7 +164,7 @@ public:
 
 
 template <std::size_t... N>
-class GaussIntegrator : public MaterialIntegrator {
+class GaussIntegrator{ // : public MaterialIntegrator {
     using  CellQuadrature = GaussLegendre::CellQuadrature<N...>;
 
     std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};

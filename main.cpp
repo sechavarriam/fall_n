@@ -18,7 +18,6 @@
 
 #include"header_files.hh"
 
-#include "src/domain/IntegrationPoint.hh"
 #include "src/domain/Node.hh"
 #include "src/domain/elements/ContinuumElement.hh"
 #include "src/domain/elements/Element.hh"
@@ -78,6 +77,10 @@
 #include "src/graph/AdjacencyMatrix.hh"
 
 
+#include "src/domain/IntegrationPoint.hh"
+#include "src/domain/MaterialPoint.hh"
+
+
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
@@ -89,19 +92,20 @@
 int main(int argc, char **args){
 PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
+    static constexpr int dim = 3;
+    Domain<dim> D; //Domain Aggregator Object
+
     // Mesh File Location
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-    gmsh::MSHReader reader(mesh_file);   
+    GmshDomainBuilder domain_constructor(mesh_file, D);
 
 
-    GmshDomainBuilder_3D domain_constructor(mesh_file);
-    for (auto const& element : domain_constructor.elements_){
-        std::cout << "element " << id(element) << std::endl;
-        print_nodes_info(element);
-    }
-
-    static constexpr int dim = 3;
+    //GmshDomainBuilder_3D domain_constructor(mesh_file);
+    //for (auto const& element : domain_constructor.elements_){
+    //    std::cout << "element " << id(element) << std::endl;
+    //    print_nodes_info(element);
+    //}
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
@@ -120,7 +124,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();
     
-    domain::Domain<dim> D; //Domain Aggregator Object
+    
     
     D.preallocate_node_capacity(20);
     D.add_node( Node<dim>(0 ,  2.0, 2.0, 4.0) );
@@ -151,10 +155,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::size_t num_dofs = 6;
 
     ModelBuilder<dim> model_builder (model,D,num_dofs);
-
-
-    //ElementBase<type,dim,9,42> test{1, {1,2,3,4,5,6,7,8,9}}
-
     
     static constexpr uint nx = 3;
     static constexpr uint ny = 3;    

@@ -5,6 +5,8 @@
 #include <initializer_list>
 #include <iostream> 
 #include <memory>
+#include <optional>
+
 
 #include "../geometry/Point.hh"
 #include "../geometry/Topology.hh"
@@ -18,7 +20,7 @@ class IntegrationPoint{// : public geometry::Point<dim>{
   
     using Point = geometry::Point<dim>;
 
-    std::shared_ptr<Point   > Point_   ;
+    std::shared_ptr<Point> Point_   ;
      // TODO: weights
 
     //std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
@@ -34,7 +36,7 @@ class IntegrationPoint{// : public geometry::Point<dim>{
 
     // Coordinate constructor.
     template<std::floating_point... Args>
-    IntegrationPoint(Args&&... args) : Point_(std::make_unique<Point>(std::forward<Args>(args)...)){};
+    IntegrationPoint(Args&&... args) : Point_(std::make_unique<Point>(std::forward<Args>(args)...)){}
 
 
     // Point and Material provided
@@ -44,24 +46,27 @@ class IntegrationPoint{// : public geometry::Point<dim>{
          {};
 
     IntegrationPoint(const Point& p, const Material& m):
-         Point_   (std::make_shared<Point>   (p))//,
+         Point_(std::make_shared<Point> (p))//,
          //material_(std::make_shared<Material>(m))
          {};
     
     IntegrationPoint(std::unique_ptr<Point> p, Material m):
-         Point_   (std::make_shared<Point>   (std::move(p)))//,
+         Point_(std::make_shared<Point>   (std::move(p)))//,
          //material_(std::make_shared<Material>(std::move(m)))
          {};
 
     //Only Point provided
     IntegrationPoint(Point&& p):
-         Point_(std::make_shared<Point>(std::move(p))){};
+         Point_(std::make_shared<Point>(std::move(p)))
+         {};
 
     IntegrationPoint(const Point& p):
-         Point_(std::make_shared<Point>(p)){};
+         Point_(std::make_shared<Point>(p))
+         {};
 
     IntegrationPoint(std::shared_ptr<Point> p):
-         Point_(std::move(p)){};
+         Point_(std::move(p))
+         {};
 
     //Other IntegrarionPoint provided (copy and move constructors and assignment operators)
     IntegrationPoint(const IntegrationPoint& other):

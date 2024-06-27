@@ -15,8 +15,8 @@
 template<std::size_t dim>
 class ModelBuilder{
 
-    template<std::size_t D>
-    using Domain = domain::Domain<D>;
+    //template<std::size_t D>
+    //using Domain = Domain<D>;
 
     Model <dim>* model_;
     Domain<dim>* domain_; 

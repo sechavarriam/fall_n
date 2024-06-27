@@ -124,7 +124,7 @@ class ElementConstRef{
         static_assert(alignof(Model) == alignof(void*), "Model Misaligned"  ); 
 
         std::construct_at(static_cast<Model*>(pimpl()),element,integrator);
-    };
+    }
 
     ElementConstRef(ElementConstRef const& other){other.pimpl()->clone(pimpl());};
 
