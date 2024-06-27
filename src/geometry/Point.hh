@@ -14,6 +14,7 @@ namespace geometry {
    
     private:
       //Vector<dim> coord_; //Use of Eigen vector to facilitate operaitons.
+      
       std::array<double, dim> coord_;
 
     public:
