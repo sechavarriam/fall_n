@@ -16,11 +16,13 @@ class Node : public geometry::Point<Dim>{
  
  using DoF_Interface = domain::DoF_Interface;
  
-    std::size_t id_{} ; 
-    std::size_t num_dof_{0}; 
+     
+    std::size_t id_{} ;
+    std::size_t num_dof_{}; 
+    
 
     DoF_Interface dof_;
-
+    
   public:
 
     std::size_t id()       {return id_     ;}
@@ -61,10 +63,10 @@ class Node : public geometry::Point<Dim>{
 
     //forwarding constructor
     template<std::floating_point... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.
-    Node(int tag, Args&&... args) : 
-      id_(tag),
-      geometry::Point<Dim>(std::forward<Args>(args)...)
-      {}
+    Node(std::size_t tag, Args&&... args) : 
+      geometry::Point<Dim>(std::forward<Args>(args)...),
+      id_{tag}{}
+  
 
     ~Node(){} 
 
