@@ -96,7 +96,7 @@ $EndElements
                 std::vector<std::size_t> node_tags;
 
                 line_limit = keword_info.find_first_of('\n', char_pos);
-                for (auto j = 0; j < numElementsInBlock; ++j)
+                for (std::size_t j = 0; j < numElementsInBlock; ++j)
                 {
                     get_number(e_tag); 
                     do
@@ -110,7 +110,7 @@ $EndElements
                 }
                 entityBlocks.emplace_back(std::move(Element::EntityBlock{numElementsInBlock,entityDim, entityTag, elementType, elementTags}));
             };
-            for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
+            for (std::size_t i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
     };
 

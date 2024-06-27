@@ -116,7 +116,7 @@ class ReferenceElementConstRef{
         static_assert(alignof(Model) == alignof(void*), "Model Misaligned"  ); 
 
         std::construct_at(static_cast<Model*>(pimpl()),element,integrator);
-    };
+    }
 
     ReferenceElementConstRef(ReferenceElementConstRef const& other){other.pimpl()->clone(pimpl());};
 
@@ -149,7 +149,7 @@ class ReferenceElement{
         pimpl_ = std::make_unique<Model>(
             std::move(element),
             std::move(integrator));
-    };
+    }
 
     ReferenceElement( ReferenceElement         const& other) : pimpl_{other.pimpl_ ->clone()} {};
     ReferenceElement( ReferenceElementConstRef const& other) : pimpl_{other.pimpl()->clone()} {};
@@ -158,7 +158,7 @@ class ReferenceElement{
         ReferenceElement copy{other};
         pimpl_.swap(copy.pimpl_);
         return *this;
-    };
+    }
 
     ~ReferenceElement() = default;
     ReferenceElement(ReferenceElement &&) = default;

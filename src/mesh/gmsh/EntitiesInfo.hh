@@ -146,7 +146,7 @@ namespace gmsh
                 get_number(Y);
                 get_number(Z);
                 get_number(num_physical_tags);
-                for (auto j = 0; j < num_physical_tags; ++j)
+                for (std::size_t j = 0; j < num_physical_tags; ++j)
                 {
                     int physical_tag;
                     physical_tags.push_back(get_number(physical_tag));
@@ -178,14 +178,14 @@ namespace gmsh
                 get_number(maxZ);
                 get_number(num_physical_tags);
     
-                for (auto j = 0; j < num_physical_tags; ++j)
+                for (std::size_t j = 0; j < num_physical_tags; ++j)
                 {
                     int physical_tag;
                     physical_tags.push_back(get_number(physical_tag));
                 }
 
                 get_number(num_bounding_entities);
-                for (auto j = 0; j < num_bounding_entities; ++j)
+                for (std::size_t j = 0; j < num_bounding_entities; ++j)
                 {
                     int bounding_entity;
                     bounding_entities.push_back(get_number(bounding_entity));
@@ -195,10 +195,10 @@ namespace gmsh
                 char_pos = line_limit + 1;
             };
 
-            for (auto i = 0; i < num_points;   ++i) parse_point();
-            for (auto i = 0; i < num_curves;   ++i) parse_entity(curves);
-            for (auto i = 0; i < num_surfaces; ++i) parse_entity(surfaces);
-            for (auto i = 0; i < num_volumes;  ++i) parse_entity(volumes);
+            for (auto i= 0; i < int(num_points);   ++i) parse_point();
+            for (auto i= 0; i < int(num_curves);   ++i) parse_entity(curves);
+            for (auto i= 0; i < int(num_surfaces); ++i) parse_entity(surfaces);
+            for (auto i= 0; i < int(num_volumes);  ++i) parse_entity(volumes);
         };
     };
 

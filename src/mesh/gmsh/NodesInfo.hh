@@ -97,8 +97,8 @@ $EndNodes
                 int node_tag;
                 double x, y, z;
 
-                for (auto j = 0; j < numNodesInBlock; ++j)nodeTag.push_back(get_number(node_tag));
-                for (auto j = 0; j < numNodesInBlock; ++j)
+                for (std::size_t j = 0; j < numNodesInBlock; ++j)nodeTag.push_back(get_number(node_tag));
+                for (std::size_t j = 0; j < numNodesInBlock; ++j)
                 {
                     get_number(x);
                     get_number(y);
@@ -107,7 +107,7 @@ $EndNodes
                 }
                 entityBlocks.emplace_back(std::move(Node::EntityBlock{entityDim, entityTag, parametric, numNodesInBlock, nodeTag, coordinates}));
             };
-            for (auto i = 0; i < numEntityBlocks; ++i) parse_entity_block();
+            for (std::size_t i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
 
     };

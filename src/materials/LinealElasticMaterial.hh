@@ -33,13 +33,13 @@ class IsotropicElasticMaterial{
     template<typename... Args>  
     auto set_elasticity(Args... args){
         constitutive_law_->update_elasticity(std::move(args)...);
-    };
+    }
 
     template<std::floating_point... Args>
     IsotropicElasticMaterial(Args... args) : 
         state_{std::make_unique<State>()},
         constitutive_law_{std::make_shared<ConstitutiveLaw>(std::forward<Args>(args)...)}
-        {};
+        {}
 };
 
 

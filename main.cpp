@@ -109,7 +109,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
-    std::array data2{0.0, 0.0, 1.0};
+
 
     Matrix A{dataA, 3,3};
     Vector x{data1};

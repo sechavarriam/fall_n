@@ -171,7 +171,7 @@ class Element{
         pimpl_ = std::make_unique<Model>(
             std::move(element),      // forward perhaphs?=
             std::move(integrator));  //
-    };
+    }
 
     Element( Element         const& other) : pimpl_{other.pimpl_ ->clone()} {};
     Element( ElementConstRef const& other) : pimpl_{other.pimpl()->clone()} {};

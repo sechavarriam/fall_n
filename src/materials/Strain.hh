@@ -53,10 +53,10 @@ class VoigtStrain{
         constexpr void set_strain(S... s){
             std::size_t i{0};
             ((component_[++i]=s), ...);
-        };
+        }
 
         template<typename... S> requires (sizeof...(S) == N)
-        VoigtStrain(S... s) : component_{s...}{};
+        VoigtStrain(S... s) : component_{s...}{}
 
         VoigtStrain() = default;
         ~VoigtStrain() = default;
