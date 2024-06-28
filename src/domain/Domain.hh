@@ -48,24 +48,28 @@
 
         // ===========================================================================================================
 
-
-
-
         template <typename ElementType, typename IntegrationStrategy>
-        void make_element(
-            IntegrationStrategy &&integrator,
-            std::integral auto&& tag,
-            std::ranges::range auto&& nodeAdresses)
+        void make_element(IntegrationStrategy integrator,std::size_t tag, std::vector<Node<3>*> nodeAdresses)
         {
             elements_.emplace_back(
-                Element(
-                    ElementType{
-                        std::forward<std::integral auto>(tag),
-                        std::forward<std::ranges::range auto>(nodeAdresses)
-                        },
-                    std::forward<IntegrationStrategy>(integrator)
-                    ));
+                Element(ElementType(tag,nodeAdresses),integrator));
         }
+
+        //template <typename ElementType, typename IntegrationStrategy>
+        //void make_element(
+        //    IntegrationStrategy &&integrator,
+        //    std::size_t && tag,
+        //    std::ranges::range auto&& nodeAdresses)
+        //{
+        //    elements_.emplace_back(
+        //        Element(
+        //            ElementType{
+        //                std::move(tag),
+        //                std::forward<std::ranges::range auto>(nodeAdresses)
+        //                },
+        //            std::forward<IntegrationStrategy>(integrator)
+        //            ));
+        //}
 
         // template<typename ElementType,typename... Args>
         // void make_element(Args&&... args){
