@@ -60,10 +60,10 @@ public:
                 node_addresses_.push_back( // Stores the address of the node created.
                     domain_->add_node(     // Create Node in the domain
                         Node<3>(
-                            block.nodeTag[node],
-                            std::forward<double>(block.coordinates[node][0]),
-                            std::forward<double>(block.coordinates[node][1]),
-                            std::forward<double>    (block.coordinates[node][2]))));
+                            std::move(block.nodeTag[node]),
+                            std::move(block.coordinates[node][0]),
+                            std::move(block.coordinates[node][1]),
+                            std::move(block.coordinates[node][2]))));
 
                 std::cout << "¬¬¬¬¬¬¬¬ Stored data ¬¬¬¬¬¬¬¬" << std::endl;
                 std::cout << "Node address: " << node_addresses_.back()  << std::endl;
@@ -139,20 +139,13 @@ public:
                     {
                     case 5:
                         std::cout << element_tag << std::endl;
-                        //domain_->make_element<LagrangeElement<2, 2, 2>, GaussLegendre::CellQuadrature<1, 1, 1>>(
-                        //    std::forward<GaussLegendre::CellQuadrature<1, 1, 1>>(GaussLegendre::CellQuadrature<1, 1, 1>()),
-                        //    element_tag,
-                        //    [&element_node_pointers]() -> std::array<Node<3>*, 8>
-                        //                {return std::array{element_node_pointers[0],
-                        //                                   element_node_pointers[1],
-                        //                                   element_node_pointers[2],
-                        //                                   element_node_pointers[3],
-                        //                                   element_node_pointers[4],
-                        //                                   element_node_pointers[5],
-                        //                                   element_node_pointers[6],
-                        //                                   element_node_pointers[7]}; 
-                        //                }()
-                        //                );    
+                        domain_->make_element<LagrangeElement<2, 2, 2>, GaussLegendre::CellQuadrature<1, 1, 1>>(
+                            GaussLegendre::CellQuadrature<1, 1, 1>{},
+                            std::size_t(element_tag),
+                            element_node_pointers
+                        );
+                        
+                        
                         break;
                     default:
                         //throw std::runtime_error("Element type not supported");

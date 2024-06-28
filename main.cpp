@@ -124,8 +124,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();
     
-    
-    
+/*
     D.preallocate_node_capacity(20);
     D.add_node( Node<dim>(0 ,  2.0, 2.0, 4.0) );
     D.add_node( Node<dim>(1 ,  4.0, 3.0, 3.0) );
@@ -145,7 +144,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     D.add_node( Node<dim>(15,  3.0, 6.0, 8.0) );
     D.add_node( Node<dim>(16,  6.0, 7.5, 7.0) );
     D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
-
+*/
     //auto integrationScheme = [](auto const & e){/**integrate*/};
     //Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
@@ -166,8 +165,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
                                    D.node_p(12),D.node_p(13),D.node_p(14),
                                    D.node_p(15),D.node_p(16),D.node_p(17)}};
 
-    
-    
+/*
     Node<dim> N1{1,0.0,0.0,0.0};
     Node<dim> N2{2,1.0,0.0,0.0};
     Node<dim> N3{3,1.0,1.0,0.0};
@@ -183,6 +181,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     std::cout << N1.num_dof()   << " " << N2.num_dof()   << std::endl;
     std::cout << N1.num_dof_h() << " " << N2.num_dof_h() << std::endl;
+*/
 
     //Element test_L0{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
     //                                           D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),

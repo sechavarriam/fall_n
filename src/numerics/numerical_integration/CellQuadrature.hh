@@ -29,7 +29,7 @@ public:
   //static constexpr std::array<std::size_t,dim> orders {(n-1)...};
 
   constexpr void set_weights() noexcept{
-    for(auto i = 0; i < n_nodes; ++i){
+    for(std::size_t i = 0; i < n_nodes; ++i){
         [&]<std::size_t... Is>(std::index_sequence<Is...>){
             Quadr::weights_[i] = (std::get<Is>(dir_weights)[utils::list_2_md_index<n...>(i)[Is]] * ...);
         }(std::make_index_sequence<dim>{});
