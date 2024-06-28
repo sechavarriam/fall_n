@@ -97,13 +97,13 @@
 
 
         // Tol increases capacity by default in 20%.
-        void preallocate_node_capacity(int n, double tol = 1.20)
+        void preallocate_node_capacity(std::size_t n, double tol = 1.20)
         {
             // Use Try and Catch to allow this operation if the container is empty.
             try
             {
                 if (nodes_.empty())
-                    nodes_.reserve((int)n * tol);
+                    nodes_.reserve(n * tol);
                 else
                     throw nodes_.empty();
             }

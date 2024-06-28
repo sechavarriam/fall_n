@@ -146,15 +146,13 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     D.add_node( Node<dim>(16,  6.0, 7.5, 7.0) );
     D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
 
-    auto integrationScheme = [](auto const & e){/**integrate*/};
+    //auto integrationScheme = [](auto const & e){/**integrate*/};
     //Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 
 
-    Model<dim> model;
-
-    std::size_t num_dofs = 6;
-
-    ModelBuilder<dim> model_builder (model,D,num_dofs);
+    //Model<dim> model;
+    //std::size_t num_dofs = 6;
+    //ModelBuilder<dim> model_builder (model,D,num_dofs);
     
     static constexpr uint nx = 3;
     static constexpr uint ny = 3;    
@@ -186,18 +184,18 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::cout << N1.num_dof()   << " " << N2.num_dof()   << std::endl;
     std::cout << N1.num_dof_h() << " " << N2.num_dof_h() << std::endl;
 
-    Element test_L0{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
-                                               D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
-                                               D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
-                                               D.node_p(9 ),D.node_p(10),D.node_p(11),
-                                               D.node_p(12),D.node_p(13),D.node_p(14),
-                                               D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
-
-    Element test_L1{E1, integrationScheme};
+    //Element test_L0{LagrangeElement<nx,ny,nz>{{D.node_p(0 ),D.node_p(1 ),D.node_p(2 ),
+    //                                           D.node_p(3 ),D.node_p(4 ),D.node_p(5 ),
+    //                                           D.node_p(6 ),D.node_p(7 ),D.node_p(8 ),
+    //                                           D.node_p(9 ),D.node_p(10),D.node_p(11),
+    //                                           D.node_p(12),D.node_p(13),D.node_p(14),
+    //                                           D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
+    //Element test_L1{E1, integrationScheme};
     //GaussIntegrator<2,2,2> LagElem_integrator(E1);
 
     static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>); //Concept test.
 
+    /*
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};
     IntegrationPoint<dim> IP_2 {0.0,0.0,0.0};
     IntegrationPoint<dim> IP_3 {0.0,0.0,0.0};
@@ -212,7 +210,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     IntegrationPoint<dim> IP_12(N3);
 
     std::vector<IntegrationPoint<dim>>  IP_list{IP_1,IP_2,IP_3,IP_4,IP_5,IP_6,IP_7,IP_8,IP_12};
-
+    */
 
     //std::vector<geometry::Point<dim>*> IP_list_p{&IP_1,&IP_2,&IP_3,&IP_4,&IP_5,&IP_6,&IP_7,&IP_8,&IP_9,&IP_10,&IP_11,&IP_12};
     //std::vector<IntegrationPoint<dim>>* IP_list_p = &IP_list;

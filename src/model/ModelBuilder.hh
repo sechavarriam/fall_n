@@ -25,16 +25,16 @@ class ModelBuilder{
 
     public:
     
-
+/*
 
 
     void setup_model(){
         
         // 1. set dof_vector_ size in the model.
         model_->set_total_dofs(domain_->num_nodes() * default_num_dofs_);
-
+         
         auto dof_position = model_->dof_vector_.begin();
-
+         
         // 2. set dof_vector_ size in the nodes and link the dofs to the model.
         for (auto& node : domain_->nodes()){
             node.set_num_dof(default_num_dofs_);
@@ -79,7 +79,7 @@ class ModelBuilder{
             setup_model();
         };
 
-
+*/
     
     ModelBuilder() = default;
     ~ModelBuilder() = default;
