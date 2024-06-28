@@ -23,7 +23,7 @@ requires(sizeof...(N) == sizeof...(ijk))
   auto n = md_index[0];
 
   //Row major order
-  for (auto i = 1; i < array_dimension; ++i) {
+  for (std::size_t i = 1; i < array_dimension; ++i) {
     n *= array_limits[i];
     n += md_index[i];
   }

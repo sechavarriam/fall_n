@@ -6,6 +6,8 @@
 #include <string_view>
 #include <memory>
 #include <vector>
+#include <algorithm>
+#include <ranges>
 
 #include "../../domain/Domain.hh"
 #include "../../domain/Node.hh"
@@ -31,11 +33,16 @@ class GmshDomainBuilder
 public:
     void aggregate_nodes()
     {
+
         std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
         std::cout << "--------  Node Aggregation Started -------------------------------------------------------------" << std::endl;
         std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
 
+        
+        domain_->preallocate_node_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
         node_addresses_.reserve(mesh_info_.nodes_info_.numNodes);
+        
+
         std::cout << "Number of nodes: " << mesh_info_.nodes_info_.numNodes << std::endl;
         std::cout << "Node addresses capacity: " << node_addresses_.capacity() << std::endl;     
         std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
@@ -56,7 +63,7 @@ public:
                             block.nodeTag[node],
                             std::forward<double>(block.coordinates[node][0]),
                             std::forward<double>(block.coordinates[node][1]),
-                            std::forward<double>(block.coordinates[node][2]))));
+                            std::forward<double>    (block.coordinates[node][2]))));
 
                 std::cout << "¬¬¬¬¬¬¬¬ Stored data ¬¬¬¬¬¬¬¬" << std::endl;
                 std::cout << "Node address: " << node_addresses_.back()  << std::endl;
@@ -106,12 +113,24 @@ public:
                         std::cout << "Domain node id: " << node_addresses_[tag - 1]->id() << std::endl;
                         if (node_addresses_[tag - 1]->id() == tag)
                         {
-                            element_node_pointers.push_back(node_addresses_[tag - 1]);
+                            element_node_pointers.push_back(node_addresses_[tag-1]);
                         }
                         else
                         { // TODO: search for the node with the current tag.
                             //throw std::runtime_error("Node tag does not match with node id");
-                            std::cout << " NO SE CUMPLE LA CONDICIÓN "<< std::endl;
+                            // Range search
+                            auto it = std::ranges::find_if(domain_->nodes(), [tag](Node<3>  &node) { return node.id() == tag; });
+                            if (it != domain_->nodes().end())
+                            {
+                                element_node_pointers.push_back(std::addressof(*it));
+                                std::cout << "Node found in the range" << std::endl;
+                            }
+                            else
+                            {
+                                std::cout << "Node not found in the range" << std::endl;
+                            }
+                            
+                            //std::cout << " NO SE CUMPLE LA CONDICIÓN "<< std::endl;
                         }
                     }
                     std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
@@ -133,8 +152,8 @@ public:
                         //                                   element_node_pointers[6],
                         //                                   element_node_pointers[7]}; 
                         //                }()
-                        //                );
-
+                        //                );    
+                        break;
                     default:
                         //throw std::runtime_error("Element type not supported");
                         std::cout << "Element type "<< block.elementType <<" not supported" << std::endl;

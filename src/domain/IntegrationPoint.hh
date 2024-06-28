@@ -34,6 +34,8 @@ class IntegrationPoint{// : public geometry::Point<dim>{
     // Constructors
     IntegrationPoint() =  default;  
 
+    /*
+
     // Coordinate constructor.
     template<std::floating_point... Args>
     IntegrationPoint(Args&&... args) : Point_(std::make_unique<Point>(std::forward<Args>(args)...)){}
@@ -84,7 +86,10 @@ class IntegrationPoint{// : public geometry::Point<dim>{
 
     IntegrationPoint& operator=(IntegrationPoint&& other) = default;
 
+    */
+
     ~IntegrationPoint() = default;
+    
 };
 
 
