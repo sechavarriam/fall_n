@@ -9,7 +9,7 @@
 namespace GaussLegendre{
 
     template<std::size_t n> requires (n>0)
-    static consteval std::array<double,n> Weights(){
+    static consteval std::array<double,n> weights(){
         if constexpr (n==1){
             return std::array<double,n>{2.000000000000000000000000};
         }else if constexpr (n==2){
@@ -60,7 +60,7 @@ namespace GaussLegendre{
 
         static constexpr std::size_t dim    {sizeof...(n)};
         static constexpr std::size_t n_nodes{(n*...)};
-        static constexpr std::tuple< std::array<double,n>...> dir_weights{Weights<n>()...}; //Weights for each direction.
+        static constexpr std::tuple< std::array<double,n>...> dir_weights{weights<n>()...}; //Weights for each direction.
         
         std::array<double,n_nodes> weight_list{};
 

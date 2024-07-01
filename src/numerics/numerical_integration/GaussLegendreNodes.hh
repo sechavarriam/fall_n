@@ -8,7 +8,7 @@ namespace GaussLegendre{
 
     //Gauss-Legendre points for 1D
     template<unsigned short n> requires (n>0)
-    static consteval std::array<double,n> evalPoints(){
+    static consteval std::array<double,n> evaluation_points(){
         if constexpr (n==1){
             return std::array<double,n>{0.00000000000000000000000};
         }else if constexpr (n==2){

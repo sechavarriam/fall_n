@@ -33,8 +33,8 @@ class Quadrature{
     P evalPoints_;
     W weights_   ; 
 
-    template<typename F>   
-    constexpr auto operator()(F function2eval){
+    //template<typename F>   
+    constexpr auto operator()(std::invocable auto function2eval){
         return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),std::plus<>(),
             [&](const auto& w, const auto& x){
              return w*function2eval(x);});
