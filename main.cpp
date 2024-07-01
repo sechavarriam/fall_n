@@ -100,12 +100,33 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     GmshDomainBuilder domain_constructor(mesh_file, D);
 
-
     //GmshDomainBuilder_3D domain_constructor(mesh_file);
-    //for (auto const& element : domain_constructor.elements_){
-    //    std::cout << "element " << id(element) << std::endl;
-    //    print_nodes_info(element);
-    //}
+    for (auto const& element : D.elements()){
+        std::cout << "element " << id(element) << std::endl;
+        print_nodes_info(element);
+    }
+
+    //auto one_ = [](auto const& point)->double{return 1.0;};
+
+
+
+    // Desired sintax
+    //integrate(element,function);
+    // ó
+    //element.integrate(function);
+
+     //std::function<double(double)> Fn = [](double x){return x*x;};
+    //for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
+    //constexpr short order = 15;
+    //Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
+    //std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
+    //std::cout << GaussOrder3(Fn) << std::endl;
+    //std::cout << "____________________________" << std::endl;
+    //auto W_2D = GaussLegendre::Weights<1,3>();
+    //for(auto&& i:W_2D) std::cout << i << std::endl;
+
+
+
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
@@ -191,8 +212,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //                                           D.node_p(15),D.node_p(16),D.node_p(17)}}, integrationScheme};
     //Element test_L1{E1, integrationScheme};
     //GaussIntegrator<2,2,2> LagElem_integrator(E1);
-
-    static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>); //Concept test.
+    //static_assert(is_LagrangeElement<LagrangeElement<nx,ny,nz>>); //Concept test.
 
     /*
     IntegrationPoint<dim> IP_1 {0.0,5.0,0.0};

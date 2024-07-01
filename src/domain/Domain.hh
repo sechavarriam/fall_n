@@ -43,8 +43,10 @@
         // Getters
         Node<dim> *node_p(std::size_t i) { return &nodes_[i]; };
         // Node<dim>  node  (std::size_t i){return nodes_[i];};
+        
 
         std::span<Node<dim>> nodes() { return std::span<Node<dim>>(nodes_); };
+        std::span<Element> elements(){ return std::span<Element>(elements_); };
 
         // ===========================================================================================================
 

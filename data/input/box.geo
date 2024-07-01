@@ -2,9 +2,9 @@
 SetFactory("OpenCASCADE");
 //+
 
-B = 1.0;
-H = 1.0;
-L = 1.0;
+B = 3.0;
+H = 3.0;
+L = 3.0;
 
 //t = 0.05;
 NX = 3;

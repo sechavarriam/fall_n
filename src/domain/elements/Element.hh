@@ -51,7 +51,7 @@ namespace impl{ //Implementation details
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
     public:
-        void compute_integral(/*function2integrate?*/) const override {/*integrator_(element_);*/}; //Maybe double?
+        void compute_integral(/*std::invocable auto F*/) const override {/*integrator_(element_, F);*/}; //Maybe double?
 
         explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
             element_   (std::move(element   )),

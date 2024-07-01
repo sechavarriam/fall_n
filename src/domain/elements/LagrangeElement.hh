@@ -168,14 +168,16 @@ public:
 
 };
 
+// =================================================================================================
+// =================================================================================================
+// =================================================================================================
 
 template <std::size_t... N>
-class GaussIntegrator{ // : public MaterialIntegrator {
+class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     using  CellQuadrature = GaussLegendre::CellQuadrature<N...>;
 
-    std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
-
-    CellQuadrature integrator_{};
+    //std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
+    static constexpr CellQuadrature integrator_{};
 
     std::floating_point auto operator()
     (const is_LagrangeElement auto& element, std::invocable auto&& f) const noexcept {
@@ -183,26 +185,26 @@ class GaussIntegrator{ // : public MaterialIntegrator {
             return f(x) * element.detJ(x);
         });
     };
-
+    
     public:
 
-    auto integration_point(std::size_t i) const noexcept {
-        return &integration_points_[i];
-    };
+    //auto integration_point(std::size_t i) const noexcept {
+    //    return &integration_points_[i];
+    //};
+    //std::span<IntegrationPoint<sizeof...(N)>,(N*...)> integration_points() const noexcept {
+    //    return integration_points_;
+    //};
+    //constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
+    //    element.set_integration_points(integrator_.evalPoints_);
+    //    };
 
-    std::span<IntegrationPoint<sizeof...(N)>,(N*...)> integration_points() const noexcept {
-        return integration_points_;
-    };
+    constexpr GaussLegendreCellIntegrator() noexcept = default;
+    constexpr ~GaussLegendreCellIntegrator() noexcept = default;
 
-    constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
-        element.set_integration_points(integrator_.evalPoints_);
-        };
-
-    constexpr GaussIntegrator(is_LagrangeElement auto* element) noexcept :
-    integrator_(element->integration_points_){};
-    
 };
 
-
+// =================================================================================================
+// =================================================================================================
+// ================================================================================================= 
 
 #endif
