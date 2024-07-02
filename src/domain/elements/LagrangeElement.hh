@@ -179,7 +179,14 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     //std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
     static constexpr CellQuadrature integrator_{};
 
-    std::floating_point auto operator()
+    double operator()
+    (const is_LagrangeElement auto& element, std::invocable auto f) const noexcept {
+        return integrator_([&](auto x){
+            return f(x) * element.detJ(x);
+        });
+    };
+
+    double operator()
     (const is_LagrangeElement auto& element, std::invocable auto&& f) const noexcept {
         return integrator_([&](auto x){
             return f(x) * element.detJ(x);

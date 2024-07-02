@@ -139,26 +139,13 @@ public:
                     {
                     case 5:
                         std::cout << element_tag << std::endl;
-                        /*
-                        domain_->make_element<LagrangeElement<2, 2, 2>, GaussLegendre::CellQuadrature<1, 1, 1>>(
-                            GaussLegendre::CellQuadrature<1, 1, 1>{},
-                            std::size_t(element_tag),
-                            element_node_pointers
-                        );
-                        */
-                       domain_->make_element<LagrangeElement<2,2,2>,GaussLegendreCellIntegrator<1,1,1>>(
+                       
+                        domain_->make_element<LagrangeElement<2,2,2>,GaussLegendreCellIntegrator<1,1,1>>(
                             GaussLegendreCellIntegrator<1,1,1>{},
                             std::size_t(element_tag),
                             element_node_pointers
                           );
-                            //elements_.emplace_back(
-                            //    Element(
-                            //        LagrangeElement<2, 2, 2>{
-                            //            std::move(element_tag),
-                            //            std::move(element_node_pointers)},
-                            //        default_integration_scheme)
-                       
-                        
+
                         break;
                     default:
                         //throw std::runtime_error("Element type not supported");
