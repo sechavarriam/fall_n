@@ -151,7 +151,8 @@ namespace gmsh
                     int physical_tag;
                     physical_tags.push_back(get_number(physical_tag));
                 }
-                points.emplace_back(std::move(Point{tag, X, Y, Z, num_physical_tags, physical_tags}));
+                //points.emplace_back(std::move(Point{tag, X, Y, Z, num_physical_tags, physical_tags}));
+                points.emplace_back(Point{tag, X, Y, Z, num_physical_tags, physical_tags});
                 char_pos = line_limit + 1;
             };
 
@@ -190,8 +191,8 @@ namespace gmsh
                     int bounding_entity;
                     bounding_entities.push_back(get_number(bounding_entity));
                 }
-
-                container.emplace_back(std::move(Entity::GeneralEntity{tag, minX, minY, minZ, maxX, maxY, maxZ, num_physical_tags, physical_tags, num_bounding_entities, bounding_entities}));
+                //container.emplace_back(std::move(Entity::GeneralEntity{tag, minX, minY, minZ, maxX, maxY, maxZ, num_physical_tags, physical_tags, num_bounding_entities, bounding_entities}));
+                container.emplace_back(Entity::GeneralEntity{tag, minX, minY, minZ, maxX, maxY, maxZ, num_physical_tags, physical_tags, num_bounding_entities, bounding_entities});
                 char_pos = line_limit + 1;
             };
 

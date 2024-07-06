@@ -136,17 +136,6 @@
 
         // Constructors
 
-        Domain(std::string_view mesh_file)
-        {
-            if constexpr (dim == 3)
-            {
-
-            }
-            else
-            {
-                throw std::runtime_error("Only 3D domains are supported by now.");
-            }
-        };
 
 
         // Copy Constructor

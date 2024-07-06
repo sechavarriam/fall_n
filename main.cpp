@@ -112,7 +112,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     static_assert(std::invocable<decltype(integrator),decltype(TestElement),std::function<double(geometry::Point<dim>)>>);
 
-    auto one_ = [](geometry::Point<3> point){return (point.coord(0)-point.coord(0))+1.0;};
+    //auto one_ = [](geometry::Point<3> point){return (point.coord(0)-point.coord(0))+1.0;};
 
     // Element Jacobian
     auto X = geometry::Point<dim>{0.0,0.0,0.0};
@@ -124,13 +124,13 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     TestElement.reference_element_.basis.shape_function(1)(X.coord());
 
-    //std::cout << "Jacobian for X: " << std::endl;
-    //for(auto i = 0; i<dim; ++i){
-    //    for(auto j = 0; j<dim; ++j){
-    //        std::cout << Jx[i][j] << " ";
-    //    }
-    //    std::cout << std::endl;
-    //}
+    std::cout << "Jacobian for X: " << std::endl;
+    for(std::size_t i = 0; i<dim; ++i){
+        for(std::size_t j = 0; j<dim; ++j){
+            std::cout << Jx[i][j] << " ";
+        }
+        std::cout << std::endl;
+    }
     
     //auto volume = integrator(TestElement,one_);
 
@@ -153,7 +153,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
 
 
-
+/*
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
 
@@ -167,6 +167,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+*/
 
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();
