@@ -27,8 +27,11 @@ namespace impl{ //Implementation details
     public:
         virtual ~ElementConcept() = default;  
         //virtual void do_action(/*Args.. args*/) const = 0;
-        
-        virtual double compute_integral(std::function<double()>) const = 0; 
+/*       
+        virtual double compute_integral(std::function<double(double)>)             const = 0; 
+        virtual double compute_integral(std::function<double(geometry::Point<3>  )>) const = 0;
+        virtual double compute_integral(std::function<double(std::array<double,3>)>) const = 0;
+*/
 
         virtual std::unique_ptr<ElementConcept> clone() const = 0;   // To allow copy construction of the wrapper
         virtual void clone(ElementConcept* memory_address) const = 0;// Instead of returning a newly instatiated Element
@@ -51,15 +54,25 @@ namespace impl{ //Implementation details
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
     public:
-        //void compute_integral(/*std::invocable auto F*/) const override {/*integrator_(element_, F);*/}; //Maybe double?
+/*
+        double compute_integral(std::function<double(double)> F) const override {return integrator_(element_, F);};
+        double compute_integral(std::function<double(geometry::Point<3>  )> F) const override {return integrator_(element_, F);};
+        double compute_integral(std::function<double(std::array<double,3>)> F) const override {return integrator_(element_, F);};
+*/
 
-        //double compute_integral(std::invocable auto F) const  {return integrator_(element_, F);};
+        //explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
+        //    element_   (std::move(element   )),
+        //    integrator_(std::move(integrator))
+        //    {};
+
+        explicit OwningElementModel(ElementType const& element, IntegrationStrategy const& integrator) : 
+            element_   (element   ),
+            integrator_(integrator)
+            {};
         
-        double compute_integral(std::function<double()> F) const override {return integrator_(element_, F);};
-
-        explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) : 
-            element_   (std::move(element   )),
-            integrator_(std::move(integrator))
+        explicit OwningElementModel(ElementType&& element, IntegrationStrategy&& integrator) : 
+            element_   (std::forward<ElementType>(element)          ),
+            integrator_(std::forward<IntegrationStrategy>(integrator))
             {};
 
         std::unique_ptr<ElementConcept> clone() const override {
@@ -80,13 +93,20 @@ namespace impl{ //Implementation details
 
     template <typename ElementType, typename IntegrationStrategy> //External Polymorfism Design Pattern
     class NON_OwningElementModel: public ElementConcept{ // Reference semantic version of OwningElementModel.
+
         ElementType*         element_{nullptr};    // Only stores a pointer to the Element object (aka NonOwning)
         IntegrationStrategy* integrator_{nullptr}; // 
 
+        
     public:
 
         //void compute_integral(std::invocable auto F) const {return (*integrator_)(*element_,F);};
-        double compute_integral(std::function<double()> F) const {return (*integrator_)(*element_,F);};
+        //double compute_integral(std::function<double()> F) const {return (*integrator_)(*element_,F);};
+/*
+        double compute_integral(std::function<double(double)> F) const override               {return (*integrator_)(*element_,F);};
+        double compute_integral(std::function<double(geometry::Point<3>  )> F) const override {return (*integrator_)(*element_,F);};
+        double compute_integral(std::function<double(std::array<double,3>)> F) const override {return (*integrator_)(*element_,F);};
+*/
 
         NON_OwningElementModel(ElementType& element, IntegrationStrategy& integrator) 
             : element_   {std::addressof(element)  }     // &element
@@ -152,17 +172,16 @@ class ElementConstRef{
     //    std::cout << "Element " << element.pimpl()->id() << " integrated" << std::endl;
     //    };
 
-    friend double integrate(ElementConstRef const& element, std::function<double()> F){
-        return element.pimpl()->compute_integral(F);
-        };
+/*
+    friend double integrate(ElementConstRef const& element, std::function<double(double)> F){return element.pimpl()->compute_integral(F);};
+    friend double integrate(ElementConstRef const& element, std::function<double(geometry::Point<3>  )> F){return element.pimpl()->compute_integral(F);};
+    friend double integrate(ElementConstRef const& element, std::function<double(std::array<double,3>)> F){return element.pimpl()->compute_integral(F);};
+*/
 
     friend std::size_t id       (ElementConstRef const& element){return element.pimpl()->id()       ;};
     friend std::size_t num_nodes(ElementConstRef const& element){return element.pimpl()->num_nodes();};
     friend void print_nodes_info(ElementConstRef const& element){element.pimpl()->print_nodes_info();};
 
-    //friend void set_material_integrator(ElementConstRef& element){
-    //    element.pimpl()->set_material_integrator();
-    //};
 };
 
 class Element{
@@ -172,8 +191,6 @@ class Element{
     std::size_t id()        const{return pimpl_->id();};
     std::size_t num_nodes() const{return pimpl_->num_nodes();};
     std::size_t num_dofs()  const{return num_nodes()*3;};
-
-    //MaterialIntegrator material_integrator_; // Spacial integration strategy (e.g. GaussLegendre::CellQuadrature)
 
   public:
     template<typename ElementType, typename IntegrationStrategy> //CAN BE CONSTRAINED WITH CONCEPTS!
@@ -206,25 +223,16 @@ class Element{
     //friend void action(Element const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
 
-    friend double integrate(Element const& element, std::function<double()> F){
-        return element.pimpl_->compute_integral(F);
-        //std::cout << "Element " << element.pimpl_->id() << " integrated" << std::endl;
-        };
+/*
+    friend double integrate(Element const& element, std::function<double(double)> F){return element.pimpl_->compute_integral(F);};
+    friend double integrate(Element const& element, std::function<double(geometry::Point<3>  )> F){return element.pimpl_->compute_integral(F);};
+    friend double integrate(Element const& element, std::function<double(std::array<double,3>)> F){return element.pimpl_->compute_integral(F);};
+*/
 
     friend std::size_t id       (Element const& element){return element.pimpl_->id()       ;};
     friend std::size_t num_nodes(Element const& element){return element.pimpl_->num_nodes();};
     friend void print_nodes_info(Element const& element){element.pimpl_->print_nodes_info();};
-
-    //friend void set_material_integrator(Element& element){
-    //    element.pimpl_->set_material_integrator();
-    //};
-
-    //friend auto nodes(Element const& element){
-    //    return std::span{
-    //        element.pimpl_->nodes(),    //Pointer to data
-    //        element.pimpl_->num_nodes() //Size of the span
-    //        };
-    //    };     
+     
     // -----------------------------------------------------------------------------------------------
 };
 

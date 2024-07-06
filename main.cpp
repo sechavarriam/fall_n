@@ -106,7 +106,33 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         print_nodes_info(element);
     }
 
-    //auto one_ = [](auto const& point)->double{return 1.0;};
+    auto integrator = GaussLegendreCellIntegrator<2, 2, 2>{};
+    
+    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(0),D.node_p(1),D.node_p(2),D.node_p(3),D.node_p(4),D.node_p(5),D.node_p(6),D.node_p(7)}};
+
+    static_assert(std::invocable<decltype(integrator),decltype(TestElement),std::function<double(geometry::Point<dim>)>>);
+
+    auto one_ = [](geometry::Point<3> point){return (point.coord(0)-point.coord(0))+1.0;};
+
+    // Element Jacobian
+    auto X = geometry::Point<dim>{0.0,0.0,0.0};
+    auto Y = geometry::Point<dim>{1.0,0.0,0.0};
+    auto Z = geometry::Point<dim>{0.0,1.0,0.0};
+
+
+    auto Jx = TestElement.evaluate_jacobian(X);
+
+    TestElement.reference_element_.basis.shape_function(1)(X.coord());
+
+    //std::cout << "Jacobian for X: " << std::endl;
+    //for(auto i = 0; i<dim; ++i){
+    //    for(auto j = 0; j<dim; ++j){
+    //        std::cout << Jx[i][j] << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+    
+    //auto volume = integrator(TestElement,one_);
 
 
 
@@ -145,27 +171,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();
     
-/*
-    D.preallocate_node_capacity(20);
-    D.add_node( Node<dim>(0 ,  2.0, 2.0, 4.0) );
-    D.add_node( Node<dim>(1 ,  4.0, 3.0, 3.0) );
-    D.add_node( Node<dim>(2 ,  9.0, 3.0, 3.0) );
-    D.add_node( Node<dim>(3 ,  2.0, 4.0, 3.0) );
-    D.add_node( Node<dim>(4 ,  4.0, 5.0, 2.0) );
-    D.add_node( Node<dim>(5 ,  9.0, 4.0, 2.0) );
-    D.add_node( Node<dim>(6 ,  2.0, 6.0, 2.0) );
-    D.add_node( Node<dim>(7 ,  4.0, 7.0, 1.0) );
-    D.add_node( Node<dim>(8 ,  9.0, 6.0, 1.0) );
-    D.add_node( Node<dim>(9 ,  2.0, 8.0, 1.0) );
-    D.add_node( Node<dim>(10,  5.0, 2.0, 7.0) );
-    D.add_node( Node<dim>(11,  9.0, 2.0, 8.5) );
-    D.add_node( Node<dim>(12,  4.0, 4.0, 8.5) );
-    D.add_node( Node<dim>(13,  6.0, 4.0, 8.0) );
-    D.add_node( Node<dim>(14,  9.0, 4.5, 9.0) );
-    D.add_node( Node<dim>(15,  3.0, 6.0, 8.0) );
-    D.add_node( Node<dim>(16,  6.0, 7.5, 7.0) );
-    D.add_node( Node<dim>(17,  9.0, 6.0, 8.0) );
-*/
     //auto integrationScheme = [](auto const & e){/**integrate*/};
     //Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 

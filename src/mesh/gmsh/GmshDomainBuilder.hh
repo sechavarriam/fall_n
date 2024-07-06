@@ -140,11 +140,13 @@ public:
                     case 5:
                         std::cout << element_tag << std::endl;
                        
-                        domain_->make_element<LagrangeElement<2,2,2>,GaussLegendreCellIntegrator<1,1,1>>(
-                            GaussLegendreCellIntegrator<1,1,1>{},
-                            std::size_t(element_tag),
-                            element_node_pointers
-                          );
+                        //auto integrator = GaussLegendreCellIntegrator<2, 2, 2>{}; 
+
+                        //domain_->make_element<LagrangeElement<2,2,2>,GaussLegendreCellIntegrator<1,1,1>>(
+                        //    GaussLegendreCellIntegrator<1,1,1>(),
+                        //    std::size_t(element_tag),
+                        //    element_node_pointers
+                        //  );
 
                         break;
                     default:
@@ -167,7 +169,7 @@ public:
     };
 };
 
-//class GmshDomainBuilder_3D
+//class GmshDomainBuilder_3Dteste
 //{
 //    using Node3D = Node<3>;
 //    gmsh::MSHReader mesh_info_;

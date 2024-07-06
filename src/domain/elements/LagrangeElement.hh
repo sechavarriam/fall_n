@@ -51,6 +51,8 @@ class LagrangeElement {
 
   using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
 
+public:
+
   static inline constexpr std::size_t dim = sizeof...(N);
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
@@ -63,7 +65,6 @@ class LagrangeElement {
   pNodeArray nodes_;
 
   //std::unique_ptr<MaterialIntegrator> material_integrator_;
-
   //std::vector <IntegrationPoint<dim>> integration_points_;  
 
 public:
@@ -91,22 +92,20 @@ public:
   };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  auto evaluate_jacobian(const geometry::Point<dim>& X) noexcept { //Thread Candidate
+  auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
     JacobianMatrix J;
     for (auto i = 0; i < dim; ++i) {
       for (auto j = 0; j < dim; ++j) {
         for (auto k = 0; k < num_nodes_; ++k) {
           J[i][j] += nodes_[k]->coord(i) 
-                   * std::invoke(
-                          reference_element_.basis.shape_function_derivative(k, j),
-                          X.coord());
+                   * reference_element_.basis.shape_function_derivative(k, j)(X.coord());
         }
       }
     }
     return J;
   };  
 
-  auto evaluate_jacobian(const std::array<double,dim>& X) noexcept { 
+  auto evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
     JacobianMatrix J;
     for (auto i = 0; i < dim; ++i) {  //Thread Candidate
       for (auto j = 0; j < dim; ++j) {//Thread Candidate
@@ -122,9 +121,9 @@ public:
   };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  decltype(auto) detJ(const geometry::Point<dim>&    X) noexcept {return utils::det(evaluate_jacobian(X));};
-  decltype(auto) detJ(      std::array<double,dim>&& X) noexcept {return utils::det(evaluate_jacobian(X));};
-  decltype(auto) detJ(const std::array<double,dim>&  X) noexcept {return utils::det(evaluate_jacobian(X));};
+  double detJ(const geometry::Point<dim>&    X) const noexcept {return utils::det(evaluate_jacobian(X));};
+  double detJ(      std::array<double,dim>&& X) const noexcept {return utils::det(evaluate_jacobian(X));};
+  double detJ(const std::array<double,dim>&  X) const noexcept {return utils::det(evaluate_jacobian(X));};
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
@@ -134,7 +133,6 @@ public:
   //Constructor
   LagrangeElement()  = default;
   LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
-  
   
   LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}
   {
@@ -179,21 +177,37 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     //std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
     static constexpr CellQuadrature integrator_{};
 
-    double operator()
-    (const is_LagrangeElement auto& element, std::invocable auto f) const noexcept {
-        return integrator_([&](auto x){
-            return f(x) * element.detJ(x);
-        });
-    };
+  public:
+
+    //bool is_initialized_{false};
+
+    //double operator()
+    //(const is_LagrangeElement auto& element, std::function<double(geometry::Point<sizeof...(N)>)> f) const noexcept {
+    //    return integrator_([&](double x){
+    //        return f(x) * element.detJ(x);
+    //    });
+    //};
+//
+    //double operator()
+    //(const is_LagrangeElement auto& element, std::function<double(std::array<double,sizeof...(N)>)> f) const noexcept {
+    //    return integrator_([&](double x){
+    //        return f(x) * element.detJ(x);
+    //    });
+    //};
+//
+    //double operator()
+    //(const is_LagrangeElement auto& element, std::function<double(double)> f) const noexcept {
+    //    return integrator_([&](double x){
+    //        return f(x) * element.detJ(x);
+    //    });
+    //};
 
     double operator()
-    (const is_LagrangeElement auto& element, std::invocable auto&& f) const noexcept {
-        return integrator_([&](auto x){
+    (const is_LagrangeElement auto& element, std::invocable<geometry::Point<sizeof...(N)>> auto&& f) const noexcept {
+        return integrator_([&](geometry::Point<sizeof...(N)> x){
             return f(x) * element.detJ(x);
         });
     };
-    
-    public:
 
     //auto integration_point(std::size_t i) const noexcept {
     //    return &integration_points_[i];
@@ -204,6 +218,10 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     //constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
     //    element.set_integration_points(integrator_.evalPoints_);
     //    };
+
+    //constructors
+    //copy and move constructors and assignment operators
+
 
     constexpr GaussLegendreCellIntegrator() noexcept = default;
     constexpr ~GaussLegendreCellIntegrator() noexcept = default;

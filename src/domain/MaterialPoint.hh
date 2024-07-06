@@ -16,7 +16,7 @@ class MaterialPoint //: public IntegrationPoint<dim>
     using IntegrationPoints = std::optional<IntegrationPoint<dim>>;
     private:
         
-        Material          material_{};
+        //Material          material_{};
         IntegrationPoints integration_points_{};
 
     public:

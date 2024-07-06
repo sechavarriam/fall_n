@@ -34,7 +34,7 @@ class Quadrature{
     W weights_   ; 
 
     //template<typename F>   
-    constexpr auto operator()(std::invocable auto function2eval){
+    constexpr auto operator()(std::invocable<decltype(evalPoints_[0])> auto&& function2eval) const noexcept {
         return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),std::plus<>(),
             [&](const auto& w, const auto& x){
              return w*function2eval(x);});

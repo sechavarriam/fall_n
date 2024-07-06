@@ -43,7 +43,7 @@ constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
 
   constexpr auto derivative(std::size_t i) const noexcept 
   {
-    return [&, i](double x) 
+    return [&, i](const double& x)
     {
       double dL_i{0.0};
       double num{1.0};
@@ -122,18 +122,34 @@ public:
   //template<std::size_t i>
   constexpr auto shape_function(std::size_t i) const noexcept 
   { 
-    auto md_index = utils::list_2_md_index<Ni...>(i);
-    return [&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){
-      return (std::get<I>(L)[md_index[I]](x[I])*...);
-    }; 
+    static auto md_index = utils::list_2_md_index<Ni...>(i);
+    return [&](const auto &x) {
+      if constexpr (dim == 1) 
+        return std::get<0>(L)[md_index[0]](x); //TODO:Revisar
+      else
+        return [&]<std::size_t... I>(std::index_sequence<I...> ){
+          return (std::get<I>(L)[md_index[I]](x[I])*...);
+        }(std::make_index_sequence<dim>{});   
+    };
+     
   };
 
-  constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept 
+  constexpr auto shape_function_derivative(std::size_t i, std::size_t jth_derivative) const noexcept 
   {// $frac{\partial h_i}{\partial x_j}$ 
-    auto md_index = utils::list_2_md_index<Ni...>(i);
-    return [&]<std::size_t... I>(const auto &x, std::index_sequence<I...> ){ 
-      return (((I != j)? std::get<I>(L)[md_index[I]](x[I]) : std::get<I>(L).derivative(md_index[I])(x[I]) )*...); 
-    }; 
+    static auto j = jth_derivative;
+    static auto md_index = utils::list_2_md_index<Ni...>(i);
+
+    return [&](const auto &x) {
+      if constexpr (dim == 1) 
+        return std::get<0>(L).derivative(md_index[0])(x); //TODO:Revisar
+      else
+      return [&]<std::size_t... I>(std::index_sequence<I...> ){ 
+        return (((I != j)? 
+          std::invoke(std::get<I>(L)           [md_index[I]], x[I]) : 
+          std::invoke(std::get<I>(L).derivative(md_index[I]), x[I]) )
+          *...); 
+      }(std::make_index_sequence<dim>{}); 
+    };
   };
 
   consteval LagrangeBasis_ND(const Array<Ni> &...xCoordinates) noexcept
@@ -142,13 +158,13 @@ public:
   constexpr ~LagrangeBasis_ND(){};
 };
 
-template <unsigned short... Ni>
+template <std::size_t... Ni>
 class LagrangeInterpolator_ND { // In regular grid (define as policy?)
 
-  template <unsigned short n> 
+  template <std::size_t n> 
   using Array = std::array<double, n>;
 
-  template <unsigned short... n>
+  template <std::size_t... n>
   using Basis = interpolation::LagrangeBasis_ND<n...>;
 
   static constexpr std::size_t dim = sizeof...(Ni);
