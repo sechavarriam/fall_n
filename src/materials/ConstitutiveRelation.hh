@@ -17,7 +17,7 @@ class ConstitutiveRelation{ //CONCEPT!
 
     public:
 
-    virtual U operator()(const F &cause){};
+    //virtual U operator()(const F &cause){};
 
     ConstitutiveRelation(){};
     virtual ~ConstitutiveRelation(){};

@@ -46,7 +46,7 @@ concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
 template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
 class LagrangeElement {
   
-  template<typename T> friend class LagrangeConceptTester;  
+  template<typename T> friend struct LagrangeConceptTester;  
   static inline constexpr bool _is_LagrangeElement(){return true;};
 
   using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
@@ -94,9 +94,9 @@ public:
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
     JacobianMatrix J;
-    for (auto i = 0; i < dim; ++i) {
-      for (auto j = 0; j < dim; ++j) {
-        for (auto k = 0; k < num_nodes_; ++k) {
+    for (std::size_t i = 0; i < dim; ++i) {
+      for (std::size_t j = 0; j < dim; ++j) {
+        for (std::size_t k = 0; k < num_nodes_; ++k) {
           J[i][j] += nodes_[k]->coord(i) 
                    * reference_element_.basis.shape_function_derivative(k, j)(X.coord());
         }
@@ -107,9 +107,9 @@ public:
 
   auto evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
     JacobianMatrix J;
-    for (auto i = 0; i < dim; ++i) {  //Thread Candidate
-      for (auto j = 0; j < dim; ++j) {//Thread Candidate
-        for (auto k = 0; k < num_nodes_; ++k) {
+    for (std::size_t i = 0; i < dim; ++i) {  //Thread Candidate
+      for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
+        for (std::size_t k = 0; k < num_nodes_; ++k) {
           J[i][j] += nodes_[k]->coord(i) 
                    * std::invoke(
                           reference_element_.basis.shape_function_derivative(k, j),

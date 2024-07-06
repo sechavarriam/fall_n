@@ -30,10 +30,10 @@ constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
 
   std::size_t size() const noexcept { return nPoints; };
 
-  constexpr auto operator[](std::integral auto i) const noexcept {
+  constexpr auto operator[](std::size_t i) const noexcept {
     return [&, i](std::floating_point auto x) {
       double L_i = 1.0;
-      for (auto j = 0; j < nPoints; ++j) {
+      for (std::size_t j = 0; j < nPoints; ++j) {
         (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
                  : L_i *= 1.0;
       }
@@ -49,9 +49,9 @@ constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
       double num{1.0};
       double den{1.0};
 
-      for (auto j = 0; j < nPoints; ++j){
+      for (std::size_t j = 0; j < nPoints; ++j){
         if (j != i){
-          for (auto k = 0; k < nPoints; ++k){
+          for (std::size_t k = 0; k < nPoints; ++k){
             if (k != i){
               den *= (xPoints[i] - xPoints[k]);
               if (k != j) {

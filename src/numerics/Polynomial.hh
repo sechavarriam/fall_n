@@ -79,8 +79,8 @@ class Polynomial {
 // Doest't store the coefficients.
 
 // P(x) = c0 + c1 x + c2 x^2 + ... + cn x^n
-template<typename X, Scalar T>
-inline constexpr X poly_eval(X x, T cn){return X(cn);}
+//template<typename X, Scalar T>
+//inline constexpr X poly_eval(X x, T cn){return X(cn);}
 
 template<typename X, Scalar T, Scalar... Ts>
 inline constexpr X poly_eval(X x, T cn, Ts... coefs){ 

@@ -49,7 +49,7 @@ template <std::size_t Ni> // TODO: Redefine as policy.
 static inline constexpr auto equally_spaced_coordinates() 
 {
   std::array<double, Ni> coordinates;
-  for (auto i = 0; i < Ni; ++i) coordinates[i] = -1 + i * delta_i(Ni);
+  for (std::size_t i = 0; i < Ni; ++i) coordinates[i] = -1 + i * delta_i(Ni);
 
   return coordinates;
 };

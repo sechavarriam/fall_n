@@ -108,7 +108,8 @@ $EndElements
                     line_limit = keword_info.find_first_of('\n', char_pos);
                     elementTags.emplace(std::move(e_tag), std::move(node_tags));
                 }
-                entityBlocks.emplace_back(std::move(Element::EntityBlock{numElementsInBlock,entityDim, entityTag, elementType, elementTags}));
+                //entityBlocks.emplace_back(std::move(Element::EntityBlock{numElementsInBlock,entityDim, entityTag, elementType, elementTags}));
+                entityBlocks.emplace_back(Element::EntityBlock{numElementsInBlock,entityDim, entityTag, elementType, elementTags});
             };
             for (std::size_t i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
