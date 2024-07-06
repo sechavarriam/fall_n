@@ -20,6 +20,9 @@ namespace geometry {
     public:
 
       //Getters.
+      
+      inline constexpr std::array<double,dim> coord() const {return coord_; };
+
       inline constexpr double coord(const std::size_t i) const { return coord_[i]; };
 
       inline constexpr void set_coord(const std::size_t i, const double value) { coord_[i] = value; };

@@ -50,12 +50,23 @@
 
         // ===========================================================================================================
 
+        //template <typename ElementType, typename IntegrationStrategy>
+        //void make_element(IntegrationStrategy integrator,std::size_t tag, std::vector<Node<3>*> nodeAdresses)
+        //{
+        //    elements_.emplace_back(
+        //        Element(ElementType(tag,nodeAdresses),integrator));
+        //}
+
         template <typename ElementType, typename IntegrationStrategy>
-        void make_element(IntegrationStrategy integrator,std::size_t tag, std::vector<Node<3>*> nodeAdresses)
+        void make_element(IntegrationStrategy&& integrator, std::size_t&& tag, std::vector<Node<3>*> nodeAdresses)
         {
             elements_.emplace_back(
-                Element(ElementType(tag,nodeAdresses),integrator));
-        }
+                Element(
+                    ElementType(
+                        std::forward<std::size_t>(tag),
+                        std::forward<std::vector<Node<3>*>>(nodeAdresses)),
+                    std::forward<IntegrationStrategy>(integrator)));
+        }   
 
         //template <typename ElementType, typename IntegrationStrategy>
         //void make_element(
