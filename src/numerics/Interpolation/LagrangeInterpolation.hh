@@ -134,9 +134,9 @@ public:
      
   };
 
-  constexpr auto shape_function_derivative(std::size_t i, std::size_t jth_derivative) const noexcept 
+  constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept 
   {// $frac{\partial h_i}{\partial x_j}$ 
-    static auto j = jth_derivative;
+    static auto J = j;
     static auto md_index = utils::list_2_md_index<Ni...>(i);
 
     return [&](const auto &x) {
@@ -144,7 +144,7 @@ public:
         return std::get<0>(L).derivative(md_index[0])(x); //TODO:Revisar
       else
       return [&]<std::size_t... I>(std::index_sequence<I...> ){ 
-        return (((I != j)? 
+        return (((I != J)? 
           std::invoke(std::get<I>(L)           [md_index[I]], x[I]) : 
           std::invoke(std::get<I>(L).derivative(md_index[I]), x[I]) )
           *...); 

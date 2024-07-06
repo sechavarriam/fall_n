@@ -108,7 +108,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     auto integrator = GaussLegendreCellIntegrator<2, 2, 2>{};
     
-    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(0),D.node_p(1),D.node_p(2),D.node_p(3),D.node_p(4),D.node_p(5),D.node_p(6),D.node_p(7)}};
+    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(5),D.node_p(4),D.node_p(1),D.node_p(0),D.node_p(7),D.node_p(6),D.node_p(3),D.node_p(2)}};
 
     static_assert(std::invocable<decltype(integrator),decltype(TestElement),std::function<double(geometry::Point<dim>)>>);
 
@@ -122,7 +122,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     auto Jx = TestElement.evaluate_jacobian(X);
 
-    TestElement.reference_element_.basis.shape_function(1)(X.coord());
+    std::cout << TestElement.reference_element_.basis.shape_function(1)(X.coord()) << std::endl;
 
     std::cout << "Jacobian for X: " << std::endl;
     for(std::size_t i = 0; i<dim; ++i){
@@ -131,6 +131,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         }
         std::cout << std::endl;
     }
+
+
+    TestElement.reference_element_.print_node_coords();
+
     
     //auto volume = integrator(TestElement,one_);
 

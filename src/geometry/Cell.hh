@@ -38,7 +38,7 @@ coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
 
   std::array<double,dim> coordinates{dimensions...};
 
-  for(int position = 0; position<dim; ++position){
+  for(std::size_t position = 0; position < dim; ++position){
     coordinates[position] = - 1 + index_ijk[position]*delta_i(coordinates[position]);
   };
 
@@ -65,7 +65,7 @@ template<std::size_t... n>
 consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 
   std::array<Point<sizeof...(n)>, (n*...)> nodes;
-  for (auto i = 0; i < (n*...); ++i) nodes[i] = node_ijk<n...>( utils::list_2_md_index<n...>(i)); 
+  for (std::size_t i = 0; i < (n*...); ++i) nodes[i] = node_ijk<n...>( utils::list_2_md_index<n...>(i)); 
 
   return nodes;
 };
