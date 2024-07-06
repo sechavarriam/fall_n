@@ -93,7 +93,8 @@ public:
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
-    JacobianMatrix J;
+    JacobianMatrix J{0}; 
+    // TODO: Revisar el orden de los ciclos...  
     for (std::size_t i = 0; i < dim; ++i) {
       for (std::size_t j = 0; j < dim; ++j) {
         for (std::size_t k = 0; k < num_nodes_; ++k) {
@@ -106,7 +107,7 @@ public:
   };  
 
   auto evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
-    JacobianMatrix J;
+    JacobianMatrix J{0}; 
     for (std::size_t i = 0; i < dim; ++i) {  //Thread Candidate
       for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
         for (std::size_t k = 0; k < num_nodes_; ++k) {
