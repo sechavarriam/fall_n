@@ -34,7 +34,8 @@ requires(sizeof...(N) == sizeof...(ijk))
 
 template <std::size_t... N> //<Nx, Ny, Nz ,...> // TODO: Put and classify in utils.
 static inline constexpr std::array<std::size_t, sizeof...(N)>
-list_2_md_index(const int index) {
+list_2_md_index(const std::size_t index) {
+  
   using IndexTuple = std::array<std::size_t, sizeof...(N)>;
 
   constexpr std::size_t array_dimension = sizeof...(N);
@@ -42,7 +43,7 @@ list_2_md_index(const int index) {
   IndexTuple array_limits{N...};
   IndexTuple md_index; // to return.
 
-  std::integral auto num_positions =
+  std::size_t num_positions =
       std::ranges::fold_left(array_limits, 1, std::multiplies<int>());
 
   try { // TODO: Improve this error handling.
