@@ -26,37 +26,32 @@ class GmshDomainBuilder
 
     GmshMesh mesh_info_;
     Domain3D *domain_;
-    
 
     std::vector<Node<3> *> node_addresses_;
 
 public:
     void aggregate_nodes()
     {
-
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
-        std::cout << "--------  Node Aggregation Started -------------------------------------------------------------" << std::endl;
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
-
-        
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "--------  Node Aggregation Started -------------------------------------------------------------" << std::endl;
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
         domain_->preallocate_node_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
         node_addresses_.reserve(mesh_info_.nodes_info_.numNodes);
-        
 
-        std::cout << "Number of nodes: " << mesh_info_.nodes_info_.numNodes << std::endl;
-        std::cout << "Node addresses capacity: " << node_addresses_.capacity() << std::endl;     
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "Number of nodes: " << mesh_info_.nodes_info_.numNodes << std::endl;
+        //std::cout << "Node addresses capacity: " << node_addresses_.capacity() << std::endl;     
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
 
         for (auto &block : mesh_info_.nodes_info_.entityBlocks)
         {
-            std::cout << "_________________________________________________________________________________" << std::endl;
-            std::cout << "Block number of nodes: " << block.numNodesInBlock << std::endl;
+            //std::cout << "_________________________________________________________________________________" << std::endl;
+            //std::cout << "Block number of nodes: " << block.numNodesInBlock << std::endl;
 
             for (std::size_t node = 0; node < block.numNodesInBlock; node++)
             {
-                std::cout << "___________________________________________________" << std::endl;
-                std::cout << "Node tag: " << block.nodeTag[node] << std::endl;
-                std::cout << "Node coordinates: " << block.coordinates[node][0] << " " << block.coordinates[node][1] << " " << block.coordinates[node][2] << std::endl;
+                //std::cout << "___________________________________________________" << std::endl;
+                //std::cout << "Node tag: " << block.nodeTag[node] << std::endl;
+                //std::cout << "Node coordinates: " << block.coordinates[node][0] << " " << block.coordinates[node][1] << " " << block.coordinates[node][2] << std::endl;
                 node_addresses_.push_back( // Stores the address of the node created.
                     domain_->add_node(     // Create Node in the domain
                         Node<3>(
@@ -65,17 +60,17 @@ public:
                             std::move(block.coordinates[node][1]),
                             std::move(block.coordinates[node][2]))));
 
-                std::cout << "¬¬¬¬¬¬¬¬ Stored data ¬¬¬¬¬¬¬¬" << std::endl;
-                std::cout << "Node address: " << node_addresses_.back()  << std::endl;
-                std::cout << "Node id: " << node_addresses_.back()->id() << std::endl;
-                std::cout << "Node coordinates: " << node_addresses_.back()->coord(0) << " " << node_addresses_.back()->coord(1) << " " << node_addresses_.back()->coord(2) << std::endl;
+                //std::cout << "¬¬¬¬¬¬¬¬ Stored data ¬¬¬¬¬¬¬¬" << std::endl;
+                //std::cout << "Node address: " << node_addresses_.back()  << std::endl;
+                //std::cout << "Node id: " << node_addresses_.back()->id() << std::endl;
+                //std::cout << "Node coordinates: " << node_addresses_.back()->coord(0) << " " << node_addresses_.back()->coord(1) << " " << node_addresses_.back()->coord(2) << std::endl;
             }
-            std::cout << "___________________________________________________" << std::endl;
+            //std::cout << "___________________________________________________" << std::endl;
         }
 
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
-        std::cout << "--------  End Node Aggregation -----------------------------------------------------------------" << std::endl;
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "--------  End Node Aggregation -----------------------------------------------------------------" << std::endl;
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
     };
 
     void aggregate_elements()

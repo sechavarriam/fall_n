@@ -95,9 +95,21 @@ public:
   auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
     JacobianMatrix J{0}; 
     // TODO: Revisar el orden de los ciclos...  
+    //std::cout << "--------------- Jacobian Evaluation -----------------------" << std::endl; 
+    //std::cout << "X.coord(): ";
+    //for (auto x : X.coord()) {std::cout << x << " ";}; 
+    //std::cout << std::endl;
+    //std::cout << "num_nodes_: " << num_nodes_ << std::endl;
+    
     for (std::size_t i = 0; i < dim; ++i) {
       for (std::size_t j = 0; j < dim; ++j) {
+        //std::cout << " ----- i: " << i << " j: " << j << " ----" << std::endl;
+         
         for (std::size_t k = 0; k < num_nodes_; ++k) {
+          //std::cout << "k: " << k << std::endl;
+          //std::cout << "nodes_[k]->coord(i): " << nodes_[k]->coord(i) << std::endl;
+          //std::cout << "reference_element_.basis.shape_function_derivative("<<k<<","<<j<<")(X.coord()): " << reference_element_.basis.shape_function_derivative(k, j)(X.coord()) << std::endl;
+
           J[i][j] += nodes_[k]->coord(i) 
                    * reference_element_.basis.shape_function_derivative(k, j)(X.coord());
         }
