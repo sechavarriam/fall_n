@@ -75,25 +75,25 @@ public:
 
     void aggregate_elements()
     { // Esto procesa tanto elemento 2d (facets) como 3d  (cells) TODO:FIX.
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
-        std::cout << "--------  Element Aggregation Started ----------------------------------------------------------" << std::endl;
-        std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
+        //std::cout << "--------  Element Aggregation Started ----------------------------------------------------------" << std::endl;
+        //std::cout << "------------------------------------------------------------------------------------------------" << std::endl;
 
         for (auto &block : mesh_info_.elements_info_.entityBlocks)
         {
-            std::cout << "_________________________________________________________________________________" << std::endl;
-            std::cout << "Block number of elements: " << block.numElementsInBlock << std::endl;
-            std::cout << "Block entity dimension: " << block.entityDim << std::endl;
-            std::cout << "Block element type: " << block.elementType << std::endl;
+            //std::cout << "_________________________________________________________________________________" << std::endl;
+            //std::cout << "Block number of elements: " << block.numElementsInBlock << std::endl;
+            //std::cout << "Block entity dimension: " << block.entityDim << std::endl;
+            //std::cout << "Block element type: " << block.elementType << std::endl;
             
             if (block.entityDim == 3)
             { // Only 3D elements (by now...)
 
                 for (auto &[element_tag, node_tags] : block.elementTags)
                 {
-                    std::cout << "___________________________________________________" << std::endl;
-                    std::cout << "Element tag: " << element_tag << std::endl;
-                    std::cout << "Node tags: ";
+                    //std::cout << "___________________________________________________" << std::endl;
+                    //std::cout << "Element tag: " << element_tag << std::endl;
+                    //std::cout << "Node tags: ";
                     for (auto &tag : node_tags) std::cout << tag << " ";
                     std::cout << std::endl;
 
@@ -102,8 +102,8 @@ public:
 
                     for (auto &tag : node_tags)
                     {
-                        std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
-                        std::cout << "Node tag: " << tag << std::endl;
+                        //std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
+                        //std::cout << "Node tag: " << tag << std::endl;
                         //std::cout << "Node address: " << node_addresses_[tag - 1] << std::endl;
                         //std::cout << "Domain node id: " << node_addresses_[tag - 1]->id() << std::endl;
                         if (node_addresses_[tag - 1]->id() == tag)
@@ -128,24 +128,27 @@ public:
                             //std::cout << " NO SE CUMPLE LA CONDICIÓN "<< std::endl;
                         }
                     }
-                    std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
+                    //std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
                     // Emplace Element
                     switch (block.elementType)
                     {
                     case 5:
                         {
-                        std::cout << element_tag << std::endl;
-
-                        //auto integrator = [](auto const &e) { /**integrate*/ };
-    
-                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; 
-
+                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{};   
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),
                             std::size_t(element_tag),
-                            element_node_pointers
+                            {
+                                element_node_pointers[6],
+                                element_node_pointers[2],
+                                element_node_pointers[4],
+                                element_node_pointers[0],
+                                element_node_pointers[7],
+                                element_node_pointers[3],
+                                element_node_pointers[5],
+                                element_node_pointers[1]
+                            }
                           );
-
                         break;
                         }
                     default:
