@@ -106,10 +106,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         print_nodes_info(element);
     }
 
-    auto integrator = GaussLegendreCellIntegrator<2, 2, 2>{};
+    auto integrator = GaussLegendreCellIntegrator<5,5,5>{};
     
 
-    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(5),D.node_p(4),D.node_p(1),D.node_p(0),D.node_p(7),D.node_p(6),D.node_p(3),D.node_p(2)}};
+    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(6),D.node_p(2),D.node_p(4),D.node_p(0),D.node_p(7),D.node_p(3),D.node_p(5),D.node_p(1)}};
 
 
 

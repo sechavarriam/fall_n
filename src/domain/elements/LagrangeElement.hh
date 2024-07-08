@@ -93,23 +93,11 @@ public:
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
-    JacobianMatrix J{0}; 
-    // TODO: Revisar el orden de los ciclos...  
-    //std::cout << "--------------- Jacobian Evaluation -----------------------" << std::endl; 
-    //std::cout << "X.coord(): ";
-    //for (auto x : X.coord()) {std::cout << x << " ";}; 
-    //std::cout << std::endl;
-    //std::cout << "num_nodes_: " << num_nodes_ << std::endl;
-    
-    for (std::size_t i = 0; i < dim; ++i) {
-      for (std::size_t j = 0; j < dim; ++j) {
-        //std::cout << " ----- i: " << i << " j: " << j << " ----" << std::endl;
-         
-        for (std::size_t k = 0; k < num_nodes_; ++k) {
-          //std::cout << "k: " << k << std::endl;
-          //std::cout << "nodes_[k]->coord(i): " << nodes_[k]->coord(i) << std::endl;
-          //std::cout << "reference_element_.basis.shape_function_derivative("<<k<<","<<j<<")(X.coord()): " << reference_element_.basis.shape_function_derivative(k, j)(X.coord()) << std::endl;
+    JacobianMatrix J{{{0}}};
 
+    for (std::size_t i = 0; i < dim; ++i) {
+      for (std::size_t j = 0; j < dim; ++j) {         
+        for (std::size_t k = 0; k < num_nodes_; ++k) {
           J[i][j] += nodes_[k]->coord(i) 
                    * reference_element_.basis.shape_function_derivative(k, j)(X.coord());
         }
@@ -119,7 +107,7 @@ public:
   };  
 
   auto evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
-    JacobianMatrix J{0}; 
+    JacobianMatrix J{{{0}}}; 
     for (std::size_t i = 0; i < dim; ++i) {  //Thread Candidate
       for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
         for (std::size_t k = 0; k < num_nodes_; ++k) {
@@ -134,9 +122,9 @@ public:
   };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  double detJ(const geometry::Point<dim>&    X) const noexcept {return utils::det(evaluate_jacobian(X));};
-  double detJ(      std::array<double,dim>&& X) const noexcept {return utils::det(evaluate_jacobian(X));};
-  double detJ(const std::array<double,dim>&  X) const noexcept {return utils::det(evaluate_jacobian(X));};
+  double detJ(const geometry::Point<dim>&    X) const noexcept {return std::abs(utils::det(evaluate_jacobian(X)));};
+  double detJ(      std::array<double,dim>&& X) const noexcept {return std::abs(utils::det(evaluate_jacobian(X)));};
+  double detJ(const std::array<double,dim>&  X) const noexcept {return std::abs(utils::det(evaluate_jacobian(X)));};
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
