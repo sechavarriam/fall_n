@@ -104,8 +104,8 @@ public:
                     {
                         std::cout << "°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°" << std::endl;
                         std::cout << "Node tag: " << tag << std::endl;
-                        std::cout << "Node address: " << node_addresses_[tag - 1] << std::endl;
-                        std::cout << "Domain node id: " << node_addresses_[tag - 1]->id() << std::endl;
+                        //std::cout << "Node address: " << node_addresses_[tag - 1] << std::endl;
+                        //std::cout << "Domain node id: " << node_addresses_[tag - 1]->id() << std::endl;
                         if (node_addresses_[tag - 1]->id() == tag)
                         {
                             element_node_pointers.push_back(node_addresses_[tag-1]);
@@ -133,21 +133,27 @@ public:
                     switch (block.elementType)
                     {
                     case 5:
+                        {
                         std::cout << element_tag << std::endl;
-                       
-                        //auto integrator = GaussLegendreCellIntegrator<2, 2, 2>{}; 
 
-                        //domain_->make_element<LagrangeElement<2,2,2>,GaussLegendreCellIntegrator<1,1,1>>(
-                        //    GaussLegendreCellIntegrator<1,1,1>(),
-                        //    std::size_t(element_tag),
-                        //    element_node_pointers
-                        //  );
+                        //auto integrator = [](auto const &e) { /**integrate*/ };
+    
+                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; 
+
+                        domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
+                            std::move(integrator),
+                            std::size_t(element_tag),
+                            element_node_pointers
+                          );
 
                         break;
+                        }
                     default:
+                        {
                         //throw std::runtime_error("Element type not supported");
                         std::cout << "Element type "<< block.elementType <<" not supported" << std::endl;
                         break;
+                        }
                     }
                 }
             }
@@ -163,6 +169,9 @@ public:
         aggregate_elements();
     };
 };
+
+
+
 
 //class GmshDomainBuilder_3Dteste
 //{
