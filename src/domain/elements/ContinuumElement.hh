@@ -10,6 +10,8 @@
 template <typename MaterialPolicy>
 class ContinuumElement{
 
+    std::unique_ptr<ElementGeometry> element_;
+
 }; // Forward declaration
 
 
