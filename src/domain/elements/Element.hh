@@ -28,10 +28,11 @@ namespace impl
     public:
         virtual ~ElementConcept() = default;
         // virtual void do_action(/*Args.. args*/) const = 0;
-        /*
-                virtual double compute_integral(std::function<double(double)>)             const = 0;
-                virtual double compute_integral(std::function<double(geometry::Point<3>  )>) const = 0;
-                virtual double compute_integral(std::function<double(std::array<double,3>)>) const = 0;
+        
+        //virtual double compute_integral(std::function<double(double)>)             const = 0;
+        /*  
+        virtual double compute_integral(std::function<double(geometry::Point<3>  )>) const = 0;
+        virtual double compute_integral(std::function<double(std::array<double,3>)>) const = 0;      
         */
 
         virtual std::unique_ptr<ElementConcept> clone() const = 0;    // To allow copy construction of the wrapper
@@ -61,11 +62,6 @@ namespace impl
                 double compute_integral(std::function<double(geometry::Point<3>  )> F) const override {return integrator_(element_, F);};
                 double compute_integral(std::function<double(std::array<double,3>)> F) const override {return integrator_(element_, F);};
         */
-
-        //explicit OwningElementModel(ElementType element, IntegrationStrategy integrator) :
-        //    element_   (std::move(element   )),
-        //    integrator_(std::move(integrator))
-        //    {};
 
         explicit OwningElementModel(ElementType const &element, IntegrationStrategy const &integrator) : element_(element),
                                                                                                          integrator_(integrator) {};
