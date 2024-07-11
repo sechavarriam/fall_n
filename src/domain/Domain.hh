@@ -32,7 +32,7 @@
         std::size_t num_elements_{0};
 
         std::vector<Node<dim>>          nodes_;
-        std::vector<Element>            elements_;
+        std::vector<ElementGeometry>    elements_;
         std::vector<MaterialPoint<dim>> material_points_;
 
         //std::vector<Material> materials_;
@@ -46,7 +46,7 @@
         
 
         std::span<Node<dim>> nodes() { return std::span<Node<dim>>(nodes_); };
-        std::span<Element> elements(){ return std::span<Element>(elements_); };
+        std::span<ElementGeometry> elements(){ return std::span<ElementGeometry>(elements_); };
 
         // ===========================================================================================================
 
@@ -54,14 +54,14 @@
         //void make_element(IntegrationStrategy integrator,std::size_t tag, std::vector<Node<3>*> nodeAdresses)
         //{
         //    elements_.emplace_back(
-        //        Element(ElementType(tag,nodeAdresses),integrator));
+        //        ElementGeometry(ElementType(tag,nodeAdresses),integrator));
         //}
 
         template <typename ElementType, typename IntegrationStrategy>
         void make_element(IntegrationStrategy&& integrator, std::size_t&& tag, std::vector<Node<3>*> nodeAdresses)
         {
             elements_.emplace_back(
-                Element(
+                ElementGeometry(
                     ElementType(
                         std::forward<std::size_t>(tag),
                         std::forward<std::vector<Node<3>*>>(nodeAdresses)),
@@ -75,7 +75,7 @@
         //    std::ranges::range auto&& nodeAdresses)
         //{
         //    elements_.emplace_back(
-        //        Element(
+        //        ElementGeometry(
         //            ElementType{
         //                std::move(tag),
         //                std::forward<std::ranges::range auto>(nodeAdresses)
