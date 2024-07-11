@@ -21,6 +21,7 @@
 #include "LagrangeElement.hh"
 
 namespace impl
+
 { // Implementation details
 
     class ElementConcept
