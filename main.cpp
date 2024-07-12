@@ -20,7 +20,7 @@
 
 #include "src/domain/Node.hh"
 #include "src/domain/elements/ContinuumElement.hh"
-#include "src/domain/elements/Element.hh"
+#include "src/domain/elements/ElementGeometry.hh"
 #include "src/domain/elements/ElementBase.hh"
 #include "src/domain/elements/ContinuumElement.hh"
 #include "src/domain/elements/LagrangeElement.hh"
@@ -93,7 +93,13 @@ int main(int argc, char **args){
 PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     static constexpr int dim = 3;
+
     Domain<dim> D; //Domain Aggregator Object
+
+    Model<dim> M{D,3}; //Model Aggregator Object
+
+
+
 
     // Mesh File Location
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
@@ -105,13 +111,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         std::cout << "element " << id(element) << std::endl;
         print_nodes_info(element);
     }
-
-    //TestElement.reference_element_.print_node_coords();
-
-    
-    //auto volume = integrator(TestElement,one_);
-
-
 
     // Desired sintax
     //integrate(element,function);
@@ -129,11 +128,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //for(auto&& i:W_2D) std::cout << i << std::endl;
 
 
-
-/*
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
-
 
     Matrix A{dataA, 3,3};
     Vector x{data1};
@@ -144,7 +140,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
-*/
 
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();

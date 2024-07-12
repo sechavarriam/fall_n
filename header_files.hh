@@ -45,7 +45,7 @@
 #include "src/domain/IntegrationPoint.hh"
 
 
-#include "src/domain/elements/Element.hh"
+#include "src/domain/elements/ElementGeometry.hh"
 #include "src/domain/elements/ElementBase.hh"
 //#include "src/domain/elements/StructuralElement.h"
 //#include "src/domain/elements/LineElement.h"
