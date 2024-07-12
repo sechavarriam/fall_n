@@ -38,7 +38,7 @@
         //std::vector<Material> materials_;
 
     public:
-        std::size_t num_nodes() const { return num_nodes_; };
+        std::size_t num_nodes() const { return nodes_.size(); };
 
         // Getters
         Node<dim> *node_p(std::size_t i) { return &nodes_[i]; };

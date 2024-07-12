@@ -22,10 +22,10 @@ public:
     }
 
     void link_dofs_to_node(){
-        auto pos = dof_vector_.front();
+        auto pos = 0;
         for(auto& node : domain_->nodes()){
             for(auto& dof : node.dofs()){
-                dof = std::addressof(dof_vector_[++pos]);
+                dof = std::addressof(dof_vector_[pos++]);
             }
         }
     }
@@ -36,6 +36,10 @@ public:
         dof_vector_.resize(domain_->num_nodes()*num_dofs, 0.0); //Set capacity to avoid reallocation (and possible dangling pointers)
         set_default_num_dofs_per_node(num_dofs);           //Set default number of dofs per node in Dof_Interface
         link_dofs_to_node();                                //Link Dof_Interface to Node
+
+        //Fill for testing
+        auto idx = 0 ;
+        for(auto& dof : dof_vector_) dof = idx++;
     }
 
     Model() = delete;
