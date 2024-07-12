@@ -13,7 +13,6 @@
 
 #include "../../geometry/Topology.hh"
 
-#include "Element.hh"
 #include "../Node.hh"
 #include "../../numerics/numerical_integration/Quadrature.hh"
 

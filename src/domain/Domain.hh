@@ -13,7 +13,7 @@
 
 #include "../geometry/Topology.hh"
 #include "Node.hh"
-#include "elements/ElementBase.hh"
+#include "elements/ElementGeometry.hh"
 
 #include "../mesh/gmsh/ReadGmsh.hh"
 //#include "../mesh/gmsh/GmshDomainBuilder.hh"
@@ -50,13 +50,6 @@
 
         // ===========================================================================================================
 
-        //template <typename ElementType, typename IntegrationStrategy>
-        //void make_element(IntegrationStrategy integrator,std::size_t tag, std::vector<Node<3>*> nodeAdresses)
-        //{
-        //    elements_.emplace_back(
-        //        ElementGeometry(ElementType(tag,nodeAdresses),integrator));
-        //}
-
         template <typename ElementType, typename IntegrationStrategy>
         void make_element(IntegrationStrategy&& integrator, std::size_t&& tag, std::vector<Node<3>*> nodeAdresses)
         {
@@ -67,36 +60,6 @@
                         std::forward<std::vector<Node<3>*>>(nodeAdresses)),
                     std::forward<IntegrationStrategy>(integrator)));
         }   
-
-        //template <typename ElementType, typename IntegrationStrategy>
-        //void make_element(
-        //    IntegrationStrategy &&integrator,
-        //    std::size_t && tag,
-        //    std::ranges::range auto&& nodeAdresses)
-        //{
-        //    elements_.emplace_back(
-        //        ElementGeometry(
-        //            ElementType{
-        //                std::move(tag),
-        //                std::forward<std::ranges::range auto>(nodeAdresses)
-        //                },
-        //            std::forward<IntegrationStrategy>(integrator)
-        //            ));
-        //}
-
-        // template<typename ElementType,typename... Args>
-        // void make_element(Args&&... args){
-        //     elements_.emplace_back(ElementType{std::forward<Args>(args)...});
-        // };
-
-
-        //Node<dim>* add_node(std::size_t id, double&&... coords)
-        //{
-        //    nodes_.emplace_back(Node<dim>(id, std::forward<double>(coords)...));
-        //    ++num_nodes_;
-        //    return std::addressof(nodes_.back());
-        //};
-
 
         Node<dim>* add_node(Node<dim> &&node)
         {

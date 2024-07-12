@@ -4,13 +4,15 @@
 
 #include <memory>
 
-#include "Element.hh"
+#include "ElementGeometry.hh"
 #include "../../materials/Material.hh"
 
 template <typename MaterialPolicy>
 class ContinuumElement{
 
     std::unique_ptr<ElementGeometry> element_;
+
+
 
 }; // Forward declaration
 
