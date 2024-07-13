@@ -16,10 +16,14 @@ template<typename StrainType, typename ConstitutiveLaw>
 class IsotropicElasticMaterial{
     using State = ElasticMaterialState<StrainType>;
 
-    std::unique_ptr<State> state_;
+    std::unique_ptr<State>           state_;
     std::shared_ptr<ConstitutiveLaw> constitutive_law_;
 
   public:
+
+    static constexpr std::size_t num_strains = StrainType::num_components;
+
+
     void update_state(const StrainType& strain){state_->update_state(strain);};
     
     auto compute_stress(const StrainType& strain) const{
@@ -50,6 +54,6 @@ class IsotropicElasticMaterial{
 
 
 typedef IsotropicElasticMaterial<VoigtStrain<6>, ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
-typedef IsotropicElasticMaterial<VoigtStrain<1>, UniaxialIsotropicRelation>  UniaxialIsotropicElasticMaterial;
+typedef IsotropicElasticMaterial<VoigtStrain<1>, UniaxialIsotropicRelation > UniaxialIsotropicElasticMaterial;
 
 #endif // FALL_LINEAL_MATERIAL_ABSTRACTION_HH

@@ -98,7 +98,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
-    Model<dim> M{D,3}; //Model Aggregator Object
+
+    Model<LinealElastic3D,3> M{D}; //Model Aggregator Object
 
     //GmshDomainBuilder_3D domain_constructor(mesh_file);
     for (auto const& element : D.elements()){
@@ -134,6 +135,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+
+    //ContinuumElement<ContinuumIsotropicElasticMaterial> brick;
+
 
     //steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();

@@ -18,8 +18,8 @@ class ModelBuilder{
     //template<std::size_t D>
     //using Domain = Domain<D>;
 
-    Model <dim>* model_;
-    Domain<dim>* domain_; 
+    //Model <dim>* model_;
+    //Domain<dim>* domain_; 
 
     std::size_t default_num_dofs_{0}; //Default num_dofs for the nodes in the domain.
 
