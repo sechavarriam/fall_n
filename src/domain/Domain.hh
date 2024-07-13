@@ -45,7 +45,7 @@
         // Node<dim>  node  (std::size_t i){return nodes_[i];};
         
 
-        std::span<Node<dim>> nodes() { return std::span<Node<dim>>(nodes_); };
+        std::span<Node<dim>>       nodes()   { return std::span<Node<dim>>      (nodes_   ); };
         std::span<ElementGeometry> elements(){ return std::span<ElementGeometry>(elements_); };
 
         // ===========================================================================================================

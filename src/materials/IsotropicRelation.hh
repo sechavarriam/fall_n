@@ -6,7 +6,7 @@
 #include "LinealRelation.hh"
 
 class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtStrain<6>> {
-    
+ 
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
     double E_{0.0};
     double v_{0.0};

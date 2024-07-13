@@ -16,11 +16,15 @@
 
 //Some concept
 template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Plane, etc. 
-class LinealRelation{
-
-    static constexpr std::size_t num_stresses_     = StressPolicy::num_components;
+class LinealRelation
+  {
+  public:
+    static constexpr std::size_t dim               = StrainPolicy::dim;
     static constexpr std::size_t num_strains_      = StrainPolicy::num_components;
+    static constexpr std::size_t num_stresses_     = StressPolicy::num_components;
     static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
+
+  private:
 
     std::array<double, total_parameters_> compliance_parameters_{0.0};
 
@@ -35,13 +39,13 @@ class LinealRelation{
     };
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
-
-
+  
+  
     void print_constitutive_parameters(){
         std::cout << "Elasticity Tensor Components: " << std::endl;
         compliance_matrix.print_content();
     };
-
+  
     constexpr LinealRelation(){compliance_parameters_.fill(0.0);};
     constexpr ~LinealRelation() = default;
 };
@@ -71,6 +75,7 @@ class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{
     constexpr  LinealRelation() = default;
     constexpr ~LinealRelation() = default;
 };
+
 
 //typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
 //typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;

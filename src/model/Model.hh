@@ -5,49 +5,64 @@
 #include <memory>
 
 #include "../domain/Domain.hh"
+#include "../materials/LinealRelation.hh"
 
-template<std::size_t dim> //Revisar como hacer un Wrapper para evitarse este parámetro.
-class Model {
-private:
+// https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
+
+using LinealElastic3D = LinealRelation<VoigtStress<6>, VoigtStrain<6>>;
+using LinealElastic2D = LinealRelation<VoigtStress<3>, VoigtStrain<3>>;
+using LinealElastic1D = LinealRelation<VoigtStress<1>, VoigtStrain<1>>;
+
+// The MaterialPolicy defines the constitutive relation and the number of dimensions
+template <typename MaterialPolicy, std::size_t ndofs = MaterialPolicy::dim>
+class Model
+{
+
 public:
+    static constexpr std::size_t dim{MaterialPolicy::dim};
 
-    Domain<dim>* domain_; 
+private:
+    Domain<dim> *domain_;
+    std::size_t dofsXnode{ndofs};
+public:
+    
 
-    std::size_t dofsXnode{0};
-    std::vector<double>  dof_vector_; 
+    std::vector<double> dof_vector_;
 
-
-    void set_default_num_dofs_per_node(std::size_t n){
-        for(auto& node : domain_->nodes()) node.set_num_dof(n);
+    void set_default_num_dofs_per_node(std::size_t n)
+    {
+        for (auto &node : domain_->nodes())
+            node.set_num_dof(n);
     }
 
-    void link_dofs_to_node(){
+    void link_dofs_to_node()
+    {
         auto pos = 0;
-        for(auto& node : domain_->nodes()){
-            for(auto& dof : node.dofs()){
+        for (auto &node : domain_->nodes())
+        {
+            for (auto &dof : node.dofs())
+            {
                 dof = std::addressof(dof_vector_[pos++]);
             }
         }
     }
 
-
-    Model(Domain<dim>& domain, std::size_t num_dofs) : domain_(std::addressof(domain)), dofsXnode(num_dofs)
+    Model(Domain<dim> &domain) : domain_(std::addressof(domain))
     {
-        dof_vector_.resize(domain_->num_nodes()*num_dofs, 0.0); //Set capacity to avoid reallocation (and possible dangling pointers)
-        set_default_num_dofs_per_node(num_dofs);           //Set default number of dofs per node in Dof_Interface
-        link_dofs_to_node();                                //Link Dof_Interface to Node
+        dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers)
+        set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
+        link_dofs_to_node();                                   // Link Dof_Interface to Node
 
-        //Fill for testing
-        auto idx = 0 ;
-        for(auto& dof : dof_vector_) dof = idx++;
+        // Fill for testing
+        auto idx = 0;
+        for (auto &dof : dof_vector_)
+            dof = idx++;
     }
 
     Model() = delete;
     ~Model() = default;
-    
 
     // Other members
 };
 
 #endif // FALL_N_MODEL_HH
-

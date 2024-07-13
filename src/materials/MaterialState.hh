@@ -16,6 +16,8 @@
 template<typename T>
 class MaterialState{
     private:
+
+
         std::unique_ptr<T> state_variable_; // Pointer to state variable in the domain (DOF, Integration Point, etc.)
 
     public:
