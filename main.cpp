@@ -94,34 +94,23 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-    static constexpr int dim = 3;
+    static constexpr int dim  = 3;
+    static constexpr int ndof = 3; 
 
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
+    Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
+    //          ^            
+    //          | 
+    //    Constitutive Relation Type (Policy) and Dimension implicitly.
 
-    Model<LinealElastic3D,3> M{D}; //Model Aggregator Object
 
-    //GmshDomainBuilder_3D domain_constructor(mesh_file);
-    for (auto const& element : D.elements()){
-        std::cout << "element " << id(element) << std::endl;
-        print_nodes_info(element);
-    }
 
-    // Desired sintax
-    //integrate(element,function);
-    // ó
-    //element.integrate(function);
 
-     //std::function<double(double)> Fn = [](double x){return x*x;};
-    //for (int i = 0; ++i, i<10;)std::cout << i << ' ' << Fn(i) << std::endl;
-    //constexpr short order = 15;
-    //Quadrature<1,order> GaussOrder3(GaussLegendre::Weights1D<order>(),GaussLegendre::evalPoints1D<order>());
-    //std::cout << GaussOrder3([](double x){return x*x;}) << std::endl;
-    //std::cout << GaussOrder3(Fn) << std::endl;
-    //std::cout << "____________________________" << std::endl;
-    //auto W_2D = GaussLegendre::Weights<1,3>();
-    //for(auto&& i:W_2D) std::cout << i << std::endl;
-
+    //for (auto const& element : D.elements()){
+    //    std::cout << "element " << id(element) << std::endl;
+    //    print_nodes_info(element);
+    //}
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
@@ -134,14 +123,13 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     UniaxialIsotropicRelation  steel1D{200.0};
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
-    //UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+    UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
 
-    //ContinuumElement<ContinuumIsotropicElasticMaterial> brick;
-
-
-    //steel_mat3D.print_material_parameters();
-    //steel_mat1D.print_material_parameters();
+    steel_mat3D.print_material_parameters();
+    steel_mat1D.print_material_parameters();
     
+    ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
+
     //auto integrationScheme = [](auto const & e){/**integrate*/};
     //Element test1{ElementBase<dim,10,42>{1, {1,2,3,4,5,6,7,8,9,10}}, integrationScheme};
 

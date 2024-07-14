@@ -11,20 +11,43 @@
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 
 
-template <typename MaterialType>
+template <typename MaterialType, std::size_t ndof>
 class ContinuumElement{
 
-    std::unique_ptr<ElementGeometry> element_;
+    static constexpr auto dim         = MaterialType::dim;
+    static constexpr auto num_strains = MaterialType::num_strains;
 
-    //std::array<double, MaterialType::num_dofs> H_storage_;
-    std::array<double, 8> B_storage_;
+    ElementGeometry* geometry_;
 
+    std::array<double, ndof*ndof> K_{0.0}; // Stiffness Matrix data
+    
+  public:
 
-    public:
+    constexpr auto num_nodes()   const noexcept {return geometry_->num_nodes();};
 
-    Matrix H; // Displacement Interpolation Matriz Evaluation
-    Matrix B; // Strain Displacement Matrix
+    auto H(/*const geometry::Point<dim>& X*/) const noexcept {
+      Matrix H{ndof, num_nodes()*dim};
+      
+      return H;
+      };
 
+    auto B(/*const geometry::Point<dim>& X*/) const noexcept {
+      Matrix B{num_strains, num_nodes()*dim};
+      
+      return B;
+      };
+
+    void compute_stiffness_matrix(){
+        // Compute stiffness matrix
+        // K_ = B^T * D * B * det(J)
+    };
+
+    // CONSTRUCTOR
+
+    ContinuumElement() = delete;
+
+    ContinuumElement(ElementGeometry* geometry) : geometry_{geometry} 
+    {};
 
 
 

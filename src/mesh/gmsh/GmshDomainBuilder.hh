@@ -61,9 +61,8 @@ public:
 
                 for (auto &[element_tag, node_tags] : block.elementTags)
                 {
-                    for (auto &tag : node_tags) std::cout << tag << " ";
-                    std::cout << std::endl;
 
+                    
                     std::vector<Node<3> *> elem_nodes;
                     elem_nodes.reserve(node_tags.size());
 
