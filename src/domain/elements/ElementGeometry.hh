@@ -44,6 +44,9 @@ namespace impl
         constexpr virtual void print_nodes_info() const = 0;
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
+
+        constexpr virtual double H(std::size_t i, const geometry::Point<3> &X) const = 0;
+
         // constexpr virtual void set_num_dofs() const = 0;
     };
 
@@ -85,7 +88,9 @@ namespace impl
         constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
         constexpr std::size_t id()        const override { return element_.id(); };
         constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
-        // void set_material_integrator() const override {element_.set_material_integrator();};
+
+        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { return element_.H(i, X); };
+        
     };
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -123,6 +128,8 @@ namespace impl
         constexpr std::size_t id()        const override { return element_->id(); };
         constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
 
+        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { return element_->H(i, X); };
+
         // void set_material_integrator() const override {element_->set_material_integrator();};
         // std::size_t const* nodes() const override {return element_->nodes();};
     };
@@ -141,6 +148,12 @@ class ElementGeometryConstRef
     impl::ElementGeometryConcept const *pimpl() const { return reinterpret_cast<impl::ElementGeometryConcept const *>(raw_.data()); };
 
 public:
+
+    constexpr std::size_t id()        const { return pimpl()->id(); };
+    constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
+
+    constexpr double H(std::size_t i, const geometry::Point<3> &X) const { return pimpl()->H(i, X);};
+
     template <typename ElementType, typename IntegrationStrategy>
     ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
     {
@@ -192,8 +205,11 @@ class ElementGeometry
 
 public:
 
+
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
+
+    constexpr double H(std::size_t i, const geometry::Point<3> &X) const { return pimpl_->H(i, X);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
