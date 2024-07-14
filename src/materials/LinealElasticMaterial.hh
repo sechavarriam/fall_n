@@ -14,20 +14,20 @@ class LinealElasticMaterial{};
 
 template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
-    
+
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;
-
-
     using State = ElasticMaterialState<StrainType>;
 
+  public:  
+    static constexpr std::size_t dim         = StrainType::dim;
+    static constexpr std::size_t num_strains = StrainType::num_components;
+
+  private:
     std::unique_ptr<State>                state_;
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
-
-    static constexpr std::size_t num_strains = StrainType::num_components;
-
 
     void update_state(const StrainType& strain){state_->update_state(strain);};
     
@@ -50,12 +50,6 @@ class IsotropicElasticMaterial{
         constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
         {}
 };
-
-
-//inline void IsotropicElasticMaterial::print_material_parameters() const{
-//    std::cout << "Elasticity tensor: " << std::endl;
-//    std::cout << constitutive_law_->compliance_matrix << std::endl;
-//};
 
 
 typedef IsotropicElasticMaterial<ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;

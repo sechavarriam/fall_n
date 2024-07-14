@@ -188,13 +188,15 @@ class ElementGeometry
     friend class ElementGeometryConstRef;
     std::unique_ptr<impl::ElementGeometryConcept> pimpl_; // Bridge to implementation details (compiler generated).
 
-    std::size_t id() const { return pimpl_->id(); };
-    std::size_t num_nodes() const { return pimpl_->num_nodes(); };
-    std::size_t num_dofs() const { return num_nodes() * 3; };
+
 
 public:
+
+    constexpr std::size_t id()        const { return pimpl_->id(); };
+    constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
+
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
-    ElementGeometry(ElementType element, IntegrationStrategy integrator)
+    constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
     {
         using Model = impl::OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
         pimpl_ = std::make_unique<Model>(
@@ -212,9 +214,9 @@ public:
         return *this;
     };
 
-    ~ElementGeometry() = default;
-    ElementGeometry(ElementGeometry &&) = default;
-    ElementGeometry &operator=(ElementGeometry &&) = default;
+    constexpr ~ElementGeometry() = default;
+    constexpr ElementGeometry(ElementGeometry &&) = default;
+    constexpr ElementGeometry &operator=(ElementGeometry &&) = default;
 
 private:
     // -----------------------------------------------------------------------------------------------

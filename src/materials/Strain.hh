@@ -22,37 +22,17 @@ concept StrainRange = std::ranges::range<T> && requires(T s) {
 template <typename R, typename V>
 concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
-/*
-template <typename StrainPolicy>
-class CauchyStrain
-{
-private:
-    StrainPolicy strain{};
-
-public:
-    CauchyStrain() {};
-    ~CauchyStrain() {};
-};
-*/
-
-
 template <std::size_t N>
     requires(N > 0)
 class VoigtStrain
 {
 
 public:
-    static constexpr std::size_t dim{[]()
-                                     {
-                                         if constexpr (N == 1)
-                                             return 1;
-                                         else if constexpr (N == 3)
-                                             return 2;
-                                         else if constexpr (N == 6)
-                                             return 3;
-                                         else
-                                             return 0;
-                                     }()};
+    static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
+                                          else if constexpr (N == 3) return 2;
+                                          else if constexpr (N == 6) return 3;
+                                          else                       return 0; 
+                                          }()};
 
 private:
     std::array<double, N> component_;

@@ -15,7 +15,10 @@ using LinealElastic2D = LinealRelation<VoigtStress<3>, VoigtStrain<3>>;
 using LinealElastic1D = LinealRelation<VoigtStress<1>, VoigtStrain<1>>;
 
 // The MaterialPolicy defines the constitutive relation and the number of dimensions
-template <typename MaterialPolicy, std::size_t ndofs = MaterialPolicy::dim>
+template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 
+    typename MaterialPolicy,                 //Constitutive relation (e.g. LinealRelation, NeoHookeanRelation, PlasticRelation)
+    std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
+    >
 class Model
 {
 
@@ -27,7 +30,6 @@ private:
     std::size_t dofsXnode{ndofs};
 public:
     
-
     std::vector<double> dof_vector_;
 
     void set_default_num_dofs_per_node(std::size_t n)

@@ -32,6 +32,10 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     public:
 
+    bool owns_matrix{true};
+
+
+
     friend std::integral auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
     friend Vector             linalg::mat_vec_mult(const Matrix& A, const Vector& x);
 
@@ -88,18 +92,21 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     Matrix(PETSc_DENSE_SEQ_Matrix mat): mat_(std::move(mat)){};
 
     Matrix(PetscInt rows, PetscInt cols){
-        MatCreateSeqDense(PETSC_COMM_SELF, rows, cols, nullptr, &mat_);
+        MatCreateSeqDense(PETSC_COMM_SELF, rows, cols, PETSC_NULLPTR, &mat_);
     };
     
     Matrix(PetscScalar* data, PetscInt rows, PetscInt cols){
+        owns_matrix = false;
         MatCreateSeqDense(PETSC_COMM_SELF, rows, cols, data, &mat_);
     };
     
     Matrix(std::ranges::contiguous_range auto const& data, PetscInt extent1, PetscInt extent2){
+        owns_matrix = false;
         MatCreateSeqDense(PETSC_COMM_SELF, extent1, extent2, std::to_address(data.begin()), &mat_);
     };
     
     Matrix(std::ranges::contiguous_range auto&& data, PetscInt extent1, PetscInt extent2){
+        owns_matrix = false;
         MatCreateSeqDense(PETSC_COMM_SELF, extent1, extent2, std::to_address(data.begin()), &mat_);
     };
     
