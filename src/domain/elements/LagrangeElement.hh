@@ -91,6 +91,20 @@ public:
     }
   };
 
+
+  double H(std::size_t i, const geometry::Point<dim>& X) const noexcept {
+    return reference_element_.basis.shape_function(i)(X.coord());
+  };
+
+
+  //auto evaluate_shape_functions(const geometry::Point<dim>& X) const noexcept {
+  //  std::array<double, num_nodes_> H{0.0};
+  //  for (std::size_t i = 0; i < num_nodes_; ++i) {
+  //    H[i] = reference_element_.basis.shape_function(i)(X.coord());
+  //  }
+  //  return H;
+  //};
+
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
     JacobianMatrix J{{{0}}};
