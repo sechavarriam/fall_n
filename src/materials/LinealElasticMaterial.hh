@@ -12,12 +12,17 @@
 
 class LinealElasticMaterial{};
 
-template<typename StrainType, typename ConstitutiveLaw>
+template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
+    
+    using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
+    using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;
+
+
     using State = ElasticMaterialState<StrainType>;
 
-    std::unique_ptr<State>           state_;
-    std::shared_ptr<ConstitutiveLaw> constitutive_law_;
+    std::unique_ptr<State>                state_;
+    std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
@@ -42,7 +47,7 @@ class IsotropicElasticMaterial{
     template<std::floating_point... Args>
     IsotropicElasticMaterial(Args... args) : 
         state_{std::make_unique<State>()},
-        constitutive_law_{std::make_shared<ConstitutiveLaw>(std::forward<Args>(args)...)}
+        constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
         {}
 };
 
@@ -53,7 +58,7 @@ class IsotropicElasticMaterial{
 //};
 
 
-typedef IsotropicElasticMaterial<VoigtStrain<6>, ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
-typedef IsotropicElasticMaterial<VoigtStrain<1>, UniaxialIsotropicRelation > UniaxialIsotropicElasticMaterial;
+typedef IsotropicElasticMaterial<ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
+typedef IsotropicElasticMaterial<UniaxialIsotropicRelation > UniaxialIsotropicElasticMaterial;
 
 #endif // FALL_LINEAL_MATERIAL_ABSTRACTION_HH

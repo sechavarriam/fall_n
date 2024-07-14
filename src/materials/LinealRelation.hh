@@ -14,14 +14,18 @@
 #include "../numerics/linear_algebra/Matrix.hh"
 #include "../utils/index.hh"
 
-//Some concept
-template<Stress StressPolicy, Strain StrainPolicy> //Continuum, Plane, etc. 
+
+template<Stress StressType, Strain StrainType> //requires (/*operations well defined*/) <---- TODO
 class LinealRelation
   {
-  public:
-    static constexpr std::size_t dim               = StrainPolicy::dim;
-    static constexpr std::size_t num_strains_      = StrainPolicy::num_components;
-    static constexpr std::size_t num_stresses_     = StressPolicy::num_components;
+    public:
+
+    static constexpr auto StrainID()->StrainType {std::unreachable();};
+    static constexpr auto StressID()->StressType {std::unreachable();};
+
+    static constexpr std::size_t dim               = StrainType::dim;
+    static constexpr std::size_t num_strains_      = StrainType::num_components;
+    static constexpr std::size_t num_stresses_     = StressType::num_components;
     static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
 
   private:
@@ -30,23 +34,23 @@ class LinealRelation
 
   public:
 
-    void compute_stress(const StrainPolicy& strain, StressPolicy& stress){
+    Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
+
+
+    void compute_stress(const StrainType& strain, StressType& stress){
         stress.tensor = compliance_matrix*strain.tensor;
     };
     
-    constexpr inline void set_parameter(std::size_t i, std::size_t j, double value){
+    constexpr void set_parameter(std::size_t i, std::size_t j, double value){
         compliance_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
     };
 
-    Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
-  
-  
     void print_constitutive_parameters(){
         std::cout << "Elasticity Tensor Components: " << std::endl;
         compliance_matrix.print_content();
     };
   
-    constexpr LinealRelation(){compliance_parameters_.fill(0.0);};
+    constexpr LinealRelation(){};
     constexpr ~LinealRelation() = default;
 };
 
@@ -54,6 +58,8 @@ class LinealRelation
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ 
+
+  private:
 
     double E_{0.0}; // E
 

@@ -134,7 +134,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     UniaxialIsotropicRelation  steel1D{200.0};
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
-    UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+    //UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
 
     //ContinuumElement<ContinuumIsotropicElasticMaterial> brick;
 

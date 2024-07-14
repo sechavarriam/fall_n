@@ -22,6 +22,7 @@ concept StrainRange = std::ranges::range<T> && requires(T s) {
 template <typename R, typename V>
 concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
+/*
 template <typename StrainPolicy>
 class CauchyStrain
 {
@@ -32,6 +33,8 @@ public:
     CauchyStrain() {};
     ~CauchyStrain() {};
 };
+*/
+
 
 template <std::size_t N>
     requires(N > 0)

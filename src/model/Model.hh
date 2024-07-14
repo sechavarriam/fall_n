@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 
 #include "../domain/Domain.hh"
 #include "../materials/LinealRelation.hh"
