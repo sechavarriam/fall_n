@@ -86,6 +86,9 @@ public:
 template <>
 class VoigtStrain<1>
 {
+public:
+    static constexpr std::size_t dim{1};
+
 private:
     double component_{0.0};
 
