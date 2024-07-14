@@ -58,6 +58,18 @@ class LinealRelation
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ 
+  using StrainType = VoigtStrain<1>;
+  using StressType = VoigtStress<1>;
+
+  public:
+
+    static constexpr auto StrainID()->StrainType {return StrainType();};
+    static constexpr auto StressID()->StressType {return StressType();};
+
+    static constexpr std::size_t dim               = StrainType::dim;
+    static constexpr std::size_t num_strains_      = StrainType::num_components;
+    static constexpr std::size_t num_stresses_     = StressType::num_components;
+    static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
 
   private:
 
