@@ -23,18 +23,37 @@ namespace linalg{
     Vector             mat_vec_mult(const Matrix& A, const Vector& x);
 
 } //namespace linalg
+
+
 class Matrix // Wrapper Around PETSc DenseMatrix
 {
     using PETSc_DENSE_SEQ_Matrix = Mat;
     
     private:
-    PETSc_DENSE_SEQ_Matrix mat_;
-    
     public:
+    
+    Mat mat_;
+    bool assembly_mode_on{false};
 
+    
     bool owns_matrix{true};
 
+    //Wrapper for inserting values.
 
+    void assembly_begin(MatAssemblyType assembly_mode= MAT_FINAL_ASSEMBLY){
+        PetscCallVoid(MatAssemblyBegin(mat_, assembly_mode));
+        assembly_mode_on = true;
+    };
+
+    void assembly_end(MatAssemblyType assembly_mode= MAT_FINAL_ASSEMBLY){
+        PetscCallVoid(MatAssemblyEnd(mat_, assembly_mode));
+        assembly_mode_on = false;
+    };
+
+
+    void insert_values(PetscInt row, PetscInt col, PetscScalar value, InsertMode insert_mode = INSERT_VALUES){
+        PetscCallVoid(MatSetValue     (mat_, row, col, value, insert_mode));
+    };
 
     friend std::integral auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
     friend Vector             linalg::mat_vec_mult(const Matrix& A, const Vector& x);

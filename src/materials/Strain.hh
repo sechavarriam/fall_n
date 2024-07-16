@@ -22,11 +22,8 @@ concept StrainRange = std::ranges::range<T> && requires(T s) {
 template <typename R, typename V>
 concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
-template <std::size_t N>
-    requires(N > 0)
-class VoigtStrain
-{
-
+template <std::size_t N> requires(N > 0)
+class VoigtStrain{
 public:
     static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
                                           else if constexpr (N == 3) return 2;
@@ -34,55 +31,48 @@ public:
                                           else                       return 0; 
                                           }()};
 
+    static constexpr std::size_t num_components{N};
+
 private:
-    std::array<double, N> component_;
+    std::array<double, N> component_{0};
 
 public:
-    static constexpr std::size_t num_components = N;
-
     Vector tensor{component_};
 
     constexpr std::span<const double, N> get_strain() const { return component_; };
-    constexpr std::floating_point auto get_stain(std::size_t i) const { return component_[i]; };
+    constexpr std::floating_point auto   get_strain(std::size_t i) const { return component_[i]; };
 
-    template <typename... S>
-        requires(sizeof...(S) == N)
-    constexpr void set_strain(S... s)
-    {
+    template <typename... S> requires(sizeof...(S) == N)
+    constexpr void set_strain(S... s){
         std::size_t i{0};
         ((component_[++i] = s), ...);
     }
 
-    template <typename... S>
-        requires(sizeof...(S) == N)
-    VoigtStrain(S... s) : component_{s...}
-    {
-    }
+    template <typename... S> requires(sizeof...(S) == N)
+    constexpr VoigtStrain(S... s) : component_{s...}{}
 
-    VoigtStrain() = default;
-    ~VoigtStrain() = default;
+    constexpr  VoigtStrain() = default;
+    constexpr ~VoigtStrain() = default;
 };
 
 template <>
-class VoigtStrain<1>
-{
+class VoigtStrain<1>{
 public:
     static constexpr std::size_t dim{1};
+    static constexpr std::size_t num_components = 1;
 
 private:
     double component_{0.0};
 
 public:
-    static constexpr std::size_t num_components = 1;
-
     double tensor{component_};
 
     constexpr void set_strain(double e) { component_ = e; };
-
     constexpr std::floating_point auto get_strain() const { return component_; };
 
-    VoigtStrain() = default;
-    ~VoigtStrain() = default;
+    constexpr  VoigtStrain() = default;
+    constexpr ~VoigtStrain() = default;
 };
 
 #endif
+

@@ -92,8 +92,12 @@ public:
   };
 
 
-  double H(std::size_t i, const geometry::Point<dim>& X) const noexcept {
+  constexpr double H(std::size_t i, const geometry::Point<dim>& X) const noexcept {
     return reference_element_.basis.shape_function(i)(X.coord());
+  };
+
+  constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<dim>& X) const noexcept {
+    return reference_element_.basis.shape_function_derivative(i, j)(X.coord());
   };
 
 
