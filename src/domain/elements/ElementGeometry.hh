@@ -45,8 +45,8 @@ namespace impl
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
 
-        constexpr virtual double H(std::size_t i, const geometry::Point<3> &X) const = 0;
-
+        constexpr virtual double H    (std::size_t i,                const geometry::Point<3> &X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const = 0;
         // constexpr virtual void set_num_dofs() const = 0;
     };
 
@@ -89,7 +89,12 @@ namespace impl
         constexpr std::size_t id()        const override { return element_.id(); };
         constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { return element_.H(i, X); };
+        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override {
+             return element_.H(i, X); 
+             };
+        constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const override {
+             return element_.dH_dx(i, j, X); 
+             };
         
     };
 
@@ -128,7 +133,13 @@ namespace impl
         constexpr std::size_t id()        const override { return element_->id(); };
         constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { return element_->H(i, X); };
+        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { 
+            return element_->H(i, X); 
+            };
+
+        constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const override {
+            return element_->dH_dx(i, j, X); 
+            };
 
         // void set_material_integrator() const override {element_->set_material_integrator();};
         // std::size_t const* nodes() const override {return element_->nodes();};
@@ -152,7 +163,14 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr double H(std::size_t i, const geometry::Point<3> &X) const { return pimpl()->H(i, X);};
+    constexpr double H(std::size_t i, const geometry::Point<3> &X) const {
+         return pimpl()->H(i, X);
+    };
+    
+    constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const {
+         return pimpl()->dH_dx(i, j, X);
+    };
+
 
     template <typename ElementType, typename IntegrationStrategy>
     ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
@@ -210,6 +228,7 @@ public:
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr double H(std::size_t i, const geometry::Point<3> &X) const { return pimpl_->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const { return pimpl_->dH_dx(i, j, X);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
@@ -258,5 +277,8 @@ private:
 
 inline ElementGeometryConstRef ::ElementGeometryConstRef(ElementGeometry &other) { other.pimpl_->clone(pimpl()); };
 inline ElementGeometryConstRef ::ElementGeometryConstRef(ElementGeometry const &other) { other.pimpl_->clone(pimpl()); };
+
+
+
 
 #endif // FN_ELEMENT_H
