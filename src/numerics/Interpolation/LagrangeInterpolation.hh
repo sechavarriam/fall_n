@@ -172,14 +172,9 @@ namespace interpolation
           return std::get<0>(L).derivative(md_index[0])(x); // TODO:Revisar
         }
         else{
-
-          //std::cout << "i = " << i << std::endl;
-          //std::cout << "j = " << j << std::endl;
-          //std::cout << "md_index: "; for(auto index : md_index) std::cout << index << " "; std::cout << std::endl;
-
-          return [&]<std::size_t... I>(std::index_sequence<I...>)
-          {
-            return (((I != J) ? std::invoke(std::get<I>(L)[md_index[I]], x[I]) : std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
+          return [&]<std::size_t... I>(std::index_sequence<I...>){
+            return (((I != J) ? std::invoke(std::get<I>(L)           [md_index[I]], x[I]) :
+                                std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
           }(std::make_index_sequence<dim>{});
         }
       };
