@@ -35,13 +35,9 @@ public:
   auto B(const Array &X)
   {
     Matrix B{num_strains, num_nodes() * dim};
-
     B.assembly_begin();
 
-    if constexpr (dim == 1)
-    {
-      std::runtime_error("1D not implemented yet in ContinuumElement");
-    }
+    if      constexpr (dim == 1) std::runtime_error("1D material not implemented yet for ContinuumElement.");
     else if constexpr (dim == 2)
     {
       // Ordering defined acoording to Voigt notation [11, 22, 12]

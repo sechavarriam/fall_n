@@ -45,8 +45,8 @@ namespace impl
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
 
-        constexpr virtual double H    (std::size_t i,                const geometry::Point<3> &X) const = 0;
-        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const = 0;
+        constexpr virtual double H    (std::size_t i,                const std::array<double, 3> &X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const = 0;
         // constexpr virtual void set_num_dofs() const = 0;
     };
 
@@ -89,10 +89,10 @@ namespace impl
         constexpr std::size_t id()        const override { return element_.id(); };
         constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override {
+        constexpr double H(std::size_t i, const std::array<double, 3> &X) const override {
              return element_.H(i, X); 
              };
-        constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const override {
+        constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const override {
              return element_.dH_dx(i, j, X); 
              };
         
@@ -133,11 +133,11 @@ namespace impl
         constexpr std::size_t id()        const override { return element_->id(); };
         constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const geometry::Point<3> &X) const override { 
+        constexpr double H(std::size_t i, const std::array<double, 3> &X) const override { 
             return element_->H(i, X); 
             };
 
-        constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const override {
+        constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const override {
             return element_->dH_dx(i, j, X); 
             };
 
@@ -163,11 +163,11 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr double H(std::size_t i, const geometry::Point<3> &X) const {
+    constexpr double H(std::size_t i, const std::array<double, 3> &X) const {
          return pimpl()->H(i, X);
     };
     
-    constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const {
+    constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X ) const {
          return pimpl()->dH_dx(i, j, X);
     };
 
@@ -227,8 +227,8 @@ public:
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
-    constexpr double H(std::size_t i, const geometry::Point<3> &X) const { return pimpl_->H(i, X);};
-    constexpr double dH_dx(std::size_t i, std::size_t j, const geometry::Point<3> &X) const { return pimpl_->dH_dx(i, j, X);};
+    constexpr double H(std::size_t i, const std::array<double, 3> &X) const { return pimpl_->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j,const std::array<double, 3> &X) const { return pimpl_->dH_dx(i, j, X);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
