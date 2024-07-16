@@ -23,12 +23,56 @@ class ContinuumElement
   // std::array<double, ndof*ndof> K_{0.0}; // Stiffness Matrix data
 
 public:
-  constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
-  auto H(/*const geometry::Point<dim>& X*/) const noexcept
+  constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
+  auto H(const Array& X) const noexcept
   {
     Matrix H{ndof, num_nodes() * dim};
+    H.assembly_begin();
 
+    if constexpr (dim == 1)
+    {
+      for (std::size_t i = 0; i < num_nodes(); ++i)
+      {
+        H.insert_values(0, i, geometry_->H(i, X));
+      }
+    }
+    else if constexpr (dim == 2)
+    {
+      auto k = 0;
+      for (std::size_t i = 0; i < num_nodes(); ++i)
+      {
+        H.insert_values(0, k, geometry_->H(i, X));
+        H.insert_values(0, k + 1, 0.0);
+
+        H.insert_values(1, k, 0.0);
+        H.insert_values(1, k + 1, geometry_->H(i, X));
+
+        k += dim;
+      }
+    }
+    else if constexpr (dim == 3)
+    {
+      auto k = 0;
+      for (std::size_t i = 0; i < num_nodes(); ++i)
+      {
+        H.insert_values(0, k, geometry_->H(i, X));
+        H.insert_values(0, k + 1, 0.0);
+        H.insert_values(0, k + 2, 0.0);
+
+        H.insert_values(1, k, 0.0);
+        H.insert_values(1, k + 1, geometry_->H(i, X));
+        H.insert_values(1, k + 2, 0.0);
+
+        H.insert_values(2, k, 0.0);
+        H.insert_values(2, k + 1, 0.0);
+        H.insert_values(2, k + 2, geometry_->H(i, X));
+
+        k += dim;
+      }
+    }
+
+    H.assembly_end();
     return H;
   };
 
@@ -44,14 +88,14 @@ public:
       auto k = 0;
       for (std::size_t i = 0; i < num_nodes(); ++i)
       {
-        B.insert_values(0, k    , geometry_->dH_dx(i, 0, X[0]));
+        B.insert_values(0, k    , geometry_->dH_dx(i, 0, X));
         B.insert_values(0, k + 1, 0.0);
 
         B.insert_values(1, k    , 0.0);
-        B.insert_values(1, k + 1, geometry_->dH_dx(i, 1, X[1]));
+        B.insert_values(1, k + 1, geometry_->dH_dx(i, 1, X));
 
-        B.insert_values(2, k    , 2*geometry_->dH_dx(i, 1, X[1]));
-        B.insert_values(2, k + 1, 2*geometry_->dH_dx(i, 0, X[0]));
+        B.insert_values(2, k    , 2*geometry_->dH_dx(i, 1, X));
+        B.insert_values(2, k + 1, 2*geometry_->dH_dx(i, 0, X));
 
         k += dim;
       }
@@ -62,29 +106,29 @@ public:
       for (std::size_t i = 0; i < num_nodes(); ++i)
       {
           // Ordering defined acoording to Voigt notation [11, 22, 33, 32, 31, 12]
-          B.insert_values(0, k  , geometry_->dH_dx(i, 0, X[0]));
+          B.insert_values(0, k  , geometry_->dH_dx(i, 0, X));
           B.insert_values(0, k+1, 0.0);
           B.insert_values(0, k+2, 0.0);
 
           B.insert_values(1, k  , 0.0);
-          B.insert_values(1, k+1, geometry_->dH_dx(i, 1, X[1]));
+          B.insert_values(1, k+1, geometry_->dH_dx(i, 1, X));
           B.insert_values(1, k+2, 0.0);
 
           B.insert_values(2, k  , 0.0);
           B.insert_values(2, k+1, 0.0);
-          B.insert_values(2, k+2, geometry_->dH_dx(i, 2, X[2]));
+          B.insert_values(2, k+2, geometry_->dH_dx(i, 2, X));
 
           B.insert_values(3, k  , 0.0);
-          B.insert_values(3, k+1, 2*geometry_->dH_dx(i, 2, X[1]));
-          B.insert_values(3, k+2, 2*geometry_->dH_dx(i, 1, X[2]));
+          B.insert_values(3, k+1, 2*geometry_->dH_dx(i, 2, X));
+          B.insert_values(3, k+2, 2*geometry_->dH_dx(i, 1, X));
 
-          B.insert_values(4, k  , 2*geometry_->dH_dx(i, 2, X[0]));
+          B.insert_values(4, k  , 2*geometry_->dH_dx(i, 2, X));
           B.insert_values(4, k+1, 0.0);
-          B.insert_values(4, k+2, 2*geometry_->dH_dx(i, 0, X[2]));
+          B.insert_values(4, k+2, 2*geometry_->dH_dx(i, 0, X));
 
           B.insert_values(5, k  , 0.0);
-          B.insert_values(5, k+1, 2*geometry_->dH_dx(i, 0, X[1]));
-          B.insert_values(5, k+2, 2*geometry_->dH_dx(i, 1, X[0]));
+          B.insert_values(5, k+1, 2*geometry_->dH_dx(i, 0, X));
+          B.insert_values(5, k+2, 2*geometry_->dH_dx(i, 1, X));
 
           k+=dim;
       }
