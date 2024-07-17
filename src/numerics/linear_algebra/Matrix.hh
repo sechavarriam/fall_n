@@ -59,6 +59,9 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     friend Vector             linalg::mat_vec_mult(const Matrix& A, const Vector& x);
 
     void print_content(){MatView(mat_, PETSC_VIEWER_STDOUT_SELF);};
+    
+    
+    
     //Operators
     Matrix& operator+=(const Matrix& other){
         MatAXPY(mat_, 1.0, other.mat_, SAME_NONZERO_PATTERN);
@@ -84,6 +87,13 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         return Matrix(B);
     };
 
+    Matrix operator*(const Matrix& other){
+        Mat C;
+        MatMatMult(mat_, other.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
+        return Matrix(C);
+    };
+
+
     Vector operator*(const Vector& x){return linalg::mat_vec_mult(*this, x);};
 
     Matrix operator/(const PetscScalar& scalar){
@@ -108,6 +118,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     };
 
     //Constructors
+    //Matrix(Mat mat): mat_(std::move(mat)){};
     Matrix(PETSc_DENSE_SEQ_Matrix mat): mat_(std::move(mat)){};
 
     Matrix(PetscInt rows, PetscInt cols){
@@ -150,6 +161,11 @@ class Matrix // Wrapper Around PETSc DenseMatrix
         other.mat_ = nullptr;
         return *this;
     };
+
+    Matrix(){
+        MatCreateSeqDense(PETSC_COMM_SELF, 0, 0, PETSC_NULLPTR, &mat_);
+        
+    }
 
     ~Matrix(){MatDestroy(&mat_);};
 };

@@ -33,11 +33,46 @@ class Quadrature{
     P evalPoints_;
     W weights_   ; 
 
-    //template<typename F>   
-    constexpr auto operator()(std::invocable<decltype(evalPoints_[0])> auto&& function2eval) const noexcept {
-        return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),std::plus<>(),
-            [&](const auto& w, const auto& x){
-             return w*function2eval(x);});
+    //constexpr double operator()(std::invocable<decltype(evalPoints_[0])> auto&& function2eval) const noexcept {
+    //    return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),  std::plus<>(),
+    //        [&](const auto& w, const auto& x){
+    //         return w*function2eval(x);});
+    //}
+
+    template<std::invocable<decltype(evalPoints_[0])> F>
+    constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
+        
+        using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
+        
+        if constexpr(std::is_same_v<returnType, void>){
+            std::cerr << "Quadrature Error: The function to evaluate must return a value of Type double, Vector or Matrix." << std::endl;
+            std::exit(EXIT_FAILURE);
+        } 
+        else if constexpr(std::is_same_v<returnType, double>)
+        {
+            double result{0.0};
+            for(std::size_t i = 0; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
+            return result;
+        }
+        else if constexpr(std::is_same_v<returnType, Vector>)
+        {
+            auto result = weights_[0]*function2eval(evalPoints_[0]);     
+
+            for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
+            return result;       
+        }
+        else if constexpr(std::is_same_v<returnType, Matrix>)
+        {
+            auto result = weights_[0]*function2eval(evalPoints_[0]);
+
+            for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
+            return result;
+        }
+        else
+        {
+            std::unreachable();
+        }
+
     }
 
     constexpr Quadrature(){};
