@@ -55,9 +55,8 @@ class Quadrature{
             for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
             return result;       
         }
-        
-    }
 
+    }
     constexpr Quadrature(){};
     constexpr ~Quadrature(){};
 
