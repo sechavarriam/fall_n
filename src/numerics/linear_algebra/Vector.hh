@@ -86,7 +86,6 @@ class Vector //Wrapper Around PETSc Seq Vector
     // Constructors
     Vector(){
         VecCreateSeq(PETSC_COMM_SELF, 0, &vec_);
-        std::cout << "Default" << std::endl;
     };
 
     //Vector(std::initializer_list<PetscScalar>data){ //Does weird things

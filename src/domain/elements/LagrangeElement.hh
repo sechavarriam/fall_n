@@ -42,17 +42,15 @@ template<typename T>
 concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
 
 
-
 template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
 class LagrangeElement {
   
   template<typename T> friend struct LagrangeConceptTester;  
   static inline constexpr bool _is_LagrangeElement(){return true;};
 
-  using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
+  using ReferenceCell = geometry::cell::LagrangianCell<N...>;
 
 public:
-
   static inline constexpr std::size_t dim = sizeof...(N);
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
@@ -61,25 +59,15 @@ public:
   using JacobianMatrix = std::array<std::array<double, dim>, dim>;
 
   std::size_t tag_;
-
   pNodeArray nodes_;
-
-  //std::unique_ptr<MaterialIntegrator> material_integrator_;
-  //std::vector <IntegrationPoint<dim>> integration_points_;  
 
 public:
   
-  //std::vector <IntegrationPoint<dim>> integration_points_;  
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
-  
-  auto node(std::size_t i) const noexcept { return nodes_[i]; };
 
+  auto node(std::size_t i) const noexcept {return nodes_[i];};
   void set_id(std::size_t id) noexcept { tag_ = id; };
-
-  //void set_material_integrator(std::unique_ptr<MaterialIntegrator>&& integrator) noexcept {
-  //  material_integrator_ = std::move(integrator);
-  //};
 
   constexpr void print_nodes_info() const noexcept {
     for (auto node : nodes_) {
@@ -91,7 +79,6 @@ public:
     }
   };
 
-
   constexpr inline double H(std::size_t i, const std::array<double,dim>& X) const noexcept {
     return reference_element_.basis.shape_function(i)(X);
   };
@@ -100,7 +87,6 @@ public:
     return H(i, X.coord());
   };
 
-
   constexpr inline double dH_dx(std::size_t i, std::size_t j, const std::array<double,dim>& X) const noexcept {
     return reference_element_.basis.shape_function_derivative(i, j)(X);
   };
@@ -108,18 +94,6 @@ public:
   constexpr inline double dH_dx(std::size_t i, std::size_t j, const geometry::Point<dim>& X) const noexcept {
     return dH_dx(i, j, X.coord());                          
   };
-
-
-  //auto evaluate_shape_functions(const geometry::Point<dim>& X) const noexcept {
-  //  std::array<double, num_nodes_> H{0.0};
-  //  for (std::size_t i = 0; i < num_nodes_; ++i) {
-  //    H[i] = reference_element_.basis.shape_function(i)(X.coord());
-  //  }
-  //  return H;
-  //};
-
-  // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  
 
   auto inline constexpr evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
     JacobianMatrix J{{{0}}}; 
@@ -151,40 +125,37 @@ public:
   };
 
   //Constructor
-  LagrangeElement()  = default;
-  LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
+  constexpr LagrangeElement()  = default;
+  constexpr LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
   
-  LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}
-  {
+  constexpr LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}{
     std::copy(node_references.begin(), node_references.end(), nodes_.begin());
   };
 
-  LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_references) : tag_{tag}
-  {
+  constexpr LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_references) : tag_{tag}{
     std::move(node_references.begin(), node_references.end(), nodes_.begin());
   };
 
   // Copy and Move Constructors and Assignment Operators
-  LagrangeElement(const LagrangeElement& other) : 
+  constexpr LagrangeElement(const LagrangeElement& other) : 
     tag_                {other.tag_},
-    nodes_              {other.nodes_}//,
-    //material_integrator_{std::make_unique<MaterialIntegrator>()}
+    nodes_              {other.nodes_}
     {};
 
-  LagrangeElement(LagrangeElement&& other) = default;
+  constexpr LagrangeElement(LagrangeElement&& other) = default;
 
-  LagrangeElement& operator=(const LagrangeElement& other){
+  constexpr LagrangeElement& operator=(const LagrangeElement& other){
     tag_                 = other.tag_;
     nodes_               = other.nodes_;
-    //material_integrator_ = std::make_unique<MaterialIntegrator>();
     return *this;
   };
 
-  LagrangeElement& operator=(LagrangeElement&& other) = default;
-
-  ~LagrangeElement() = default;
+  constexpr LagrangeElement& operator=(LagrangeElement&& other) = default;
+  constexpr ~LagrangeElement() = default;
 
 };
+
+ 
 
 // =================================================================================================
 // =================================================================================================
@@ -200,27 +171,6 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
   public:
 
     //bool is_initialized_{false};
-
-    //double operator()
-    //(const is_LagrangeElement auto& element, std::function<double(geometry::Point<sizeof...(N)>)> f) const noexcept {
-    //    return integrator_([&](double x){
-    //        return f(x) * element.detJ(x);
-    //    });
-    //};
-//
-    //double operator()
-    //(const is_LagrangeElement auto& element, std::function<double(std::array<double,sizeof...(N)>)> f) const noexcept {
-    //    return integrator_([&](double x){
-    //        return f(x) * element.detJ(x);
-    //    });
-    //};
-//
-    //double operator()
-    //(const is_LagrangeElement auto& element, std::function<double(double)> f) const noexcept {
-    //    return integrator_([&](double x){
-    //        return f(x) * element.detJ(x);
-    //    });
-    //};
 
     double operator()
     (const is_LagrangeElement auto& element, std::invocable<geometry::Point<sizeof...(N)>> auto&& f) const noexcept {
@@ -241,7 +191,6 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
 
     //constructors
     //copy and move constructors and assignment operators
-
 
     constexpr GaussLegendreCellIntegrator() noexcept = default;
     constexpr ~GaussLegendreCellIntegrator() noexcept = default;

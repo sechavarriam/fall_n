@@ -12,10 +12,9 @@
 template <typename MaterialType, std::size_t ndof>
 class ContinuumElement
 {
-
   using Array = std::array<double, MaterialType::dim>;
 
-  static constexpr auto dim = MaterialType::dim;
+  static constexpr auto dim         = MaterialType::dim;
   static constexpr auto num_strains = MaterialType::num_strains;
 
   ElementGeometry *geometry_;
@@ -133,9 +132,13 @@ public:
           k+=dim;
       }
     }
-
     B.assembly_end();
     return B;
+  };
+
+
+auto BtCB (const MaterialType& M,  const Array &X) {
+    return linalg::mat_mat_PtAP(B(X), M.compliance_matrix());    
   };
 
 
@@ -151,7 +154,6 @@ public:
   // CONSTRUCTOR
 
   ContinuumElement() = delete;
-
   ContinuumElement(ElementGeometry *geometry) : geometry_{geometry} {};
 
 }; // Forward declaration

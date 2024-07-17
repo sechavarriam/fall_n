@@ -34,6 +34,25 @@ namespace linalg{
         return y;
     }
 
+    //enum class ProductPolicy{
+    //    AB   = MATPRODUCT_AB,
+    //    AtB  = MATPRODUCT_AtB,
+    //    ABt  = MATPRODUCT_ABt,
+    //    PtAP = MATPRODUCT_PtAP,
+    //    RARt = MATPRODUCT_RARt,
+    //    ABC  = MATPRODUCT_ABC,
+    //};
+
+    inline Matrix mat_mat_PtAP(const Matrix& P, const Matrix& A){
+        Mat C;
+        MatPtAP(P.mat_, A.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
+        return Matrix{C};
+    }
+
+    //template<typename MultiplicationPolicy>
+    
+
+
     
 
 } //namespace linalg
