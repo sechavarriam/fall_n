@@ -99,6 +99,24 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
+    
+    //Compute Domain Volume for Testing integration
+    double volume = 0.0;
+    
+    auto _1 = [](const geometry::Point<dim>& x){return 1.0;};
+    
+    //auto integrator = GaussLegendreCellIntegrator<5,5,5>{};
+
+
+    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(6),D.node_p(2),D.node_p(4),D.node_p(0),D.node_p(7),D.node_p(3),D.node_p(5),D.node_p(1)}};
+
+    GaussLegendreCellIntegrator<2,2,2> integration_rule {};
+
+    volume = integration_rule(TestElement, _1);
+    
+    std::cout << "Volume: " << volume << std::endl;
+    
+    
     Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
     //          ^            
     //          | 
