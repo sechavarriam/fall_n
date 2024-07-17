@@ -48,31 +48,14 @@ class Quadrature{
             std::cerr << "Quadrature Error: The function to evaluate must return a value of Type double, Vector or Matrix." << std::endl;
             std::exit(EXIT_FAILURE);
         } 
-        else if constexpr(std::is_same_v<returnType, double>)
-        {
-            double result{0.0};
-            for(std::size_t i = 0; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
-            return result;
-        }
-        else if constexpr(std::is_same_v<returnType, Vector>)
+        else 
         {
             auto result = weights_[0]*function2eval(evalPoints_[0]);     
 
             for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
             return result;       
         }
-        else if constexpr(std::is_same_v<returnType, Matrix>)
-        {
-            auto result = weights_[0]*function2eval(evalPoints_[0]);
-
-            for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
-            return result;
-        }
-        else
-        {
-            std::unreachable();
-        }
-
+        
     }
 
     constexpr Quadrature(){};
