@@ -6,17 +6,19 @@
 
 namespace GaussLegendre {
 
-template <std::size_t... n> // n: Number of quadrature points in each direction.
-class CellQuadrature : public Quadrature<(n*...), std::array<geometry::Point<sizeof...(n)>,(n*...)>>
+//template <std::size_t... n> // n: Number of quadrature points in each direction.
+//class CellQuadrature : public Quadrature<(n*...), std::array<geometry::Point<sizeof...(n)>,(n*...)>>  //For nodes as geometry::Point
+template <std::size_t... n> 
+class CellQuadrature : public Quadrature<(n*...), std::array<std::array<double, sizeof...(n)>,(n*...)>> //For nodes as array of coordinates
 { 
-  
   static constexpr std::size_t dim    {sizeof...(n)};
   static constexpr std::size_t n_nodes{(n*...)};
   
-  using Point       = geometry::Point<dim>;
-  using pPointArray = std::array<Point, n_nodes>;
+  //using Point      = geometry::Point<dim>;
+  using Point      = std::array<double, dim>;
+  using PointArray = std::array<Point , n_nodes>;
 
-  using Quadr = Quadrature<n_nodes, pPointArray>;
+  using Quadr = Quadrature<n_nodes, PointArray>;
   
 
 public:
@@ -40,7 +42,8 @@ public:
     {
       for(std::size_t i = 0; i < n_nodes; ++i){
           [&]<std::size_t... Is>(std::index_sequence<Is...>){
-              Quadr::evalPoints_[i].set_coord({std::get<Is>(dir_eval_coords)[utils::list_2_md_index<n...>(i)[Is]]...});
+              Quadr::evalPoints_[i] = std::array{std::get<Is>(dir_eval_coords)[utils::list_2_md_index<n...>(i)[Is]]...};  //Nodes as array of coordinates
+              //Quadr::evalPoints_[i].set_coord({std::get<Is>(dir_eval_coords)[utils::list_2_md_index<n...>(i)[Is]]...}); //Nodes as geomety::Point
           }(std::make_index_sequence<dim>{});
       };
     };
