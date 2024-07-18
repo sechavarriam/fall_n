@@ -17,7 +17,7 @@ class ContinuumElement
   static constexpr auto dim         = MaterialType::dim;
   static constexpr auto num_strains = MaterialType::num_strains;
 
-  ElementGeometry *geometry_;
+  ElementGeometry<dim> *geometry_;
 
   // std::array<double, ndof*ndof> K_{0.0}; // Stiffness Matrix data
 
@@ -136,12 +136,10 @@ public:
     return B;
   };
 
-
-auto BtCB (const MaterialType& M,  const Array &X) {
+  auto BtCB (const MaterialType& M,  const Array &X) {
     return linalg::mat_mat_PtAP(B(X), M.compliance_matrix());    
-  };
-
-
+  }; 
+  
   void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
       // Inject (BUILD ) K into global stiffness matrix
   };
@@ -154,7 +152,7 @@ auto BtCB (const MaterialType& M,  const Array &X) {
   // CONSTRUCTOR
 
   ContinuumElement() = delete;
-  ContinuumElement(ElementGeometry *geometry) : geometry_{geometry} {};
+  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
 
 }; // Forward declaration
 
