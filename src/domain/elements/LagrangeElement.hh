@@ -155,15 +155,15 @@ public:
 
 };
 
- 
-
 // =================================================================================================
 // =================================================================================================
 // =================================================================================================
 
 template <std::size_t... N>
 class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
-    using  CellQuadrature = GaussLegendre::CellQuadrature<N...>;
+    using Array = std::array<double, sizeof...(N)>;
+    using Point = geometry::Point<sizeof...(N)>; 
+    using CellQuadrature = GaussLegendre::CellQuadrature<N...>;
 
     //std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
     static constexpr CellQuadrature integrator_{};
@@ -173,11 +173,18 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     //bool is_initialized_{false};
 
     double operator()
-    (const is_LagrangeElement auto& element, std::invocable<geometry::Point<sizeof...(N)>> auto&& f) const noexcept {
-        return integrator_([&](geometry::Point<sizeof...(N)> x){
+    (const is_LagrangeElement auto& element, std::invocable<Array> auto&& f) const noexcept {
+        return integrator_([&](const Array& x){
             return f(x) * element.detJ(x);
         });
     };
+
+    //double operator()
+    //(const is_LagrangeElement auto& element, std::invocable<Point> auto&& f) const noexcept {
+    //    return integrator_([&](const Point& x){
+    //        return f(x) * element.detJ(x);
+    //    });
+    //};
 
     //auto integration_point(std::size_t i) const noexcept {
     //    return &integration_points_[i];

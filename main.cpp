@@ -84,8 +84,7 @@
 //#include <matplot/matplot.h>
 
 #include <petsc.h>
-//#include <petscksp.h>
-#include <petscsys.h>
+//#include <petscksp.h>#include <petscsys.h>
 
 
 
@@ -101,19 +100,14 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
     //Compute Domain Volume for Testing integration
-    double volume = 0.0;
-    
-    auto _1 = [](const geometry::Point<dim>& x){return 1.0;};
-    
-    //auto integrator = GaussLegendreCellIntegrator<5,5,5>{};
-
+    auto _1 = []([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;};
 
     auto TestElement = LagrangeElement<2,2,2>{{D.node_p(6),D.node_p(2),D.node_p(4),D.node_p(0),D.node_p(7),D.node_p(3),D.node_p(5),D.node_p(1)}};
 
-    GaussLegendreCellIntegrator<2,2,2> integration_rule {};
+    auto integration_rule = GaussLegendreCellIntegrator<15,7,9>{};
 
-    volume = integration_rule(TestElement, _1);
-    
+    auto volume =  integration_rule(TestElement, _1);
+
     std::cout << "Volume: " << volume << std::endl;
     
     
@@ -135,7 +129,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     auto y = A*x;
 
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
-    UniaxialIsotropicRelation  steel1D{200.0};
+    UniaxialIsotropicRelation  steel1D{200.0}     ;
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
