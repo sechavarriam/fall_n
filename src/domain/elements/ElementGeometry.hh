@@ -24,19 +24,13 @@ namespace impl
 
 { // Implementation details
 
+    template <std::size_t dim>
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
     public:
         virtual ~ElementGeometryConcept() = default;
-        // virtual void do_action(/*Args.. args*/) const = 0;
-        
-        //virtual double compute_integral(std::function<double(double)>)             const = 0;
-        /*  
-        virtual double compute_integral(std::function<double(geometry::Point<3>  )>) const = 0;
-        virtual double compute_integral(std::function<double(std::array<double,3>)>) const = 0;      
-        */
 
-        virtual std::unique_ptr<ElementGeometryConcept> clone() const = 0;    // To allow copy construction of the wrapper
+        virtual std::unique_ptr<ElementGeometryConcept> clone()    const = 0;    // To allow copy construction of the wrapper
         virtual void clone(ElementGeometryConcept *memory_address) const = 0; // Instead of returning a newly instatiated ElementGeometry
                                                                       // we pass the memory address of the ElementGeometry to be
                                                                       // constructed.
@@ -45,41 +39,42 @@ namespace impl
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
 
-        constexpr virtual double H    (std::size_t i,                const std::array<double, 3> &X) const = 0;
-        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const = 0;
-        // constexpr virtual void set_num_dofs() const = 0;
+        constexpr virtual double H    (std::size_t i,                const std::array<double, dim> &X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const std::array<double, dim> &X) const = 0;
+
+
+        //constexpr virtual auto integrate(std::invocable<std::array<double,3>> auto&& F) const = 0;
     };
 
     template <typename ElementType, typename IntegrationStrategy> //, typename MaterialPolicy> ???
     class NON_OwningModel_ElementGeometry;                                 // Forward declaration
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
-    class OwningModel_ElementGeometry : public ElementGeometryConcept
+    class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
+        using Array = std::array<double, ElementType::dim>;
 
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
 
+
     public:
-        /*
-                double compute_integral(std::function<double(double)> F) const override {return integrator_(element_, F);};
-                double compute_integral(std::function<double(geometry::Point<3>  )> F) const override {return integrator_(element_, F);};
-                double compute_integral(std::function<double(std::array<double,3>)> F) const override {return integrator_(element_, F);};
-        */
 
-        explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) : element_(element),
-                                                                                                         integrator_(integrator) {};
+        static constexpr auto dim = ElementType::dim;
 
-        explicit OwningModel_ElementGeometry(ElementType &&element, IntegrationStrategy &&integrator) : element_(std::forward<ElementType>(element)),
-                                                                                               integrator_(std::forward<IntegrationStrategy>(integrator)) {};
+        explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
+            element_   (element   ),
+            integrator_(integrator) {};
 
-        std::unique_ptr<ElementGeometryConcept> clone() const override
-        {
+        explicit OwningModel_ElementGeometry(ElementType &&element, IntegrationStrategy &&integrator) : 
+            element_(std::forward<ElementType>(element)),
+            integrator_(std::forward<IntegrationStrategy>(integrator)) {};
+
+        std::unique_ptr<ElementGeometryConcept<dim>> clone() const override{
             return std::make_unique<OwningModel_ElementGeometry<ElementType, IntegrationStrategy>>(*this);
         };
 
-        void clone(ElementGeometryConcept *memory_address) const override
-        {
+        void clone(ElementGeometryConcept<dim> *memory_address) const override{
             using Model = NON_OwningModel_ElementGeometry<ElementType const, IntegrationStrategy const>;
             std::construct_at(static_cast<Model *>(memory_address), element_, integrator_);
         };
@@ -89,42 +84,38 @@ namespace impl
         constexpr std::size_t id()        const override { return element_.id(); };
         constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const std::array<double, 3> &X) const override {
+        constexpr double H(std::size_t i, const Array& X) const override {
              return element_.H(i, X); 
              };
-        constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const override {
+        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {
              return element_.dH_dx(i, j, X); 
              };
+
+        constexpr auto integrate(std::invocable<Array> auto&& F) const {return integrator_(element_,F);};
         
     };
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
-    class NON_OwningModel_ElementGeometry : public ElementGeometryConcept
+    class NON_OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Reference semantic version of OwningModel_ElementGeometry.
+        using Array = std::array<double, ElementType::dim>;
 
         ElementType         *element_   {nullptr}; // Only stores a pointer to the ElementGeometry object (aka NonOwning)
         IntegrationStrategy *integrator_{nullptr}; //
     public:
-        // void compute_integral(std::invocable auto F) const {return (*integrator_)(*element_,F);};
-        // double compute_integral(std::function<double()> F) const {return (*integrator_)(*element_,F);};
-        /*
-                double compute_integral(std::function<double(double)> F) const override               {return (*integrator_)(*element_,F);};
-                double compute_integral(std::function<double(geometry::Point<3>  )> F) const override {return (*integrator_)(*element_,F);};
-                double compute_integral(std::function<double(std::array<double,3>)> F) const override {return (*integrator_)(*element_,F);};
-        */
-
+        
+        static constexpr auto dim = ElementType::dim;
+        
         NON_OwningModel_ElementGeometry(ElementType &element, IntegrationStrategy &integrator)
             : element_   {std::addressof(element)}, // &element
               integrator_{std::addressof(integrator)} {}; // &integrator
 
-        std::unique_ptr<ElementGeometryConcept> clone() const override
-        {
+        std::unique_ptr<ElementGeometryConcept<dim>> clone() const override{
             using Model = OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
             return std::make_unique<Model>(*element_, *integrator_);
         };
 
-        void clone(ElementGeometryConcept *memory_address) const override
-        {
+        void clone(ElementGeometryConcept<dim> *memory_address) const override{
             std::construct_at(static_cast<NON_OwningModel_ElementGeometry *>(memory_address), *this);
         };
 
@@ -133,47 +124,49 @@ namespace impl
         constexpr std::size_t id()        const override { return element_->id(); };
         constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
 
-        constexpr double H(std::size_t i, const std::array<double, 3> &X) const override { 
+        constexpr double H(std::size_t i, const Array &X) const override { 
             return element_->H(i, X); 
             };
 
-        constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X) const override {
+        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {
             return element_->dH_dx(i, j, X); 
             };
+        
+        constexpr auto integrate(std::invocable<Array> auto&& F) const {return (*integrator_)(*element_,F);};
 
-        // void set_material_integrator() const override {element_->set_material_integrator();};
-        // std::size_t const* nodes() const override {return element_->nodes();};
     };
 } // impl
 
-class ElementGeometry; // Forward declaration
+template<std::size_t dim> class ElementGeometry; // Forward declaration
+
+template<std::size_t dim> 
 class ElementGeometryConstRef
 {
-    friend class ElementGeometry;
+    friend class ElementGeometry<dim>;
+
 
     // Expected size of a model instantiation: sizeof(ShapeT*) + sizeof(DrawStrategy*) + sizeof(vptr)
     static constexpr std::size_t MODEL_SIZE = 3;            // The 3 pointers of the NON_OwningModel_ElementGeometry,
     alignas(void *) std::array<std::byte, MODEL_SIZE> raw_; // Raw storage (Aligned Byte array)
 
-    impl::ElementGeometryConcept       *pimpl()       { return reinterpret_cast<impl::ElementGeometryConcept *      >(raw_.data()); };
-    impl::ElementGeometryConcept const *pimpl() const { return reinterpret_cast<impl::ElementGeometryConcept const *>(raw_.data()); };
+    impl::ElementGeometryConcept<dim>       *pimpl()       { return reinterpret_cast<impl::ElementGeometryConcept<dim> *     >(raw_.data()); };
+    impl::ElementGeometryConcept<dim> const *pimpl() const { return reinterpret_cast<impl::ElementGeometryConcept<dim> const*>(raw_.data()); };
 
 public:
 
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr double H(std::size_t i, const std::array<double, 3> &X) const {
+    constexpr double H(std::size_t i, const std::array<double, dim> &X) const {
          return pimpl()->H(i, X);
     };
     
-    constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, 3> &X ) const {
+    constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, dim> &X ) const {
          return pimpl()->dH_dx(i, j, X);
     };
 
-
     template <typename ElementType, typename IntegrationStrategy>
-    ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
+    constexpr ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
     {
         using Model = impl::NON_OwningModel_ElementGeometry<const ElementType, const IntegrationStrategy>;
 
@@ -183,10 +176,10 @@ public:
         std::construct_at(static_cast<Model *>(pimpl()), element, integrator);
     }
 
-    ElementGeometryConstRef(ElementGeometryConstRef const &other) { other.pimpl()->clone(pimpl()); };
+    constexpr ElementGeometryConstRef(ElementGeometryConstRef const &other) { other.pimpl()->clone(pimpl()); };
 
-    ElementGeometryConstRef(ElementGeometry &other);       // Implicit conversion from ElementGeometry to ElementGeometryConstRef
-    ElementGeometryConstRef(ElementGeometry const &other); //
+    ElementGeometryConstRef(ElementGeometry<dim> &other);       // Implicit conversion from ElementGeometry to ElementGeometryConstRef
+    ElementGeometryConstRef(ElementGeometry<dim> const &other); //
 
     ElementGeometryConstRef &operator=(ElementGeometryConstRef const &other)
     {
@@ -194,7 +187,7 @@ public:
         raw_.swap(copy.raw_);
         return *this;
     };
-    ~ElementGeometryConstRef() { std::destroy_at(pimpl()); }; // OR: ~ElementGeometryConstRef(){pimpl()->~ElementGeometryConcept();};
+    constexpr ~ElementGeometryConstRef() { std::destroy_at(pimpl()); }; // OR: ~ElementGeometryConstRef(){pimpl()->~ElementGeometryConcept();};
                                                       // Move operations explicitly not declared
 
 private: // Operations with references
@@ -203,32 +196,27 @@ private: // Operations with references
     //     std::cout << "ElementGeometry " << element.pimpl()->id() << " integrated" << std::endl;
     //     };
 
-    /*
-        friend double integrate(ElementGeometryConstRef const& element, std::function<double(double)> F){return element.pimpl()->compute_integral(F);};
-        friend double integrate(ElementGeometryConstRef const& element, std::function<double(geometry::Point<3>  )> F){return element.pimpl()->compute_integral(F);};
-        friend double integrate(ElementGeometryConstRef const& element, std::function<double(std::array<double,3>)> F){return element.pimpl()->compute_integral(F);};
-    */
 
-    friend std::size_t id       (ElementGeometryConstRef const &element) { return element.pimpl()->id()       ; };
-    friend std::size_t num_nodes(ElementGeometryConstRef const &element) { return element.pimpl()->num_nodes(); };
-    friend void print_nodes_info(ElementGeometryConstRef const &element) { element.pimpl()->print_nodes_info(); };
+    constexpr inline friend std::size_t id       (ElementGeometryConstRef const &element) { return element.pimpl()->id()       ; };
+    constexpr inline friend std::size_t num_nodes(ElementGeometryConstRef const &element) { return element.pimpl()->num_nodes(); };
+    constexpr inline friend void print_nodes_info(ElementGeometryConstRef const &element) { element.pimpl()->print_nodes_info(); };
+
+    //constexpr inline friend auto integrate(ElementGeometryConstRef const &element, std::invocable<std::array<double,3>> auto&& F) {return element.pimpl()->integrate;};
+
 };
-
+template<std::size_t dim>
 class ElementGeometry
 {
-    friend class ElementGeometryConstRef;
-    std::unique_ptr<impl::ElementGeometryConcept> pimpl_; // Bridge to implementation details (compiler generated).
-
-
+    friend class ElementGeometryConstRef<dim>;
+    std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
-
 
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
-    constexpr double H(std::size_t i, const std::array<double, 3> &X) const { return pimpl_->H(i, X);};
-    constexpr double dH_dx(std::size_t i, std::size_t j,const std::array<double, 3> &X) const { return pimpl_->dH_dx(i, j, X);};
+    constexpr double H(std::size_t i, const std::array<double, dim> &X) const { return pimpl_->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j,const std::array<double, dim> &X) const { return pimpl_->dH_dx(i, j, X);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
@@ -240,9 +228,9 @@ public:
     }
 
     ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};
-    ElementGeometry(ElementGeometryConstRef const &other) : pimpl_{other.pimpl()->clone()} {};
+    ElementGeometry(ElementGeometryConstRef<dim> const &other) : pimpl_{other.pimpl()->clone()} {};
 
-    ElementGeometry &operator=(const ElementGeometryConstRef &other)
+    ElementGeometry &operator=(const ElementGeometryConstRef<dim> &other)
     {
         ElementGeometry copy{other};
         pimpl_.swap(copy.pimpl_);
@@ -268,15 +256,17 @@ private:
         friend double integrate(ElementGeometry const& element, std::function<double(std::array<double,3>)> F){return element.pimpl_->compute_integral(F);};
     */
 
-    friend std::size_t id(ElementGeometry const &element) { return element.pimpl_->id(); };
-    friend std::size_t num_nodes(ElementGeometry const &element) { return element.pimpl_->num_nodes(); };
-    friend void print_nodes_info(ElementGeometry const &element) { element.pimpl_->print_nodes_info(); };
+    constexpr inline friend std::size_t        id(ElementGeometry const &element) { return element.pimpl_->id()       ; };
+    constexpr inline friend std::size_t num_nodes(ElementGeometry const &element) { return element.pimpl_->num_nodes(); };
+    constexpr inline friend void print_nodes_info(ElementGeometry const &element) { element.pimpl_->print_nodes_info(); };
 
     // -----------------------------------------------------------------------------------------------
 };
+template<std::size_t dim>
+inline ElementGeometryConstRef<dim>::ElementGeometryConstRef(ElementGeometry<dim> &other) { other.pimpl_->clone(pimpl()); };
 
-inline ElementGeometryConstRef ::ElementGeometryConstRef(ElementGeometry &other) { other.pimpl_->clone(pimpl()); };
-inline ElementGeometryConstRef ::ElementGeometryConstRef(ElementGeometry const &other) { other.pimpl_->clone(pimpl()); };
+template<std::size_t dim>
+inline ElementGeometryConstRef<dim>::ElementGeometryConstRef(ElementGeometry<dim> const &other) { other.pimpl_->clone(pimpl()); };
 
 
 

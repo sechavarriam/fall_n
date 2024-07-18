@@ -48,7 +48,11 @@ class LagrangeElement {
   template<typename T> friend struct LagrangeConceptTester;  
   static inline constexpr bool _is_LagrangeElement(){return true;};
 
-  using ReferenceCell = geometry::cell::LagrangianCell<N...>;
+  using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
+  using Array          = std::array<double, sizeof...(N)>;
+  using Point          = geometry::Point<sizeof...(N)>;
+  using JacobianMatrix = std::array<Array,sizeof...(N)>;
+
 
 public:
   static inline constexpr std::size_t dim = sizeof...(N);
@@ -56,7 +60,7 @@ public:
   static inline constexpr ReferenceCell reference_element_{};
 
   using pNodeArray     = std::array<Node<dim> *, num_nodes_>;
-  using JacobianMatrix = std::array<std::array<double, dim>, dim>;
+  
 
   std::size_t tag_;
   pNodeArray nodes_;
@@ -79,38 +83,35 @@ public:
     }
   };
 
-  constexpr inline double H(std::size_t i, const std::array<double,dim>& X) const noexcept {
+  constexpr inline double H(std::size_t i, const Array& X) const noexcept {
     return reference_element_.basis.shape_function(i)(X);
   };
   
-  constexpr inline double H(std::size_t i, const geometry::Point<dim>& X) const noexcept {
+  constexpr inline double H(std::size_t i, const Point& X) const noexcept {
     return H(i, X.coord());
   };
 
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const std::array<double,dim>& X) const noexcept {
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array& X) const noexcept {
     return reference_element_.basis.shape_function_derivative(i, j)(X);
   };
   
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const geometry::Point<dim>& X) const noexcept {
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point& X) const noexcept {
     return dH_dx(i, j, X.coord());                          
   };
 
-  auto inline constexpr evaluate_jacobian(const std::array<double,dim>& X) const noexcept { 
+  auto inline constexpr evaluate_jacobian(const Array& X) const noexcept { 
     JacobianMatrix J{{{0}}}; 
     for (std::size_t i = 0; i < dim; ++i) {  //Thread Candidate
       for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
         for (std::size_t k = 0; k < num_nodes_; ++k) {
-          J[i][j] += nodes_[k]->coord(i)*dH_dx(k, j, X); 
-                   //* std::invoke(
-                   //       reference_element_.basis.shape_function_derivative(k, j),
-                   //       X);
+          J[i][j] += nodes_[k]->coord(i)*dH_dx(k, j, X); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
         }
       }
     }
     return J;
   };
 
-  auto evaluate_jacobian(const geometry::Point<dim>& X) const noexcept { //Thread Candidate
+  auto evaluate_jacobian(const Point& X) const noexcept { //Thread Candidate
     return evaluate_jacobian(X.coord());
   };  
 
@@ -123,6 +124,7 @@ public:
   void print_node_coords() noexcept {
     for (auto node : nodes_) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
   };
+
 
   //Constructor
   constexpr LagrangeElement()  = default;
@@ -172,7 +174,7 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
 
     //bool is_initialized_{false};
 
-    double operator()
+    auto operator()
     (const is_LagrangeElement auto& element, std::invocable<Array> auto&& f) const noexcept {
         return integrator_([&](const Array& x){
             return f(x) * element.detJ(x);

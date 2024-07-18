@@ -45,7 +45,7 @@ class Quadrature{
         using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
         
         if constexpr(std::is_same_v<returnType, void>){
-            std::cerr << "Quadrature Error: The function to evaluate must return a value of Type double, Vector or Matrix." << std::endl;
+            std::cerr << "Quadrature Error: The function to evaluate must return a value (e.g. double, Vector, Matrix)" << std::endl;
             std::exit(EXIT_FAILURE);
         } 
         else 

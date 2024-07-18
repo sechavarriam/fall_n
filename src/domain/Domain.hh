@@ -32,7 +32,7 @@
         std::size_t num_elements_{0};
 
         std::vector<Node<dim>>          nodes_;
-        std::vector<ElementGeometry>    elements_;
+        std::vector<ElementGeometry<dim>>    elements_;
         std::vector<MaterialPoint<dim>> material_points_;
 
         //std::vector<Material> materials_;
@@ -45,8 +45,8 @@
         // Node<dim>  node  (std::size_t i){return nodes_[i];};
         
 
-        std::span<Node<dim>>       nodes()   { return std::span<Node<dim>>      (nodes_   ); };
-        std::span<ElementGeometry> elements(){ return std::span<ElementGeometry>(elements_); };
+        std::span<Node<dim>>            nodes()   { return std::span<Node<dim>>      (nodes_   ); };
+        std::span<ElementGeometry<dim>> elements(){ return std::span<ElementGeometry<dim>>(elements_); };
 
         // ===========================================================================================================
 
@@ -54,7 +54,7 @@
         void make_element(IntegrationStrategy&& integrator, std::size_t&& tag, std::vector<Node<3>*> nodeAdresses)
         {
             elements_.emplace_back(
-                ElementGeometry(
+                ElementGeometry<dim>(
                     ElementType(
                         std::forward<std::size_t>(tag),
                         std::forward<std::vector<Node<3>*>>(nodeAdresses)),
