@@ -27,6 +27,7 @@ namespace impl
     template <std::size_t dim>
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
+    using Array = std::array<double, dim>;
     public:
         virtual ~ElementGeometryConcept() = default;
 
@@ -39,11 +40,10 @@ namespace impl
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
 
-        constexpr virtual double H    (std::size_t i,                const std::array<double, dim> &X) const = 0;
-        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const std::array<double, dim> &X) const = 0;
+        constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
 
-
-        //constexpr virtual auto integrate(std::invocable<std::array<double,3>> auto&& F) const = 0;
+        //constexpr virtual auto integrate(std::invocable<Arary> auto&& F) const = 0;
     };
 
     template <typename ElementType, typename IntegrationStrategy> //, typename MaterialPolicy> ???
@@ -143,7 +143,8 @@ template<std::size_t dim>
 class ElementGeometryConstRef
 {
     friend class ElementGeometry<dim>;
-
+    
+    using Array = std::array<double, dim>;
 
     // Expected size of a model instantiation: sizeof(ShapeT*) + sizeof(DrawStrategy*) + sizeof(vptr)
     static constexpr std::size_t MODEL_SIZE = 3;            // The 3 pointers of the NON_OwningModel_ElementGeometry,
@@ -157,11 +158,11 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr double H(std::size_t i, const std::array<double, dim> &X) const {
+    constexpr double H(std::size_t i, const Array &X) const {
          return pimpl()->H(i, X);
     };
     
-    constexpr double dH_dx(std::size_t i, std::size_t j, const std::array<double, dim> &X ) const {
+    constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {
          return pimpl()->dH_dx(i, j, X);
     };
 
@@ -195,8 +196,6 @@ private: // Operations with references
     //     element.pimpl()->compute_integral(element,/*args...*/);
     //     std::cout << "ElementGeometry " << element.pimpl()->id() << " integrated" << std::endl;
     //     };
-
-
     constexpr inline friend std::size_t id       (ElementGeometryConstRef const &element) { return element.pimpl()->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometryConstRef const &element) { return element.pimpl()->num_nodes(); };
     constexpr inline friend void print_nodes_info(ElementGeometryConstRef const &element) { element.pimpl()->print_nodes_info(); };
@@ -208,6 +207,8 @@ template<std::size_t dim>
 class ElementGeometry
 {
     friend class ElementGeometryConstRef<dim>;
+    using Array = std::array<double, dim>;
+    
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
@@ -216,7 +217,7 @@ public:
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr double H(std::size_t i, const std::array<double, dim> &X) const { return pimpl_->H(i, X);};
-    constexpr double dH_dx(std::size_t i, std::size_t j,const std::array<double, dim> &X) const { return pimpl_->dH_dx(i, j, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
