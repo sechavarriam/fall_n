@@ -42,8 +42,6 @@ namespace impl
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
-
-        //constexpr virtual auto integrate(std::invocable<Arary> auto&& F) const = 0;
     };
 
     template <typename ElementType, typename IntegrationStrategy> //, typename MaterialPolicy> ???
@@ -91,8 +89,13 @@ namespace impl
              return element_.dH_dx(i, j, X); 
              };
 
-        constexpr auto integrate(std::invocable<Array> auto&& F) const {return integrator_(element_,F);};
-        
+
+        template <std::invocable<Array> F> 
+        constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
+        {
+            return integrator_(element_,f);
+        };
+
     };
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -132,8 +135,11 @@ namespace impl
             return element_->dH_dx(i, j, X); 
             };
         
-        constexpr auto integrate(std::invocable<Array> auto&& F) const {return (*integrator_)(*element_,F);};
-
+        template <std::invocable<Array> F> 
+        constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
+        {
+            return (*integrator_)(*element_,f);
+        };
     };
 } // impl
 
@@ -166,6 +172,8 @@ public:
          return pimpl()->dH_dx(i, j, X);
     };
 
+    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrate(F);};
+
     template <typename ElementType, typename IntegrationStrategy>
     constexpr ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
     {
@@ -192,15 +200,16 @@ public:
                                                       // Move operations explicitly not declared
 
 private: // Operations with references
-    // friend void integrate(ElementGeometryConstRef const& element){
-    //     element.pimpl()->compute_integral(element,/*args...*/);
-    //     std::cout << "ElementGeometry " << element.pimpl()->id() << " integrated" << std::endl;
-    //     };
+
     constexpr inline friend std::size_t id       (ElementGeometryConstRef const &element) { return element.pimpl()->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometryConstRef const &element) { return element.pimpl()->num_nodes(); };
     constexpr inline friend void print_nodes_info(ElementGeometryConstRef const &element) { element.pimpl()->print_nodes_info(); };
 
-    //constexpr inline friend auto integrate(ElementGeometryConstRef const &element, std::invocable<std::array<double,3>> auto&& F) {return element.pimpl()->integrate;};
+    constexpr inline friend 
+    auto integrate(ElementGeometryConstRef const &element, std::invocable<Array> auto&& F) {
+        return element.pimpl()->integrate(std::forward<decltype(F)>(F));
+        };  
+
 
 };
 template<std::size_t dim>
@@ -218,6 +227,8 @@ public:
 
     constexpr double H(std::size_t i, const std::array<double, dim> &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
+
+    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(F);};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
@@ -251,15 +262,14 @@ private:
     // friend void action(ElementGeometry const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
 
-    /*
-        friend double integrate(ElementGeometry const& element, std::function<double(double)> F){return element.pimpl_->compute_integral(F);};
-        friend double integrate(ElementGeometry const& element, std::function<double(geometry::Point<3>  )> F){return element.pimpl_->compute_integral(F);};
-        friend double integrate(ElementGeometry const& element, std::function<double(std::array<double,3>)> F){return element.pimpl_->compute_integral(F);};
-    */
-
     constexpr inline friend std::size_t        id(ElementGeometry const &element) { return element.pimpl_->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometry const &element) { return element.pimpl_->num_nodes(); };
     constexpr inline friend void print_nodes_info(ElementGeometry const &element) { element.pimpl_->print_nodes_info(); };
+
+    constexpr inline friend
+    auto integrate(ElementGeometry const &element, std::invocable<Array> auto&& F) {
+        return element.pimpl_->integrate(std::forward<decltype(F)>(F));
+        };
 
     // -----------------------------------------------------------------------------------------------
 };

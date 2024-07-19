@@ -111,14 +111,13 @@ public:
     return J;
   };
 
-  auto evaluate_jacobian(const Point& X) const noexcept { //Thread Candidate
-    return evaluate_jacobian(X.coord());
-  };  
+  auto evaluate_jacobian(const Point& X) const noexcept {return evaluate_jacobian(X.coord());};  
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
   double detJ(const geometry::Point<dim>&    X) const noexcept {return utils::det(evaluate_jacobian(X));};
   double detJ(      std::array<double,dim>&& X) const noexcept {return utils::det(evaluate_jacobian(X));};
   double detJ(const std::array<double,dim>&  X) const noexcept {return utils::det(evaluate_jacobian(X));};
+
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
