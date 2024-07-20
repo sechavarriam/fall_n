@@ -49,10 +49,9 @@ class LagrangeElement {
   static inline constexpr bool _is_LagrangeElement(){return true;};
 
   using ReferenceCell  = geometry::cell::LagrangianCell<N...>;
-  using Array          = std::array<double, sizeof...(N)>;
   using Point          = geometry::Point<sizeof...(N)>;
+  using Array          = std::array<double, sizeof...(N)>;
   using JacobianMatrix = std::array<Array,sizeof...(N)>;
-
 
 public:
   static inline constexpr std::size_t dim = sizeof...(N);
@@ -61,17 +60,16 @@ public:
 
   using pNodeArray     = std::array<Node<dim> *, num_nodes_>;
   
-
   std::size_t tag_;
   pNodeArray nodes_;
 
 public:
-  
+
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
 
-  auto node(std::size_t i) const noexcept {return nodes_[i];};
-  void set_id(std::size_t id) noexcept { tag_ = id; };
+  auto node  (std::size_t i ) const noexcept {return nodes_[i];};
+  void set_id(std::size_t id)       noexcept {tag_ = id; };
 
   constexpr void print_nodes_info() const noexcept {
     for (auto node : nodes_) {
@@ -166,36 +164,19 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     using Point = geometry::Point<sizeof...(N)>; 
     using CellQuadrature = GaussLegendre::CellQuadrature<N...>;
 
-    //std::array<IntegrationPoint<sizeof...(N)>, (N*...)> integration_points_{};
     static constexpr CellQuadrature integrator_{};
 
   public:
 
     //bool is_initialized_{false};
 
+    //constexpr 
     auto operator()
     (const is_LagrangeElement auto& element, std::invocable<Array> auto&& f) const noexcept {
         return integrator_([&](const Array& x){
             return f(x) * element.detJ(x);
         });
     };
-
-    //double operator()
-    //(const is_LagrangeElement auto& element, std::invocable<Point> auto&& f) const noexcept {
-    //    return integrator_([&](const Point& x){
-    //        return f(x) * element.detJ(x);
-    //    });
-    //};
-
-    //auto integration_point(std::size_t i) const noexcept {
-    //    return &integration_points_[i];
-    //};
-    //std::span<IntegrationPoint<sizeof...(N)>,(N*...)> integration_points() const noexcept {
-    //    return integration_points_;
-    //};
-    //constexpr auto set_integration_points(is_LagrangeElement auto& element) const noexcept {
-    //    element.set_integration_points(integrator_.evalPoints_);
-    //    };
 
     //constructors
     //copy and move constructors and assignment operators

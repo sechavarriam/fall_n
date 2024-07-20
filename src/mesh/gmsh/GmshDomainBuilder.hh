@@ -99,8 +99,8 @@ public:
                             std::move(integrator),
                             std::size_t(element_tag),
                             {
-                                elem_nodes[6], elem_nodes[2], elem_nodes[4], elem_nodes[0],
-                                elem_nodes[7], elem_nodes[3], elem_nodes[5], elem_nodes[1]
+                                elem_nodes[0], elem_nodes[1], elem_nodes[4], elem_nodes[5],
+                                elem_nodes[3], elem_nodes[2], elem_nodes[7], elem_nodes[6]
                             }
                           );
                         break;
