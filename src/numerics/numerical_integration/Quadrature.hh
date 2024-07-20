@@ -52,9 +52,12 @@ class Quadrature{
         {
             auto result = weights_[0]*function2eval(evalPoints_[0]);     
 
-            for(std::size_t i = 1; i < nPoints; ++i) result += weights_[i]*function2eval(evalPoints_[i]);
+            for(std::size_t i = 1; i < nPoints; ++i) {
+                result += weights_[i]*function2eval(evalPoints_[i]);
+                }
+
             return result;       
-        }
+         }
 
     }
     constexpr Quadrature(){};

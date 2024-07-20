@@ -42,6 +42,13 @@ namespace impl
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
+
+        //
+              
+        constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
+        //constexpr virtual Vector integrate(std::function<Vector(Array)> f) const = 0;
+        //constexpr virtual Matrix integrate(std::function<Matrix(Array)> f) const = 0; 
+
     };
 
     template <typename ElementType, typename IntegrationStrategy> //, typename MaterialPolicy> ???
@@ -54,6 +61,7 @@ namespace impl
 
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
+
 
 
     public:
@@ -89,12 +97,15 @@ namespace impl
              return element_.dH_dx(i, j, X); 
              };
 
-
-        template <std::invocable<Array> F> 
-        constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
-        {
-            return integrator_(element_,f);
+        constexpr double integrate (std::function<double(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<double(Array)>>(f));
         };
+
+        //template <std::invocable<Array> F> /*this thing reqauires multiple dispatch...*/
+        //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
+        //{
+        //    return integrator_(element_,f);
+        //};
 
     };
 
@@ -135,11 +146,18 @@ namespace impl
             return element_->dH_dx(i, j, X); 
             };
         
-        template <std::invocable<Array> F> 
-        constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
-        {
-            return (*integrator_)(*element_,f);
+        constexpr double integrate (std::function<double(Array)>&& f) const override {
+            return (*integrator_)(*element_,std::forward<std::function<double(Array)>>(f));
         };
+
+
+        //template <std::invocable<Array> F> 
+        //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
+        //{
+        //    return (*integrator_)(*element_,f);
+        //};
+
+
     };
 } // impl
 
@@ -164,15 +182,10 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr double H(std::size_t i, const Array &X) const {
-         return pimpl()->H(i, X);
-    };
-    
-    constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {
-         return pimpl()->dH_dx(i, j, X);
-    };
+    constexpr double H    (std::size_t i, const Array &X) const {return pimpl()->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {return pimpl()->dH_dx(i, j, X);};
 
-    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrate(F);};
+    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrator_(std::forward<decltype(F)>(F));};
 
     template <typename ElementType, typename IntegrationStrategy>
     constexpr ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
@@ -197,7 +210,7 @@ public:
         return *this;
     };
     constexpr ~ElementGeometryConstRef() { std::destroy_at(pimpl()); }; // OR: ~ElementGeometryConstRef(){pimpl()->~ElementGeometryConcept();};
-                                                      // Move operations explicitly not declared
+    // Move operations explicitly not declared
 
 private: // Operations with references
 
@@ -210,7 +223,6 @@ private: // Operations with references
         return element.pimpl()->integrate(std::forward<decltype(F)>(F));
         };  
 
-
 };
 template<std::size_t dim>
 class ElementGeometry
@@ -221,14 +233,15 @@ class ElementGeometry
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
-
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
-    constexpr double H(std::size_t i, const std::array<double, dim> &X) const { return pimpl_->H(i, X);};
+    constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
 
-    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(F);};
+    constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
+
+    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)

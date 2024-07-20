@@ -100,26 +100,29 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
     //Compute Domain Volume for Testing integration
-    auto _1 = []([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;};
+    
+    auto __1 = []([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;};
+
+    auto _1 = std::function<double(const std::array<double,dim>&)>([]([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;});
+    double volume = 0.0;
 
     auto TestElement = LagrangeElement<2,2,2>{{D.node_p(6),D.node_p(2),D.node_p(4),D.node_p(0),D.node_p(7),D.node_p(3),D.node_p(5),D.node_p(1)}};
 
-    auto integration_rule = GaussLegendreCellIntegrator<15,7,9>{};
+    auto integration_rule = GaussLegendreCellIntegrator<2,2,2>{};
 
-    auto volume =  integration_rule(TestElement, _1);
+    auto v1 = integration_rule(TestElement,  _1);
+    auto v2 = integration_rule(TestElement, __1);
 
-    std::cout << "Volume: " << volume << std::endl;
-    
-    
+    for (auto const& element : D.elements()){
+        volume += element.integrate(_1);
+    }
+    std::cout << "Domain Volume: " << volume << std::endl;
+
+
     Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
     //          ^            
     //          | 
     //    Constitutive Relation Type (Policy) and Dimension implicitly.
-
-    //for (auto const& element : D.elements()){
-    //    std::cout << "element " << id(element) << std::endl;
-    //    print_nodes_info(element);
-    //}
 
     std::array dataA{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};    
     std::array data1{1.0, 2.0, 3.0};
