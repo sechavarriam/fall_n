@@ -101,20 +101,12 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     
     //Compute Domain Volume for Testing integration
     
-    auto __1 = []([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;};
+    auto _1 = []([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;};
+    auto __1 = std::function<double(const std::array<double,dim>&)>(_1);
 
-    auto _1 = std::function<double(const std::array<double,dim>&)>([]([[maybe_unused]] const std::array<double,dim>& x)->double {return 1.0;});
     double volume = 0.0;
-
-    auto TestElement = LagrangeElement<2,2,2>{{D.node_p(6),D.node_p(2),D.node_p(4),D.node_p(0),D.node_p(7),D.node_p(3),D.node_p(5),D.node_p(1)}};
-
-    auto integration_rule = GaussLegendreCellIntegrator<2,2,2>{};
-
-    auto v1 = integration_rule(TestElement,  _1);
-    auto v2 = integration_rule(TestElement, __1);
-
     for (auto const& element : D.elements()){
-        volume += element.integrate(_1);
+        volume += element.integrate(__1);
     }
     std::cout << "Domain Volume: " << volume << std::endl;
 
@@ -130,6 +122,14 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Matrix A{dataA, 3,3};
     Vector x{data1};
     auto y = A*x;
+
+    y.print_content();
+
+    auto yy = y*10.0;
+    auto yyy = 100*y;
+
+    yy.print_content();
+    yyy.print_content();
 
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
     UniaxialIsotropicRelation  steel1D{200.0}     ;

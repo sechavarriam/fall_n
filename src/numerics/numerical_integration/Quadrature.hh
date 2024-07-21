@@ -41,7 +41,6 @@ class Quadrature{
 
     template<std::invocable<decltype(evalPoints_[0])> F>
     constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
-        
         using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
         
         if constexpr(std::is_same_v<returnType, void>){
@@ -58,7 +57,6 @@ class Quadrature{
 
             return result;       
          }
-
     }
     constexpr Quadrature(){};
     constexpr ~Quadrature(){};
