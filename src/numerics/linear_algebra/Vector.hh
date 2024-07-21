@@ -60,6 +60,22 @@ class Vector //Wrapper Around PETSc Seq Vector
     Vector& operator*=(const PetscScalar& scalar){VecScale(vec_,     scalar);return *this;};
     Vector& operator/=(const PetscScalar& scalar){VecScale(vec_, 1.0/scalar);return *this;};
 
+    friend Vector operator*(const PetscScalar& scalar, const Vector& vec){
+        Vector result;
+        VecDuplicate(vec.vec_, &result.vec_);
+        VecCopy(vec.vec_, result.vec_);
+        VecScale(result.vec_, scalar);
+        return result;
+    };
+
+    Vector operator*(const PetscScalar& scalar){
+        Vector result;
+        VecDuplicate(vec_, &result.vec_);
+        VecCopy(vec_, result.vec_);
+        VecScale(result.vec_, scalar);
+        return result;
+    };
+
     Vector operator+(const Vector& other){
         Vector result;
         VecDuplicate(vec_, &result.vec_);

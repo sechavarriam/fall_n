@@ -28,6 +28,8 @@
 
 #include "../../integrator/MaterialIntegrator.hh"
 
+#include "../../numerics/linear_algebra/LinalgOperations.hh"
+
 template<typename T>
 concept private_Lagrange_check_ = requires(T t){
   requires std::same_as<decltype(t._is_LagrangeElement()), bool>;
@@ -175,6 +177,7 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     (const is_LagrangeElement auto& element, std::invocable<Array> auto&& f) const noexcept {
         return integrator_([&](const Array& x){
             return f(x) * element.detJ(x);
+            //return element.detJ(x) * f(x);
         });
     };
 
