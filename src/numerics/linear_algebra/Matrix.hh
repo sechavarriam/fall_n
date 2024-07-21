@@ -63,21 +63,16 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     
     //Operators
-    Matrix& operator+=(const Matrix& other){
-        MatAXPY(mat_, 1.0, other.mat_, SAME_NONZERO_PATTERN);
-        return *this;
-    };
-    Matrix operator-= (const Matrix& other){
-        MatAXPY(mat_, -1.0, other.mat_, SAME_NONZERO_PATTERN);
-        return *this;
-    };
-    Matrix operator*=(const PetscScalar& scalar){
-        MatScale(mat_, scalar);
-        return *this;
-    };
-    Matrix operator/=(const PetscScalar& scalar){
-        MatScale(mat_, 1.0/scalar);
-        return *this;
+    Matrix& operator+=(const Matrix& other){MatAXPY(mat_, 1.0, other.mat_,SAME_NONZERO_PATTERN); return *this;};
+    Matrix& operator-=(const Matrix& other){MatAXPY(mat_,-1.0, other.mat_,SAME_NONZERO_PATTERN);return *this;};
+    Matrix& operator*=(const PetscScalar& scalar){MatScale(mat_,     scalar); return *this;};
+    Matrix& operator/=(const PetscScalar& scalar){MatScale(mat_, 1.0/scalar); return *this;};
+
+    friend Matrix operator*(const PetscScalar& scalar, const Matrix& mat){
+        Mat B;
+        MatDuplicate(mat.mat_, MAT_COPY_VALUES, &B);
+        MatScale(B, scalar);
+        return Matrix(B);
     };
 
     Matrix operator*(const PetscScalar& scalar){
