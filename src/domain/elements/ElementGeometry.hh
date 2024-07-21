@@ -46,7 +46,7 @@ namespace impl
         //
               
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
-        //constexpr virtual Vector integrate(std::function<Vector(Array)> f) const = 0;
+        constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
         //constexpr virtual Matrix integrate(std::function<Matrix(Array)> f) const = 0; 
 
     };
@@ -61,9 +61,6 @@ namespace impl
 
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
-
-
-
     public:
 
         static constexpr auto dim = ElementType::dim;
@@ -101,7 +98,11 @@ namespace impl
             return integrator_(element_,std::forward<std::function<double(Array)>>(f));
         };
 
-        //template <std::invocable<Array> F> /*this thing reqauires multiple dispatch...*/
+        Vector integrate (std::function<Vector(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Vector(Array)>>(f));
+        };
+
+        //template <std::invocable<Array> F> /*this thing requires multiple dispatch...*/
         //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
         //{
         //    return integrator_(element_,f);
@@ -150,6 +151,10 @@ namespace impl
             return (*integrator_)(*element_,std::forward<std::function<double(Array)>>(f));
         };
 
+        Vector integrate (std::function<Vector(Array)>&& f) const override {
+            return (*integrator_)(*element_,std::forward<std::function<Vector(Array)>>(f));
+        };
+
 
         //template <std::invocable<Array> F> 
         //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
@@ -185,7 +190,10 @@ public:
     constexpr double H    (std::size_t i, const Array &X) const {return pimpl()->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {return pimpl()->dH_dx(i, j, X);};
 
-    constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrator_(std::forward<decltype(F)>(F));};
+    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrator_(std::forward<decltype(F)>(F));};
+    constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<double(Array)>>(f));};
+    Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<Vector(Array)>>(f));};
+
 
     template <typename ElementType, typename IntegrationStrategy>
     constexpr ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
@@ -240,6 +248,7 @@ public:
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
 
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
+    Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
 
     //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
 
