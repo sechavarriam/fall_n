@@ -49,15 +49,27 @@ class Quadrature{
         } 
         else 
         {
-            auto result = weights_[0]*function2eval(evalPoints_[0]);     
+            if constexpr(std::is_same_v<returnType,double>)
+            {
+                return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),  std::plus<>(),
+                    [&](const auto& w, const auto& x){
+                    return w*function2eval(x);});
+            }
+            else 
+            {
+                auto result = weights_[0]*function2eval(evalPoints_[0]);     
 
-            for(std::size_t i = 1; i < nPoints; ++i) {
-                result += weights_[i]*function2eval(evalPoints_[i]);
-                }
-
-            return result;       
-         }
+                for(std::size_t i = 1; i < nPoints; ++i) {
+                    result += weights_[i]*function2eval(evalPoints_[i]);
+                    }
+                return result;       
+            }
+        }
     }
+
+
+
+
     constexpr Quadrature(){};
     constexpr ~Quadrature(){};
 

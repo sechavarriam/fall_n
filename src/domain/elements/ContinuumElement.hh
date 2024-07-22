@@ -137,7 +137,9 @@ public:
   };
 
   auto BtCB (const MaterialType& M,  const Array &X) {
-    return linalg::mat_mat_PtAP(B(X), M.compliance_matrix());    
+    Matrix K{ndof, ndof};                          
+    K = linalg::mat_mat_PtAP(B(X), M.compliance_matrix());
+    return K; // B^t * C * B
   }; 
   
   void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){

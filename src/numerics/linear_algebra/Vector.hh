@@ -39,6 +39,15 @@ class Vector //Wrapper Around PETSc Seq Vector
         PETSc_Vector vec_;
     public:
 
+    bool owns_data{true};
+
+    // Accessors
+    std::floating_point auto& operator[](std::size_t i){
+        PetscScalar* data;
+        VecGetArray(vec_, &data);
+        return data[i];
+    };
+
     std::span<PetscScalar> data(){
         PetscInt size;
         PetscScalar* p_data;
@@ -92,56 +101,54 @@ class Vector //Wrapper Around PETSc Seq Vector
         return result;
     };
 
-    // Accessors
-    std::floating_point auto& operator[](std::size_t i){
-        PetscScalar* data;
-        VecGetArray(vec_, &data);
-        return data[i];
-    };
-   
     // Constructors
     Vector(){
+        //std::cout << "PETSc Vector Default Constructor\n";
         VecCreateSeq(PETSC_COMM_SELF, 0, &vec_);
     };
 
-    //Vector(std::initializer_list<PetscScalar>data){ //Does weird things
-    //    VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
-    //    VecPlaceArray(vec_, data.begin());
-    //    std::cout << "Initializer List" << std::endl;
-    //};
-
-    Vector(std::ranges::contiguous_range auto const& data){
+    explicit Vector(std::ranges::contiguous_range auto const& data) {
+        //std::cout << "PETSc Vector Constructor - range const&\n";
+        //owns_data = false;
         VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
         VecPlaceArray(vec_, data.begin());
-        std::cout << "range auto const&" << std::endl;
     };
 
-    Vector(std::ranges::contiguous_range auto&& data){
+    explicit Vector(std::ranges::contiguous_range auto&& data){
+        //std::cout << "PETSc Vector Constructor - range&& \n";
+        //owns_data = false;
         VecCreateSeq(PETSC_COMM_SELF, data.size(), &vec_);
         VecPlaceArray(vec_, std::to_address(data.begin()));
-        std::cout << "range auto&&" << std::endl;
     };
 
     // Copy and Move Constructors and Assignment Operators
     Vector(const Vector& other){
+        //std::cout << "PETSc Vector Copy Constructor\n";
         VecDuplicate(other.vec_, &vec_);
         VecCopy(other.vec_, vec_);
     };
 
     Vector(Vector&& other){
-        vec_ = other.vec_;
-        other.vec_ = nullptr;
+        //std::cout << "PETSc Vector Move Constructor\n";
+        VecDuplicate(other.vec_, &vec_);
+        VecCopy(other.vec_, vec_);
+        //vec_ = other.vec_;
+        //other.vec_ = nullptr;
     };
 
-    Vector& operator=(const Vector& other){
+    //Vector& operator=(Vector other) = delete;
+    Vector& operator=(const Vector& other)
+    {
+        //std::cout << "PETSc Vector Copy Assignment\n";
         VecDuplicate(other.vec_, &vec_);
         VecCopy(other.vec_, vec_);
         return *this;
     };
 
-    Vector& operator=(Vector&& other){
-        vec_ = other.vec_;
-        other.vec_ = nullptr;
+    Vector& operator=(const volatile Vector&& other){
+        //std::cout << "PETSc Vector Move Assignment\n";
+        VecDuplicate(other.vec_, &vec_);
+        VecCopy(other.vec_, vec_);
         return *this;
     };
 
