@@ -106,12 +106,6 @@ namespace impl
             return integrator_(element_,std::forward<std::function<Matrix(Array)>>(f));
         };
 
-        //template <std::invocable<Array> F> /*this thing requires multiple dispatch...*/
-        //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
-        //{
-        //    return integrator_(element_,f);
-        //};
-
     };
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -238,7 +232,6 @@ private: // Operations with references
     auto integrate(ElementGeometryConstRef const &element, std::invocable<Array> auto&& F) {
         return element.pimpl()->integrate(std::forward<decltype(F)>(F));
         };  
-
 };
 template<std::size_t dim>
 class ElementGeometry
@@ -255,11 +248,13 @@ public:
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
 
+    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
+    
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
 
-    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
+    
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)

@@ -35,8 +35,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     Mat mat_;
     bool assembly_mode_on{false};
 
-    
-    bool owns_matrix{true};
+    bool owns_data{true};
 
     //Wrapper for inserting values.
 
@@ -59,8 +58,6 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     friend Vector             linalg::mat_vec_mult(const Matrix& A, const Vector& x);
 
     void print_content(){MatView(mat_, PETSC_VIEWER_STDOUT_SELF);};
-    
-    
     
     //Operators
     Matrix& operator+=(const Matrix& other){MatAXPY(mat_, 1.0, other.mat_,SAME_NONZERO_PATTERN); return *this;};
@@ -121,17 +118,17 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     };
     
     Matrix(PetscScalar* data, PetscInt rows, PetscInt cols){
-        owns_matrix = false;
+        //owns_data = false;
         MatCreateSeqDense(PETSC_COMM_SELF, rows, cols, data, &mat_);
     };
     
-    Matrix(std::ranges::contiguous_range auto const& data, PetscInt extent1, PetscInt extent2){
-        owns_matrix = false;
+    explicit Matrix(std::ranges::contiguous_range auto const& data, PetscInt extent1, PetscInt extent2){
+        //std::cout << "PETSc Matrix Constructor - range const&\n";
         MatCreateSeqDense(PETSC_COMM_SELF, extent1, extent2, std::to_address(data.begin()), &mat_);
     };
     
-    Matrix(std::ranges::contiguous_range auto&& data, PetscInt extent1, PetscInt extent2){
-        owns_matrix = false;
+    explicit Matrix(std::ranges::contiguous_range auto&& data, PetscInt extent1, PetscInt extent2){
+        //std::cout << "PETSc Matrix Constructor - range&& \n";
         MatCreateSeqDense(PETSC_COMM_SELF, extent1, extent2, std::to_address(data.begin()), &mat_);
     };
     
@@ -140,24 +137,26 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     //Move Constructor
     Matrix(Matrix&& other){
-        mat_ = other.mat_;
-        other.mat_ = nullptr;
+        //std::cout << "PETSc Matrix Move Constructor\n";
+        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
     };
     
     //Copy Assignment
     Matrix& operator=(const Matrix& other){
+        //std::cout << "PETSc Matrix Copy Assignment\n";
         MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
         return *this;
     };
     
     //Move Assignment
     Matrix& operator=(Matrix&& other){
-        mat_ = other.mat_;
-        other.mat_ = nullptr;
+        //std::cout << "PETSc Matrix Move Assignment\n";
+        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
         return *this;
     };
 
     Matrix(){
+        //std::cout << "PETSc Matrix Default Constructor\n";
         MatCreateSeqDense(PETSC_COMM_SELF, 0, 0, PETSC_NULLPTR, &mat_);
         
     }

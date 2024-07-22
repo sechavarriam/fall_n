@@ -94,7 +94,8 @@ public:
                     {
                     case 5:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{};   
+                        auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
+                           
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),
                             std::size_t(element_tag),
@@ -119,6 +120,7 @@ public:
 
     GmshDomainBuilder(std::string_view filename, Domain3D &domain) : mesh_info_(filename), domain_(std::addressof(domain))
     {
+
         aggregate_nodes();
         aggregate_elements();
     };

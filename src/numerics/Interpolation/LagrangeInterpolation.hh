@@ -161,7 +161,6 @@ namespace interpolation
     {                                                          // $frac{\partial h_i}{\partial x_j}$
       static std::size_t J{0};                                 // static initialization: only performed once.
       static auto md_index = utils::list_2_md_index<Ni...>(0); // static initialization: only performed once.
-
       J = j;
       md_index = utils::list_2_md_index<Ni...>(i);
 
