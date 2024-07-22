@@ -39,6 +39,9 @@ class IsotropicElasticMaterial{
     
     auto get_state() const{return state_->current_state();};
     
+    auto C() const {return constitutive_law_->compliance_matrix;}
+
+
     template<typename... Args>  
     auto set_elasticity(Args... args){
         constitutive_law_->update_elasticity(std::move(args)...);
