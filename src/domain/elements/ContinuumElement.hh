@@ -26,7 +26,7 @@ public:
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
   auto H(const Array& X) const noexcept
   {
-    Matrix H{ndof, num_nodes() * dim};
+    Matrix H(ndof, num_nodes() * dim);
     H.assembly_begin();
 
     if constexpr (dim == 1)
@@ -77,7 +77,7 @@ public:
 
   auto B(const Array &X)
   {
-    Matrix B{num_strains, num_nodes() * dim};
+    Matrix B(num_strains, num_nodes() * dim);
     B.assembly_begin();
 
     if      constexpr (dim == 1) std::runtime_error("1D material not implemented yet for ContinuumElement.");
@@ -138,9 +138,22 @@ public:
 
   auto BtCB (const MaterialType& M,  const Array &X) {
     Matrix K{ndof, ndof};                          
-    K = linalg::mat_mat_PtAP(B(X), M.compliance_matrix());
+    K = linalg::mat_mat_PtAP(B(X), M.C() );
     return K; // B^t * C * B
   }; 
+
+  auto K(const MaterialType& mat) {
+    Matrix K{ndof, ndof};
+
+    K=geometry_->integrate([this, &mat](const Array &X)
+      {
+        return BtCB(mat, X);
+      }
+    );
+    
+    return K;
+
+  };
   
   void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
       // Inject (BUILD ) K into global stiffness matrix

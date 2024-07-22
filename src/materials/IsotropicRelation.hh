@@ -12,6 +12,9 @@ class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtSt
     double v_{0.0};
 
     public:
+
+    using LinealRelation<VoigtStress<6>, VoigtStrain<6>>::compliance_matrix;
+
     constexpr inline void set_E(double E){E_ = E;};
     constexpr inline void set_v(double v){v_ = v;};
     
