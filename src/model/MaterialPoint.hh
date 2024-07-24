@@ -10,20 +10,8 @@ class MaterialPoint //: public IntegrationPoint<dim>
     
     public:
 
-    
-
         MaterialPoint() = default;
         ~MaterialPoint() = default;
 };
-
-
-
-
-
-
-
-
-
-
 
 #endif // FALL_N_MATERIAL_POINT_HH
