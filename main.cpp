@@ -74,9 +74,8 @@
 #include "src/graph/AdjacencyList.hh"
 #include "src/graph/AdjacencyMatrix.hh"
 
-
 #include "src/domain/IntegrationPoint.hh"
-#include "src/domain/MaterialPoint.hh"
+
 
 
 //#include <matplot/matplot.h>
@@ -115,13 +114,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Matrix K;
     K = brick.K(steel_mat3D);
     K.print_content();
-
-
-
- 
-
-
-    
 
 
 

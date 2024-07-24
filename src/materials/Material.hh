@@ -19,8 +19,7 @@ class Material
    using CloneOperation   = void*(void*);
    using UpdaterOperation = void(void*);
    
-   std::unique_ptr<void,DestroyOperation*> pimpl_;
-   
+   std::unique_ptr<void,DestroyOperation*> pimpl_; 
    CloneOperation*    clone_{nullptr};
 
    //Interfase for the material 

@@ -5,8 +5,15 @@
 #include <memory>
 #include <type_traits>
 
+
+
 #include "../domain/Domain.hh"
+
+#include "../materials/Material.hh"
 #include "../materials/LinealRelation.hh"
+
+#include "MaterialPoint.hh"
+
 
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
@@ -31,7 +38,7 @@ private:
 public:
     
     std::vector<double> dof_vector_;
-
+ 
     void set_default_num_dofs_per_node(std::size_t n)
     {
         for (auto &node : domain_->nodes())
