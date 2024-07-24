@@ -15,8 +15,6 @@
 
 #include "../Node.hh"
 
-#include "../../integrator/MaterialIntegrator.hh"
-
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
 

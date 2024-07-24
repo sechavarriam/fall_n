@@ -26,8 +26,6 @@
 #include "../../utils/small_math.hh"
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
 
-#include "../../integrator/MaterialIntegrator.hh"
-
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 
 template<typename T>
@@ -118,12 +116,10 @@ public:
   double detJ(      std::array<double,dim>&& X) const noexcept {return utils::det(evaluate_jacobian(X));};
   double detJ(const std::array<double,dim>&  X) const noexcept {return utils::det(evaluate_jacobian(X));};
 
-
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
     for (auto node : nodes_) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
   };
-
 
   //Constructor
   constexpr LagrangeElement()  = default;

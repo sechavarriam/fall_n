@@ -50,7 +50,6 @@
 #include "src/analysis/Analysis.hh"
 
 #include "src/model/Model.hh"
-#include "src/integrator/MaterialIntegrator.hh"
 
 #include "src/materials/ConstitutiveRelation.hh"
 #include "src/materials/LinealRelation.hh"
@@ -66,7 +65,6 @@
 
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
-#include "src/model/Graph.hh"
 
 #include "src/mesh/Mesh.hh"
 
