@@ -37,8 +37,11 @@ namespace impl
                                                                       // constructed.
     public:
         constexpr virtual void print_nodes_info() const = 0;
+
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
+
+        constexpr virtual std::size_t num_integration_points() const = 0;
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
@@ -83,9 +86,13 @@ namespace impl
         };
 
     public: // Implementation of the virtual operations derived from ElementGeometryConcept
+
+        constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
+
         constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
         constexpr std::size_t id()        const override { return element_.id(); };
-        constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
+        
+        constexpr std::size_t num_integration_points() const override { return IntegrationStrategy::num_integration_points; };
 
         constexpr double H(std::size_t i, const Array& X) const override {
              return element_.H(i, X); 
@@ -133,9 +140,12 @@ namespace impl
         };
 
     public: // Implementation of the virtual operations derived from ElementGeometryConcept (Accesing pointer members)
+        constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
+        
         constexpr std::size_t num_nodes() const override { return element_->num_nodes(); };
         constexpr std::size_t id()        const override { return element_->id(); };
-        constexpr void print_nodes_info() const override { element_->print_nodes_info(); };
+        
+        constexpr std::size_t num_integration_points() const override { return IntegrationStrategy::num_integration_points; };
 
         constexpr double H(std::size_t i, const Array &X) const override { 
             return element_->H(i, X); 
@@ -157,14 +167,11 @@ namespace impl
             return (*integrator_)(*element_,std::forward<std::function<Matrix(Array)>>(f));
         };
 
-
         //template <std::invocable<Array> F> 
         //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
         //{
         //    return (*integrator_)(*element_,f);
         //};
-
-
     };
 } // impl
 
@@ -188,6 +195,8 @@ public:
 
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
+    
+    constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points(); };
 
     constexpr double H    (std::size_t i, const Array &X) const {return pimpl()->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {return pimpl()->dH_dx(i, j, X);};
@@ -244,6 +253,8 @@ class ElementGeometry
 public:
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
+
+    constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
