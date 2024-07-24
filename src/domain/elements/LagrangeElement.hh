@@ -165,9 +165,7 @@ class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
     static constexpr CellQuadrature integrator_{};
   
   public:
-
     static constexpr std::size_t num_integration_points = CellQuadrature::num_points;
-    //bool is_initialized_{false};
 
     constexpr auto operator()
     (const is_LagrangeElement auto& element, std::invocable<Array> auto&& f) const noexcept {
