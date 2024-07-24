@@ -6,7 +6,9 @@
 
 #include "ElementGeometry.hh"
 
-#include "../../materials/Material.hh"
+
+#include "../../model/MaterialPoint.hh"
+
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 
 template <typename MaterialType, std::size_t ndof>
@@ -18,8 +20,11 @@ class ContinuumElement
   static constexpr auto num_strains = MaterialType::num_strains;
 
   ElementGeometry<dim> *geometry_;
+  
 
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
+
+  
 
   //std::vector<MaterialPoint<MaterialType>> material_points_;
 
