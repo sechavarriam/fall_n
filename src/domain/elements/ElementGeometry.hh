@@ -45,9 +45,7 @@ namespace impl
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
-
-        //
-              
+ 
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
         constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 

@@ -19,7 +19,10 @@ class ContinuumElement
 
   ElementGeometry<dim> *geometry_;
 
-  // std::array<double, ndof*ndof> K_{0.0}; // Stiffness Matrix data
+  constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
+
+  //std::vector<MaterialPoint<MaterialType>> material_points_;
+
 
 public:
 
