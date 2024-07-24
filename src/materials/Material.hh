@@ -24,13 +24,7 @@ class Material
    CloneOperation*    clone_{nullptr};
 
    //Interfase for the material 
-
    UpdaterOperation*  get_stress_ {nullptr };
-
-   //void print_material_parameters( void* materialBytes )
-   //{
-   //   //static_cast<MaterialPolicy*>(materialBytes)->print_constitutive_parameters();
-   //}
 
  public:
    template< typename MaterialType, typename UpdateStrategy >

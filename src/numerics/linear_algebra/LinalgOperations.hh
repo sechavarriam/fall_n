@@ -45,7 +45,7 @@ namespace linalg{
 
     inline Matrix mat_mat_PtAP(const Matrix& P, const Matrix& A){
         Mat C;
-        MatPtAP(P.mat_, A.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
+        MatPtAP(A.mat_,P.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
         return Matrix{C};
     }
 
