@@ -18,7 +18,6 @@
 #include "../mesh/gmsh/ReadGmsh.hh"
 //#include "../mesh/gmsh/GmshDomainBuilder.hh"
 
-#include "MaterialPoint.hh"
 
 //namespace domain
 //{
@@ -33,7 +32,7 @@
 
         std::vector<Node<dim>>          nodes_;
         std::vector<ElementGeometry<dim>>    elements_;
-        std::vector<MaterialPoint<dim>> material_points_;
+        
 
         //std::vector<Material> materials_;
 
@@ -67,14 +66,6 @@
             ++num_nodes_;
             return &nodes_.back();
         };
-
-        void set_material_point(std::size_t i, MaterialPoint<dim> &&mp)
-        {
-            material_points_[i] = std::forward<MaterialPoint<dim>>(mp);
-        };
-
-
-
 
         // Tol increases capacity by default in 20%.
         void preallocate_node_capacity(std::size_t n, double tol = 1.20)

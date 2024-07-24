@@ -27,6 +27,7 @@ class ContinuumElement
 public:
 
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
+
   auto H(const Array& X) const noexcept
   {
     Matrix H(ndof, num_nodes() * dim);
@@ -162,10 +163,6 @@ public:
       // Inject (BUILD ) K into global stiffness matrix
   };
 
-  void compute_stiffness_matrix() {
-    // Compute stiffness matrix
-    // K_ = B^T * D * B * det(J)
-  };
 
   // CONSTRUCTOR
 
