@@ -87,14 +87,13 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-    static constexpr int dim  = 3;
-    static constexpr int ndof = 3; 
+    static constexpr std::size_t dim  = 3;
+    static constexpr std::size_t ndof = 6; 
 
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
     //Compute Domain Volume for Testing integration
-
     Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
     //          ^            
     //          | 
@@ -111,10 +110,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     
     ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
 
+
     Matrix K;
     K = brick.K(steel_mat3D);
     K.print_content();
-
 
 
 }// PETSc Scope ends here

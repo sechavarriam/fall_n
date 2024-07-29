@@ -15,7 +15,7 @@
 #include "../utils/index.hh"
 
 
-template<Stress StressType, Strain StrainType> //requires (/*operations well defined*/) <---- TODO
+template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
 class LinealRelation
   {
     public:
@@ -32,13 +32,9 @@ class LinealRelation
 
     std::array<double, total_parameters_> compliance_parameters_{0.0};
 
-    
-
   public:
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
-
-
 
     void compute_stress(const StrainType& strain, StressType& stress){
         stress.tensor = compliance_matrix*strain.tensor;
@@ -57,12 +53,10 @@ class LinealRelation
     constexpr ~LinealRelation() = default;
 };
 
-
-
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
-class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{ 
-  using StrainType = VoigtStrain<1>;
-  using StressType = VoigtStress<1>;
+class LinealRelation<Stress<1>, Strain<1>>{ 
+  using StrainType = Strain<1>;
+  using StressType = Stress<1>;
 
   public:
 
@@ -84,8 +78,8 @@ class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{
         std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
     };
 
-    void compute_stress(const VoigtStrain<1>& strain, VoigtStress<1>& stress){
-        stress.tensor = E_*strain.tensor;
+    void compute_stress(const Strain<1>& strain, Stress<1>& stress){
+        stress.vector = E_*strain.vector;
     };
     
     constexpr inline void set_parameter    (double value)        {E_ = value;};
@@ -98,8 +92,8 @@ class LinealRelation<VoigtStress<1>, VoigtStrain<1>>{
 };
 
 
-//typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialMaterial;
-//typedef LinealRelation<VoigtStress<3>, VoigtStrain<3>> ContinuumMaterial2D;
-//typedef LinealRelation<VoigtStress<6>, VoigtStrain<6>> ContinuumMaterial3D;
+//typedef LinealRelation<Stress<1>, Strain<1>> UniaxialMaterial;
+//typedef LinealRelation<Stress<3>, Strain<3>> ContinuumMaterial2D;
+//typedef LinealRelation<Stress<6>, Strain<6>> ContinuumMaterial3D;
 
 #endif // FALL_N_LINEAL_MATERIAL

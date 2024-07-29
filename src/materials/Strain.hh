@@ -5,16 +5,16 @@
 #include <ranges>
 
 template <typename StrainType>
-concept Strain = requires(StrainType e) {
+concept StrainC = requires(StrainType e) {
     { e.num_components } -> std::convertible_to<std::size_t>;
-    { e.tensor };
+    { e.vector };
     { e.get_strain() };
 };
 
 template <typename T>
 concept StrainRange = std::ranges::range<T> && requires(T s) {
     { s.begin().num_components } -> std::convertible_to<std::size_t>;
-    { s.begin().tensor };
+    { s.begin().vector };
     { s.begin().get_strain() };
 };
 
@@ -23,7 +23,7 @@ template <typename R, typename V>
 concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
 template <std::size_t N> requires(N > 0)
-class VoigtStrain{
+class Strain{
 public:
     static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
                                           else if constexpr (N == 3) return 2;
@@ -37,7 +37,7 @@ private:
     std::array<double, N> component_{0};
 
 public:
-    Vector tensor{component_};
+    Vector vector{component_};
 
     constexpr std::span<const double, N> get_strain() const { return component_; };
     constexpr std::floating_point auto   get_strain(std::size_t i) const { return component_[i]; };
@@ -49,14 +49,14 @@ public:
     }
 
     template <typename... S> requires(sizeof...(S) == N)
-    constexpr VoigtStrain(S... s) : component_{s...}{}
+    constexpr Strain(S... s) : component_{s...}{}
 
-    constexpr  VoigtStrain() = default;
-    constexpr ~VoigtStrain() = default;
+    constexpr  Strain() = default;
+    constexpr ~Strain() = default;
 };
 
 template <>
-class VoigtStrain<1>{
+class Strain<1>{
 public:
     static constexpr std::size_t dim{1};
     static constexpr std::size_t num_components = 1;
@@ -65,13 +65,13 @@ private:
     double component_{0.0};
 
 public:
-    double tensor{component_};
+    double vector{component_};
 
     constexpr void set_strain(double e) { component_ = e; };
     constexpr std::floating_point auto get_strain() const { return component_; };
 
-    constexpr  VoigtStrain() = default;
-    constexpr ~VoigtStrain() = default;
+    constexpr  Strain() = default;
+    constexpr ~Strain() = default;
 };
 
 #endif
