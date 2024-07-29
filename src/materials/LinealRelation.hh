@@ -14,9 +14,9 @@
 #include "../numerics/linear_algebra/Matrix.hh"
 #include "../utils/index.hh"
 
-
+// Linear and non linear as policys?
 template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
-class LinealRelation
+class ElasticRelation
   {
     public:
 
@@ -36,8 +36,9 @@ class LinealRelation
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
 
+
     void compute_stress(const StrainType& strain, StressType& stress){
-        stress.tensor = compliance_matrix*strain.tensor;
+        stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon
     };
     
     constexpr void set_parameter(std::size_t i, std::size_t j, double value){
@@ -49,12 +50,12 @@ class LinealRelation
         compliance_matrix.print_content();
     };
   
-    constexpr LinealRelation(){};
-    constexpr ~LinealRelation() = default;
+    constexpr ElasticRelation(){};
+    constexpr ~ElasticRelation() = default;
 };
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
-class LinealRelation<Stress<1>, Strain<1>>{ 
+class ElasticRelation<Stress<1>, Strain<1>>{ 
   using StrainType = Strain<1>;
   using StressType = Stress<1>;
 
@@ -85,15 +86,15 @@ class LinealRelation<Stress<1>, Strain<1>>{
     constexpr inline void set_parameter    (double value)        {E_ = value;};
     constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
 
-    constexpr LinealRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
+    constexpr ElasticRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
 
-    constexpr  LinealRelation() = default;
-    constexpr ~LinealRelation() = default;
+    constexpr  ElasticRelation() = default;
+    constexpr ~ElasticRelation() = default;
 };
 
 
-//typedef LinealRelation<Stress<1>, Strain<1>> UniaxialMaterial;
-//typedef LinealRelation<Stress<3>, Strain<3>> ContinuumMaterial2D;
-//typedef LinealRelation<Stress<6>, Strain<6>> ContinuumMaterial3D;
+//typedef ElasticRelation<Stress<1>, Strain<1>> UniaxialMaterial;
+//typedef ElasticRelation<Stress<3>, Strain<3>> ContinuumMaterial2D;
+//typedef ElasticRelation<Stress<6>, Strain<6>> ContinuumMaterial3D;
 
 #endif // FALL_N_LINEAL_MATERIAL
