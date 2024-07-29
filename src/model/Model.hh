@@ -17,13 +17,13 @@
 
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
-using LinealElastic3D = LinealRelation<Stress<6>, Strain<6>>;
-using LinealElastic2D = LinealRelation<Stress<3>, Strain<3>>;
-using LinealElastic1D = LinealRelation<Stress<1>, Strain<1>>;
+using LinealElastic3D = ElasticRelation<Stress<6>, Strain<6>>;
+using LinealElastic2D = ElasticRelation<Stress<3>, Strain<3>>;
+using LinealElastic1D = ElasticRelation<Stress<1>, Strain<1>>;
 
 // The MaterialPolicy defines the constitutive relation and the number of dimensions
 template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 
-    typename MaterialPolicy,                 //Constitutive relation (e.g. LinealRelation, NeoHookeanRelation, PlasticRelation)
+    typename MaterialPolicy,                 //Constitutive relation (e.g. ElasticRelation, NeoHookeanRelation, PlasticRelation)
     std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
     >
 class Model
