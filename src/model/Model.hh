@@ -17,9 +17,9 @@
 
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
-using LinealElastic3D = LinealRelation<VoigtStress<6>, VoigtStrain<6>>;
-using LinealElastic2D = LinealRelation<VoigtStress<3>, VoigtStrain<3>>;
-using LinealElastic1D = LinealRelation<VoigtStress<1>, VoigtStrain<1>>;
+using LinealElastic3D = LinealRelation<Stress<6>, Strain<6>>;
+using LinealElastic2D = LinealRelation<Stress<3>, Strain<3>>;
+using LinealElastic1D = LinealRelation<Stress<1>, Strain<1>>;
 
 // The MaterialPolicy defines the constitutive relation and the number of dimensions
 template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 

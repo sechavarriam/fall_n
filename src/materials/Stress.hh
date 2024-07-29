@@ -11,9 +11,9 @@
 
 
 template<typename StressType>
-concept Stress = requires(StressType s){
+concept StressC = requires(StressType s){
     {s.num_components}->std::convertible_to<std::size_t>;
-    {s.tensor};
+    {s.vector};
     {s.get_stress()};
 };
 
@@ -30,14 +30,14 @@ class CauchyStress{
 
 
 template<std::size_t N> requires (N > 0)
-class VoigtStress{
+class Stress{
     private:
         std::array<double, N> component_;
     
     public:
         static constexpr std::size_t num_components = N;
 
-        Vector tensor{component_};
+        Vector vector{component_};
 
         constexpr std::span<const double, N> get_stress() const{return component_;};
         constexpr std::floating_point auto get_stress(std::size_t i) const{return component_[i];};
@@ -49,29 +49,29 @@ class VoigtStress{
         }
 
         template<typename... S> requires (sizeof...(S) == N)
-        VoigtStress(S... s) : component_{s...}{}
+        Stress(S... s) : component_{s...}{}
 
-        VoigtStress() = default;
-        ~VoigtStress() = default;
+        Stress() = default;
+        ~Stress() = default;
 };
 
 //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 template<>
-class VoigtStress<1>{
+class Stress<1>{
     private:
         double component_{0.0};
     
     public:
         static constexpr std::size_t num_components = 1;
 
-        double tensor{component_};
+        double vector{component_};
 
         constexpr void set_stress(double s){component_ = s;};
 
         constexpr std::floating_point auto get_stress() const{return component_;};
 
-        VoigtStress() = default;
-        ~VoigtStress() = default;
+        Stress() = default;
+        ~Stress() = default;
 };
 
 

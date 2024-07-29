@@ -5,7 +5,7 @@
 
 #include "LinealRelation.hh"
 
-class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtStrain<6>> {
+class ContinuumIsotropicRelation : public LinealRelation<Stress<6>, Strain<6>> {
  
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
     double E_{0.0};
@@ -13,7 +13,7 @@ class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtSt
 
     public:
 
-    using LinealRelation<VoigtStress<6>, VoigtStrain<6>>::compliance_matrix;
+    using LinealRelation<Stress<6>, Strain<6>>::compliance_matrix;
 
     constexpr inline void set_E(double E){E_ = E;};
     constexpr inline void set_v(double v){v_ = v;};
@@ -53,7 +53,7 @@ class ContinuumIsotropicRelation : public LinealRelation<VoigtStress<6>, VoigtSt
 };
 
 
-typedef LinealRelation<VoigtStress<1>, VoigtStrain<1>> UniaxialIsotropicRelation;
+typedef LinealRelation<Stress<1>, Strain<1>> UniaxialIsotropicRelation;
 
 
 
