@@ -5,9 +5,9 @@
 
 #include <memory>
 
-#include "LinealRelation.hh"
+#include "constitutive_models/lineal/ElasticRelation.hh"
+#include "constitutive_models/lineal/IsotropicRelation.hh"
 
-#include "IsotropicRelation.hh"
 #include "MaterialState.hh"
 
 class LinealElasticMaterial{};
@@ -17,19 +17,22 @@ class IsotropicElasticMaterial{
 
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;
-    using State = ElasticMaterialState<StrainType>;
+   
+    using State = MaterialState<ElasticState,StrainType>;
 
   public:  
     static constexpr std::size_t dim         = StrainType::dim;
     static constexpr std::size_t num_strains = StrainType::num_components;
 
   private:
-    std::unique_ptr<State>                state_;
+    
+    State state_;
+    
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    void update_state(const StrainType& strain){state_->update_state(strain);};
+    //void update_state(const StrainType& strain){state_->update_state(strain);};
     
     auto compute_stress(const StrainType& strain) const{
         return constitutive_law_->compute_stress(strain);
@@ -37,7 +40,7 @@ class IsotropicElasticMaterial{
     
     void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
     
-    auto get_state() const{return state_->current_state();};
+    //auto get_state() const{return state_->current_state();};
     
     auto C() const {return constitutive_law_->compliance_matrix;}
 
@@ -49,7 +52,7 @@ class IsotropicElasticMaterial{
 
     template<std::floating_point... Args>
     IsotropicElasticMaterial(Args... args) : 
-        state_{std::make_unique<State>()},
+        //state_{std::make_unique<State>()},
         constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
         {}
 };

@@ -6,7 +6,6 @@
 
 #include "ElementGeometry.hh"
 
-
 #include "../../model/MaterialPoint.hh"
 
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
@@ -21,13 +20,9 @@ class ContinuumElement
 
   ElementGeometry<dim> *geometry_;
   
-
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
 
-  
-
   //std::vector<MaterialPoint<MaterialType>> material_points_;
-
 
 public:
 
@@ -108,7 +103,7 @@ public:
         k += dim;
       }
     }
-    else if constexpr (dim == 3)
+    else if constexpr (dim == 3) 
     {
       auto k=0;
       for (std::size_t i = 0; i < num_nodes(); ++i)
@@ -147,7 +142,7 @@ public:
 
   auto BtCB (const MaterialType& M,  const Array &X) {
     Matrix K{ndof, ndof};                          
-    K = linalg::mat_mat_PtAP(B(X), M.C() );
+    K = linalg::mat_mat_PtAP(B(X), M.C() ); // TODO: Optimize this for each dimension.
     return K; // B^t * C * B
   }; 
 

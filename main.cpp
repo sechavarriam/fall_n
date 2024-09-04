@@ -52,8 +52,9 @@
 #include "src/model/Model.hh"
 
 #include "src/materials/ConstitutiveRelation.hh"
-#include "src/materials/LinealRelation.hh"
-#include "src/materials/IsotropicRelation.hh"
+
+#include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
+#include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
 
 #include "src/materials/Material.hh"
 
@@ -75,8 +76,6 @@
 #include "src/graph/AdjacencyMatrix.hh"
 
 #include "src/domain/IntegrationPoint.hh"
-
-
 
 //#include <matplot/matplot.h>
 
@@ -100,7 +99,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //    Constitutive Relation Type (Policy) and Dimension implicitly.
 
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
-    UniaxialIsotropicRelation  steel1D{200.0}     ;
+    UniaxialIsotropicRelation  steel1D{200.0}     ; 
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
@@ -109,7 +108,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     steel_mat1D.print_material_parameters();
     
     ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
-
 
     Matrix K;
     K = brick.K(steel_mat3D);

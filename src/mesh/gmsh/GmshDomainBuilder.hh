@@ -94,7 +94,7 @@ public:
                     {
                     case 5:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
+                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; 
                            
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),

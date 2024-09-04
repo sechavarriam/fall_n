@@ -8,11 +8,11 @@
 #include <type_traits>
 #include <concepts>
 
-#include "Stress.hh"
-#include "Strain.hh"
+#include "../../Stress.hh"
+#include "../../Strain.hh"
 
-#include "../numerics/linear_algebra/Matrix.hh"
-#include "../utils/index.hh"
+#include "../../../numerics/linear_algebra/Matrix.hh"
+#include "../../../utils/index.hh"
 
 // Linear and non linear as policys?
 template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
@@ -73,7 +73,7 @@ class ElasticRelation<Stress<1>, Strain<1>>{
 
     double E_{0.0}; // E
 
-  public:
+public:
 
     void print_constitutive_parameters() const{
         std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
