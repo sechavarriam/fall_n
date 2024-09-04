@@ -45,13 +45,20 @@ public:
 
 // =================================================================================
 
+
+
 template <template <typename> class MemoryPolicy, typename... StateVariableType>
 class MaterialState
 {
-    using StateVariable = std::tuple<StateVariableType...>;
+    static consteval auto variadic_check(){
+        if constexpr (sizeof...(StateVariableType) == 1)
+            return std::get<0>(std::tuple<StateVariableType...>{}); 
+        else
+            return std::tuple<StateVariableType...>{};
+    };
+    
 
-    //if constexpr sizeof...(StateVariableType) == 1 ... 
-
+    using StateVariable = std::invoke_result_t<decltype(&MaterialState::variadic_check)>;
 
     MemoryPolicy<StateVariable> state_variable_;
 
