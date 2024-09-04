@@ -14,7 +14,6 @@
 #include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
 
-// Linear and non linear as policys?
 template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
 class ElasticRelation
   {
@@ -29,13 +28,11 @@ class ElasticRelation
     static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
 
   private:
-
     std::array<double, total_parameters_> compliance_parameters_{0.0};
 
   public:
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
-
 
     void compute_stress(const StrainType& strain, StressType& stress){
         stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon
@@ -45,13 +42,15 @@ class ElasticRelation
         compliance_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
     };
 
-    void print_constitutive_parameters(){
+    // =========== CONSTRUCTORS ==========================  
+    constexpr ElasticRelation(){};
+    constexpr ~ElasticRelation() = default;
+
+    // =========== TESTING FUNCTIONS ============================
+        void print_constitutive_parameters(){
         std::cout << "Elasticity Tensor Components: " << std::endl;
         compliance_matrix.print_content();
     };
-  
-    constexpr ElasticRelation(){};
-    constexpr ~ElasticRelation() = default;
 };
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
@@ -75,10 +74,6 @@ class ElasticRelation<Stress<1>, Strain<1>>{
 
 public:
 
-    void print_constitutive_parameters() const{
-        std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
-    };
-
     void compute_stress(const Strain<1>& strain, Stress<1>& stress){
         stress.vector = E_*strain.vector;
     };
@@ -86,10 +81,18 @@ public:
     constexpr inline void set_parameter    (double value)        {E_ = value;};
     constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
 
-    constexpr ElasticRelation(double young_modulus) : E_{std::forward<double>(young_modulus)}{};
+    constexpr ElasticRelation(double young_modulus) : E_{young_modulus}{};
 
+
+    // =========== CONSTRUCTORS ==========================
     constexpr  ElasticRelation() = default;
     constexpr ~ElasticRelation() = default;
+
+    // =========== TESTING FUNCTIONS ============================
+    void print_constitutive_parameters() const{
+        std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
+    };
+
 };
 
 

@@ -27,36 +27,38 @@ class IsotropicElasticMaterial{
   private:
     
     State state_;
-    
+
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    //void update_state(const StrainType& strain){state_->update_state(strain);};
-    
+    void update_state(const StrainType& strain){state_->update_state(strain);};
+       
     auto compute_stress(const StrainType& strain) const{
         return constitutive_law_->compute_stress(strain);
     };
     
-    void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
-    
-    //auto get_state() const{return state_->current_state();};
     
     auto C() const {return constitutive_law_->compliance_matrix;}
-
 
     template<typename... Args>  
     auto set_elasticity(Args... args){
         constitutive_law_->update_elasticity(std::move(args)...);
     }
 
+    // ========== CONSTRUCTORS =================================
+
     template<std::floating_point... Args>
-    IsotropicElasticMaterial(Args... args) : 
-        //state_{std::make_unique<State>()},
+    IsotropicElasticMaterial(Args... args) :
         constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
         {}
-};
 
+    ~IsotropicElasticMaterial() = default;
+
+    // ========== TESTING FUNCTIONS ============================
+    void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
+
+};
 
 typedef IsotropicElasticMaterial<ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
 typedef IsotropicElasticMaterial<UniaxialIsotropicRelation > UniaxialIsotropicElasticMaterial;
