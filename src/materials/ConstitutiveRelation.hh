@@ -2,17 +2,14 @@
 #define FN_CONSTITUTIVE_RELATION
 
 
-// Lista de posibles relaciones constitivas:
-
-
-
-
-
-
-
-
-
-
+// Lista de posibles relaciones constitivas (Bathe, Table 6.7 ):
+//
+// ElasticRelation
+// HyperelasticRelation
+// HypoelasticRelation
+// ElastoplasticRelation (ElasticRelation + PlasticRelation)
+// CreepRelation
+// ViscoPlasticRelation
 
 
 template<typename F,typename R,typename U=F> // Dim? // Policy

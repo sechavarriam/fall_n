@@ -10,7 +10,8 @@
 #include "../domain/Domain.hh"
 
 #include "../materials/Material.hh"
-#include "../materials/LinealRelation.hh"
+
+#include "../materials/constitutive_models/lineal/ElasticRelation.hh"
 
 #include "MaterialPoint.hh"
 

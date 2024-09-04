@@ -3,7 +3,7 @@
 #define FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
 
 
-#include "LinealRelation.hh"
+#include "ElasticRelation.hh"
 
 class ContinuumIsotropicRelation : public ElasticRelation<Stress<6>, Strain<6>> {
  

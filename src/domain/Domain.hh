@@ -9,7 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-#include <concepts>
+
 
 #include "../geometry/Topology.hh"
 #include "Node.hh"
@@ -27,22 +27,19 @@
 
         static constexpr std::size_t dim_ = dim;
 
-        std::size_t num_nodes_{0};
+        std::size_t num_nodes_{0}   ;
         std::size_t num_elements_{0};
 
-        std::vector<Node<dim>>          nodes_;
-        std::vector<ElementGeometry<dim>>    elements_;
+        std::vector<Node<dim>>             nodes_   ;
+        std::vector<ElementGeometry<dim>>  elements_;
         
-
-        //std::vector<Material> materials_;
-
     public:
         std::size_t num_nodes() const { return nodes_.size(); };
 
         // Getters
         Node<dim> *node_p(std::size_t i) { return &nodes_[i]; };
         // Node<dim>  node  (std::size_t i){return nodes_[i];};
-        
+         
 
         std::span<Node<dim>>            nodes()   { return std::span<Node<dim>>      (nodes_   ); };
         std::span<ElementGeometry<dim>> elements(){ return std::span<ElementGeometry<dim>>(elements_); };
