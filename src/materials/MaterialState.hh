@@ -45,34 +45,26 @@ public:
 
 // =================================================================================
 
-
-
 template <template <typename> class MemoryPolicy, typename... StateVariableType>
 class MaterialState
 {
     static consteval bool is_multivariable(){return sizeof...(StateVariableType) > 1;};
     
-    static consteval auto multivariable_check(){
+    static consteval auto multivariable_type(){
         if constexpr (is_multivariable())
             return std::tuple<StateVariableType...>{}; 
         else
             return std::get<0>(std::tuple<StateVariableType...>{});//Trick: The pack has to be expanded...            
     };
     
-    using StateVariable = std::invoke_result_t<decltype(&MaterialState::multivariable_check)>;
+    using StateVariable = std::invoke_result_t<decltype(&MaterialState::multivariable_type)>;
 
     MemoryPolicy<StateVariable> state_variable_;
 
 public:
-    auto current_value() const noexcept
-    {
-        return state_variable_.current_value();
-    }
 
-    auto update_state(const StateVariable &s)
-    {
-        state_variable_.update_state(s);
-    }
+    auto current_value() const noexcept {return state_variable_.current_value();}
+    void update_state(const StateVariable &s){state_variable_.update_state(s);}
 
 
     MaterialState() = default;
