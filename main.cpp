@@ -56,6 +56,8 @@
 #include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
 #include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
 
+#include "src/materials/constitutive_models/non_lineal/InelasticRelation.hh"
+
 #include "src/materials/Material.hh"
 
 #include "src/materials/MaterialState.hh"
