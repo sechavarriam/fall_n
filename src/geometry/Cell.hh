@@ -1,5 +1,5 @@
-#ifndef FALL_N_CELL
-#define FALL_N_CELL
+#ifndef FALL_N_REFERENCE_CELL
+#define FALL_N_REFERENCE_CELL
 
 #include <array>
 #include <concepts>
@@ -17,7 +17,6 @@
 
 #include "../utils/index.hh"
 #include "../numerics/Interpolation/LagrangeInterpolation.hh"
-
 
 namespace geometry::cell {
 
@@ -110,8 +109,9 @@ public:
 
 
 
-
-
 } // namespace geometry::cell
 
-#endif
+
+
+
+#endif // FALL_N_REFERENCE_CELL

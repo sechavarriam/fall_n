@@ -49,10 +49,8 @@ public:
     void link_dofs_to_node()
     {
         auto pos = 0;
-        for (auto &node : domain_->nodes())
-        {
-            for (auto &dof : node.dofs())
-            {
+        for (auto &node : domain_->nodes()){
+            for (auto &dof : node.dofs()){
                 dof = std::addressof(dof_vector_[pos++]);
             }
         }

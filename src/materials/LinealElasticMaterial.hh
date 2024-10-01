@@ -26,19 +26,27 @@ class IsotropicElasticMaterial{
 
   private:
     
-    State state_;
+    State state_; // Strain
+    
+    StressType stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    void update_state(const StrainType& strain){state_->update_state(strain);};
-       
-    auto compute_stress(const StrainType& strain) const{
-        return constitutive_law_->compute_stress(strain);
+    inline void update_state(const StrainType& strain){state_->update_state(strain);};
+    inline void update_stress(){ compute_stress(state_.current_value(), stress_);};
+
+    inline StrainType get_state(){state_.current_value();};
+    inline StressType get_stress(){return stress_;};
+
+    inline void set_stress(const StressType& stress){stress_ = stress;};
+
+
+    inline void compute_stress(const StrainType& strain, StressType& stress) const{
+        return constitutive_law_->compute_stress(strain, stress);
     };
-    
-    
+
     auto C() const {return constitutive_law_->compliance_matrix;}
 
     template<typename... Args>  

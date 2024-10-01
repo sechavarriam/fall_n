@@ -34,7 +34,7 @@ public:
     static constexpr std::size_t num_components{N};
 
 private:
-    std::array<double, N> component_{0};
+    std::array<double, N> component_{0.0};
 
 public:
     Vector vector{component_};

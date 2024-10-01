@@ -97,7 +97,6 @@ namespace gmsh
         InterpolationScheme interpolation_scheme_info_;
     
 
-
         std::array<std::size_t, msh_keywords.size()> keyword_position_{
             [](){ // Inmediately invoked lambda expression to initialize the array with zeros 
                 std::array<std::size_t, msh_keywords.size()> arr{};

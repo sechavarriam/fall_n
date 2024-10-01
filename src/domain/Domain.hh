@@ -18,6 +18,7 @@
 #include "../mesh/gmsh/ReadGmsh.hh"
 //#include "../mesh/gmsh/GmshDomainBuilder.hh"
 
+//TODO: revisar! pyvista!
 
 //namespace domain
 //{
@@ -51,7 +52,7 @@
         {
             elements_.emplace_back(
                 ElementGeometry<dim>(
-                    ElementType(
+                    ElementType(  //Forward this?
                         std::forward<std::size_t>(tag),
                         std::forward<std::vector<Node<3>*>>(nodeAdresses)),
                     std::forward<IntegrationStrategy>(integrator)));
@@ -84,10 +85,7 @@
         // TODO: Preallocated constructor.
         // Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
         //
-
         // Constructors
-
-
 
         // Copy Constructor
         Domain(const Domain &other) = default;

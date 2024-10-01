@@ -79,7 +79,7 @@
 
 #include "src/domain/IntegrationPoint.hh"
 
-//#include <matplot/matplot.h>
+#include <matplot/matplot.h>
 
 #include <petsc.h>
 
@@ -94,7 +94,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
-    //Compute Domain Volume for Testing integration
     Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
     //          ^            
     //          | 
@@ -108,7 +107,21 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     steel_mat3D.print_material_parameters();
     steel_mat1D.print_material_parameters();
-    
+
+    // INTENT:
+    // Material mat(base_material, stress_update_strategy);
+    // e.g. 
+
+    // Material mat(steel3D, ElasticUpdateStrategy::Linear{});
+    // Material mat(steel1D, ElasticUpdateStrategy::Linear{});
+
+    // Material mat(steel3D, InelasticUpdateStrategy::ReturnMapping);
+    // Material mat(steel3D, InelasticUpdateStrategy::FullImplicitBackwardEuler);
+    // Material mat(steel3D, InelasticUpdateStrategy::SemiImplicitBackwardEuler);
+    // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
+    // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
+
+
     ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
 
     Matrix K;

@@ -14,28 +14,27 @@
 // =================================================================================
 // MemoryPolicies
 
-template <typename T>
+template <typename S>
 class ElasticState
 {
-    T value;
+    S value;
 
 public:
     auto current_value() const noexcept { return value; }
-    void update_state(const T &s) { value = s; }
+    void update_state(const S &s) { value = s; }
 
     ElasticState() = default;
     ~ElasticState() = default;
 };
 
-template <typename T>
+template <typename S>
 class MemoryState
 {
-
-    std::vector<T> value;
+    std::vector<S> value;
 
 public:
-    auto current_value() const noexcept { return value.back(); }
-    void update_state(const T &s) { value.push_back(s); }
+    inline auto current_value() const noexcept { return value.back(); }
+    inline void update_state(const S &s) { value.push_back(s); }
 
     MemoryState() = default;
     ~MemoryState() = default;
@@ -44,6 +43,8 @@ public:
 // There can be more memory policies e.g. with different memory management strategies.
 
 // =================================================================================
+
+// MaterialState<ElasticState, Strain, T, M,...> ms1;
 
 template <template <typename> class MemoryPolicy, typename... StateVariableType>
 class MaterialState
@@ -54,7 +55,7 @@ class MaterialState
         if constexpr (is_multivariable())
             return std::tuple<StateVariableType...>{}; 
         else
-            return std::get<0>(std::tuple<StateVariableType...>{});//Trick: The pack has to be expanded...            
+            return std::get<0>(std::tuple<StateVariableType...>{}); //Trick: The pack has to be expanded...            
     };
     
     using StateVariable = std::invoke_result_t<decltype(&MaterialState::multivariable_type)>;
@@ -63,8 +64,8 @@ class MaterialState
 
 public:
 
-    auto current_value() const noexcept {return state_variable_.current_value();}
-    void update_state(const StateVariable &s){state_variable_.update_state(s);}
+    inline auto current_value() const noexcept {return state_variable_.current_value();}
+    inline void update_state(const StateVariable &s){state_variable_.update_state(s);}
 
 
     MaterialState() = default;
