@@ -19,7 +19,6 @@
 #include "LagrangeElement.hh"
 
 namespace impl
-
 { // Implementation details
 
     template <std::size_t dim>
@@ -43,7 +42,7 @@ namespace impl
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
- 
+
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
         constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
@@ -238,6 +237,7 @@ private: // Operations with references
         return element.pimpl()->integrate(std::forward<decltype(F)>(F));
         };  
 };
+
 template<std::size_t dim>
 class ElementGeometry
 {
@@ -260,8 +260,6 @@ public:
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
-
-    
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)

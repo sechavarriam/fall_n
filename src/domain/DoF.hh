@@ -40,7 +40,6 @@ class DoF_Interface{
   private:
   public:
 
-
     std::shared_ptr<DoF_Handler> handler_;// Node copy constructor forbids the use of unique_ptr in the way it is used here.
                                           // Beeng shared_pts has its advantages. It can be used to share the same handler 
                                           // between nodes, that is, manage the same dofs for two or more nodes.                                               

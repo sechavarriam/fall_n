@@ -32,7 +32,7 @@ class CauchyStress{
 template<std::size_t N> requires (N > 0)
 class Stress{
     private:
-        std::array<double, N> component_;
+        std::array<double, N> component_{0.0}; // Default value is 0.0
     
     public:
         static constexpr std::size_t num_components = N;

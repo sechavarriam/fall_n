@@ -9,7 +9,6 @@
 #include "../numerics/Tensor.hh"
 #include "Strain.hh"
 
-
 // TypeErasure with Manual Virtual dispatch.
 
 //template<typename MaterialPolicy> // MaterialPolicy is a concept that defines the material behavior (uniaxial, continuum, plane....)
@@ -23,7 +22,7 @@ class Material
    CloneOperation*    clone_{nullptr};
 
    //Interfase for the material 
-   UpdaterOperation*  get_stress_ {nullptr };
+   UpdaterOperation*  update_state {nullptr };
 
  public:
    template< typename MaterialType, typename UpdateStrategy >
@@ -42,7 +41,7 @@ class Material
                auto* const model = static_cast<Model*>(materialBytes);
                return new Model( *model );
             } )
-      , get_stress_(
+      , update_state(
       []( void* materialBytes ){
          using Model = OwningModel<MaterialType,UpdateStrategy>;
          auto* const model = static_cast<Model*>(materialBytes);
@@ -53,7 +52,7 @@ class Material
    Material( Material const& other )
       : pimpl_( other.clone_( other.pimpl_.get() ), other.pimpl_.get_deleter() )
       , clone_( other.clone_ )
-      , get_stress_ ( other.get_stress_ )
+      , update_state ( other.update_state )
    {}
 
    Material& operator=( Material const& other )
@@ -64,7 +63,7 @@ class Material
       swap( pimpl_, copy.pimpl_ );
       swap( clone_, copy.clone_ );
 
-      swap( get_stress_, copy.get_stress_ );
+      swap( update_state, copy.update_state );
       
       return *this;
    }
