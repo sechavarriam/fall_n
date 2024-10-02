@@ -42,7 +42,6 @@ class IsotropicElasticMaterial{
 
     inline void set_stress(const StressType& stress){stress_ = stress;};
 
-
     inline void compute_stress(const StrainType& strain, StressType& stress) const{
         return constitutive_law_->compute_stress(strain, stress);
     };

@@ -21,7 +21,7 @@ class ElasticState
 
 public:
     auto current_value() const noexcept { return value; }
-    void update_state(const S &s) { value = s; }
+    void update(const S &s) { value = s; }
 
     ElasticState() = default;
     ~ElasticState() = default;
@@ -34,7 +34,7 @@ class MemoryState
 
 public:
     inline auto current_value() const noexcept { return value.back(); }
-    inline void update_state(const S &s) { value.push_back(s); }
+    inline void update(const S &s) { value.push_back(s); }
 
     MemoryState() = default;
     ~MemoryState() = default;
