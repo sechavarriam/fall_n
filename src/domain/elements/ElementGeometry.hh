@@ -49,8 +49,8 @@ namespace impl
 
     };
 
-    template <typename ElementType, typename IntegrationStrategy> //, typename MaterialPolicy> ???
-    class NON_OwningModel_ElementGeometry;                                 // Forward declaration
+    template <typename ElementType, typename IntegrationStrategy> 
+    class NON_OwningModel_ElementGeometry;            // Forward declaration                     
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>

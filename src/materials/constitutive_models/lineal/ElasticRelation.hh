@@ -95,9 +95,4 @@ public:
 
 };
 
-
-//typedef ElasticRelation<Stress<1>, Strain<1>> UniaxialMaterial;
-//typedef ElasticRelation<Stress<3>, Strain<3>> ContinuumMaterial2D;
-//typedef ElasticRelation<Stress<6>, Strain<6>> ContinuumMaterial3D;
-
 #endif // FALL_N_LINEAL_MATERIAL
