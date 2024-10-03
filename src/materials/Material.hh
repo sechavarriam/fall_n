@@ -20,30 +20,34 @@ namespace detail
 
    class MaterialConcept // The External Polymorphism design pattern
    {
+   
    public:
       virtual ~MaterialConcept() = default;
-      virtual void draw() const = 0;
       virtual std::unique_ptr<MaterialConcept> clone() const = 0; // The Prototype design pattern
       virtual void clone(MaterialConcept *memory) const = 0;      // The Prototype design pattern
+   
+   public:
+      virtual void update_state() const = 0;
+   
    };
 
-   template <typename MaterialType, typename DrawStrategy>
+   template <typename MaterialType, typename UpdateStrategy>
    class NonOwningMaterialModel; // Forward declaration
 
-   template <typename MaterialType, typename DrawStrategy>
+   template <typename MaterialType, typename UpdateStrategy>
    class OwningMaterialModel : public MaterialConcept
    {
    private:
       MaterialType material_;
-      DrawStrategy drawer_;
+      UpdateStrategy update_algorithm_; //or material_integrator
 
    public:
-      explicit OwningMaterialModel(MaterialType material, DrawStrategy drawer)
-          : material_{std::move(material)}, drawer_{std::move(drawer)}
+      explicit OwningMaterialModel(MaterialType material, UpdateStrategy mat_integrator)
+          : material_{std::move(material)}, update_algorithm_{std::move(mat_integrator)}
       {
       }
 
-      void draw() const override { drawer_(material_); }
+      void update_state() const override { update_algorithm_(material_); }
 
       std::unique_ptr<MaterialConcept> clone() const override // The Prototype design pattern
       {
@@ -52,27 +56,27 @@ namespace detail
 
       void clone(MaterialConcept *memory) const
       {
-         using Model = NonOwningMaterialModel<MaterialType const, DrawStrategy const>;
+         using Model = NonOwningMaterialModel<MaterialType const, UpdateStrategy const>;
 
-         std::construct_at(static_cast<Model *>(memory), material_, drawer_);
+         std::construct_at(static_cast<Model *>(memory), material_, update_algorithm_);
       }
    };
 
-   template <typename MaterialType, typename DrawStrategy>
+   template <typename MaterialType, typename UpdateStrategy>
    class NonOwningMaterialModel : public MaterialConcept
    {
    public:
-      NonOwningMaterialModel(MaterialType &material, DrawStrategy &drawer)
-          : material_{std::addressof(material)}, drawer_{std::addressof(drawer)}
+      NonOwningMaterialModel(MaterialType &material, UpdateStrategy &mat_integrator)
+          : material_{std::addressof(material)}, update_algorithm_{std::addressof(mat_integrator)}
       {
       }
 
-      void draw() const override { (*drawer_)(*material_); }
+      void update_state() const override { (*update_algorithm_)(*material_); }
 
       std::unique_ptr<MaterialConcept> clone() const override
       {
-         using Model = OwningMaterialModel<MaterialType, DrawStrategy>;
-         return std::make_unique<Model>(*material_, *drawer_);
+         using Model = OwningMaterialModel<MaterialType, UpdateStrategy>;
+         return std::make_unique<Model>(*material_, *update_algorithm_);
       }
 
       void clone(MaterialConcept *memory) const override
@@ -82,7 +86,7 @@ namespace detail
 
    private:
       MaterialType *material_{nullptr};
-      DrawStrategy *drawer_{nullptr};
+      UpdateStrategy *update_algorithm_{nullptr};
    };
 
 } // namespace detail
@@ -94,17 +98,17 @@ class MaterialConstRef
    friend class Material;
 
 public:
-   // Type 'MaterialType' and 'DrawStrategy' are possibly cv qualified;
+   // Type 'MaterialType' and 'UpdateStrategy' are possibly cv qualified;
    // lvalue references prevent references to rvalues
-   template <typename MaterialType, typename DrawStrategy>
-   MaterialConstRef(MaterialType &material, DrawStrategy &drawer)
+   template <typename MaterialType, typename UpdateStrategy>
+   MaterialConstRef(MaterialType &material, UpdateStrategy &mat_integrator)
    {
       using Model =
-          detail::NonOwningMaterialModel<MaterialType const, DrawStrategy const>;
+          detail::NonOwningMaterialModel<MaterialType const, UpdateStrategy const>;
       static_assert(sizeof(Model) == MODEL_SIZE, "Invalid size detected");
       static_assert(alignof(Model) == alignof(void *), "Misaligned detected");
 
-      std::construct_at(static_cast<Model *>(pimpl()), material, drawer);
+      std::construct_at(static_cast<Model *>(pimpl()), material, mat_integrator);
    }
 
    MaterialConstRef(Material &other);
@@ -130,8 +134,8 @@ public:
    // Move operations explicitly not declared
 
 private:
-   friend void draw(MaterialConstRef const &material){
-      material.pimpl()->draw();
+   friend void update_state(MaterialConstRef const &material){
+      material.pimpl()->update_state();
    }
 
    detail::MaterialConcept *pimpl(){ // The Bridge design pattern
@@ -143,7 +147,7 @@ private:
    }
 
    // Expected size of a model instantiation:
-   //     sizeof(MaterialType*) + sizeof(DrawStrategy*) + sizeof(vptr)
+   //     sizeof(MaterialType*) + sizeof(UpdateStrategy*) + sizeof(vptr)
    static constexpr std::size_t MODEL_SIZE = 3U * sizeof(void *);
 
    alignas(void *) std::array<std::byte, MODEL_SIZE> raw_;
@@ -157,10 +161,10 @@ class Material
 
 public:
    
-   template <typename MaterialType, typename DrawStrategy>
-   Material(MaterialType material, DrawStrategy drawer){
-      using Model = detail::OwningMaterialModel<MaterialType, DrawStrategy>;
-      pimpl_ = std::make_unique<Model>(std::move(material), std::move(drawer));
+   template <typename MaterialType, typename UpdateStrategy>
+   Material(MaterialType material, UpdateStrategy mat_integrator){
+      using Model = detail::OwningMaterialModel<MaterialType, UpdateStrategy>;
+      pimpl_ = std::make_unique<Model>(std::move(material), std::move(mat_integrator));
    }
 
    Material(Material         const &other) : pimpl_(other.pimpl_->clone()){}
@@ -179,8 +183,8 @@ public:
    Material &operator=(Material &&) = default;
 
 private:
-   friend void draw(Material const &material){
-      material.pimpl_->draw();
+   friend void update_state(Material const &material){
+      material.pimpl_->update_state();
    }
 };
 
