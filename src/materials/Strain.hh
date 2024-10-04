@@ -4,6 +4,7 @@
 #include <concepts>
 #include <ranges>
 
+
 template <typename StrainType>
 concept StrainC = requires(StrainType e) {
     { e.num_components } -> std::convertible_to<std::size_t>;
@@ -30,6 +31,7 @@ public:
                                           else if constexpr (N == 6) return 3;
                                           else                       return 0; 
                                           }()};
+
 
     static constexpr std::size_t num_components{N};
 

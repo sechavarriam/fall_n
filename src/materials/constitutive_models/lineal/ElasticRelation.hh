@@ -8,16 +8,22 @@
 #include <type_traits>
 #include <concepts>
 
-#include "../../Stress.hh"
-#include "../../Strain.hh"
+#include "../../MaterialPolicy.hh"
+
 
 #include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
 
-template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
+
+
+//template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
+
+template<class MaterialPolicy>
 class ElasticRelation
   {
     public:
+
+    //using StrainType = std::invoke_result_t<decltype(&MaterialPolicy::StrainID)>;
 
     static constexpr auto StrainID()->StrainType {std::unreachable();};
     static constexpr auto StressID()->StressType {std::unreachable();};

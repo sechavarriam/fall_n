@@ -4,16 +4,18 @@
 #include <memory>
 #include <random>
 #include <vector>
-
-#include "../numerics/Tensor.hh"
-#include "Strain.hh"
-
-//---- <Material.h> ----------------------------------------------------------------------------------
-
 #include <array>
 #include <cstddef>
 #include <memory>
 #include <utility>
+
+
+#include "../numerics/Tensor.hh"
+#include "MaterialState.hh"
+#include "MaterialPolicy.hh"
+
+
+
 
 namespace detail
 {

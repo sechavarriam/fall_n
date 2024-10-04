@@ -39,7 +39,7 @@ public:
     MemoryState() = default;
     ~MemoryState() = default;
 };
-
+ 
 // There can be more memory policies e.g. with different memory management strategies.
 
 // =================================================================================
