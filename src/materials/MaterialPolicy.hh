@@ -3,49 +3,73 @@
 #define FALL_N_MATERIAL_POLICY_HH
 
 
+// This header defines the different....
+
+#include "Strain.hh"
+#include "Stress.hh"
 
 
-template <typename MaterialPolicy>
-class MaterialContainer {
-public:
-    // Constructor
-    MaterialContainer() {
-        // Initialize the material container based on the material policy
-        MaterialPolicy::Initialize();
-    }
+class UniaxialMaterial
+{
+  public:
+    static constexpr auto StrainID() -> Strain<1> {return Strain<1>();};
+    static constexpr auto StressID() -> Stress<1> {return Stress<1>();};
 
-    // Other member functions and data members...
-
-private:
-    // Data members specific to the material container
+  private:
+    constexpr UniaxialMaterial() = default;
+    constexpr ~UniaxialMaterial() = default;
 };
 
-// Example material policies
 
-// Uniaxial material policy
-struct UniaxialMaterialPolicy {
-    static void Initialize() {
-        // Initialize the uniaxial material container
-    }
+class PlaneStrainMaterial
+{
+  public:
+    static auto StrainID() -> Strain<3> {return Strain<3>();};
+    static auto StressID() -> Stress<3> {return Stress<3>();};
 
-    
-    double stress() const {
-        // Return the stress
-    }
-
-    // Other member functions specific to uniaxial material
+  private:
+    constexpr PlaneStrainMaterial() = default;
+    constexpr ~PlaneStrainMaterial() = default;
 };
 
-// Continuum material policy
-struct ContinuumMaterialPolicy {
-    static void Initialize() {
-        // Initialize the continuum material container
-    }
 
-    // Other member functions specific to continuum material
+class PlaneStressMaterial
+{
+  public:
+    static auto StrainID() -> Strain<3> {return Strain<3>();};
+    static auto StressID() -> Stress<3> {return Stress<3>();};
+
+  private:
+    constexpr PlaneStressMaterial() = default;
+    constexpr ~PlaneStressMaterial() = default;
 };
 
-// Other material policies...
+
+class AxisymmetricMaterial
+{
+  public:
+    static auto StrainID() -> Strain<4> {return Strain<4>();};
+    static auto StressID() -> Stress<4> {return Stress<4>();};
+
+  private:
+    constexpr AxisymmetricMaterial() = default;
+    constexpr ~AxisymmetricMaterial() = default;
+};
+
+class ThreeDimensionalMaterial
+{
+  public:
+    static auto StrainID() -> Strain<6> {return Strain<6>();};
+    static auto StressID() -> Stress<6> {return Stress<6>();};
+
+  private:
+    constexpr ThreeDimensionalMaterial() = default;
+    constexpr ~ThreeDimensionalMaterial() = default;
+};
+
+
+
+
 
 
 #endif // FALL_N_MATERIAL_POLICY_HH
