@@ -10,6 +10,8 @@
 #include "../domain/Domain.hh"
 
 #include "../materials/Material.hh"
+#include "../materials/MaterialPolicy.hh"
+
 
 #include "../materials/constitutive_models/lineal/ElasticRelation.hh"
 
@@ -18,9 +20,9 @@
 
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
-using LinealElastic3D = ElasticRelation<Stress<6>, Strain<6>>;
-using LinealElastic2D = ElasticRelation<Stress<3>, Strain<3>>;
-using LinealElastic1D = ElasticRelation<Stress<1>, Strain<1>>;
+using LinealElastic3D = ElasticRelation<ThreeDimensionalMaterial>;
+using LinealElastic2D = ElasticRelation<PlaneStrainMaterial>;
+using LinealElastic1D = ElasticRelation<UniaxialMaterial>;
 
 // The MaterialPolicy defines the constitutive relation and the number of dimensions
 template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 

@@ -5,9 +5,11 @@
 
 #include "ElasticRelation.hh"
 
-class ContinuumIsotropicRelation : public ElasticRelation<Stress<6>, Strain<6>> {
+class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMaterial> {
  
-    using ConstitutiveModel = ElasticRelation<Stress<6>, Strain<6>>;
+    using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
+    using ConstitutiveModel::compliance_matrix;
+    
 
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
     double E_{0.0};
@@ -15,7 +17,7 @@ class ContinuumIsotropicRelation : public ElasticRelation<Stress<6>, Strain<6>> 
 
     public:
 
-    using ConstitutiveModel::compliance_matrix;
+    
 
     constexpr inline void set_E(double E){E_ = E;};
     constexpr inline void set_v(double v){v_ = v;};
@@ -55,7 +57,7 @@ class ContinuumIsotropicRelation : public ElasticRelation<Stress<6>, Strain<6>> 
 };
 
 
-typedef ElasticRelation<Stress<1>, Strain<1>> UniaxialIsotropicRelation;
+typedef ElasticRelation<UniaxialMaterial> UniaxialIsotropicRelation;
 
 
 
