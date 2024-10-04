@@ -23,10 +23,17 @@ class ElasticRelation
   {
     public:
 
-    //using StrainType = std::invoke_result_t<decltype(&MaterialPolicy::StrainID)>;
+    // result_of can be used with a pointer to member function as follows
+    using StrainType = std::invoke_result_t<decltype(&MaterialPolicy::StrainID)>;
+    using StressType = std::invoke_result_t<decltype(&MaterialPolicy::StressID)>;
 
-    static constexpr auto StrainID()->StrainType {std::unreachable();};
-    static constexpr auto StressID()->StressType {std::unreachable();};
+    static constexpr auto StrainID() -> StrainType {return MaterialPolicy::StrainID();};
+    static constexpr auto StressID() -> StressType {return MaterialPolicy::StressID();};
+
+    
+
+    //static constexpr auto StrainID()->StrainType {std::unreachable();};
+    //static constexpr auto StressID()->StressType {std::unreachable();};
 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
@@ -59,8 +66,13 @@ class ElasticRelation
     };
 };
 
+
+
+
+
+
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
-class ElasticRelation<Stress<1>, Strain<1>>{ 
+class ElasticRelation<UniaxialMaterial>{ 
   using StrainType = Strain<1>;
   using StressType = Stress<1>;
 

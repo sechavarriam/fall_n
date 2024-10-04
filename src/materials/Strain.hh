@@ -32,7 +32,6 @@ public:
                                           else                       return 0; 
                                           }()};
 
-
     static constexpr std::size_t num_components{N};
 
 private:
