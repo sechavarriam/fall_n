@@ -122,11 +122,10 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
 
 
-    ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
-
-    Matrix K;
-    K = brick.K(steel_mat3D);
-    K.print_content();
+    //ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
+    //Matrix K;
+    //K = brick.K(steel_mat3D);
+    //K.print_content();
 
 
 }// PETSc Scope ends here
