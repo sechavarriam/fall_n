@@ -16,9 +16,8 @@ template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
-    using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;
-   
-    using State = MaterialState<ElasticState,StrainType>;
+    using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;   
+    using State = StateVariable<ElasticState,StrainType>;
 
   public:  
     static constexpr std::size_t dim         = StrainType::dim;
@@ -26,8 +25,7 @@ class IsotropicElasticMaterial{
 
   private:
     
-    State state_; // Strain
-    
+    State      state_ ; // Strain
     StressType stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;

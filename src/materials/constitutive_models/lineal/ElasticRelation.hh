@@ -70,7 +70,6 @@ class ElasticRelation
 
 
 
-
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 class ElasticRelation<UniaxialMaterial>{ 
   using StrainType = Strain<1>;

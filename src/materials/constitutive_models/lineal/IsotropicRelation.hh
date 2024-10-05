@@ -10,14 +10,11 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
     using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
     using ConstitutiveModel::compliance_matrix;
     
-
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
     double E_{0.0};
     double v_{0.0};
 
     public:
-
-    
 
     constexpr inline void set_E(double E){E_ = E;};
     constexpr inline void set_v(double v){v_ = v;};
@@ -58,7 +55,6 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
 
 
 typedef ElasticRelation<UniaxialMaterial> UniaxialIsotropicRelation;
-
 
 
 #endif // FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
