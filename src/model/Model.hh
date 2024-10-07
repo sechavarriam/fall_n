@@ -21,7 +21,7 @@
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
 using LinealElastic3D = ElasticRelation<ThreeDimensionalMaterial>;
-using LinealElastic2D = ElasticRelation<PlaneStrainMaterial>;
+using LinealElastic2D = ElasticRelation<PlaneMaterial>;
 using LinealElastic1D = ElasticRelation<UniaxialMaterial>;
 
 // The MaterialPolicy defines the constitutive relation and the number of dimensions

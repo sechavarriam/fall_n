@@ -14,11 +14,11 @@
 #include "MaterialState.hh"
 #include "MaterialPolicy.hh"
 
-
-
+#include "update_strategy/lineal/ElasticUpdate.hh"
 
 namespace detail
 {
+
 
    class MaterialConcept // The External Polymorphism design pattern
    {
@@ -129,10 +129,7 @@ public:
       return *this;
    }
 
-   ~MaterialConstRef(){
-      std::destroy_at(pimpl()); // or: pimpl()->~MaterialConcept();
-   }
-
+   ~MaterialConstRef(){std::destroy_at(pimpl());} // or: pimpl()->~MaterialConcept();
    // Move operations explicitly not declared
 
 private:

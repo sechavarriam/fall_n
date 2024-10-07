@@ -18,6 +18,12 @@ public:
     auto current_value() const noexcept { return value; }
     void update(const S &s) { value = s; }
 
+    // Copy and Move constructors
+    
+    ElasticState(const ElasticState &s) : value{s.value} {}
+    ElasticState(const S &s) : value{s} {}
+    ElasticState(auto &&s) : value{std::forward<S>(s)} {}
+
     ElasticState() = default;
     ~ElasticState() = default;
 };
@@ -31,6 +37,11 @@ class MemoryState // Dynamic Memory Policy
 public:
     inline auto current_value() const noexcept { return value.back(); }
     inline void update(const S &s) { value.push_back(s); }
+
+    // Copy and Move constructors
+    MemoryState(const MemoryState &s) : value{s.value} {}
+    MemoryState(const S &s) : value{s} {}
+    MemoryState(auto &&s) : value{std::forward<S>(s)} {}
 
     MemoryState() = default;
     ~MemoryState() = default;

@@ -9,7 +9,7 @@
 #include <concepts>
 
 #include "../../MaterialPolicy.hh"
-
+#include "../../StateVariable.hh"
 
 #include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
@@ -26,14 +26,11 @@ class ElasticRelation
     // result_of can be used with a pointer to member function as follows
     using StrainType = std::invoke_result_t<decltype(&MaterialPolicy::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&MaterialPolicy::StressID)>;
+    
+    using StateVariableType = MaterialState<ElasticState,StrainType>;
 
     static constexpr auto StrainID() -> StrainType {return MaterialPolicy::StrainID();};
     static constexpr auto StressID() -> StressType {return MaterialPolicy::StressID();};
-
-    
-
-    //static constexpr auto StrainID()->StrainType {std::unreachable();};
-    //static constexpr auto StressID()->StressType {std::unreachable();};
 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
@@ -42,7 +39,7 @@ class ElasticRelation
 
   private:
     std::array<double, total_parameters_> compliance_parameters_{0.0};
-
+  
   public:
 
     Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
@@ -79,6 +76,9 @@ class ElasticRelation<UniaxialMaterial>{
 
     static constexpr auto StrainID()->StrainType {return StrainType();};
     static constexpr auto StressID()->StressType {return StressType();};
+
+    using StateVariableType = MaterialState<ElasticState,StrainType>;
+
 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
