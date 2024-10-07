@@ -62,12 +62,7 @@ public:
 //    ~FixedMemoryState() = default;
 //};
 
-
-
 // There can be more memory policies e.g. with different memory management strategies.
-
-
-
 
 
 

@@ -8,10 +8,10 @@ class ElasticUpdate{
 
     public:
 
-        template<typename ElasticMaterialType> //TODO: Define concept and constrain this template
-        void operator()(decltype(ElasticMaterialType::StateVar)& state_variable ){
-            std::cout << "Updating Elastic Material" << std::endl;
-        }
+        //template<typename ElasticMaterialType> //TODO: Define concept and constrain this template
+        //void operator()(decltype(ElasticMaterialType::StateVar)& state_variable ){
+        //    std::cout << "Updating Elastic Material" << std::endl;
+        //}
 
 
 

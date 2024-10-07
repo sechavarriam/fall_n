@@ -18,8 +18,6 @@
 
 namespace detail
 {
-
-
    class MaterialConcept // The External Polymorphism design pattern
    {
    
@@ -30,7 +28,7 @@ namespace detail
    
    public:
       virtual void update_state() const = 0;
-   
+
    };
 
    template <typename MaterialType, typename UpdateStrategy>
@@ -40,24 +38,21 @@ namespace detail
    class OwningMaterialModel : public MaterialConcept
    {
    private:
-      MaterialType material_;
+      MaterialType   material_        ;
       UpdateStrategy update_algorithm_; //or material_integrator
 
    public:
       explicit OwningMaterialModel(MaterialType material, UpdateStrategy mat_integrator)
           : material_{std::move(material)}, update_algorithm_{std::move(mat_integrator)}
-      {
-      }
+      {}
 
       void update_state() const override { update_algorithm_(material_); }
 
-      std::unique_ptr<MaterialConcept> clone() const override // The Prototype design pattern
-      {
+      std::unique_ptr<MaterialConcept> clone() const override{ // The Prototype design pattern
          return std::make_unique<OwningMaterialModel>(*this);
       }
 
-      void clone(MaterialConcept *memory) const
-      {
+      void clone(MaterialConcept *memory) const{
          using Model = NonOwningMaterialModel<MaterialType const, UpdateStrategy const>;
 
          std::construct_at(static_cast<Model *>(memory), material_, update_algorithm_);
@@ -65,24 +60,20 @@ namespace detail
    };
 
    template <typename MaterialType, typename UpdateStrategy>
-   class NonOwningMaterialModel : public MaterialConcept
-   {
+   class NonOwningMaterialModel : public MaterialConcept{
    public:
       NonOwningMaterialModel(MaterialType &material, UpdateStrategy &mat_integrator)
           : material_{std::addressof(material)}, update_algorithm_{std::addressof(mat_integrator)}
-      {
-      }
+      {}
 
       void update_state() const override { (*update_algorithm_)(*material_); }
 
-      std::unique_ptr<MaterialConcept> clone() const override
-      {
+      std::unique_ptr<MaterialConcept> clone() const override{
          using Model = OwningMaterialModel<MaterialType, UpdateStrategy>;
          return std::make_unique<Model>(*material_, *update_algorithm_);
       }
 
-      void clone(MaterialConcept *memory) const override
-      {
+      void clone(MaterialConcept *memory) const override{
          std::construct_at(static_cast<NonOwningMaterialModel *>(memory), *this);
       }
 
@@ -95,16 +86,14 @@ namespace detail
 
 class Material; // Forward declaration
 
-class MaterialConstRef
-{
+class MaterialConstRef{
    friend class Material;
 
 public:
    // Type 'MaterialType' and 'UpdateStrategy' are possibly cv qualified;
    // lvalue references prevent references to rvalues
    template <typename MaterialType, typename UpdateStrategy>
-   MaterialConstRef(MaterialType &material, UpdateStrategy &mat_integrator)
-   {
+   MaterialConstRef(MaterialType &material, UpdateStrategy &mat_integrator){
       using Model =
           detail::NonOwningMaterialModel<MaterialType const, UpdateStrategy const>;
       static_assert(sizeof(Model) == MODEL_SIZE, "Invalid size detected");
@@ -116,13 +105,11 @@ public:
    MaterialConstRef(Material &other);
    MaterialConstRef(Material const &other);
 
-   MaterialConstRef(MaterialConstRef const &other)
-   {
+   MaterialConstRef(MaterialConstRef const &other){
       other.pimpl()->clone(pimpl());
    }
 
-   MaterialConstRef &operator=(MaterialConstRef const &other)
-   {
+   MaterialConstRef &operator=(MaterialConstRef const &other){
       // Copy-and-swap idiom
       MaterialConstRef copy(other);
       raw_.swap(copy.raw_);

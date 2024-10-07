@@ -5,8 +5,6 @@
 #include <memory>
 #include <type_traits>
 
-
-
 #include "../domain/Domain.hh"
 
 #include "../materials/Material.hh"
@@ -42,14 +40,12 @@ public:
     
     std::vector<double> dof_vector_;
  
-    void set_default_num_dofs_per_node(std::size_t n)
-    {
+    void set_default_num_dofs_per_node(std::size_t n){
         for (auto &node : domain_->nodes())
             node.set_num_dof(n);
     }
 
-    void link_dofs_to_node()
-    {
+    void link_dofs_to_node(){
         auto pos = 0;
         for (auto &node : domain_->nodes()){
             for (auto &dof : node.dofs()){
@@ -58,8 +54,7 @@ public:
         }
     }
 
-    Model(Domain<dim> &domain) : domain_(std::addressof(domain))
-    {
+    Model(Domain<dim> &domain) : domain_(std::addressof(domain)){
         dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers)
         set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
         link_dofs_to_node();                                   // Link Dof_Interface to Node

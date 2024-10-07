@@ -18,7 +18,7 @@ class IsotropicElasticMaterial{
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;   
 
-    using StateVar = ConstitutiveRelation::StateVariableType;
+    using StateVar = ConstitutiveRelation::MaterialState;
 
 
   public:  

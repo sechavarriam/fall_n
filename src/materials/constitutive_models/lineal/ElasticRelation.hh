@@ -9,7 +9,7 @@
 #include <concepts>
 
 #include "../../MaterialPolicy.hh"
-#include "../../StateVariable.hh"
+#include "../../MaterialState.hh"
 
 #include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
@@ -62,10 +62,7 @@ class ElasticRelation
         compliance_matrix.print_content();
     };
 };
-
-
-
-
+    
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 class ElasticRelation<UniaxialMaterial>{ 
