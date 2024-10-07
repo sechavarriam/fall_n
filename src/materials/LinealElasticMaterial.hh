@@ -17,7 +17,9 @@ class IsotropicElasticMaterial{
 
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;   
-    using State = StateVariable<ElasticState,StrainType>;
+
+    using StateVar = ConstitutiveRelation::StateVariableType;
+
 
   public:  
     static constexpr std::size_t dim         = StrainType::dim;
@@ -25,17 +27,17 @@ class IsotropicElasticMaterial{
 
   private:
     
-    State      state_ ; // Strain
+    StateVar   state_ ; // Strain
     StressType stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    inline void update_state(const StrainType& strain){state_->update_state(strain);};
+    inline void update_state(const StateVar& strain){state_->update_state(strain);};
     inline void update_stress(){ compute_stress(state_.current_value(), stress_);};
 
-    inline StrainType get_state(){state_.current_value();};
+    inline StateVar   get_state(){state_.current_value();};
     inline StressType get_stress(){return stress_;};
 
     inline void set_stress(const StressType& stress){stress_ = stress;};

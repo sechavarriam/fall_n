@@ -99,8 +99,17 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     //          | 
     //    Constitutive Relation Type (Policy) and Dimension implicitly.
 
+    Strain<6> e0 {0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
+
+    MaterialState<ElasticState,Strain<6>> sv0{e0};
+    MaterialState<MemoryState ,Strain<6>> sv1{e0};
+
+    //MaterialState state0{sv0};
+
+    /*
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
     UniaxialIsotropicRelation  steel1D{200.0}     ; 
+    */    
 
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
