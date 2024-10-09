@@ -18,19 +18,22 @@
 
 //template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
 
-template<class MaterialPolicy>
+template<class MaterialPolicyT>
 class ElasticRelation
   {
     public:
 
     // result_of can be used with a pointer to member function as follows
-    using StrainType = std::invoke_result_t<decltype(&MaterialPolicy::StrainID)>;
-    using StressType = std::invoke_result_t<decltype(&MaterialPolicy::StressID)>;
+    using StrainType = std::invoke_result_t<decltype(&MaterialPolicyT::StrainID)>;
+    using StressType = std::invoke_result_t<decltype(&MaterialPolicyT::StressID)>;
     
     using MaterialState = MaterialState<ElasticState,StrainType>;
+    using MaterialPolicy = MaterialPolicyT;
 
-    static constexpr auto StrainID() -> StrainType {return MaterialPolicy::StrainID();};
-    static constexpr auto StressID() -> StressType {return MaterialPolicy::StressID();};
+    static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};
+
+    static constexpr auto StrainID() -> StrainType {return MaterialPolicyT::StrainID();};
+    static constexpr auto StressID() -> StressType {return MaterialPolicyT::StressID();};
 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;

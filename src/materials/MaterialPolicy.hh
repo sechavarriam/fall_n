@@ -11,7 +11,13 @@
 template <std::size_t N>
 class SolidMaterial
 {
+    using StrainT = Strain<N>;
+    using StressT = Stress<N>;
+    
+    using StateVariableT = Strain<N>;
+
   public:
+
     static auto StrainID() -> Strain<N> {return Strain<N>();};
     static auto StressID() -> Stress<N> {return Stress<N>();};
 
