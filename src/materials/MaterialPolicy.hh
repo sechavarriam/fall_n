@@ -17,7 +17,7 @@ class SolidMaterial
     using StressType     = Stress<N>;
     using StateVariableT = Strain<N>;
 
-//  private:
+  private:
 
     constexpr SolidMaterial() = default;
     constexpr ~SolidMaterial() = default;

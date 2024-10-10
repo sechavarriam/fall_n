@@ -82,13 +82,6 @@ class ElasticRelation<UniaxialMaterial>{
   using MaterialStateT = MaterialState<ElasticState,StrainType>;
   using StateVariableT = StrainType;
 
-
-  //using StateVariableT = std::invoke_result_t<decltype(&MaterialStateT::current_value)>;  
-
-  static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};  
-  static constexpr auto StrainID()->StrainType {return StrainType();};
-  static constexpr auto StressID()->StressType {return StressType();};
-
   static constexpr std::size_t dim               = StrainType::dim;
   static constexpr std::size_t num_strains_      = StrainType::num_components;
   static constexpr std::size_t num_stresses_     = StressType::num_components;
