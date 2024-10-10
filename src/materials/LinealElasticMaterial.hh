@@ -24,8 +24,6 @@ class IsotropicElasticMaterial{
     using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
     using MaterialPolicy = typename ConstitutiveRelation::MaterialPolicy;
 
-    static auto PolicyID() {return ConstitutiveRelation::PolicyID();};
-
     static constexpr std::size_t dim         = StrainType::dim;
     static constexpr std::size_t num_strains = StrainType::num_components;
 
