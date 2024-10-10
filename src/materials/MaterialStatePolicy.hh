@@ -22,7 +22,7 @@ public:
     
     ElasticState(const ElasticState &s) : value{s.value} {}
     ElasticState(const S &s) : value{s} {}
-    ElasticState(auto &&s) : value{std::forward<S>(s)} {}
+    //ElasticState(auto &&s) : value{std::forward<S>(s)} {}
 
     ElasticState() = default;
     ~ElasticState() = default;

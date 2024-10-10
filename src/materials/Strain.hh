@@ -49,8 +49,25 @@ public:
         ((component_[++i] = s), ...);
     }
 
+    // =========== CONSTRUCTORS ==========================
+
     template <typename... S> requires(sizeof...(S) == N)
     constexpr Strain(S... s) : component_{s...}{}
+
+    // copy constructor
+    constexpr Strain(const Strain<N> &e) : component_{e.component_} {}
+    // move constructor
+    constexpr Strain(Strain<N> &&e) : component_{std::move(e.component_)} {}
+    // copy assignment
+    constexpr Strain &operator=(const Strain<N> &e){
+        component_ = e.component_;
+        return *this;
+    }
+    // move assignment
+    constexpr Strain &operator=(Strain<N> &&e){
+        component_ = std::move(e.component_);
+        return *this;
+    }
 
     constexpr  Strain() = default;
     constexpr ~Strain() = default;

@@ -104,6 +104,19 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     MaterialState<ElasticState,Strain<6>> sv0{e0};
     MaterialState<MemoryState ,Strain<6>> sv1{e0};
 
+
+    auto updateStrategy = [](){
+        std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;
+    };
+
+
+    UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+    ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
+
+    //Material<UniaxialMaterial> mat1D(steel_mat1D, updateStrategy);
+    Material<ThreeDimensionalMaterial> mat(steel_mat3D, updateStrategy);
+    //Material<ThreeDimensionalMaterial> mat(ContinuumIsotropicElasticMaterial(200,0.3), updateStrategy);
+
     //MaterialState state0{sv0};
 
     /*
@@ -111,8 +124,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     UniaxialIsotropicRelation  steel1D{200.0}     ; 
     */    
 
-    ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
-    UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
+    
+    
 
     steel_mat3D.print_material_parameters();
     steel_mat1D.print_material_parameters();

@@ -26,16 +26,22 @@ class MaterialState
             return std::get<0>(std::tuple<StateVariableType...>{}); //Trick: The pack has to be expanded...            
     };
     
+public:
     using VariableContainer = std::invoke_result_t<decltype(&MaterialState::multivariable_type)>;
 
+private:
     MemoryPolicy<VariableContainer> value;
-
 public:
+
 
     inline auto current_value() const noexcept {return value.current_value();}
     inline void update_state(const VariableContainer &s){value.update_state(s);}
 
-    MaterialState(auto&&... args) : value{std::forward<decltype(args)>(args)...} {}
+    // Copy and Move constructors
+    MaterialState(const MaterialState &s)     : value{s.value} {}
+    MaterialState(const VariableContainer &s) : value{s}       {}
+    MaterialState(VariableContainer &&s) : value{std::forward<VariableContainer>(s)} {}
+
 
     MaterialState() = default;
     ~MaterialState() = default;

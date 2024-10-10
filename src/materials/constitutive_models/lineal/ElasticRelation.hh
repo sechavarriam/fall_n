@@ -27,11 +27,11 @@ class ElasticRelation
     using StrainType = std::invoke_result_t<decltype(&MaterialPolicyT::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&MaterialPolicyT::StressID)>;
     
-    using MaterialState = MaterialState<ElasticState,StrainType>;
+    using MaterialStateT  = MaterialState<ElasticState,StrainType>;
+    using StateVariableT  = typename MaterialStateT::VariableContainer;
+
     using MaterialPolicy = MaterialPolicyT;
-
     static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};
-
     static constexpr auto StrainID() -> StrainType {return MaterialPolicyT::StrainID();};
     static constexpr auto StressID() -> StressType {return MaterialPolicyT::StressID();};
 
@@ -66,26 +66,38 @@ class ElasticRelation
     };
 };
     
+// ============================================================================================================
+// ========================== SPECIALIZATIONS =================================================================
+// ============================================================================================================
+
+
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
-class ElasticRelation<UniaxialMaterial>{ 
+class ElasticRelation<UniaxialMaterial>{
+
+  using MaterialPolicyT = UniaxialMaterial;
+  
+  public:
+
   using StrainType = Strain<1>;
   using StressType = Stress<1>;
 
-  public:
-
-    static constexpr auto StrainID()->StrainType {return StrainType();};
-    static constexpr auto StressID()->StressType {return StressType();};
-
-    using MaterialState = MaterialState<ElasticState,StrainType>;
+  using MaterialStateT = MaterialState<ElasticState,StrainType>;
+  using StateVariableT = StrainType;
 
 
-    static constexpr std::size_t dim               = StrainType::dim;
-    static constexpr std::size_t num_strains_      = StrainType::num_components;
-    static constexpr std::size_t num_stresses_     = StressType::num_components;
-    static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
+  //using StateVariableT = std::invoke_result_t<decltype(&MaterialStateT::current_value)>;  
 
-  private:
+  static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};  
+  static constexpr auto StrainID()->StrainType {return StrainType();};
+  static constexpr auto StressID()->StressType {return StressType();};
+
+  static constexpr std::size_t dim               = StrainType::dim;
+  static constexpr std::size_t num_strains_      = StrainType::num_components;
+  static constexpr std::size_t num_stresses_     = StressType::num_components;
+  static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
+  
+private:
 
     double E_{0.0}; // E
 
