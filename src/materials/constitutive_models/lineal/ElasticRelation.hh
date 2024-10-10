@@ -15,26 +15,21 @@
 #include "../../../utils/index.hh"
 
 
-
-//template<StressC StressType, StrainC StrainType> //requires (/*operations well defined*/) <---- TODO
-
 template<class MaterialPolicyT>
 class ElasticRelation
   {
     public:
 
-    // result_of can be used with a pointer to member function as follows
-    using StrainType = std::invoke_result_t<decltype(&MaterialPolicyT::StrainID)>;
-    using StressType = std::invoke_result_t<decltype(&MaterialPolicyT::StressID)>;
-    
+    using StrainType = typename MaterialPolicyT::StrainType;
+    using StressType = typename MaterialPolicyT::StressType;
+
     using MaterialStateT  = MaterialState<ElasticState,StrainType>;
     using StateVariableT  = typename MaterialStateT::VariableContainer;
 
     using MaterialPolicy = MaterialPolicyT;
-    static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};
-    static constexpr auto StrainID() -> StrainType {return MaterialPolicyT::StrainID();};
-    static constexpr auto StressID() -> StressType {return MaterialPolicyT::StressID();};
 
+    static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};
+ 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
     static constexpr std::size_t num_stresses_     = StressType::num_components;
@@ -77,8 +72,10 @@ class ElasticRelation<UniaxialMaterial>{
 
   using MaterialPolicyT = UniaxialMaterial;
   
-  public:
 
+  public:
+  using MaterialPolicy = UniaxialMaterial;
+  
   using StrainType = Strain<1>;
   using StressType = Stress<1>;
 

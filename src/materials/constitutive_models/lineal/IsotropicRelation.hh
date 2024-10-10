@@ -8,10 +8,10 @@
 class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMaterial> {
 
     public:
-    using   ElasticRelation<ThreeDimensionalMaterial>::PolicyID;
-    typedef ElasticRelation<ThreeDimensionalMaterial>::MaterialStateT MaterialStateT;
-    typedef ElasticRelation<ThreeDimensionalMaterial>::StateVariableT StateVariableT;
- 
+    using ElasticRelation<ThreeDimensionalMaterial>::PolicyID;
+    using StrainType = typename ElasticRelation<ThreeDimensionalMaterial>::StrainType;
+    using StressType = typename ElasticRelation<ThreeDimensionalMaterial>::StressType;
+
     private:
     using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
     using ConstitutiveModel::compliance_matrix;

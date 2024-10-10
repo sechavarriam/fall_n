@@ -23,7 +23,7 @@ namespace impl //Implementation Details
    template<class MaterialPolicy>
    class MaterialConcept{ 
       using StateVariableT = MaterialPolicy::StateVariableT;
-      using StressT        = MaterialPolicy::StressT;
+      using StressT        = MaterialPolicy::StressType;
 
    public:
       virtual ~MaterialConcept() = default;
@@ -32,17 +32,17 @@ namespace impl //Implementation Details
    
    public:
       virtual StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
-      
    };
 
-   template <typename MaterialType, typename UpdateStrategy> class NonOwningMaterialModel; //Forward Declaration
+   template <typename MaterialType, typename UpdateStrategy> 
+   class NonOwningMaterialModel; //Forward Declaration
 
    template <typename MaterialType, typename UpdateStrategy>
-   class OwningMaterialModel : public MaterialConcept<std::invoke_result_t<decltype(&MaterialType::PolicyID)>>
+   class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy>
    {
    private:
 
-      using MaterialPolicy = std::invoke_result_t<decltype(&MaterialType::PolicyID)>;
+      using MaterialPolicy = typename MaterialType::MaterialPolicy;
       using StateVariableT = MaterialPolicy::StateVariableT;
 
       MaterialType   material_        ;
@@ -67,12 +67,11 @@ namespace impl //Implementation Details
       }
    };
 
-
    template <typename MaterialType, typename UpdateStrategy>
-   class NonOwningMaterialModel : public MaterialConcept<std::invoke_result_t<decltype(&MaterialType::PolicyID)>>{
+   class NonOwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy>{
    
    private:
-      using MaterialPolicy = std::invoke_result_t<decltype(&MaterialType::PolicyID)>;
+      using MaterialPolicy = typename MaterialType::MaterialPolicy;
       using StateVariableT = MaterialPolicy::StateVariableT;
 
       MaterialType   *material_        {nullptr};

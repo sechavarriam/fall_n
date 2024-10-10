@@ -22,7 +22,6 @@
 #include "../../geometry/Cell.hh"
 #include "../../geometry/Point.hh"
 
-
 #include "../../utils/small_math.hh"
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
 

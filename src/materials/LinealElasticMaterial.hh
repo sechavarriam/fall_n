@@ -16,14 +16,15 @@ template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
   public:  
-    using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
-    using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;   
+
+    using StrainType = typename ConstitutiveRelation::StrainType;
+    using StressType = typename ConstitutiveRelation::StressType;
 
     using StateVariableT = ConstitutiveRelation::StateVariableT;
     using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
+    using MaterialPolicy = typename ConstitutiveRelation::MaterialPolicy;
 
     static auto PolicyID() {return ConstitutiveRelation::PolicyID();};
-
 
     static constexpr std::size_t dim         = StrainType::dim;
     static constexpr std::size_t num_strains = StrainType::num_components;
@@ -59,16 +60,9 @@ class IsotropicElasticMaterial{
 
     ~IsotropicElasticMaterial() = default;
 
-    //Copy Constructor
     IsotropicElasticMaterial(const IsotropicElasticMaterial &other) = default;
-
-    //Move Constructor
     IsotropicElasticMaterial(IsotropicElasticMaterial &&other) = default;
-
-    //Copy Assignment
     IsotropicElasticMaterial &operator=(const IsotropicElasticMaterial &other) = default;
-
-    //Move Assignment
     IsotropicElasticMaterial &operator=(IsotropicElasticMaterial &&other) = default;  
 
 
