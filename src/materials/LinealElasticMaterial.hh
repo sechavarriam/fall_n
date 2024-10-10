@@ -15,33 +15,30 @@ class LinealElasticMaterial{};
 template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
+  public:  
     using StrainType = std::invoke_result_t<decltype(&ConstitutiveRelation::StrainID)>;
     using StressType = std::invoke_result_t<decltype(&ConstitutiveRelation::StressID)>;   
 
-    using StateVar = ConstitutiveRelation::MaterialState;
+    using StateVariableT = ConstitutiveRelation::StateVariableT;
+    using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
+
+    static auto PolicyID() {return ConstitutiveRelation::PolicyID();};
 
 
-  public:  
     static constexpr std::size_t dim         = StrainType::dim;
     static constexpr std::size_t num_strains = StrainType::num_components;
 
   private:
     
-    StateVar   state_ ; // Strain
-    StressType stress_; // Default initalized in zeros.
+    MaterialStateT   state_ ; // Strain
+    StressType       stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    inline void update_state(const StateVar& strain){state_->update_state(strain);};
-    inline void update_stress(){ compute_stress(state_.current_value(), stress_);};
-
-    inline StateVar   get_state(){state_.current_value();};
-    inline StressType get_stress(){return stress_;};
-
-    inline void set_stress(const StressType& stress){stress_ = stress;};
-
+    inline StateVariableT get_state() const {return state_.current_value();};
+    
     inline void compute_stress(const StrainType& strain, StressType& stress) const{
         return constitutive_law_->compute_stress(strain, stress);
     };
@@ -61,6 +58,19 @@ class IsotropicElasticMaterial{
         {}
 
     ~IsotropicElasticMaterial() = default;
+
+    //Copy Constructor
+    IsotropicElasticMaterial(const IsotropicElasticMaterial &other) = default;
+
+    //Move Constructor
+    IsotropicElasticMaterial(IsotropicElasticMaterial &&other) = default;
+
+    //Copy Assignment
+    IsotropicElasticMaterial &operator=(const IsotropicElasticMaterial &other) = default;
+
+    //Move Assignment
+    IsotropicElasticMaterial &operator=(IsotropicElasticMaterial &&other) = default;  
+
 
     // ========== TESTING FUNCTIONS ============================
     void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
