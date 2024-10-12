@@ -55,16 +55,12 @@ class IsotropicElasticMaterial{
     // ========== CONSTRUCTORS =================================
 
     template<std::floating_point... Args>
-    IsotropicElasticMaterial(Args... args) :
+    explicit IsotropicElasticMaterial(Args... args) :
         constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
         {}
 
     ~IsotropicElasticMaterial() = default;
 
-    IsotropicElasticMaterial(const IsotropicElasticMaterial &other) = default;
-    IsotropicElasticMaterial(IsotropicElasticMaterial &&other) = default;
-    IsotropicElasticMaterial &operator=(const IsotropicElasticMaterial &other) = default;
-    IsotropicElasticMaterial &operator=(IsotropicElasticMaterial &&other) = default;  
 
 
     // ========== TESTING FUNCTIONS ============================
