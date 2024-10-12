@@ -15,17 +15,19 @@ class ElasticState
     S value;
 
 public:
-    auto current_value() const noexcept { return value; }
-    void update(const S &s) { value = s; }
+    inline constexpr auto current_value()   const noexcept { return  value; }
+    inline constexpr auto current_value_p() const noexcept { return &value; }
+
+    inline void update(S& s) { value = s; }
 
     // Copy and Move constructors
     
-    ElasticState(const ElasticState &s) : value{s.value} {}
-    ElasticState(const S &s) : value{s} {}
-    //ElasticState(auto &&s) : value{std::forward<S>(s)} {}
+    constexpr ElasticState(const ElasticState &s) : value{s.value} {}
+    constexpr ElasticState(const S &s) : value{s} {}
+    constexpr ElasticState(auto &&s) : value{std::forward<S>(s)} {}
 
-    ElasticState() = default;
-    ~ElasticState() = default;
+    constexpr ElasticState() = default;
+    constexpr ~ElasticState() = default;
 };
 
 
@@ -35,23 +37,25 @@ class MemoryState // Dynamic Memory Policy
     std::vector<S> value;
 
 public:
-    inline auto current_value() const noexcept { return value.back(); }
-    inline void update(const S &s) { value.push_back(s); }
+    inline constexpr auto current_value() const noexcept { return value.back(); }
+    inline constexpr auto current_value_p() const noexcept { return &value; }
+
+    inline constexpr void update(const S &s) { value.push_back(s); }
 
     // Copy and Move constructors
-    MemoryState(const MemoryState &s) : value{s.value} {}
-    MemoryState(const S &s) : value{s} {}
-    MemoryState(auto &&s) : value{std::forward<S>(s)} {}
+    constexpr MemoryState(const MemoryState &s) : value{s.value} {}
+    constexpr MemoryState(const S &s) : value{s} {}
+    constexpr MemoryState(auto &&s) : value{std::forward<S>(s)} {}
 
-    MemoryState() = default;
-    ~MemoryState() = default;
+    constexpr MemoryState() = default;
+    constexpr ~MemoryState() = default;
 };
 
 // TODO: if needed...
 //template <typename S, std::size_t N>
 //class FixedMemoryState // Fixed Memory Policy
 //{
-//    std::array<S, N> value;
+//    std::array<S, N> value;  //List? some fixed memory circular buffer(in terms of array)?
 //    std::size_t index;
 //
 //public:
