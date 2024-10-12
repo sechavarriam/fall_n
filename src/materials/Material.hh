@@ -26,12 +26,15 @@ namespace impl //Implementation Details
       using StressT        = MaterialPolicy::StressType;
 
    public:
-      virtual ~MaterialConcept() = default;
-      virtual std::unique_ptr<MaterialConcept> clone() const = 0; // The Prototype design pattern
-      virtual void clone(MaterialConcept *memory) const = 0;      // The Prototype design pattern
+      virtual constexpr ~MaterialConcept() = default;
+      virtual constexpr std::unique_ptr<MaterialConcept> clone() const = 0; // The Prototype design pattern
+      virtual constexpr void clone(MaterialConcept *address) const  = 0;      // The Prototype design pattern
    
    public:
-      virtual StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
+      virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
+      
+      virtual void update_state(StateVariableT& state) = 0;  
+
    };
 
    template <typename MaterialType, typename UpdateStrategy> 
@@ -52,6 +55,8 @@ namespace impl //Implementation Details
       
       StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
 
+      void update_state(StateVariableT& state) override {material_.update_state(state);};
+
       explicit OwningMaterialModel(MaterialType material, UpdateStrategy material_integrator): 
           material_        {std::move(material)}, 
           update_algorithm_{std::move(material_integrator)}
@@ -61,9 +66,9 @@ namespace impl //Implementation Details
          return std::make_unique<OwningMaterialModel>(*this);
       }
 
-      void clone(MaterialConcept<MaterialPolicy> *memory) const override{
+      void clone(MaterialConcept<MaterialPolicy>* address) const override{
          using Model = NonOwningMaterialModel<MaterialType const, UpdateStrategy const>;
-         std::construct_at(static_cast<Model*>(memory), material_, update_algorithm_);
+         std::construct_at(static_cast<Model*>(address), material_, update_algorithm_);
       }
    };
 
@@ -81,20 +86,20 @@ namespace impl //Implementation Details
 
       StateVariableT get_state() const override {return material_->get_state();}; //CurrentValue
 
+      void update_state(StateVariableT& state) override {material_->update_state(state);};
+
       NonOwningMaterialModel(MaterialType &material, UpdateStrategy &material_integrator):
            material_{std::addressof(material)},
            update_algorithm_{std::addressof(material_integrator)}
       {}
-
-      //void update_state() const override { (*update_algorithm_)(*material_); }
 
       std::unique_ptr<MaterialConcept<MaterialPolicy>> clone() const override{
          using Model = OwningMaterialModel<MaterialType, UpdateStrategy>;
          return std::make_unique<Model>(*material_, *update_algorithm_);
       }
 
-      void clone(MaterialConcept<MaterialPolicy> *memory) const override{
-         std::construct_at(static_cast<NonOwningMaterialModel *>(memory), *this);
+      void clone(MaterialConcept<MaterialPolicy> *address) const override{
+         std::construct_at(static_cast<NonOwningMaterialModel *>(address), *this);
       }
    };
 
@@ -108,11 +113,17 @@ class MaterialConstRef{
    friend class Material<MaterialPolicy>;
    using StateVariableT = MaterialPolicy::StateVariableT;
 
-   // Expected size of a model instantiation:
-   //     sizeof(MaterialType*) + sizeof(UpdateStrategy*) + sizeof(vptr)
+public:
+
+   StateVariableT get_state() const {return pimpl()->get_state();};
+
+   void update_state(StateVariableT& state) {pimpl()->update_state(state);};
+
+private:   
+
+   // Expected size of a model instantiation: sizeof(MaterialType*) + sizeof(UpdateStrategy*) + sizeof(vptr)
    static constexpr std::size_t MODEL_SIZE = 3U * sizeof(void *);
    alignas(void *) std::array<std::byte, MODEL_SIZE> raw_;
-
 
 public:
    // Type 'MaterialType' and 'UpdateStrategy' are possibly cv qualified;
@@ -135,23 +146,22 @@ public:
    }
 
    MaterialConstRef &operator=(MaterialConstRef const &other){
-      // Copy-and-swap idiom
-      MaterialConstRef copy(other);
+      MaterialConstRef copy(other); // Copy-and-swap idiom
       raw_.swap(copy.raw_);
       return *this;
    }
 
-   ~MaterialConstRef(){std::destroy_at(pimpl());} // or: pimpl()->~MaterialConcept();
+   ~MaterialConstRef(){std::destroy_at(pimpl());} 
    // Move operations explicitly not declared
 
 private:
 
    impl::MaterialConcept<MaterialPolicy> *pimpl(){ // The Bridge design pattern
-      return reinterpret_cast<impl::MaterialConcept<MaterialPolicy> *>(raw_.data());
+      return reinterpret_cast<impl::MaterialConcept<MaterialPolicy>*>(raw_.data());
    }
 
    impl::MaterialConcept<MaterialPolicy> const *pimpl() const{
-      return reinterpret_cast<impl::MaterialConcept<MaterialPolicy> const *>(raw_.data());
+      return reinterpret_cast<impl::MaterialConcept<MaterialPolicy> const*>(raw_.data());
    }
 
 };
@@ -159,21 +169,26 @@ private:
 template<class MaterialPolicy>
 class Material
 {
-   using StateVariableT = MaterialPolicy::StateVariableT;
-   
    friend class MaterialConstRef<MaterialPolicy>;
+
+   using StateVariableT = MaterialPolicy::StateVariableT;
+
    std::unique_ptr<impl::MaterialConcept<MaterialPolicy>> pimpl_; // The Bridge design pattern
 
 public:
 
    StateVariableT get_state() const {return pimpl_->get_state();};
+   void update_state(StateVariableT& state) {pimpl_->update_state(state);};
 
 public:
    
    template <typename MaterialType, typename UpdateStrategy>
    Material(MaterialType material, UpdateStrategy material_integrator){
       using Model = impl::OwningMaterialModel<MaterialType, UpdateStrategy>;
-      pimpl_ = std::make_unique<Model>(std::move(material), std::move(material_integrator));
+      pimpl_ = std::make_unique<Model>(
+         std::move(material), 
+         std::move(material_integrator)
+         );
    }
 
    Material(Material        <MaterialPolicy> const &other) : pimpl_(other.pimpl_->clone()){}

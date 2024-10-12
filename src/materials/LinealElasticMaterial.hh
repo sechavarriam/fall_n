@@ -16,7 +16,6 @@ template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
   public:  
-
     using StrainType = typename ConstitutiveRelation::StrainType;
     using StressType = typename ConstitutiveRelation::StressType;
 
@@ -29,15 +28,19 @@ class IsotropicElasticMaterial{
 
   private:
     
-    MaterialStateT   state_ ; // Strain
-    StressType       stress_; // Default initalized in zeros.
+    mutable MaterialStateT   state_ ; // Strain
+    mutable StressType       stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    inline StateVariableT get_state() const {return state_.current_value();};
-    
+    inline constexpr StateVariableT get_state()   const {return state_.current_value();};
+    inline constexpr StateVariableT get_state_p() const {return state_.current_value_p();};
+
+    inline void update_state(StrainType& e) {state_.update(e);};
+
+
     inline void compute_stress(const StrainType& strain, StressType& stress) const{
         return constitutive_law_->compute_stress(strain, stress);
     };

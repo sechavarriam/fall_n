@@ -34,10 +34,13 @@ private:
 public:
 
 
-    inline auto current_value() const noexcept {return value.current_value();}
-    inline void update_state(const VariableContainer &s){value.update_state(s);}
+    inline auto current_value()   const noexcept {return  value.current_value();}
+    inline auto current_value_p() const noexcept {return &value.current_value();}
+    
+    inline void update(VariableContainer &s) {value.update(s);}
 
     // Copy and Move constructors
+
     MaterialState(const MaterialState &s)     : value{s.value} {}
     MaterialState(const VariableContainer &s) : value{s}       {}
     MaterialState(VariableContainer &&s) : value{std::forward<VariableContainer>(s)} {}

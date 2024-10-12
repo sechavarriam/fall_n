@@ -79,7 +79,7 @@
 
 #include "src/domain/IntegrationPoint.hh"
 
-#include <matplot/matplot.h>
+//#include <matplot/matplot.h>
 
 #include <petsc.h>
 
@@ -104,20 +104,24 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     MaterialState<ElasticState,Strain<6>> sv0{e0};
     MaterialState<MemoryState ,Strain<6>> sv1{e0};
 
-
-    auto updateStrategy = [](){
-        std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;
-    };
-
+    //auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
 
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
 
-    //Material<UniaxialMaterial> mat1D(steel_mat1D, updateStrategy);
-    Material<ThreeDimensionalMaterial> mat(steel_mat3D, updateStrategy);
-    //Material<ThreeDimensionalMaterial> mat(ContinuumIsotropicElasticMaterial(200,0.3), updateStrategy);
+    //Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
+    Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, 0);
 
-    //MaterialState state0{sv0};
+    // Testing Material Wrapper interface.
+    // Printing Material Parameters (Not YET)
+    // Printing Material State
+
+    //auto s1 = mat1D.get_state();
+    //auto s2 = mat3D.get_state();
+
+
+
+
 
     /*
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
