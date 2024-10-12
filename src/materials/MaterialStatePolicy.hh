@@ -18,7 +18,7 @@ public:
     inline constexpr auto current_value()   const noexcept { return  value; }
     inline constexpr auto current_value_p() const noexcept { return &value; }
 
-    inline void update(S& s) { value = s; }
+    inline void update(const S& s) { value = s; }
 
     // Copy and Move constructors
     
