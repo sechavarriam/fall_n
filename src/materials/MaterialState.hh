@@ -37,7 +37,7 @@ public:
     inline auto current_value()   const noexcept {return  value.current_value();}
     inline auto current_value_p() const noexcept {return &value.current_value();}
     
-    inline void update(VariableContainer &s) {value.update(s);}
+    inline void update(const VariableContainer &s) {value.update(s);}
 
     // Copy and Move constructors
 

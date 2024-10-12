@@ -34,7 +34,8 @@ namespace impl{
    
    public:
       virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
-      virtual void update_state(StateVariableT& state) = 0;  
+
+      virtual void update_state(const StateVariableT& state) = 0;  
 
    };
 
@@ -53,7 +54,7 @@ namespace impl{
       
       StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
 
-      void update_state(StateVariableT& state) override {material_.update_state(state);};
+      void update_state(const StateVariableT& state) override {material_.update_state(state);};
 
       explicit OwningMaterialModel(MaterialType material, UpdateStrategy material_integrator): 
           material_        {std::move(material)}, 
@@ -78,7 +79,7 @@ class Material
 public:
 
    StateVariableT get_state() const {return pimpl_->get_state();};
-   void update_state(StateVariableT& state) {pimpl_->update_state(state);};
+   void update_state(const StateVariableT& state) {pimpl_->update_state(state);};
 
 public:
    

@@ -38,7 +38,7 @@ class IsotropicElasticMaterial{
     inline constexpr StateVariableT get_state()   const {return state_.current_value();};
     inline constexpr StateVariableT get_state_p() const {return state_.current_value_p();};
 
-    inline void update_state(StrainType& e) {state_.update(e);};
+    inline void update_state(const StrainType& e) {state_.update(e);};
 
 
     inline void compute_stress(const StrainType& strain, StressType& stress) const{
