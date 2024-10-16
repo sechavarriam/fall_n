@@ -23,16 +23,23 @@ class IntegrationPoint{// : public geometry::Point<dim>{
     std::shared_ptr<Point> Point_   ;
      // TODO: weights
 
-    //std::shared_ptr<Material> material_; // O tal vez no un punterno sino una instancia.
-                                         // El puntero es util en caso de un material lineal... 
-                                         // Puesto que no se repetirían instancias.
                                         
   public:
     double coord(std::size_t i) const {return Point_->coord( i );};
 
 
+
     // Constructors
     IntegrationPoint() =  default;  
+
+    template<std::floating_point... Args>
+    IntegrationPoint(Args&&... args) : Point_(std::make_shared<Point>(std::forward<Args>(args)...)){}
+
+    IntegrationPoint(Point&& p): Point_(std::make_shared<Point>(std::move(p))){}
+    IntegrationPoint(const Point& p): Point_(std::make_shared<Point>(p)){}
+    IntegrationPoint(std::shared_ptr<Point> p): Point_(std::move(p)){}
+
+    
 
     /*
 

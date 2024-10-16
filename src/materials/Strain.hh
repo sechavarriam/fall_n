@@ -43,6 +43,8 @@ public:
     constexpr std::span<const double, N> get_strain() const { return component_; };
     constexpr std::floating_point auto   get_strain(std::size_t i) const { return component_[i]; };
 
+    constexpr double& operator[](std::size_t i) { return component_[i]; };
+
     template <typename... S> requires(sizeof...(S) == N)
     constexpr void set_strain(S... s){
         std::size_t i{0};
