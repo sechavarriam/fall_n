@@ -45,7 +45,9 @@ class IsotropicElasticMaterial{
         return constitutive_law_->compute_stress(strain, stress);
     };
 
-    auto C() const {return constitutive_law_->compliance_matrix;}
+
+    Matrix& C() const  {return constitutive_law_->compliance_matrix;}
+    //auto C() const {return constitutive_law_->compliance_matrix;}
 
     template<typename... Args>  
     auto set_elasticity(Args... args){

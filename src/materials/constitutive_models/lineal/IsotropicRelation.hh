@@ -11,9 +11,10 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
     using StrainType = typename ElasticRelation<ThreeDimensionalMaterial>::StrainType;
     using StressType = typename ElasticRelation<ThreeDimensionalMaterial>::StressType;
 
-    private:
     using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
     using ConstitutiveModel::compliance_matrix;
+
+    private:
     
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
     double E_{0.0};

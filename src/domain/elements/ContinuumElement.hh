@@ -28,15 +28,10 @@ class ContinuumElement
   
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
 
+
   std::vector<MaterialPoint> material_points_{};
 
-  //std::array<MaterialPoint, num_integration_points()> material_points_;
-
-  
-
-
-
-  //std::vector<MaterialPoint<MaterialPolicy>> material_points_;
+  bool is_multimaterial_{false}; // If true, the element has different materials in each integration point.
 
 public:
 
@@ -154,6 +149,9 @@ public:
     return B;
   };
 
+  // ==============================================================================================
+  // Estos metodos deben ser reformulados para usar la informacion de los material points.
+
   auto BtCB (const MaterialPolicy& M,  const Array &X) {
     Matrix K{ndof, ndof};                          
     K = linalg::mat_mat_PtAP(B(X), M.C() ); // TODO: Optimize this for each dimension.
@@ -170,8 +168,12 @@ public:
     );
     
     return K;
-
   };
+
+  // ==============================================================================================
+  // ==============================================================================================
+
+
   
   void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
       // Inject (BUILD ) K into global stiffness matrix
@@ -184,12 +186,13 @@ public:
 
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
 
-  template<class MaterialType>
-  ContinuumElement(ElementGeometry<dim> *geometry, MaterialType material) : 
+
+  ContinuumElement(ElementGeometry<dim> *geometry, Material material) : 
     geometry_{geometry}
   {
     for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i)
     {
+      material_points_.reserve(geometry_->num_integration_points());
       material_points_.emplace_back(MaterialPoint{material});
     }
   };

@@ -91,6 +91,8 @@ public:
     void compute_stress(const Strain<1>& strain, Stress<1>& stress){
         stress.vector = E_*strain.vector;
     };
+
+    
     
     constexpr inline void set_parameter    (double value)        {E_ = value;};
     constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
