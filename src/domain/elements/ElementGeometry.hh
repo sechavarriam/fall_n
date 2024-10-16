@@ -57,12 +57,14 @@ namespace impl
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
         using Array = std::array<double, ElementType::dim>;
+        static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
 
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
     public:
 
         static constexpr auto dim = ElementType::dim;
+        
 
         explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
             element_   (element   ),
@@ -88,7 +90,7 @@ namespace impl
         constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
         constexpr std::size_t id()        const override { return element_.id(); };
         
-        constexpr std::size_t num_integration_points() const override { return IntegrationStrategy::num_integration_points; };
+        constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
         constexpr double H(std::size_t i, const Array& X) const override {
              return element_.H(i, X); 
@@ -115,12 +117,14 @@ namespace impl
     class NON_OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Reference semantic version of OwningModel_ElementGeometry.
         using Array = std::array<double, ElementType::dim>;
+        static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
 
         ElementType         *element_   {nullptr}; // Only stores a pointer to the ElementGeometry object (aka NonOwning)
         IntegrationStrategy *integrator_{nullptr}; //
     public:
         
         static constexpr auto dim = ElementType::dim;
+        
         
         NON_OwningModel_ElementGeometry(ElementType &element, IntegrationStrategy &integrator)
             : element_   {std::addressof(element)}, // &element
@@ -141,7 +145,7 @@ namespace impl
         constexpr std::size_t num_nodes() const override { return element_->num_nodes(); };
         constexpr std::size_t id()        const override { return element_->id(); };
         
-        constexpr std::size_t num_integration_points() const override { return IntegrationStrategy::num_integration_points; };
+        constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
         constexpr double H(std::size_t i, const Array &X) const override { 
             return element_->H(i, X); 
@@ -164,10 +168,8 @@ namespace impl
         };
 
         //template <std::invocable<Array> F> 
-        //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>
-        //{
-        //    return (*integrator_)(*element_,f);
-        //};
+        //constexpr auto integrate(F&& f) const -> std::invoke_result_t<F, Array>{return (*integrator_)(*element_,f);};
+
     };
 } // impl
 
@@ -192,7 +194,7 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
     
-    constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points(); };
+    constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points; };
 
     constexpr double H    (std::size_t i, const Array &X) const {return pimpl()->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j, Array &X ) const {return pimpl()->dH_dx(i, j, X);};
@@ -294,9 +296,9 @@ private:
     // friend void action(ElementGeometry const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
     //};
 
-    constexpr inline friend std::size_t        id(ElementGeometry const &element) { return element.pimpl_->id()       ; };
-    constexpr inline friend std::size_t num_nodes(ElementGeometry const &element) { return element.pimpl_->num_nodes(); };
-    constexpr inline friend void print_nodes_info(ElementGeometry const &element) { element.pimpl_->print_nodes_info(); };
+    constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
+    constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
+    constexpr inline friend void print_nodes_info(ElementGeometry const& element) { element.pimpl_->print_nodes_info(); };
 
     constexpr inline friend
     auto integrate(ElementGeometry const &element, std::invocable<Array> auto&& F) {

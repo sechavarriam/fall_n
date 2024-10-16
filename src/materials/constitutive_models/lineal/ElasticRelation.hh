@@ -15,21 +15,19 @@
 #include "../../../utils/index.hh"
 
 
-template<class MaterialPolicyT>
+template<class T>
 class ElasticRelation
   {
     public:
 
-    using StrainType = typename MaterialPolicyT::StrainType;
-    using StressType = typename MaterialPolicyT::StressType;
+    using MaterialPolicy = T;
+
+    using StrainType = typename MaterialPolicy::StrainType;
+    using StressType = typename MaterialPolicy::StressType;
 
     using MaterialStateT  = MaterialState<ElasticState,StrainType>;
     using StateVariableT  = typename MaterialStateT::VariableContainer;
 
-    using MaterialPolicy = MaterialPolicyT;
-
-    static constexpr auto PolicyID() -> MaterialPolicyT {return MaterialPolicyT();};
- 
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
     static constexpr std::size_t num_stresses_     = StressType::num_components;
@@ -69,9 +67,6 @@ class ElasticRelation
 
 template<> //Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
 class ElasticRelation<UniaxialMaterial>{
-
-  using MaterialPolicyT = UniaxialMaterial;
-  
 
   public:
   using MaterialPolicy = UniaxialMaterial;
