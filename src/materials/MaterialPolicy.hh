@@ -17,6 +17,8 @@ class SolidMaterial
     using StressType     = Stress<N>;
     using StateVariableT = Strain<N>;
 
+    static constexpr std::size_t dim = StrainType::dim;
+
   private:
 
     constexpr SolidMaterial() = default;

@@ -116,7 +116,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     // Printing Material Parameters (Not YET)
     // Printing Material State
 
-    auto s1 = mat1D.get_state();
+    //auto s1 = mat1D.get_state();
     auto s2 = mat3D.get_state();
 
     //mat1D.update_state(e0);
@@ -129,20 +129,20 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
         std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
     }
 
+    steel_mat3D.print_material_parameters();
+    steel_mat1D.print_material_parameters();
 
-
-
+    ContinuumElement<ThreeDimensionalMaterial,ndof> brick{&D.elements()[0], mat3D};
+    
+    
+    //Matrix K;
+    //K = brick.K(steel_mat3D);
+    //K.print_content();
 
     /*
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
     UniaxialIsotropicRelation  steel1D{200.0}     ; 
     */    
-
-    
-    
-
-    steel_mat3D.print_material_parameters();
-    steel_mat1D.print_material_parameters();
 
     // INTENT:
     // Material mat(base_material, stress_update_strategy);
@@ -156,12 +156,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     // Material mat(steel3D, InelasticUpdateStrategy::SemiImplicitBackwardEuler);
     // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
     // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
-
-
-    //ContinuumElement<ContinuumIsotropicElasticMaterial,ndof> brick{&D.elements()[0]};//, steel_mat3D);
-    //Matrix K;
-    //K = brick.K(steel_mat3D);
-    //K.print_content();
+    
 
 
 }// PETSc Scope ends here

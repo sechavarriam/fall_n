@@ -98,7 +98,7 @@ public:
 
   auto inline constexpr evaluate_jacobian(const Array& X) const noexcept { 
     JacobianMatrix J{{{0}}}; 
-    for (std::size_t i = 0; i < dim; ++i) {  //Thread Candidate
+    for (std::size_t i = 0; i < dim; ++i) {//Thread Candidate
       for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
         for (std::size_t k = 0; k < num_nodes_; ++k) {
           J[i][j] += nodes_[k]->coord(i)*dH_dx(k, j, X); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
@@ -156,7 +156,7 @@ public:
 // =================================================================================================
 
 template <std::size_t... N>
-class GaussLegendreCellIntegrator{ // : public MaterialIntegrator {
+class GaussLegendreCellIntegrator{
     using Array = std::array<double, sizeof...(N)>;
     using Point = geometry::Point<sizeof...(N)>; 
     using CellQuadrature = GaussLegendre::CellQuadrature<N...>;

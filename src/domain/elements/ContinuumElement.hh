@@ -8,21 +8,35 @@
 
 #include "../../model/MaterialPoint.hh"
 
+#include "../../materials/Material.hh"
+
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 
-template <typename MaterialType, std::size_t ndof>
+template <typename ConstitutiveRelation, std::size_t ndof>
 class ContinuumElement
 {
-  using Array = std::array<double, MaterialType::dim>;
+  using MaterialPolicy = ConstitutiveRelation;
+  using MaterialPoint = MaterialPoint<MaterialPolicy>;
+  using Material      = Material     <MaterialPolicy>;
 
-  static constexpr auto dim         = MaterialType::dim;
-  static constexpr auto num_strains = MaterialType::num_strains;
+  using Array = std::array<double, MaterialPolicy::dim>;
+
+  static constexpr auto dim         = MaterialPolicy::dim;
+  static constexpr auto num_strains = MaterialPolicy::StrainType::num_components;
 
   ElementGeometry<dim> *geometry_;
   
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
 
-  //std::vector<MaterialPoint<MaterialType>> material_points_;
+  std::vector<MaterialPoint> material_points_{};
+
+  //std::array<MaterialPoint, num_integration_points()> material_points_;
+
+  
+
+
+
+  //std::vector<MaterialPoint<MaterialPolicy>> material_points_;
 
 public:
 
@@ -140,13 +154,13 @@ public:
     return B;
   };
 
-  auto BtCB (const MaterialType& M,  const Array &X) {
+  auto BtCB (const MaterialPolicy& M,  const Array &X) {
     Matrix K{ndof, ndof};                          
     K = linalg::mat_mat_PtAP(B(X), M.C() ); // TODO: Optimize this for each dimension.
     return K; // B^t * C * B
   }; 
 
-  auto K(const MaterialType& mat) {
+  auto K(const MaterialPolicy& mat) {
     Matrix K{ndof, ndof};
 
     K=geometry_->integrate([this, &mat](const Array &X)
@@ -167,7 +181,21 @@ public:
   // CONSTRUCTOR
 
   ContinuumElement() = delete;
+
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
+
+  template<class MaterialType>
+  ContinuumElement(ElementGeometry<dim> *geometry, MaterialType material) : 
+    geometry_{geometry}
+  {
+    for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i)
+    {
+      material_points_.emplace_back(MaterialPoint{material});
+    }
+  };
+
+  
+  ~ContinuumElement() = default;
 
 }; // Forward declaration
 
