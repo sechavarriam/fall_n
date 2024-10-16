@@ -31,6 +31,10 @@ class Model
 {
 
 public:
+    
+    using Material = Material<MaterialPolicy>;
+    
+
     static constexpr std::size_t dim{MaterialPolicy::dim};
 
 private:
