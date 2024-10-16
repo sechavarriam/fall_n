@@ -109,7 +109,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
 
-    Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
+    //Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
     Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
 
     // Testing Material Wrapper interface.
@@ -130,7 +130,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     }
 
     steel_mat3D.print_material_parameters();
-    steel_mat1D.print_material_parameters();
+    //steel_mat1D.print_material_parameters();
 
     ContinuumElement<ThreeDimensionalMaterial,ndof> brick{&D.elements()[0], mat3D};
     

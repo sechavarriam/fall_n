@@ -33,6 +33,9 @@ namespace impl{
 
    
    public:
+
+      virtual constexpr Matrix& C() const = 0; //The Compliance Matrix
+
       virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
 
       virtual void update_state(const StateVariableT& state) = 0;  
@@ -52,6 +55,8 @@ namespace impl{
 
    public:
       
+      Matrix& C() const override {return material_.C();}; //The Compliance Matrix
+
       StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
 
       void update_state(const StateVariableT& state) override {material_.update_state(state);};
@@ -77,6 +82,8 @@ class Material
    std::unique_ptr<impl::MaterialConcept<MaterialPolicy>> pimpl_; // The Bridge design pattern
 
 public:
+
+   Matrix& C() const {return pimpl_->C();}; //The Compliance Matrix
 
    StateVariableT get_state() const {return pimpl_->get_state();};
    void update_state(const StateVariableT& state) {pimpl_->update_state(state);};
