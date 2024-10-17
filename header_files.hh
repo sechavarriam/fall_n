@@ -34,7 +34,6 @@
 #include "src/domain/Domain.hh"
 
 #include "src/geometry/Point.hh"
-#include "src/geometry/GeometricTransformation.hh"
 #include "src/geometry/Topology.hh"
 
 #include "src/geometry/Simplex.hh" // TODO: Implementar!
@@ -46,10 +45,7 @@
 
 
 #include "src/domain/elements/ElementGeometry.hh"
-#include "src/domain/elements/ElementBase.hh"
-//#include "src/domain/elements/StructuralElement.h"
-//#include "src/domain/elements/LineElement.h"
-//#include "src/domain/elements/BeamColumn_Euler.h"
+
 
 #include "src/domain/elements/Section.hh"
 
