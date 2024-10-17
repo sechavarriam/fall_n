@@ -34,7 +34,6 @@ public:
     
     using Material = Material<MaterialPolicy>;
     
-
     static constexpr std::size_t dim{MaterialPolicy::dim};
 
 private:
@@ -42,8 +41,9 @@ private:
     std::size_t dofsXnode{ndofs};
 public:
     
-    std::vector<double> dof_vector_;
- 
+    std::vector<double>  dof_vector_;
+    std::vector<Material> materials_;
+
     void set_default_num_dofs_per_node(std::size_t n){
         for (auto &node : domain_->nodes())
             node.set_num_dof(n);
@@ -64,9 +64,9 @@ public:
         link_dofs_to_node();                                   // Link Dof_Interface to Node
 
         // Fill for testing
-        auto idx = 0;
-        for (auto &dof : dof_vector_)
-            dof = idx++;
+        // auto idx = 0;
+        // for (auto &dof : dof_vector_)
+        //     dof = idx++;
     }
 
     Model() = delete;

@@ -40,13 +40,68 @@ public:
   Matrix& get_C() const noexcept { 
     static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
     if (is_multimaterial_){
-      return material_points_[call++].material_.C();
+      //TODO: Cheks...
+      return material_points_[call++].C();
     }else{
-      return material_points_[0].material_.C();
+      return material_points_[0].C();
     }
   };
 
-  auto H(const Array& X) const noexcept
+  Matrix H(const Array &X); // Declaration. Definition at the end of the file.
+  Matrix B(const Array &X); // Declaration. Definition at the end of the file.
+  
+  Matrix BtCB (const Array &X) {  // TODO: Optimize this for each dimension.
+    Matrix BtCB_{ndof, ndof};                          
+    BtCB_= linalg::mat_mat_PtAP(B(X), get_C()); // Considerar C(X) como funcion para integracion multimaterial.
+    return  BtCB_; // B^t * C * B
+  }; 
+
+  auto K() {
+    Matrix K{ndof, ndof};
+
+    std::cout << "Integrating over " << num_integration_points() << " integration points." << std::endl;
+
+    K=geometry_->integrate([this](const Array &X){
+        return BtCB(X);
+      }
+    );
+    
+    return K;
+  };
+
+  // ==============================================================================================
+  // ==============================================================================================
+
+
+  
+  void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
+      // Inject (BUILD ) K into global stiffness matrix
+  };
+
+
+  // CONSTRUCTOR
+
+  ContinuumElement() = delete;
+
+  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
+
+  ContinuumElement(ElementGeometry<dim> *geometry, Material material) : geometry_{geometry}
+  {
+    for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i){
+      material_points_.reserve(geometry_->num_integration_points());
+      material_points_.emplace_back(MaterialPoint{material});
+    }
+  };
+
+  ~ContinuumElement() = default;
+
+}; // ContinuumElement
+
+//==================================================================================================
+//======================== Methods Definitions ===================================================
+//==================================================================================================
+template <typename ConstitutiveRelation, std::size_t ndof>
+inline Matrix ContinuumElement<ConstitutiveRelation, ndof>::H(const Array &X)
   {
     Matrix H(ndof, num_nodes() * dim);
     H.assembly_begin();
@@ -97,7 +152,9 @@ public:
     return H;
   };
 
-  auto B(const Array &X)
+
+template <typename ConstitutiveRelation, std::size_t ndof>
+inline Matrix ContinuumElement<ConstitutiveRelation, ndof>::B(const Array &X)
   {
     Matrix B(num_strains, num_nodes() * dim);
     B.assembly_begin();
@@ -158,57 +215,5 @@ public:
     return B;
   };
 
-  // ==============================================================================================
-  // Estos metodos deben ser reformulados para usar la informacion de los material points.
-
-  auto BtCB (const Array &X) {  // TODO: Optimize this for each dimension.
-    Matrix BtCB_{ndof, ndof};                          
-    auto BtCB = linalg::mat_mat_PtAP(B(X), get_C()); // Considerar C(X) como funcion para integracion multimaterial.
-    return  BtCB_; // B^t * C * B
-  }; 
-
-  auto K() {
-    Matrix K{ndof, ndof};
-
-    K=geometry_->integrate([this](const Array &X)
-      {
-        return BtCB(X);
-      }
-    );
-    
-    return K;
-  };
-
-  // ==============================================================================================
-  // ==============================================================================================
-
-
-  
-  void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
-      // Inject (BUILD ) K into global stiffness matrix
-  };
-
-
-  // CONSTRUCTOR
-
-  ContinuumElement() = delete;
-
-  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
-
-
-  ContinuumElement(ElementGeometry<dim> *geometry, Material material) : 
-    geometry_{geometry}
-  {
-    for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i)
-    {
-      material_points_.reserve(geometry_->num_integration_points());
-      material_points_.emplace_back(MaterialPoint{material});
-    }
-  };
-
-  
-  ~ContinuumElement() = default;
-
-}; // Forward declaration
 
 #endif
