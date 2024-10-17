@@ -18,12 +18,14 @@
 
 #include"header_files.hh"
 
-#include "src/domain/Node.hh"
-#include "src/domain/element_geometry/ContinuumElement.hh"
-#include "src/domain/element_geometry/ElementGeometry.hh"
-#include "src/domain/element_geometry/LagrangeElement.hh"
+#include "src/elements/Node.hh"
 
-#include "src/domain/DoF.hh"
+#include "src/elements/ContinuumElement.hh"
+
+#include "src/elements/element_geometry/ElementGeometry.hh"
+#include "src/elements/element_geometry/LagrangeElement.hh"
+
+#include "src/model/DoF.hh"
 
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"

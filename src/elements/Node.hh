@@ -8,7 +8,7 @@
 #include <utility>
 #include <span>
 
-#include "DoF.hh"
+#include "../model/DoF.hh"
 #include "../geometry/Point.hh"
 
 template<std::size_t Dim>//, ushort nDoF=Dim> 

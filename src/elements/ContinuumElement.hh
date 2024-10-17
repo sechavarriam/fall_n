@@ -4,13 +4,11 @@
 #include <memory>
 #include <array>
 
-#include "ElementGeometry.hh"
+#include "element_geometry/ElementGeometry.hh"
 
-#include "../../model/MaterialPoint.hh"
-
-#include "../../materials/Material.hh"
-
-#include "../../numerics/linear_algebra/LinalgOperations.hh"
+#include "../model/MaterialPoint.hh"
+#include "../materials/Material.hh"
+#include "../numerics/linear_algebra/LinalgOperations.hh"
 
 template <typename ConstitutiveRelation, std::size_t ndof>
 class ContinuumElement

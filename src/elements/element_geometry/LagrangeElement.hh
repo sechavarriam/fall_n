@@ -16,7 +16,6 @@
 
 #include "../Node.hh"
 
-#include "../IntegrationPoint.hh"
 
 #include "../../geometry/Topology.hh"
 #include "../../geometry/Cell.hh"
