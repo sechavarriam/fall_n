@@ -28,7 +28,6 @@ static inline constexpr double delta_i(int n ) {
   return interval_size / (n - 1);
 }; // Interval size per direction i.
 
-
 template <std::size_t... dimensions> 
 static inline constexpr std::array<double, sizeof...(dimensions)>  
 coordinate_xi(std::array<std::size_t, sizeof...(dimensions)> index_ijk)
@@ -53,12 +52,10 @@ static inline constexpr auto equally_spaced_coordinates()
   return coordinates;
 };
 
-
 template <std::size_t... n>
 static inline constexpr Point<sizeof...(n)> node_ijk(std::array<std::size_t,sizeof...(n)> md_array){
   return Point<sizeof...(n)>(coordinate_xi<n ...>(md_array));
 };
-
   
 template<std::size_t... n>
 consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
@@ -78,13 +75,11 @@ class LagrangianCell {
   static constexpr std::size_t dim    {sizeof...(n)};
   static constexpr std::size_t num_nodes_{(n*...)};
 
-
   using Point = geometry::Point<dim>;
   
   template<ushort... num_nodes_in_each_direction>
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
 
-  
 public:  
   static constexpr std::array<Point, num_nodes_> reference_nodes{cell_nodes<n...>()};
   
@@ -107,11 +102,6 @@ public:
 };
 // ==================================================================================================
 
-
-
 } // namespace geometry::cell
-
-
-
 
 #endif // FALL_N_REFERENCE_CELL

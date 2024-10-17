@@ -19,9 +19,9 @@
 #include"header_files.hh"
 
 #include "src/domain/Node.hh"
-#include "src/domain/elements/ContinuumElement.hh"
-#include "src/domain/elements/ElementGeometry.hh"
-#include "src/domain/elements/LagrangeElement.hh"
+#include "src/domain/element_geometry/ContinuumElement.hh"
+#include "src/domain/element_geometry/ElementGeometry.hh"
+#include "src/domain/element_geometry/LagrangeElement.hh"
 
 #include "src/domain/DoF.hh"
 

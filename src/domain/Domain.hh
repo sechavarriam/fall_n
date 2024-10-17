@@ -13,7 +13,7 @@
 
 #include "../geometry/Topology.hh"
 #include "Node.hh"
-#include "elements/ElementGeometry.hh"
+#include "element_geometry/ElementGeometry.hh"
 
 #include "../mesh/gmsh/ReadGmsh.hh"
 //#include "../mesh/gmsh/GmshDomainBuilder.hh"
