@@ -22,7 +22,6 @@
 class GmshDomainBuilder
 {
     using Domain3D = Domain<3>;
-    // using Node3D = Node<3>;
     using GmshMesh = gmsh::MSHReader;
 
     GmshMesh mesh_info_;
