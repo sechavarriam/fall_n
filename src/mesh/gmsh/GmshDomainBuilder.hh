@@ -47,7 +47,6 @@ public:
                             std::move(block.coordinates[node][0]),
                             std::move(block.coordinates[node][1]),
                             std::move(block.coordinates[node][2]))));
-
             }
         }
     };
@@ -58,10 +57,8 @@ public:
         {          
             if (block.entityDim == 3)
             { // Only 3D elements (by now...)
-
                 for (auto &[element_tag, node_tags] : block.elementTags)
                 {
- 
                     std::vector<Node<3> *> elem_nodes;
                     elem_nodes.reserve(node_tags.size());
 
@@ -73,8 +70,8 @@ public:
                         }
                         else
                         { // TODO: search for the node with the current tag.
-                            //throw std::runtime_error("Node tag does not match with node id");
-                            // Range search
+                          //throw std::runtime_error("Node tag does not match with node id");
+                          // Range search
                             auto it = std::ranges::find_if(domain_->nodes(), [tag](Node<3>  &node) { return node.id() == tag; });
                             if (it != domain_->nodes().end())
                             {
@@ -119,7 +116,6 @@ public:
 
     GmshDomainBuilder(std::string_view filename, Domain3D &domain) : mesh_info_(filename), domain_(std::addressof(domain))
     {
-
         aggregate_nodes();
         aggregate_elements();
     };

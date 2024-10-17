@@ -31,7 +31,7 @@ class ContinuumElement
 
   std::vector<MaterialPoint> material_points_{};
 
-  bool is_multimaterial_{false}; // If true, the element has different materials in each integration point.
+  bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
 
 public:
 
@@ -41,7 +41,7 @@ public:
     static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
     if (is_multimaterial_){
       //TODO: Cheks...
-      return material_points_[call++].C();
+      return material_points_[(call++)%num_integration_points()].C();
     }else{
       return material_points_[0].C();
     }
@@ -58,8 +58,7 @@ public:
 
   auto K() {
     Matrix K{ndof, ndof};
-
-    std::cout << "Integrating over " << num_integration_points() << " integration points." << std::endl;
+    //std::cout << "Integrating over " << num_integration_points() << " integration points." << std::endl;
 
     K=geometry_->integrate([this](const Array &X){
         return BtCB(X);

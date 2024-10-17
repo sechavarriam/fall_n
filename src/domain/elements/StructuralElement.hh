@@ -2,10 +2,7 @@
 #define FN_STRUCTURAL_ELEMENT
 
 #include "../Node.hh"
-#include "ElementBase.hh"
 
-typedef unsigned short ushort;
-typedef unsigned int   uint  ;
 
 //template<ushort Dim,
 //         ushort nNodes, 
