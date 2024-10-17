@@ -10,8 +10,9 @@
 #include <ranges>
 
 #include "../../domain/Domain.hh"
-#include "../../domain/Node.hh"
-#include "../../domain/element_geometry/ElementGeometry.hh"
+#include "../../elements/Node.hh"
+
+#include "../../elements/element_geometry/ElementGeometry.hh"
 
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
 

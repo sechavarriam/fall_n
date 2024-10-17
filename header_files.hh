@@ -40,13 +40,11 @@
 #include "src/geometry/Cell.hh"    // TODO: Implementar!
 
 
-#include "src/domain/Node.hh"
+#include "src/elements/Node.hh"
 #include "src/domain/IntegrationPoint.hh"
 
 
-#include "src/domain/element_geometry/ElementGeometry.hh"
-
-
-#include "src/domain/element_geometry/Section.hh"
+#include "src/elements/element_geometry/ElementGeometry.hh"
+#include "src/elements/element_geometry/Section.hh"
 
 
