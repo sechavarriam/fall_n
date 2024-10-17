@@ -44,9 +44,9 @@
 #include "src/domain/IntegrationPoint.hh"
 
 
-#include "src/domain/elements/ElementGeometry.hh"
+#include "src/domain/element_geometry/ElementGeometry.hh"
 
 
-#include "src/domain/elements/Section.hh"
+#include "src/domain/element_geometry/Section.hh"
 
 

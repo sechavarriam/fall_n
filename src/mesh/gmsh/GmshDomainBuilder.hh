@@ -11,7 +11,7 @@
 
 #include "../../domain/Domain.hh"
 #include "../../domain/Node.hh"
-#include "../../domain/elements/ElementGeometry.hh"
+#include "../../domain/element_geometry/ElementGeometry.hh"
 
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
 
