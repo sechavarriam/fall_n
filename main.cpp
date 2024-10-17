@@ -94,7 +94,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
-    Model<LinealElastic3D,ndof> M{D}; //Model Aggregator Object
+    Model<ThreeDimensionalMaterial,ndof> M{D}; //Model Aggregator Object
     //          ^            
     //          | 
     //    Constitutive Relation Type (Policy) and Dimension implicitly.

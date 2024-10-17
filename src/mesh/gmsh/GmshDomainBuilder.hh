@@ -102,6 +102,21 @@ public:
                           );
                         break;
                         }
+                    case 12:
+                        {
+                        auto integrator = GaussLegendreCellIntegrator<3,3,3>{}; 
+                           
+                        domain_->make_element<LagrangeElement<3,3,3>, decltype(integrator)>(
+                            std::move(integrator),
+                            std::size_t(element_tag),
+                            {
+                                elem_nodes[ 5], elem_nodes[13], elem_nodes[ 4], elem_nodes[14], elem_nodes[21], elem_nodes[12], elem_nodes[ 1], elem_nodes[ 8], elem_nodes[ 0],
+                                elem_nodes[19], elem_nodes[25], elem_nodes[15], elem_nodes[24], elem_nodes[26], elem_nodes[22], elem_nodes[11], elem_nodes[20], elem_nodes[ 9],
+                                elem_nodes[ 7], elem_nodes[17], elem_nodes[ 6], elem_nodes[18], elem_nodes[23], elem_nodes[16], elem_nodes[ 3], elem_nodes[10], elem_nodes[ 2]
+                            }
+                          );
+                        break;
+                        }
                     default:
                         {
                         //throw std::runtime_error("Element type not supported");

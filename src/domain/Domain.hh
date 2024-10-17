@@ -36,7 +36,8 @@
         std::vector<ElementGeometry<dim>>  elements_;
         
     public:
-        std::size_t num_nodes() const { return nodes_.size(); };
+        std::size_t num_nodes()    const { return nodes_.size(); };
+        std::size_t num_elements() const { return elements_.size(); };
 
         // Getters
         Node<dim> *node_p(std::size_t i) { return &nodes_[i]; };
