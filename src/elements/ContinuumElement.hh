@@ -10,10 +10,10 @@
 #include "../materials/Material.hh"
 #include "../numerics/linear_algebra/LinalgOperations.hh"
 
-template <typename ConstitutiveRelation, std::size_t ndof>
+template <typename MaterialPolicy, std::size_t ndof>
 class ContinuumElement
 {
-  using MaterialPolicy = ConstitutiveRelation;
+  //using MaterialPolicy = MaterialPolicy;
   using MaterialPoint = MaterialPoint<MaterialPolicy>;
   using Material      = Material     <MaterialPolicy>;
 
@@ -32,20 +32,31 @@ public:
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
-  Matrix& get_C() const noexcept { 
-    static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
-    if (is_multimaterial_){
-      //TODO: Cheks...
-      return material_points_[(call++)%num_integration_points()].C();
-    }else{
-      return material_points_[0].C();
-    }
-  };
+  //Matrix& get_C() const noexcept { 
+  //static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
+  //if (is_multimaterial_){
+  //  //TODO: Cheks...
+  //  return material_points_[(call++)%num_integration_points()].C();
+  //}else{
+  //  return material_points_[0].C();
+  //}
+  //};
 
   Matrix H(const Array &X); // Declaration. Definition at the end of the file.
   Matrix B(const Array &X); // Declaration. Definition at the end of the file.
   
   Matrix BtCB (const Array &X) {  // TODO: Optimize this for each dimension.
+
+    auto get_C = [this](){
+      static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
+      static std::size_t N = num_integration_points();
+        if (is_multimaterial_){ // TODO: Cheks...
+          return material_points_[(call++)%N].C();
+        }else{
+          return material_points_[0].C();
+        }
+    };
+
     Matrix BtCB_{ndof, ndof};                          
     BtCB_= linalg::mat_mat_PtAP(B(X), get_C()); // Considerar C(X) como funcion para integracion multimaterial.
     return  BtCB_; // B^t * C * B
@@ -94,8 +105,8 @@ public:
 //==================================================================================================
 //======================== Methods Definitions ===================================================
 //==================================================================================================
-template <typename ConstitutiveRelation, std::size_t ndof>
-inline Matrix ContinuumElement<ConstitutiveRelation, ndof>::H(const Array &X)
+template <typename MaterialPolicy, std::size_t ndof>
+inline Matrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
   {
     Matrix H(ndof, num_nodes() * dim);
     H.assembly_begin();
@@ -147,8 +158,8 @@ inline Matrix ContinuumElement<ConstitutiveRelation, ndof>::H(const Array &X)
   };
 
 
-template <typename ConstitutiveRelation, std::size_t ndof>
-inline Matrix ContinuumElement<ConstitutiveRelation, ndof>::B(const Array &X)
+template <typename MaterialPolicy, std::size_t ndof>
+inline Matrix ContinuumElement<MaterialPolicy, ndof>::B(const Array &X)
   {
     Matrix B(num_strains, num_nodes() * dim);
     B.assembly_begin();
