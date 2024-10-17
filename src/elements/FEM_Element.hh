@@ -21,7 +21,6 @@ namespace impl{
    public:
       virtual constexpr ~FEM_ElementConcept() = default;
       virtual constexpr std::unique_ptr<FEM_ElementConcept> clone() const = 0; // The Prototype design pattern
-
    
    public:
 
@@ -39,17 +38,17 @@ namespace impl{
       using MaterialPolicy = typename MaterialType::MaterialPolicy;
       using StateVariableT = MaterialPolicy::StateVariableT;
 
-      MaterialType   material_        ;
+      MaterialType   element_        ;
       UpdateStrategy update_algorithm_; //or material_integrator
 
    public:
       
-      //Matrix& C() const override {return material_.C();}; //The Compliance Matrix
-      //StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
-      //void update_state(const StateVariableT& state) override {material_.update_state(state);};
+      //Matrix& C() const override {return element_.C();}; //The Compliance Matrix
+      //StateVariableT get_state() const override {return element_.get_state();}; //CurrentValue
+      //void update_state(const StateVariableT& state) override {element_.update_state(state);};
 
       explicit OwningFEM_ElementModel(MaterialType material, UpdateStrategy material_integrator): 
-          material_        {std::move(material)}, 
+          element_        {std::move(material)}, 
           update_algorithm_{std::move(material_integrator)}
       {}
 

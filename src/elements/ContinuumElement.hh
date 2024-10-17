@@ -32,15 +32,6 @@ public:
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
-  //Matrix& get_C() const noexcept { 
-  //static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
-  //if (is_multimaterial_){
-  //  //TODO: Cheks...
-  //  return material_points_[(call++)%num_integration_points()].C();
-  //}else{
-  //  return material_points_[0].C();
-  //}
-  //};
 
   Matrix H(const Array &X); // Declaration. Definition at the end of the file.
   Matrix B(const Array &X); // Declaration. Definition at the end of the file.
@@ -51,6 +42,7 @@ public:
       static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
       static std::size_t N = num_integration_points();
         if (is_multimaterial_){ // TODO: Cheks...
+          std::cout << "Call: " << call << std::endl;
           return material_points_[(call++)%N].C();
         }else{
           return material_points_[0].C();
