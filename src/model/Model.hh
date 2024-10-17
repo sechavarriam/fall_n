@@ -44,6 +44,9 @@ public:
     std::vector<double>  dof_vector_;
     std::vector<Material> materials_;
 
+
+
+
     void set_default_num_dofs_per_node(std::size_t n){
         for (auto &node : domain_->nodes())
             node.set_num_dof(n);

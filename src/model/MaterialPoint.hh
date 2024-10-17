@@ -20,7 +20,7 @@ class MaterialPoint{// : public IntegrationPoint<dim>{
 
     public:
 
-        auto& C() const {return material_.C();}; //The Compliance Matrix
+        auto& C() const {return material_.C();}; //The Compliance Matrix (Stiffness Matrix)
 
         MaterialPoint(Material material)   : material_{material} {};
         MaterialPoint(Material&& material) : material_{std::move(material)} {};
