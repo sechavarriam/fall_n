@@ -21,18 +21,15 @@ class ContinuumElement
 
   static constexpr auto dim         = MaterialPolicy::dim;
   static constexpr auto num_strains = MaterialPolicy::StrainType::num_components;
-
-  ElementGeometry<dim> *geometry_;
-  
-  constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
-
-
+ 
+  ElementGeometry<dim>       *geometry_;
   std::vector<MaterialPoint> material_points_{};
 
   bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
 
 public:
 
+  constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
   Matrix& get_C() const noexcept { 
