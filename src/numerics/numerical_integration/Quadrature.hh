@@ -33,12 +33,6 @@ class Quadrature{
     P evalPoints_;
     W weights_   ; 
 
-    //constexpr double operator()(std::invocable<decltype(evalPoints_[0])> auto&& function2eval) const noexcept {
-    //    return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),  std::plus<>(),
-    //        [&](const auto& w, const auto& x){
-    //         return w*function2eval(x);});
-    //}
-
     template<std::invocable<decltype(evalPoints_[0])> F>
     constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
         using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
@@ -66,9 +60,6 @@ class Quadrature{
             }
         }
     }
-
-
-
 
     constexpr Quadrature(){};
     constexpr ~Quadrature(){};

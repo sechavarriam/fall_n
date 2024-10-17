@@ -37,6 +37,15 @@ public:
 
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
+  Matrix& get_C() const noexcept { 
+    static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
+    if (is_multimaterial_){
+      return material_points_[call++].material_.C();
+    }else{
+      return material_points_[0].material_.C();
+    }
+  };
+
   auto H(const Array& X) const noexcept
   {
     Matrix H(ndof, num_nodes() * dim);
@@ -152,18 +161,18 @@ public:
   // ==============================================================================================
   // Estos metodos deben ser reformulados para usar la informacion de los material points.
 
-  auto BtCB (const MaterialPolicy& M,  const Array &X) {
-    Matrix K{ndof, ndof};                          
-    K = linalg::mat_mat_PtAP(B(X), M.C() ); // TODO: Optimize this for each dimension.
-    return K; // B^t * C * B
+  auto BtCB (const Array &X) {  // TODO: Optimize this for each dimension.
+    Matrix BtCB_{ndof, ndof};                          
+    auto BtCB = linalg::mat_mat_PtAP(B(X), get_C()); // Considerar C(X) como funcion para integracion multimaterial.
+    return  BtCB_; // B^t * C * B
   }; 
 
-  auto K(const MaterialPolicy& mat) {
+  auto K() {
     Matrix K{ndof, ndof};
 
-    K=geometry_->integrate([this, &mat](const Array &X)
+    K=geometry_->integrate([this](const Array &X)
       {
-        return BtCB(mat, X);
+        return BtCB(X);
       }
     );
     
