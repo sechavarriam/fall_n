@@ -21,8 +21,6 @@
 #include "src/domain/Node.hh"
 #include "src/domain/elements/ContinuumElement.hh"
 #include "src/domain/elements/ElementGeometry.hh"
-#include "src/domain/elements/ElementBase.hh"
-#include "src/domain/elements/ContinuumElement.hh"
 #include "src/domain/elements/LagrangeElement.hh"
 
 #include "src/domain/DoF.hh"
@@ -31,7 +29,6 @@
 #include "src/geometry/Topology.hh"
 #include "src/geometry/Cell.hh"
 #include "src/geometry/Point.hh"
-#include "src/geometry/ReferenceElement.hh"
 
 #include "src/numerics/Polynomial.hh"
 #include "src/numerics/Tensor.hh"
