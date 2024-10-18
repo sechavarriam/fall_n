@@ -137,7 +137,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     Matrix K;
     K = brick.K();
-    K.print_content();
+    //K.print_content();
 
     /*
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
