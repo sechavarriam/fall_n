@@ -125,10 +125,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     
     auto s3 = mat3D.get_state();
 
-    for (auto i = 0; i < 6; i++){
-        std::cout << "s2[" << i << "] = " << s2[i] << std::endl;
-        std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
-    }
+    for (auto i = 0; i < 6; i++) std::cout << "s2[" << i << "] = " << s2[i] << std::endl;
+    for (auto i = 0; i < 6; i++) std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
+    
 
     steel_mat3D.print_material_parameters();
     //steel_mat1D.print_material_parameters();

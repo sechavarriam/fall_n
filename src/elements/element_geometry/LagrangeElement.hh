@@ -56,7 +56,7 @@ public:
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
-  using pNodeArray     = std::array<Node<dim> *, num_nodes_>;
+  using pNodeArray     = std::array<Node<dim>*, num_nodes_>;
   
   std::size_t tag_;
   pNodeArray nodes_;
@@ -66,7 +66,8 @@ public:
   auto num_nodes() const noexcept { return num_nodes_; };
   auto id()        const noexcept { return tag_      ; };
 
-  auto node  (std::size_t i ) const noexcept {return nodes_[i];};
+  Node<dim>& node (std::size_t i ) const noexcept {return *nodes_[i];};
+  
   void set_id(std::size_t id)       noexcept {tag_ = id; };
 
   constexpr void print_nodes_info() const noexcept {
