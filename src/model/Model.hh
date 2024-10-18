@@ -72,6 +72,15 @@ private:
     }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
+    void set_dof_index(){
+        std::size_t pos = 0;
+        for (auto &node : domain_->nodes()){
+            node.set_dof_index(std::ranges::iota_view{pos, pos + dofsXnode}); //Esto podría ser otro RANGE con los índices óptimos luego de un reordenamiento tipo Cuthill-McKee.
+            pos += dofsXnode;
+        }
+    };
+
+
 
     void link_dofs_to_node(){
         auto pos = 0;
@@ -99,6 +108,7 @@ public:
         dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers) // TODO: PUT AN OBSERVER!
         set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
         link_dofs_to_node();                                   // Link Dof_Interface to Node
+        set_dof_index();                                       // Set Dof Indexes
 
         // Fill for testing
         // Print Warning 
