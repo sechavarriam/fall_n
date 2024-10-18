@@ -42,6 +42,15 @@ class Node : public geometry::Point<Dim>{
       dof_.handler_->dofs_[i] = p_model_dof;
     };
 
+    constexpr void set_dof_index(std::size_t i, std::size_t dof_index){
+      dof_.handler_->dof_index_[i] = dof_index;
+    };
+
+    constexpr void set_dof_index(std::ranges::range auto&& idxs)
+    requires std::convertible_to<std::ranges::range_value_t<decltype(idxs)>, std::size_t>{
+      dof_.handler_->set_index(idxs);
+    };
+
     //constexpr void set_dofs(std::ranges::contiguous_range auto&& dofs){
     //  dof_.handler_->set_dofs(dofs);
     //};
