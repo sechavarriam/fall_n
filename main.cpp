@@ -94,7 +94,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);
     
-    Model<ThreeDimensionalMaterial,ndof> M{D}; //Model Aggregator Object
+    auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
+
+    Model<ThreeDimensionalMaterial,ndof> M{D, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
     //          ^            
     //          | 
     //    Constitutive Relation Type (Policy) and Dimension implicitly.
@@ -104,7 +106,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     MaterialState<ElasticState,Strain<6>> sv0{e0};
     MaterialState<MemoryState ,Strain<6>> sv1{e0};
 
-    auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
 
     UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
     ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};

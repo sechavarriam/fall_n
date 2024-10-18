@@ -69,14 +69,11 @@ public:
   // ==============================================================================================
   // ==============================================================================================
 
-
-  
   void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
       // Inject (BUILD ) K into global stiffness matrix
   };
 
 
-  // CONSTRUCTOR
 
   ContinuumElement() = delete;
 
