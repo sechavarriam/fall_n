@@ -46,10 +46,7 @@ public:
     std::vector<FEM_Element> elements_;
     
 
-    void set_default_num_dofs_per_node(std::size_t n){
-        for (auto &node : domain_->nodes())
-            node.set_num_dof(n);
-    }
+    void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
 
     void link_dofs_to_node(){
         auto pos = 0;
@@ -60,8 +57,13 @@ public:
         }
     }
 
-    Model(Domain<dim> &domain) : domain_(std::addressof(domain)){
+    Model(Domain<dim> &domain, Material default_mat) : domain_(std::addressof(domain)){
         elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
+
+        for (auto &element : domain_->elements()){                                     //By now all elements are ContinuumElements
+            elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material.
+        }
+
         dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers) // TODO: PUT AN OBSERVER!
         set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
         link_dofs_to_node();                                   // Link Dof_Interface to Node
