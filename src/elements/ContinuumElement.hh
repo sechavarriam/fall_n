@@ -13,6 +13,8 @@
 template <typename MaterialPolicy, std::size_t ndof>
 class ContinuumElement
 {
+  using PETScMatrix = Mat; //TODO: Use PETSc Matrix
+
   //using MaterialPolicy = MaterialPolicy;
   using MaterialPoint = MaterialPoint<MaterialPolicy>;
   using Material      = Material     <MaterialPolicy>;
@@ -69,8 +71,13 @@ public:
   // ==============================================================================================
   // ==============================================================================================
 
-  void inject_K(/*const Matrix& K, const std::array<std::size_t, ndof>& dofs*/){
+  void inject_K(PETScMatrix& K){
       // Inject (BUILD ) K into global stiffness matrix
+
+      MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
+
+
+      MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
   };
 
 

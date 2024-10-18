@@ -19,7 +19,7 @@ class DoF_Handler {
   public:
 
   std::vector<std::size_t> dof_index_{};
-  std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs.
+  std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs. //Esto no permite un maneho facil de los dofs en un vector de PETSc.
 
   constexpr std::size_t num_dof() const {return dof_index_.size();};
 
@@ -28,6 +28,13 @@ class DoF_Handler {
   constexpr void set_dofs(std::ranges::range auto&& dofs){
     dofs_.reserve(std::ranges::size(dofs));
     std::ranges::move(dofs, std::back_inserter(dofs_));
+  };
+
+
+  constexpr void set_index(std::ranges::range auto&& idxs) //requires dofs are integral types.
+  requires std::integral<std::ranges::range_value_t<decltype(idxs)>>{
+    dof_index_.reserve(std::ranges::size(idxs));
+    std::ranges::move(idxs, std::back_inserter(dof_index_));
   };
 
   DoF_Handler() = default;

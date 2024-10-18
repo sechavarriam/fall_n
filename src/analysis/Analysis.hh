@@ -2,20 +2,29 @@
 #define FALL_N_ANALYSIS_INTERFACE
 
 
+#include <cstddef>
 
-template<typename T> // Concept? CRTP? Policy?
+
+#include <petsc.h>
+
+
+#include "../model/Model.hh"
+
+
+// https://petsc.org/release/manual/ksp/
+
+//template<typename T> // Concept? CRTP? Policy?
 class Analysis {
 
+using PetscMatrix = Mat;
+using PetscVector = Vec;
+using PetscSolver = KSP;
 
-    // Mesh
-    // Model
-    // Solver
-    // Domain
-    // Loads
-    // Boundary conditions
 
-protected:
-    void solve() = 0;
+    
+
+    //std::unique_ptr<Model<3>> model_;
+
 
 public:
 

@@ -27,7 +27,6 @@ class Node : public geometry::Point<Dim>{
 
     std::size_t id()       {return id_     ;}
     std::size_t num_dof()  {return num_dof_;}
-    //std::size_t num_dof_h(){return dof_.num();}
 
     std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 

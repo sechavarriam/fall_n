@@ -15,6 +15,11 @@
 #include "MaterialPoint.hh"
 
 
+// https://www.dealii.org/current/doxygen/deal.II/namespacePETScWrappers.html
+
+// https://petsc.org/release/manual/mat/#sec-matsparse
+// https://petsc.org/release/manual/mat/#block-matrices
+
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
 //using LinealElastic3D = ElasticRelation<ThreeDimensionalMaterial>;
@@ -26,8 +31,9 @@ template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, ps
     typename MaterialPolicy,                 //Considerar la definici[on de un ModelPolicy que encapsule estaticamente el MaterialPolicy
     std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
     >
-class Model
-{
+class Model{
+
+    using PETScMatrix = Mat; //TODO: Use PETSc Matrix
 
 public:
     
@@ -40,11 +46,30 @@ private:
     Domain<dim> *domain_;
     std::size_t dofsXnode{ndofs};
 public:
-    
-    std::vector<double>      dof_vector_;
-    std::vector<Material>    materials_;
+      
+    //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
+    std::vector<double>      dof_vector_; // Esto obliga a ser secuencial!!!!
     std::vector<FEM_Element> elements_;
     
+    PETScMatrix K; // Global Stiffness Matrix
+
+    // Methods
+    // 1. Apply boundary conditions. Constrain or Fix Dofs.
+    // 2. Apply loads. (Construct the load vector - PETSc Vector (could be parallel)). Also dof_vector_ could be parallel....
+
+private:
+
+    void init_K(){
+        auto N = domain_->num_nodes() * dofsXnode;
+        MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, 0, NULL, &K); // TODO: Preallocation. Allow different Formats
+
+    }
+
+    void assembly_K(){
+        for (auto &element : elements_){
+            element.inject_K(K);
+        }
+    }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
 
@@ -57,7 +82,14 @@ public:
         }
     }
 
+public:
+
+    // Constructors
+
     Model(Domain<dim> &domain, Material default_mat) : domain_(std::addressof(domain)){
+
+        init_K(); // Initialize Global Stiffness Matrix
+
         elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         for (auto &element : domain_->elements()){                                     //By now all elements are ContinuumElements
@@ -69,9 +101,18 @@ public:
         link_dofs_to_node();                                   // Link Dof_Interface to Node
 
         // Fill for testing
-        // auto idx = 0;
-        // for (auto &dof : dof_vector_)
-        //     dof = idx++;
+        // Print Warning 
+        std::cout << "================================================================================" << std::endl;
+        std::cout << "==> WARNING: DoF vector indexed from 0 to " << dof_vector_.size() - 1 << " for testing purposes." << std::endl; 
+        auto idx = 0;
+        for (auto &dof : dof_vector_)
+            dof = idx++;
+        std::cout << "================================================================================" << std::endl;
+
+        // No es requerido por el constructor. Pero para propositos de prueba se deja. 
+        // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
+        assembly_K(); // Assembly Global Stiffness Matrix
+
     }
 
     Model() = delete;
