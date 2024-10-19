@@ -37,6 +37,14 @@ class Matrix // Wrapper Around PETSc DenseMatrix
 
     bool owns_data{true};
 
+    // Accessors
+    // data() returns a span of the data in the matrix.
+    auto data(){
+        PetscScalar* data;
+        MatDenseGetArray(mat_, &data);
+        return data;
+    };    
+
     //Wrapper for inserting values.
 
     void assembly_begin(MatAssemblyType assembly_mode= MAT_FINAL_ASSEMBLY){

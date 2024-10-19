@@ -202,7 +202,7 @@ public:
 
     constexpr Node<dim>& node(std::size_t i) const { return pimpl()->node(i); };
 
-    constexpr auto nodes() const { return std::span<Node<dim>>{pimpl()->node(0), pimpl()->num_nodes()};}; // UNTESTED
+    //constexpr auto nodes() const { return std::span<Node<dim>>{pimpl()->node(0), pimpl()->num_nodes()};}; // UNTESTED // No debe servir. Asume nodos contiguos en memoria.
     
     constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points; };
 
@@ -264,8 +264,8 @@ public:
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr Node<dim>& node(std::size_t i) const { return pimpl_->node(i); };
+    
 
-    constexpr auto nodes() const { return std::span{pimpl_->nodes(), pimpl_->num_nodes()}; }; // UNTESTED
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
