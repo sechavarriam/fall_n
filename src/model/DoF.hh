@@ -36,6 +36,10 @@ class DoF_Handler {
     dof_index_.reserve(std::ranges::size(idxs));
     std::ranges::move(idxs, std::back_inserter(dof_index_));
   };
+  // PETSc NOTE:
+  // Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored. 
+  // This allows easily inserting element stiffness matrices with homogeneous Dirichlet boundary 
+  // conditions that you don’t want represented in the matrix.
 
   DoF_Handler() = default;
 

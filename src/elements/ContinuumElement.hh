@@ -34,6 +34,17 @@ public:
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
+  constexpr auto get_dofs_index() const noexcept {
+    auto N = num_nodes();
+    std::vector<std::span<std::size_t>> dofs_index; //This thing avoids the copy of the vector.
+    dofs_index.reserve(N);
+
+    for (std::size_t i = 0; i < N; ++i){
+      dofs_index.emplace_back(geometry_->node(i).dof_index());
+    }
+    return dofs_index;
+    };
+
 
   Matrix H(const Array &X); // Declaration. Definition at the end of the file.
   Matrix B(const Array &X); // Declaration. Definition at the end of the file.
@@ -56,7 +67,7 @@ public:
     return  BtCB_; // B^t * C * B
   }; 
 
-  auto K() {
+  Matrix K() {
     Matrix K{ndof, ndof};
     //std::cout << "Integrating over " << num_integration_points() << " integration points." << std::endl;
 
@@ -71,18 +82,27 @@ public:
   // ==============================================================================================
   // ==============================================================================================
 
-  void inject_K(PETScMatrix& K){
+  void inject_K(PETScMatrix& model_K){
       // Inject (BUILD ) K into global stiffness matrix
+      std::vector<PetscInt> idxs;
+      
+      for (std::size_t i = 0; i < num_nodes(); ++i){
+        for (const auto idx : geometry_->node(i).dof_index()){
+          idxs.push_back(idx);
+        }
 
-      MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
+      }
 
 
-      MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
+      MatAssemblyBegin(model_K, MAT_FINAL_ASSEMBLY);
+      MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
+
+      MatAssemblyEnd(model_K, MAT_FINAL_ASSEMBLY);
   };
 
 
 
-  ContinuumElement() = delete;
+  ContinuumElement() = default;
 
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
 
@@ -101,6 +121,9 @@ public:
 //==================================================================================================
 //======================== Methods Definitions ===================================================
 //==================================================================================================
+
+
+// YA ACA SE ESTA ASUMIENDO EL NUMERO DE GRADOS DE LIBERTAD! TAL VEZ SE DEBA MOVER AL MATERIAL O AL MODEL POLICY.
 template <typename MaterialPolicy, std::size_t ndof>
 inline Matrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
   {

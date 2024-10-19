@@ -62,16 +62,10 @@ private:
     void init_K(){
         auto N = domain_->num_nodes() * dofsXnode;
         MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, 0, NULL, &K); // TODO: Preallocation. Allow different Formats
-
-    }
-
-    void assembly_K(){
-        for (auto &element : elements_){
-            element.inject_K(K);
-        }
     }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
+
     void set_dof_index(){
         std::size_t pos = 0;
         for (auto &node : domain_->nodes()){
@@ -79,8 +73,6 @@ private:
             pos += dofsXnode;
         }
     };
-
-
 
     void link_dofs_to_node(){
         auto pos = 0;
@@ -90,6 +82,14 @@ private:
             }
         }
     }
+
+
+    void assembly_K(){
+        for (auto &element : elements_){
+            element.inject_K(K);
+        }
+    }
+
 
 public:
 
