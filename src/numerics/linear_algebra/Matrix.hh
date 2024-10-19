@@ -41,7 +41,7 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     // data() returns a span of the data in the matrix.
     auto data(){
         PetscScalar* data;
-        MatDenseGetArray(mat_, &data);
+        MatDenseGetArray(mat_, std::addressof(data));
         return data;
     };    
 
