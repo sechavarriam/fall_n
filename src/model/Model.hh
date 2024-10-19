@@ -45,12 +45,15 @@ public:
 private:
     Domain<dim> *domain_;
     std::size_t dofsXnode{ndofs};
+    std::size_t num_dofs_{0}; // Total number of dofs in the model.
 public:
       
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
     std::vector<double>      dof_vector_; // Esto obliga a ser secuencial!!!!
     std::vector<FEM_Element> elements_;
     
+    std::size_t num_dofs() const {return num_dofs_;};
+
     PETScMatrix K; // Global Stiffness Matrix
 
     // Methods
@@ -59,9 +62,15 @@ public:
 
 private:
 
-    void init_K(){
-        auto N = domain_->num_nodes() * dofsXnode;
-        MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, 0, NULL, &K); // TODO: Preallocation. Allow different Formats
+    void init_K([[maybe_unused]] PetscInt max_num_nodesXelement = 0){
+        auto N = domain_->num_nodes() * dofsXnode; // Total number of dofs in the model (ASUMIDO PARA TODOS LOS NODOS CON EL MISMO NUMERO DE DOFS).
+
+        PetscInt nz_upper_bound; // Estimador provisional para nz (POR FILAAAAA!!!!) asumiendo malla estructurada 3D de celdas. 
+        nz_upper_bound = 8*max_num_nodesXelement*dofsXnode;//*N; // Para prueba! Debe ser inyectado (calculado).
+                                                                // Cota superior asumida para mallas estructuradas 3D.
+                                                                // Esto es un estimador para el espacio de memoria requerido
+
+        MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, nz_upper_bound, PETSC_NULLPTR, &K);
     }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
@@ -72,6 +81,7 @@ private:
             node.set_dof_index(std::ranges::iota_view{pos, pos + dofsXnode}); //Esto podría ser otro RANGE con los índices óptimos luego de un reordenamiento tipo Cuthill-McKee.
             pos += dofsXnode;
         }
+        num_dofs_ = pos;
     };
 
     void link_dofs_to_node(){
@@ -83,11 +93,17 @@ private:
         }
     }
 
-
+    // https://petsc.org/release/manual/profiling/
     void assembly_K(){
+        // Assembly Global Stiffness Matrix
+
+        MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
+
         for (auto &element : elements_){
             element.inject_K(K);
         }
+
+        MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
     }
 
 
@@ -96,8 +112,6 @@ public:
     // Constructors
 
     Model(Domain<dim> &domain, Material default_mat) : domain_(std::addressof(domain)){
-
-        init_K(); // Initialize Global Stiffness Matrix
 
         elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
@@ -121,7 +135,13 @@ public:
 
         // No es requerido por el constructor. Pero para propositos de prueba se deja. 
         // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
+        
+        init_K(elements_[0].num_nodes()); // PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
+        // Initialize Global Stiffness Matrix // DEBE SER LUEGO DE SETEAR LOS DOFS (y conocer el tipo de los elementos: num_element_nodes)!
         assembly_K(); // Assembly Global Stiffness Matrix
+
+        // Spy view (draw)
+        MatView(K, PETSC_VIEWER_DRAW_WORLD);
 
     }
 

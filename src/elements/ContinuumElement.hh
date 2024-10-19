@@ -32,7 +32,10 @@ class ContinuumElement
 public:
 
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
-  constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
+  constexpr auto num_nodes() const noexcept {
+     //std::cout << "Num nodes: " << geometry_->num_nodes() << std::endl;
+     return geometry_->num_nodes(); 
+     };
 
   constexpr auto get_dofs_index() const noexcept {
     auto N = num_nodes();
@@ -55,7 +58,7 @@ public:
       static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
       static std::size_t N = num_integration_points();
         if (is_multimaterial_){ // TODO: Cheks...
-          std::cout << "Call: " << call << std::endl;
+          //std::cout << "Call: " << call%N << std::endl; //TODO:: Reset call when N is reached.
           return material_points_[(call++)%N].C();
         }else{
           return material_points_[0].C();
@@ -93,11 +96,9 @@ public:
 
       }
 
-
-      MatAssemblyBegin(model_K, MAT_FINAL_ASSEMBLY);
+      //MatSetOption(model_K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); // TERRIBLE IDEA. REMOVE THIS LINE. Cada vez tiene que hacer mallocs mas grandes! Exponencialmente mas lento!
       MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
 
-      MatAssemblyEnd(model_K, MAT_FINAL_ASSEMBLY);
   };
 
 

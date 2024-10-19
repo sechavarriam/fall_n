@@ -89,7 +89,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
     static constexpr std::size_t dim  = 3;
-    static constexpr std::size_t ndof = 6; 
+    static constexpr std::size_t ndof = dim;  //6; 
 
     Domain<dim> D; //Domain Aggregator Object
     GmshDomainBuilder domain_constructor(mesh_file, D);

@@ -265,8 +265,6 @@ public:
 
     constexpr Node<dim>& node(std::size_t i) const { return pimpl_->node(i); };
     
-
-
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
