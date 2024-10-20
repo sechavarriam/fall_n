@@ -18,8 +18,8 @@ namespace domain {
 class DoF_Handler {
   public:
 
-  std::vector<std::size_t> dof_index_{};
-  //std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs. //Esto no permite un maneho facil de los dofs en un vector de PETSc.
+  std::vector<long int> dof_index_{}; // Signed integer type for PETSc compatibility (Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored!!!).
+
 
   constexpr std::size_t num_dof() const {return dof_index_.size();};
 
@@ -36,6 +36,7 @@ class DoF_Handler {
     dof_index_.reserve(std::ranges::size(idxs));
     std::ranges::move(idxs, std::back_inserter(dof_index_));
   };
+
   // PETSc NOTE:
   // Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored. 
   // This allows easily inserting element stiffness matrices with homogeneous Dirichlet boundary 
