@@ -55,7 +55,7 @@ class Node : public geometry::Point<Dim>{
     //  dof_.handler_->set_dofs(dofs);
     //};
 
-    auto dof_index(){
+    std::span<std::size_t> dof_index(){
       if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
       return std::span<std::size_t>(dof_.handler_->dof_index_);
       };

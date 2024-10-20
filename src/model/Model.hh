@@ -34,6 +34,7 @@ template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, ps
 class Model{
 
     using PETScMatrix = Mat; //TODO: Use PETSc Matrix
+    using PETScVector = Vec; //TODO: Use PETSc Vector
 
 public:
     
@@ -44,7 +45,7 @@ public:
 
 private:
     Domain<dim> *domain_;
-    std::size_t dofsXnode{ndofs};
+    std::size_t dofsXnode{ndofs}; // Esto es necesario???? No creo.
     std::size_t num_dofs_{0}; // Total number of dofs in the model.
 public:
       
@@ -55,6 +56,9 @@ public:
     std::size_t num_dofs() const {return num_dofs_;};
 
     PETScMatrix K; // Global Stiffness Matrix
+    PETScVector F; // Global Load Vector
+    PETScVector U; // Global Displacement Vector
+
 
     // Methods
     // 1. Apply boundary conditions. Constrain or Fix Dofs.
@@ -62,7 +66,13 @@ public:
 
 private:
 
-    void init_K([[maybe_unused]] PetscInt max_num_nodesXelement = 0){
+    void init_vector(PETScVector &v){ // To init PETSc Vectors F and U
+        VecCreate(PETSC_COMM_WORLD, &v);
+        VecSetSizes(v, PETSC_DECIDE, num_dofs_);
+        VecSetType(v, VECSTANDARD);
+    }
+
+    void init_K(PetscInt max_num_nodesXelement = 0){
         auto N = domain_->num_nodes() * dofsXnode; // Total number of dofs in the model (ASUMIDO PARA TODOS LOS NODOS CON EL MISMO NUMERO DE DOFS).
 
         PetscInt nz_upper_bound; // Estimador provisional para nz (POR FILAAAAA!!!!) asumiendo malla estructurada 3D de celdas. 
@@ -71,6 +81,11 @@ private:
                                                                 // Esto es un estimador para el espacio de memoria requerido
 
         MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, nz_upper_bound, PETSC_NULLPTR, &K);
+    }
+
+    void apply_node_force(std::size_t node_id, std::size_t dof_id, double value){
+        auto idx = domain_->nodes()[node_id].dof(dof_id)->index();
+        VecSetValue(F, idx, value, ADD_VALUES);
     }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
@@ -94,15 +109,11 @@ private:
     }
 
     // https://petsc.org/release/manual/profiling/
-    void assembly_K(){
-        // Assembly Global Stiffness Matrix
-
+    void assembly_K(){// Assembly Global Stiffness Matrix
         MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
-
-        for (auto &element : elements_){
-            element.inject_K(K);
-        }
-
+        
+        for (auto &element : elements_)  element.inject_K(K);
+        
         MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
     }
 
@@ -139,6 +150,9 @@ public:
         init_K(elements_[0].num_nodes()); // PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
         // Initialize Global Stiffness Matrix // DEBE SER LUEGO DE SETEAR LOS DOFS (y conocer el tipo de los elementos: num_element_nodes)!
         assembly_K(); // Assembly Global Stiffness Matrix
+
+        init_vector(F); // Initialize Global Load Vector
+        init_vector(U); // Initialize Global Displacement Vector
 
         // Spy view (draw)
         MatView(K, PETSC_VIEWER_DRAW_WORLD);
