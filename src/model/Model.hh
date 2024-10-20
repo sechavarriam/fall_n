@@ -70,6 +70,9 @@ private:
         VecCreate(PETSC_COMM_WORLD, &v);
         VecSetSizes(v, PETSC_DECIDE, num_dofs_);
         VecSetType(v, VECSTANDARD);
+
+        VecSetOption(v, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+
     }
 
     void init_K(PetscInt max_num_nodesXelement = 0){
@@ -83,9 +86,11 @@ private:
         MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, nz_upper_bound, PETSC_NULLPTR, &K);
     }
 
-    void apply_node_force(std::size_t node_id, std::size_t dof_id, double value){
-        auto idx = domain_->nodes()[node_id].dof(dof_id)->index();
-        VecSetValue(F, idx, value, ADD_VALUES);
+    void apply_node_force(std::size_t node_idx, [[maybe_unused]] auto force){
+        auto& node = domain_->nodes()[node_idx];
+        
+        // get indices
+
     }
 
     void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
@@ -99,14 +104,14 @@ private:
         num_dofs_ = pos;
     };
 
-    void link_dofs_to_node(){
-        auto pos = 0;
-        for (auto &node : domain_->nodes()){
-            for (auto &dof : node.dofs()){
-                dof = std::addressof(dof_vector_[pos++]);
-            }
-        }
-    }
+    //void link_dofs_to_node(){
+    //    auto pos = 0;
+    //    for (auto &node : domain_->nodes()){
+    //        for (auto &dof : node.dofs()){
+    //            dof = std::addressof(dof_vector_[pos++]);
+    //        }
+    //    }
+    //}
 
     // https://petsc.org/release/manual/profiling/
     void assembly_K(){// Assembly Global Stiffness Matrix
@@ -132,7 +137,7 @@ public:
 
         dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers) // TODO: PUT AN OBSERVER!
         set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
-        link_dofs_to_node();                                   // Link Dof_Interface to Node
+        //link_dofs_to_node();                                   // Link Dof_Interface to Node
         set_dof_index();                                       // Set Dof Indexes
 
         // Fill for testing

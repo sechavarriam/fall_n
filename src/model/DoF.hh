@@ -19,16 +19,16 @@ class DoF_Handler {
   public:
 
   std::vector<std::size_t> dof_index_{};
-  std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs. //Esto no permite un maneho facil de los dofs en un vector de PETSc.
+  //std::vector<double*>     dofs_{};     //Alt: GlobalDofs or ModelDofs. //Esto no permite un maneho facil de los dofs en un vector de PETSc.
 
   constexpr std::size_t num_dof() const {return dof_index_.size();};
 
-  constexpr void set_size(std::size_t num_dof){dofs_.resize(num_dof,nullptr);};
+  constexpr void set_size(std::size_t num_dof){dof_index_.resize(num_dof);};
   
-  constexpr void set_dofs(std::ranges::range auto&& dofs){
-    dofs_.reserve(std::ranges::size(dofs));
-    std::ranges::move(dofs, std::back_inserter(dofs_));
-  };
+  //constexpr void set_dofs(std::ranges::range auto&& dofs){
+  //  dofs_.reserve(std::ranges::size(dofs));
+  //  std::ranges::move(dofs, std::back_inserter(dofs_));
+  //};
 
 
   constexpr void set_index(std::ranges::range auto&& idxs) //requires dofs are integral types.
@@ -57,18 +57,11 @@ class DoF_Interface{
 
     constexpr void set_num_dof(std::size_t num_dof){handler_->set_size(num_dof);};
     
-    constexpr void set_dofs(std::ranges::range auto&& dofs){
-      //if(!handler_) set_handler();
-      handler_->set_dofs(dofs);
-    };
-
-
-    //auto handler(){return handler_;};
-    //class DoF_Handler;
-
-
-
-    
+    //constexpr void set_dofs(std::ranges::range auto&& dofs){
+    //  //if(!handler_) set_handler();
+    //  handler_->set_dofs(dofs);
+    //};
+                                                                                   
     void set_handler(){ handler_ = std::make_shared<DoF_Handler>();};
 
     void set_index(std::ranges::range auto&& dofs){

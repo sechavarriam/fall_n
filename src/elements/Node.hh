@@ -18,29 +18,25 @@ class Node : public geometry::Point<Dim>{
  
      
     std::size_t id_{} ;
-    std::size_t num_dof_{}; 
     
-
     DoF_Interface dof_;
     
   public:
 
     std::size_t id()       {return id_     ;}
-    std::size_t num_dof()  {return num_dof_;}
+    std::size_t num_dof()  {return dof_.handler_->num_dof();}
 
-    std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
+    //std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
     
-
     constexpr void set_num_dof(std::size_t n ) noexcept {
-      num_dof_ = n;
       dof_.set_num_dof(n);
-      };
-
-    constexpr void set_dof(std::size_t i, double* p_model_dof){
-      dof_.handler_->dofs_[i] = p_model_dof;
     };
+
+    //constexpr void set_dof(std::size_t i, double* p_model_dof){
+    //  dof_.handler_->dofs_[i] = p_model_dof;
+    //};
 
     constexpr void set_dof_index(std::size_t i, std::size_t dof_index){
       dof_.handler_->dof_index_[i] = dof_index;
