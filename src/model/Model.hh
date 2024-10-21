@@ -50,7 +50,6 @@ private:
 public:
       
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
-    std::vector<double>      dof_vector_; // Esto obliga a ser secuencial!!!!
     std::vector<FEM_Element> elements_;
     
     std::size_t num_dofs() const {return num_dofs_;};
@@ -59,15 +58,12 @@ public:
     PETScVector F; // Global Load Vector
     PETScVector U; // Global Displacement Vector
 
-
     // Methods
     // 1. Apply boundary conditions. Constrain or Fix Dofs.
     // 2. Apply loads. (Construct the load vector - PETSc Vector (could be parallel)). Also dof_vector_ could be parallel....
 
 private:
     
-    //void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);} // ESTO DEBE SER RESPONSABILIDAD DEL ELEMENTO!
-
     void init_vector(PETScVector &v){ // To init PETSc Vectors F and U
         VecCreate(PETSC_COMM_WORLD, &v);
         VecSetSizes(v, PETSC_DECIDE, num_dofs_);
@@ -87,7 +83,6 @@ private:
 
         MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, nz_upper_bound, PETSC_NULLPTR, &K);
     }
-
 
     void set_dof_index(){
         std::size_t pos = 0;
@@ -171,9 +166,6 @@ public:
             elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material.
         }
 
-        dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers) // TODO: PUT AN OBSERVER!
-        //set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
-        //link_dofs_to_node();                                   // Link Dof_Interface to Node
         set_dof_index();                                       // Set Dof Indexes
         
         
