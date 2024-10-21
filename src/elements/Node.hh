@@ -30,13 +30,10 @@ class Node : public geometry::Point<Dim>{
 
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
     
-    constexpr void set_num_dof(std::size_t n ) noexcept {
-      dof_.set_num_dof(n);
-    };
-
-    //constexpr void set_dof(std::size_t i, double* p_model_dof){
-    //  dof_.handler_->dofs_[i] = p_model_dof;
+    //constexpr void set_num_dof(std::size_t n ) noexcept {
+    //  dof_.set_num_dof(n);
     //};
+
 
     constexpr void set_dof_index(std::size_t i, std::size_t dof_index){
       dof_.handler_->dof_index_[i] = dof_index;
@@ -47,19 +44,19 @@ class Node : public geometry::Point<Dim>{
       dof_.handler_->set_index(idxs);
     };
 
-    //constexpr void set_dofs(std::ranges::contiguous_range auto&& dofs){
-    //  dof_.handler_->set_dofs(dofs);
-    //};
 
-    std::span<long int> dof_index(){
+    std::span<PetscInt> dof_index() const {
       if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
-      return std::span<long int>(dof_.handler_->dof_index_);
+      return std::span<PetscInt>(dof_.handler_->dof_index_);
       };
 
-
-    void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index){
-      dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
+    void fix_dof(std::size_t i){
+      dof_.handler_->dof_index_[i] *= -1;
     };
+
+    //void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index){
+    //  dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
+    //};
 
     void set_dof_interface(){dof_.set_handler();};   
     

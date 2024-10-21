@@ -130,13 +130,13 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     
 
     steel_mat3D.print_material_parameters();
-    //steel_mat1D.print_material_parameters();
 
-    ContinuumElement<ThreeDimensionalMaterial,ndof> brick{&D.elements()[0], mat3D};
+    //M.apply_node_force(0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+    //M.fix_node(0);
+    //M.fix_node_dofs(0, 0,2);
 
-    Matrix K;
-    K = brick.K();
-    //K.print_content();
+
+
 
     /*
     ContinuumIsotropicRelation steel3D{200.0, 0.3};    
