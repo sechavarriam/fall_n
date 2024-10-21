@@ -18,19 +18,12 @@ namespace domain {
 class DoF_Handler {
   public:
 
-  std::vector<long int> dof_index_{}; // Signed integer type for PETSc compatibility (Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored!!!).
-
+  std::vector<PetscInt> dof_index_{}; // Signed integer type for PETSc compatibility (Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored!!!).
 
   constexpr std::size_t num_dof() const {return dof_index_.size();};
 
-  constexpr void set_size(std::size_t num_dof){dof_index_.resize(num_dof);};
+  //constexpr void set_size(std::size_t num_dof){dof_index_.resize(num_dof);};
   
-  //constexpr void set_dofs(std::ranges::range auto&& dofs){
-  //  dofs_.reserve(std::ranges::size(dofs));
-  //  std::ranges::move(dofs, std::back_inserter(dofs_));
-  //};
-
-
   constexpr void set_index(std::ranges::range auto&& idxs) //requires dofs are integral types.
   requires std::integral<std::ranges::range_value_t<decltype(idxs)>>{
     dof_index_.reserve(std::ranges::size(idxs));
@@ -56,7 +49,7 @@ class DoF_Interface{
                                           // Beeng shared_pts has its advantages. It can be used to share the same handler 
                                           // between nodes, that is, manage the same dofs for two or more nodes.                                               
 
-    constexpr void set_num_dof(std::size_t num_dof){handler_->set_size(num_dof);};
+    //constexpr void set_num_dof(std::size_t num_dof){handler_->set_size(num_dof);};
     
     //constexpr void set_dofs(std::ranges::range auto&& dofs){
     //  //if(!handler_) set_handler();
@@ -72,12 +65,12 @@ class DoF_Interface{
       std::ranges::move(dofs, std::back_inserter(handler_->dof_index_));
     };
 
-    void set_index(std::initializer_list<std::size_t>&& dofs){
-      if(!handler_) set_handler();
-      
-      handler_->dof_index_.reserve(dofs.size());
-      std::move(dofs.begin(), dofs.end(), std::back_inserter(handler_->dof_index_));
-    };
+    //void set_index(std::initializer_list<std::size_t>&& dofs){
+    //  if(!handler_) set_handler();
+    //  
+    //  handler_->dof_index_.reserve(dofs.size());
+    //  std::move(dofs.begin(), dofs.end(), std::back_inserter(handler_->dof_index_));
+    //};
 
 
     DoF_Interface(){

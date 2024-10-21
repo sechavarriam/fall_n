@@ -65,6 +65,8 @@ public:
     // 2. Apply loads. (Construct the load vector - PETSc Vector (could be parallel)). Also dof_vector_ could be parallel....
 
 private:
+    
+    //void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);} // ESTO DEBE SER RESPONSABILIDAD DEL ELEMENTO!
 
     void init_vector(PETScVector &v){ // To init PETSc Vectors F and U
         VecCreate(PETSC_COMM_WORLD, &v);
@@ -86,14 +88,6 @@ private:
         MatCreateSeqAIJ(PETSC_COMM_WORLD, N, N, nz_upper_bound, PETSC_NULLPTR, &K);
     }
 
-    void apply_node_force(std::size_t node_idx, [[maybe_unused]] auto force){
-        auto& node = domain_->nodes()[node_idx];
-        
-        // get indices
-
-    }
-
-    void set_default_num_dofs_per_node(std::size_t n){for (auto &node : domain_->nodes()) node.set_num_dof(n);}
 
     void set_dof_index(){
         std::size_t pos = 0;
@@ -104,26 +98,68 @@ private:
         num_dofs_ = pos;
     };
 
-    //void link_dofs_to_node(){
-    //    auto pos = 0;
-    //    for (auto &node : domain_->nodes()){
-    //        for (auto &dof : node.dofs()){
-    //            dof = std::addressof(dof_vector_[pos++]);
-    //        }
-    //    }
-    //}
 
     // https://petsc.org/release/manual/profiling/
     void assembly_K(){// Assembly Global Stiffness Matrix
         MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
-        
-        for (auto &element : elements_)  element.inject_K(K);
-        
+        for (auto &element : elements_)  element.inject_K(K);        
         MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
     }
 
 
 public:
+
+    // Apply boundary conditions. Constrain or Fix Dofs.
+    
+    void fix_node_dofs(std::size_t node_idx, auto... dofs_to_constrain)
+    requires (std::is_convertible_v<decltype(dofs_to_constrain), PetscInt> && ...)
+    {
+        auto& node = domain_->node(node_idx);
+        auto  num_dofs = node.num_dof();
+
+        if (sizeof...(dofs_to_constrain) > num_dofs) throw std::runtime_error("Dofs to constrain exceed the number of dofs in the node.");        
+        
+        for (auto dof : {dofs_to_constrain...}) node.fix_dof(dof);
+    }
+
+    void fix_node(std::size_t node_idx)
+    {
+        auto& node = domain_->node(node_idx);
+        auto  num_dofs = node.num_dof();
+        
+        for (std::size_t i = 0; i < num_dofs; i++) node.fix_dof(i);
+    }
+
+
+
+    // Apply forces to nodes
+
+    void apply_node_force(std::size_t node_idx, std::ranges::contiguous_range auto&& force)
+    requires std::convertible_to<std::ranges::range_value_t<decltype(force)>, double>
+    {
+        auto num_dofs = domain_->node(node_idx).num_dof();
+        if (std::ranges::size(force) != num_dofs) throw std::runtime_error("Force vector size mismatch.");
+        auto& dofs = domain_->node(node_idx).dof_index().data();
+
+        VecAssemblyBegin(F);
+        VecSetValues(F, num_dofs, dofs, force.data(), INSERT_VALUES);
+        VecAssemblyEnd(F);       
+    }
+
+    void apply_node_force(std::size_t node_idx, auto... force_components)
+    requires (std::is_convertible_v<decltype(force_components), PetscScalar> && ...)
+    {
+        auto num_dofs = domain_->node(node_idx).num_dof();
+        if (sizeof...(force_components) != num_dofs) throw std::runtime_error("Force components size mismatch.");
+        
+        auto dofs = domain_->node(node_idx).dof_index().data();
+
+        const PetscScalar force[] = {force_components...};
+
+        VecAssemblyBegin(F);
+        VecSetValues(F, num_dofs, dofs, force, INSERT_VALUES);
+        VecAssemblyEnd(F);       
+    }
 
     // Constructors
 
@@ -136,22 +172,12 @@ public:
         }
 
         dof_vector_.resize(domain_->num_nodes() * ndofs, 0.0); // Set capacity to avoid reallocation (and possible dangling pointers) // TODO: PUT AN OBSERVER!
-        set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
+        //set_default_num_dofs_per_node(ndofs);                  // Set default number of dofs per node in Dof_Interface
         //link_dofs_to_node();                                   // Link Dof_Interface to Node
         set_dof_index();                                       // Set Dof Indexes
-
-        // Fill for testing
-        // Print Warning 
-        std::cout << "================================================================================" << std::endl;
-        std::cout << "==> WARNING: DoF vector indexed from 0 to " << dof_vector_.size() - 1 << " for testing purposes." << std::endl; 
-        auto idx = 0;
-        for (auto &dof : dof_vector_)
-            dof = idx++;
-        std::cout << "================================================================================" << std::endl;
-
-        // No es requerido por el constructor. Pero para propositos de prueba se deja. 
-        // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
         
+        
+        // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
         init_K(elements_[0].num_nodes()); // PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
         // Initialize Global Stiffness Matrix // DEBE SER LUEGO DE SETEAR LOS DOFS (y conocer el tipo de los elementos: num_element_nodes)!
         assembly_K(); // Assembly Global Stiffness Matrix
@@ -159,8 +185,7 @@ public:
         init_vector(F); // Initialize Global Load Vector
         init_vector(U); // Initialize Global Displacement Vector
 
-        // Spy view (draw)
-        MatView(K, PETSC_VIEWER_DRAW_WORLD);
+        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
 
     }
 
