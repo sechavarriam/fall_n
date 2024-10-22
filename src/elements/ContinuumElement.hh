@@ -79,6 +79,10 @@ public:
       }
     );
     
+
+    
+    MatView(K.mat_, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+
     return K;
   };
 
@@ -92,13 +96,12 @@ public:
       for (std::size_t i = 0; i < num_nodes(); ++i){
         for (const auto idx : geometry_->node(i).dof_index()){
           idxs.push_back(idx);
+          //idxs.push_back(std::abs(idx));
         }
-
       }
-
       //MatSetOption(model_K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); // TERRIBLE IDEA. REMOVE THIS LINE. Cada vez tiene que hacer mallocs mas grandes! Exponencialmente mas lento!
       MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
-
+  
   };
 
 

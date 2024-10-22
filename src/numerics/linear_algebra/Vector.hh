@@ -1,8 +1,6 @@
 #ifndef FALL_N_VECTOR_WRAPPER 
 #define FALL_N_VECTOR_WRAPPER
 
-
-
 #include <concepts>
 #include <cstdio>
 #include <iostream>
