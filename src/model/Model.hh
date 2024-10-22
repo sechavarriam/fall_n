@@ -58,6 +58,8 @@ public:
     PETScVector F; // Global Load Vector
     PETScVector U; // Global Displacement Vector
 
+    KSP solver; // PETSc Solver // PROVISIONAL! SOLO PARA PRUEBAS! DEBE SACARSE DE ESTA CLASE Y MANEJARSE DESDE EL ANALISIS!.
+
     // Methods
     // 1. Apply boundary conditions. Constrain or Fix Dofs.
     // 2. Apply loads. (Construct the load vector - PETSc Vector (could be parallel)). Also dof_vector_ could be parallel....
@@ -68,9 +70,7 @@ private:
         VecCreate(PETSC_COMM_WORLD, &v);
         VecSetSizes(v, PETSC_DECIDE, num_dofs_);
         VecSetType(v, VECSTANDARD);
-
-        VecSetOption(v, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
-
+        //VecSetOption(v, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
     }
 
     void init_K(PetscInt max_num_nodesXelement = 0){
@@ -93,7 +93,6 @@ private:
         num_dofs_ = pos;
     };
 
-
     // https://petsc.org/release/manual/profiling/
     void assembly_K(){// Assembly Global Stiffness Matrix
         MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
@@ -101,11 +100,9 @@ private:
         MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
     }
 
-
 public:
 
-    // Apply boundary conditions. Constrain or Fix Dofs.
-    
+    // Apply boundary conditions. Constrain or Fix Dofs.    
     void fix_node_dofs(std::size_t node_idx, auto... dofs_to_constrain)
     requires (std::is_convertible_v<decltype(dofs_to_constrain), PetscInt> && ...)
     {
@@ -113,8 +110,9 @@ public:
         auto  num_dofs = node.num_dof();
 
         if (sizeof...(dofs_to_constrain) > num_dofs) throw std::runtime_error("Dofs to constrain exceed the number of dofs in the node.");        
-        
+    
         for (auto dof : {dofs_to_constrain...}) node.fix_dof(dof);
+
     }
 
     void fix_node(std::size_t node_idx)
@@ -122,13 +120,18 @@ public:
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
         
-        for (std::size_t i = 0; i < num_dofs; i++) node.fix_dof(i);
+        //for (std::size_t i = 0; i < num_dofs; i++) node.fix_dof(i);
+
+        MatZeroRowsColumns(K, num_dofs, node.dof_index().data(), 1.0, F, U); // Fix Dofs
+
     }
 
 
 
-    // Apply forces to nodes
 
+
+
+    // Apply forces to nodes
     void apply_node_force(std::size_t node_idx, std::ranges::contiguous_range auto&& force)
     requires std::convertible_to<std::ranges::range_value_t<decltype(force)>, double>
     {
@@ -136,8 +139,9 @@ public:
         if (std::ranges::size(force) != num_dofs) throw std::runtime_error("Force vector size mismatch.");
         auto& dofs = domain_->node(node_idx).dof_index().data();
 
-        VecAssemblyBegin(F);
+        
         VecSetValues(F, num_dofs, dofs, force.data(), INSERT_VALUES);
+        VecAssemblyBegin(F);
         VecAssemblyEnd(F);       
     }
 
@@ -151,10 +155,32 @@ public:
 
         const PetscScalar force[] = {force_components...};
 
-        VecAssemblyBegin(F);
-        VecSetValues(F, num_dofs, dofs, force, INSERT_VALUES);
-        VecAssemblyEnd(F);       
+        
+        VecSetValues(this->F, num_dofs, dofs, force, INSERT_VALUES);
+
+        VecAssemblyBegin(this->F);
+        VecAssemblyEnd(this->F);       
     }
+
+    void solve(){
+        // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
+        // Initialize Global Stiffness Matrix // DEBE SER LUEGO DE SETEAR LOS DOFS (y conocer el tipo de los elementos: num_element_nodes)!
+        
+        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+        
+        
+        KSPCreate(PETSC_COMM_WORLD, &solver);
+        KSPSetOperators(solver, K, K);
+        //KSPSetFromOptions(solver);
+        //KSPSetType(solver, KSPGMRES);
+        KSPSolve(solver, F, U);
+                
+        // Display F
+        VecView(F, PETSC_VIEWER_STDOUT_WORLD);
+        std::cout << "==============================" << std::endl;
+        VecView(U, PETSC_VIEWER_STDOUT_WORLD);
+    
+    };
 
     // Constructors
 
@@ -168,17 +194,14 @@ public:
 
         set_dof_index();                                       // Set Dof Indexes
         
-        
-        // El metodo assembly_K() debe ser llamado explicitamente desde el solver (analisis) para ensamblar la matriz de rigidez global.
-        init_K(elements_[0].num_nodes()); // PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
-        // Initialize Global Stiffness Matrix // DEBE SER LUEGO DE SETEAR LOS DOFS (y conocer el tipo de los elementos: num_element_nodes)!
-        assembly_K(); // Assembly Global Stiffness Matrix
-
         init_vector(F); // Initialize Global Load Vector
         init_vector(U); // Initialize Global Displacement Vector
 
-        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+        init_K(elements_[0].num_nodes()); // PARAMETRO PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
 
+        assembly_K(); // Assembly Global Stiffness Matrix
+
+        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
     }
 
     Model() = delete;

@@ -20,13 +20,15 @@ using PetscMatrix = Mat;
 using PetscVector = Vec;
 using PetscSolver = KSP;
 
+    //Model<ThreeDimensionalMaterial, 3> model_;
 
-    
-
-    //std::unique_ptr<Model<3>> model_;
-
+    //PetscSolver solver_;
 
 public:
+
+    //Analysis(Model<ThreeDimensionalMaterial, 3>& model) : model_{model} {
+    //    //model_.assembly_K();
+    //};
 
     Analysis() = default;
     ~Analysis() = default;

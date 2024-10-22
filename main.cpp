@@ -131,17 +131,12 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
 
     steel_mat3D.print_material_parameters();
 
-    //M.apply_node_force(0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
-    //M.fix_node(0);
+    M.apply_node_force(1, 1.0, 1.0, 1.0);
+    
+    M.fix_node(0);
     //M.fix_node_dofs(0, 0,2);
 
-
-
-
-    /*
-    ContinuumIsotropicRelation steel3D{200.0, 0.3};    
-    UniaxialIsotropicRelation  steel1D{200.0}     ; 
-    */    
+    M.solve();
 
     // INTENT:
     // Material mat(base_material, stress_update_strategy);
@@ -156,8 +151,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
     // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
     
-
-
 }// PETSc Scope ends here
 PetscFinalize(); //This is necessary to avoid memory leaks and MPI errors.
 }; 
