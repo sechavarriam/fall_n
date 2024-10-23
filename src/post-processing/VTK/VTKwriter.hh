@@ -1,11 +1,10 @@
 #ifndef VTKWRITER_HH
 #define VTKWRITER_HH
 
-//#include <vtkSmartPointer.h>
-//#include <vtkXMLPolyDataWriter.h>
-//#include <vtkPolyData.h>
+//#include "VTKheaders.hh"
 
-// Your class and function declarations go here
+
+
 
 
 

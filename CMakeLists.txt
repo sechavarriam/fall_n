@@ -4,46 +4,79 @@ project(fall_n VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-
+include(FetchContent) #
+include(CTest)
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror")
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 
+
+#if     (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") # using Clang
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"  ) # using GCC
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel") # using Intel C++
+#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" ) # using Visual Studio C++
+#endif()
+
 add_executable(fall_n main.cpp)
-include(CTest)
 enable_testing()
 
-include (FetchContent) #
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-# set root of location to find PETSc's pkg-config
-set(PETSC $ENV{PETSC_DIR}/$ENV{PETSC_ARCH})
-set(ENV{PKG_CONFIG_PATH} ${PETSC}/lib/pkgconfig)
+# ===============================================================================
+# ============== MPI ============================================================
+# ===============================================================================
 
-  #  tells CMake to build the application ex1 from the source file ex1.c
-  #  this must appear AFTER the compilers are set
+find_package(MPI REQUIRED) # https://stackoverflow.com/questions/23163075/how-to-compile-an-mpi-included-c-program-using-cmake
+# add_definitions(-DOMPI_SKIP_MPICXX) # add this line only when you are using openmpi which has a different c++ bindings
+target_link_libraries(fall_n PUBLIC MPI::MPI_CXX)
+
+
+# ===============================================================================
+# ============== PETSc ==========================================================
+# ===============================================================================
+
+set(PETSC $ENV{PETSC_DIR}/$ENV{PETSC_ARCH}) # set root of location to find PETSc's pkg-config
+set(ENV{PKG_CONFIG_PATH} ${PETSC}/lib/pkgconfig)
   
 find_package(PkgConfig REQUIRED)
 pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc)
 target_link_libraries(fall_n PUBLIC PkgConfig::PETSC)
-  
-# https://stackoverflow.com/questions/23163075/how-to-compile-an-mpi-included-c-program-using-cmake
-find_package(MPI REQUIRED)
-# add this line only when you are using openmpi which has a different c++ bindings
-#add_definitions(-DOMPI_SKIP_MPICXX)
-target_link_libraries(fall_n PUBLIC MPI::MPI_CXX)
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  # using Clang
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  # using GCC
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-  # using Intel C++
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  # using Visual Studio C++
+
+# ===============================================================================
+# ============== VTK ============================================================
+# ===============================================================================
+find_package(VTK COMPONENTS 
+  CommonColor
+  CommonCore
+  CommonDataModel
+  FiltersGeneral
+  FiltersSources
+  InteractionStyle
+  RenderingContextOpenGL2
+  RenderingCore
+  RenderingFreeType
+  RenderingGL2PSOpenGL2
+  RenderingOpenGL2
+)
+
+set(VTK_USE_MPI ON)
+
+if (NOT VTK_FOUND)
+  message(FATAL_ERROR "CylinderExample: Unable to find the VTK build folder.")
 endif()
+
+target_link_libraries(fall_n PUBLIC ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n
+  MODULES ${VTK_LIBRARIES}
+)
+
+# ===============================================================================
+# ============== Matplot++  =====================================================
+# ===============================================================================
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU
   FetchContent_Declare(
@@ -60,7 +93,7 @@ endif()
 
 target_link_libraries(fall_n PUBLIC matplot)
 
-
+# ===============================================================================
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
