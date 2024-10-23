@@ -1,8 +1,8 @@
-//#include <Eigen/Dense>
+// #include <Eigen/Dense>
 #include <array>
 #include <concepts>
 #include <functional>
-#include <iostream> 
+#include <iostream>
 #include <vector>
 #include <numeric>
 #include <algorithm>
@@ -16,7 +16,7 @@
 #include <fstream>
 #include <filesystem>
 
-#include"header_files.hh"
+#include "header_files.hh"
 
 #include "src/elements/Node.hh"
 
@@ -79,79 +79,115 @@
 
 #include "src/domain/IntegrationPoint.hh"
 
-//#include <matplot/matplot.h>
+#include "src/post-processing/VTK/VTKheaders.hh"
+// #include <matplot/matplot.h>
 
 #include <petsc.h>
 
-int main(int argc, char **args){
-PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
+int main(int argc, char **args)
+{
+    PetscInitialize(&argc, &args, nullptr, nullptr);
+    { // PETSc Scope starts here
 
-    std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-    static constexpr std::size_t dim  = 3;
-    static constexpr std::size_t ndof = dim;  //6; 
+        static constexpr std::size_t dim = 3;
+        static constexpr std::size_t ndof = dim; // 6;
 
-    Domain<dim> D; //Domain Aggregator Object
-    GmshDomainBuilder domain_constructor(mesh_file, D);
-    
-    auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
+        Domain<dim> D; // Domain Aggregator Object
+        GmshDomainBuilder domain_constructor(mesh_file, D);
 
-    Model<ThreeDimensionalMaterial,ndof> M{D, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-    //          ^            
-    //          | 
-    //    Constitutive Relation Type (Policy) and Dimension implicitly.
+        auto updateStrategy = []()
+        { std::cout << "TEST: e.g. Linear Update Strategy" << std::endl; };
 
-    Strain<6> e0 {0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
+        Model<ThreeDimensionalMaterial, ndof> M{D, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        //          ^
+        //          |
+        //    Constitutive Relation Type (Policy) and Dimension implicitly.
 
-    MaterialState<ElasticState,Strain<6>> sv0{e0};
-    MaterialState<MemoryState ,Strain<6>> sv1{e0};
+        Strain<6> e0{0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
 
+        MaterialState<ElasticState, Strain<6>> sv0{e0};
+        MaterialState<MemoryState, Strain<6>> sv1{e0};
 
-    UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
-    ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
+        UniaxialIsotropicElasticMaterial steel_mat1D{200.0};
+        ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
 
-    //Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
-    Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
+        // Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
+        Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
 
-    // Testing Material Wrapper interface.
-    // Printing Material Parameters (Not YET)
-    // Printing Material State
+        // Testing Material Wrapper interface.
+        // Printing Material Parameters (Not YET)
+        // Printing Material State
 
-    //auto s1 = mat1D.get_state();
-    auto s2 = mat3D.get_state();
+        // auto s1 = mat1D.get_state();
+        auto s2 = mat3D.get_state();
 
-    //mat1D.update_state(e0);
-    mat3D.update_state(e0);
-    
-    auto s3 = mat3D.get_state();
+        // mat1D.update_state(e0);
+        mat3D.update_state(e0);
 
-    for (auto i = 0; i < 6; i++) std::cout << "s2[" << i << "] = " << s2[i] << std::endl;
-    for (auto i = 0; i < 6; i++) std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
-    
+        auto s3 = mat3D.get_state();
 
-    steel_mat3D.print_material_parameters();
+        for (auto i = 0; i < 6; i++)
+            std::cout << "s2[" << i << "] = " << s2[i] << std::endl;
+        for (auto i = 0; i < 6; i++)
+            std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
 
-    M.apply_node_force(1, 1.0, 1.0, 1.0);
-    
-    M.fix_node(0);
-    //M.fix_node_dofs(0, 0,2);
+        steel_mat3D.print_material_parameters();
 
-    M.solve();
+        M.apply_node_force(1, 1.0, 1.0, 1.0);
 
-    // INTENT:
-    // Material mat(base_material, stress_update_strategy);
-    // e.g. 
+        M.fix_node(0);
+        // M.fix_node_dofs(0, 0,2);
 
-    // Material mat(steel3D, ElasticUpdateStrategy::Linear{});
-    // Material mat(steel1D, ElasticUpdateStrategy::Linear{});
+        M.solve();
 
-    // Material mat(steel3D, InelasticUpdateStrategy::ReturnMapping);
-    // Material mat(steel3D, InelasticUpdateStrategy::FullImplicitBackwardEuler);
-    // Material mat(steel3D, InelasticUpdateStrategy::SemiImplicitBackwardEuler);
-    // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
-    // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
-    
-}// PETSc Scope ends here
-PetscFinalize(); //This is necessary to avoid memory leaks and MPI errors.
-}; 
+        // INTENT:
+        // Material mat(base_material, stress_update_strategy);
+        // e.g.
 
+        // Material mat(steel3D, ElasticUpdateStrategy::Linear{});
+        // Material mat(steel1D, ElasticUpdateStrategy::Linear{});
+
+        // Material mat(steel3D, InelasticUpdateStrategy::ReturnMapping);
+        // Material mat(steel3D, InelasticUpdateStrategy::FullImplicitBackwardEuler);
+        // Material mat(steel3D, InelasticUpdateStrategy::SemiImplicitBackwardEuler);
+        // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
+        // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
+        
+        vtkNew<vtkNamedColors>            colors;
+        vtkNew<vtkCylinderSource>         cylinder;
+        vtkNew<vtkPolyDataMapper>         cylinderMapper;
+        vtkNew<vtkActor>                  cylinderActor;
+        vtkNew<vtkRenderer>               renderer;
+        vtkNew<vtkRenderWindow>           renderWindow;
+        vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
+
+        std::array<unsigned char, 4> bkg{{26, 51, 102, 255}}; // Set the background color.
+        colors->SetColor("BkgColor", bkg.data());
+
+        cylinder->SetResolution(8);
+        cylinderMapper->SetInputConnection(cylinder->GetOutputPort());
+        
+        cylinderActor->SetMapper(cylinderMapper);
+        cylinderActor->GetProperty()->SetColor(colors->GetColor4d("Tomato").GetData());
+        cylinderActor->RotateX(30.0);
+        cylinderActor->RotateY(-45.0);
+
+        renderer->AddActor(cylinderActor);
+        renderer->SetBackground(colors->GetColor3d("BkgColor").GetData());
+
+        renderer->ResetCamera();
+        renderer->GetActiveCamera()->Zoom(1.5);
+
+        renderWindow->SetSize(300, 300);
+        renderWindow->AddRenderer(renderer);
+        renderWindow->SetWindowName("Cylinder");
+        
+        renderWindowInteractor->SetRenderWindow(renderWindow);
+        renderWindow->Render();
+        renderWindowInteractor->Start();
+
+    } // PETSc Scope ends here
+    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
+};
