@@ -16,7 +16,6 @@ class Node : public geometry::Point<Dim>{
  
  using DoF_Interface = domain::DoF_Interface;
  
-     
     std::size_t id_{} ;
     
     DoF_Interface dof_;

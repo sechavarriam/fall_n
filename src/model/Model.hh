@@ -168,7 +168,6 @@ public:
         
         MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
         
-        
         KSPCreate(PETSC_COMM_WORLD, &solver);
         KSPSetOperators(solver, K, K);
         //KSPSetFromOptions(solver);
@@ -192,16 +191,15 @@ public:
             elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material.
         }
 
-        set_dof_index();                                       // Set Dof Indexes
-        
-        init_vector(F); // Initialize Global Load Vector
-        init_vector(U); // Initialize Global Displacement Vector
+        //set_dof_index();                                       // Set Dof Indexes
+        //
+        //init_vector(F); // Initialize Global Load Vector
+        //init_vector(U); // Initialize Global Displacement Vector
 
-        init_K(elements_[0].num_nodes()); // PARAMETRO PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
+        //init_K(elements_[0].num_nodes()); // PARAMETRO PROVISIONAL! Asume todos los elementos con el mismo numero de nodos. Por eso se toma como ref el primero. 
 
-        assembly_K(); // Assembly Global Stiffness Matrix
-
-        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+        //assembly_K(); // Assembly Global Stiffness Matrix
+        //MatView(K, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
     }
 
     Model() = delete;

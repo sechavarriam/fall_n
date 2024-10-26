@@ -26,18 +26,15 @@
 
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 
-template<typename T>
-concept private_Lagrange_check_ = requires(T t){
+template<typename T> concept private_Lagrange_check_ = requires(T t){
   requires std::same_as<decltype(t._is_LagrangeElement()), bool>;
 };
 
-template<typename T> 
-struct LagrangeConceptTester{
+template<typename T> struct LagrangeConceptTester{
   static inline constexpr bool _is_in_Lagrange_Family = private_Lagrange_check_<T>;  
 };
 
-template<typename T>
-concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
+template<typename T> concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
 
 
 template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>) 
@@ -56,30 +53,28 @@ public:
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
-  using pNodeArray     = std::array<Node<dim>*, num_nodes_>;
+  using pNodeArray     = std::optional <std::array<Node<dim>*, num_nodes_>>;
   
+
   std::size_t tag_;
-  pNodeArray nodes_;
+  pNodeArray nodes_p;
+
+  std::array<PetscInt, num_nodes_> nodes_;
 
 public:
 
-  auto num_nodes() const noexcept { return num_nodes_; };
+  static constexpr auto num_nodes() noexcept { return num_nodes_; };
+
   auto id()        const noexcept { return tag_      ; };
 
-  Node<dim>& node (std::size_t i ) const noexcept {return *nodes_[i];};
-  
-  
-  void set_id(std::size_t id)       noexcept {tag_ = id; };
+  PetscInt            node(std::size_t i) const noexcept {return nodes_[i];};
+  std::span<PetscInt> nodes()             const noexcept {return std::span<PetscInt>(nodes_);};
 
-  constexpr void print_nodes_info() const noexcept {
-    for (auto node : nodes_) {
-      std::cout << "Node ID: " << node->id() << " ";
-      for (std::size_t x=0; x<dim; ++x) {
-        printf("%f ", node->coord(x));
-      }
-      printf("\n");
-    }
-  };
+  Node<dim>& node_p (std::size_t i ) const noexcept {if (nodes_p.has_value()) return *nodes_p.value()[i];};
+
+  void set_node_pointer(std::size_t i, Node<dim>* node) noexcept {nodes_p.value()[i] = node;};
+
+  void set_id(std::size_t id)       noexcept {tag_ = id; };
 
   constexpr inline double H(std::size_t i, const Array& X) const noexcept {
     return reference_element_.basis.shape_function(i)(X);
@@ -102,7 +97,7 @@ public:
     for (std::size_t i = 0; i < dim; ++i) {//Thread Candidate
       for (std::size_t j = 0; j < dim; ++j) {//Thread Candidate
         for (std::size_t k = 0; k < num_nodes_; ++k) {
-          J[i][j] += nodes_[k]->coord(i)*dH_dx(k, j, X); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
+          J[i][j] += nodes_p.value()[k]->coord(i)*dH_dx(k, j, X); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
         }
       }
     }
@@ -118,32 +113,55 @@ public:
 
   // TODO: Refactor with std::format 
   void print_node_coords() noexcept {
-    for (auto node : nodes_) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
+    for (auto node : nodes_p) {for (auto coord : node->coord()) {printf("%f ", coord);}; printf("\n");};
   };
+
+  constexpr void print_nodes_info() const noexcept {
+    for (auto node : nodes_p.value()) {
+      std::cout << "Node ID: " << node->id() << " ";
+      for (std::size_t x=0; x<dim; ++x) {
+        printf("%f ", node->coord(x));
+      }
+      printf("\n");
+    }
+  };
+
 
   //Constructor
   constexpr LagrangeElement()  = default;
-  constexpr LagrangeElement(pNodeArray nodes) : nodes_{std::forward<pNodeArray>(nodes)}{};
+  constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)}{};
   
-  constexpr LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}{
-    std::copy(node_references.begin(), node_references.end(), nodes_.begin());
+  constexpr LagrangeElement(std::size_t& tag, std::ranges::range auto& node_ids) 
+  requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : 
+  tag_{tag}{
+    std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
+    };
+
+  constexpr LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_ids)
+  requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>):
+  tag_{tag}{
+    std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
   };
 
-  constexpr LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_references) : tag_{tag}{
-    std::move(node_references.begin(), node_references.end(), nodes_.begin());
-  };
+  //constexpr LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}{
+  //  std::copy(node_references.begin(), node_references.end(), nodes_p.begin());
+  //};
+
+  //constexpr LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_references) : tag_{tag}{
+  //  std::move(node_references.begin(), node_references.end(), nodes_p.begin());
+  //};
 
   // Copy and Move Constructors and Assignment Operators
   constexpr LagrangeElement(const LagrangeElement& other) : 
     tag_                {other.tag_},
-    nodes_              {other.nodes_}
+    nodes_p              {other.nodes_p}
     {};
 
   constexpr LagrangeElement(LagrangeElement&& other) = default;
 
   constexpr LagrangeElement& operator=(const LagrangeElement& other){
     tag_                 = other.tag_;
-    nodes_               = other.nodes_;
+    nodes_p               = other.nodes_p;
     return *this;
   };
 

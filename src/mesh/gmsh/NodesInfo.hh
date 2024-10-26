@@ -110,7 +110,7 @@ $EndNodes
             };
             for (std::size_t i = 0; i < numEntityBlocks; ++i) parse_entity_block();
         };
-
+        
     };
 
 } // namespace gmsh

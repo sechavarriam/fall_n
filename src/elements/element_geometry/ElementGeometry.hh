@@ -39,7 +39,9 @@ namespace impl
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
 
-        constexpr virtual Node<dim>& node(std::size_t i) const = 0;
+        constexpr virtual PetscInt node(std::size_t i) const = 0;
+
+        //constexpr virtual Node<dim>& node(std::size_t i) const = 0;
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
@@ -92,7 +94,9 @@ namespace impl
         constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
         constexpr std::size_t id()        const override { return element_.id(); };
 
-        constexpr Node<dim>& node(std::size_t i) const override { return element_.node(i); };
+        constexpr PetscInt node(std::size_t i) const override { return element_.node(i); };
+
+        //constexpr Node<dim>& node(std::size_t i) const override { return element_.node(i); };
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
@@ -151,7 +155,9 @@ namespace impl
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
-        constexpr Node<dim>& node(std::size_t i) const override { return element_->node(i); };
+        constexpr PetscInt node(std::size_t i) const override { return element_->node(i); };
+
+        //constexpr Node<dim>& node(std::size_t i) const override { return element_->node(i); };
 
         constexpr double H(std::size_t i, const Array &X) const override { 
             return element_->H(i, X); 
@@ -200,8 +206,9 @@ public:
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
-    constexpr Node<dim>& node(std::size_t i) const { return pimpl()->node(i); };
+    constexpr PetscInt node(std::size_t i) const { return pimpl()->node(i); };
 
+    //constexpr Node<dim>& node(std::size_t i) const { return pimpl()->node(i); };
     //constexpr auto nodes() const { return std::span<Node<dim>>{pimpl()->node(0), pimpl()->num_nodes()};}; // UNTESTED // No debe servir. Asume nodos contiguos en memoria.
     
     constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points; };
@@ -263,7 +270,8 @@ public:
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
-    constexpr Node<dim>& node(std::size_t i) const { return pimpl_->node(i); };
+    constexpr PetscInt node(std::size_t i) const { return pimpl_->node(i); };
+    //constexpr Node<dim>& node(std::size_t i) const { return pimpl_->node(i); };
     
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
