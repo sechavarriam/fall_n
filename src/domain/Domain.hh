@@ -11,6 +11,8 @@
 #include <vector>
 
 #include "../geometry/Topology.hh"
+#include "../mesh/Mesh.hh"
+
 #include "../elements/Node.hh"
 
 #include "../elements/element_geometry/ElementGeometry.hh"
@@ -42,16 +44,28 @@ public:
 
     // ===========================================================================================================
 
+    //template <typename ElementType, typename IntegrationStrategy>
+    //void make_element(IntegrationStrategy &&integrator, std::size_t &&tag, std::vector<Node<3> *> nodeAdresses)
+    //{
+    //    elements_.emplace_back(
+    //        ElementGeometry<dim>(
+    //            ElementType( // Forward this?
+    //                std::forward<std::size_t>(tag),
+    //                std::forward<std::vector<Node<3> *>>(nodeAdresses)),
+    //            std::forward<IntegrationStrategy>(integrator)));
+    //}
+
     template <typename ElementType, typename IntegrationStrategy>
-    void make_element(IntegrationStrategy &&integrator, std::size_t &&tag, std::vector<Node<3> *> nodeAdresses)
+    void make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[])
     {
         elements_.emplace_back(
             ElementGeometry<dim>(
                 ElementType( // Forward this?
                     std::forward<std::size_t>(tag),
-                    std::forward<std::vector<Node<3> *>>(nodeAdresses)),
+                    std::span<PetscInt>(node_ids, ElementType::num_nodes())),
                 std::forward<IntegrationStrategy>(integrator)));
     }
+    
 
     Node<dim> *add_node(Node<dim> &&node)
     {

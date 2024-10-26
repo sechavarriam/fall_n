@@ -135,12 +135,11 @@ int main(int argc, char **args)
 
         steel_mat3D.print_material_parameters();
 
-        M.apply_node_force(1, 1.0, 1.0, 1.0);
 
-        M.fix_node(0);
-        // M.fix_node_dofs(0, 0,2);
-
-        M.solve();
+        ////////M.apply_node_force(1, 1.0, 1.0, 1.0);
+        ////////M.fix_node(0);
+        ////////// M.fix_node_dofs(0, 0,2);
+        ////////M.solve();
 
         // INTENT:
         // Material mat(base_material, stress_update_strategy);
