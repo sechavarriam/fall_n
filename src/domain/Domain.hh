@@ -23,41 +23,67 @@
 template <std::size_t dim> requires topology::EmbeddableInSpace<dim>
 class Domain
 { // Spacial (Phisical) Domain. Where the simulation takes place
-
     static constexpr std::size_t dim_ = dim;
 
-    std::vector<Node<dim>> nodes_;
+    std::vector<Node<dim>>            nodes_   ;
     std::vector<ElementGeometry<dim>> elements_;
+
+    Mesh mesh_;
+
 
 public:
     std::size_t num_nodes() const { return nodes_.size(); };
     std::size_t num_elements() const { return elements_.size(); };
 
     // Getters
-    Node<dim> *node_p(std::size_t i) { return &nodes_[i]; };
-    // Node<dim>  node  (std::size_t i){return nodes_[i];};
+    Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
+    Node<dim>& node  (std::size_t i) { return  nodes_[i];};
 
-    Node<dim>& node(std::size_t i) { return nodes_[i]; };
-
-    std::span<Node<dim>> nodes() { return std::span<Node<dim>>(nodes_); };
+    std::span<Node<dim>>            nodes()    { return std::span<Node<dim>>           (nodes_);    };  
     std::span<ElementGeometry<dim>> elements() { return std::span<ElementGeometry<dim>>(elements_); };
 
     // ===========================================================================================================
 
-    //template <typename ElementType, typename IntegrationStrategy>
-    //void make_element(IntegrationStrategy &&integrator, std::size_t &&tag, std::vector<Node<3> *> nodeAdresses)
-    //{
-    //    elements_.emplace_back(
-    //        ElementGeometry<dim>(
-    //            ElementType( // Forward this?
-    //                std::forward<std::size_t>(tag),
-    //                std::forward<std::vector<Node<3> *>>(nodeAdresses)),
-    //            std::forward<IntegrationStrategy>(integrator)));
-    //}
+    void link_nodes_to_elements(){
+        for (auto &e : elements_){
+            for (std::size_t i = 0; i < e.num_nodes(); i++){
+                // Find position of node i in domain   
+                auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return PetscInt(node.id()) == e.node(i);});
+                // Get the address of the node
+                e.bind_node(i, &(*pos));
+
+            }
+        }
+    }
+
+    void assemble_sieve(){
+
+        link_nodes_to_elements();
+
+        mesh_.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells
+                                                                // Uninterpoleated topology by now (no edges or faces).
+
+        PetscInt sieve_point_idx = 0;
+
+        for (auto &e : elements_){
+            e.set_sieve_id(sieve_point_idx);
+            mesh_.set_sieve_cone_size(sieve_point_idx, e.num_nodes());
+            ++sieve_point_idx;
+        }
+
+        for (auto &n : nodes_){
+            n.set_sieve_id(sieve_point_idx);
+            ++sieve_point_idx;
+        }
+
+
+    }
+
+
+
 
     template <typename ElementType, typename IntegrationStrategy>
-    void make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[])
-    {
+    void make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[]){
         elements_.emplace_back(
             ElementGeometry<dim>(
                 ElementType( // Forward this?
@@ -66,9 +92,7 @@ public:
                 std::forward<IntegrationStrategy>(integrator)));
     }
     
-
-    Node<dim> *add_node(Node<dim> &&node)
-    {
+    Node<dim> *add_node(Node<dim> &&node){
         nodes_.emplace_back(std::forward<Node<dim>>(node));
         return &nodes_.back();
     };
@@ -76,24 +100,17 @@ public:
     // Tol increases capacity by default in 20%.
     void preallocate_node_capacity(std::size_t n, double tol = 1.20)
     { // Use Try and Catch to allow this operation if the container is empty.
-        try
-        {
+        try{
             if (nodes_.empty())
                 nodes_.reserve(n * tol);
             else
                 throw nodes_.empty();
-        }
-        catch (bool NotEmpty)
-        {
+        }catch (bool NotEmpty){
             std::cout << "Preallocation should be done only before any node definition. Doing nothing." << std::endl;
         }
     };
 
-    // TODO: Preallocated constructor.
-    // Domain(uint estimatedNodes, estimatedElements,estimatedDofs){};
-    //
     // Constructors
-
     // Copy Constructor
     Domain(const Domain &other) = default;
     // Move Constructor
@@ -108,3 +125,15 @@ public:
 };
 
 #endif
+
+
+    //template <typename ElementType, typename IntegrationStrategy>
+    //void make_element(IntegrationStrategy &&integrator, std::size_t &&tag, std::vector<Node<3> *> nodeAdresses)
+    //{
+    //    elements_.emplace_back(
+    //        ElementGeometry<dim>(
+    //            ElementType( // Forward this?
+    //                std::forward<std::size_t>(tag),
+    //                std::forward<std::vector<Node<3> *>>(nodeAdresses)),
+    //            std::forward<IntegrationStrategy>(integrator)));
+    //}

@@ -19,6 +19,179 @@
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
 
+
+namespace impl
+{ // Implementation details
+
+    template <std::size_t dim>
+    class ElementGeometryConcept
+    { // Define the minimum interface for all element types (of any kind)
+    using Array = std::array<double, dim>;
+    public:
+        virtual ~ElementGeometryConcept() = default;
+
+        virtual std::unique_ptr<ElementGeometryConcept> clone()    const = 0;    // To allow copy construction of the wrapper
+
+    public:
+        constexpr virtual void print_nodes_info() const = 0;
+
+        constexpr virtual std::size_t num_nodes() const = 0;
+        constexpr virtual std::size_t id() const = 0;
+
+        constexpr virtual PetscInt node(std::size_t i) const = 0;
+
+        constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
+
+        //constexpr virtual Node<dim>& node(std::size_t i) const = 0;
+
+        constexpr virtual std::size_t num_integration_points() const = 0;
+
+        constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
+
+        constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
+        constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
+        constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
+
+    };
+
+    template <typename ElementType, typename IntegrationStrategy> 
+    class NON_OwningModel_ElementGeometry;            // Forward declaration                     
+
+    template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
+    class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
+    { // Wrapper for all element types (of any kind)
+        using Array = std::array<double, ElementType::dim>;
+        static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
+
+        ElementType         element_   ; // Stores the ElementGeometry object
+        IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
+    public:
+
+        static constexpr auto dim = ElementType::dim;
+        
+
+        explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
+            element_   (element   ),
+            integrator_(integrator) {};
+
+        explicit OwningModel_ElementGeometry(ElementType &&element, IntegrationStrategy &&integrator) : 
+            element_(std::forward<ElementType>(element)),
+            integrator_(std::forward<IntegrationStrategy>(integrator)) {};
+
+        std::unique_ptr<ElementGeometryConcept<dim>> clone() const override{
+            return std::make_unique<OwningModel_ElementGeometry<ElementType, IntegrationStrategy>>(*this);
+        };
+
+
+    public: // Implementation of the virtual operations derived from ElementGeometryConcept
+
+        constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
+
+        constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
+        constexpr std::size_t id()        const override { return element_.id(); };
+
+        constexpr PetscInt node(std::size_t i) const override { return element_.node(i); };
+
+        constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_.bind_node(i, node); };
+
+        //constexpr Node<dim>& node(std::size_t i) const override { return element_.node(i); };
+        
+        constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
+
+        constexpr double H(std::size_t i, const Array& X) const override {
+             return element_.H(i, X); 
+             };
+        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {
+             return element_.dH_dx(i, j, X); 
+             };
+
+        constexpr double integrate (std::function<double(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<double(Array)>>(f));
+        };
+
+        Vector integrate (std::function<Vector(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Vector(Array)>>(f));
+        };
+
+        Matrix integrate (std::function<Matrix(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Matrix(Array)>>(f));
+        };
+
+    };
+
+} // impl
+
+
+template<std::size_t dim>
+class ElementGeometry
+{
+    using Array = std::array<double, dim>;
+    
+    std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
+
+public:
+
+    std::optional<PetscInt> sieve_id; // Optional sieve id for the element inside DMPlex Mesh
+
+    constexpr std::size_t id()        const { return pimpl_->id(); };
+    constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
+
+    constexpr PetscInt node(std::size_t i) const { return pimpl_->node(i); };
+
+    constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
+
+    constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
+
+    constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
+
+    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
+    
+    constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
+    Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
+    Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+
+    void set_sieve_id(PetscInt id){sieve_id = id;};
+
+
+    template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
+    constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
+    {
+        using Model = impl::OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
+        pimpl_ = std::make_unique<Model>(
+            std::move(element),     // forward perhaphs?=
+            std::move(integrator)); //
+    }
+
+    ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};
+    ElementGeometry &operator=(ElementGeometry const &other) {
+        pimpl_ = other.pimpl_->clone();
+        return *this;
+    }
+    constexpr ~ElementGeometry() = default;
+    constexpr ElementGeometry(ElementGeometry &&) = default;
+    constexpr ElementGeometry &operator=(ElementGeometry &&) = default;
+
+private:
+
+    constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
+    constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
+    constexpr inline friend void print_nodes_info(ElementGeometry const& element) { element.pimpl_->print_nodes_info(); };
+
+    constexpr inline friend
+    auto integrate(ElementGeometry const &element, std::invocable<Array> auto&& F) {
+        return element.pimpl_->integrate(std::forward<decltype(F)>(F));
+        };
+
+    // -----------------------------------------------------------------------------------------------
+};
+
+
+
+
+
+/*
 namespace impl
 { // Implementation details
 
@@ -40,6 +213,8 @@ namespace impl
         constexpr virtual std::size_t id() const = 0;
 
         constexpr virtual PetscInt node(std::size_t i) const = 0;
+
+        constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
 
         //constexpr virtual Node<dim>& node(std::size_t i) const = 0;
 
@@ -95,6 +270,8 @@ namespace impl
         constexpr std::size_t id()        const override { return element_.id(); };
 
         constexpr PetscInt node(std::size_t i) const override { return element_.node(i); };
+
+        constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_.bind_node(i, node); };
 
         //constexpr Node<dim>& node(std::size_t i) const override { return element_.node(i); };
         
@@ -157,6 +334,8 @@ namespace impl
 
         constexpr PetscInt node(std::size_t i) const override { return element_->node(i); };
 
+        constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_->bind_node(i, node); };
+
         //constexpr Node<dim>& node(std::size_t i) const override { return element_->node(i); };
 
         constexpr double H(std::size_t i, const Array &X) const override { 
@@ -203,14 +382,15 @@ class ElementGeometryConstRef
 
 public:
 
+    std::optional<PetscInt> sieve_id; // Optional sieve id for the element inside DMPlex Mesh
+
     constexpr std::size_t id()        const { return pimpl()->id(); };
     constexpr std::size_t num_nodes() const { return pimpl()->num_nodes(); };
 
     constexpr PetscInt node(std::size_t i) const { return pimpl()->node(i); };
 
-    //constexpr Node<dim>& node(std::size_t i) const { return pimpl()->node(i); };
-    //constexpr auto nodes() const { return std::span<Node<dim>>{pimpl()->node(0), pimpl()->num_nodes()};}; // UNTESTED // No debe servir. Asume nodos contiguos en memoria.
-    
+    constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl()->bind_node(i, node); };
+
     constexpr std::size_t num_integration_points() const { return pimpl()->num_integration_points; };
 
     constexpr double H    (std::size_t i, const Array &X) const {return pimpl()->H(i, X);};
@@ -220,6 +400,8 @@ public:
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+
+    void set_sieve_id(PetscInt id){sieve_id = id;};
 
     template <typename ElementType, typename IntegrationStrategy>
     constexpr ElementGeometryConstRef(ElementType &element, IntegrationStrategy &integrator)
@@ -267,12 +449,16 @@ class ElementGeometry
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
+
+    std::optional<PetscInt> sieve_id; // Optional sieve id for the element inside DMPlex Mesh
+
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr PetscInt node(std::size_t i) const { return pimpl_->node(i); };
-    //constexpr Node<dim>& node(std::size_t i) const { return pimpl_->node(i); };
-    
+
+    constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
+
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
@@ -283,6 +469,9 @@ public:
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+
+    void set_sieve_id(PetscInt id){sieve_id = id;};
+
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
@@ -308,13 +497,6 @@ public:
     constexpr ElementGeometry &operator=(ElementGeometry &&) = default;
 
 private:
-    // -----------------------------------------------------------------------------------------------
-    // Hidden Friends (Free Functions)
-    // This functions trigger the polymorfic behaviour of the wrapper. They takes the pimpl
-    // and call the virtual function do_action() on it. This function is implemented in the
-    // ElementModel class, THE REAL ElementType BEHAVIOUR of the erased type.
-    // friend void action(ElementGeometry const& element /*, Args.. args*/){element.p_element_impl->do_action(/* args...*/);
-    //};
 
     constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
@@ -332,7 +514,7 @@ inline ElementGeometryConstRef<dim>::ElementGeometryConstRef(ElementGeometry<dim
 
 template<std::size_t dim>
 inline ElementGeometryConstRef<dim>::ElementGeometryConstRef(ElementGeometry<dim> const &other) { other.pimpl_->clone(pimpl()); };
-
+*/
 
 
 

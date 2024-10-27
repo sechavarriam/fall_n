@@ -151,6 +151,18 @@ public:
     {
         aggregate_nodes();
         aggregate_elements();
+
+        // sort nodes with respect to their id
+        // only if node containter is std vector. In is unordered_map, no need to sort.
+        std::sort(domain_->nodes().begin(), domain_->nodes().end(), 
+        [](Node<3> &a, Node<3> &b) {
+             return a.id() < b.id(); 
+             }
+        );
+
+        domain_->assemble_sieve(); // Assemble sieve (DAG) for the domain (DMPlex)
+
+
     };
 };
 
