@@ -78,7 +78,15 @@ public:
       return *nodes_p.value()[i];    
   };
 
-  void bind_node (std::size_t i, Node<dim> *node) noexcept { nodes_p.value()[i] = node; };
+  void bind_node (std::size_t i, Node<dim> *node) noexcept {
+    if (nodes_p.has_value()){
+      nodes_p.value()[i] = node;
+    } else { //set and assign
+      nodes_p = std::array<Node<dim> *, num_nodes_>{};
+      nodes_p.value()[i] = node;
+    }
+     
+  };
   
   
   //void set_node_pointer(std::size_t i, Node<dim> *node) noexcept { nodes_p.value()[i] = node;};
