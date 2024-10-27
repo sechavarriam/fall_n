@@ -22,11 +22,15 @@ class Node : public geometry::Point<Dim>{
     
   public:
 
+    std::optional<PetscInt> sieve_id; // Optional sieve id for the node (vertex) inside DMPlex Mesh
+
     std::size_t id()       {return id_     ;}
     std::size_t num_dof()  {return dof_.handler_->num_dof();}
 
     //std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 
+    constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
+    
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
     
     //constexpr void set_num_dof(std::size_t n ) noexcept {
