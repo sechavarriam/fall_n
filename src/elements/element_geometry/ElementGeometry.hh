@@ -39,10 +39,9 @@ namespace impl
         constexpr virtual std::size_t id() const = 0;
 
         constexpr virtual PetscInt node(std::size_t i) const = 0;
-
         constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
 
-        //constexpr virtual Node<dim>& node(std::size_t i) const = 0;
+        constexpr virtual Node<dim>& node_p(std::size_t i) const = 0;
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
@@ -70,7 +69,6 @@ namespace impl
 
         static constexpr auto dim = ElementType::dim;
         
-
         explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
             element_   (element   ),
             integrator_(integrator) {};
@@ -82,8 +80,6 @@ namespace impl
         std::unique_ptr<ElementGeometryConcept<dim>> clone() const override{
             return std::make_unique<OwningModel_ElementGeometry<ElementType, IntegrationStrategy>>(*this);
         };
-
-
     public: // Implementation of the virtual operations derived from ElementGeometryConcept
 
         constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
@@ -91,11 +87,10 @@ namespace impl
         constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
         constexpr std::size_t id()        const override { return element_.id(); };
 
-        constexpr PetscInt node(std::size_t i) const override { return element_.node(i); };
+        constexpr PetscInt   node  (std::size_t i) const override { return element_.node(i)  ;}; // renombrar como node_idx
+        constexpr Node<dim>& node_p(std::size_t i) const override { return element_.node_p(i);};
 
         constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_.bind_node(i, node); };
-
-        //constexpr Node<dim>& node(std::size_t i) const override { return element_.node(i); };
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
@@ -132,14 +127,17 @@ class ElementGeometry
 
 public:
 
-    std::optional<PetscInt> sieve_id; // Optional sieve id for the element inside DMPlex Mesh
+    std::optional<PetscInt> sieve_id;                     // Optional sieve id for the element inside DMPlex Mesh
+
+    constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
-    constexpr PetscInt node(std::size_t i) const { return pimpl_->node(i); };
+    constexpr PetscInt   node  (std::size_t i) const { return pimpl_->node(i); };
+    constexpr Node<dim>& node_p(std::size_t i) const { return pimpl_->node_p(i); };
 
-    constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
+    
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 

@@ -20,10 +20,6 @@ class DoF_Handler {
 
   std::vector<PetscInt> dof_index_{}; // Signed integer type for PETSc compatibility (Negative indices may be passed in idxm and idxn, these rows and columns are simply ignored!!!).
 
-  constexpr std::size_t num_dof() const {return dof_index_.size();};
-
-  //constexpr void set_size(std::size_t num_dof){dof_index_.resize(num_dof);};
-  
   constexpr void set_index(std::ranges::range auto&& idxs) //requires dofs are integral types.
   requires std::integral<std::ranges::range_value_t<decltype(idxs)>>{
     dof_index_.reserve(std::ranges::size(idxs));

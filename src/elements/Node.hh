@@ -16,7 +16,8 @@ class Node : public geometry::Point<Dim>{
  
  using DoF_Interface = domain::DoF_Interface;
  
-    std::size_t id_{} ;
+    std::size_t id_{}     ;
+    std::size_t num_dof_{0};
     
     DoF_Interface dof_;
     
@@ -25,18 +26,21 @@ class Node : public geometry::Point<Dim>{
     std::optional<PetscInt> sieve_id; // Optional sieve id for the node (vertex) inside DMPlex Mesh
 
     std::size_t id()       {return id_     ;}
-    std::size_t num_dof()  {return dof_.handler_->num_dof();}
+    std::size_t num_dof()  {return num_dof_;}
 
     //std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
-    
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
     
     //constexpr void set_num_dof(std::size_t n ) noexcept {
     //  dof_.set_num_dof(n);
     //};
 
+    void set_num_dof(std::size_t n) noexcept {
+      num_dof_ = n;
+      dof_.set_handler();
+    };
 
     constexpr void set_dof_index(std::size_t i, std::size_t dof_index){
       dof_.handler_->dof_index_[i] = dof_index;

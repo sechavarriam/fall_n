@@ -28,10 +28,10 @@ class Domain
     std::vector<Node<dim>>            nodes_   ;
     std::vector<ElementGeometry<dim>> elements_;
 
-    Mesh mesh_;
-
-
 public:
+
+    Mesh mesh;
+
     std::size_t num_nodes() const { return nodes_.size(); };
     std::size_t num_elements() const { return elements_.size(); };
 
@@ -49,25 +49,24 @@ public:
             for (std::size_t i = 0; i < e.num_nodes(); i++){
                 // Find position of node i in domain   
                 auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return PetscInt(node.id()) == e.node(i);});
-                // Get the address of the node
-                e.bind_node(i, &(*pos));
-
+                e.bind_node(i, std::addressof(*pos));
             }
         }
     }
 
-    void assemble_sieve(){
+    void assemble_sieve() {
 
         link_nodes_to_elements();
 
-        mesh_.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells
+
+        mesh.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells
                                                                 // Uninterpoleated topology by now (no edges or faces).
 
         PetscInt sieve_point_idx = 0;
 
         for (auto &e : elements_){
             e.set_sieve_id(sieve_point_idx);
-            mesh_.set_sieve_cone_size(sieve_point_idx, e.num_nodes());
+            mesh.set_sieve_cone_size(sieve_point_idx, e.num_nodes());
             ++sieve_point_idx;
         }
 
@@ -76,11 +75,20 @@ public:
             ++sieve_point_idx;
         }
 
+        mesh.setup(sieve_point_idx);
 
+        // Set the sieve cone for each entity (only elements by now). 
+        // The nodes doesn't cover any entity of lower dimension.
+        for (auto &e : elements_){
+            std::vector<PetscInt> cone(e.num_nodes());
+
+            for (std::size_t i = 0; i < e.num_nodes(); i++){
+                cone[i] = e.node_p(i).sieve_id.value();
+            }
+            mesh.set_sieve_cone(e.sieve_id.value(), cone.data());
+        }
+        mesh.symmetrize_sieve();
     }
-
-
-
 
     template <typename ElementType, typename IntegrationStrategy>
     void make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[]){

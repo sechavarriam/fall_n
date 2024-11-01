@@ -29,7 +29,20 @@ class ContinuumElement
 
   bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
 
+
 public:
+
+  constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
+  constexpr auto node_p (std::size_t i) const noexcept { return geometry_->node_p(i); };
+
+  constexpr PetscInt dofs_at_node([[maybe_unused]]std::size_t i) const noexcept { return dim; };
+
+  constexpr void set_num_dof_in_nodes() noexcept {
+    for (std::size_t i = 0; i < num_nodes(); ++i){
+      geometry_->node_p(i).set_num_dof(dim);
+    }
+  };
+
 
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
   constexpr auto num_nodes() const noexcept {
@@ -48,9 +61,8 @@ public:
     return dofs_index;
     };
 
-
-  Matrix H(const Array &X); // Declaration. Definition at the end of the file.
-  Matrix B(const Array &X); // Declaration. Definition at the end of the file.
+  Matrix H(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
+  Matrix B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
   
   Matrix BtCB (const Array &X) {  // TODO: Optimize this for each dimension.
 
@@ -79,28 +91,23 @@ public:
       }
     );
     
-
     MatView(K.mat_, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
-
     return K;
   };
 
   // ==============================================================================================
   // ==============================================================================================
 
-  void inject_K([[maybe_unused]]PETScMatrix& model_K){
+  void inject_K([[maybe_unused]]PETScMatrix& model_K){ // No se pasa K sino el modelo_?
       // Inject (BUILD ) K into global stiffness matrix
-      //std::vector<PetscInt> idxs;
-      //
-      //for (std::size_t i = 0; i < num_nodes(); ++i){
-      //  for (const auto idx : geometry_->node(i).dof_index()){
-      //    idxs.push_back(idx);
-      //    //idxs.push_back(std::abs(idx));
-      //  }
-      //}
-      ////MatSetOption(model_K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); // TERRIBLE IDEA. REMOVE THIS LINE. Cada vez tiene que hacer mallocs mas grandes! Exponencialmente mas lento!
+      std::vector<PetscInt> idxs;
+      
+      for (std::size_t i = 0; i < num_nodes(); ++i){
+        for (const auto idx : geometry_->node_p(i).dof_index()){
+          idxs.push_back(idx);
+        }
+      }
       //MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
-  
   };
 
 
@@ -111,6 +118,7 @@ public:
 
   ContinuumElement(ElementGeometry<dim> *geometry, Material material) : geometry_{geometry}
   {
+    //set_num_dof_in_nodes();
     for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i){
       material_points_.reserve(geometry_->num_integration_points());
       material_points_.emplace_back(MaterialPoint{material});
