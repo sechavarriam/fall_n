@@ -91,7 +91,7 @@ public:
       }
     );
     
-    MatView(K.mat_, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+    //MatView(K.mat_, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
     return K;
   };
 
@@ -107,7 +107,7 @@ public:
           idxs.push_back(idx);
         }
       }
-      //MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
+      MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 
 

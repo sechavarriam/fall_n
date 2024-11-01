@@ -183,7 +183,7 @@ int main(int argc, char **args)
         
         //enderWindowInteractor->SetRenderWindow(renderWindow);
         //enderWindow->Render();
-Z        //enderWindowInteractor->Start();
+        //enderWindowInteractor->Start();
 
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
