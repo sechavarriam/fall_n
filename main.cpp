@@ -101,9 +101,6 @@ int main(int argc, char **args)
         { std::cout << "TEST: e.g. Linear Update Strategy" << std::endl; };
 
         Model<ThreeDimensionalMaterial, ndof> M{D, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-        //          ^
-        //          |
-        //    Constitutive Relation Type (Policy) and Dimension implicitly.
 
         Strain<6> e0{0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
 
@@ -135,6 +132,7 @@ int main(int argc, char **args)
 
         steel_mat3D.print_material_parameters();
 
+        Analysis analisis_obj{&M};
 
         ////////M.apply_node_force(1, 1.0, 1.0, 1.0);
         ////////M.fix_node(0);
@@ -183,9 +181,9 @@ int main(int argc, char **args)
         renderWindow->AddRenderer(renderer);
         renderWindow->SetWindowName("Cylinder");
         
-        renderWindowInteractor->SetRenderWindow(renderWindow);
-        renderWindow->Render();
-        renderWindowInteractor->Start();
+        //enderWindowInteractor->SetRenderWindow(renderWindow);
+        //enderWindow->Render();
+Z        //enderWindowInteractor->Start();
 
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.

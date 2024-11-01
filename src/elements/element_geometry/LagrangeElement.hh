@@ -71,24 +71,22 @@ public:
   auto id() const noexcept { return tag_; };
 
   PetscInt node(std::size_t i) const noexcept { return nodes_[i]; };
+  
+  
   std::span<PetscInt> nodes() const noexcept { return std::span<PetscInt>(nodes_); };
 
-  Node<dim> &node_p(std::size_t i) const noexcept{
-    if (nodes_p.has_value())
-      return *nodes_p.value()[i];    
+  Node<dim>& node_p(std::size_t i) const noexcept{
+    return *nodes_p.value()[i];
   };
 
   void bind_node (std::size_t i, Node<dim> *node) noexcept {
-    if (nodes_p.has_value()){
-      nodes_p.value()[i] = node;
-    } else { //set and assign
+    if (nodes_p.has_value()){ nodes_p.value()[i] = node;} 
+    else { //set and assign
       nodes_p = std::array<Node<dim> *, num_nodes_>{};
       nodes_p.value()[i] = node;
-    }
-     
+    }  
   };
-  
-  
+    
   //void set_node_pointer(std::size_t i, Node<dim> *node) noexcept { nodes_p.value()[i] = node;};
 
   void set_id(std::size_t id) noexcept { tag_ = id; };
@@ -103,8 +101,7 @@ public:
     return reference_element_.basis.shape_function_derivative(i, j)(X);
   };
 
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point &X) const noexcept
-  {
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point &X) const noexcept{
     return dH_dx(i, j, X.coord());
   };
 
