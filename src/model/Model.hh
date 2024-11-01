@@ -156,8 +156,10 @@ public:
         PetscInt pStart, pEnd, cStart, cEnd, vStart, vEnd;
 
         PetscSectionCreate(PETSC_COMM_WORLD, &dof_section); // Create the section (PetscSection)
-        DMSetGlobalSection(domain_->mesh.dm, dof_section); // Set the global section for the mesh
-        
+        //DMSetGlobalSection(domain_->mesh.dm, dof_section); // Set the global section for the mesh
+        DMSetSection(domain_->mesh.dm, dof_section); // Set the section for the mesh
+
+
         DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd);
         DMPlexGetHeightStratum(domain_->mesh.dm, 0, &cStart, &cEnd);   // cells
         DMPlexGetHeightStratum(domain_->mesh.dm, 1, &vStart, &vEnd);   // vertices, equivalent to DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
@@ -187,9 +189,8 @@ public:
         VecCreate(PETSC_COMM_WORLD, &F); 
         VecSetType(F, VECSTANDARD);
         VecSetSizes(F, total_dofs, PETSC_DETERMINE); // Set the size of the local force vector.
-
         
-        DMCreateGlobalVector(domain_->mesh.dm, &U); // Create the global vector for the mesh (Solution Vector) - Move to analysis?
+        //DMCreateGlobalVector(domain_->mesh.dm, &U); // Create the global vector for the mesh (Solution Vector) - Move to analysis!!!!
         //VecSetSizes(U, PETSC_DECIDE, total_dofs); // Set the size of the global displacement vector.
 
         //https://lists.mcs.anl.gov/mailman/htdig/petsc-users/2016-March/028797.html
@@ -197,7 +198,6 @@ public:
         DMSetMatType(domain_->mesh.dm, MATAIJ); // Set the matrix type for the mesh. 
 
         for (auto &element : elements_) element.inject_K(K);
-
         MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (K, MAT_FINAL_ASSEMBLY);
 
