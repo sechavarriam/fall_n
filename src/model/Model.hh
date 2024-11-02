@@ -159,7 +159,6 @@ public:
         //DMSetGlobalSection(domain_->mesh.dm, dof_section); // Set the global section for the mesh
         DMSetSection(domain_->mesh.dm, dof_section); // Set the section for the mesh
 
-
         DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd);
         DMPlexGetHeightStratum(domain_->mesh.dm, 0, &cStart, &cEnd);   // cells
         DMPlexGetHeightStratum(domain_->mesh.dm, 1, &vStart, &vEnd);   // vertices, equivalent to DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
@@ -169,7 +168,7 @@ public:
         // For fully interpolated meshes, depth 0 for vertices, 1 for edges, and so on 
         // until cells have depth equal to the dimension of the mesh.
 
-        set_num_dofs_in_elements(); // Set the number of dofs per node in the elements (FEM_Elements)
+
 
         PetscSectionSetChart(dof_section, vStart, vEnd); // Set the chart for the section (PetscSection)
 
@@ -181,15 +180,12 @@ public:
         set_dof_index(); // Set the dof index for each node in the domain.
                          // Si hay un reorder en el plex se debe volver a llamar... Poner observador?
 
-        
         PetscSectionGetStorageSize(dof_section, &total_dofs);
 
         DMSetUp(domain_->mesh.dm); // Setup the mesh
 
-        VecCreate(PETSC_COMM_WORLD, &F); 
-        VecSetType(F, VECSTANDARD);
-        VecSetSizes(F, total_dofs, PETSC_DETERMINE); // Set the size of the local force vector.
-        
+        DMCreateLocalVector(domain_->mesh.dm, &F); // Create the local force vector for the mesh.
+
         //DMCreateGlobalVector(domain_->mesh.dm, &U); // Create the global vector for the mesh (Solution Vector) - Move to analysis!!!!
         //VecSetSizes(U, PETSC_DECIDE, total_dofs); // Set the size of the global displacement vector.
 
@@ -204,30 +200,11 @@ public:
         // Draw the matrix
         MatView(K, PETSC_VIEWER_DRAW_WORLD);
 
-
         domain_->mesh.view(); // View the mesh
-
-        // Set the matrix and vector sizes
-
-
-        // Print vector and matrix info
-        //VecView(F, PETSC_VIEWER_STDOUT_WORLD);
-        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
-        //MatView(K, PETSC_VIEWER_STDOUT_WORLD);
-
-
-        // Set F and U vectors.
-        // VecSetSizes(F, PETSC_DECIDE, total_dofs); // Set the size of the GLOBAL vectors.
-        // VecSetSizes(U, PETSC_DECIDE, total_dofs); // Set the size of the GLOBAL vectors.
-
-        //MatSetSizes(K, PETSC_DECIDE, PETSC_DECIDE, total_dofs, total_dofs); // Set the size of the GLOBAL matrix.
-
-
     };
 
 
     // Constructors
-
     Model(Domain<dim> &domain, Material default_mat) : domain_(std::addressof(domain)){
 
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
@@ -242,16 +219,16 @@ public:
             elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material.
         }
 
+        set_num_dofs_in_elements(); // Set the number of dofs per node in the elements (FEM_Elements)
         set_sieve_layout(); // Set the sieve layout for the mesh
 
     }
 
 
-
     Model() = delete;
     ~Model() {
         VecDestroy(&F);
-        VecDestroy(&U);
+        //VecDestroy(&U);
         MatDestroy(&K);
         PetscSectionDestroy(&dof_section);
     }
