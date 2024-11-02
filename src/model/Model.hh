@@ -95,16 +95,21 @@ private:
 
 public:
 
+    auto get_plex(){return domain_->mesh.dm;};
+
     // Apply boundary conditions. Constrain or Fix Dofs.    
     void fix_node_dofs(std::size_t node_idx, auto... dofs_to_constrain)
     requires (std::is_convertible_v<decltype(dofs_to_constrain), PetscInt> && ...)
     {
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
+        auto  plex_id  = node.sieve_id.value();
 
         if (sizeof...(dofs_to_constrain) > num_dofs) throw std::runtime_error("Dofs to constrain exceed the number of dofs in the node.");        
     
-        for (auto dof : {dofs_to_constrain...}) node.fix_dof(dof);
+        PetscSectionSetConstraintIndices(dof_section, plex_id, std::array{dofs_to_constrain...}.data());
+        PetscSectionSetUp(dof_section);
+        //for (auto dof : {dofs_to_constrain...}) node.fix_dof(dof);
 
     }
 
@@ -112,10 +117,10 @@ public:
     {
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
+        auto  plex_id  = node.sieve_id.value();
         
-        //for (std::size_t i = 0; i < num_dofs; i++) node.fix_dof(i);
-
-        MatZeroRowsColumns(K, num_dofs, node.dof_index().data(), 1.0, F, U); // Fix Dofs
+        PetscSectionSetConstraintDof(dof_section, plex_id, num_dofs);
+        PetscSectionSetUp(dof_section);
 
     }
 
@@ -123,12 +128,21 @@ public:
     void apply_node_force(std::size_t node_idx, std::ranges::contiguous_range auto&& force)
     requires std::convertible_to<std::ranges::range_value_t<decltype(force)>, double>
     {
-        auto num_dofs = domain_->node(node_idx).num_dof();
-        if (std::ranges::size(force) != num_dofs) throw std::runtime_error("Force vector size mismatch.");
-        auto& dofs = domain_->node(node_idx).dof_index().data();
+        PetscInt offset;
 
+        auto& node     = domain_->node(node_idx);
+        auto num_dofs  = node.num_dof();
+        auto plex_id   = node.sieve_id.value();
+
+        if (std::ranges::size(force) != num_dofs) throw std::runtime_error("Force vector size mismatch."); 
+
+        PetscSectionGetOffset(dof_section, plex_id, &offset); 
         
-        VecSetValues(F, num_dofs, dofs, force.data(), INSERT_VALUES);
+        for (auto i = 0; i < num_dofs; ++i){
+            VecSetValues(F, 1, &offset, &force[i], INSERT_VALUES);
+            offset++;
+        }
+
         VecAssemblyBegin(F);
         VecAssemblyEnd(F);       
     }
@@ -152,23 +166,19 @@ public:
 
     void set_sieve_layout (){ // ONLY CELL-VERTEX MESHES SUPPORTED BY NOW! 
 
-        PetscInt total_dofs;
         PetscInt pStart, pEnd, cStart, cEnd, vStart, vEnd;
 
         PetscSectionCreate(PETSC_COMM_WORLD, &dof_section); // Create the section (PetscSection)
         //DMSetGlobalSection(domain_->mesh.dm, dof_section); // Set the global section for the mesh
+
         DMSetSection(domain_->mesh.dm, dof_section); // Set the section for the mesh
 
         DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd);
         DMPlexGetHeightStratum(domain_->mesh.dm, 0, &cStart, &cEnd);   // cells
         DMPlexGetHeightStratum(domain_->mesh.dm, 1, &vStart, &vEnd);   // vertices, equivalent to DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
-
-        // https://petsc.org/release/manualpages/DMPlex/DMPlexStratify/
-        // For cell-vertex meshes, vertices are depth 0 and cells are depth 1. 
-        // For fully interpolated meshes, depth 0 for vertices, 1 for edges, and so on 
-        // until cells have depth equal to the dimension of the mesh.
-
-
+                                                                       // https://petsc.org/release/manualpages/DMPlex/DMPlexStratify/
+        // For cell-vertex meshes, vertices are depth 0 and cells are depth 1. For fully interpolated meshes, depth 0 for vertices, 
+        // 1 for edges, and so on  until cells have depth equal to the dimension of the mesh.
 
         PetscSectionSetChart(dof_section, vStart, vEnd); // Set the chart for the section (PetscSection)
 
@@ -180,13 +190,10 @@ public:
         set_dof_index(); // Set the dof index for each node in the domain.
                          // Si hay un reorder en el plex se debe volver a llamar... Poner observador?
 
-        PetscSectionGetStorageSize(dof_section, &total_dofs);
-
         DMSetUp(domain_->mesh.dm); // Setup the mesh
 
-        DMCreateLocalVector(domain_->mesh.dm, &F); // Create the local force vector for the mesh.
-
-        //DMCreateGlobalVector(domain_->mesh.dm, &U); // Create the global vector for the mesh (Solution Vector) - Move to analysis!!!!
+        DMCreateLocalVector (domain_->mesh.dm, &F); // Create the local force vector for the mesh.
+        DMCreateGlobalVector(domain_->mesh.dm, &U); // Create the global vector for the mesh (Solution Vector) - Move to analysis!!!!
         //VecSetSizes(U, PETSC_DECIDE, total_dofs); // Set the size of the global displacement vector.
 
         //https://lists.mcs.anl.gov/mailman/htdig/petsc-users/2016-March/028797.html
@@ -196,9 +203,7 @@ public:
         for (auto &element : elements_) element.inject_K(K);
         MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (K, MAT_FINAL_ASSEMBLY);
-
-        // Draw the matrix
-        MatView(K, PETSC_VIEWER_DRAW_WORLD);
+        MatView(K, PETSC_VIEWER_DRAW_WORLD); // Draw the matrix
 
         domain_->mesh.view(); // View the mesh
     };

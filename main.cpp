@@ -134,9 +134,16 @@ int main(int argc, char **args)
 
         Analysis analisis_obj{&M};
 
-        ////////M.apply_node_force(1, 1.0, 1.0, 1.0);
-        ////////M.fix_node(0);
-        ////////// M.fix_node_dofs(0, 0,2);
+        M.apply_node_force(7, 1.0, 1.0, 1.0);
+        
+        M.fix_node(0);
+        M.fix_node(1);
+        M.fix_node(4);
+        M.fix_node(5);
+
+        analisis_obj.solve();
+
+        //M.fix_node_dofs(0, 0,2);
         ////////M.solve();
 
         // INTENT:
