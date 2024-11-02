@@ -84,8 +84,7 @@ public:
 
   Matrix K() {
     Matrix K{ndof, ndof};
-    //std::cout << "Integrating over " << num_integration_points() << " integration points." << std::endl;
-
+    
     K=geometry_->integrate([this](const Array &X){
         return BtCB(X);
       }
