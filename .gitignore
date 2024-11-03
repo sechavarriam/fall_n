@@ -12,3 +12,5 @@ CMakeFiles/
 CMakeCache.txt
 *.cmake
 *.tcl
+*.msh
+input/
