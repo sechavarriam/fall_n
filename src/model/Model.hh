@@ -88,12 +88,6 @@ private:
         }
     };
 
-    //// https://petsc.org/release/manual/profiling/
-    //void assembly_K(){// Assembly Global Stiffness Matrix
-    //    MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
-    //    for (auto &element : elements_)  element.inject_K(K);        
-    //    MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
-    //}
 
 public:
 

@@ -29,8 +29,9 @@ class ContinuumElement
 
   bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
 
-
 public:
+
+  constexpr auto get_geometry() const noexcept { return geometry_; };
 
   constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
   constexpr auto node_p (std::size_t i) const noexcept { return geometry_->node_p(i); };
