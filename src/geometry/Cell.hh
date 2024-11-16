@@ -71,6 +71,16 @@ consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 };
 
 
+//https://stackoverflow.com/questions/71422709/metafunction-to-check-if-all-parameter-pack-arguments-are-the-same
+//template <typename T, typename...U> 
+//using is_all_same = std::integral_constant<bool, (... && std::is_same_v<T,U>)>;
+
+template <std::size_t... n> // TODO: Extract to utilities
+constexpr bool are_equal(){ //check if all n are equal{
+  std::array<std::size_t, sizeof...(n)> arr{n...};
+  return std::all_of(arr.begin(), arr.end(), [&arr](unsigned int i) { return i == arr[0]; });
+};
+
 // CLASS DEFINITION ================================================================================
 
 template <std::size_t... n> // n: Number of nodes per direction.
@@ -92,6 +102,7 @@ public:
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 
   static constexpr unsigned int VTK_cell_type(){
+    
     if constexpr (dim == 1) 
     {
       if      constexpr (dimensions[0] == 2) return VTK_LINE;
@@ -99,7 +110,8 @@ public:
       else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_CURVE; // or could be VTK_HIGHER_ORDER_CURVE
     }
     else if constexpr (dim == 2)
-      if constexpr ((n == ...)) // only supported if nx = ny = nz ...
+      //if constexpr (is_all_same<n...>::value) // only supported if nx = ny = nz ..
+      if constexpr (are_equal<n...>())
       {
         if      constexpr (dimensions[0] == 2) return VTK_QUAD;
         else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_QUAD;
@@ -109,14 +121,15 @@ public:
         return VTK_EMPTY_CELL;
     else if constexpr (dim == 3)
     {
-      if constexpr ((n == ...)) // only supported if nx = ny = nz ...
+      //if constexpr (is_all_same<n...>::value) // only supported if nx = ny = nz ...
+      if constexpr (are_equal<n...>())
       {
         if      constexpr (dimensions[0] == 2) return VTK_HEXAHEDRON;
         else if constexpr (dimensions[0] == 3) return VTK_TRIQUADRATIC_HEXAHEDRON;
         else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_HEXAHEDRON; // or could be VTK_HIGHER_ORDER_HEXAHEDRON 
       }
       else
-        return VTK_EMPTY_CELL;
+        return 123456789;
     } 
     else // Not supported dimension
       return VTK_EMPTY_CELL;
