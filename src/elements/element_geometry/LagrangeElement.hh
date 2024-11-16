@@ -57,6 +57,8 @@ public:
   static inline constexpr std::size_t dim = sizeof...(N);
   static inline constexpr std::size_t num_nodes_ = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
+  
+  static inline constexpr auto VTK_cell_type = reference_element_.VTK_cell_type();
 
   using pNodeArray = std::optional<std::array<Node<dim> *, num_nodes_>>;
 

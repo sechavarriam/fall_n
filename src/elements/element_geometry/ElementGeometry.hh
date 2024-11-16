@@ -33,7 +33,8 @@ namespace impl
         virtual std::unique_ptr<ElementGeometryConcept> clone()    const = 0;    // To allow copy construction of the wrapper
 
     public:
-        constexpr virtual void print_nodes_info() const = 0;
+
+        constexpr virtual unsigned int VTK_cell_type() const = 0;
 
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
@@ -51,23 +52,23 @@ namespace impl
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
         constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
-
     };
-
-    template <typename ElementType, typename IntegrationStrategy> 
-    class NON_OwningModel_ElementGeometry;            // Forward declaration                     
+             
 
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
         using Array = std::array<double, ElementType::dim>;
-        static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
 
+        static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
+        
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
     public:
 
         static constexpr auto dim = ElementType::dim;
+
+        
         
         explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
             element_   (element   ),
@@ -80,26 +81,22 @@ namespace impl
         std::unique_ptr<ElementGeometryConcept<dim>> clone() const override{
             return std::make_unique<OwningModel_ElementGeometry<ElementType, IntegrationStrategy>>(*this);
         };
+
     public: // Implementation of the virtual operations derived from ElementGeometryConcept
 
-        constexpr void print_nodes_info() const override { element_.print_nodes_info(); };
+        constexpr unsigned int VTK_cell_type() const override { return ElementType::VTK_cell_type; };
 
-        constexpr std::size_t num_nodes() const override { return element_.num_nodes(); };
-        constexpr std::size_t id()        const override { return element_.id(); };
-
-        constexpr PetscInt   node  (std::size_t i) const override { return element_.node(i)  ;}; // renombrar como node_idx
-        constexpr Node<dim>& node_p(std::size_t i) const override { return element_.node_p(i);};
+        constexpr std::size_t num_nodes()           const override { return element_.num_nodes(); };
+        constexpr std::size_t id()                  const override { return element_.id(); };
+        constexpr PetscInt    node  (std::size_t i) const override { return element_.node(i)  ;}; // renombrar como node_idx
+        constexpr Node<dim>&  node_p(std::size_t i) const override { return element_.node_p(i);};
 
         constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_.bind_node(i, node); };
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
-        constexpr double H(std::size_t i, const Array& X) const override {
-             return element_.H(i, X); 
-             };
-        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {
-             return element_.dH_dx(i, j, X); 
-             };
+        constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
+        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
 
         constexpr double integrate (std::function<double(Array)>&& f) const override {
             return integrator_(element_,std::forward<std::function<double(Array)>>(f));
@@ -112,18 +109,15 @@ namespace impl
         Matrix integrate (std::function<Matrix(Array)>&& f) const override {
             return integrator_(element_,std::forward<std::function<Matrix(Array)>>(f));
         };
-
     };
-
 } // impl
-
 
 template<std::size_t dim>
 class ElementGeometry
 {
     using Array = std::array<double, dim>;
-    
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
+
 
 public:
 
@@ -131,13 +125,13 @@ public:
 
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
+    constexpr unsigned int VTK_cell_type() const { return pimpl_->VTK_cell_type(); };
+
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr PetscInt   node  (std::size_t i) const { return pimpl_->node(i); };
     constexpr Node<dim>& node_p(std::size_t i) const { return pimpl_->node_p(i); };
-
-    
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
@@ -151,7 +145,6 @@ public:
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
 
     void set_sieve_id(PetscInt id){sieve_id = id;};
-
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
