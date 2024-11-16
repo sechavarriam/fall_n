@@ -150,9 +150,9 @@ int main(int argc, char **args)
 
         view.load_domain(M.get_domain());
 
-        for(auto &e : M.elements_){
-            std::cout << "VTK Cell Type: " << e.get_geometry()->VTK_cell_type() << std::endl;
-        }
+        //for(auto &e : M.elements_){
+        //    std::cout << "VTK Cell Type: " << e.get_geometry()->VTK_cell_type() << std::endl;
+        //}
 
 
 

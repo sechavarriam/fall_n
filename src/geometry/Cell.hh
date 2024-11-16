@@ -76,7 +76,7 @@ consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 //using is_all_same = std::integral_constant<bool, (... && std::is_same_v<T,U>)>;
 
 template <std::size_t... n> // TODO: Extract to utilities
-constexpr bool are_equal(){ //check if all n are equal{
+consteval bool are_equal(){ //check if all n are equal{
   std::array<std::size_t, sizeof...(n)> arr{n...};
   return std::all_of(arr.begin(), arr.end(), [&arr](unsigned int i) { return i == arr[0]; });
 };
@@ -102,37 +102,28 @@ public:
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 
   static constexpr unsigned int VTK_cell_type(){
-    
-    if constexpr (dim == 1) 
-    {
+    if constexpr (dim == 1) {
       if      constexpr (dimensions[0] == 2) return VTK_LINE;
       else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_EDGE;
       else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_CURVE; // or could be VTK_HIGHER_ORDER_CURVE
     }
     else if constexpr (dim == 2)
-      //if constexpr (is_all_same<n...>::value) // only supported if nx = ny = nz ..
-      if constexpr (are_equal<n...>())
-      {
+      if constexpr (are_equal<n...>()){
         if      constexpr (dimensions[0] == 2) return VTK_QUAD;
         else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_QUAD;
         else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_QUADRILATERAL; // or could be VTK_HIGHER_ORDER_QUADRILATERAL 
       }
-      else
-        return VTK_EMPTY_CELL;
-    else if constexpr (dim == 3)
-    {
-      //if constexpr (is_all_same<n...>::value) // only supported if nx = ny = nz ...
+      else return VTK_EMPTY_CELL;
+    else if constexpr (dim == 3){
       if constexpr (are_equal<n...>())
       {
         if      constexpr (dimensions[0] == 2) return VTK_HEXAHEDRON;
         else if constexpr (dimensions[0] == 3) return VTK_TRIQUADRATIC_HEXAHEDRON;
         else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_HEXAHEDRON; // or could be VTK_HIGHER_ORDER_HEXAHEDRON 
       }
-      else
-        return 123456789;
+      else return VTK_EMPTY_CELL;
     } 
-    else // Not supported dimension
-      return VTK_EMPTY_CELL;
+    else return VTK_EMPTY_CELL; // unsupported dimension
   }
 
   // Constructor

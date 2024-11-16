@@ -118,7 +118,6 @@ class ElementGeometry
     using Array = std::array<double, dim>;
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
-
 public:
 
     std::optional<PetscInt> sieve_id;                     // Optional sieve id for the element inside DMPlex Mesh
@@ -147,8 +146,7 @@ public:
     void set_sieve_id(PetscInt id){sieve_id = id;};
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
-    constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator)
-    {
+    constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator){
         using Model = impl::OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
         pimpl_ = std::make_unique<Model>(
             std::move(element),     // forward perhaphs?=
