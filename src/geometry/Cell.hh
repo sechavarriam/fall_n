@@ -11,6 +11,10 @@
 #include <ranges>
 #include <tuple>
 
+
+#include <vtkCellType.h>
+
+
 #include "Point.hh"
 #include "Topology.hh"
 
@@ -72,6 +76,8 @@ consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 template <std::size_t... n> // n: Number of nodes per direction.
 class LagrangianCell {
 
+  static constexpr auto dimensions = std::array{n...};
+
   static constexpr std::size_t dim    {sizeof...(n)};
   static constexpr std::size_t num_nodes_{(n*...)};
 
@@ -85,7 +91,52 @@ public:
   
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 
-  static constexpr void print_node_coords() noexcept
+  static constexpr unsigned int VTK_cell_type(){
+    if constexpr (dim == 1) 
+    {
+      if      constexpr (dimensions[0] == 2) return VTK_LINE;
+      else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_EDGE;
+      else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_CURVE; // or could be VTK_HIGHER_ORDER_CURVE
+    }
+    else if constexpr (dim == 2)
+      if constexpr ((n == ...)) // only supported if nx = ny = nz ...
+      {
+        if      constexpr (dimensions[0] == 2) return VTK_QUAD;
+        else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_QUAD;
+        else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_QUADRILATERAL; // or could be VTK_HIGHER_ORDER_QUADRILATERAL 
+      }
+      else
+        return VTK_EMPTY_CELL;
+    else if constexpr (dim == 3)
+    {
+      if constexpr ((n == ...)) // only supported if nx = ny = nz ...
+      {
+        if      constexpr (dimensions[0] == 2) return VTK_HEXAHEDRON;
+        else if constexpr (dimensions[0] == 3) return VTK_TRIQUADRATIC_HEXAHEDRON;
+        else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_HEXAHEDRON; // or could be VTK_HIGHER_ORDER_HEXAHEDRON 
+      }
+      else
+        return VTK_EMPTY_CELL;
+    } 
+    else // Not supported dimension
+      return VTK_EMPTY_CELL;
+  }
+
+  // Constructor
+  consteval LagrangianCell() = default;
+
+  constexpr ~LagrangianCell() = default;
+};
+
+
+// ==================================================================================================
+
+
+
+
+//template <std::size_t... n> 
+//class LagrangianCell {
+  /*static constexpr void print_node_coords() noexcept
   {
     for (auto node : reference_nodes){
       for (auto j: node.coord()){
@@ -93,14 +144,9 @@ public:
       };
       printf("\n");
     }
-  };
+  };*/
 
-  // Constructor
-  consteval LagrangianCell() = default;
-    
-  constexpr ~LagrangianCell(){};
-};
-// ==================================================================================================
+
 
 } // namespace geometry::cell
 

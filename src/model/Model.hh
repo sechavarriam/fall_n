@@ -52,6 +52,8 @@ private:
     //std::size_t dofsXnode{ndofs}; // Esto es necesario???? No creo.
     //std::size_t num_dofs_{0}; // Total number of dofs in the model.
 public:
+
+    Domain<dim>& get_domain(){return *domain_;};
       
     
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
@@ -110,7 +112,6 @@ public:
         PetscSectionSetConstraintIndices(dof_section, plex_id, std::array{dofs_to_constrain...}.data());
         PetscSectionSetUp(dof_section);
         //for (auto dof : {dofs_to_constrain...}) node.fix_dof(dof);
-
     }
 
     void fix_node(std::size_t node_idx)
@@ -121,7 +122,6 @@ public:
         
         PetscSectionSetConstraintDof(dof_section, plex_id, num_dofs);
         PetscSectionSetUp(dof_section);
-
     }
 
     // Apply forces to nodes

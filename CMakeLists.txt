@@ -51,6 +51,7 @@ find_package(VTK COMPONENTS
   CommonColor
   CommonCore
   CommonDataModel
+  IOXML
   FiltersGeneral
   FiltersSources
   InteractionStyle

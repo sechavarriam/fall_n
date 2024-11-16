@@ -12,8 +12,7 @@
 #include "../geometry/Point.hh"
 
 template<std::size_t Dim>//, ushort nDoF=Dim> 
-class Node : public geometry::Point<Dim>{
- 
+class Node : public geometry::Point<Dim>{ 
  using DoF_Interface = domain::DoF_Interface;
  
     std::size_t id_{}     ;
@@ -22,6 +21,8 @@ class Node : public geometry::Point<Dim>{
     DoF_Interface dof_;
     
   public:
+
+    static constexpr std::size_t dim = Dim;
 
     std::optional<PetscInt> sieve_id; // Optional sieve id for the node (vertex) inside DMPlex Mesh
 

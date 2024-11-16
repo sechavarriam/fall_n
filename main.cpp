@@ -80,6 +80,9 @@
 #include "src/domain/IntegrationPoint.hh"
 
 #include "src/post-processing/VTK/VTKheaders.hh"
+#include "src/post-processing/VTK/VTKwriter.hh"
+
+
 // #include <matplot/matplot.h>
 
 #include <petsc.h>
@@ -143,54 +146,12 @@ int main(int argc, char **args)
 
         analisis_obj.solve();
 
-        //M.fix_node_dofs(0, 0,2);
-        ////////M.solve();
+        VTKwriterHDF5 view{"data/output/VTKtest.hdf5"};
 
-        // INTENT:
-        // Material mat(base_material, stress_update_strategy);
-        // e.g.
+        view.load_domain(M.get_domain());
 
-        // Material mat(steel3D, ElasticUpdateStrategy::Linear{});
-        // Material mat(steel1D, ElasticUpdateStrategy::Linear{});
 
-        // Material mat(steel3D, InelasticUpdateStrategy::ReturnMapping);
-        // Material mat(steel3D, InelasticUpdateStrategy::FullImplicitBackwardEuler);
-        // Material mat(steel3D, InelasticUpdateStrategy::SemiImplicitBackwardEuler);
-        // Material mat(steel3D, InelasticUpdateStrategy::RateTanget);
-        // Material mat(steel3D, InelasticUpdateStrategy::IncrementallyObjective);
-        
-        vtkNew<vtkNamedColors>            colors;
-        vtkNew<vtkCylinderSource>         cylinder;
-        vtkNew<vtkPolyDataMapper>         cylinderMapper;
-        vtkNew<vtkActor>                  cylinderActor;
-        vtkNew<vtkRenderer>               renderer;
-        vtkNew<vtkRenderWindow>           renderWindow;
-        vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
 
-        std::array<unsigned char, 4> bkg{{26, 51, 102, 255}}; // Set the background color.
-        colors->SetColor("BkgColor", bkg.data());
-
-        cylinder->SetResolution(8);
-        cylinderMapper->SetInputConnection(cylinder->GetOutputPort());
-        
-        cylinderActor->SetMapper(cylinderMapper);
-        cylinderActor->GetProperty()->SetColor(colors->GetColor4d("Tomato").GetData());
-        cylinderActor->RotateX(30.0);
-        cylinderActor->RotateY(-45.0);
-
-        renderer->AddActor(cylinderActor);
-        renderer->SetBackground(colors->GetColor3d("BkgColor").GetData());
-
-        renderer->ResetCamera();
-        renderer->GetActiveCamera()->Zoom(1.5);
-
-        renderWindow->SetSize(300, 300);
-        renderWindow->AddRenderer(renderer);
-        renderWindow->SetWindowName("Cylinder");
-        
-        //enderWindowInteractor->SetRenderWindow(renderWindow);
-        //enderWindow->Render();
-        //enderWindowInteractor->Start();
 
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
