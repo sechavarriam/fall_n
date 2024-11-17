@@ -43,7 +43,6 @@ template <std::size_t... N>
   requires(topology::EmbeddableInSpace<sizeof...(N)>)
 class LagrangeElement
 {
-
   template <typename T>
   friend struct LagrangeConceptTester;
   static inline constexpr bool _is_LagrangeElement() { return true; };
@@ -67,8 +66,22 @@ public:
 
   std::array<PetscInt, num_nodes_> nodes_;
 
+
 public:
+  
+  static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
+  static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
+  
+  std::span<PetscInt> get_VTK_ordered_node_ids() const noexcept { //Check if its ordered and if the VTK_node_ordering is correctly set.
+    
+    std::array<PetscInt, num_nodes_> ordered_nodes{0}; 
+    for (std::size_t i = 0; i < num_nodes_; ++i) ordered_nodes[i] = node(get_VTK_node_ordering()[i]);
+    
+    return std::span<PetscInt>(ordered_nodes);
+};
+
   static constexpr auto num_nodes() noexcept { return num_nodes_; };
+
 
   auto id() const noexcept { return tag_; };
 
@@ -128,35 +141,9 @@ public:
   auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  double detJ(const geometry::Point<dim> &X) const noexcept { return utils::det(evaluate_jacobian(X)); };
-  double detJ(std::array<double, dim> &&X) const noexcept { return utils::det(evaluate_jacobian(X)); };
-  double detJ(const std::array<double, dim> &X) const noexcept { return utils::det(evaluate_jacobian(X)); };
-
-  // TODO: Refactor with std::format
-  void print_node_coords() noexcept
-  {
-    for (auto node : nodes_p)
-    {
-      for (auto coord : node->coord())
-      {
-        printf("%f ", coord);
-      };
-      printf("\n");
-    };
-  };
-
-  constexpr void print_nodes_info() const noexcept
-  {
-    for (auto node : nodes_p.value())
-    {
-      std::cout << "Node ID: " << node->id() << " ";
-      for (std::size_t x = 0; x < dim; ++x)
-      {
-        printf("%f ", node->coord(x));
-      }
-      printf("\n");
-    }
-  };
+  double detJ(const     geometry::Point<dim> &X) const noexcept { return utils::det(evaluate_jacobian(X)); };
+  double detJ(      std::array<double, dim> &&X) const noexcept { return utils::det(evaluate_jacobian(X)); };
+  double detJ(const std::array<double, dim>  &X) const noexcept { return utils::det(evaluate_jacobian(X)); };
 
   // Constructor
   constexpr LagrangeElement() = default;
@@ -176,22 +163,14 @@ public:
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
   };
 
-  // constexpr LagrangeElement(std::size_t& tag, std::ranges::range auto& node_references) : tag_{tag}{
-  //   std::copy(node_references.begin(), node_references.end(), nodes_p.begin());
-  // };
-
-  // constexpr LagrangeElement(std::size_t&& tag, std::ranges::range auto&& node_references) : tag_{tag}{
-  //   std::move(node_references.begin(), node_references.end(), nodes_p.begin());
-  // };
 
   // Copy and Move Constructors and Assignment Operators
-  constexpr LagrangeElement(const LagrangeElement &other) : tag_{other.tag_},
+  constexpr LagrangeElement(const LagrangeElement &other) : tag_   {other.tag_   },
                                                             nodes_p{other.nodes_p} {};
 
   constexpr LagrangeElement(LagrangeElement &&other) = default;
 
-  constexpr LagrangeElement &operator=(const LagrangeElement &other)
-  {
+  constexpr LagrangeElement &operator=(const LagrangeElement &other){
     tag_ = other.tag_;
     nodes_p = other.nodes_p;
     return *this;
@@ -225,9 +204,6 @@ public:
                          // return element.detJ(x) * f(x);
                        });
   };
-
-  // constructors
-  // copy and move constructors and assignment operators
 
   constexpr GaussLegendreCellIntegrator() noexcept = default;
   constexpr ~GaussLegendreCellIntegrator() noexcept = default;

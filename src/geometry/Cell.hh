@@ -115,8 +115,7 @@ public:
       }
       else return VTK_EMPTY_CELL;
     else if constexpr (dim == 3){
-      if constexpr (are_equal<n...>())
-      {
+      if constexpr (are_equal<n...>()){
         if      constexpr (dimensions[0] == 2) return VTK_HEXAHEDRON;
         else if constexpr (dimensions[0] == 3) return VTK_TRIQUADRATIC_HEXAHEDRON;
         else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_HEXAHEDRON; // or could be VTK_HIGHER_ORDER_HEXAHEDRON 
@@ -126,9 +125,34 @@ public:
     else return VTK_EMPTY_CELL; // unsupported dimension
   }
 
+  static constexpr std::array<std::size_t, num_nodes_> VTK_node_ordering()
+  {
+    using Array = std::array<std::size_t, num_nodes_>;
+    if constexpr (dim == 1) {
+      if      constexpr (dimensions[0] == 2) return Array{0, 1};
+      else if constexpr (dimensions[0] == 3) return Array{0, 2, 1};
+      else if constexpr (dimensions[0]  > 3) return Array{0};
+    }
+    else if constexpr (dim == 2)
+      if constexpr (are_equal<n...>()){
+        if      constexpr (dimensions[0] == 2) return Array{0, 1, 3, 2};
+        else if constexpr (dimensions[0] == 3) return Array{0, 1, 3, 2, 4, 5, 7, 6};
+        else if constexpr (dimensions[0]  > 3) return Array{0};
+      }
+      else return Array{0};
+    else if constexpr (dim == 3){
+      if constexpr (are_equal<n...>()){
+        if      constexpr (dimensions[0] == 2) return Array{0, 1, 3, 2, 4, 5, 7, 6};
+        else if constexpr (dimensions[0] == 3) return Array{0, 9, 1, 8, 24, 10, 3, 11, 2, 17, 22, 18, 21, 26, 23, 16, 20, 19, 4, 13, 5, 12, 25, 14, 7, 15, 6};
+        else if constexpr (dimensions[0]  > 3) return Array{0};
+      }
+      else return Array{0};
+    }
+    else return Array{0}; // unsupported dimension    
+  };
+
   // Constructor
   consteval LagrangianCell() = default;
-
   constexpr ~LagrangianCell() = default;
 };
 

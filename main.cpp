@@ -146,9 +146,10 @@ int main(int argc, char **args)
 
         analisis_obj.solve();
 
-        VTKwriterHDF5 view{"data/output/VTKtest.hdf5"};
+        VTKDataContainer view;
 
         view.load_domain(M.get_domain());
+
 
         //for(auto &e : M.elements_){
         //    std::cout << "VTK Cell Type: " << e.get_geometry()->VTK_cell_type() << std::endl;
