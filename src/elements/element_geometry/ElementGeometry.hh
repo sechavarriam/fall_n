@@ -13,11 +13,14 @@
 #include <span>
 #include <ranges>
 
+#include <vtkType.h>
+
 #include "../Node.hh"
 
 
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
+
 
 
 namespace impl
@@ -36,7 +39,7 @@ namespace impl
 
         constexpr virtual unsigned int VTK_cell_type() const = 0;
 
-        constexpr virtual std::span<PetscInt> VTK_ordered_node_ids() const = 0;
+        constexpr virtual std::span<vtkIdType> VTK_ordered_node_ids() const = 0;
 
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
@@ -88,7 +91,7 @@ namespace impl
 
         constexpr unsigned int VTK_cell_type() const override { return ElementType::VTK_cell_type; };
 
-        constexpr std::span<PetscInt> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
+        constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
 
         constexpr std::size_t num_nodes()           const override { return element_.num_nodes(); };
         constexpr std::size_t id()                  const override { return element_.id(); };
@@ -129,7 +132,7 @@ public:
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
     constexpr unsigned int VTK_cell_type() const { return pimpl_->VTK_cell_type(); };
-    constexpr std::span<PetscInt> VTK_ordered_node_ids() const { return pimpl_->VTK_ordered_node_ids(); };
+    constexpr std::span<vtkIdType> VTK_ordered_node_ids() const { return pimpl_->VTK_ordered_node_ids(); };
 
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };

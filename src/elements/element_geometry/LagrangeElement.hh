@@ -14,6 +14,8 @@
 #include <ranges>
 #include <span>
 
+#include <vtkType.h>
+
 #include "../Node.hh"
 
 #include "../../geometry/Topology.hh"
@@ -72,12 +74,12 @@ public:
   static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
   static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
   
-  std::span<PetscInt> get_VTK_ordered_node_ids() const noexcept { //Check if its ordered and if the VTK_node_ordering is correctly set.
+  std::span<vtkIdType > get_VTK_ordered_node_ids() const noexcept { //Check if its ordered and if the VTK_node_ordering is correctly set.
     
-    std::array<PetscInt, num_nodes_> ordered_nodes{0}; 
-    for (std::size_t i = 0; i < num_nodes_; ++i) ordered_nodes[i] = node(get_VTK_node_ordering()[i]);
+    std::array<vtkIdType , num_nodes_> ordered_nodes{0}; 
+    for (std::size_t i = 0; i < num_nodes_; ++i) ordered_nodes[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i]));
     
-    return std::span<PetscInt>(ordered_nodes);
+    return std::span<vtkIdType>(ordered_nodes);
 };
 
   static constexpr auto num_nodes() noexcept { return num_nodes_; };
