@@ -20,6 +20,8 @@ class VTKDataContainer
 public:
     
     void load_domain(auto& domain) const {
+
+        vtkNew<vtkIdList> aux_cell_point_ids;
     
         vtk_points->SetNumberOfPoints(domain.num_nodes());
         vtk_grid->Allocate(domain.num_elements());
@@ -38,21 +40,13 @@ public:
 
         for(auto& element : domain.elements()){
 
-            // print nodes id
-            std::cout << "Element nodes: -------------------------------------------" << std::endl;
-            for (std::size_t i = 0; i < element.num_nodes(); i++){
-                std::cout << element.node(i) << " ";
-            }
-            std::cout << std::endl;
+            aux_cell_point_ids->SetNumberOfIds(element.num_nodes());
+            aux_cell_point_ids->SetArray(element.VTK_ordered_node_ids().data(), element.num_nodes());
 
-            // print VTK ordered nodes id
-            for (std::size_t i = 0; i < element.VTK_ordered_node_ids().size(); i++){
-                std::cout << element.VTK_ordered_node_ids()[i] << " ";
-            }
-            std::cout << std::endl;
-            std::cout << "-------------------------------------------" << std::endl;
+            vtk_grid->InsertNextCell(element.VTK_cell_type(), aux_cell_point_ids;);
 
-            //vtk_grid->InsertNextCell(element.VTK_cell_type(), /*vtkNodesMapID*/)
+            aux_cell_point_ids->Reset();
+            
         }
 
 
