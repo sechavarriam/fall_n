@@ -71,27 +71,23 @@ public:
 
 public:
 
-  static constexpr auto num_nodes() noexcept { return num_nodes_; };
-
-  static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
+  static constexpr auto num_nodes()             noexcept { return num_nodes_; };
+  static constexpr auto get_VTK_cell_type()     noexcept { return VTK_cell_type; };
   static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
   
   void set_VTK_node_order() noexcept {
-    for (std::size_t i = 0; i < num_nodes_; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i]));
+    for (std::size_t i = 0; i < num_nodes_; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i])) ;
   };
 
-  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept { //Check if its ordered and if the VTK_node_ordering is correctly set.
-    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes_);
+  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept { //TODO: check if its ordered and if the VTK_node_ordering is correctly set.
+    return std::span<vtkIdType>(const_cast<vtkIdType*>(vtk_nodes_.data()), num_nodes_);
   };
 
 
   auto id() const noexcept { return tag_; };
 
-  
-
   PetscInt node(std::size_t i) const noexcept { return nodes_[i]; };
-  
-  
+    
   std::span<PetscInt> nodes() const noexcept { return std::span<PetscInt>(nodes_); };
 
   Node<dim>& node_p(std::size_t i) const noexcept{
@@ -153,14 +149,16 @@ public:
   constexpr LagrangeElement() = default;
   constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)} 
   {
+    //std::cout << "node pointer constructor" << std::endl;
     set_VTK_node_order();
   };
 
-  constexpr LagrangeElement(std::size_t &tag, std::ranges::range auto &node_ids)
+  constexpr LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)
     requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
       : tag_{tag}
   {
     std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
+    //std::cout << "copy index range constructor" << std::endl;
     set_VTK_node_order();
   };
 
@@ -169,6 +167,7 @@ public:
       : tag_{tag}
   {
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
+    //std::cout << "move index range constructor" << std::endl;
     set_VTK_node_order();
   };
 

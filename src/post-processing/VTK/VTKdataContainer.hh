@@ -16,7 +16,6 @@ class VTKDataContainer
 public:
     void load_domain(auto &domain) const
     {
-
         vtk_points->SetNumberOfPoints(domain.num_nodes());
         vtk_grid->Allocate(domain.num_elements());
 
@@ -28,11 +27,9 @@ public:
             //    vtk_points->SetPoint(i, node->coord(Is)...);
             //}(std::make_index_sequence<std::remove_pointer_t<decltype(node)>::dim>{});
 
-            vtk_points->SetPoint(i, node->coord(0), node->coord(1), node->coord(2));
+            vtk_points->SetPoint(node->id(), node->coord(0), node->coord(1), node->coord(2));
         }
-
         vtk_grid->SetPoints(vtk_points);
-
 
         for (auto &element : domain.elements())
         {
@@ -40,19 +37,19 @@ public:
             vtk_grid->InsertNextCell(element.VTK_cell_type(), static_cast<vtkIdType>(element.num_nodes()), ids);
         }
 
+
         vtkNew<vtkXMLUnstructuredGridWriter> writer;
         writer->SetFileName("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
         writer->SetInputData(vtk_grid);
         
-        writer->SetDataModeToAscii();
+        //writer->SetDataModeToAscii();
         //writer->Update();
         
         writer->Write(); 
 
         /*
-
         vtkNew<vtkXMLUnstructuredGridReader> reader;
-        reader->SetFileName("data/output/structure.vtu");
+        reader->SetFileName("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
         reader->Update();
 
         vtkNew<vtkDataSetMapper> mapper;
@@ -75,10 +72,8 @@ public:
 
         renderWindow->Render();
         renderWindowInteractor->Start();
+    */
 
-        */
-
-        // VTK cells
     }
 
 public:

@@ -143,7 +143,7 @@ public:
     else if constexpr (dim == 3){
       if constexpr (are_equal<n...>()){
         if      constexpr (dimensions[0] == 2) return Array{0, 1, 3, 2, 4, 5, 7, 6};
-        else if constexpr (dimensions[0] == 3) return Array{0, 9, 1, 8, 24, 10, 3, 11, 2, 17, 22, 18, 21, 26, 23, 16, 20, 19, 4, 13, 5, 12, 25, 14, 7, 15, 6};
+        else if constexpr (dimensions[0] == 3) return Array{0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23 ,25 ,21 ,9 ,11, 17, 15, 12, 14, 10, 16, 4, 22, 13};
         else if constexpr (dimensions[0]  > 3) return Array{0};
       }
       else return Array{0};
@@ -158,23 +158,6 @@ public:
 
 
 // ==================================================================================================
-
-
-
-
-//template <std::size_t... n> 
-//class LagrangianCell {
-  /*static constexpr void print_node_coords() noexcept
-  {
-    for (auto node : reference_nodes){
-      for (auto j: node.coord()){
-        std::cout << j << " ";
-      };
-      printf("\n");
-    }
-  };*/
-
-
 
 } // namespace geometry::cell
 

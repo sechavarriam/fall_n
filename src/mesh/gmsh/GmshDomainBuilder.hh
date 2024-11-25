@@ -43,7 +43,7 @@ public:
                 node_addresses_.push_back( // Stores the address of the node created.
                     domain_->add_node(     // Create Node in the domain
                         Node<3>(
-                            std::move(block.nodeTag[node]),
+                            block.nodeTag[node], //Index correction to start numbering in zero
                             std::move(block.coordinates[node][0]),
                             std::move(block.coordinates[node][1]),
                             std::move(block.coordinates[node][2]))));
@@ -99,14 +99,16 @@ public:
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),
                             std::size_t(element_tag),
+                            //std::array{
+                            //    PetscInt(node_tags[0]), PetscInt(node_tags[1]), PetscInt(node_tags[3]), PetscInt(node_tags[2]),
+                            //    PetscInt(node_tags[4]), PetscInt(node_tags[5]), PetscInt(node_tags[7]), PetscInt(node_tags[6])
+                            //}.data()
                             std::array{
-                                PetscInt(node_tags[0]), PetscInt(node_tags[1]), PetscInt(node_tags[4]), PetscInt(node_tags[5]),
-                                PetscInt(node_tags[3]), PetscInt(node_tags[2]), PetscInt(node_tags[7]), PetscInt(node_tags[6])
+                                PetscInt(node_tags[0]), PetscInt(node_tags[1]), 
+                                PetscInt(node_tags[4]), PetscInt(node_tags[5]),  //-----
+                                PetscInt(node_tags[3]), PetscInt(node_tags[2]), 
+                                PetscInt(node_tags[7]), PetscInt(node_tags[6])
                             }.data()
-                            //{
-                            //    elem_nodes[0], elem_nodes[1], elem_nodes[4], elem_nodes[5],
-                            //    elem_nodes[3], elem_nodes[2], elem_nodes[7], elem_nodes[6]
-                            //}
                           );
                         break;
                         }
@@ -117,20 +119,21 @@ public:
                         domain_->make_element<LagrangeElement<3,3,3>, decltype(integrator)>(
                             std::move(integrator),
                             std::size_t(element_tag),
-                            //{
-                            //    elem_nodes[ 5], elem_nodes[13], elem_nodes[ 4], elem_nodes[14], elem_nodes[21], elem_nodes[12], elem_nodes[ 1], elem_nodes[ 8], elem_nodes[ 0],
-                            //    elem_nodes[19], elem_nodes[25], elem_nodes[15], elem_nodes[24], elem_nodes[26], elem_nodes[22], elem_nodes[11], elem_nodes[20], elem_nodes[ 9],
-                            //    elem_nodes[ 7], elem_nodes[17], elem_nodes[ 6], elem_nodes[18], elem_nodes[23], elem_nodes[16], elem_nodes[ 3], elem_nodes[10], elem_nodes[ 2]
-                            //}
-                            std::array{
-                                PetscInt(node_tags[ 5]), PetscInt(node_tags[13]), PetscInt(node_tags[ 4]), PetscInt(node_tags[14]), PetscInt(node_tags[21]), PetscInt(node_tags[12]), PetscInt(node_tags[ 1]), PetscInt(node_tags[ 8]), PetscInt(node_tags[ 0]),
-                                PetscInt(node_tags[19]), PetscInt(node_tags[25]), PetscInt(node_tags[15]), PetscInt(node_tags[24]), PetscInt(node_tags[26]), PetscInt(node_tags[22]), PetscInt(node_tags[11]), PetscInt(node_tags[20]), PetscInt(node_tags[ 9]),
-                                PetscInt(node_tags[ 7]), PetscInt(node_tags[17]), PetscInt(node_tags[ 6]), PetscInt(node_tags[18]), PetscInt(node_tags[23]), PetscInt(node_tags[16]), PetscInt(node_tags[ 3]), PetscInt(node_tags[10]), PetscInt(node_tags[ 2])
+                            std::array{ //Esta numeración me garantiza un orden incremental en X,Y y Z para la numeración de los nodos.
+                                PetscInt(node_tags[ 2]), PetscInt(node_tags[14]), PetscInt(node_tags[ 6]), 
+                                PetscInt(node_tags[13]), PetscInt(node_tags[24]), PetscInt(node_tags[19]), 
+                                PetscInt(node_tags[ 3]), PetscInt(node_tags[15]), PetscInt(node_tags[ 7]), //-----
+                                PetscInt(node_tags[11]), PetscInt(node_tags[23]), PetscInt(node_tags[18]), 
+                                PetscInt(node_tags[20]), PetscInt(node_tags[26]), PetscInt(node_tags[25]), 
+                                PetscInt(node_tags[ 9]), PetscInt(node_tags[22]), PetscInt(node_tags[17]), //-----
+                                PetscInt(node_tags[ 1]), PetscInt(node_tags[12]), PetscInt(node_tags[ 5]), 
+                                PetscInt(node_tags[ 8]), PetscInt(node_tags[21]), PetscInt(node_tags[16]), 
+                                PetscInt(node_tags[ 0]), PetscInt(node_tags[10]), PetscInt(node_tags[ 4])
                             }.data()
-                            //std::array{
-                            //    node_tags[ 5], node_tags[13], node_tags[ 4], node_tags[14], node_tags[21], node_tags[12], node_tags[ 1], node_tags[ 8], node_tags[ 0],
-                            //    node_tags[19], node_tags[25], node_tags[15], node_tags[24], node_tags[26], node_tags[22], node_tags[11], node_tags[20], node_tags[ 9],
-                            //    node_tags[ 7], node_tags[17], node_tags[ 6], node_tags[18], node_tags[23], node_tags[16], node_tags[ 3], node_tags[10], node_tags[ 2]
+                            //std::array{ //documentación gmsh
+                            //    PetscInt(node_tags[ 0]), PetscInt(node_tags[ 8]), PetscInt(node_tags[ 1]), PetscInt(node_tags[ 9]), PetscInt(node_tags[20]), PetscInt(node_tags[11]), PetscInt(node_tags[ 3]), PetscInt(node_tags[13]), PetscInt(node_tags[ 2]),
+                            //    PetscInt(node_tags[10]), PetscInt(node_tags[21]), PetscInt(node_tags[12]), PetscInt(node_tags[22]), PetscInt(node_tags[26]), PetscInt(node_tags[23]), PetscInt(node_tags[15]), PetscInt(node_tags[24]), PetscInt(node_tags[14]),
+                            //    PetscInt(node_tags[ 4]), PetscInt(node_tags[16]), PetscInt(node_tags[ 5]), PetscInt(node_tags[17]), PetscInt(node_tags[25]), PetscInt(node_tags[18]), PetscInt(node_tags[ 7]), PetscInt(node_tags[19]), PetscInt(node_tags[ 6])
                             //}.data()
                           );
                         break;
