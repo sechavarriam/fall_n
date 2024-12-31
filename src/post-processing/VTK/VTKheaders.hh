@@ -1,6 +1,7 @@
 #ifndef VTKHEADERS_HH
 #define VTKHEADERS_HH
 
+
 #include <vtkNew.h>
 #include <vtkActor.h>
 #include <vtkActor2D.h>

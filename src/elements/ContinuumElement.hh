@@ -71,7 +71,7 @@ public:
       static std::size_t call{0}; //Esto tiene que ser una muy mala practica.
       static std::size_t N = num_integration_points();
         if (is_multimaterial_){ // TODO: Cheks...
-          //std::cout << "Call: " << call%N << std::endl; //TODO:: Reset call when N is reached.
+          //std::cout` << "Call: " << call%N << std::endl; //TODO:: Reset call when N is reached.
           return material_points_[(call++)%N].C();
         }else{
           return material_points_[0].C();
@@ -98,7 +98,7 @@ public:
   // ==============================================================================================
   // ==============================================================================================
 
-  void inject_K([[maybe_unused]]PETScMatrix& model_K){ // No se pasa K sino el modelo_?
+  void inject_K([[maybe_unused]]PETScMatrix& model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
       // Inject (BUILD ) K into global stiffness matrix
       std::vector<PetscInt> idxs;
       
@@ -108,6 +108,7 @@ public:
         }
       }
       MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
+      //MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 
 
