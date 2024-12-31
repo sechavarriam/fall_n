@@ -44,6 +44,9 @@ public:
     Mesh(){
         DMCreate(PETSC_COMM_WORLD, &dm);
         DMSetType(dm, DMPLEX);
+       
+        DMSetBasicAdjacency(dm, PETSC_FALSE, PETSC_TRUE); //https://petsc.org/release/manualpages/DM/DMSetBasicAdjacency/
+
         //DMViewFromOptions(dm, NULL, "-dm_view");
         //DMSetFromOptions(dm);
         //DMSetUp(dm);

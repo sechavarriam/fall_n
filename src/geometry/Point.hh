@@ -38,8 +38,6 @@ namespace geometry {
       constexpr Point(){}; 
 
       inline constexpr Point(std::array<double,dim> coord_array) : coord_{coord_array}{}; 
-
-      //inline constexpr Point(std::array<double,dim>&& coord_array) : coord_{std::forward<std::array<double,dim>>(coord_array)}{}; 
  
       template<std::floating_point... Args> // Giving error with this constructor.
       inline constexpr Point(Args&&... args) : coord_{std::forward<Args>(args)...}{}

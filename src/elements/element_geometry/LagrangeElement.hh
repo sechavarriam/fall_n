@@ -67,16 +67,17 @@ public:
   pNodeArray nodes_p;
 
   std::array<PetscInt , num_nodes_> nodes_;
-  std::array<vtkIdType, num_nodes_> vtk_nodes_{0};
+  std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
 
 public:
-
   static constexpr auto num_nodes()             noexcept { return num_nodes_; };
   static constexpr auto get_VTK_cell_type()     noexcept { return VTK_cell_type; };
   static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
   
-  void set_VTK_node_order() noexcept {
-    for (std::size_t i = 0; i < num_nodes_; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i])) ;
+  void set_VTK_node_order() noexcept {//std::cout << "Setting VTK node order for element " << tag_ << std::endl;
+    for (std::size_t i = 0; i < num_nodes_; ++i){
+      vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i])) ;//std::cout << vtk_nodes_[i] << " ";
+      }//std::cout << std::endl;
   };
 
   std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept { //TODO: check if its ordered and if the VTK_node_ordering is correctly set.

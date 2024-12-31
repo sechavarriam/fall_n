@@ -26,18 +26,15 @@ class Node : public geometry::Point<Dim>{
 
     std::optional<PetscInt> sieve_id; // Optional sieve id for the node (vertex) inside DMPlex Mesh
 
-    std::size_t id()       {return id_     ;}
-    std::size_t num_dof()  {return num_dof_;}
+    std::size_t id()      const noexcept {return id_     ;}
+    std::size_t num_dof() const noexcept {return num_dof_;}
 
     //std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
 
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
     constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
     
-    //constexpr void set_num_dof(std::size_t n ) noexcept {
-    //  dof_.set_num_dof(n);
-    //};
-
+    
     void set_num_dof(std::size_t n) noexcept {
       num_dof_ = n;
       dof_.set_handler();
@@ -68,7 +65,16 @@ class Node : public geometry::Point<Dim>{
 
     void set_dof_interface(){dof_.set_handler();};   
     
+
     Node() = delete;
+
+
+
+
+    template<std::floating_point... Args>
+    Node(std::size_t tag, Args... args) : 
+    geometry::Point<Dim>(std::array<double, Dim>{args...}),
+    id_{tag}{}
 
     //forwarding constructor
     template<std::floating_point... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.

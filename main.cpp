@@ -120,6 +120,7 @@ int main(int argc, char **args)
         // Printing Material Parameters (Not YET)
         // Printing Material State
 
+        /*
         // auto s1 = mat1D.get_state();
         auto s2 = mat3D.get_state();
 
@@ -134,21 +135,40 @@ int main(int argc, char **args)
             std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
 
         steel_mat3D.print_material_parameters();
+        */
 
-        Analysis analisis_obj{&M};
-
-        M.apply_node_force(7, 1.0, 1.0, 1.0);
-        
+        //M.fix_z(0.0);
         M.fix_node(0);
         M.fix_node(1);
         M.fix_node(4);
         M.fix_node(5);
 
+        M.apply_node_force(6, 1.0, 2.0, 3.0);
+
+
+        Analysis analisis_obj{&M};
+        
         analisis_obj.solve();
 
         VTKDataContainer view;
 
         view.load_domain(M.get_domain());
+
+        for (auto node : M.get_domain().nodes())
+        {
+            std::cout << "Node: " << node.id() << " " << node.sieve_id.value() << std::endl;
+            for (auto dof : M.get_node_solution(node.sieve_id.value())) std::cout << dof << " ";
+            std::cout << std::endl;
+            std::cout << " ------------------------------------------------------------- " << std::endl;
+        }
+
+
+        double* u;
+        VecGetArray(M.U, &u);
+        view.load_vector_field<3>("displacement", u, M.get_domain().num_nodes());
+        VecRestoreArray(M.U, &u);
+
+        view.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
 
 
 

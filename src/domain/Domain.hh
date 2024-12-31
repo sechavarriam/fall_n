@@ -36,8 +36,29 @@ public:
     std::size_t num_elements() const { return elements_.size(); };
 
     // Getters
-    Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
-    Node<dim>& node  (std::size_t i) { return  nodes_[i];};
+    //Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
+
+    //Node<dim>& node  (std::size_t i) { return  nodes_[i];}; //Esto no es la iesima posicion!!!! debe devolver el nodo con id i.
+                                                              //Esto se podria hacer asi si el vector de nodos fuera desde cero hasta el max id, y dejando espacios vacios.
+                                                              //Otra opcion es almacenar un position_index en el nodo referente al dominio. Para llamar directamente sin buscar.
+                                                              //Otra opcion es un unordered_map con los ids como keys.
+                                                              //Por ahora se hara con un find_if, y luego se cambiara por alguna de las anteriores luego de un profiling.
+    
+    Node<dim> *node_p(std::size_t i) {
+        // El iterador inicial podria tener un atajo si se ordenan los nodos por id.
+        auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return node.id() == i;});
+        
+        std::cout << "Node id: " << pos->id() << std::endl;
+        
+
+
+        };
+
+
+    Node<dim>& node  (std::size_t i) {
+        // El iterador inicial podria tener un atajo si se ordenan los nodos por id.
+        return *std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return node.id() == i;});
+        };
 
     std::span<Node<dim>>            nodes()    { return std::span<Node<dim>>           (nodes_);    };  
     std::span<ElementGeometry<dim>> elements() { return std::span<ElementGeometry<dim>>(elements_); };
