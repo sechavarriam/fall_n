@@ -137,36 +137,41 @@ int main(int argc, char **args)
         steel_mat3D.print_material_parameters();
         */
 
+        //M.boundary_constraining_begin();
         //M.fix_z(0.0);
         M.fix_node(0);
         M.fix_node(1);
         M.fix_node(4);
         M.fix_node(5);
 
+        M.setup();
+        //M.boundary_constraining_end(); //seting up sieve layout to have correct sizes in the mesh (and perform processor communication).
+
         M.apply_node_force(6, 1.0, 2.0, 3.0);
 
-
-        Analysis analisis_obj{&M};
         
-        analisis_obj.solve();
+
+
+        //Analysis      analisis_obj{&M};
+        //analisis_obj.solve();
+
+        NLAnalysis nl_analisis_obj{&M};
+        nl_analisis_obj.solve();
 
         VTKDataContainer view;
-
         view.load_domain(M.get_domain());
 
-        for (auto node : M.get_domain().nodes())
-        {
-            std::cout << "Node: " << node.id() << " " << node.sieve_id.value() << std::endl;
-            for (auto dof : M.get_node_solution(node.sieve_id.value())) std::cout << dof << " ";
-            std::cout << std::endl;
-            std::cout << " ------------------------------------------------------------- " << std::endl;
-        }
-
-
-        double* u;
-        VecGetArray(M.U, &u);
-        view.load_vector_field<3>("displacement", u, M.get_domain().num_nodes());
-        VecRestoreArray(M.U, &u);
+        //for (auto node : M.get_domain().nodes())
+        //{
+        //    std::cout << "Node: " << node.id() << " " << node.sieve_id.value() << std::endl;
+        //    for (auto dof : M.get_node_solution(node.sieve_id.value())) std::cout << dof << " ";
+        //    std::cout << std::endl;
+        //    std::cout << " ------------------------------------------------------------- " << std::endl;
+        //}
+        //double* u;
+        //VecGetArray(M.U, &u);
+        //view.load_vector_field<3>("displacement", u, M.get_domain().num_nodes());
+        //VecRestoreArray(M.U, &u);
 
         view.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
 
