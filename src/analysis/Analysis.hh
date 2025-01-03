@@ -34,7 +34,6 @@ public:
         //if (! model_->is_bc_updated){model_->setup()}; // Setup DM sizes according to the model constraints.
         setup_vector_sizes();
         setup_matrix_sizes();
-
         is_setup = true;
     }
 
@@ -50,9 +49,6 @@ public:
         VecSet(U, 0.0);
         VecSet(R, 0.0);
         VecSet(RHS, 0.0);
-        
-        //std::cout << "Global Vector U" << std::endl;
-        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
     }
 
     void setup_matrix_sizes(){
@@ -68,17 +64,10 @@ public:
         DMGetGlobalSection(model_->get_plex(), &global_section);
         DMGetLocalSection (model_->get_plex(), &local_section);
 
-        //PetscSectionView(global_section, PETSC_VIEWER_STDOUT_WORLD);
-        //PetscSectionView(local_section , PETSC_VIEWER_STDOUT_WORLD);
-
         DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, RHS); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
-
-        std::cout << "Global Vector RHS" << std::endl;
-        VecView(RHS, PETSC_VIEWER_STDOUT_WORLD);
     }
     
     void compute_residual(){
-
     }
 
     void compute_jacobian(){
@@ -105,8 +94,6 @@ public:
     NLAnalysis(Model<ThreeDimensionalMaterial, 3>* model) : model_{model} {
         SNESCreate(PETSC_COMM_WORLD, &solver_);
         setup_solver();
-
-
     }
 
     NLAnalysis() = default;
@@ -121,39 +108,13 @@ public:
 
 };
      
-
-
-
-
-class Analysis {
+class LinearAnalysis {
 
     Model<ThreeDimensionalMaterial, 3>* model_;
 
     KSP solver_;
 
 public:
-
-    //void setup_model_vectors(){
-    //    DMCreateGlobalVector(model_->get_plex(), &model_->U);
-    //    DMCreateGlobalVector(model_->get_plex(), &model_->F);
-    //    //DMCreateLocalVector(model_->get_plex(), &model_->F);
-    //    VecSet(model_->U, 0.0);
-    //    VecSet(model_->F, 0.0);
-    //    std::cout << "UUUUUUUUUUUUUUUUUUUUUUUUUUU" << std::endl;
-    //    VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);
-    //    std::cout << "FFFFFFFFFFFFFFFFFFFFFFFFFFF" << std::endl;
-    //    VecView(model_->F, PETSC_VIEWER_STDOUT_WORLD);
-    //    DMSetUp(model_->get_plex());
-    //}
-
-    //void setup_model_matrices(){
-    //    ////https://lists.mcs.anl.gov/mailman/htdig/petsc-users/2016-March/028797.htm
-    //    DMCreateMatrix(model_->get_plex(), &model_->K);
-    //    DMSetMatType  (model_->get_plex(), MATAIJ); // Set the matrix type for the mesh
-    //                                                // SetFromOptions in the future. 
-    //    DMSetUp(model_->get_plex());
-    //    //MatZeroEntries(model_->K);
-    //}
 
     void setup_solver(){
 
@@ -164,7 +125,6 @@ public:
     }
 
     void solve(){
-
         //setup_model_vectors();
         //setup_model_matrices();
         //model_->inject_K();       
@@ -177,15 +137,14 @@ public:
         //VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);
     }
 
-
-    Analysis(Model<ThreeDimensionalMaterial, 3>* model) : model_{model} {
+    LinearAnalysis(Model<ThreeDimensionalMaterial, 3>* model) : model_{model} {
         KSPCreate(PETSC_COMM_WORLD, &solver_);
         setup_solver();
     }
 
-    Analysis() = default;
+    LinearAnalysis() = default;
     
-    ~Analysis(){
+    ~LinearAnalysis(){
         KSPDestroy(&solver_);
     }
 };
