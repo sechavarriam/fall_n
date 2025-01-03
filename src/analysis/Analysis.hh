@@ -117,9 +117,18 @@ class LinearAnalysis {
 
     KSP solver_;
 
-    VTKDataContainer recorder; // TODO: Move to analysis?
+    //VTKDataContainer recorder; // TODO: Move to analysis?
 
 public:
+
+    void record_solution(VTKDataContainer &recorder){
+        double* u;
+        DMGlobalToLocal(model_->get_plex(), U, INSERT_VALUES, model_->global_imposed_solution);
+
+        VecGetArray(model_->global_imposed_solution, &u);
+        recorder.load_vector_field<3>("displacement", u, model_->get_domain().num_nodes());
+        VecRestoreArray(model_->global_imposed_solution, &u); 
+    }
 
     void setup_vector_sizes(){
         DMCreateGlobalVector(model_->get_plex(), &U);
