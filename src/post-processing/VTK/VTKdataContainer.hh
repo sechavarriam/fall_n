@@ -69,8 +69,8 @@ public:
         
         for (const auto& node : domain.nodes())
         {
-            std::cout << "Node: " << node.id() << std::endl;
-            std::cout <<  node.coord(0) << " " << node.coord(1) << " " << node.coord(2) << std::endl;
+            //std::cout << "Node: " << node.id() << std::endl;
+            //std::cout <<  node.coord(0) << " " << node.coord(1) << " " << node.coord(2) << std::endl;
 
             //vtk_points->SetPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
             //vtk_points->InsertNextPoint(node.coord(0), node.coord(1), node.coord(2)); // Esto resuelve el segfault. Pero es mas lento... Por ahora usar.
