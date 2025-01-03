@@ -67,13 +67,13 @@ public:
         DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, RHS); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
     }
     
-    void compute_residual(){
+    void compute_residual(){// Linear Ax-RHS
+
+
     }
 
     void compute_jacobian(){
-        //model_->inject_K();       
-        //MatView(model_->K, PETSC_VIEWER_STDOUT_WORLD); 
-        //MatView(model_->K, PETSC_VIEWER_DRAW_WORLD);
+        J = model_->Kt;
     }
 
 
@@ -112,9 +112,38 @@ class LinearAnalysis {
 
     Model<ThreeDimensionalMaterial, 3>* model_;
 
+    Mat K;    //Global stiffness matrix
+    Vec U, F; //Global solution vector and RHS.
+
     KSP solver_;
 
+    VTKDataContainer recorder; // TODO: Move to analysis?
+
 public:
+
+    void setup_vector_sizes(){
+        DMCreateGlobalVector(model_->get_plex(), &U);
+        VecDuplicate(U, &F);
+        VecSet(U, 0.0);
+        VecSet(F, 0.0);
+    }
+
+    void setup_matrix_sizes(){
+        DMCreateMatrix(model_->get_plex(), &K);
+        DMSetMatType  (model_->get_plex(), MATAIJ); // Set the matrix type for the mesh
+                                                    // SetFromOptions in the future. 
+        DMSetUp(model_->get_plex());
+        MatZeroEntries(K);
+    }
+
+    void set_RHS(){
+        PetscSection global_section, local_section;
+        DMGetGlobalSection(model_->get_plex(), &global_section);
+        DMGetLocalSection (model_->get_plex(), &local_section);
+
+        DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, F); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
+    }
+
 
     void setup_solver(){
 
@@ -125,14 +154,19 @@ public:
     }
 
     void solve(){
-        //setup_model_vectors();
-        //setup_model_matrices();
-        //model_->inject_K();       
-        //MatView(model_->K, PETSC_VIEWER_STDOUT_WORLD); 
-        //MatView(model_->K, PETSC_VIEWER_DRAW_WORLD);
-        //KSPSetOperators(solver_, model_->K, model_->K);
-        //
-        ////VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);
+        setup_vector_sizes();
+        setup_matrix_sizes();
+        set_RHS();
+
+        model_->inject_K(this->K);
+
+        //MatView(this->K, PETSC_VIEWER_STDOUT_WORLD); 
+        MatView(this->K, PETSC_VIEWER_DRAW_WORLD);
+
+        KSPSetOperators(solver_, K, K);
+        KSPSolve(solver_, F, U);
+        VecView(U, PETSC_VIEWER_STDOUT_WORLD);
+        
         //KSPSolve(solver_, model_->F, model_->U);
         //VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);
     }

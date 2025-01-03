@@ -98,6 +98,10 @@ public:
   // ==============================================================================================
   // ==============================================================================================
 
+  //template<typename M>
+  //void inject_K(M model){ // TODO: Constrain with concept
+  //};
+
   void inject_K([[maybe_unused]]PETScMatrix& model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
       // Inject (BUILD ) K into global stiffness matrix
       std::vector<PetscInt> idxs;
@@ -107,7 +111,7 @@ public:
           idxs.push_back(idx);
         }
       }
-      MatSetValues(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
+      MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
       //MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 

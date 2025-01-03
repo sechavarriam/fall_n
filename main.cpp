@@ -149,8 +149,8 @@ int main(int argc, char **args)
 
         M.apply_node_force(6, 1.0, 2.0, 3.0);
 
-        //LinearAnalysis analisis_obj{&M};
-        //analisis_obj.solve();
+        LinearAnalysis analisis_obj{&M};
+        analisis_obj.solve();
 
         NLAnalysis nl_analisis_obj{&M};
         nl_analisis_obj.solve();

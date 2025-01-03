@@ -60,7 +60,7 @@ public:
     Vec nodal_forces; 
     Vec global_imposed_solution; // Global Displacement Vector (coordinate sense and parallel sense)
 
-    VTKDataContainer recorder; // TODO: Move to analysis?
+    Mat Kt; // Global Stiffness Matrix
 
     auto& get_domain(){return *domain_;};
     auto  get_plex(){return domain_->mesh.dm;};
@@ -93,9 +93,17 @@ public:
         VecSet(global_imposed_solution, 0.0);
     };
 
+    void setup_matrix(){
+        DMCreateMatrix(domain_->mesh.dm, &Kt);
+        DMSetMatType  (domain_->mesh.dm, MATAIJ); // Set the matrix type for the mesh
+        DMSetUp(domain_->mesh.dm);
+        MatZeroEntries(Kt);
+    };
+
     void setup(){
         setup_boundary_conditions();
         setup_vectors();
+        setup_matrix();
     };
 
     //// Apply boundary conditions. Constrain or Fix Dofs.    
@@ -114,6 +122,17 @@ public:
     //}
 
     // void constrain_dof(...){};
+
+    void inject_K(Mat& analysis_K){
+
+        for (auto &element : elements_) element.inject_K(analysis_K);
+
+        MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
+        MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
+        //MatView(K, PETSC_VIEWER_DRAW_WORLD); // Draw the matrix
+        //domain_->mesh.view();                // View the mesh
+    }
+
 
     void fix_node(std::size_t node_idx)// const noexcept
     {
