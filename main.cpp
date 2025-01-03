@@ -158,6 +158,8 @@ int main(int argc, char **args)
         VTKDataContainer view;
         view.load_domain(M.get_domain());
 
+        analisis_obj.record_solution(view);
+
         //for (auto node : M.get_domain().nodes())
         //{
         //    std::cout << "Node: " << node.id() << " " << node.sieve_id.value() << std::endl;
