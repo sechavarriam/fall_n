@@ -138,43 +138,33 @@ int main(int argc, char **args)
         */
 
         //M.boundary_constraining_begin();
-        //M.fix_z(0.0);
-        M.fix_node(0);
-        M.fix_node(1);
-        M.fix_node(4);
-        M.fix_node(5);
-
-        M.setup();
-        //M.boundary_constraining_end(); //seting up sieve layout to have correct sizes in the mesh (and perform processor communication).
-
-        M.apply_node_force(6, 1.0, 2.0, 3.0);
-
-        LinearAnalysis analisis_obj{&M};
-        analisis_obj.solve();
-
-        NLAnalysis nl_analisis_obj{&M};
-        nl_analisis_obj.solve();
 
         VTKDataContainer view;
         view.load_domain(M.get_domain());
 
-        analisis_obj.record_solution(view);
+        //M.fix_node(0);
+        //M.fix_node(1);
+        //M.fix_node(4);
+        //M.fix_node(5);
 
-        //for (auto node : M.get_domain().nodes())
-        //{
-        //    std::cout << "Node: " << node.id() << " " << node.sieve_id.value() << std::endl;
-        //    for (auto dof : M.get_node_solution(node.sieve_id.value())) std::cout << dof << " ";
-        //    std::cout << std::endl;
-        //    std::cout << " ------------------------------------------------------------- " << std::endl;
-        //}
-        //double* u;
-        //VecGetArray(M.U, &u);
-        //view.load_vector_field<3>("displacement", u, M.get_domain().num_nodes());
-        //VecRestoreArray(M.U, &u);
+        M.fix_x(0.0);
+
+        M.setup();
+        //M.boundary_constraining_end(); //seting up sieve layout to have correct sizes in the mesh (and perform processor communication).
+
+        M.apply_node_force(4, 0.0, 0.0, -1.0);
+        M.apply_node_force(6, 0.0, 0.0, -1.0);
+
+
+        LinearAnalysis analisis_obj{&M};
+        
+        analisis_obj.solve();
+        analisis_obj.record_solution(view);
 
         view.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
 
-
+        //NLAnalysis nl_analisis_obj{&M};
+        //nl_analisis_obj.solve();
 
 
     } // PETSc Scope ends here
