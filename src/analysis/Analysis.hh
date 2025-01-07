@@ -174,7 +174,7 @@ public:
 
         KSPSetOperators(solver_, K, K);
         KSPSolve(solver_, F, U);
-        VecView(U, PETSC_VIEWER_STDOUT_WORLD);
+        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
         
         //KSPSolve(solver_, model_->F, model_->U);
         //VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);

@@ -42,7 +42,8 @@ public:
     using Material = Material<MaterialPolicy>;
     using FEM_Element = ContinuumElement<MaterialPolicy, ndofs>; // Aca ira en adelante el wrapper de Element FEM_Element
 
-    using ConstraintDofInfo = std::unordered_map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
+    using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
+    //using ConstraintDofInfo = std::unordered_map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     //                                            sieve_id,             {dofs_to_constrain, values_to_impose}
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
@@ -61,6 +62,8 @@ public:
     Vec global_imposed_solution; // Global Displacement Vector (coordinate sense and parallel sense)
 
     Mat Kt; // Global Stiffness Matrix
+
+    PetscSection dof_section; 
 
     auto& get_domain(){return *domain_;};
     auto  get_plex(){return domain_->mesh.dm;};
@@ -133,9 +136,77 @@ public:
         //domain_->mesh.view();                // View the mesh
     }
 
+    void setup_boundary_conditions(){
+       
+        //PetscSection s;
 
-    void fix_node(std::size_t node_idx)// const noexcept
-    {
+        PetscInt *cind, d;
+        PetscInt pStart, pEnd;
+
+        PetscMalloc1(3, &cind);
+        for (d = 0; d < 3; ++d) cind[d] = d;
+
+        //DMGetLocalSection(domain_->mesh.dm, &s);
+        PetscSectionGetChart(this->dof_section, &pStart, &pEnd);
+
+        std::cout << " == 1 =================================================================== " << std::endl;
+        
+        
+
+        for (auto &[plex_id, idx] : constraints_){
+            //PetscSectionSetConstraintDof(s, plex_id,static_cast<PetscInt>(idx.first.size()));
+            //PetscSectionAddConstraintDof(this->dof_section, plex_id,static_cast<PetscInt>(idx.first.size()));
+            PetscSectionAddConstraintDof(this->dof_section, plex_id, 3);
+            //PetscSectionSetConstraintDof(this->dof_section, plex_id,static_cast<PetscInt>(idx.first.size()));
+            //PetscSectionSetUpBC(s);
+            }
+
+        PetscSectionSetUp(this->dof_section);
+        //PetscSectionSetUpBC(this->dof_section);
+
+        //print atlas
+
+        PetscInt i, dof, cdof;
+        for(i = pStart; i < pEnd; ++i){
+            PetscSectionGetDof(this->dof_section, i, &dof);
+            PetscSectionGetConstraintDof(this->dof_section, i, &cdof);
+            //PetscSectionGetConstraintIndices(this->dof_section, i, &cind);
+            //for(cdof = 0; cdof < dof; ++cdof){
+            std::cout << "Plex ID: " << i << " numDof: " << dof << " ----> constrainedDof: " << cdof << std::endl;
+            //}
+        }
+
+        std::cout << " == 2 =================================================================== " << std::endl;
+
+
+        std::cout << "After BC setup, Before Set Indices" << std::endl;
+        for (const auto &[plex_id, idx] : constraints_){
+            std::cout << "Plex ID: " << plex_id << std::endl;
+            std::cout << "Num dofs: " << idx.first.size() << std::endl;
+            std::cout << "Indices: ";
+            for (auto i : idx.first) std::cout << i << " "; std::cout << std::endl;
+
+            //PetscSectionSetConstraintIndices(s, plex_id, idx.first.data());
+            PetscSectionSetConstraintIndices(this->dof_section, plex_id, idx.first.data());
+            //PetscSectionSetConstraintIndices(s, plex_id, cind);
+            }
+
+        std::cout << " == 4 =================================================================== " << std::endl;
+
+        DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
+        DMSetUp(domain_->mesh.dm); // Setup the mesh
+
+        //PetscSectionView(s, PETSC_VIEWER_STDOUT_WORLD);
+        std::cout << " == 5 =================================================================== " << std::endl;
+        
+        is_bc_updated = true; 
+
+        PetscFree(cind);
+
+        set_dof_index(); // Set the dof index for each node in the domain.
+    }
+
+    void fix_node(std::size_t node_idx) noexcept{
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
         auto  plex_id  = node.sieve_id.value();
@@ -148,29 +219,19 @@ public:
         is_bc_updated = false;
     }
 
-    void setup_boundary_conditions(){
-        PetscSection s;
-        DMGetLocalSection(domain_->mesh.dm, &s);
-
-        for (auto &[plex_id, idx] : constraints_){PetscSectionSetConstraintDof(s, plex_id, idx.first.size());}
-        PetscSectionSetUpBC(s); // This performs reallocation of the section BC atlas.
-        for (auto &[plex_id, idx] : constraints_){PetscSectionSetConstraintIndices(s, plex_id,idx.first.data());}
-
-        const_cast<Model*>(this)->is_bc_updated = true;   
-    }
-
-    void fix_orthogonal_plane(const int i, const double val, const double tol = 1.0e-6) const noexcept{
+    void fix_orthogonal_plane(const int i, const double val, const double tol = 1.0e-6) noexcept{
         for (auto &node : domain_->nodes()){
             if (std::abs(node.coord(i) - val) < tol){ 
+                std::cout << "Fixing node: " << node.id() << " ----> "<< node.sieve_id.value() << std::endl;
                 fix_node(node.id());
             }
         }
-        const_cast<Model*>(this)->is_bc_updated = false;
+        //is_bc_updated = false;
     }
 
-    void fix_x (const double val, const double tol = 1.0e-6) const noexcept {fix_orthogonal_plane(0, val, tol);}
-    void fix_y (const double val, const double tol = 1.0e-6) const noexcept {fix_orthogonal_plane(1, val, tol);}
-    void fix_z (const double val, const double tol = 1.0e-6) const noexcept {fix_orthogonal_plane(2, val, tol);}
+    void fix_x (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(0, val, tol);}
+    void fix_y (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(1, val, tol);}
+    void fix_z (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(2, val, tol);}
 
     void apply_node_force(std::size_t node_idx, auto... force_components) //REFACTOR EN TERMINOS DEL PLEX
     requires (std::is_convertible_v<decltype(force_components), PetscScalar> && ...){
@@ -189,12 +250,12 @@ public:
 
     void set_sieve_layout (){ // ONLY CELL-VERTEX MESHES SUPPORTED BY NOW! 
 
-        PetscSection dof_section; // https://petsc.org/release/manualpages/PetscSection
         PetscInt pStart, pEnd, cStart, cEnd, vStart, vEnd;
 
         PetscSectionCreate(PETSC_COMM_WORLD, &dof_section); // Create the section (PetscSection)
 
-        DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
+        //DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
+
         DMPlexGetChart        (domain_->mesh.dm,    &pStart, &pEnd);
         DMPlexGetHeightStratum(domain_->mesh.dm, 0, &cStart, &cEnd);   // cells
         DMPlexGetHeightStratum(domain_->mesh.dm, 1, &vStart, &vEnd);   // vertices, equivalent to DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
@@ -203,14 +264,13 @@ public:
         // 1 for edges, and so on  until cells have depth equal to the dimension of the mesh.
 
         PetscSectionSetChart(dof_section, vStart, vEnd); // Set the chart for the section (PetscSection)
-        for (auto &node: domain_->nodes()) PetscSectionSetDof(dof_section, node.sieve_id.value(), node.num_dof());        
-        
-        PetscSectionSetUp(dof_section); 
+        for (auto &node: domain_->nodes()) {
+            PetscSectionSetDof(dof_section, node.sieve_id.value(), node.num_dof()); 
+            //PetscSectionSetUpBC(this->dof_section);
+            }
+             
 
-        DMSetUp(domain_->mesh.dm); // Setup the mesh
-
-        set_dof_index(); // Set the dof index for each node in the domain.
-                         // Si hay un reorder en el plex se debe volver a llamar... Poner observador?        
+        //set_dof_index(); // Set the dof index for each node in the domain.
     };
 
 
