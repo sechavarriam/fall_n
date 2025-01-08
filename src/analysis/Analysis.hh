@@ -7,8 +7,6 @@
 #include "../model/Model.hh"
 
 //template<typename T> // Concept? CRTP? Policy?
-
-
 class NLAnalysis
 {
     Model<ThreeDimensionalMaterial, 3>* model_;
@@ -68,8 +66,6 @@ public:
     }
     
     void compute_residual(){// Linear Ax-RHS
-
-
     }
 
     void compute_jacobian(){
@@ -117,8 +113,6 @@ class LinearAnalysis {
 
     KSP solver_;
 
-    //VTKDataContainer recorder; // TODO: Move to analysis?
-
 public:
 
     void record_solution(VTKDataContainer &recorder){
@@ -153,12 +147,9 @@ public:
         DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, F); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
     }
 
-
     void setup_solver(){
-
         KSPSetDM(solver_, model_->get_plex());
         KSPSetFromOptions(solver_);
-
         KSPSetDMActive(solver_, PETSC_FALSE);
     }
 
@@ -169,15 +160,10 @@ public:
 
         model_->inject_K(this->K);
 
-        //MatView(this->K, PETSC_VIEWER_STDOUT_WORLD); 
         MatView(this->K, PETSC_VIEWER_DRAW_WORLD);
 
         KSPSetOperators(solver_, K, K);
         KSPSolve(solver_, F, U);
-        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
-        
-        //KSPSolve(solver_, model_->F, model_->U);
-        //VecView(model_->U, PETSC_VIEWER_STDOUT_WORLD);
     }
 
     LinearAnalysis(Model<ThreeDimensionalMaterial, 3>* model) : model_{model} {
@@ -191,7 +177,6 @@ public:
         KSPDestroy(&solver_);
     }
 };
-
 
 
 #endif // FALL_N_ANALYSIS_INTERFACE

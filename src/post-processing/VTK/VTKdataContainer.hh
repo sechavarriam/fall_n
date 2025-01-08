@@ -100,10 +100,11 @@ public:
         writer->Update();             // Remove tyo keep binary
         writer->Write(); 
 
+
         //vtkNew<vtkXMLUnstructuredGridReader> reader;
         //reader->SetFileName("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
         //reader->Update();
-//
+        //
         //vtkNew<vtkDataSetMapper> mapper;
         //mapper->SetInputConnection(reader->GetOutputPort());
 //
