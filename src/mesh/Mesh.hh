@@ -20,8 +20,7 @@ public:
     void setup(PetscInt n){
         sieve_size = n;
         DMSetUp(dm);
-        } // Setup the mesh
-   
+        } // Setup the mesh   
 
     void set_sieve_cone_size(PetscInt point_idx, PetscInt N){
         DMPlexSetConeSize(dm, point_idx, N); // Set the number of points in the cone of a point
@@ -36,27 +35,16 @@ public:
         DMPlexStratify(dm); // Stratify the mesh
     }
 
-    void view(){
-        DMViewFromOptions(dm, NULL, "-dm_view");
-    }
-
-
     Mesh(){
         DMCreate(PETSC_COMM_WORLD, &dm);
         DMSetType(dm, DMPLEX);
        
         DMSetBasicAdjacency(dm, PETSC_FALSE, PETSC_TRUE); //https://petsc.org/release/manualpages/DM/DMSetBasicAdjacency/
 
-        //DMViewFromOptions(dm, NULL, "-dm_view");
-        //DMSetFromOptions(dm);
-        //DMSetUp(dm);
+
     }
 
-    ~Mesh(){
-        DMDestroy(&dm);
-    }
-
-
+    ~Mesh(){DMDestroy(&dm);}
 
 
 };
