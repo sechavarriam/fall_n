@@ -70,6 +70,9 @@ public:
   std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
 
 public:
+  // =================================================================================================
+  // === VTK THINGS ++================================================================================
+  // =================================================================================================
   static constexpr auto num_nodes()             noexcept { return num_nodes_; };
   static constexpr auto get_VTK_cell_type()     noexcept { return VTK_cell_type; };
   static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
@@ -84,16 +87,15 @@ public:
     return std::span<vtkIdType>(const_cast<vtkIdType*>(vtk_nodes_.data()), num_nodes_);
   };
 
+  // =================================================================================================
 
-  auto id() const noexcept { return tag_; };
+  
+  auto id()             const noexcept { return tag_; };
+  void set_id(std::size_t id) noexcept { tag_ = id  ; };
 
-  PetscInt node(std::size_t i) const noexcept { return nodes_[i]; };
-    
-  std::span<PetscInt> nodes() const noexcept { return std::span<PetscInt>(nodes_); };
-
-  Node<dim>& node_p(std::size_t i) const noexcept{
-    return *nodes_p.value()[i];
-  };
+  PetscInt            node (std::size_t i) const noexcept { return nodes_[i];                  };
+  std::span<PetscInt> nodes()              const noexcept { return std::span<PetscInt>(nodes_);};
+  Node<dim>&          node_p(std::size_t i)const noexcept { return *nodes_p.value()[i];};
 
   void bind_node (std::size_t i, Node<dim> *node) noexcept {
     if (nodes_p.has_value()){ nodes_p.value()[i] = node;} 
@@ -103,10 +105,6 @@ public:
     }  
   };
     
-  //void set_node_pointer(std::size_t i, Node<dim> *node) noexcept { nodes_p.value()[i] = node;};
-
-  void set_id(std::size_t id) noexcept { tag_ = id; };
-
   constexpr inline double H(std::size_t i, const Array &X) const noexcept {
     return reference_element_.basis.shape_function(i)(X);
   };
@@ -121,7 +119,20 @@ public:
     return dH_dx(i, j, X.coord());
   };
 
-  auto inline constexpr evaluate_jacobian(const Array &X) const noexcept{
+  //map from reference
+  constexpr inline Array map_local_point(const Array &x) const noexcept{
+    Array X{0}; // Point in the reference cell maped to the physical cell.
+    for (std::size_t i = 0; i < dim; ++i){
+      for (std::size_t j = 0; j < num_nodes_; ++j){
+        X[i] += nodes_p.value()[j]->coord(i) * H(j, x);
+      }
+    }
+    return X;
+  };
+
+  constexpr inline auto map_local_point(const Point &x) const noexcept { return map_local_point(x.coord()); };
+  
+  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept{
     if (nodes_p.has_value()){
       JacobianMatrix J{{{0}}};
       for (std::size_t i = 0; i < dim; ++i){ // Thread Candidate

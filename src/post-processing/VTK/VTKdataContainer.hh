@@ -39,7 +39,6 @@ public:
     void load_vector_field(std::string_view name, double* data_array, std::size_t num_points)
     {
         //check array size
-
         //https://vtk.org/doc/nightly/html/classvtkDataArray.html#a32eefb4180f5c18455995bb0315bc356
 
         auto vtk_field = vtkSmartPointer<vtkDoubleArray>::New();
@@ -59,27 +58,12 @@ public:
 
 
 
-    void load_domain(auto &domain) const
-    {
-        //vtk_points->Initialize();
-        //vtk_points->Reset();
-        
-        //vtk_points->SetDataTypeToDouble();  //Esto es segmentation fault inmediato. Por que? (Solo da segfault si se usa SetPoint en ves de InsertNextPoint)
-        //vtk_points->SetNumberOfPoints(domain.num_nodes());
-        
-        for (const auto& node : domain.nodes())
-        {
-            //std::cout << "Node: " << node.id() << std::endl;
-            //std::cout <<  node.coord(0) << " " << node.coord(1) << " " << node.coord(2) << std::endl;
-
-            //vtk_points->SetPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
-            //vtk_points->InsertNextPoint(node.coord(0), node.coord(1), node.coord(2)); // Esto resuelve el segfault. Pero es mas lento... Por ahora usar.
-                                                                                      // Desconfigura la numeración de los nodos en el VTK.
+    void load_domain(auto &domain) const {
+        for (const auto& node : domain.nodes()){
             vtk_points->InsertPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
         }
 
         vtk_points->Modified();
-
 
         vtk_grid->Allocate(domain.num_elements());
         vtk_grid->SetPoints(vtk_points);
@@ -88,7 +72,6 @@ public:
             auto ids = element.VTK_ordered_node_ids().data();
             vtk_grid->InsertNextCell(element.VTK_cell_type(), static_cast<vtkIdType>(element.num_nodes()), ids); 
         }
-        //write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
     }
 
     void write_vtu(std::string file_name) const

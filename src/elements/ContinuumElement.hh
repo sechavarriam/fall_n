@@ -36,7 +36,7 @@ public:
   constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
   constexpr auto node_p (std::size_t i) const noexcept { return geometry_->node_p(i); };
 
-  constexpr PetscInt dofs_at_node([[maybe_unused]]std::size_t i) const noexcept { return dim; };
+  //constexpr PetscInt dofs_at_node([[maybe_unused]]std::size_t i) const noexcept { return dim; };
 
   constexpr void set_num_dof_in_nodes() noexcept {
     for (std::size_t i = 0; i < num_nodes(); ++i){
@@ -46,6 +46,15 @@ public:
 
 
   constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
+
+  constexpr auto set_material_point_coordinates(){
+    for(auto& gauss_point : material_points_){
+      gauss_point.set_coord(geometry_->map_local_point(gauss_point.coord()));
+    } 
+  };
+
+
+
   constexpr auto num_nodes() const noexcept {
      //std::cout << "Num nodes: " << geometry_->num_nodes() << std::endl;
      return geometry_->num_nodes(); 
@@ -105,17 +114,13 @@ public:
   void inject_K([[maybe_unused]]PETScMatrix& model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
       // Inject (BUILD ) K into global stiffness matrix
       std::vector<PetscInt> idxs;
-      
       for (std::size_t i = 0; i < num_nodes(); ++i){
         for (const auto idx : geometry_->node_p(i).dof_index()){
           idxs.push_back(idx);
         }
       }
       MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
-      //MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
-
-
 
   ContinuumElement() = default;
 
@@ -128,6 +133,7 @@ public:
       material_points_.reserve(geometry_->num_integration_points());
       material_points_.emplace_back(MaterialPoint{material});
     }
+    set_material_point_coordinates(); // By now for testing purposes. Move to compute only when is needed
   };
 
   ~ContinuumElement() = default;

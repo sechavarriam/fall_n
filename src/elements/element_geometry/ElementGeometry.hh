@@ -51,6 +51,8 @@ namespace impl
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
+        constexpr virtual Array map_local_point(const Array &x) const = 0;
+
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
 
@@ -102,6 +104,8 @@ namespace impl
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
+        constexpr Array map_local_point(const Array &x) const override { return element_.map_local_point(x); };
+
         constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
         constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
 
@@ -141,6 +145,8 @@ public:
     constexpr Node<dim>& node_p(std::size_t i) const { return pimpl_->node_p(i); };
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
+
+    constexpr Array map_local_point(const Array &x) const { return pimpl_->map_local_point(x); };
 
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
