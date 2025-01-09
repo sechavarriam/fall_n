@@ -7,7 +7,7 @@ H =  2.0;
 L =  10.0;
 
 //t = 0.05;
-NX = 10;
+NX = 15;
 NY = 5;
 NZ = 5;
 
@@ -50,5 +50,3 @@ Transfinite Volume {1};
 Physical Volume("domain", 13) = {1};
 //+
 Physical Surface("Fixed", 14) = {5};
-//+
-

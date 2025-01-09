@@ -40,8 +40,6 @@ public:
         DMSetType(dm, DMPLEX);
        
         DMSetBasicAdjacency(dm, PETSC_FALSE, PETSC_TRUE); //https://petsc.org/release/manualpages/DM/DMSetBasicAdjacency/
-
-
     }
 
     ~Mesh(){DMDestroy(&dm);}
