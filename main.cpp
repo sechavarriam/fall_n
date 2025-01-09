@@ -77,7 +77,6 @@
 #include "src/graph/AdjacencyList.hh"
 #include "src/graph/AdjacencyMatrix.hh"
 
-#include "src/domain/IntegrationPoint.hh"
 
 #include "src/post-processing/VTK/VTKheaders.hh"
 #include "src/post-processing/VTK/VTKwriter.hh"

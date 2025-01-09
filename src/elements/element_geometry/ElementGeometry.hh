@@ -17,6 +17,7 @@
 
 #include "../Node.hh"
 
+#include "../../geometry/IntegrationPoint.hh"
 
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
@@ -61,7 +62,6 @@ namespace impl
         constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
     };
              
-
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
@@ -127,9 +127,12 @@ template<std::size_t dim>
 class ElementGeometry
 {
     using Array = std::array<double, dim>;
+
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
+
+    std::vector<IntegrationPoint<dim>> integration_point_;
 
     std::optional<PetscInt> sieve_id;                     // Optional sieve id for the element inside DMPlex Mesh
 
@@ -157,7 +160,27 @@ public:
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
 
-    void set_sieve_id(PetscInt id){sieve_id = id;};
+
+    // Own methods
+    constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
+
+    constexpr void allocate_integration_points(){ // TODO: define a sentincel bool
+        integration_point_.reserve(pimpl_->num_integration_points());
+        for (std::size_t i = 0; i < pimpl_->num_integration_points(); ++i){
+            integration_point_.emplace_back(IntegrationPoint<dim>{});
+        }
+
+    };
+
+    constexpr void set_integration_point_coordinates(){
+        for(auto& gauss_point : integration_point_){
+            gauss_point.set_coord(pimpl_->map_local_point(gauss_point.coord()));
+        } 
+    };
+
+
+
+    // Constructors
 
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator){
@@ -165,6 +188,10 @@ public:
         pimpl_ = std::make_unique<Model>(
             std::move(element),     // forward perhaphs?=
             std::move(integrator)); //
+        
+        allocate_integration_points();// its not nedded here. Move and allocate when needed (TODO).
+        //set_integration_point_coordinates();  //ESTO LO DEBE HACER EL DOMINIO!
+    
     }
 
     ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};

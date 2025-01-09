@@ -49,9 +49,6 @@ public:
         auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return node.id() == i;});
         
         std::cout << "Node id: " << pos->id() << std::endl;
-        
-
-
         };
 
 
@@ -72,7 +69,14 @@ public:
                 auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return PetscInt(node.id()) == e.node(i);});
                 e.bind_node(i, std::addressof(*pos));
             }
+        
+        // PONER UN MODEEEE!!!! Y UN CENTINELA!!! PARA PODER SACAR ESTO DE ACA Y USAR SOLO SI SE NECESITA!
+        // MODE: 0 -> NO SE HACE NADA
+        // MODE: 1 -> SE HACE ESTO
+        e.set_integration_point_coordinates(); 
         }
+
+
     }
 
     void assemble_sieve() {

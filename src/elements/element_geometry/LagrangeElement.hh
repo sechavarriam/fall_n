@@ -89,7 +89,6 @@ public:
 
   // =================================================================================================
 
-  
   auto id()             const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id  ; };
 
