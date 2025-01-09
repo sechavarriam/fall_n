@@ -41,7 +41,7 @@
 
 
 #include "src/elements/Node.hh"
-#include "src/domain/IntegrationPoint.hh"
+
 
 
 #include "src/elements/element_geometry/ElementGeometry.hh"

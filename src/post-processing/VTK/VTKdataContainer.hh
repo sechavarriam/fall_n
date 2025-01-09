@@ -18,7 +18,8 @@ class VTKDataContainer
 
     vtkNew<vtkXMLUnstructuredGridWriter> writer;
 
-    vtkNew<vtkPoints> vtk_points; // https://vtk.org/doc/nightly/html/classvtkPoints.html
+    vtkNew<vtkPoints>           vtk_points; // https://vtk.org/doc/nightly/html/classvtkPoints.html
+    vtkNew<vtkPoints>           vtk_gauss_points;
     vtkNew<vtkUnstructuredGrid> vtk_grid;
 
     std::vector<vtkSmartPointer<vtkDoubleArray>> scalar_field;
@@ -73,6 +74,11 @@ public:
             vtk_grid->InsertNextCell(element.VTK_cell_type(), static_cast<vtkIdType>(element.num_nodes()), ids); 
         }
     }
+
+
+
+
+
 
     void write_vtu(std::string file_name) const
     {

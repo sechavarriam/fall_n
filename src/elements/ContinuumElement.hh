@@ -45,13 +45,20 @@ public:
   };
 
 
-  constexpr auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
+  constexpr inline auto num_integration_points() const noexcept { return geometry_->num_integration_points(); };
 
-  constexpr auto set_material_point_coordinates(){
-    for(auto& gauss_point : material_points_){
-      gauss_point.set_coord(geometry_->map_local_point(gauss_point.coord()));
-    } 
+  constexpr inline auto bind_integration_points() noexcept {
+    std::size_t count{0};
+    for (auto& point : material_points_){
+      point.bind_integration_point(geometry_->integration_point_[count++]);
+    }
   };
+
+  //constexpr auto set_material_point_coordinates(){
+  //  for(auto& gauss_point : material_points_){
+  //    gauss_point.set_coord(geometry_->map_local_point(gauss_point.coord()));
+  //  } 
+  //};
 
 
 
@@ -133,7 +140,7 @@ public:
       material_points_.reserve(geometry_->num_integration_points());
       material_points_.emplace_back(MaterialPoint{material});
     }
-    set_material_point_coordinates(); // By now for testing purposes. Move to compute only when is needed
+    bind_integration_points();// its not nedded here. Move and allocate when needed (TODO).
   };
 
   ~ContinuumElement() = default;
