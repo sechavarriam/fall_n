@@ -28,12 +28,26 @@ class Domain
     std::vector<Node<dim>>            nodes_   ;
     std::vector<ElementGeometry<dim>> elements_;
 
+    std::optional<std::size_t> num_integration_points_;
+
 public:
 
     Mesh mesh;
 
     std::size_t num_nodes() const { return nodes_.size(); };
     std::size_t num_elements() const { return elements_.size(); };
+    
+    std::size_t num_integration_points(){
+        if (!num_integration_points_.has_value()){
+            std::size_t n = 0;
+            for (auto &e : elements_){
+                n += e.num_integration_points();
+            }
+            //set optional value
+            num_integration_points_ = n;
+        }
+        return num_integration_points_.value();
+    };
 
     // Getters
     //Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
@@ -73,20 +87,17 @@ public:
         // PONER UN MODEEEE!!!! Y UN CENTINELA!!! PARA PODER SACAR ESTO DE ACA Y USAR SOLO SI SE NECESITA!
         // MODE: 0 -> NO SE HACE NADA
         // MODE: 1 -> SE HACE ESTO
-        e.set_integration_point_coordinates(); 
+        e.set_integration_point_coordinates(); // Esto se puede hacer ac[a porque en la creacion ya est[a previamente allocado el espacio.
         }
-
-
     }
 
     void assemble_sieve() {
 
         link_nodes_to_elements();
 
-
+        // Uninterpoleated topology by now (no edges or faces).
         mesh.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells
-                                                                // Uninterpoleated topology by now (no edges or faces).
-
+        
         PetscInt sieve_point_idx = 0;
 
         for (auto &e : elements_){
@@ -95,7 +106,7 @@ public:
             ++sieve_point_idx;
         }
 
-        for (auto &n : nodes_){
+        for (auto &n : nodes_){  // Para esto se requiere haber linkeado los nodos a los elementos primero.
             n.set_sieve_id(sieve_point_idx);
             ++sieve_point_idx;
         }

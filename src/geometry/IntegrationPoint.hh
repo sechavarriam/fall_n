@@ -13,24 +13,23 @@
 // https://www.sandordargo.com/blog/2023/04/12/vector-of-unique-pointers
 
 template <std::size_t dim>
-class IntegrationPoint
-{ // : public geometry::Point<dim>{
+class IntegrationPoint{
 
      using Array = std::array<double, dim>;
+     
+     static inline std::size_t counter = 0; //c++17
 
      std::size_t id_;
-
-     Array coord_;
-
-     double weight_{0.0};
+     Array       coord_;
+     double      weight_{0.0};
 
 public:
 
      bool is_coordinated_{false}; // Flag to check if the material point has the coordinates set.
-     bool is_weighted_{false};    // Flag to check if the material point has weights set.
+     bool is_weighted_   {false};    // Flag to check if the material point has weights set.
 
      inline constexpr auto id() const noexcept { return id_; };
-     inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; };
+     //inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; }; // No deberia ser necesario puesto que el ID se asigna desde constructor.
 
      inline constexpr auto coord() const noexcept { return coord_; };
      inline constexpr auto coord(const std::size_t i) const noexcept { return coord_[i]; };
@@ -51,8 +50,11 @@ public:
           is_coordinated_ = true;
      }
 
+     // Constructors 
+     IntegrationPoint(){
+          id_ = counter++;
+          }
 
-     IntegrationPoint() = default;
      ~IntegrationPoint() = default;
 };
 

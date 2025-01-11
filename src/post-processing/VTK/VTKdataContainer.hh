@@ -28,7 +28,6 @@ class VTKDataContainer
     
 //https://stackoverflow.com/questions/38937139/how-to-store-a-vector-field-with-vtk-c-vtkwriter
 
-
 // vtkPointData requires arrays that have a tuple for each point
 // vtkCellData requires arrays that have a tuple for each cell
 // vtkFieldData has no constraints on the number of tuples (but also cannot be used directly to color geometry, etc. since there is no context that specifies how the arrays map to any geometry).
@@ -57,11 +56,28 @@ public:
         vector_field.push_back(vtk_field);
     }
 
+    void load_gauss_points(auto &domain) const {
+        //TODO: if domain hasn't gauss points seted up. setup them.
+
+        // Preallocate
+        vtk_gauss_points->SetNumberOfPoints(domain.num_integration_points());
+        
+        for (const auto& element : domain.elements()){
+            for (const auto& gauss_point : element.integration_point_){
+                vtk_gauss_points->SetPoint(static_cast<vtkIdType>(gauss_point.id()), gauss_point.coord(0), gauss_point.coord(1), gauss_point.coord(2));
+            }
+        }
+        
+    }
 
 
     void load_domain(auto &domain) const {
+        
+        vtk_points->SetNumberOfPoints(domain.num_nodes());
+        
         for (const auto& node : domain.nodes()){
-            vtk_points->InsertPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
+            //vtk_points->InsertPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
+            vtk_points->SetPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
         }
 
         vtk_points->Modified();
@@ -74,10 +90,6 @@ public:
             vtk_grid->InsertNextCell(element.VTK_cell_type(), static_cast<vtkIdType>(element.num_nodes()), ids); 
         }
     }
-
-
-
-
 
 
     void write_vtu(std::string file_name) const

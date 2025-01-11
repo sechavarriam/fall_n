@@ -140,6 +140,7 @@ int main(int argc, char **args)
 
         VTKDataContainer view;
         view.load_domain(M.get_domain());
+        view.load_gauss_points(M.get_domain());
 
         //M.fix_node(0);
         //M.fix_node(1);
