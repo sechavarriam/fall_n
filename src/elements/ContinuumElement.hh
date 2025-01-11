@@ -129,9 +129,12 @@ public:
       MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 
-  ContinuumElement() = default;
+  ContinuumElement() = delete;
 
-  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {};
+  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} 
+  {
+    // M[etodo para setear materiales debe ser llamado despues de la creacion de los elementos.
+  };
 
   ContinuumElement(ElementGeometry<dim> *geometry, Material material) : geometry_{geometry}
   {
@@ -148,7 +151,7 @@ public:
 }; // ContinuumElement
 
 //==================================================================================================
-//======================== Methods Definitions ===================================================
+//======================== Methods Definitions =====================================================
 //==================================================================================================
 
 

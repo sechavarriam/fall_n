@@ -160,7 +160,6 @@ public:
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
     Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
 
-
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
 
@@ -169,7 +168,6 @@ public:
         for (std::size_t i = 0; i < pimpl_->num_integration_points(); ++i){
             integration_point_.emplace_back(IntegrationPoint<dim>{});
         }
-
     };
 
     constexpr void set_integration_point_coordinates(){
@@ -177,8 +175,6 @@ public:
             gauss_point.set_coord(pimpl_->map_local_point(gauss_point.coord()));
         } 
     };
-
-
 
     // Constructors
 
@@ -191,7 +187,6 @@ public:
         
         allocate_integration_points();// its not nedded here. Move and allocate when needed (TODO).
         //set_integration_point_coordinates();  //ESTO LO DEBE HACER EL DOMINIO!
-    
     }
 
     ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};

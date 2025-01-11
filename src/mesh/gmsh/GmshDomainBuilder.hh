@@ -30,8 +30,7 @@ class GmshDomainBuilder
     std::vector<Node<3> *> node_addresses_;
 
 public:
-    void aggregate_nodes()
-    {
+    void aggregate_nodes(){
         domain_->preallocate_node_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
 
         node_addresses_.reserve(mesh_info_.nodes_info_.numNodes);
