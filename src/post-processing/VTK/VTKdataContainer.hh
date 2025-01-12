@@ -19,12 +19,16 @@ class VTKDataContainer
     vtkNew<vtkXMLUnstructuredGridWriter> writer;
 
     vtkNew<vtkPoints>           vtk_points; // https://vtk.org/doc/nightly/html/classvtkPoints.html
-    vtkNew<vtkPoints>           vtk_gauss_points;
     vtkNew<vtkUnstructuredGrid> vtk_grid;
+
+    vtkNew<vtkPoints>           vtk_gauss_points; //SEPARAR EN OTRA CLASE! un GAUSS RECORDER o algo asi
+    vtkNew<vtkUnstructuredGrid> vtk_gauss_cells;
 
     std::vector<vtkSmartPointer<vtkDoubleArray>> scalar_field;
     std::vector<vtkSmartPointer<vtkDoubleArray>> vector_field;
     std::vector<vtkSmartPointer<vtkDoubleArray>> tensor_field;
+
+    //bool gauss_data{false};
     
 //https://stackoverflow.com/questions/38937139/how-to-store-a-vector-field-with-vtk-c-vtkwriter
 
@@ -56,8 +60,9 @@ public:
         vector_field.push_back(vtk_field);
     }
 
-    void load_gauss_points(auto &domain) const {
-        //TODO: if domain hasn't gauss points seted up. setup them.
+
+    void load_gauss_points(auto &domain){
+        //TODO: if domain hasn't gauss points seted up. setup them. DESDE AC[A SZE PODr[iA DAR ESA ORDEN...]]
 
         // Preallocate
         vtk_gauss_points->SetNumberOfPoints(domain.num_integration_points());
@@ -67,7 +72,17 @@ public:
                 vtk_gauss_points->SetPoint(static_cast<vtkIdType>(gauss_point.id()), gauss_point.coord(0), gauss_point.coord(1), gauss_point.coord(2));
             }
         }
-        
+
+        vtk_gauss_points->Modified();
+
+        vtk_gauss_cells->Allocate(domain.num_integration_points());
+        vtk_gauss_cells->SetPoints(vtk_gauss_points);
+
+        //    for (const auto& gauss_point : element.integration_point_){ 
+        //for(auto &element : domain.elements()){
+//
+        //     }
+        //}
     }
 
 
@@ -91,6 +106,21 @@ public:
         }
     }
 
+    void write_gauss_vtu(std::string file_name) const
+    {
+        //if (!gauss_data) throw std::runtime_error("Gauss points not loaded.");
+
+        vtkNew<vtkUnstructuredGrid> vtk_gauss_grid;
+        vtk_gauss_grid->SetPoints(vtk_gauss_points);
+
+        vtkNew<vtkXMLUnstructuredGridWriter> writer;
+        writer->SetFileName(file_name.c_str());
+        writer->SetInputData(vtk_gauss_grid);
+        writer->SetDataModeToAscii(); // Remove tyo keep binary 
+        writer->Update();             // Remove tyo keep binary
+        writer->Write(); 
+    }
+
 
     void write_vtu(std::string file_name) const
     {
@@ -100,6 +130,7 @@ public:
         writer->SetDataModeToAscii(); // Remove tyo keep binary 
         writer->Update();             // Remove tyo keep binary
         writer->Write(); 
+
 
 
         //vtkNew<vtkXMLUnstructuredGridReader> reader;
