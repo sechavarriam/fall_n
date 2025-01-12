@@ -163,6 +163,7 @@ int main(int argc, char **args)
         analisis_obj.record_solution(view);
 
         view.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
+        view.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/structure_gauss.vtu");
 
         //NLAnalysis nl_analisis_obj{&M};
         //nl_analisis_obj.solve();
