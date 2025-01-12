@@ -50,12 +50,22 @@ public:
 
   public: 
 
+  // TODO: REVISAR QUE TAN VALIDO ES DEVOLVER UNA REFERENCIA.
+  constexpr Point get_point_coords(std::size_t i) const noexcept{
+    return Quadr::evalPoints_[i];
+  };
+
+  constexpr double get_point_weight(std::size_t i) const noexcept{
+    return Quadr::weights_[i];
+  };
+
+
     consteval CellQuadrature(){
       set_weights();
       set_integration_points();
       };
         
-    constexpr ~CellQuadrature(){};  
+    constexpr ~CellQuadrature () = default;
 };
 
 
