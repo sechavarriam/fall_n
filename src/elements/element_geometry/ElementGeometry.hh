@@ -57,6 +57,9 @@ namespace impl
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
 
+        constexpr virtual Array  reference_integration_point(std::size_t i) const = 0;
+        constexpr virtual double weight(std::size_t i) const = 0;
+
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
         constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
@@ -109,6 +112,9 @@ namespace impl
         constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
         constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
 
+        constexpr Array reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);}; //maybe private?
+        constexpr double weight                    (std::size_t i) const override {return integrator_.weight(i);};
+
         constexpr double integrate (std::function<double(Array)>&& f) const override {
             return integrator_(element_,std::forward<std::function<double(Array)>>(f));
         };
@@ -154,6 +160,9 @@ public:
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
 
+    constexpr Array  reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
+    constexpr double weight                     (std::size_t i) const {return pimpl_->weight(i);};
+
     //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
     
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
@@ -170,9 +179,26 @@ public:
         }
     };
 
-    constexpr void set_integration_point_coordinates(){
+    constexpr void set_integration_point_coordinates(){ // REVISAR ESTO!
+        std::size_t x{0};
+
         for(auto& gauss_point : integration_point_){
-            gauss_point.set_coord(pimpl_->map_local_point(gauss_point.coord()));
+
+            std::cout << "Gauss Point: " << x << std::endl;
+            std::cout << "Local Coordinates: ";
+            for (std::size_t i = 0; i < dim; ++i){
+                std::cout << pimpl_->reference_integration_point(x)[i] << " ";
+            } 
+            std::cout << std::endl;
+
+            gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
+
+            std::cout << "Physical Coordinates: ";
+            for (std::size_t i = 0; i < dim; ++i){
+                std::cout << gauss_point.coord(i) << " ";
+            }
+            std::cout << std::endl;
+            std::cout << "--------------------------------" << std::endl;
         } 
     };
 

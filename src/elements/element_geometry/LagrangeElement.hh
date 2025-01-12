@@ -208,7 +208,17 @@ class GaussLegendreCellIntegrator
   static constexpr CellQuadrature integrator_{};
 
 public:
+
   static constexpr std::size_t num_integration_points = CellQuadrature::num_points;
+
+  static constexpr auto reference_integration_point(std::size_t i) noexcept{
+    return integrator_.get_point_coords(i);
+  };
+
+  static constexpr auto weight(std::size_t i) noexcept{
+    return integrator_.get_point_weight(i);
+  };
+
 
   constexpr auto operator()(const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept
   {
