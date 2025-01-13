@@ -71,7 +71,26 @@ public:
 
 public:
   // =================================================================================================
-  // === VTK THINGS ++================================================================================
+  // === INFO FOR DEBUG and TESTING ==================================================================
+  // =================================================================================================
+
+  void print_info() const noexcept {
+    std::cout << "Element Tag: " << tag_ << std::endl;
+    std::cout << "Number of Nodes: " << num_nodes_ << std::endl;
+    std::cout << "Nodes: ";
+    for (std::size_t i = 0; i < num_nodes_; ++i){
+      std::cout << nodes_[i] << " ";
+    }
+    std::cout << std::endl;
+    // TALBE [index, local coord..., global coord...] // Using std::format and std::print
+    for (std::size_t i = 0; i < num_nodes_; ++i){
+      std::print("Node: {0} \n", i); 
+    }
+
+  };
+
+  // =================================================================================================
+  // === VTK THINGS ==================================================================================
   // =================================================================================================
   static constexpr auto num_nodes()             noexcept { return num_nodes_; };
   static constexpr auto get_VTK_cell_type()     noexcept { return VTK_cell_type; };
@@ -137,6 +156,7 @@ public:
       for (std::size_t i = 0; i < dim; ++i){ // Thread Candidate
         for (std::size_t j = 0; j < dim; ++j){ // Thread Candidate
           for (std::size_t k = 0; k < num_nodes_; ++k){
+           
             J[i][j] += nodes_p.value()[k]->coord(i) * dH_dx(k, j, X); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
           }
         }

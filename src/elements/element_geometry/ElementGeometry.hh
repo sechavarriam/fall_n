@@ -13,6 +13,9 @@
 #include <span>
 #include <ranges>
 
+#include <format>
+#include <print>
+
 #include <vtkType.h>
 
 #include "../Node.hh"
@@ -37,6 +40,8 @@ namespace impl
         virtual std::unique_ptr<ElementGeometryConcept> clone()    const = 0;    // To allow copy construction of the wrapper
 
     public:
+
+        constexpr virtual void print_info() const = 0;
 
         constexpr virtual unsigned int VTK_cell_type() const = 0;
 
@@ -94,6 +99,8 @@ namespace impl
 
     public: // Implementation of the virtual operations derived from ElementGeometryConcept
 
+        constexpr void print_info() const override { element_.print_info(); };
+
         constexpr unsigned int VTK_cell_type() const override { return ElementType::VTK_cell_type; };
 
         constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
@@ -137,10 +144,13 @@ class ElementGeometry
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
+    
 
     std::vector<IntegrationPoint<dim>> integration_point_;
 
     std::optional<PetscInt> sieve_id;                     // Optional sieve id for the element inside DMPlex Mesh
+
+    constexpr void print_info() const { pimpl_->print_info(); };
 
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
@@ -180,6 +190,7 @@ public:
     };
 
     constexpr void set_integration_point_coordinates(){ // REVISAR ESTO!
+        //Array zero{1.0,1.0,1.0};
         std::size_t x{0};
 
         for(auto& gauss_point : integration_point_){
@@ -192,6 +203,7 @@ public:
             std::cout << std::endl;
 
             gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
+            //gauss_point.set_coord(pimpl_->map_local_point(zero));
 
             std::cout << "Physical Coordinates: ";
             for (std::size_t i = 0; i < dim; ++i){
@@ -201,6 +213,11 @@ public:
             std::cout << "--------------------------------" << std::endl;
         } 
     };
+
+    void print_coord_table()
+    {
+
+    }
 
     // Constructors
 
