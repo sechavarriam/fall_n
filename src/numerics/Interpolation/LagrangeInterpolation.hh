@@ -27,17 +27,16 @@ namespace interpolation
     std::array<double, nPoints> xPoints{};
 
   public:
+    constexpr std::size_t size() const noexcept { return nPoints; };
+
     constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
 
-    std::size_t size() const noexcept { return nPoints; };
-
-    constexpr auto operator[](std::size_t i) const noexcept
-    {
-      return [&, i](std::floating_point auto x)
-      {
+    
+    constexpr auto operator[](std::size_t i) const noexcept{ //take the index and return a lambda of x.
+      //return [&, i](std::floating_point auto x){
+      return [&, i](const double&  x){   
         double L_i = 1.0;
-        for (std::size_t j = 0; j < nPoints; ++j)
-        {
+        for (std::size_t j = 0; j < nPoints; ++j){
           (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
                    : L_i *= 1.0;
         }
@@ -45,25 +44,19 @@ namespace interpolation
       };
     };
 
-    constexpr auto derivative(std::size_t i) const noexcept
-    {
+    constexpr auto derivative(std::size_t i) const noexcept{
       return [&, i](const double &x)
       {
         double dL_i{0.0};
         double num{1.0};
         double den{1.0};
 
-        for (std::size_t j = 0; j < nPoints; ++j)
-        {
-          if (j != i)
-          {
-            for (std::size_t k = 0; k < nPoints; ++k)
-            {
-              if (k != i)
-              {
+        for (std::size_t j = 0; j < nPoints; ++j){
+          if (j != i){
+            for (std::size_t k = 0; k < nPoints; ++k){
+              if (k != i){
                 den *= (xPoints[i] - xPoints[k]);
-                if (k != j)
-                {
+                if (k != j){
                   num *= (x - xPoints[k]);
                 }
               }
@@ -79,7 +72,7 @@ namespace interpolation
 
     consteval LagrangeBasis_1D(const std::array<double, nPoints> &xCoordinates) noexcept : xPoints{xCoordinates} {};
 
-    constexpr ~LagrangeBasis_1D() {};
+    constexpr ~LagrangeBasis_1D() = default;
   };
 
   template <std::size_t nPoints>
@@ -114,20 +107,19 @@ namespace interpolation
       return value;
     };
 
-    consteval LagrangeInterpolator_1D(const Array &xPoints_,
-                                      const Array &yValues_) noexcept : L{std::forward<const Array &>(xPoints_)},
-                                                                        fValues{yValues_} {};
+    consteval LagrangeInterpolator_1D(const Array &xPoints_, const Array &yValues_) noexcept : 
+      L{std::forward<const Array &>(xPoints_)},fValues{yValues_} 
+      {};
 
-    consteval LagrangeInterpolator_1D(const Basis &basis_,
-                                      const Array &yValues_) noexcept
-        : L{basis_}, fValues{yValues_} {};
+    consteval LagrangeInterpolator_1D(const Basis &basis_,const Array &yValues_) noexcept : 
+      L{basis_}, fValues{yValues_} 
+      {};
 
     constexpr ~LagrangeInterpolator_1D() {};
   };
 
   template <std::size_t... Ni>
-  class LagrangeBasis_ND
-  {
+  class LagrangeBasis_ND{
 
     template <std::size_t n>
     using Array = std::array<double, n>;
@@ -141,8 +133,7 @@ namespace interpolation
     std::tuple<Basis<Ni>...> L{};
 
     // template<std::size_t i>
-    constexpr auto shape_function(std::size_t i) const noexcept
-    {
+    constexpr auto shape_function(std::size_t i) const noexcept {
       static auto md_index = utils::list_2_md_index<Ni...>(i);
 
       return [&](const auto &x)
@@ -150,12 +141,13 @@ namespace interpolation
         if constexpr (dim == 1)
           return std::get<0>(L)[md_index[0]](x); // TODO:Revisar
         else
-          return [&]<std::size_t... I>(std::index_sequence<I...>)
-          {
+          return [&]<std::size_t... I>(std::index_sequence<I...>){
             return (std::get<I>(L)[md_index[I]](x[I]) * ...);
           }(std::make_index_sequence<dim>{});
       };
     };
+
+
 
     constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept
     {                                                          // $frac{\partial h_i}{\partial x_j}$
@@ -183,6 +175,7 @@ namespace interpolation
         : coordinates_i{xCoordinates...}, L{Basis<Ni>{xCoordinates}...} {};
 
     constexpr ~LagrangeBasis_ND() {};
+
   };
 
   template <std::size_t... Ni>
@@ -201,8 +194,7 @@ namespace interpolation
     Basis<Ni...> basis{};
     Array<(Ni * ...)> fValues{}; // posible usage for md_span
 
-    constexpr auto operator()(const Array<dim> &X) const noexcept
-    {
+    constexpr auto operator()(const Array<dim> &X) const noexcept{
       std::floating_point auto value{0.0};
 
       for (auto i = 0; i < (Ni * ...); ++i)

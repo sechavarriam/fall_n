@@ -92,14 +92,33 @@ class LagrangianCell {
   static constexpr std::size_t num_nodes_{(n*...)};
 
   using Point = geometry::Point<dim>;
+  using Array = std::array<double, dim>;
   
-  template<ushort... num_nodes_in_each_direction>
+  template<std::size_t... num_nodes_in_each_direction>
   using Basis = interpolation::LagrangeBasis_ND<num_nodes_in_each_direction...>;
 
 public:  
   static constexpr std::array<Point, num_nodes_> reference_nodes{cell_nodes<n...>()};
   
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
+
+  static constexpr double partition_of_unity_test(const Array &X) noexcept{
+    double sum{0.0};
+    
+    for (std::size_t i = 0; i < num_nodes_; ++i){
+    auto md_index = utils::list_2_md_index<n...>(i);
+      
+      sum += [&]<std::size_t... I>(const auto &x, std::index_sequence<I...>) -> double
+      {
+        return (std::get<I>(basis.L)[md_index[I]](x[I]) * ...);
+      }
+      (X, std::make_index_sequence<dim>{});
+    };
+    return sum;
+
+  };
+
+
 
   static constexpr unsigned int VTK_cell_type(){
     if constexpr (dim == 1) {
