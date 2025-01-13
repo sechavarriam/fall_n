@@ -115,35 +115,12 @@ int main(int argc, char **args)
         Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
 
 
-        auto reference_cell_test = geometry::cell::LagrangianCell<2, 2, 2>{};
+        //auto reference_cell_test = geometry::cell::LagrangianCell<2, 2, 2>{};
         // TESTING PARTITION OF UNITY
 
-        for (std::size_t i = 0; i < 8; i++)
-        {
-            for (std::size_t j = 0; j < 8; j++)
-            {
-                for (std::size_t k = 0; k < 8; k++)
-                {
-                    std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{
-                        static_cast<double>(i),
-                        static_cast<double>(j),
-                        static_cast<double>(k)
-                        }) << std::endl;
-                }
-            }
+        for (auto& e : M.get_domain().elements()){
+            e.print_info();
         }
-
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
-        //std::cout << "Partition of Unity Test: " << reference_cell_test.partition_of_unity_test(std::array{0.0, 0.0, 0.0}) << std::endl;
 
 
 

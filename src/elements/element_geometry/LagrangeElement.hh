@@ -75,6 +75,8 @@ public:
   // =================================================================================================
 
   void print_info() const noexcept {
+
+    //std::format fmt = "Element Tag: {0}\nNumber of Nodes: {1}\nNodes: {2}\n";
     std::cout << "Element Tag: " << tag_ << std::endl;
     std::cout << "Number of Nodes: " << num_nodes_ << std::endl;
     std::cout << "Nodes: ";
@@ -84,7 +86,15 @@ public:
     std::cout << std::endl;
     // TALBE [index, local coord..., global coord...] // Using std::format and std::print
     for (std::size_t i = 0; i < num_nodes_; ++i){
-      std::print("Node: {0} \n", i); 
+      std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f}\n",
+                 i, 
+                 nodes_p.value()[i]->id(),
+                 reference_element_.reference_nodes[i].coord()[0],
+                 reference_element_.reference_nodes[i].coord()[1], 
+                 reference_element_.reference_nodes[i].coord()[2],
+                 nodes_p.value()[i]->coord(0),
+                 nodes_p.value()[i]->coord(1),
+                 nodes_p.value()[i]->coord(2));
     }
 
   };
