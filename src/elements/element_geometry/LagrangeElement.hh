@@ -148,13 +148,21 @@ public:
   };
 
   //map from reference
-  constexpr inline Array map_local_point(const Array &x) const noexcept{
+  constexpr inline Array map_local_point(const Array &x, const bool jacobian_test=false) const noexcept{
     Array X{0}; // Point in the reference cell maped to the physical cell.
+
     for (std::size_t i = 0; i < dim; ++i){
       for (std::size_t j = 0; j < num_nodes_; ++j){
+         
         X[i] += nodes_p.value()[j]->coord(i) * H(j, x);
       }
     }
+    
+    if (!jacobian_test){
+          std::print("Point x: {0:>2.2f} {1:>2.2f} {2:>2.2f} ---> {3:>2.2f} {4:>2.2f} {5:>2.2f}  --------> detJx = {6:>4.3f} --------> detJX = {7:>4.3f}\n",
+                     x[0], x[1], x[2], X[0], X[1], X[2], detJ(x), detJ(X));
+        }
+
     return X;
   };
 
