@@ -54,27 +54,22 @@ public:
 
     void aggregate_elements()
     { // Esto procesa tanto elemento 2d (facets) como 3d  (cells) TODO:FIX.
-        for (auto &block : mesh_info_.elements_info_.entityBlocks)
-        {          
-            if (block.entityDim == 3)
-            { // Only 3D elements (by now...)
-                for (auto &[element_tag, node_tags] : block.elementTags)
-                {
-                    switch (block.elementType)
-                    {
+        auto index_ordering = [&](auto& tags, std::integral auto... i) {
+            return std::array{static_cast<PetscInt>(tags[i] - 1)...};
+             };
+
+        for (auto &block : mesh_info_.elements_info_.entityBlocks){          
+            if (block.entityDim == 3){ // Only 3D elements (by now...)
+                for (auto &[element_tag, node_tags] : block.elementTags){
+                    switch (block.elementType){
                     case 5:
                         {
                         auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
                            
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),
-                            std::size_t(element_tag),
-                            std::array{
-                                PetscInt(node_tags[0])-1, PetscInt(node_tags[1])-1, 
-                                PetscInt(node_tags[4])-1, PetscInt(node_tags[5])-1,  //-----
-                                PetscInt(node_tags[3])-1, PetscInt(node_tags[2])-1, 
-                                PetscInt(node_tags[7])-1, PetscInt(node_tags[6])-1
-                            }.data()
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 3, 2, 4, 5, 7, 6).data() 
                           );
                         break;
                         }
@@ -84,18 +79,11 @@ public:
                            
                         domain_->make_element<LagrangeElement<3,3,3>, decltype(integrator)>(
                             std::move(integrator),
-                            std::size_t(element_tag),
-                            std::array{ //Esta numeración me garantiza un orden incremental en X,Y y Z para la numeración de los nodos.
-                                PetscInt(node_tags[ 2])-1, PetscInt(node_tags[14])-1, PetscInt(node_tags[ 6])-1, 
-                                PetscInt(node_tags[13])-1, PetscInt(node_tags[24])-1, PetscInt(node_tags[19])-1, 
-                                PetscInt(node_tags[ 3])-1, PetscInt(node_tags[15])-1, PetscInt(node_tags[ 7])-1, //-----
-                                PetscInt(node_tags[11])-1, PetscInt(node_tags[23])-1, PetscInt(node_tags[18])-1, 
-                                PetscInt(node_tags[20])-1, PetscInt(node_tags[26])-1, PetscInt(node_tags[25])-1, 
-                                PetscInt(node_tags[ 9])-1, PetscInt(node_tags[22])-1, PetscInt(node_tags[17])-1, //-----
-                                PetscInt(node_tags[ 1])-1, PetscInt(node_tags[12])-1, PetscInt(node_tags[ 5])-1, 
-                                PetscInt(node_tags[ 8])-1, PetscInt(node_tags[21])-1, PetscInt(node_tags[16])-1, 
-                                PetscInt(node_tags[ 0])-1, PetscInt(node_tags[10])-1, PetscInt(node_tags[ 4])-1
-                            }.data()
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 
+                             0, 8, 1, 9,20,11, 3,13, 2,
+                            10,21,12,22,26,23,15,24,14,
+                             4,16, 5,17,25,18, 7,19, 6).data()
                           );
                         break;
                         }
