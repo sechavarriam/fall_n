@@ -147,19 +147,64 @@ public:
     return dH_dx(i, j, X.coord());
   };
 
-  //map from reference
-  constexpr inline Array map_local_point(const Array &x, const bool jacobian_test=false) const noexcept{
-    Array X{0}; // Point in the reference cell maped to the physical cell.
+  constexpr inline auto coord_array () const noexcept {
+    using CoordArray = std::array<std::array<double, num_nodes_>, dim>;
 
-    for (std::size_t i = 0; i < dim; ++i){
-      for (std::size_t j = 0; j < num_nodes_; ++j){
-         
-        X[i] += nodes_p.value()[j]->coord(i) * H(j, x);
+    std::size_t i,j;
+    CoordArray  coords{};
+    
+    for (i = 0; i < dim; ++i){
+      for (j = 0; j < num_nodes_; ++j){
+        coords[i][j] = nodes_p.value()[j]->coord(i);
       }
     }
-    
-    if (!jacobian_test){
-          std::print("Point x: {0:>2.2f} {1:>2.2f} {2:>2.2f} ---> {3:>2.2f} {4:>2.2f} {5:>2.2f}  --------> detJx = {6:>4.3f} --------> detJX = {7:>4.3f}\n",
+
+    return coords;
+  };
+
+  //map from reference
+  constexpr inline Array map_local_point(const Array &x, const bool jacobian_test=true) const noexcept {
+
+    std::size_t i;//,j;
+
+    Array X{0}; // Point in the reference cell maped to the physical cell.   
+    //Array F{0}; // Point in the reference cell maped to the physical cell.
+
+    auto F = coord_array();
+
+    for (i = 0; i < dim; ++i){
+      X[i] = reference_element_.basis.interpolate(F[i], x); 
+    } 
+
+    //double cumH{0.0};
+    //for (std::size_t j = 0; j < num_nodes_; ++j){
+    //    F = nodes_p.value()[j]->coord();
+    //    cumH += H(j, x);
+    //    for (std::size_t i = 0; i < dim; ++i){  
+    //      X[i] += F[i] * H(j, x); //X[i]+= nodes_p.value()[j]->coord() * H(j, x);
+    //      std::println(" F[{0}] = {1:> 5.2f}, H[{2}] = {3:> 5.2f}, X[{4}] = {5:> 5.6f}", i, F[i], j, H(j, x), i, X[i]); 
+    //  }
+    //  std::println(" {0:>-5.3f} {1:>-5.3f} {2:>-5.3f} ", X[0], X[1], X[2]);
+    //}
+    /*
+    for (std::size_t j = 0; j < num_nodes_; ++j){
+    auto Y = this->nodes_p.value()[j]->coord();
+
+        X[0]+= (Y[0] * H(j, x)); // Thread this thing
+        X[1]+= (Y[1] * H(j, x));
+        X[2]+= (Y[2] * H(j, x));
+
+      std::print(" {0:>2.2f} {1:>2.2f} {2:>2.2f} \n", nodes_p.value()[j]->coord(0), nodes_p.value()[j]->coord(1), nodes_p.value()[j]->coord(2) );
+      std::print(" {0:>2.2f} {1:>2.2f} {2:>2.2f} \n", Y[0], Y[1], Y[2]);
+      std::print(" {0:>2.2f} {1:>2.2f} {2:>2.2f} \n", X[0], X[1], X[2]);
+      std::print("-------------------------------------------------\n");
+    }
+    */
+    if (jacobian_test){
+          std::println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+          //std::println("Partition of Unity Test: {0:>-5.6f}", cumH);
+          std::println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+          std::println("Point x: {0:>-5.2f} {1:>-5.2f} {2:>-5.2f} --> {3:>-5.2f} {4:>-5.2f} {5:>-5.2f} --> detJx = {6:>-5.2f} ---> detJX = {7:>-5.2f}",
                      x[0], x[1], x[2], X[0], X[1], X[2], detJ(x), detJ(X));
         }
 

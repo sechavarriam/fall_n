@@ -118,9 +118,9 @@ int main(int argc, char **args)
         //auto reference_cell_test = geometry::cell::LagrangianCell<2, 2, 2>{};
         // TESTING PARTITION OF UNITY
 
-        for (auto& e : M.get_domain().elements()){
-            e.print_info();
-        }
+        //for (auto& e : M.get_domain().elements()){
+        //    e.print_info();
+        //}
 
 
 

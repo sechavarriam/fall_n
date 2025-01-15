@@ -64,7 +64,7 @@ public:
                     switch (block.elementType){
                     case 5:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
+                        auto integrator = GaussLegendreCellIntegrator<3,3,3>{}; 
                            
                         domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
                             std::move(integrator),

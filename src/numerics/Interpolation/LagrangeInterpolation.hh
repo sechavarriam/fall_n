@@ -136,8 +136,7 @@ namespace interpolation
     constexpr auto shape_function(std::size_t i) const noexcept {
       static auto md_index = utils::list_2_md_index<Ni...>(i);
 
-      return [&](const auto &x)
-      {
+      return [&](const auto &x){
         if constexpr (dim == 1)
           return std::get<0>(L)[md_index[0]](x); // TODO:Revisar
         else
@@ -145,9 +144,8 @@ namespace interpolation
             return (std::get<I>(L)[md_index[I]](x[I]) * ...);
           }(std::make_index_sequence<dim>{});
       };
+
     };
-
-
 
     constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept
     {                                                          // $frac{\partial h_i}{\partial x_j}$
@@ -169,6 +167,20 @@ namespace interpolation
           }(std::make_index_sequence<dim>{});
         }
       };
+    };
+
+    constexpr auto interpolate(const auto& F, const Array<dim> &X) const noexcept{
+      
+      double value{0.0};
+      
+      for (std::size_t i = 0; i < (Ni * ...); ++i){
+        auto md_index = utils::list_2_md_index<Ni...>(i);
+
+        value += [&]<std::size_t... I>(const auto &x, std::index_sequence<I...>) { // Templated Lambda
+          return (F[i] * (std::get<I>(L)[md_index[I]](x[I]) * ...));   // Fold expression
+        }( X , std::make_index_sequence<dim>{});
+      };
+      return value;
     };
 
     consteval LagrangeBasis_ND(const Array<Ni> &...xCoordinates) noexcept
