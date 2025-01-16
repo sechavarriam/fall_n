@@ -2,16 +2,21 @@
 SetFactory("OpenCASCADE");
 //+
 
-B =  20.0;
-H =  20.0;
-L =  20.0;
+//B =  20.0;
+//H =  20.0;
+//L =  20.0;
+
+B = 10;
+H = 10;
+L = 10;
+
 
 //t = 0.05;
 NX = 1;
 NY = 1;
 NZ = 1;
 
-Box(1) = {-L/2,-B/2,-H/2, L,B,H};// Center box
+//Box(1) = {-L/2,-B/2,-H/2, L,B,H};// Center box
 
 Box(1) = {0.0, 0.0, 0.0, L, B ,H }; // Origin Box
 

@@ -157,14 +157,16 @@ int main(int argc, char **args)
         //M.fix_node(4);
         //M.fix_node(5);
 
-        M.fix_x(0.0);
+        M.fix_z(0.0);
 
         M.setup();
         //M.boundary_constraining_end(); //seting up sieve layout to have correct sizes in the mesh (and perform processor communication).
 
         //M.apply_node_force(385, 0.0, 0.0, -1.0);
-        //M.apply_node_force(6, 0.0, 0.0, -0.5);
-        //M.apply_node_force(4, 0.0, 0.0, -0.5);
+        M.apply_node_force(0, 0.0, 0.0, 0.25 );
+        M.apply_node_force(2, 0.0, 0.0, 0.25 );
+        M.apply_node_force(4, 0.0, 0.0, 0.25 );
+        M.apply_node_force(6, 0.0, 0.0, 0.25 );
 
 
         LinearAnalysis analisis_obj{&M};

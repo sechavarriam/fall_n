@@ -106,7 +106,6 @@ public:
     };
 
     void setup_boundary_conditions(){
-       
         for (auto &[plex_id, idx] : constraints_){
             PetscSectionAddConstraintDof(this->dof_section, plex_id,static_cast<PetscInt>(idx.first.size()));
             }
@@ -120,7 +119,7 @@ public:
         DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
         DMSetUp(domain_->mesh.dm); // Setup the mesh
 
-        set_dof_index(); // Set the dof index for each node in the domain.
+        set_dof_index(); // Set the dof index for each node in the domain IN EACH NODE OBJECT.
     }
 
     void setup_vectors(){
@@ -173,17 +172,23 @@ public:
 
     void apply_node_force(std::size_t node_idx, auto... force_components) //REFACTOR EN TERMINOS DEL PLEX
     requires (std::is_convertible_v<decltype(force_components), PetscScalar> && ...){
+        
         const PetscScalar force[] = {static_cast<PetscScalar>(force_components)...};
+        
         auto num_dofs = domain_->node(node_idx).num_dof();
     
-        if (!is_bc_updated) this->setup_vectors();
+        //if (!is_bc_updated) this->setup_vectors();
         if (sizeof...(force_components) != num_dofs) throw std::runtime_error("Force components size mismatch.");        
         
-        auto dofs = domain_->node(node_idx).dof_index().data();
+        auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
         
-        VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, INSERT_VALUES);
+        VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, ADD_VALUES);
+
         VecAssemblyBegin (this->nodal_forces);
-        VecAssemblyEnd   (this->nodal_forces);       
+        VecAssemblyEnd   (this->nodal_forces);
+
+        //VecView(this->nodal_forces, PETSC_VIEWER_STDOUT_WORLD);
+        //std::cout << "********************************************" <<std::endl;       
     }
 
     void inject_K(Mat& analysis_K){

@@ -190,37 +190,13 @@ public:
     };
 
     constexpr void set_integration_point_coordinates(){ // REVISAR ESTO!
-        //Array zero{1.0,1.0,1.0};
         std::size_t x{0};
-
         for(auto& gauss_point : integration_point_){
-
-            std::cout << "Gauss Point: " << x << std::endl;
-            std::cout << "Local Coordinates: ";
-            for (std::size_t i = 0; i < dim; ++i){
-                std::cout << pimpl_->reference_integration_point(x)[i] << " ";
-            } 
-            std::cout << std::endl;
-
             gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
-            //gauss_point.set_coord(pimpl_->map_local_point(zero));
-
-            std::cout << "Physical Coordinates: ";
-            for (std::size_t i = 0; i < dim; ++i){
-                std::cout << gauss_point.coord(i) << " ";
-            }
-            std::cout << std::endl;
-            std::cout << "--------------------------------" << std::endl;
         } 
     };
 
-    void print_coord_table()
-    {
-
-    }
-
     // Constructors
-
     template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
     constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator){
         using Model = impl::OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
