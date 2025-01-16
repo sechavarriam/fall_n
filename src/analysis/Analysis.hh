@@ -47,6 +47,8 @@ public:
         VecSet(U, 0.0);
         VecSet(R, 0.0);
         VecSet(RHS, 0.0);
+
+
     }
 
     void setup_matrix_sizes(){
@@ -145,6 +147,9 @@ public:
         DMGetLocalSection (model_->get_plex(), &local_section);
 
         DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, F); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
+    
+        //std::cout << "RHS: //////////////////////////////" << std::endl;
+        VecView(F, PETSC_VIEWER_STDOUT_WORLD);
     }
 
     void setup_solver(){

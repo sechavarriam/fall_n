@@ -169,7 +169,7 @@ namespace interpolation
       };
     };
 
-    constexpr auto interpolate(const auto& F, const Array<dim> &X) const noexcept{
+    constexpr inline auto interpolate(const std::ranges::contiguous_range auto& F, const Array<dim> &X) const noexcept{
       
       double value{0.0};
       
