@@ -43,6 +43,13 @@ find_package(PkgConfig REQUIRED)
 pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc)
 target_link_libraries(fall_n PUBLIC PkgConfig::PETSC)
 
+# ===============================================================================
+# ============== Eigen ==========================================================
+# ===============================================================================
+
+find_package(Eigen3 REQUIRED)
+target_link_libraries(fall_n PUBLIC Eigen3::Eigen)
+
 
 # ===============================================================================
 # ============== VTK ============================================================
