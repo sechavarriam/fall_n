@@ -12,6 +12,8 @@
 
 #include <tuple>
 
+#include <print>
+
 #include "GaussLegendreNodes.hh"
 #include "GaussLegendreWeights.hh"
 
@@ -51,11 +53,31 @@ class Quadrature{
             }
             else 
             {
-                auto result = weights_[0]*function2eval(evalPoints_[0]);     
+                auto result = function2eval(evalPoints_[0])*weights_[0];  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!
+                //auto result = function2eval(evalPoints_[0]);  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!     
+
+                //if constexpr(std::is_same_v<returnType,Matrix>){
+                //    std::println("First Evaluation");
+                //    std::cout << "Eval Point: "; for (auto&& j:evalPoints_[0]){std::cout << j << " ";}std::cout << std::endl;
+                //    MatView(function2eval(evalPoints_[0]).mat_ , PETSC_VIEWER_STDOUT_WORLD);
+                //    //MatView(result.mat_ , PETSC_VIEWER_STDOUT_WORLD);
+                //}
 
                 for(std::size_t i = 1; i < nPoints; ++i) {
-                    result += weights_[i]*function2eval(evalPoints_[i]);
-                    }
+
+                    //std::println(" Evaluation {0}",i);
+                    //std::println(" weights_[{0}] = {1}",i,weights_[i]);
+                    result += function2eval(evalPoints_[i])*weights_[i];
+                    //result += function2eval(evalPoints_[i]);
+                        //if constexpr(std::is_same_v<returnType,Matrix>){
+                        //    std::cout << "Eval Point: ";
+                        //    for (auto&& j:evalPoints_[i]){
+                        //        std::cout << j << " ";
+                        //    }std::cout << std::endl;
+                        //    //MatView(result.mat_ , PETSC_VIEWER_STDOUT_WORLD);
+                        //    MatView(function2eval(evalPoints_[i]).mat_ , PETSC_VIEWER_STDOUT_WORLD);
+                        //}
+                }
                 return result;       
             }
         }

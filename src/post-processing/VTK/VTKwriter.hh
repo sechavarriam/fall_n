@@ -8,20 +8,16 @@
 
 
 
-
 class VTKwriterHDF5
 {
     std::string filename;
-
     VTKDataContainer* data;
-
 
 public:
 
     void bind_data(VTKDataContainer* data){
         this->data = data;
     }
-
 
 public:
     VTKwriterHDF5(std::string output_file) : filename{output_file}
