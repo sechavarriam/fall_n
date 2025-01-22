@@ -34,7 +34,7 @@ namespace impl{
    
    public:
 
-      virtual constexpr Matrix& C() const = 0; //The Compliance Matrix
+      virtual constexpr DeprecatedDenseMatrix& C() const = 0; //The Compliance DeprecatedDenseMatrix
 
       virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
 
@@ -55,7 +55,7 @@ namespace impl{
 
    public:
       
-      Matrix& C() const override {return material_.C();}; //The Compliance Matrix
+      DeprecatedDenseMatrix& C() const override {return material_.C();}; //The Compliance DeprecatedDenseMatrix
 
       StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
 
@@ -83,7 +83,7 @@ class Material
 
 public:
 
-   Matrix& C() const {return pimpl_->C();}; //The Compliance Matrix
+   DeprecatedDenseMatrix& C() const {return pimpl_->C();}; //The Compliance DeprecatedDenseMatrix
 
    StateVariableT get_state() const {return pimpl_->get_state();};
    void update_state(const StateVariableT& state) {pimpl_->update_state(state);};

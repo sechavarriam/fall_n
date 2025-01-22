@@ -17,25 +17,27 @@
 #include <petscvec.h>
 
 //#include "Operations.hh"
-//#include "Matrix.hh"
+//#include "DeprecatedDenseMatrix.hh"
 
 
 class Vector;
-class Matrix;
+class DeprecatedDenseMatrix;
 namespace linalg{
     std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
 
-    std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
-    Vector             mat_vec_mult(const Matrix& A, const Vector& x);
+    std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y);
+    Vector             mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x);
 } //namespace linalg
 
 
 class Vector //Wrapper Around PETSc Seq Vector
 {
     using PETSc_Vector = Vec;
-    private:
-        PETSc_Vector vec_;
+    
     public:
+
+        PETSc_Vector vec_;
+    
 
     bool owns_data{true};
 
@@ -58,8 +60,8 @@ class Vector //Wrapper Around PETSc Seq Vector
     void print_content(){for(auto i:data()) printf("%f ", i);printf("\n");};
 
     friend std::floating_point auto linalg::dot(const Vector& vec1, const Vector& vec2);
-    friend std::integral       auto linalg::mat_vec_mult(const Matrix& A, const Vector& x, Vector& y);
-    friend Vector                   linalg::mat_vec_mult(const Matrix& A, const Vector& x);
+    friend std::integral       auto linalg::mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y);
+    friend Vector                   linalg::mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x);
     
     //Operators
     Vector& operator+=(const Vector& other)  {VecAXPY(vec_, 1.0, other.vec_);return *this;};

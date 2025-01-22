@@ -17,7 +17,7 @@
 template <typename MaterialPolicy, std::size_t ndof>
 class ContinuumElement
 {
-  using PETScMatrix = Mat; // TODO: Use PETSc Matrix
+  using PETScMatrix = Mat; // TODO: Use PETSc DeprecatedDenseMatrix
 
   // using MaterialPolicy = MaterialPolicy;
   using MaterialPoint = MaterialPoint<MaterialPolicy>;
@@ -72,10 +72,10 @@ public:
     return dofs_index;
   };
 
-  Matrix H(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
-  Matrix B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
+  DeprecatedDenseMatrix H(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
+  DeprecatedDenseMatrix B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
 
-  Matrix BtCB([[maybe_unused]] const Array &X)
+  DeprecatedDenseMatrix BtCB([[maybe_unused]] const Array &X)
   { // TODO: Optimize this for each dimension.
 
     auto N = static_cast<PetscInt>(ndof * num_nodes());
@@ -95,7 +95,7 @@ public:
       }
     };
 
-    Matrix BtCB_{N, N};
+    DeprecatedDenseMatrix BtCB_{N, N};
 
     //MatView(get_C().mat_, PETSC_VIEWER_STDOUT_WORLD); 
     BtCB_ = linalg::mat_mat_PtAP(B(X), get_C());//, geometry_->detJ(X)); 
@@ -108,11 +108,11 @@ public:
     return BtCB_; // B^t * C * B
   };
 
-  Matrix K()
+  DeprecatedDenseMatrix K()
   {
     //bool tests_on = true
     auto N = static_cast<PetscInt>(ndof * num_nodes());
-    Matrix K{N, N};
+    DeprecatedDenseMatrix K{N, N};
     K = geometry_->integrate([this](const Array &X){return BtCB(X);});
 
     //if (tests_on){
@@ -184,9 +184,9 @@ public:
 
 // YA ACA SE ESTA ASUMIENDO EL NUMERO DE GRADOS DE LIBERTAD! TAL VEZ SE DEBA MOVER AL MATERIAL O AL MODEL POLICY.
 template <typename MaterialPolicy, std::size_t ndof>
-inline Matrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
+inline DeprecatedDenseMatrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
 {
-  Matrix H(ndof, num_nodes() * dim);
+  DeprecatedDenseMatrix H(ndof, num_nodes() * dim);
   H.assembly_begin();
 
   if constexpr (dim == 1)
@@ -236,9 +236,9 @@ inline Matrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
 };
 
 template <typename MaterialPolicy, std::size_t ndof>
-inline Matrix ContinuumElement<MaterialPolicy, ndof>::B(const Array &X)
+inline DeprecatedDenseMatrix ContinuumElement<MaterialPolicy, ndof>::B(const Array &X)
 {
-  Matrix B(num_strains, num_nodes() * dim);
+  DeprecatedDenseMatrix B(num_strains, num_nodes() * dim);
   B.assembly_begin();
 
   if constexpr (dim == 1)

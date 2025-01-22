@@ -41,18 +41,18 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
 
 
     constexpr void update_elasticity(){ //TODO: use threads. 
-        set_parameter(0,0,  E); //c11());             //lambda()+2.0*mu());
-        set_parameter(1,1,  E); //c11());             //lambda()+2.0*mu());
-        set_parameter(2,2,  E); //c11());             //lambda()+2.0*mu());
-        set_parameter(3,3,  G()); //(c11()-c12())/2);   //mu()             );
-        set_parameter(4,4,  G()); //(c11()-c12())/2);   //mu()             );
-        set_parameter(5,5,  G()); //(c11()-c12())/2);   //mu()             );
-        set_parameter(0,1,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
-        set_parameter(0,2,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(1,0,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(1,2,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(2,0,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(2,1,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(0,0,  c11());             //lambda()+2.0*mu());
+        set_parameter(1,1,  c11());             //lambda()+2.0*mu());
+        set_parameter(2,2,  c11());             //lambda()+2.0*mu());
+        set_parameter(3,3,  (c11()-c12())/2);   //mu()             );
+        set_parameter(4,4,  (c11()-c12())/2);   //mu()             );
+        set_parameter(5,5,  (c11()-c12())/2);   //mu()             );
+        set_parameter(0,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
+        set_parameter(0,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(1,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(1,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(2,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(2,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
         //set_parameter(0,1, lambda()         );
         //set_parameter(0,2, lambda()         );
         //set_parameter(1,0, lambda()         );

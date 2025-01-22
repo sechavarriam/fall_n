@@ -1,6 +1,8 @@
 #ifndef FN_ELEMENT_H
 #define FN_ELEMENT_H
 
+#include <Eigen/Dense>
+
 #include <array>
 #include <cstddef>
 #include <iostream>
@@ -69,7 +71,7 @@ namespace impl
 
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
-        constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
+        constexpr virtual DeprecatedDenseMatrix integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const = 0; 
     };
              
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -134,8 +136,8 @@ namespace impl
             return integrator_(element_,std::forward<std::function<Vector(Array)>>(f));
         };
 
-        Matrix integrate (std::function<Matrix(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<Matrix(Array)>>(f));
+        DeprecatedDenseMatrix integrate (std::function<DeprecatedDenseMatrix(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));
         };
     };
 } // impl
@@ -183,7 +185,7 @@ public:
     
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
-    Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+    DeprecatedDenseMatrix           integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
@@ -275,7 +277,7 @@ namespace impl
 
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual Vector integrate(std::function<Vector(Array)>&& f) const = 0;
-        constexpr virtual Matrix integrate(std::function<Matrix(Array)>&& f) const = 0; 
+        constexpr virtual DeprecatedDenseMatrix integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const = 0; 
 
     };
 
@@ -342,8 +344,8 @@ namespace impl
             return integrator_(element_,std::forward<std::function<Vector(Array)>>(f));
         };
 
-        Matrix integrate (std::function<Matrix(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<Matrix(Array)>>(f));
+        DeprecatedDenseMatrix integrate (std::function<DeprecatedDenseMatrix(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));
         };
 
     };
@@ -404,8 +406,8 @@ namespace impl
             return (*integrator_)(*element_,std::forward<std::function<Vector(Array)>>(f));
         };
 
-        Matrix integrate (std::function<Matrix(Array)>&& f) const override {
-            return (*integrator_)(*element_,std::forward<std::function<Matrix(Array)>>(f));
+        DeprecatedDenseMatrix integrate (std::function<DeprecatedDenseMatrix(Array)>&& f) const override {
+            return (*integrator_)(*element_,std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));
         };
 
         //template <std::invocable<Array> F> 
@@ -449,7 +451,7 @@ public:
     //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl()->integrator_(std::forward<decltype(F)>(F));};
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<Vector(Array)>>(f));};
-    Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+    DeprecatedDenseMatrix           integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl()->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
 
     void set_sieve_id(PetscInt id){sieve_id = id;};
 
@@ -518,7 +520,7 @@ public:
     
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
     Vector           integrate(std::function<Vector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Vector(Array)>>(f));};
-    Matrix           integrate(std::function<Matrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Matrix(Array)>>(f));};
+    DeprecatedDenseMatrix           integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
 
     void set_sieve_id(PetscInt id){sieve_id = id;};
 

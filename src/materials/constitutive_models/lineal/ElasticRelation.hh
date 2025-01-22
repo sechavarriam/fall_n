@@ -38,7 +38,7 @@ class ElasticRelation
   
   public:
 
-    Matrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
+    DeprecatedDenseMatrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
 
     void compute_stress(const StrainType& strain, StressType& stress){
         stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon

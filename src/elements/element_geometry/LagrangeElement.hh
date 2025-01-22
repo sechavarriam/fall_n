@@ -211,6 +211,8 @@ public:
     }
   };
 
+  
+
   auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
 
   // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)

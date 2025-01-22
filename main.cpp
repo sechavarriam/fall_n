@@ -117,13 +117,13 @@ int main(int argc, char **args)
         Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
 
 
-        for (auto& e : M.get_domain().elements()){
-            e.print_info();
-        }
+        //for (auto& e : M.get_domain().elements()){
+        //    e.print_info();
+        //}
 
         // Testing Material Wrapper interface.
         // Printing Material Parameters (Not YET)
-        // Printing Material State
+        // Printing Material StateC
 
         
         //auto s1 = mat1D.get_state();

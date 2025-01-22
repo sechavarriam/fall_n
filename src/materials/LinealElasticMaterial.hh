@@ -46,7 +46,7 @@ class IsotropicElasticMaterial{
     };
 
 
-    Matrix& C() const  {return constitutive_law_->compliance_matrix;}
+    DeprecatedDenseMatrix& C() const  {return constitutive_law_->compliance_matrix;}
     //auto C() const {return constitutive_law_->compliance_matrix;}
 
     template<typename... Args>  
