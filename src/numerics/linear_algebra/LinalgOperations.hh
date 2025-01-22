@@ -20,14 +20,14 @@ namespace linalg{
         return result;
     }
 
-    inline std::integral auto mat_vec_mult(const Matrix& A, const Vector& x, Vector& y){
+    inline std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y){
         //if (y.vec_ == nullptr){
         //    VecDuplicate(x.vec_, &y.vec_);
         //};
         return MatMult(A.mat_, x.vec_, y.vec_);
     }
 
-    inline Vector mat_vec_mult(const Matrix& A, const Vector& x){
+    inline Vector mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x){
         Vector y;
         MatCreateVecs(A.mat_, nullptr, &y.vec_);
         MatMult(A.mat_, x.vec_, y.vec_);
@@ -43,12 +43,12 @@ namespace linalg{
     //    ABC  = MATPRODUCT_ABC,
     //};
 
-    inline Matrix mat_mat_PtAP(const Matrix& P, const Matrix& A, const PetscScalar& scalar = 1.0){
+    inline DeprecatedDenseMatrix mat_mat_PtAP(const DeprecatedDenseMatrix& P, const DeprecatedDenseMatrix& A, const PetscScalar& scalar = 1.0){
         Mat C;
         MatPtAP(A.mat_,P.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
 
         MatScale(C, scalar);
-        return Matrix{C};
+        return DeprecatedDenseMatrix{C};
     }
 
 
