@@ -15,46 +15,59 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
     using ConstitutiveModel::compliance_matrix;
 
   private:
+
+  public:
+
     
     // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
-    double E_{0.0};
-    double v_{0.0};
+    double E{0.0};
+    double v{0.0};
 
-    public:
+    constexpr inline void set_E(double E_){E = E_;};
+    constexpr inline void set_v(double v_){v = v_;};
+    
+    //constexpr inline double E() const{return E;};
+    //constexpr inline double v() const{return v;};
 
-    constexpr inline void set_E(double E){E_ = E;};
-    constexpr inline void set_v(double v){v_ = v;};
+    constexpr inline double c11 () const{return E*(1-v)/((1.0+v)*(1.0-2.0*v));}
+    constexpr inline double c12 () const{return E*   v /((1.0+v)*(1.0-2.0*v));}
+
     
-    constexpr inline double E() const{return E_;};
-    constexpr inline double v() const{return v_;};
-    
-    constexpr inline double G()      const{return E_/(2.0*(1.0+v_));};             //Shear Modulus
-    constexpr inline double k()      const{return E_/(3.0*(1.0-2.0*v_));};         //Bulk Modulus
-    constexpr inline double lambda() const{return E_*v_/((1.0+v_)*(1.0-2.0*v_));}; //Lamé's first parameter
-    constexpr inline double mu()     const{return E_/(2.0*(1.0+v_));};             //Lamé's second parameter
+    constexpr inline double G()      const{return E/(2.0*(1.0+v));};             //Shear Modulus
+    constexpr inline double k()      const{return E/(3.0*(1.0-2.0*v));};         //Bulk Modulus
+    constexpr inline double lambda() const{return E*v/((1.0+v)*(1.0-2.0*v));}; //Lamé's first parameter
+    constexpr inline double mu()     const{return E/(2.0*(1.0+v));};             //Lamé's second parameter
+
+
 
     constexpr void update_elasticity(){ //TODO: use threads. 
-        set_parameter(0,0, lambda()+2.0*mu());
-        set_parameter(1,1, lambda()+2.0*mu());
-        set_parameter(2,2, lambda()+2.0*mu());
-        set_parameter(3,3, mu()             );
-        set_parameter(4,4, mu()             );
-        set_parameter(5,5, mu()             );
-        set_parameter(0,1, lambda()         );
-        set_parameter(0,2, lambda()         );
-        set_parameter(1,0, lambda()         );
-        set_parameter(1,2, lambda()         );
-        set_parameter(2,0, lambda()         );
-        set_parameter(2,1, lambda()         );
+        set_parameter(0,0,  E); //c11());             //lambda()+2.0*mu());
+        set_parameter(1,1,  E); //c11());             //lambda()+2.0*mu());
+        set_parameter(2,2,  E); //c11());             //lambda()+2.0*mu());
+        set_parameter(3,3,  G()); //(c11()-c12())/2);   //mu()             );
+        set_parameter(4,4,  G()); //(c11()-c12())/2);   //mu()             );
+        set_parameter(5,5,  G()); //(c11()-c12())/2);   //mu()             );
+        set_parameter(0,1,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
+        set_parameter(0,2,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(1,0,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(1,2,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(2,0,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        set_parameter(2,1,  0.000000); //c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+        //set_parameter(0,1, lambda()         );
+        //set_parameter(0,2, lambda()         );
+        //set_parameter(1,0, lambda()         );
+        //set_parameter(1,2, lambda()         );
+        //set_parameter(2,0, lambda()         );
+        //set_parameter(2,1, lambda()         );
     };
 
     constexpr void update_elasticity(double young_modulus, double poisson_ratio){
-        E_ = young_modulus;
-        v_ = poisson_ratio;
+        E = young_modulus;
+        v = poisson_ratio;
         update_elasticity();
     };
 
-    constexpr ContinuumIsotropicRelation(double young_modulus, double poisson_ratio) : E_{young_modulus}, v_{poisson_ratio}{
+    constexpr ContinuumIsotropicRelation(double young_modulus, double poisson_ratio) : E{young_modulus}, v{poisson_ratio}{
         update_elasticity();
     };
 };

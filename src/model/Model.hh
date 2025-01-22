@@ -181,7 +181,10 @@ public:
         if (sizeof...(force_components) != num_dofs) throw std::runtime_error("Force components size mismatch.");        
         
         auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
-        
+
+        std::println("Applying force {0}, {1}, {2} to node {3}", force_components..., node_idx);
+        std::println("Dofs: {0}, {1}, {2}", dofs[0], dofs[1], dofs[2]);
+
         VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, ADD_VALUES);
 
         VecAssemblyBegin (this->nodal_forces);
@@ -189,7 +192,32 @@ public:
 
         //VecView(this->nodal_forces, PETSC_VIEWER_STDOUT_WORLD);
         //std::cout << "********************************************" <<std::endl;       
-    }
+    }   
+
+    // Only For Testing Purposes
+    void _force_orthogonal_plane(const int d, const double val, auto... force_components) noexcept{
+        std::size_t count = 0;
+        double tol = 1.0e-6;
+
+        for (auto &node : domain_->nodes()){
+            if (std::abs(node.coord(d) - val) < tol){
+                count++;
+                std::cout << "Node: " << node.id() << " coord: " << node.coord(d) << std::endl;
+            }
+            
+        }
+        if (count){
+            for (auto &node : domain_->nodes()){
+                if (std::abs(node.coord(d) - val) < tol){
+                    std::cout << "Applying force to node: " << node.id() << std::endl;
+                    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
+                    
+                    apply_node_force(node.id(), std::forward<PetscScalar>(force_components/double(count))...);   
+                    //static_cast<PetscInt>(force_components/double(count))...);
+                }
+            }
+        }
+    }       
 
     void inject_K(Mat& analysis_K){
         for (auto &element : elements_) element.inject_K(analysis_K);
@@ -210,9 +238,8 @@ public:
             elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material
         }
 
-
         // PETSC SETUP
-    
+
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
         DMSetDimension(domain_->mesh.dm, dim); // Set the dimension of the mesh
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE); // Set the adjacency information for the FEM mesh.

@@ -115,22 +115,16 @@ int main(int argc, char **args)
         Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
 
 
-        //auto reference_cell_test = geometry::cell::LagrangianCell<2, 2, 2>{};
-        // TESTING PARTITION OF UNITY
-
-        //for (auto& e : M.get_domain().elements()){
-        //    e.print_info();
-        //}
-
-
-
+        for (auto& e : M.get_domain().elements()){
+            e.print_info();
+        }
 
         // Testing Material Wrapper interface.
         // Printing Material Parameters (Not YET)
         // Printing Material State
 
-        /*
-        // auto s1 = mat1D.get_state();
+        
+        //auto s1 = mat1D.get_state();
         auto s2 = mat3D.get_state();
 
         // mat1D.update_state(e0);
@@ -144,7 +138,7 @@ int main(int argc, char **args)
             std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
 
         steel_mat3D.print_material_parameters();
-        */
+        
 
         //M.boundary_constraining_begin();
 
@@ -157,16 +151,20 @@ int main(int argc, char **args)
         //M.fix_node(4);
         //M.fix_node(5);
 
-        M.fix_z(0.0);
+        double _x = 0.0;
 
+        M.fix_x(-1.0);
         M.setup();
+        M._force_orthogonal_plane(_x, 1.0, 1.0, 0.0, 0.0);
+
         //M.boundary_constraining_end(); //seting up sieve layout to have correct sizes in the mesh (and perform processor communication).
 
+        
         //M.apply_node_force(385, 0.0, 0.0, -1.0);
-        M.apply_node_force(0, 0.0, 0.0, 0.25 );
-        M.apply_node_force(2, 0.0, 0.0, 0.25 );
-        M.apply_node_force(4, 0.0, 0.0, 0.25 );
-        M.apply_node_force(6, 0.0, 0.0, 0.25 );
+        //M.apply_node_force(4, 0.25 , 0.0, 0.0 );
+        //M.apply_node_force(6, 0.25 , 0.0, 0.0 );
+        //M.apply_node_force(5, 0.25 , 0.0, 0.0 );
+        //M.apply_node_force(7, 0.25 , 0.0, 0.0 );
 
 
         LinearAnalysis analisis_obj{&M};

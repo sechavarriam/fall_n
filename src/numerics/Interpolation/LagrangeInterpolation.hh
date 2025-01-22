@@ -17,6 +17,32 @@
 
 #include "../../utils/index.hh"
 
+
+// HELPERS
+
+/*
+// utility to avoid serializing function evaluation with comma operator (arguments of a function have no order of evaluation)
+template<class T>
+constexpr void evaluateFoldExpression(std::initializer_list<T>&&)
+{}
+
+// utility to expand integer sequence over a functor
+template<class F, class I, I... i>
+decltype(auto) constexpr unpackIntegerSequence(F&& f, std::integer_sequence<I, i...> sequence)
+{
+    return f(std::integral_constant<I, i>()...);
+}
+
+// utility to evaluate an index sequence at compile time (i.e. unfold a loop with templates)
+template<class I, I... i, class F>
+void forEach(std::integer_sequence<I, i...> sequence, F&& f){
+    unpackIntegerSequence([f](auto... is){
+        evaluateFoldExpression<int>({(f(std::integral_constant<I,i>()), 0)...});
+    }, sequence);
+}
+*/
+
+
 namespace interpolation
 {
 
@@ -40,20 +66,23 @@ namespace interpolation
           (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
                    : L_i *= 1.0;
         }
+        //std::println("shape i = {0}, xPoints[i] = {1}, x = {2}, L_i = {3}", i, xPoints[i], x, L_i);
         return L_i;
       };
     };
 
     constexpr auto derivative(std::size_t i) const noexcept{
-      return [&, i](const double &x)
+      return [&, i](const double &x) -> double
       {
+        std::size_t j,k;
+        
         double dL_i{0.0};
         double num{1.0};
         double den{1.0};
 
-        for (std::size_t j = 0; j < nPoints; ++j){
+        for (j = 0; j < nPoints; ++j){
           if (j != i){
-            for (std::size_t k = 0; k < nPoints; ++k){
+            for (k = 0; k < nPoints; ++k){
               if (k != i){
                 den *= (xPoints[i] - xPoints[k]);
                 if (k != j){
@@ -66,6 +95,7 @@ namespace interpolation
             den = 1.0;
           }
         }
+        //std::println("deriv i = {0}, xPoints[i] = {1}, x = {2}, dL_i = {3}", i, xPoints[i], x, dL_i);
         return dL_i;
       };
     };
@@ -123,6 +153,7 @@ namespace interpolation
 
     template <std::size_t n>
     using Array = std::array<double, n>;
+    
     template <std::size_t n>
     using Basis = interpolation::LagrangeBasis_1D<n>;
 
@@ -147,24 +178,53 @@ namespace interpolation
 
     };
 
-    constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept
+    template <std::size_t J> requires (J < dim)
+    constexpr auto shape_function_derivative(std::size_t i) const noexcept
     {                                                          // $frac{\partial h_i}{\partial x_j}$
+      auto md_index = utils::list_2_md_index<Ni...>(i);
+      return [&](const auto &x)
+      {
+        if constexpr (dim == 1){
+          return std::get<0>(L).derivative(md_index[0])(x); // TODO:Revisar
+        }
+        else
+        {
+          return [&]<std::size_t... I>(std::index_sequence<I...>){
+            // Print index sequence
+            
+            return (((I != J) ? std::invoke(std::get<I>(L)           [md_index[I]], x[I]) :
+                                std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
+          }(std::make_index_sequence<dim>{});
+        } 
+      };
+    };
+
+    
+    constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept{                                                          // $frac{\partial h_i}{\partial x_j}$
       static std::size_t J{0};                                 // static initialization: only performed once.
       static auto md_index = utils::list_2_md_index<Ni...>(0); // static initialization: only performed once.
       J = j;
+
+      // std::println("Computing derivative of shape function at node {0} with respect to x_{1} = {2}.", i, j, J);
+
       md_index = utils::list_2_md_index<Ni...>(i);
 
-      return [&](const auto &x)
-      {
+      return [&](const std::ranges::range auto &x){
         if constexpr (dim == 1)
         {
           return std::get<0>(L).derivative(md_index[0])(x); // TODO:Revisar
         }
         else{
-          return [&]<std::size_t... I>(std::index_sequence<I...>){
-            return (((I != J) ? std::invoke(std::get<I>(L)           [md_index[I]], x[I]) :
-                                std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
-          }(std::make_index_sequence<dim>{});
+            return 
+            [&]<std::size_t... I>(std::index_sequence<I...>)->double{
+              //std::cout << "Index sequence: "; (std::cout << ... << I) << std::endl;
+              //auto bool_test = std::array<bool, dim>{(I != J)...};
+              //std::cout << "Bool test: "; for (auto b : bool_test) std::cout << b << " "; std::cout << std::endl;
+              //std::cout << "md_index:  "; for (auto m : md_index)  std::cout << m << " "; std::cout << std::endl;
+              return 
+              (((I != J) ? std::invoke(std::get<I>(L)[md_index[I]], x[I]) :
+                           std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
+            }(std::make_index_sequence<dim>{}); 
         }
       };
     };
@@ -182,6 +242,24 @@ namespace interpolation
       };
       return value;
     };
+
+    // UNTESTED + UNUSED YET
+    constexpr inline auto interpolate_derivative(const std::ranges::contiguous_range auto& F, const Array<dim> &X, std::size_t j) const noexcept{
+      
+      double value{0.0};
+      
+      for (std::size_t i = 0; i < (Ni * ...); ++i){
+        auto md_index = utils::list_2_md_index<Ni...>(i);
+
+        value += [&]<std::size_t... I>(const auto &x, std::index_sequence<I...>) { // Templated Lambda
+          return (F[i] * (std::get<I>(L).derivative(md_index[I],j)(x[I]) * ...));   // Fold expression
+                  }( X , std::make_index_sequence<dim>{});
+      };
+
+      return value;
+    };
+
+    
 
     consteval LagrangeBasis_ND(const Array<Ni> &...xCoordinates) noexcept
         : coordinates_i{xCoordinates...}, L{Basis<Ni>{xCoordinates}...} {};
@@ -230,6 +308,8 @@ namespace interpolation
 } // End of namespace interpolation
 
 #endif // __LAGRANGE_INTERPOLATION_H__
+
+
 
 /*  TO TEST IN MAIN:
 

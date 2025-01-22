@@ -43,11 +43,15 @@ namespace linalg{
     //    ABC  = MATPRODUCT_ABC,
     //};
 
-    inline Matrix mat_mat_PtAP(const Matrix& P, const Matrix& A){
+    inline Matrix mat_mat_PtAP(const Matrix& P, const Matrix& A, const PetscScalar& scalar = 1.0){
         Mat C;
         MatPtAP(A.mat_,P.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
+
+        MatScale(C, scalar);
         return Matrix{C};
     }
+
+
 
     //template<typename MultiplicationPolicy>
     

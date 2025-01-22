@@ -24,7 +24,6 @@ namespace linalg{
 
 } //namespace linalg
 
-
 class Matrix // Wrapper Around PETSc DenseMatrix
 {
     using PETSc_DENSE_SEQ_Matrix = Mat;
@@ -69,7 +68,9 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     //Operators
     Matrix& operator+=(const Matrix& other){MatAXPY(mat_, 1.0, other.mat_,SAME_NONZERO_PATTERN); return *this;};
-    Matrix& operator-=(const Matrix& other){MatAXPY(mat_,-1.0, other.mat_,SAME_NONZERO_PATTERN);return *this;};
+    Matrix& operator-=(const Matrix& other){MatAXPY(mat_,-1.0, other.mat_,SAME_NONZERO_PATTERN); return *this;};
+
+
     Matrix& operator*=(const PetscScalar& scalar){MatScale(mat_,     scalar); return *this;};
     Matrix& operator/=(const PetscScalar& scalar){MatScale(mat_, 1.0/scalar); return *this;};
 
@@ -141,12 +142,15 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     };
     
     //Copy Constructor
-    Matrix(const Matrix& other){MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);};
+    Matrix(const Matrix& other){
+        //std::cout << "PETSc Matrix Copy Constructor\n";
+        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
+        };
     
     //Move Constructor
     Matrix(Matrix&& other){
         //std::cout << "PETSc Matrix Move Constructor\n";
-        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
+        other.mat_ = std::exchange(mat_, other.mat_);
     };
     
     //Copy Assignment
@@ -158,8 +162,10 @@ class Matrix // Wrapper Around PETSc DenseMatrix
     
     //Move Assignment
     Matrix& operator=(Matrix&& other){
-        //std::cout << "PETSc Matrix Move Assignment\n";
-        MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
+         //std::cout << "PETSc Matrix Move Assignment\n";
+        other.mat_ = std::exchange(mat_, other.mat_);
+        
+        //MatDuplicate(other.mat_, MAT_COPY_VALUES, &mat_);
         return *this;
     };
 
