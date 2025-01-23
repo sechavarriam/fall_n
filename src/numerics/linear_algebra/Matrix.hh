@@ -15,12 +15,13 @@
 #include <span>
 
 #include "Vector.hh"
+
 class DeprecatedDenseMatrix;
 namespace linalg{
-    std::floating_point auto dot(const Vector& vec1, const Vector& vec2); 
+    std::floating_point auto dot(const DeprecatedSequentialVector& vec1, const DeprecatedSequentialVector& vec2); 
 
-    std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y);
-    Vector             mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x);
+    std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const DeprecatedSequentialVector& x, DeprecatedSequentialVector& y);
+    DeprecatedSequentialVector             mat_vec_mult(const DeprecatedDenseMatrix& A, const DeprecatedSequentialVector& x);
 
 } //namespace linalg
 
@@ -58,11 +59,12 @@ class DeprecatedDenseMatrix // Wrapper Around PETSc DenseMatrix
 
 
     void insert_values(PetscInt row, PetscInt col, PetscScalar value, InsertMode insert_mode = INSERT_VALUES){
-        PetscCallVoid(MatSetValue     (mat_, row, col, value, insert_mode));
+        PetscCallVoid(MatSetValue  (mat_, row, col, value, insert_mode));
     };
 
-    friend std::integral auto linalg::mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y);
-    friend Vector             linalg::mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x);
+    friend std::floating_point auto linalg::dot(const DeprecatedSequentialVector& vec1, const DeprecatedSequentialVector& vec2);
+
+    
 
     void print_content(){MatView(mat_, PETSC_VIEWER_STDOUT_SELF);};
     
@@ -91,11 +93,11 @@ class DeprecatedDenseMatrix // Wrapper Around PETSc DenseMatrix
     DeprecatedDenseMatrix operator*(const DeprecatedDenseMatrix& other){
         Mat C;
         MatMatMult(mat_, other.mat_, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &C);
-        return DeprecatedDenseMatrix(C);
-    };
+        return C;    
+        };
 
 
-    Vector operator*(const Vector& x){return linalg::mat_vec_mult(*this, x);};
+    DeprecatedSequentialVector operator*(const DeprecatedSequentialVector& x){return linalg::mat_vec_mult(*this, x);};
 
     DeprecatedDenseMatrix operator/(const PetscScalar& scalar){
         Mat B;
@@ -177,7 +179,6 @@ class DeprecatedDenseMatrix // Wrapper Around PETSc DenseMatrix
 
     ~DeprecatedDenseMatrix(){MatDestroy(&mat_);};
 };
-
 
 
 #endif

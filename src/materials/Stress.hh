@@ -37,7 +37,7 @@ class Stress{
     public:
         static constexpr std::size_t num_components = N;
 
-        Vector vector{component_};
+        DeprecatedSequentialVector vector{component_};
 
         constexpr std::span<const double, N> get_stress() const{return component_;};
         constexpr std::floating_point auto get_stress(std::size_t i) const{return component_[i];};
