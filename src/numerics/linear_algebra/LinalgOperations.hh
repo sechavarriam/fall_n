@@ -14,21 +14,21 @@
 
 namespace linalg{
 
-    inline std::floating_point auto dot(const Vector& vec1, const Vector& vec2){
+    inline std::floating_point auto dot(const DeprecatedSequentialVector& vec1, const DeprecatedSequentialVector& vec2){
         PetscScalar result{0};
         VecTDot(vec1.vec_, vec2.vec_, &result);
         return result;
     }
 
-    inline std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x, Vector& y){
+    inline std::integral auto mat_vec_mult(const DeprecatedDenseMatrix& A, const DeprecatedSequentialVector& x, DeprecatedSequentialVector& y){
         //if (y.vec_ == nullptr){
         //    VecDuplicate(x.vec_, &y.vec_);
         //};
         return MatMult(A.mat_, x.vec_, y.vec_);
     }
 
-    inline Vector mat_vec_mult(const DeprecatedDenseMatrix& A, const Vector& x){
-        Vector y;
+    inline DeprecatedSequentialVector mat_vec_mult(const DeprecatedDenseMatrix& A, const DeprecatedSequentialVector& x){
+        DeprecatedSequentialVector y;
         MatCreateVecs(A.mat_, nullptr, &y.vec_);
         MatMult(A.mat_, x.vec_, y.vec_);
         return y;

@@ -38,7 +38,7 @@ private:
     std::array<double, N> component_{0.0};
 
 public:
-    Vector vector{component_};
+    DeprecatedSequentialVector vector{component_};
 
     constexpr std::span<const double, N> get_strain() const { return component_; };
     constexpr std::floating_point auto   get_strain(std::size_t i) const { return component_[i]; };
