@@ -136,7 +136,13 @@ public:
                 std::forward<IntegrationStrategy>(integrator)));
     }
     
-    Node<dim> *add_node(Node<dim> &&node){
+
+    void add_node(std::size_t tag, std::floating_point auto... coords) 
+    requires (sizeof...(coords) == dim){
+        nodes_.emplace_back(Node<dim>(tag, coords...));
+    };
+
+    Node<dim> *add_node(Node<dim> &&node){ 
         nodes_.emplace_back(std::forward<Node<dim>>(node));
         return &nodes_.back();
     };

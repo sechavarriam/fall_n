@@ -94,23 +94,35 @@ int main(int argc, char **args)
 
         std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-        static constexpr std::size_t dim = 3;
+        static constexpr std::size_t dim  = 3;
         static constexpr std::size_t ndof = dim; // 6;
 
-        Domain<dim> D; // Domain Aggregator Object
-        GmshDomainBuilder domain_constructor(mesh_file, D);
+        Domain<dim> D1; // Domain Aggregator Object
+        GmshDomainBuilder domain_constructor(mesh_file, D1);
 
-        auto updateStrategy = []()
-        { std::cout << "TEST: e.g. Linear Update Strategy" << std::endl; };
+        auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
+        Model<ThreeDimensionalMaterial, ndof> M{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
 
-        Model<ThreeDimensionalMaterial, ndof> M{D, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        Domain<dim> D2; // Domain Aggregator Object (Second Domain)
+        D2.preallocate_node_capacity(8);
+        D2.add_node(0, -1.0,-1.0,-1.0);
+        D2.add_node(1,  1.0,-1.0,-1.0);
+        D2.add_node(2, -1.0, 1.0,-1.0);
+        D2.add_node(3,  1.0, 1.0,-1.0);
+        D2.add_node(4, -1.0,-1.0, 1.0);
+        D2.add_node(5,  1.0,-1.0, 1.0);
+        D2.add_node(6, -1.0, 1.0, 1.0);
+        D2.add_node(7,  1.0, 1.0, 1.0);
+
+        D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
+
 
         Strain<6> e0{0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
 
         MaterialState<ElasticState, Strain<6>> sv0{e0};
-        MaterialState<MemoryState, Strain<6>> sv1{e0};
+        MaterialState<MemoryState , Strain<6>> sv1{e0};
 
-        UniaxialIsotropicElasticMaterial steel_mat1D{200.0};
+        UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
         ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
 
         // Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
