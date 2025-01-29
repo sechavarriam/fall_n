@@ -62,6 +62,7 @@ namespace impl
         constexpr virtual Array map_local_point(const Array &x) const = 0;
 
         constexpr virtual double detJ(const Array &X) const = 0;
+        constexpr virtual double detJ_V2(const Array &X) const = 0;
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
@@ -71,7 +72,15 @@ namespace impl
 
         constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
         constexpr virtual DeprecatedSequentialVector integrate(std::function<DeprecatedSequentialVector(Array)>&& f) const = 0;
-        constexpr virtual DeprecatedDenseMatrix integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const = 0; 
+        constexpr virtual DeprecatedDenseMatrix      integrate(std::function<DeprecatedDenseMatrix(Array)>     && f) const = 0;
+
+        //constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::Ref<Eigen::MatrixXd>(Array)>&& f) const = 0;
+        
+        constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const = 0;
+        constexpr virtual Eigen::VectorXd integrate(std::function<Eigen::VectorXd(Array)>&& f) const = 0;
+
+        //constexpr virtual Eigen::MatrixBase<Array> integrate(std::function<Eigen::MatrixBase<Array>(Array)>&& f) const = 0;
+        //constexpr virtual double integrate(std::function<Eigen::MatrixBase<Array>(Array)>&& f) const = 0;
     };
              
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -86,8 +95,6 @@ namespace impl
     public:
 
         static constexpr auto dim = ElementType::dim;
-
-        
         
         explicit OwningModel_ElementGeometry(ElementType const &element, IntegrationStrategy const &integrator) :
             element_   (element   ),
@@ -105,8 +112,7 @@ namespace impl
 
         constexpr void print_info() const override { element_.print_info(); };
 
-        constexpr unsigned int VTK_cell_type() const override { return ElementType::VTK_cell_type; };
-
+        constexpr unsigned int         VTK_cell_type()        const override { return ElementType::VTK_cell_type; };
         constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
 
         constexpr std::size_t num_nodes()           const override { return element_.num_nodes(); };
@@ -120,7 +126,8 @@ namespace impl
 
         constexpr Array map_local_point(const Array &x) const override { return element_.map_local_point(x); };
 
-        constexpr double detJ(const Array &X) const override {return element_.detJ(X);};
+        constexpr double detJ   (const Array &X) const override {return element_.detJ(X);};
+        constexpr double detJ_V2(const Array &X) const override {return element_.detJ_V2(X);};
 
         constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
         constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
@@ -130,6 +137,14 @@ namespace impl
 
         constexpr double integrate (std::function<double(Array)>&& f) const override {
             return integrator_(element_,std::forward<std::function<double(Array)>>(f));
+        };
+
+        Eigen::MatrixXd integrate (std::function<Eigen::MatrixXd(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
+        };
+
+        Eigen::VectorXd integrate (std::function<Eigen::VectorXd(Array)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Eigen::VectorXd(Array)>>(f));
         };
 
         DeprecatedSequentialVector integrate (std::function<DeprecatedSequentialVector(Array)>&& f) const override {
@@ -174,6 +189,7 @@ public:
     constexpr Array map_local_point(const Array &x) const { return pimpl_->map_local_point(x); };
 
     constexpr double detJ(const Array &X) const { return pimpl_->detJ(X);};
+    constexpr double detJ_V2(const Array &X) const { return pimpl_->detJ_V2(X);};
  
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
@@ -184,8 +200,12 @@ public:
     //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
     
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
-    DeprecatedSequentialVector           integrate(std::function<DeprecatedSequentialVector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedSequentialVector(Array)>>(f));};
-    DeprecatedDenseMatrix           integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
+
+    Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(Array)>>(f));};
+    Eigen::VectorXd integrate(std::function<Eigen::VectorXd(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<Eigen::VectorXd(Array)>>(f));};
+    
+    DeprecatedSequentialVector integrate(std::function<DeprecatedSequentialVector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedSequentialVector(Array)>>(f));};
+    DeprecatedDenseMatrix      integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};

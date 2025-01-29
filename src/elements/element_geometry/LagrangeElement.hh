@@ -126,29 +126,26 @@ public:
   auto id() const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  PetscInt node(std::size_t i) const noexcept { return nodes_[i]; };
-  std::span<PetscInt> nodes() const noexcept { return std::span<PetscInt>(nodes_); };
-  Node<dim> &node_p(std::size_t i) const noexcept { return *nodes_p.value()[i]; };
+  PetscInt            node  (std::size_t i) const noexcept { return nodes_[i]; };
+  std::span<PetscInt> nodes ()              const noexcept { return std::span<PetscInt>(nodes_); };
+  Node<dim>          &node_p(std::size_t i) const noexcept { return *nodes_p.value()[i]; };
 
-  void bind_node(std::size_t i, Node<dim> *node) noexcept
-  {
-    if (nodes_p.has_value())
-    {
+  void bind_node(std::size_t i, Node<dim> *node) noexcept{
+    if (nodes_p.has_value()){
       nodes_p.value()[i] = node;
     }
-    else
-    { // set and assign
+    else{ // set and assign
       nodes_p = std::array<Node<dim> *, num_nodes_>{};
       nodes_p.value()[i] = node;
     }
   };
 
-  constexpr inline double H(std::size_t i, const Array &X) const noexcept
+  constexpr inline double H(std::size_t i, const Array &X) const noexcept // Quien es en realidad i?
   {
     return reference_element_.basis.shape_function(i)(X);
   };
 
-  constexpr inline double H(std::size_t i, const Point &X) const noexcept { return H(i, X.coord()); };
+  constexpr inline double H(std::size_t i, const Point &X) const noexcept { return H(i, X.coord()); }; 
 
   template <std::size_t j> // TODO: REMOVE THIS? It is not used in this way
   constexpr inline double aux_dH_dx(std::size_t i, const Array &X) const noexcept{
@@ -207,20 +204,18 @@ public:
           J(i, j) += (x[i] * dH_dx(k, j, X));
         }
       }
-      return J;
-    };
+    }
+    return J;
   };
 
+
   constexpr inline auto evaluate_jacobian_V2(const Point &X) const noexcept { return evaluate_jacobian_V2(X.coord()); };
+  constexpr inline auto detJ_V2             (const Array &X) const noexcept { return evaluate_jacobian_V2(X).determinant(); };
 
-  constexpr inline auto detJ_V2(const Array &X) const noexcept { return evaluate_jacobian_V2(X).determinant(); };
-  
 
-  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept
-  {
+  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept{
     if (nodes_p.has_value())
     {
-
       Array x{0.0};
       JacobianMatrix J{{{0.0}}};
 

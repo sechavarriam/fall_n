@@ -15,30 +15,35 @@ template <ushort... N> // TODO: Optimize using ranges and fold expressions.
 static inline constexpr std::size_t md_index_2_list(auto... ijk) 
 requires(sizeof...(N) == sizeof...(ijk))
 {
-  constexpr std::size_t array_dimension = sizeof...(N);
+  constexpr std::size_t dim = sizeof...(N);
 
-  std::array<std::size_t, array_dimension> array_limits{N...  };
-  std::array<std::size_t, array_dimension> md_index    {ijk...}; 
+  std::array<std::size_t, dim> array_limits{N...  };
+  std::array<std::size_t, dim> md_index    {ijk...}; 
   
   auto n = md_index[0];
 
   //Row major order
-  for (std::size_t i = 1; i < array_dimension; ++i) {
+  for (std::size_t i = 1; i < dim; ++i) {
     n *= array_limits[i];
     n += md_index[i];
   }
-  
 
+  ////Column major order
+  //for (std::size_t i = 1; i < dim; ++i) {
+  //  n += md_index[i] * array_limits[i];
+  //}
+  
   return n;
 }; 
 
-template <std::size_t... N> //<Nx, Ny, Nz ,...> // TODO: Put and classify in utils.
+
+template <std::size_t... N> //<Nx, Ny, Nz ,...> 
 static inline constexpr std::array<std::size_t, sizeof...(N)>
 list_2_md_index(const std::size_t index) {
   
   using IndexTuple = std::array<std::size_t, sizeof...(N)>;
 
-  constexpr std::size_t array_dimension = sizeof...(N);
+  constexpr std::size_t dim = sizeof...(N);
 
   IndexTuple array_limits{N...};
   IndexTuple md_index; // to return.
@@ -55,13 +60,11 @@ list_2_md_index(const std::size_t index) {
     return std::array<std::size_t, sizeof...(N)>{0};
   }
 
-  std::integral auto divisor =
-      num_positions /
-      int(array_limits.back()); // TODO: Check if this is integer division or
-                                // use concepts
+  std::integral auto divisor = num_positions/int(array_limits.back()); // TODO: Check if this is integer division or
+                                                                       // use concepts
   std::integral auto I = index;
 
-  for (auto n = array_dimension - 1; n > 0; --n) {
+  for (auto n = dim - 1; n > 0; --n) {
     md_index[n] =
         I / divisor; // TODO: Check if this is integer division or use concepts
     I %= divisor;

@@ -35,8 +35,10 @@ class Quadrature{
     P evalPoints_;
     W weights_   ; 
 
+
     template<std::invocable<decltype(evalPoints_[0])> F>
-    constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
+    constexpr decltype(auto) operator()(F&& function2eval) const noexcept {
+    //constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
         using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
         
         if constexpr(std::is_same_v<returnType, void>){
@@ -45,38 +47,28 @@ class Quadrature{
         } 
         else 
         {
-            if constexpr(std::is_same_v<returnType,double>)
+            if constexpr(std::is_same_v<returnType,double>) 
             {
                 return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),  std::plus<>(),
                     [&](const auto& w, const auto& x){
                     return w*function2eval(x);});
             }
-            else 
+            else if constexpr(std::is_base_of_v<Eigen::MatrixBase<returnType>, returnType>) // Eigen Matrices and Vectors 
             {
-                auto result = function2eval(evalPoints_[0])*weights_[0];  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!
-                //auto result = function2eval(evalPoints_[0]);  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!     
-
-                //if constexpr(std::is_same_v<returnType,Matrix>){
-                //    std::println("First Evaluation");
-                //    std::cout << "Eval Point: "; for (auto&& j:evalPoints_[0]){std::cout << j << " ";}std::cout << std::endl;
-                //    MatView(function2eval(evalPoints_[0]).mat_ , PETSC_VIEWER_STDOUT_WORLD);
-                //    //MatView(result.mat_ , PETSC_VIEWER_STDOUT_WORLD);
-                //}
+                auto result = (function2eval(evalPoints_[0])*weights_[0]).eval();
 
                 for(std::size_t i = 1; i < nPoints; ++i) {
+                    result += (function2eval(evalPoints_[i])*weights_[i]).eval();
+                }
 
-                    //std::println(" Evaluation {0}",i);
-                    //std::println(" weights_[{0}] = {1}",i,weights_[i]);
+                return result;
+            }
+            else //default
+            {
+                returnType result = function2eval(evalPoints_[0])*weights_[0];  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!
+
+                for(std::size_t i = 1; i < nPoints; ++i) {
                     result += function2eval(evalPoints_[i])*weights_[i];
-                    //result += function2eval(evalPoints_[i]);
-                        //if constexpr(std::is_same_v<returnType,Matrix>){
-                        //    std::cout << "Eval Point: ";
-                        //    for (auto&& j:evalPoints_[i]){
-                        //        std::cout << j << " ";
-                        //    }std::cout << std::endl;
-                        //    //MatView(result.mat_ , PETSC_VIEWER_STDOUT_WORLD);
-                        //    MatView(function2eval(evalPoints_[i]).mat_ , PETSC_VIEWER_STDOUT_WORLD);
-                        //}
                 }
                 return result;       
             }
