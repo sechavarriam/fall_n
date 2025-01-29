@@ -6,6 +6,7 @@
 
 #include <print>
 
+#include <Eigen/Dense> 
 #include <petsc.h>
 
 #include "element_geometry/ElementGeometry.hh"
@@ -25,10 +26,10 @@ class ContinuumElement
 
   using Array = std::array<double, MaterialPolicy::dim>;
 
-  static constexpr auto dim = MaterialPolicy::dim;
+  static constexpr auto dim         = MaterialPolicy::dim;
   static constexpr auto num_strains = MaterialPolicy::StrainType::num_components;
 
-  ElementGeometry<dim> *geometry_;
+  ElementGeometry<dim>      *geometry_;
   std::vector<MaterialPoint> material_points_{};
 
   bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
@@ -71,6 +72,75 @@ public:
 
     return dofs_index;
   };
+
+  // Tal vez deber[ian ser dinamica
+  // This coul be injected in terms of the material policy StrainDifferentialOperator or something like that.
+  Eigen::Matrix<double, dim, Eigen::Dynamic> H_V2([[maybe_unused]]const Array &X){
+    std::size_t i, k=0;
+
+    auto H = Eigen::Matrix<double, dim, Eigen::Dynamic>::Zero();
+
+    H.resize(dim, ndof * num_nodes()); // Allocate H dim x num_nodes*num_dof
+    H.setZero();
+
+    if constexpr (dim == 1){
+      for (i = 0; i < num_nodes(); ++i)
+        H(0, i) = geometry_->H(i, X);
+      
+    }
+    else if constexpr (dim == 2){
+      for (i = 0; i < num_nodes(); ++i){
+        H(0, k)     = geometry_->H(i, X);
+        H(1, k + 1) = geometry_->H(i, X);
+        k+=dim;
+      }
+
+    }
+    else if constexpr (dim == 3){
+      for (i = 0; i < num_nodes(); ++i){
+        H(0, k)     = geometry_->H(i, X);
+        H(1, k + 1) = geometry_->H(i, X);
+        H(2, k + 2) = geometry_->H(i, X);
+        k += dim;
+      }
+    }
+
+    return H;
+  };
+
+  //Eigen::Matrix<double, num_strains, Eigen::Dynamic> B_V2([[maybe_unused]]const Array &X)
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> B_V2(const Array &X)
+  {
+    std::size_t i, k = 0;
+
+    auto B = Eigen::Matrix<double, num_strains, Eigen::Dynamic>::Zero();
+    B.resize(num_strains, ndof * num_nodes());
+    B.setZero();
+
+    if constexpr (dim == 1){
+      std::runtime_error("B_V2 not implemented for dim = 1 yet ");
+    }
+    else if constexpr (dim == 2){
+      for (i = 0; i < num_nodes(); ++i){
+        B(0, k)     = geometry_->H(i, X);
+        B(1, k + 1) = geometry_->H(i, X);
+        k += dim;
+      }
+    }
+    else if constexpr (dim == 3){
+      for (i = 0; i < num_nodes(); ++i){
+        B(0, k)     = geometry_->H(i, X);
+        B(1, k + 1) = geometry_->H(i, X);
+        B(2, k + 2) = geometry_->H(i, X);
+        k += dim;
+      }
+    }
+
+    std::cout << "B_V2: " << B << std::endl;
+    return B;
+  };
+
+  //Eigen::Matrix<double, num, Dynamic> B_V2(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
 
   DeprecatedDenseMatrix H(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
   DeprecatedDenseMatrix B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
@@ -121,8 +191,7 @@ public:
     //  if (IsSymmetric == PETSC_FALSE) std::println(" WARNING: ContinuumElement::K is not symmetric. ");
     //  MatView(K.mat_, PETSC_VIEWER_STDOUT_WORLD); // Spy view (draw) of the matrix
     //}
-
-    // MatView(K.mat_, PETSC_VIEWER_DRAW_WORLD); // Spy view (draw) of the matrix
+    // Spy view (draw) of the matrix
     return K;
   };
 
@@ -181,6 +250,19 @@ public:
 //==================================================================================================
 //======================== Methods Definitions =====================================================
 //==================================================================================================
+//template <typename MaterialPolicy, std::size_t ndof>
+//inline Eigen::Matrix<double, MaterialPolicy::num_strains, MaterialPolicy::ndof> ContinuumElement<MaterialPolicy, ndof>::H_V2(const Array &X)
+//{
+//  return Eigen::Matrix<double, dim, ndof>::Zero();
+//}
+//
+//template <typename MaterialPolicy, std::size_t ndof>
+//inline Eigen::Matrix<double, MaterialPolicy::num_strains, ndof> ContinuumElement<MaterialPolicy, ndof>::B_V2(const Array &X)
+//{
+//  return Eigen::Matrix<double, num_strains, ndof>::Zero();
+//}
+
+
 
 // YA ACA SE ESTA ASUMIENDO EL NUMERO DE GRADOS DE LIBERTAD! TAL VEZ SE DEBA MOVER AL MATERIAL O AL MODEL POLICY.
 template <typename MaterialPolicy, std::size_t ndof>

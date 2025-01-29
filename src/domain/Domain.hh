@@ -73,6 +73,7 @@ public:
 
     std::span<Node<dim>>            nodes()    { return std::span<Node<dim>>           (nodes_);    };  
     std::span<ElementGeometry<dim>> elements() { return std::span<ElementGeometry<dim>>(elements_); };
+    ElementGeometry<dim>&           element(std::size_t i) { return elements_[i]; };
 
     // ===========================================================================================================
 
@@ -92,7 +93,6 @@ public:
     }
 
     void assemble_sieve() {
-
         link_nodes_to_elements();
 
         // Uninterpoleated topology by now (no edges or faces).

@@ -188,7 +188,7 @@ public:
         KSPSetOperators(solver_, K, K);
         KSPSolve(solver_, F, U);
 
-        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
+        VecView(U, PETSC_VIEWER_STDOUT_WORLD);
     }
 
     LinearAnalysis(Model<ThreeDimensionalMaterial, 3> *model) : model_{model}
