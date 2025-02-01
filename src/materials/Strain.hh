@@ -4,6 +4,7 @@
 #include <concepts>
 #include <ranges>
 
+#include "VoigtVector.hh"
 
 template <typename StrainType>
 concept StrainC = requires(StrainType e) {
@@ -23,8 +24,55 @@ concept StrainRange = std::ranges::range<T> && requires(T s) {
 template <typename R, typename V>
 concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
+
+
 template <std::size_t N> requires(N > 0)
-class Strain{
+class Strain : public VoigtVector<N> {
+    
+  public:
+  
+    static constexpr std::size_t num_components{N};
+    static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
+                                          else if constexpr (N == 3) return 2;
+                                          else if constexpr (N == 6) return 3;
+                                          else                       return 0; 
+                                          }()}; // Tambien en stress? Subir a VoigtVector?
+
+
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//=======================================================================================
+// _____           _                               _       _ _ _ 
+//|_   _|         | |                             | |     | | | |
+//  | | ___     __| | ___ _ __  _ __ ___  ___ __ _| |_ ___| | | |
+//  | |/ _ \   / _` |/ _ \ '_ \| '__/ _ \/ __/ _` | __/ _ \ | | |
+//  | | (_) | | (_| |  __/ |_) | | |  __/ (_| (_| | ||  __/_|_|_|
+//  \_/\___/   \__,_|\___| .__/|_|  \___|\___\__,_|\__\___(_|_|_)
+//                       | |                                     
+//                       |_|                                     
+//=======================================================================================
+
+
+template <std::size_t N> requires(N > 0)
+class StrainDeprecated{
 public:
     static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
                                           else if constexpr (N == 3) return 2;
@@ -54,29 +102,29 @@ public:
     // =========== CONSTRUCTORS ==========================
 
     template <typename... S> requires(sizeof...(S) == N)
-    constexpr Strain(S... s) : component_{s...}{}
+    constexpr StrainDeprecated(S... s) : component_{s...}{}
 
     // copy constructor
-    constexpr Strain(const Strain<N> &e) : component_{e.component_} {}
+    constexpr StrainDeprecated(const StrainDeprecated<N> &e) : component_{e.component_} {}
     // move constructor
-    constexpr Strain(Strain<N> &&e) : component_{std::move(e.component_)} {}
+    constexpr StrainDeprecated(StrainDeprecated<N> &&e) : component_{std::move(e.component_)} {}
     // copy assignment
-    constexpr Strain &operator=(const Strain<N> &e){
+    constexpr StrainDeprecated &operator=(const StrainDeprecated<N> &e){
         component_ = e.component_;
         return *this;
     }
     // move assignment
-    constexpr Strain &operator=(Strain<N> &&e){
+    constexpr StrainDeprecated &operator=(StrainDeprecated<N> &&e){
         component_ = std::move(e.component_);
         return *this;
     }
 
-    constexpr  Strain() = default;
-    constexpr ~Strain() = default;
+    constexpr  StrainDeprecated() = default;
+    constexpr ~StrainDeprecated() = default;
 };
 
 template <>
-class Strain<1>{
+class StrainDeprecated<1>{
 public:
     static constexpr std::size_t dim{1};
     static constexpr std::size_t num_components = 1;
@@ -90,9 +138,10 @@ public:
     constexpr void set_strain(double e) { component_ = e; };
     constexpr std::floating_point auto get_strain() const { return component_; };
 
-    constexpr  Strain() = default;
-    constexpr ~Strain() = default;
+    constexpr  StrainDeprecated() = default;
+    constexpr ~StrainDeprecated() = default;
 };
 
 #endif
+
 

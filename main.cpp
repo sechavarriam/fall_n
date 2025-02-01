@@ -130,18 +130,10 @@ int main(int argc, char **args)
 
         for (auto& e : M1.get_domain().elements()) e.print_info();
 
-        std::println("Deprecated PETSc DENSE determinant test: {0}", M1.get_domain().element(0).detJ({0.0, 0.0, 0.0}));
-        std::println("Eigen determinant test:                  {0}", M1.get_domain().element(0).detJ_V2({0.0, 0.0, 0.0}));
-        
-
-
-
-
-
-
-
-
-
+        #ifdef __clang__ 
+            std::println("Deprecated PETSc DENSE determinant test: {0}", M1.get_domain().element(0).detJ({0.0, 0.0, 0.0}));
+            std::println("Eigen determinant test:                  {0}", M1.get_domain().element(0).detJ_V2({0.0, 0.0, 0.0}));
+        #endif 
 
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
@@ -165,13 +157,13 @@ int main(int argc, char **args)
         LinearAnalysis analisis_obj1{&M1};
         LinearAnalysis analisis_obj2{&M2};
         
-        analisis_obj1.solve();
-        analisis_obj1.record_solution(view1);
+        //analisis_obj1.solve();
+        //analisis_obj1.record_solution(view1);
         
         analisis_obj2.solve();
         analisis_obj2.record_solution(view2);
 
-        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
+        //view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
         view2.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test2.vtu");
 
          //view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test1.vtu");

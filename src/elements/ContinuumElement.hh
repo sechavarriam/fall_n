@@ -4,9 +4,12 @@
 #include <memory>
 #include <array>
 
-#include <print>
+#ifdef __clang__ 
+  #include <format>
+  #include <print>
+#endif
 
-#include <Eigen/Dense> 
+#include <Eigen/Dense>
 #include <petsc.h>
 
 #include "element_geometry/ElementGeometry.hh"
@@ -21,16 +24,16 @@ class ContinuumElement
   using PETScMatrix = Mat; // TODO: Use PETSc DeprecatedDenseMatrix
 
   // using MaterialPolicy = MaterialPolicy;
-  using MaterialPoint = MaterialPoint<MaterialPolicy>;
-  using Material = Material<MaterialPolicy>;
+  using MaterialPointT = MaterialPoint<MaterialPolicy>;
+  using MaterialT = Material<MaterialPolicy>;
 
   using Array = std::array<double, MaterialPolicy::dim>;
 
-  static constexpr auto dim         = MaterialPolicy::dim;
+  static constexpr auto dim = MaterialPolicy::dim;
   static constexpr auto num_strains = MaterialPolicy::StrainType::num_components;
 
-  ElementGeometry<dim>      *geometry_;
-  std::vector<MaterialPoint> material_points_{};
+  ElementGeometry<dim> *geometry_;
+  std::vector<MaterialPointT> material_points_{};
 
   bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
 
@@ -75,30 +78,34 @@ public:
 
   // Tal vez deber[ian ser dinamica
   // This coul be injected in terms of the material policy StrainDifferentialOperator or something like that.
-  Eigen::Matrix<double, dim, Eigen::Dynamic> H_V2([[maybe_unused]]const Array &X){
-    std::size_t i, k=0;
+  Eigen::Matrix<double, dim, Eigen::Dynamic> H(const Array &X)
+  {
+    std::size_t i, k = 0;
 
     auto H = Eigen::Matrix<double, dim, Eigen::Dynamic>::Zero();
 
     H.resize(dim, ndof * num_nodes()); // Allocate H dim x num_nodes*num_dof
     H.setZero();
 
-    if constexpr (dim == 1){
+    if constexpr (dim == 1)
+    {
       for (i = 0; i < num_nodes(); ++i)
         H(0, i) = geometry_->H(i, X);
-      
     }
-    else if constexpr (dim == 2){
-      for (i = 0; i < num_nodes(); ++i){
-        H(0, k)     = geometry_->H(i, X);
+    else if constexpr (dim == 2)
+    {
+      for (i = 0; i < num_nodes(); ++i)
+      {
+        H(0, k) = geometry_->H(i, X);
         H(1, k + 1) = geometry_->H(i, X);
-        k+=dim;
+        k += dim;
       }
-
     }
-    else if constexpr (dim == 3){
-      for (i = 0; i < num_nodes(); ++i){
-        H(0, k)     = geometry_->H(i, X);
+    else if constexpr (dim == 3)
+    {
+      for (i = 0; i < num_nodes(); ++i)
+      {
+        H(0, k) = geometry_->H(i, X);
         H(1, k + 1) = geometry_->H(i, X);
         H(2, k + 2) = geometry_->H(i, X);
         k += dim;
@@ -108,90 +115,96 @@ public:
     return H;
   };
 
-  //Eigen::Matrix<double, num_strains, Eigen::Dynamic> B_V2([[maybe_unused]]const Array &X)
-  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> B_V2(const Array &X)
-  {
+  // Eigen::Matrix<double, num_strains, Eigen::Dynamic> B([[maybe_unused]]const Array &X)
+  //Eigen::MatrixXd B(const Array &X)
+  decltype(auto) B(const Array &X){
+    using StrainMatrix = Eigen::Matrix<double, num_strains, Eigen::Dynamic>;
+    
+    StrainMatrix B = StrainMatrix::Zero(num_strains, ndof * num_nodes());
     std::size_t i, k = 0;
 
-    auto B = Eigen::Matrix<double, num_strains, Eigen::Dynamic>::Zero();
-    B.resize(num_strains, ndof * num_nodes());
-    B.setZero();
-
-    if constexpr (dim == 1){
-      std::runtime_error("B_V2 not implemented for dim = 1 yet ");
+    if constexpr (dim == 1)
+    {
+      std::runtime_error("B not implemented for dim = 1 yet ");
     }
     else if constexpr (dim == 2){
-      for (i = 0; i < num_nodes(); ++i){
-        B(0, k)     = geometry_->H(i, X);
-        B(1, k + 1) = geometry_->H(i, X);
+      for (i = 0; i < num_nodes(); ++i)
+      {
+        B(0, k    ) = geometry_->dH_dx(i, 0, X);
+        B(1, k + 1) = geometry_->dH_dx(i, 1, X);
+        B(2, k    ) = geometry_->dH_dx(i, 1, X);
+        B(2, k + 1) = geometry_->dH_dx(i, 0, X);
         k += dim;
       }
     }
     else if constexpr (dim == 3){
       for (i = 0; i < num_nodes(); ++i){
-        B(0, k)     = geometry_->H(i, X);
-        B(1, k + 1) = geometry_->H(i, X);
-        B(2, k + 2) = geometry_->H(i, X);
+        B(0, k    ) = geometry_->dH_dx(i, 0, X);
+        B(1, k + 1) = geometry_->dH_dx(i, 1, X);
+        B(2, k + 2) = geometry_->dH_dx(i, 2, X);
+
+        B(3, k + 1) = geometry_->dH_dx(i, 2, X);
+        B(3, k + 2) = geometry_->dH_dx(i, 1, X);
+
+        B(4, k    ) = geometry_->dH_dx(i, 2, X);
+        B(4, k + 2) = geometry_->dH_dx(i, 0, X);
+
+        B(5, k    ) = geometry_->dH_dx(i, 1, X);
+        B(5, k + 1) = geometry_->dH_dx(i, 0, X);
         k += dim;
       }
     }
-
-    std::cout << "B_V2: " << B << std::endl;
+    std::cout << B << std::endl;
     return B;
   };
 
-  //Eigen::Matrix<double, num, Dynamic> B_V2(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
+  // Eigen::Matrix<double, num, Dynamic> B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
 
-  DeprecatedDenseMatrix H(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
-  DeprecatedDenseMatrix B(const Array &X); // Declaration. Definition at the end of the file // Could be injected from material policy.
-
-  DeprecatedDenseMatrix BtCB([[maybe_unused]] const Array &X)
-  { // TODO: Optimize this for each dimension.
-
-    auto N = static_cast<PetscInt>(ndof * num_nodes());
-
-    auto get_C = [this]()
+  inline Eigen::MatrixXd BtCB(const Array &X)
+  {
+    const auto n = ndof * num_nodes();
+    decltype(auto) get_C = [this]()
     {
       static std::size_t call{0}; // Esto tiene que ser una muy mala practica.
       static std::size_t N = num_integration_points();
-      if (is_multimaterial_)
-      { // TODO: Cheks...
-        // std::cout` << "Call: " << call%N << std::endl; //TODO:: Reset call when N is reached.
-        return material_points_[(call++) % N].C();
+
+      Eigen::Matrix<double, num_strains, num_strains> C;
+
+      if (is_multimaterial_){ // TODO: Cheks...
+        C = material_points_[call++ % N].C();
+        return C;
+        // return material_points_[(call++) % N].C();
       }
-      else
-      {
-        return material_points_[0].C();
+      else{
+        C = material_points_[0].C();
+        return C;
+        // return material_points_[0].C();
       }
     };
 
-    DeprecatedDenseMatrix BtCB_{N, N};
+    Eigen::MatrixXd result = Eigen::MatrixXd::Zero(n, n);
 
-    //MatView(get_C().mat_, PETSC_VIEWER_STDOUT_WORLD); 
-    BtCB_ = linalg::mat_mat_PtAP(B(X), get_C());//, geometry_->detJ(X)); 
-    // Considerar C(X) como funcion para integracion multimaterial.
+    // Store B matrix calculation
+    Eigen::MatrixXd B_ = B(X).eval();
 
-    //std::println("********************************************************************************");
-    //std::println("BtCB({0:> 2.5f}, {1:> 2.5f}, {2:> 2.5f})", X[0], X[1], X[2] );
-    //MatView(BtCB_.mat_, PETSC_VIEWER_STDOUT_WORLD); 
-    //std::println("********************************************************************************");
-    return BtCB_; // B^t * C * B
+    // Get C matrix
+    auto C = get_C().eval();
+
+    result = (B_.transpose() * C * B_).eval();
+
+    // Eigen::MatrixXd M = Eigen::MatrixXd::Zero(ndof * num_nodes(), ndof * num_nodes());
+    //result = B(X).transpose() * get_C() * B(X);
+    return result;
   };
 
-  DeprecatedDenseMatrix K()
-  {
-    //bool tests_on = true
-    auto N = static_cast<PetscInt>(ndof * num_nodes());
-    DeprecatedDenseMatrix K{N, N};
+  Eigen::MatrixXd K(){
+    using StifnessMatrix = Eigen::MatrixXd;
+    
+    const auto N = ndof*num_nodes();
+    StifnessMatrix K = StifnessMatrix::Zero(N, N);
+
     K = geometry_->integrate([this](const Array &X){return BtCB(X);});
 
-    //if (tests_on){
-    //  PetscBool IsSymmetric;
-    //  MatIsSymmetric(K.mat_, 1.0e-6, &IsSymmetric);
-    //  if (IsSymmetric == PETSC_FALSE) std::println(" WARNING: ContinuumElement::K is not symmetric. ");
-    //  MatView(K.mat_, PETSC_VIEWER_STDOUT_WORLD); // Spy view (draw) of the matrix
-    //}
-    // Spy view (draw) of the matrix
     return K;
   };
 
@@ -218,10 +231,12 @@ public:
 
     // Print DOFs index in order
 
-    std::println("DOFs index in order: ");
-    for (const auto idx : idxs)
-      std::cout << idx << " ";
-    std::println(" ");
+    #ifdef __clang__ 
+      std::println("DOFs index in order: ");
+      for (const auto idx : idxs)
+        std::cout << idx << " ";
+      std::println(" ");
+    #endif
 
     MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
@@ -232,13 +247,13 @@ public:
                                                        // M[etodo para setear materiales debe ser llamado despues de la creacion de los elementos.
                                                      };
 
-  ContinuumElement(ElementGeometry<dim> *geometry, Material material) : geometry_{geometry}
+  ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}
   {
     // set_num_dof_in_nodes();
     for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i)
     {
       material_points_.reserve(geometry_->num_integration_points());
-      material_points_.emplace_back(MaterialPoint{material});
+      material_points_.emplace_back(MaterialPointT{material});
     }
     bind_integration_points(); // its not nedded here. Move and allocate when needed (TODO).
   };
@@ -247,175 +262,5 @@ public:
 
 }; // ContinuumElement
 
-//==================================================================================================
-//======================== Methods Definitions =====================================================
-//==================================================================================================
-//template <typename MaterialPolicy, std::size_t ndof>
-//inline Eigen::Matrix<double, MaterialPolicy::num_strains, MaterialPolicy::ndof> ContinuumElement<MaterialPolicy, ndof>::H_V2(const Array &X)
-//{
-//  return Eigen::Matrix<double, dim, ndof>::Zero();
-//}
-//
-//template <typename MaterialPolicy, std::size_t ndof>
-//inline Eigen::Matrix<double, MaterialPolicy::num_strains, ndof> ContinuumElement<MaterialPolicy, ndof>::B_V2(const Array &X)
-//{
-//  return Eigen::Matrix<double, num_strains, ndof>::Zero();
-//}
-
-
-
-// YA ACA SE ESTA ASUMIENDO EL NUMERO DE GRADOS DE LIBERTAD! TAL VEZ SE DEBA MOVER AL MATERIAL O AL MODEL POLICY.
-template <typename MaterialPolicy, std::size_t ndof>
-inline DeprecatedDenseMatrix ContinuumElement<MaterialPolicy, ndof>::H(const Array &X)
-{
-  DeprecatedDenseMatrix H(ndof, num_nodes() * dim);
-  H.assembly_begin();
-
-  if constexpr (dim == 1)
-  {
-    for (std::size_t i = 0; i < num_nodes(); ++i)
-    {
-      H.insert_values(0, i, geometry_->H(i, X));
-    }
-  }
-  else if constexpr (dim == 2)
-  {
-    auto k = 0;
-    for (std::size_t i = 0; i < num_nodes(); ++i)
-    {
-      H.insert_values(0, k, geometry_->H(i, X));
-      H.insert_values(0, k + 1, 0.0);
-
-      H.insert_values(1, k, 0.0);
-      H.insert_values(1, k + 1, geometry_->H(i, X));
-
-      k += dim;
-    }
-  }
-  else if constexpr (dim == 3)
-  {
-    auto k = 0;
-    for (std::size_t i = 0; i < num_nodes(); ++i)
-    {
-      H.insert_values(0, k, geometry_->H(i, X));
-      H.insert_values(0, k + 1, 0.0);
-      H.insert_values(0, k + 2, 0.0);
-
-      H.insert_values(1, k, 0.0);
-      H.insert_values(1, k + 1, geometry_->H(i, X));
-      H.insert_values(1, k + 2, 0.0);
-
-      H.insert_values(2, k, 0.0);
-      H.insert_values(2, k + 1, 0.0);
-      H.insert_values(2, k + 2, geometry_->H(i, X));
-
-      k += dim;
-    }
-  }
-
-  H.assembly_end();
-  return H;
-};
-
-template <typename MaterialPolicy, std::size_t ndof>
-inline DeprecatedDenseMatrix ContinuumElement<MaterialPolicy, ndof>::B(const Array &X)
-{
-  DeprecatedDenseMatrix B(num_strains, num_nodes() * dim);
-  B.assembly_begin();
-
-  if constexpr (dim == 1)
-    std::runtime_error("1D material not implemented yet for ContinuumElement.");
-  else if constexpr (dim == 2)
-  {
-    // Ordering defined acoording to Voigt notation [11, 22, 12]
-    auto k = 0;
-    for (std::size_t i = 0; i < num_nodes(); ++i)
-    {
-      B.insert_values(0, k, geometry_->dH_dx(i, 0, X));
-      B.insert_values(0, k + 1, 0.0);
-
-      B.insert_values(1, k, 0.0);
-      B.insert_values(1, k + 1, geometry_->dH_dx(i, 1, X));
-
-      B.insert_values(2, k, 1 * geometry_->dH_dx(i, 1, X));
-      B.insert_values(2, k + 1, 1 * geometry_->dH_dx(i, 0, X));
-
-      k += dim;
-    }
-  }
-  else if constexpr (dim == 3)
-  {
-    
-    bool test = true;
-
-    auto k = 0;
-
-    //if (test){
-    //  std::println( " ===============================================================================================  ");
-    //  std::println( " Point X = {0:> 2.5f} {1:> 2.5f} {2:> 2.5f} ", X[0], X[1], X[2]); 
-    //}
-
-    for (std::size_t i = 0; i < num_nodes(); ++i)
-    {
-      // Ordering defined acoording to Voigt notation [00, 11, 22, 21, 20, 10]
-      B.insert_values(0, k    , geometry_->dH_dx(i, 0, X));
-      B.insert_values(0, k + 1, 0.0);
-      B.insert_values(0, k + 2  , 0.0);
-
-      B.insert_values(1, k    , 0.0);
-      B.insert_values(1, k + 1, geometry_->dH_dx(i, 1, X));
-      B.insert_values(1, k + 2, 0.0);
-
-      B.insert_values(2, k, 0.0);
-      B.insert_values(2, k + 1, 0.0);
-      B.insert_values(2, k + 2, geometry_->dH_dx(i, 2, X));
-
-      B.insert_values(3, k    , 0.0);
-      B.insert_values(3, k + 1, geometry_->dH_dx(i, 2, X));
-      B.insert_values(3, k + 2, geometry_->dH_dx(i, 1, X));
-
-      B.insert_values(4, k    , geometry_->dH_dx(i, 2, X));
-      B.insert_values(4, k + 1, 0.0);
-      B.insert_values(4, k + 2, geometry_->dH_dx(i, 0, X));
-
-      B.insert_values(5, k     ,geometry_->dH_dx(i, 1, X));
-      B.insert_values(5, k + 1, geometry_->dH_dx(i, 0, X));
-      B.insert_values(5, k + 2, 0.0);
-
-      k += dim;
-
-      if (!test){
-        
-        std::println( "dH{0:>1}_dx: {1:> 2.5f} dH{0:>1}_dy: {2:> 2.5f} dH{0:>1}_dz: {3:> 2.5f} ",
-           i, 
-           geometry_->dH_dx(i, 0, X),
-           geometry_->dH_dx(i, 1, X),
-           geometry_->dH_dx(i, 2, X));
-    
-        //std::array<PetscInt, 24> idx = {0,1,2, 3,4,5, 6,7,8, 9,10,11, 12,13,14, 15,16,17, 18,19,20, 21,22,23};
-        //auto test_data = std::array<double,24>{0,0,0, 0,0,0, 0,0,0, 0,0,0, 1,0,0, 1,0,0, 1,0,0, 1,0,0 }; 
-        //Vec U, e;
-        //VecCreateSeq(PETSC_COMM_WORLD, 24, &U);
-        //VecCreateSeq(PETSC_COMM_WORLD, 6, &e);
-        //VecSet(e, 0.0);
-        //VecSetValues(U, 24, idx.data(), test_data.data(), INSERT_VALUES);
-        //VecAssemblyBegin(U);
-        //VecAssemblyEnd(U);
-        //MatMult(B.mat_, U, e);
-        //PetscScalar *array;
-        //VecGetArray(e, &array);
-        //std::println( "e{0:>1}    : \n  {1:> 2.5f}\n  {2:> 2.5f}\n  {3:> 2.5f}\n  {4:> 2.5f}\n  {5:> 2.5f}\n  {6:> 2.5f} ",
-        //   i, 
-        //   array[0], array[1], array[2], array[3], array[4], array[5]);
-        //}
-        //std::println( " --------------------------------------------------------------  ");
-      }
-    }
-
-    B.assembly_end();
-    //MatView(B.mat_, PETSC_VIEWER_STDOUT_WORLD);
-    return B;
-  }
-};
 
 #endif

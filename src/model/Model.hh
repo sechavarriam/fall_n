@@ -39,7 +39,7 @@ class Model{
     friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
 
 public:    
-    using Material = Material<MaterialPolicy>;
+    using MaterialT = Material<MaterialPolicy>;
     using FEM_Element = ContinuumElement<MaterialPolicy, ndofs>; // Aca ira en adelante el wrapper de Element FEM_Element
 
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
@@ -182,8 +182,10 @@ public:
         
         auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
 
-        std::println("Applying force {0}, {1}, {2} to node {3}", force_components..., node_idx);
-        std::println("Dofs: {0}, {1}, {2}", dofs[0], dofs[1], dofs[2]);
+        #if __clang__
+            std::println("Applying force {0}, {1}, {2} to node {3}", force_components..., node_idx);
+            std::println("Dofs: {0}, {1}, {2}", dofs[0], dofs[1], dofs[2]);
+        #endif
 
         VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, ADD_VALUES);
 
@@ -209,9 +211,14 @@ public:
         if (count){
             for (auto &node : domain_->nodes()){
                 if (std::abs(node.coord(d) - val) < tol){
-                    std::cout << "Applying force to node: " << node.id() << std::endl;
-                    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
                     
+                    #if __clang__
+                        std::cout << "Applying force to node: " << node.id() << std::endl;
+                        std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
+                        std::cout << "Applying force to node: " << node.id() << std::endl;
+                        std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
+                    #endif
+
                     apply_node_force(node.id(), std::forward<PetscScalar>(force_components/double(count))...);   
                     //static_cast<PetscInt>(force_components/double(count))...);
                 }
@@ -228,7 +235,7 @@ public:
 
 
     // Constructors
-    Model(Domain<dim> &domain, Material default_mat) : domain_(std::addressof(domain)){
+    Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
         
 
         elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!

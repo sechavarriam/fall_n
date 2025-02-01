@@ -9,6 +9,8 @@
 
 # include "../numerics/linear_algebra/Vector.hh"
 
+# include "VoigtVector.hh"
+
 
 template<typename StressType>
 concept StressC = requires(StressType s){
@@ -29,8 +31,47 @@ class CauchyStress{
 };
 
 
+template <std::size_t N> requires(N > 0)
+class Stress : public VoigtVector<N> {
+
+  public:
+    static constexpr std::size_t num_components{N};
+
+
+
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//=======================================================================================
+// _____           _                               _       _ _ _ 
+//|_   _|         | |                             | |     | | | |
+//  | | ___     __| | ___ _ __  _ __ ___  ___ __ _| |_ ___| | | |
+//  | |/ _ \   / _` |/ _ \ '_ \| '__/ _ \/ __/ _` | __/ _ \ | | |
+//  | | (_) | | (_| |  __/ |_) | | |  __/ (_| (_| | ||  __/_|_|_|
+//  \_/\___/   \__,_|\___| .__/|_|  \___|\___\__,_|\__\___(_|_|_)
+//                       | |                                     
+//                       |_|                                     
+//=======================================================================================
+
+
 template<std::size_t N> requires (N > 0)
-class Stress{
+class StressDeprecated{
     private:
         std::array<double, N> component_{0.0}; // Default value is 0.0
     
@@ -49,15 +90,15 @@ class Stress{
         }
 
         template<typename... S> requires (sizeof...(S) == N)
-        Stress(S... s) : component_{s...}{}
+        StressDeprecated(S... s) : component_{s...}{}
 
-        Stress() = default;
-        ~Stress() = default;
+        StressDeprecated() = default;
+        ~StressDeprecated() = default;
 };
 
-//Specialization for 1D stress (Uniaxial Stress) avoiding array overhead
+//Specialization for 1D stress (Uniaxial StressDeprecated) avoiding array overhead
 template<>
-class Stress<1>{
+class StressDeprecated<1>{
     private:
         double component_{0.0};
     
@@ -70,8 +111,8 @@ class Stress<1>{
 
         constexpr std::floating_point auto get_stress() const{return component_;};
 
-        Stress() = default;
-        ~Stress() = default;
+        StressDeprecated() = default;
+        ~StressDeprecated() = default;
 };
 
 

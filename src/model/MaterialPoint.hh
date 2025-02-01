@@ -14,7 +14,7 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
     private:
 
-        using Material       = Material<MaterialPolicy>;
+        using MaterialT      = Material<MaterialPolicy>;
         using StateVariableT = MaterialPolicy::StateVariableT;
         using StressT        = MaterialPolicy::StressType;
 
@@ -24,7 +24,7 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
         IntegrationPoint<dim>* gauss_point_; // The integration point where the material point is located.
 
-        Material material_; // material instance. 
+        MaterialT material_; // material instance. 
                             // It encapsulates the constitutive relation, the state variable and the update strategy.
 
     public:
@@ -34,10 +34,11 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         };
 
 
-        auto& C() const {return material_.C();}; //The Compliance Matrix (Stiffness Matrix)
+        Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() {return material_.C();}; 
+        //C() const {return material_.C();}; 
 
-        MaterialPoint(Material material)   : material_{material} {};
-        MaterialPoint(Material&& material) : material_{std::move(material)} {};
+        MaterialPoint(MaterialT material)   : material_{material} {};
+        MaterialPoint(MaterialT&& material) : material_{std::move(material)} {};
 
         MaterialPoint() = default;
         ~MaterialPoint() = default;

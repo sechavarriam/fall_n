@@ -6,7 +6,11 @@
 #include <cstddef>
 #include "Topology.hh"
 
-#include <print>
+// in clang, print
+#ifdef __clang__ 
+  #include <format>
+  #include <print>
+#endif
 
 namespace geometry {
   

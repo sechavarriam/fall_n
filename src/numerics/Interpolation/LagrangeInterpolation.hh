@@ -197,7 +197,7 @@ namespace interpolation
           }(std::make_index_sequence<dim>{});
         } 
       };
-    };
+    }
 
     
     constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept{                                                          // $frac{\partial h_i}{\partial x_j}$

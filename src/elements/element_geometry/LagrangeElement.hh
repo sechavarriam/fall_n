@@ -86,19 +86,21 @@ public:
       std::cout << nodes_[i] << " ";
     std::cout << std::endl;
 
+    #ifdef __clang__ 
     // TALBE [index, local coord..., global coord...] // Using std::format and std::print
-    for (std::size_t i = 0; i < num_nodes_; ++i)
-    {
-      std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f}\n",
-                 i,
-                 nodes_p.value()[i]->id(),
-                 reference_element_.reference_nodes[i].coord()[0],
-                 reference_element_.reference_nodes[i].coord()[1],
-                 reference_element_.reference_nodes[i].coord()[2],
-                 nodes_p.value()[i]->coord(0),
-                 nodes_p.value()[i]->coord(1),
-                 nodes_p.value()[i]->coord(2));
-    }
+      for (std::size_t i = 0; i < num_nodes_; ++i)
+      {
+        std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f}\n",
+                   i,
+                   nodes_p.value()[i]->id(),
+                   reference_element_.reference_nodes[i].coord()[0],
+                   reference_element_.reference_nodes[i].coord()[1],
+                   reference_element_.reference_nodes[i].coord()[2],
+                   nodes_p.value()[i]->coord(0),
+                   nodes_p.value()[i]->coord(1),
+                   nodes_p.value()[i]->coord(2));
+      }
+    #endif
   };
 
   // =================================================================================================
@@ -147,10 +149,10 @@ public:
 
   constexpr inline double H(std::size_t i, const Point &X) const noexcept { return H(i, X.coord()); }; 
 
-  template <std::size_t j> // TODO: REMOVE THIS? It is not used in this way
-  constexpr inline double aux_dH_dx(std::size_t i, const Array &X) const noexcept{
-    return reference_element_.basis.aux_shape_function_derivative<j>(i)(X);
-  };
+  //template <std::size_t j> // TODO: REMOVE THIS? It is not used in this way
+  //constexpr inline double aux_dH_dx(std::size_t i, const Array &X) const noexcept{
+  //  return reference_element_.basis.aux_shape_function_derivative<j>(i)(X);
+  //};
 
   constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array &X) const noexcept
   {
@@ -309,24 +311,20 @@ class GaussLegendreCellIntegrator
 public:
   static constexpr std::size_t num_integration_points = CellQuadrature::num_points;
 
-  static constexpr auto reference_integration_point(std::size_t i) noexcept
-  {
+  static constexpr auto reference_integration_point(std::size_t i) noexcept{
     return integrator_.get_point_coords(i);
   };
 
-  static constexpr auto weight(std::size_t i) noexcept
-  {
+  static constexpr auto weight(std::size_t i) noexcept {
     return integrator_.get_point_weight(i);
   };
 
-  constexpr auto operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept
-  {
-    return integrator_([&](const Array &x)
-                       {
-                         // std::println("At Gauss Legendre Integrator: x = {0:> 2.8e} {1:> 2.8e} {2:> 2.8e} ----> detJ = {3:> 2.2f}\n", x[0], x[1], x[2], element.detJ(x));
-                         return f(x) * element.detJ(x);
-                         // return element.detJ(x) * f(x);
-                       });
+  constexpr auto operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept{
+    return integrator_([&](const Array &x){
+        //std::println("At Gauss Legendre Integrator: x = {0:> 2.5e} {1:> 2.5e} {2:> 2.5e} ----> detJ = {3:> 2.2f}\n", x[0], x[1], x[2], element.detJ(x));  
+        return f(x) * element.detJ(x);
+        // return element.detJ(x) * f(x);
+      });
   };
 
   constexpr GaussLegendreCellIntegrator() noexcept = default;

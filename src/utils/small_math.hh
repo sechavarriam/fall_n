@@ -4,7 +4,12 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <print>
+
+
+#ifdef __clang__ 
+  #include <format>
+  #include <print>
+#endif
 
 #include <utility>
 
