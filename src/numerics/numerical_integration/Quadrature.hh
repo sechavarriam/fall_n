@@ -12,7 +12,11 @@
 
 #include <tuple>
 
+// in clang, print
+#ifdef __clang__ 
+#include <format>
 #include <print>
+#endif
 
 #include "GaussLegendreNodes.hh"
 #include "GaussLegendreWeights.hh"
@@ -31,6 +35,8 @@ using defaultPointsContainer = std::array<double, nPoints>;
 template<std::size_t nPoints, typename P=defaultPointsContainer<nPoints>, typename W=defaultWeightContainer<nPoints>>
 class Quadrature{
     public:
+
+
     
     P evalPoints_;
     W weights_   ; 
@@ -55,17 +61,22 @@ class Quadrature{
             }
             else if constexpr(std::is_base_of_v<Eigen::MatrixBase<returnType>, returnType>) // Eigen Matrices and Vectors 
             {
-                auto result = (function2eval(evalPoints_[0])*weights_[0]).eval();
+                using MatrixType = Eigen::Matrix<double, returnType::RowsAtCompileTime, returnType::ColsAtCompileTime>;
+                
+                MatrixType result;
+                result.resizeLike(function2eval(evalPoints_[0]));
+                result.setZero();
 
-                for(std::size_t i = 1; i < nPoints; ++i) {
-                    result += (function2eval(evalPoints_[i])*weights_[i]).eval();
-                }
+                result += function2eval(evalPoints_[0]).eval(); //* weights_[0]; 
+
+                //std::cout << "Eigen Matrix 0, W[0] " << weights_[0] << " ==============================================" << std::endl;
+                //std::cout << result << std::endl;
 
                 return result;
             }
             else //default
             {
-                returnType result = function2eval(evalPoints_[0])*weights_[0];  // ESTE OPERACION PUJEDDE ESTAS MAL DEFINIDA!
+                returnType result = function2eval(evalPoints_[0])*weights_[0];  
 
                 for(std::size_t i = 1; i < nPoints; ++i) {
                     result += function2eval(evalPoints_[i])*weights_[i];

@@ -34,8 +34,9 @@ namespace impl{
    
    public:
 
-      virtual constexpr DeprecatedDenseMatrix& C() const = 0; //The Compliance DeprecatedDenseMatrix
-
+      
+      virtual constexpr Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() = 0; //The Compliance DeprecatedDenseMatrix
+       
       virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
 
       virtual void update_state(const StateVariableT& state) = 0;  
@@ -54,8 +55,9 @@ namespace impl{
       UpdateStrategy update_algorithm_; //or material_integrator
 
    public:
-      
-      DeprecatedDenseMatrix& C() const override {return material_.C();}; //The Compliance DeprecatedDenseMatrix
+
+      //Eigen::Ref<const Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>> C() const override {return material_.C();}; //The Compliance DeprecatedDenseMatrix      
+      Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() override {return material_.C();}; //The Compliance DeprecatedDenseMatrix
 
       StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
 
@@ -83,7 +85,7 @@ class Material
 
 public:
 
-   DeprecatedDenseMatrix& C() const {return pimpl_->C();}; //The Compliance DeprecatedDenseMatrix
+   Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() const {return pimpl_->C();}; //The Compliance DeprecatedDenseMatrix
 
    StateVariableT get_state() const {return pimpl_->get_state();};
    void update_state(const StateVariableT& state) {pimpl_->update_state(state);};

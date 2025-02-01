@@ -39,27 +39,42 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
     constexpr inline double mu()     const{return E/(2.0*(1.0+v));};             //Lamé's second parameter
 
 
+    constexpr void update_elasticity()
+    {
+      this->compliance_matrix(0,0) = c11();             //lambda()+2.0*mu());
+      this->compliance_matrix(1,1) = c11();             //lambda()+2.0*mu());
+      this->compliance_matrix(2,2) = c11();             //lambda()+2.0*mu());
+      this->compliance_matrix(3,3) = (c11()-c12())/2;   //mu()             );
+      this->compliance_matrix(4,4) = (c11()-c12())/2;   //mu()             );
+      this->compliance_matrix(5,5) = (c11()-c12())/2;   //mu()             );
+      this->compliance_matrix(0,1) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+      this->compliance_matrix(0,2) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+      this->compliance_matrix(1,0) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+      this->compliance_matrix(1,2) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+      this->compliance_matrix(2,0) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+      this->compliance_matrix(2,1) = c12();//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
+    }
 
-    constexpr void update_elasticity(){ //TODO: use threads. 
-        set_parameter(0,0,  c11());             //lambda()+2.0*mu());
-        set_parameter(1,1,  c11());             //lambda()+2.0*mu());
-        set_parameter(2,2,  c11());             //lambda()+2.0*mu());
-        set_parameter(3,3,  (c11()-c12())/2);   //mu()             );
-        set_parameter(4,4,  (c11()-c12())/2);   //mu()             );
-        set_parameter(5,5,  (c11()-c12())/2);   //mu()             );
-        set_parameter(0,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
-        set_parameter(0,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(1,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(1,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(2,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        set_parameter(2,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
-        //set_parameter(0,1, lambda()         );
-        //set_parameter(0,2, lambda()         );
-        //set_parameter(1,0, lambda()         );
-        //set_parameter(1,2, lambda()         );
-        //set_parameter(2,0, lambda()         );
-        //set_parameter(2,1, lambda()         );
-    };
+    //constexpr void update_elasticity(){ //TODO: use threads. 
+    //    set_parameter(0,0,  c11());             //lambda()+2.0*mu());
+    //    set_parameter(1,1,  c11());             //lambda()+2.0*mu());
+    //    set_parameter(2,2,  c11());             //lambda()+2.0*mu());
+    //    set_parameter(3,3,  (c11()-c12())/2);   //mu()             );
+    //    set_parameter(4,4,  (c11()-c12())/2);   //mu()             );
+    //    set_parameter(5,5,  (c11()-c12())/2);   //mu()             );
+    //    set_parameter(0,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done! 
+    //    set_parameter(0,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+    //    set_parameter(1,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+    //    set_parameter(1,2,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+    //    set_parameter(2,0,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+    //    set_parameter(2,1,  c12());//0.000000         ); // ONLY FOR TESTING !REMOVE when done!
+    //    //set_parameter(0,1, lambda()         );
+    //    //set_parameter(0,2, lambda()         );
+    //    //set_parameter(1,0, lambda()         );
+    //    //set_parameter(1,2, lambda()         );
+    //    //set_parameter(2,0, lambda()         );
+    //    //set_parameter(2,1, lambda()         );
+    //};
 
     constexpr void update_elasticity(double young_modulus, double poisson_ratio){
         E = young_modulus;

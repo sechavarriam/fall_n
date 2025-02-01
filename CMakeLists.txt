@@ -86,7 +86,7 @@ vtk_module_autoinit(
 # ============== Matplot++  =====================================================
 # ===============================================================================
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU
+#if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU.  
   FetchContent_Declare(
       matplotplusplus
       GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus
@@ -97,7 +97,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU
       FetchContent_Populate(matplotplusplus)
       add_subdirectory(${matplotplusplus_SOURCE_DIR} ${matplotplusplus_BINARY_DIR} EXCLUDE_FROM_ALL)
   endif()
-endif()
+#endif()
 
 target_link_libraries(fall_n PUBLIC matplot)
 

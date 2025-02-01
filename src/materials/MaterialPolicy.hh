@@ -13,6 +13,10 @@ class SolidMaterial
 {
   public:
 
+    //using StrainType     = StrainDeprecated<N>;
+    //using StressType     = StressDeprecated<N>;
+    //using StateVariableT = StrainDeprecated<N>;
+
     using StrainType     = Strain<N>;
     using StressType     = Stress<N>;
     using StateVariableT = Strain<N>;
@@ -26,18 +30,18 @@ class SolidMaterial
 };
 
 typedef SolidMaterial<1> UniaxialMaterial; 
-typedef SolidMaterial<3> PlaneMaterial; // Plane Stress or Plane Strain
+typedef SolidMaterial<3> PlaneMaterial; // Plane StressDeprecated or Plane StrainDeprecated
 typedef SolidMaterial<4> AxisymmetricMaterial;
 typedef SolidMaterial<6> ThreeDimensionalMaterial;
 
 
 
 
-//class ForceDeformationMaterial // Define InternalForce Classes as Strain and Stress
+//class ForceDeformationMaterial // Define InternalForce Classes as StrainDeprecated and StressDeprecated
 //{
 //  public:
-//    static auto StrainID() -> Strain<1> {return Strain<1>();};
-//    static auto StressID() -> Stress<1> {return Stress<1>();};
+//    static auto StrainID() -> StrainDeprecated<1> {return StrainDeprecated<1>();};
+//    static auto StressID() -> StressDeprecated<1> {return Stress<1>();};
 //
 //  private:
 //    constexpr ForceDeformationMaterial() = default;

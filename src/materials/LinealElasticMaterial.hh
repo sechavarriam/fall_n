@@ -46,7 +46,7 @@ class IsotropicElasticMaterial{
     };
 
 
-    DeprecatedDenseMatrix& C() const  {return constitutive_law_->compliance_matrix;}
+    Eigen::Matrix<double, num_strains, num_strains> C() const  {return constitutive_law_->compliance_matrix;}
     //auto C() const {return constitutive_law_->compliance_matrix;}
 
     template<typename... Args>  

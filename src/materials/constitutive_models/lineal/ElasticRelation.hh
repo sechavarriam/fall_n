@@ -38,7 +38,11 @@ class ElasticRelation
   
   public:
 
-    DeprecatedDenseMatrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
+    //Eigen::Matrix<double, num_stresses_, num_strains_> compliance_matrix{compliance_parameters_.data()}; //elasticity tensor or material stiffness matrix
+    //DeprecatedDenseMatrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
+
+    Eigen::Matrix<double, num_strains_, num_stresses_> compliance_matrix;
+
 
     void compute_stress(const StrainType& strain, StressType& stress){
         stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon
@@ -71,8 +75,8 @@ class ElasticRelation<UniaxialMaterial>{
   public:
   using MaterialPolicy = UniaxialMaterial;
   
-  using StrainType = Strain<1>;
-  using StressType = Stress<1>;
+  using StrainType = StrainDeprecated<1>;
+  using StressType = StressDeprecated<1>;
 
   using MaterialStateT = MaterialState<ElasticState,StrainType>;
   using StateVariableT = StrainType;
@@ -88,7 +92,7 @@ private:
 
 public:
 
-    void compute_stress(const Strain<1>& strain, Stress<1>& stress){
+    void compute_stress(const StrainDeprecated<1>& strain, StressDeprecated<1>& stress){
         stress.vector = E_*strain.vector;
     };
 
