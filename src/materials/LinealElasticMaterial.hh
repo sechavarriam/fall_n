@@ -1,7 +1,6 @@
 #ifndef FALL_LINEAL_MATERIAL_ABSTRACTION_HH
 #define FALL_LINEAL_MATERIAL_ABSTRACTION_HH
 
-// Your code goes here
 
 #include <memory>
 
@@ -16,12 +15,14 @@ template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
   public:  
-    using StrainType = typename ConstitutiveRelation::StrainType;
-    using StressType = typename ConstitutiveRelation::StressType;
-
-    using StateVariableT = ConstitutiveRelation::StateVariableT;
+    using StrainType     = typename ConstitutiveRelation::StrainType;
+    using StressType     = typename ConstitutiveRelation::StressType;
     using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
     using MaterialPolicy = typename ConstitutiveRelation::MaterialPolicy;
+
+    using StateVariableT = ConstitutiveRelation::StateVariableT;
+
+    using MatrixT = Eigen::Matrix<double, StrainType::num_components, StressType::num_components>;
 
     static constexpr std::size_t dim         = StrainType::dim;
     static constexpr std::size_t num_strains = StrainType::num_components;
@@ -35,23 +36,20 @@ class IsotropicElasticMaterial{
 
   public:
 
-    inline constexpr StateVariableT get_state()   const {return state_.current_value();};
+    inline constexpr StateVariableT get_state()   const {return state_.current_value()  ;};
     inline constexpr StateVariableT get_state_p() const {return state_.current_value_p();};
 
     inline void update_state(const StrainType& e) {state_.update(e);};
-
 
     inline void compute_stress(const StrainType& strain, StressType& stress) const{
         return constitutive_law_->compute_stress(strain, stress);
     };
 
-
-    Eigen::Matrix<double, num_strains, num_strains> C() const  {return constitutive_law_->compliance_matrix;}
-    //auto C() const {return constitutive_law_->compliance_matrix;}
+    inline MatrixT C() const {return constitutive_law_->compliance_matrix;}
 
     template<typename... Args>  
     auto set_elasticity(Args... args){
-        constitutive_law_->update_elasticity(std::move(args)...);
+        constitutive_law_->update_elasticity(std::forward<Args>(args)...);
     }
 
     // ========== CONSTRUCTORS =================================
@@ -63,11 +61,8 @@ class IsotropicElasticMaterial{
 
     ~IsotropicElasticMaterial() = default;
 
-
-
     // ========== TESTING FUNCTIONS ============================
     void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
-
 };
 
 typedef IsotropicElasticMaterial<ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;

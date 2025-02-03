@@ -190,8 +190,6 @@ namespace interpolation
         else
         {
           return [&]<std::size_t... I>(std::index_sequence<I...>){
-            // Print index sequence
-            
             return (((I != J) ? std::invoke(std::get<I>(L)           [md_index[I]], x[I]) :
                                 std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
           }(std::make_index_sequence<dim>{});
@@ -217,10 +215,6 @@ namespace interpolation
         else{
             return 
             [&]<std::size_t... I>(std::index_sequence<I...>)->double{
-              //std::cout << "Index sequence: "; (std::cout << ... << I) << std::endl;
-              //auto bool_test = std::array<bool, dim>{(I != J)...};
-              //std::cout << "Bool test: "; for (auto b : bool_test) std::cout << b << " "; std::cout << std::endl;
-              //std::cout << "md_index:  "; for (auto m : md_index)  std::cout << m << " "; std::cout << std::endl;
               return 
               (((I != J) ? std::invoke(std::get<I>(L)[md_index[I]], x[I]) :
                            std::invoke(std::get<I>(L).derivative(md_index[I]), x[I])) * ...);
