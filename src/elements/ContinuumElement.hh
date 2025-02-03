@@ -20,7 +20,6 @@
 template <typename MaterialPolicy, std::size_t ndof>
 class ContinuumElement
 {
-  
   using PETScMatrix = Mat; // TODO: Use PETSc DeprecatedDenseMatrix
 
   // using MaterialPolicy = MaterialPolicy;
@@ -176,7 +175,7 @@ public:
   ContinuumElement() = delete;
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {
                                                        // M[etodo para setear materiales debe ser llamado despues de la creacion de los elementos.
-                                                     };
+  }
 
   ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}
   {
