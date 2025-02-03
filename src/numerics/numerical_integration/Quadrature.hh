@@ -22,7 +22,6 @@
 #include "GaussLegendreWeights.hh"
 
 #include "../../geometry/Point.hh"
-
 #include "../../utils/index.hh"
 
 

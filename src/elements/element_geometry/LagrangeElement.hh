@@ -71,14 +71,11 @@ public:
   std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
 
 public:
-  //EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  // =================================================================================================
+
   // === INFO FOR DEBUG and TESTING ==================================================================
   // =================================================================================================
 
-  void print_info() const noexcept
-  {
-
+  void print_info() const noexcept{
     // std::format fmt = "Element Tag: {0}\nNumber of Nodes: {1}\nNodes: {2}\n";
     std::cout << "Element Tag    : " << tag_ << std::endl;
     std::cout << "Number of Nodes: " << num_nodes_ << std::endl;

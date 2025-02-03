@@ -24,8 +24,8 @@ class GmshDomainBuilder
     using Domain3D = Domain<3>;
     using GmshMesh = gmsh::MSHReader;
 
-    GmshMesh mesh_info_;
-    Domain3D *domain_;
+    GmshMesh  mesh_info_;
+    Domain3D* domain_;
 
     std::vector<Node<3> *> node_addresses_;
 

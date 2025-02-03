@@ -25,8 +25,6 @@ class VoigtVector
 
     constexpr Eigen::Ref<const Eigen::Vector<double, N>> vector() const { return components_; };
     
-
-
     template<typename... S> requires (sizeof...(S) == N)
     VoigtVector(S... s) : components_{s...}{}
     

@@ -75,8 +75,6 @@ namespace impl
         
         constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const = 0;
 
-        constexpr virtual DeprecatedSequentialVector integrate(std::function<DeprecatedSequentialVector(Array)>&& f) const = 0;
-        constexpr virtual DeprecatedDenseMatrix      integrate(std::function<DeprecatedDenseMatrix(Array)>     && f) const = 0;
     };
              
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -139,14 +137,6 @@ namespace impl
             return integrator_(element_,std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
         };
 
-
-        DeprecatedSequentialVector integrate (std::function<DeprecatedSequentialVector(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<DeprecatedSequentialVector(Array)>>(f));
-        };
-
-        DeprecatedDenseMatrix integrate (std::function<DeprecatedDenseMatrix(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));
-        };
     };
 } // impl
 
@@ -198,8 +188,6 @@ public:
         return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
         };
     
-    DeprecatedSequentialVector integrate(std::function<DeprecatedSequentialVector(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedSequentialVector(Array)>>(f));};
-    DeprecatedDenseMatrix      integrate(std::function<DeprecatedDenseMatrix(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<DeprecatedDenseMatrix(Array)>>(f));};
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};

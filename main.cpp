@@ -137,11 +137,11 @@ int main(int argc, char **args)
 
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
-        //view1.load_gauss_points(M1.get_domain());
+        view1.load_gauss_points(M1.get_domain());
 
         VTKDataContainer view2;
         view2.load_domain(      M2.get_domain());
-        //view2.load_gauss_points(M2.get_domain());
+        view2.load_gauss_points(M2.get_domain());
 
         const int _x = 0;
 
@@ -157,17 +157,17 @@ int main(int argc, char **args)
         LinearAnalysis analisis_obj1{&M1};
         LinearAnalysis analisis_obj2{&M2};
         
-        //analisis_obj1.solve();
-        //analisis_obj1.record_solution(view1);
+        analisis_obj1.solve();
+        analisis_obj1.record_solution(view1);
         
         analisis_obj2.solve();
         analisis_obj2.record_solution(view2);
 
-        //view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
+        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
         view2.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test2.vtu");
 
-         //view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test1.vtu");
-         //view2.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test2.vtu");
+        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test1.vtu");
+        view2.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test2.vtu");
 
         //NLAnalysis nl_analisis_obj{&M1};
         //nl_analisis_obj.solve();
