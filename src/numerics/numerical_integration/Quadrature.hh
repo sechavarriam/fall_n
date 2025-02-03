@@ -36,25 +36,19 @@ template<std::size_t nPoints, typename P=defaultPointsContainer<nPoints>, typena
 class Quadrature{
     public:
 
-
-    
     P evalPoints_;
     W weights_   ; 
 
-
     template<std::invocable<decltype(evalPoints_[0])> F>
     constexpr decltype(auto) operator()(F&& function2eval) const noexcept {
-    //constexpr std::invoke_result_t<F, decltype(evalPoints_[0])> operator()(F&& function2eval) const noexcept {
         using returnType = std::invoke_result_t<F, decltype(evalPoints_[0])>;
         
-        if constexpr(std::is_same_v<returnType, void>){
+        if constexpr(std::is_same_v<returnType, void>){ 
             std::cerr << "Quadrature Error: The function to evaluate must return a value (e.g. double, Vector, Matrix)" << std::endl;
             std::exit(EXIT_FAILURE);
         } 
-        else 
-        {
-            if constexpr(std::is_same_v<returnType,double>) 
-            {
+        else {
+            if constexpr(std::is_same_v<returnType,double>) {
                 return std::inner_product(weights_.begin(), weights_.end(), evalPoints_.begin(), double(0.0),  std::plus<>(),
                     [&](const auto& w, const auto& x){
                     return w*function2eval(x);});
@@ -62,25 +56,15 @@ class Quadrature{
             else if constexpr(std::is_base_of_v<Eigen::MatrixBase<returnType>, returnType>) // Eigen Matrices and Vectors 
             {
                 using MatrixType = Eigen::Matrix<double, returnType::RowsAtCompileTime, returnType::ColsAtCompileTime>;
-                
-                MatrixType result;
-                result.resizeLike(function2eval(evalPoints_[0]));
-                result.setZero();
-
-                result += function2eval(evalPoints_[0]).eval(); //* weights_[0]; 
-
-                //std::cout << "Eigen Matrix 0, W[0] " << weights_[0] << " ==============================================" << std::endl;
-                //std::cout << result << std::endl;
-
-                return result;
+                return [&]<std::size_t... I>(std::index_sequence<I...>)->MatrixType{
+                    return ((function2eval(evalPoints_[I])*weights_[I]) + ...);
+                }(std::make_index_sequence<nPoints>{});
             }
             else //default
             {
                 returnType result = function2eval(evalPoints_[0])*weights_[0];  
-
                 for(std::size_t i = 1; i < nPoints; ++i) {
-                    result += function2eval(evalPoints_[i])*weights_[i];
-                }
+                    result += function2eval(evalPoints_[i])*weights_[i];}
                 return result;       
             }
         }

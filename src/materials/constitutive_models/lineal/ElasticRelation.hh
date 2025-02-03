@@ -28,6 +28,8 @@ class ElasticRelation
     using MaterialStateT  = MaterialState<ElasticState,StrainType>;
     using StateVariableT  = typename MaterialStateT::VariableContainer;
 
+    using MatrixT = Eigen::Matrix<double, StrainType::num_components, StressType::num_components>;
+
     static constexpr std::size_t dim               = StrainType::dim;
     static constexpr std::size_t num_strains_      = StrainType::num_components;
     static constexpr std::size_t num_stresses_     = StressType::num_components;
@@ -38,11 +40,7 @@ class ElasticRelation
   
   public:
 
-    //Eigen::Matrix<double, num_stresses_, num_strains_> compliance_matrix{compliance_parameters_.data()}; //elasticity tensor or material stiffness matrix
-    //DeprecatedDenseMatrix compliance_matrix{compliance_parameters_,num_stresses_,num_strains_}; //elasticity tensor or material stiffness matrix 
-
-    Eigen::Matrix<double, num_strains_, num_stresses_> compliance_matrix;
-
+    MatrixT compliance_matrix = MatrixT::Zero();
 
     void compute_stress(const StrainType& strain, StressType& stress){
         stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon

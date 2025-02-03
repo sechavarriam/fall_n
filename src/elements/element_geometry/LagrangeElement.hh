@@ -71,6 +71,7 @@ public:
   std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
 
 public:
+  //EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // =================================================================================================
   // === INFO FOR DEBUG and TESTING ==================================================================
   // =================================================================================================
@@ -164,8 +165,7 @@ public:
     return dH_dx(i, j, X.coord());
   };
 
-  constexpr inline auto coord_array() const noexcept
-  {
+  constexpr inline auto coord_array() const noexcept{
     using CoordArray = std::array<std::array<double, num_nodes_>, dim>;
     std::size_t i, j;
 
@@ -319,11 +319,17 @@ public:
     return integrator_.get_point_weight(i);
   };
 
-  constexpr auto operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept{
-    return integrator_([&](const Array &x){
-        //std::println("At Gauss Legendre Integrator: x = {0:> 2.5e} {1:> 2.5e} {2:> 2.5e} ----> detJ = {3:> 2.2f}\n", x[0], x[1], x[2], element.detJ(x));  
+  constexpr decltype(auto) operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept{
+    using ReturnType = std::invoke_result_t<decltype(f), Array>;
+    
+    if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){ // If is EigenType
+      return integrator_([&](const Array &x) -> ReturnType{
+        return (f(x) * element.detJ(x)).eval(); // This temporary has to be created to avoid dangling references!
+      });
+    } 
+    else
+    return integrator_([&](const Array &x){  
         return f(x) * element.detJ(x);
-        // return element.detJ(x) * f(x);
       });
   };
 
