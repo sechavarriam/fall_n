@@ -140,25 +140,17 @@ public:
     }
   };
 
-  constexpr inline double H(std::size_t i, const Array &X) const noexcept // Quien es en realidad i?
-  {
+  constexpr inline double H(std::size_t i, const Array &X) const noexcept {
     return reference_element_.basis.shape_function(i)(X);
   };
 
   constexpr inline double H(std::size_t i, const Point &X) const noexcept { return H(i, X.coord()); }; 
-
-  //template <std::size_t j> // TODO: REMOVE THIS? It is not used in this way
-  //constexpr inline double aux_dH_dx(std::size_t i, const Array &X) const noexcept{
-  //  return reference_element_.basis.aux_shape_function_derivative<j>(i)(X);
-  //};
-
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array &X) const noexcept
-  {
+  
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array &X) const noexcept{
     return reference_element_.basis.shape_function_derivative(i, j)(X);
   };
 
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point &X) const noexcept
-  {
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point &X) const noexcept{
     return dH_dx(i, j, X.coord());
   };
 
@@ -176,8 +168,7 @@ public:
   };
 
   // map from reference
-  constexpr inline Array map_local_point(const Array &x) const noexcept
-  {
+  constexpr inline Array map_local_point(const Array &x) const noexcept{
 
     std::size_t i;
     Array X{0};
@@ -190,10 +181,9 @@ public:
 
   constexpr inline auto map_local_point(const Point &x) const noexcept { return map_local_point(x.coord()); };
 
-  constexpr inline auto evaluate_jacobian_V2(const Array &X) const noexcept
+  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept
   {
-    Eigen::Matrix<double, dim, dim> J;
-    J.setZero();
+    Eigen::Matrix<double, dim, dim> J = Eigen::Matrix<double, dim, dim>::Zero();
     Array x{0.0};
 
     for (std::size_t k = 0; k < num_nodes_; ++k){
@@ -207,78 +197,26 @@ public:
     return J;
   };
 
+  constexpr inline auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
 
-  constexpr inline auto evaluate_jacobian_V2(const Point &X) const noexcept { return evaluate_jacobian_V2(X.coord()); };
-  constexpr inline auto detJ_V2             (const Array &X) const noexcept { return evaluate_jacobian_V2(X).determinant(); };
-
-
-  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept{
-    if (nodes_p.has_value())
-    {
-      Array x{0.0};
-      JacobianMatrix J{{{0.0}}};
-
-      for (std::size_t k = 0; k < num_nodes_; ++k)
-      {
-        x = nodes_p.value()[k]->coord();
-        // std::println(" node {0} coords = {1:> 2.8e} {2:> 2.8e} {3:> 2.8e}\n", k, x[0], x[1], x[2]);
-        for (std::size_t i = 0; i < dim; ++i)
-        { // Thread Candidate
-          for (std::size_t j = 0; j < dim; ++j)
-          {                                     // Thread Candidate
-            J[i][j] += (x[i] * dH_dx(k, j, X)); //*std::invoke(reference_element_.basis.shape_function_derivative(k, j),X);
-
-            // std::println(" i = {0} j = {1} -> J[{0}][{1}] = {3} --> dH_dx(k, j, X) = {5}\n",
-            //              i, j, k, J[i][j], nodes_p.value()[k]->coord(i), dH_dx(k, j, X));
-          }
-        }
-      }
-      // std::println("Jacobian Matrix: {0:> 2.8e} {1:> 2.8e} {2:> 2.8e}\n"
-      //              "                 {3:> 2.8e} {4:> 2.8e} {5:> 2.8e}\n"
-      //              "                 {6:> 2.8e} {7:> 2.8e} {8:> 2.8e}\n",
-      //              J[0][0], J[0][1], J[0][2],
-      //              J[1][0], J[1][1], J[1][2],
-      //              J[2][0], J[2][1], J[2][2]);
-      // std::println("Determinant of Jacobian Matrix: {0:> 2.5f}\n", utils::det(J));
-      return J;
-    }
-    else
-    {
-      std::runtime_error("LagrangeElement: Nodes are not linked yet to the element geoemtry");
-      return JacobianMatrix{{{0.0}}};
-    }
-  };
-
-  auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
-
-  // TODO: REPEATED CODE: Template and constrain with concept (coodinate type or something like that)
-  double detJ(const geometry::Point<dim> &X) const noexcept { return utils::det<dim>(evaluate_jacobian(X)); };
-  double detJ(std::array<double, dim> &&X) const noexcept { return utils::det<dim>(evaluate_jacobian(X)); };
-  double detJ(const std::array<double, dim> &X) const noexcept { return utils::det<dim>(evaluate_jacobian(X)); };
+  constexpr inline auto detJ(const Array &X) const noexcept{return evaluate_jacobian(X).determinant();};
 
   // Constructor
   constexpr LagrangeElement() = default;
-  constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)}
-  {
-    // std::cout << "node pointer constructor" << std::endl;
+  constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)}{
     set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)
-    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
-      : tag_{tag}
+    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag}
   {
     std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
-    // std::cout << "copy index range constructor" << std::endl;
     set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)
-    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
-      : tag_{tag}
-  {
+    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-    // std::cout << "move index range constructor" << std::endl;
     set_VTK_node_order();
   };
 
