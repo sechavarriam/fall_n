@@ -63,7 +63,6 @@ namespace impl
         constexpr virtual Array map_local_point(const Array &x) const = 0;
 
         constexpr virtual double detJ(const Array &X) const = 0;
-        constexpr virtual double detJ_V2(const Array &X) const = 0;
 
         constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
@@ -121,7 +120,6 @@ namespace impl
         constexpr Array map_local_point(const Array &x) const override { return element_.map_local_point(x); };
 
         constexpr double detJ   (const Array &X) const override {return element_.detJ(X);};
-        constexpr double detJ_V2(const Array &X) const override {return element_.detJ_V2(X);};
 
         constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
         constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
@@ -172,7 +170,6 @@ public:
     constexpr Array map_local_point(const Array &x) const { return pimpl_->map_local_point(x); };
 
     constexpr double detJ(const Array &X) const { return pimpl_->detJ(X);};
-    constexpr double detJ_V2(const Array &X) const { return pimpl_->detJ_V2(X);};
  
     constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
