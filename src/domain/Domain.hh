@@ -28,14 +28,14 @@ class Domain
     std::vector<Node<dim>>            nodes_   ;
     std::vector<ElementGeometry<dim>> elements_;
 
-    std::optional<std::size_t> num_integration_points_;
+    std::optional<std::size_t>        num_integration_points_;
 
 public:
 
     Mesh mesh;
 
-    std::size_t num_nodes() const { return nodes_.size(); };
-    std::size_t num_elements() const { return elements_.size(); };
+    inline std::size_t num_nodes()    const { return nodes_.size(); };
+    inline std::size_t num_elements() const { return elements_.size(); };
     
     std::size_t num_integration_points(){
         if (!num_integration_points_.has_value()){
@@ -46,12 +46,12 @@ public:
             //set optional value
             num_integration_points_ = n;
         }
+        //std::cout << "Number of integration points: " << num_integration_points_.value() << std::endl;
         return num_integration_points_.value();
     };
 
     // Getters
     //Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
-
     //Node<dim>& node  (std::size_t i) { return  nodes_[i];}; //Esto no es la iesima posicion!!!! debe devolver el nodo con id i.
                                                               //Esto se podria hacer asi si el vector de nodos fuera desde cero hasta el max id, y dejando espacios vacios.
                                                               //Otra opcion es almacenar un position_index en el nodo referente al dominio. Para llamar directamente sin buscar.
@@ -77,6 +77,17 @@ public:
 
     // ===========================================================================================================
 
+    void setup_integration_points(){
+        std::size_t gauss_point_counter = 0;
+
+        for (auto &e : elements_){
+            gauss_point_counter = e.setup_integration_points(gauss_point_counter);
+        }
+
+        std::cout << "Number of integration points: " << num_integration_points() << std::endl;
+        std::cout << "offset: " << gauss_point_counter << std::endl;
+    }
+
     void link_nodes_to_elements(){
         for (auto &e : elements_){
             for (std::size_t i = 0; i < e.num_nodes(); i++){
@@ -84,16 +95,12 @@ public:
                 auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return PetscInt(node.id()) == e.node(i);});
                 e.bind_node(i, std::addressof(*pos));
             }
-        
-        // PONER UN MODEEEE!!!! Y UN CENTINELA!!! PARA PODER SACAR ESTO DE ACA Y USAR SOLO SI SE NECESITA!
-        // MODE: 0 -> NO SE HACE NADA
-        // MODE: 1 -> SE HACE ESTO
-        e.set_integration_point_coordinates(); // Esto se puede hacer ac[a porque en la creacion ya est[a previamente allocado el espacio.
         }
     }
 
     void assemble_sieve() {
         link_nodes_to_elements();
+        setup_integration_points();
 
         // Uninterpoleated topology by now (no edges or faces).
         mesh.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells

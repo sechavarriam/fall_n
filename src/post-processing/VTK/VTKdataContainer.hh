@@ -76,6 +76,7 @@ public:
         vtk_gauss_points->Modified();
 
         vtk_gauss_cells->Allocate(domain.num_integration_points());
+        
         vtk_gauss_cells->SetPoints(vtk_gauss_points);
 
         //    for (const auto& gauss_point : element.integration_point_){ 
@@ -116,8 +117,8 @@ public:
         vtkNew<vtkXMLUnstructuredGridWriter> writer;
         writer->SetFileName(file_name.c_str());
         writer->SetInputData(vtk_gauss_grid);
-        writer->SetDataModeToAscii(); // Remove tyo keep binary 
-        writer->Update();             // Remove tyo keep binary
+        writer->SetDataModeToAscii(); // Remove to keep binary 
+        writer->Update();             // Remove to keep binary
         writer->Write(); 
     }
 
@@ -127,8 +128,8 @@ public:
         //writer->SetFileName(file_name.data());
         writer->SetFileName(file_name.c_str());
         writer->SetInputData(vtk_grid);
-        writer->SetDataModeToAscii(); // Remove tyo keep binary 
-        writer->Update();             // Remove tyo keep binary
+        writer->SetDataModeToAscii(); // Remove to keep binary 
+        writer->Update();             // Remove to keep binary
         writer->Write(); 
 
 

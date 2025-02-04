@@ -85,6 +85,8 @@ private:
 
 public:
 
+
+
     
     void set_sieve_layout (){ // ONLY CELL-VERTEX MESHES SUPPORTED BY NOW! 
 
@@ -236,8 +238,6 @@ public:
 
     // Constructors
     Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
-        
-
         elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         // GEOMETRIC ELEMENT WRAPPING        
@@ -246,16 +246,13 @@ public:
         }
 
         // PETSC SETUP
-
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
         DMSetDimension(domain_->mesh.dm, dim); // Set the dimension of the mesh
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE); // Set the adjacency information for the FEM mesh.
 
-
         set_num_dofs_in_elements(); // 1. Set the number of dofs per node in the elements (FEM_Elements) // TODO: AVOID THIS!.
         set_sieve_layout();         // 2. Set the sieve layout for the mesh
         
-
 
     }
 
