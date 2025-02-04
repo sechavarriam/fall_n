@@ -1,90 +1,5 @@
- #include <Eigen/Dense>
-
-
-#include <array>
-#include <concepts>
-#include <functional>
-#include <iostream>
-#include <vector>
-#include <numeric>
-#include <algorithm>
-#include <ranges>
-#include <tuple>
-#include <utility>
-
-#include <charconv>
-#include <string>
-#include <string_view>
-#include <fstream>
-#include <filesystem>
 
 #include "header_files.hh"
-
-#include "src/elements/Node.hh"
-
-#include "src/elements/FEM_Element.hh"
-#include "src/elements/ContinuumElement.hh"
-
-#include "src/elements/element_geometry/ElementGeometry.hh"
-#include "src/elements/element_geometry/LagrangeElement.hh"
-
-#include "src/model/DoF.hh"
-
-#include "src/geometry/geometry.hh"
-#include "src/geometry/Topology.hh"
-#include "src/geometry/Cell.hh"
-#include "src/geometry/Point.hh"
-
-#include "src/numerics/Polynomial.hh"
-#include "src/numerics/Tensor.hh"
-
-#include "src/numerics/Interpolation/GenericInterpolant.hh"
-#include "src/numerics/Interpolation/LagrangeInterpolation.hh"
-
-#include "src/numerics/numerical_integration/Quadrature.hh"
-#include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
-#include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
-
-#include "src/numerics/linear_algebra/Matrix.hh"
-#include "src/numerics/linear_algebra/Vector.hh"
-#include "src/numerics/linear_algebra/LinalgOperations.hh"
-
-#include "src/analysis/Analysis.hh"
-
-#include "src/model/Model.hh"
-
-#include "src/materials/ConstitutiveRelation.hh"
-
-#include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
-#include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
-
-#include "src/materials/constitutive_models/non_lineal/InelasticRelation.hh"
-
-#include "src/materials/Material.hh"
-
-#include "src/materials/MaterialState.hh"
-#include "src/materials/LinealElasticMaterial.hh"
-
-#include "src/materials/Stress.hh"
-#include "src/materials/Strain.hh"
-
-#include "src/model/Model.hh"
-#include "src/model/ModelBuilder.hh"
-
-#include "src/mesh/Mesh.hh"
-
-#include "src/mesh/gmsh/ReadGmsh.hh"
-#include "src/mesh/gmsh/GmshDomainBuilder.hh"
-
-#include "src/graph/AdjacencyList.hh"
-#include "src/graph/AdjacencyMatrix.hh"
-
-#include "src/post-processing/VTK/VTKheaders.hh"
-#include "src/post-processing/VTK/VTKwriter.hh"
-
-
-
-#include <petsc.h>
 
 int main(int argc, char **args)
 {
@@ -129,12 +44,11 @@ int main(int argc, char **args)
         Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
         Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};        
 
-        //for (auto& e : M1.get_domain().elements()) e.print_info();
-
-        #ifdef __clang__ 
-            std::println("Deprecated PETSc DENSE determinant test: {0}", M1.get_domain().element(0).detJ({0.0, 0.0, 0.0}));
-            std::println("Eigen determinant test:                  {0}", M1.get_domain().element(0).detJ_V2({0.0, 0.0, 0.0}));
-        #endif 
+        std::cout << " ========================== GMSH DOMAIN =============================== " << std::endl;   
+        for (auto& e : M1.get_domain().elements()) e.print_info();
+        std::cout << " ========================== MANUAL DOMAIN ============================= " << std::endl;
+        for (auto& e : M2.get_domain().elements()) e.print_info();
+        std::cout << " ====================================================================== " << std::endl;
 
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
@@ -171,7 +85,6 @@ int main(int argc, char **args)
 
         //NLAnalysis nl_analisis_obj{&M1};
         //nl_analisis_obj.solve();
-
 
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.

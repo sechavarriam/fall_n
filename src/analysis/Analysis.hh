@@ -158,9 +158,9 @@ public:
 
         DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, F); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
 
-        std::cout << "RHS: //////////////////////////////" << std::endl;
-        VecView(F, PETSC_VIEWER_STDOUT_WORLD);
-        std::cout << "////////////////////////////////////" << std::endl;
+        //std::cout << "RHS: //////////////////////////////" << std::endl;
+        //VecView(F, PETSC_VIEWER_STDOUT_WORLD);
+        //std::cout << "////////////////////////////////////" << std::endl;
     }
 
     void setup_solver()
