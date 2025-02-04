@@ -164,11 +164,19 @@ public:
 
     #ifdef __clang__ 
       std::println("DOFs index in order: ");
-      for (const auto idx : idxs)
-        std::cout << idx << " ";
+      for (const auto idx : idxs){
+        std::cout << idx;
+        if (idx%dim == 2) {
+          std::cout <<  " | ";
+          }
+        else {
+          std::cout << " ";
+        }
+      }
       std::println(" ");
     #endif
-
+    
+    //std::cout << K() << std::endl;
     MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 

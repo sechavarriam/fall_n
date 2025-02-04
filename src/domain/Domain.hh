@@ -134,13 +134,27 @@ public:
     }
 
     template <typename ElementType, typename IntegrationStrategy>
-    void make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[]){
+    auto& make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[]){
         elements_.emplace_back(
             ElementGeometry<dim>(
                 ElementType( // Forward this?
                     std::forward<std::size_t>(tag),
                     std::span<PetscInt>(node_ids, ElementType::num_nodes())),
                 std::forward<IntegrationStrategy>(integrator)));
+
+        return elements_.back(); 
+    }
+
+    template <typename ElementType, typename IntegrationStrategy>
+    auto& make_element(IntegrationStrategy &&integrator, std::size_t tag, PetscInt node_ids[], PetscInt local_ordering[]){
+        elements_.emplace_back(
+            ElementGeometry<dim>(
+                ElementType( // Forward this?
+                    std::forward<std::size_t>(tag),
+                    std::span<PetscInt>(node_ids      , ElementType::num_nodes()),
+                    std::span<PetscInt>(local_ordering, ElementType::num_nodes())),
+                std::forward<IntegrationStrategy>(integrator)));
+        return elements_.back();
     }
     
 

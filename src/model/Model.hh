@@ -85,9 +85,6 @@ private:
 
 public:
 
-
-
-    
     void set_sieve_layout (){ // ONLY CELL-VERTEX MESHES SUPPORTED BY NOW! 
 
         PetscInt pStart, pEnd, cStart, cEnd, vStart, vEnd;
@@ -184,11 +181,6 @@ public:
         
         auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
 
-        #if __clang__
-            std::println("Applying force {0}, {1}, {2} to node {3}", force_components..., node_idx);
-            std::println("Dofs: {0}, {1}, {2}", dofs[0], dofs[1], dofs[2]);
-        #endif
-
         VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, ADD_VALUES);
 
         VecAssemblyBegin (this->nodal_forces);
@@ -206,7 +198,7 @@ public:
         for (auto &node : domain_->nodes()){
             if (std::abs(node.coord(d) - val) < tol){
                 count++;
-                std::cout << "Node: " << node.id() << " coord: " << node.coord(d) << std::endl;
+                //std::cout << "Node: " << node.id() << " coord: " << node.coord(d) << std::endl;
             }
             
         }
@@ -215,10 +207,10 @@ public:
                 if (std::abs(node.coord(d) - val) < tol){
                     
                     #if __clang__
-                        std::cout << "Applying force to node: " << node.id() << std::endl;
-                        std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
-                        std::cout << "Applying force to node: " << node.id() << std::endl;
-                        std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
+                    //    std::cout << "Applying force to node: " << node.id() << std::endl;
+                    //    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
+                    //    std::cout << "Applying force to node: " << node.id() << std::endl;
+                    //    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
                     #endif
 
                     apply_node_force(node.id(), std::forward<PetscScalar>(force_components/double(count))...);   

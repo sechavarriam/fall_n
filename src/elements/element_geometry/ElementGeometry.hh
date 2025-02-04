@@ -54,9 +54,9 @@ namespace impl
         constexpr virtual std::size_t id() const = 0;
 
         constexpr virtual PetscInt node(std::size_t i) const = 0;
-        constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
-
         constexpr virtual Node<dim>& node_p(std::size_t i) const = 0;
+
+        constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 

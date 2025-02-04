@@ -52,7 +52,7 @@ public:
         vtk_field->SetName(name.data());
 
         for (std::size_t i = 0; i < num_points; i++){
-            vtk_field->SetTuple(i, data_array + i*N);            
+            vtk_field->SetTuple(i, data_array + i*N); // Afectar por un local index???            
         }
 
         vtk_grid->GetPointData()->AddArray(vtk_field);

@@ -33,27 +33,22 @@ concept private_Lagrange_check_ = requires(T t) {
 };
 
 template <typename T>
-struct LagrangeConceptTester
-{
+struct LagrangeConceptTester{
   static inline constexpr bool _is_in_Lagrange_Family = private_Lagrange_check_<T>;
 };
 
 template <typename T>
 concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
 
-template <std::size_t... N>
-  requires(topology::EmbeddableInSpace<sizeof...(N)>)
+template <std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>)
 class LagrangeElement
 {
-  template <typename T>
-  friend struct LagrangeConceptTester;
-
+  template <typename T> friend struct LagrangeConceptTester;
   static inline constexpr bool _is_LagrangeElement() { return true; };
 
   using ReferenceCell = geometry::cell::LagrangianCell<N...>;
   using Point = geometry::Point<sizeof...(N)>;
   using Array = std::array<double, sizeof...(N)>;
-  using JacobianMatrix = std::array<Array, sizeof...(N)>;
 
 public:
   static inline constexpr std::size_t dim = sizeof...(N);
@@ -64,11 +59,22 @@ public:
 
   using pNodeArray = std::optional<std::array<Node<dim> *, num_nodes_>>;
 
-  std::size_t tag_;
-  pNodeArray nodes_p;
 
-  std::array<PetscInt, num_nodes_> nodes_; // Global node numbers in Plex
+  std::size_t tag_   ;
+  pNodeArray  nodes_p;
+
+  std::array<PetscInt , num_nodes_> nodes_; // Global node numbers in Plex
   std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
+
+private:
+
+  std::array<PetscInt , num_nodes_> local_index_{ // default = 0, 1, 2, 3,..., num_nodes_ - 1
+      []<std::size_t... I>(std::index_sequence<I...>){return std::array{static_cast<PetscInt>(I)...};
+    }(std::make_index_sequence<num_nodes_>{})};
+
+  void set_local_index(const PetscInt idxs[]) noexcept {
+    for (std::size_t i = 0; i < num_nodes_; ++i) local_index_[i] = idxs[i];
+    };  
 
 public:
 
@@ -88,7 +94,7 @@ public:
     // TALBE [index, local coord..., global coord...] // Using std::format and std::print
       for (std::size_t i = 0; i < num_nodes_; ++i)
       {
-        std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f}\n",
+        std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f} \n",
                    i,
                    nodes_p.value()[i]->id(),
                    reference_element_.reference_nodes[i].coord()[0],
@@ -106,18 +112,25 @@ public:
   // =================================================================================================
   static constexpr auto num_nodes() noexcept { return num_nodes_; };
   static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
-  static constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering(); };
 
-  void set_VTK_node_order() noexcept
-  { // std::cout << "Setting VTK node order for element " << tag_ << std::endl;
-    for (std::size_t i = 0; i < num_nodes_; ++i)
-    {
+  constexpr auto get_VTK_node_ordering() noexcept {
+    return reference_element_.VTK_node_ordering();
+    //return std::array{ // Esto es para alterar el orden de los nodos en el VTK de aceurdo con la numeracion local
+    //  [this]<std::size_t... I>(std::index_sequence<I...>){
+    //    return std::array{reference_element_.VTK_node_ordering()[local_index_[I]]...};
+    //  }(std::make_index_sequence<num_nodes_>{})
+    //};
+  };
+
+  void set_VTK_node_order() noexcept{ // std::cout << "Setting VTK node order for element " << tag_ << std::endl;
+    for (std::size_t i = 0; i < num_nodes_; ++i){
       vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i])); // std::cout << vtk_nodes_[i] << " ";
     } // std::cout << std::endl;
   };
 
-  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept
-  { // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
+
+
+  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept{ // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
     return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes_);
   };
 
@@ -140,18 +153,15 @@ public:
     }
   };
 
-  constexpr inline double H(std::size_t i, const Array &X) const noexcept {
-    return reference_element_.basis.shape_function(i)(X);
-  };
 
-  constexpr inline double H(std::size_t i, const Point &X) const noexcept { return H(i, X.coord()); }; 
+  // =================================================================================================
+
+  constexpr inline double H(std::size_t i, const Array &X) const noexcept {
+    return reference_element_.basis.shape_function(local_index_[i])(X);
+  };
   
   constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array &X) const noexcept{
-    return reference_element_.basis.shape_function_derivative(i, j)(X);
-  };
-
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Point &X) const noexcept{
-    return dH_dx(i, j, X.coord());
+    return reference_element_.basis.shape_function_derivative(local_index_[i], j)(X);
   };
 
   constexpr inline auto coord_array() const noexcept{
@@ -208,17 +218,29 @@ public:
   };
 
   constexpr LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)
-    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag}
+    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} 
   {
+    //std::cout << "LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)" << std::endl;
     std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
     set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)
     requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
+    //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)" << std::endl;
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
     set_VTK_node_order();
   };
+
+  constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)
+    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
+    //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)" << std::endl;
+    std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
+    set_local_index(local_ordering.data());
+    set_VTK_node_order();
+  };
+
+
 
   // Copy and Move Constructors and Assignment Operators
   constexpr LagrangeElement(const LagrangeElement &other) = default;
