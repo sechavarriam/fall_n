@@ -146,14 +146,11 @@ class ElementGeometry
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
 public:
-    
 
     std::vector<IntegrationPoint<dim>> integration_point_;
-
-    std::optional<PetscInt> sieve_id;                     // Optional sieve id for the element inside DMPlex Mesh
+    std::optional<PetscInt>            sieve_id;  // Optional sieve id for the element inside DMPlex Mesh
 
     constexpr void print_info() const { pimpl_->print_info(); };
-
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
     constexpr unsigned int         VTK_cell_type()        const { return pimpl_->VTK_cell_type(); };
@@ -177,30 +174,34 @@ public:
     constexpr Array  reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
     constexpr double weight                     (std::size_t i) const {return pimpl_->weight(i);};
 
-    //constexpr auto integrate(std::invocable<Array> auto&& F) const {return pimpl_->integrate(std::forward<decltype(F)>(F));};
-    
     constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
 
     Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const {
         return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
         };
-    
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
 
     constexpr void allocate_integration_points(){ // TODO: define a sentincel bool
-        integration_point_.reserve(pimpl_->num_integration_points());
-        for (std::size_t i = 0; i < pimpl_->num_integration_points(); ++i){
+    // MPORTANTE! GARANTIZAR QUE ESTO SOLO SE EJECUTE UNA VEZ!  if size != N ...
+        const auto N = pimpl_->num_integration_points();
+        integration_point_.reserve(N);
+        for (std::size_t i = 0; i < N; ++i){
             integration_point_.emplace_back(IntegrationPoint<dim>{});
         }
     };
 
-    constexpr void set_integration_point_coordinates(){ // REVISAR ESTO!
+    constexpr std::size_t setup_integration_points(std::size_t offset) noexcept {
+        allocate_integration_points();
         std::size_t x{0};
+
         for(auto& gauss_point : integration_point_){
             gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
-        } 
+            gauss_point.set_id(offset++);
+        }
+
+        return offset;
     };
 
     // Constructors
@@ -210,9 +211,7 @@ public:
         pimpl_ = std::make_unique<Model>(
             std::move(element),     // forward perhaphs?=
             std::move(integrator)); //
-        
-        allocate_integration_points();// its not nedded here. Move and allocate when needed (TODO).
-        //set_integration_point_coordinates();  //ESTO LO DEBE HACER EL DOMINIO!
+                //set_integration_point_coordinates();  //ESTO LO DEBE HACER EL DOMINIO!
     }
 
     ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};

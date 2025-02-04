@@ -16,8 +16,6 @@ template <std::size_t dim>
 class IntegrationPoint{
 
      using Array = std::array<double, dim>;
-     
-     static inline std::size_t counter = 0; //c++17
 
      std::size_t id_;
      Array       coord_;
@@ -29,7 +27,7 @@ public:
      bool is_weighted_   {false};    // Flag to check if the material point has weights set.
 
      inline constexpr auto id() const noexcept { return id_; };
-     //inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; }; // No deberia ser necesario puesto que el ID se asigna desde constructor.
+     inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; }; // No deberia ser necesario puesto que el ID se asigna desde constructor.
 
      inline constexpr auto coord() const noexcept { return coord_; };
      inline constexpr auto coord(const std::size_t i) const noexcept { return coord_[i]; };
@@ -51,9 +49,10 @@ public:
      }
 
      // Constructors 
-     IntegrationPoint(){
-          id_ = counter++;
-          }
+     //IntegrationPoint( std::size_t id) noexcept : id_{id} 
+     //     {}
+
+     IntegrationPoint() = default;
 
      ~IntegrationPoint() = default;
 };

@@ -83,7 +83,6 @@
 #include "src/post-processing/VTK/VTKwriter.hh"
 
 
-// #include <matplot/matplot.h>
 
 #include <petsc.h>
 
@@ -101,7 +100,7 @@ int main(int argc, char **args)
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        
 
         Domain<dim> D2; // Domain Aggregator Object (Second Domain)
 
@@ -126,9 +125,11 @@ int main(int argc, char **args)
         D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
         D2.assemble_sieve();
 
+
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
         Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};        
 
-        for (auto& e : M1.get_domain().elements()) e.print_info();
+        //for (auto& e : M1.get_domain().elements()) e.print_info();
 
         #ifdef __clang__ 
             std::println("Deprecated PETSc DENSE determinant test: {0}", M1.get_domain().element(0).detJ({0.0, 0.0, 0.0}));
@@ -155,18 +156,17 @@ int main(int argc, char **args)
 
 
         LinearAnalysis analisis_obj1{&M1};
-        LinearAnalysis analisis_obj2{&M2};
-        
-        analisis_obj1.solve();
+        analisis_obj1.solve(); 
         analisis_obj1.record_solution(view1);
-        
+
+        LinearAnalysis analisis_obj2{&M2};
         analisis_obj2.solve();
         analisis_obj2.record_solution(view2);
 
         view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
-        view2.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test2.vtu");
-
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test1.vtu");
+
+        view2.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test2.vtu");
         view2.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test2.vtu");
 
         //NLAnalysis nl_analisis_obj{&M1};
