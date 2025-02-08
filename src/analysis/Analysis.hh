@@ -166,13 +166,7 @@ public:
     }
 
     void commit_model_state(){
-
-        VecView(U, PETSC_VIEWER_STDOUT_WORLD);
-        
         DMGlobalToLocal(model_->get_plex(), U, INSERT_VALUES, model_->current_state);
-
-        VecView(model_->current_state, PETSC_VIEWER_STDOUT_WORLD);
-
         VecAXPY        (model_->current_state, 1.0, model_->global_imposed_solution);
     }
 
@@ -189,11 +183,7 @@ public:
         KSPSolve(solver_, F, U);
 
         commit_model_state();
-
-        //VecView(U, PETSC_VIEWER_STDOUT_WORLD);
     }
-
-
 
     LinearAnalysis(Model<ThreeDimensionalMaterial, 3> *model) : model_{model}{
         KSPCreate(PETSC_COMM_WORLD, &solver_);
