@@ -188,28 +188,17 @@ public:
 
   // =================================== Solution manipulation =====================================
 
-
-
-
 //Constraint with model concept 
-  auto get_current_state(const auto &model)  noexcept
-  {
+  auto get_current_state(const auto &model) noexcept{
     if (!dofs_set_) set_dofs_index(); 
-
     std::vector<PetscScalar> u(num_nodes()*dim);
     
     VecGetValues(model.current_state , num_nodes()*dim, global_dof_index_.data(), u.data());
 
-
     return u;
   };
 
-
   // Templatize this method with an AnalisisT concept
-  //auto get_current_state(const auto &analysis) requires{analysis.get_model()}{ //u_h
-  //    get_current_state(&analysis.get_model());
-  //};
-
   auto compute_strain(const Array &X, const auto &model) noexcept{
     typename MaterialPolicy::StrainType e_h;
 
@@ -217,23 +206,16 @@ public:
     Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>> u_h(u.data(), dim*num_nodes());
 
     e_h.set_strain(B(X)*u_h);
-
     return e_h; 
   };
 
-  void set_material_state(const auto &analysis) noexcept{
+  void set_material_point_state(const auto &analysis) noexcept{
     for (auto &point : material_points_){
       point.update_state(compute_strain(point.coord(), analysis));
     }
   };
 
-
-  void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.
-
-  //void set_material_state() noexcept{
-  //  for (auto &point : material_points_){
-  //  }
-  //};
+  //void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.
 
   // ================================= Constructors and Destructor =================================
   ContinuumElement() = delete;

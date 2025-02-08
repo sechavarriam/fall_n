@@ -192,8 +192,7 @@ public:
 
     LinearAnalysis() = default;
 
-    ~LinearAnalysis()
-    {
+    ~LinearAnalysis(){
         KSPDestroy(&solver_);
     }
 };

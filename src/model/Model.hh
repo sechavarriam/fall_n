@@ -20,10 +20,6 @@
 
 
 // https://www.dealii.org/current/doxygen/deal.II/namespacePETScWrappers.html
-
-// https://petsc.org/release/manual/mat/#sec-matsparse
-// https://petsc.org/release/manual/mat/#block-matrices
-
 // https://stackoverflow.com/questions/872675/policy-based-design-and-best-practices-c
 
 //using LinealElastic3D = ElasticRelation<ThreeDimensionalMaterial>;
@@ -84,7 +80,6 @@ private:
             node.set_dof_index(std::ranges::iota_view{offset, offset + ndof});//Esto podría ser otro RANGE con los índices óptimos luego de un reordenamiento tipo Cuthill-McKee.
         }
     };
-
 
 public:
 
@@ -148,9 +143,6 @@ public:
         setup_matrix();
     };
 
-
-    //void constrain_dof(std::size_t node_idx, auto... dofs_to_constrain){}
-
     void fix_node(std::size_t node_idx) noexcept{
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
@@ -192,30 +184,19 @@ public:
 
         VecAssemblyBegin (this->nodal_forces);
         VecAssemblyEnd   (this->nodal_forces);
-
-        //VecView(this->nodal_forces, PETSC_VIEWER_STDOUT_WORLD);
-        //std::cout << "********************************************" <<std::endl;       
     }   
 
-    // Only For Testing Purposes
+    // Only For Testing Purposes! This thing is not accurate.
     void _force_orthogonal_plane(const int d, const double val, auto... force_components) noexcept{
         std::size_t count = 0;
         double tol = 1.0e-6;
 
-        for (auto &node : domain_->nodes()){
-            if (std::abs(node.coord(d) - val) < tol) count++;
-        }
+        for (auto &node : domain_->nodes()) if (std::abs(node.coord(d) - val) < tol) count++;
+        
         if (count){
             for (auto &node : domain_->nodes()){
                 if (std::abs(node.coord(d) - val) < tol){
-                    //#if __clang__
-                    ////    std::cout << "Applying force to node: " << node.id() << std::endl;
-                    ////    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
-                    ////    std::cout << "Applying force to node: " << node.id() << std::endl;
-                    ////    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
-                    //#endif
                     apply_node_force(node.id(), std::forward<PetscScalar>(force_components/double(count))...);   
-                    //static_cast<PetscInt>(force_components/double(count))...);
                 }
             }
         }
@@ -227,7 +208,6 @@ public:
         MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
     }
-
 
     // Constructors
     Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
@@ -245,8 +225,6 @@ public:
 
         set_num_dofs_in_elements(); // 1. Set the number of dofs per node in the elements (FEM_Elements) // TODO: AVOID THIS!.
         set_sieve_layout();         // 2. Set the sieve layout for the mesh
-        
-
     }
 
     Model() = delete;
