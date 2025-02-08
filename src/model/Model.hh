@@ -39,9 +39,8 @@ class Model{
     friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
 
 public:    
-    using MaterialT = Material<MaterialPolicy>;
-    using FEM_Element = ContinuumElement<MaterialPolicy, ndofs>; // Aca ira en adelante el wrapper de Element FEM_Element
-
+    using MaterialT         = Material<MaterialPolicy>;
+    using FEM_Element       = ContinuumElement<MaterialPolicy, ndofs>; // Aca ira en adelante el wrapper de Element FEM_Element
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
@@ -50,24 +49,27 @@ private:
     Domain<dim>*      domain_;
     ConstraintDofInfo constraints_; 
 
-    PetscSection dof_section; 
+    PetscSection      dof_section; 
 public:
+
     bool is_bc_updated{false}; // Flag to check if the model has been updated (global-local sixes changed).
 
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
-    std::vector<FEM_Element> elements_;
+    std::vector<FEM_Element> elements;
     
     Vec nodal_forces; 
     Vec global_imposed_solution; // Global Displacement Vector (coordinate sense and parallel sense)
 
+    Vec current_state;           // Current state of the system (Displacements, velocities, accelerations, etc.)
+
     Mat Kt; // Global Stiffness Matrix
 
     auto& get_domain(){return *domain_;};
-    auto  get_plex(){return domain_->mesh.dm;};
+    auto  get_plex()  {return domain_->mesh.dm;};
 
 private:
 
-    void set_num_dofs_in_elements(){ for (auto &element : elements_) element.set_num_dof_in_nodes();}
+    void set_num_dofs_in_elements(){ for (auto &element : elements) element.set_num_dof_in_nodes();}
 
     void set_dof_index(){
         PetscSection local_section;
@@ -82,6 +84,7 @@ private:
             node.set_dof_index(std::ranges::iota_view{offset, offset + ndof});//Esto podría ser otro RANGE con los índices óptimos luego de un reordenamiento tipo Cuthill-McKee.
         }
     };
+
 
 public:
 
@@ -124,8 +127,12 @@ public:
     void setup_vectors(){
         DMCreateLocalVector(domain_->mesh.dm, &nodal_forces);
         DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution);
+        VecDuplicate(global_imposed_solution, &current_state);
+
         VecSet(nodal_forces           , 0.0);
         VecSet(global_imposed_solution, 0.0);
+        VecSet(current_state          , 0.0);
+        
     };
 
     void setup_matrix(){
@@ -196,23 +203,17 @@ public:
         double tol = 1.0e-6;
 
         for (auto &node : domain_->nodes()){
-            if (std::abs(node.coord(d) - val) < tol){
-                count++;
-                //std::cout << "Node: " << node.id() << " coord: " << node.coord(d) << std::endl;
-            }
-            
+            if (std::abs(node.coord(d) - val) < tol) count++;
         }
         if (count){
             for (auto &node : domain_->nodes()){
                 if (std::abs(node.coord(d) - val) < tol){
-                    
-                    #if __clang__
-                    //    std::cout << "Applying force to node: " << node.id() << std::endl;
-                    //    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
-                    //    std::cout << "Applying force to node: " << node.id() << std::endl;
-                    //    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
-                    #endif
-
+                    //#if __clang__
+                    ////    std::cout << "Applying force to node: " << node.id() << std::endl;
+                    ////    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);
+                    ////    std::cout << "Applying force to node: " << node.id() << std::endl;
+                    ////    std::println("Force components: {0} {1} {2}", static_cast<PetscScalar>(force_components/double(count))...);  
+                    //#endif
                     apply_node_force(node.id(), std::forward<PetscScalar>(force_components/double(count))...);   
                     //static_cast<PetscInt>(force_components/double(count))...);
                 }
@@ -221,7 +222,7 @@ public:
     }       
 
     void inject_K(Mat& analysis_K){
-        for (auto &element : elements_) element.inject_K(analysis_K);
+        for (auto &element : elements) element.inject_K(analysis_K);
 
         MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
@@ -230,11 +231,11 @@ public:
 
     // Constructors
     Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
-        elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
+        elements.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         // GEOMETRIC ELEMENT WRAPPING        
         for (auto &element : domain_->elements()){                                     //By now all elements are ContinuumElements
-            elements_.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material
+            elements.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material
         }
 
         // PETSC SETUP
@@ -258,7 +259,7 @@ public:
 };
 
     //void inject_K(){
-    //    for (auto &element : elements_) element.inject_K(K);
+    //    for (auto &element : elements) element.inject_K(K);
     //    MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
     //    MatAssemblyEnd  (K, MAT_FINAL_ASSEMBLY);
     //    //MatView(K, PETSC_VIEWER_DRAW_WORLD); // Draw the matrix

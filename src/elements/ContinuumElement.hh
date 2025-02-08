@@ -20,9 +20,10 @@
 template <typename MaterialPolicy, std::size_t ndof>
 class ContinuumElement
 {
+  // ========================= Types and Static Constant Definitions =================================
+
   using PETScMatrix = Mat; // TODO: Use PETSc DeprecatedDenseMatrix
 
-  // using MaterialPolicy = MaterialPolicy;
   using MaterialPointT = MaterialPoint<MaterialPolicy>;
   using MaterialT      = Material     <MaterialPolicy>;
   using Array          = std::array<double, MaterialPolicy::dim>;
@@ -33,11 +34,27 @@ class ContinuumElement
   using StrainMatrixT = Eigen::Matrix<double, num_strains, Eigen::Dynamic>;
   using InterpMatrixT = Eigen::Matrix<double, dim        , Eigen::Dynamic>;
 
+  // ================================================================================================ =
 
   ElementGeometry<dim>*       geometry_         ;
   std::vector<MaterialPointT> material_points_{};
 
-  bool is_multimaterial_{true}; // If true, the element has different materials in each integration point.
+  std::vector<PetscInt> global_dof_index_;
+
+  bool dofs_set_        {false}; 
+  bool is_multimaterial_{true }; // If true, the element has different materials in each integration point.
+
+private:
+  constexpr auto get_dofs_index_from_nodes() const noexcept{
+      PetscInt i;
+      auto N = static_cast<PetscInt>(num_nodes());
+      std::vector<std::span<PetscInt>> dofs_index; // This thing avoids the copy of the vector.
+      dofs_index.reserve(N);
+
+      for (i = 0; i < N; ++i) dofs_index.emplace_back(geometry_->node_p(i).dof_index());
+  
+      return dofs_index;
+    };
 
 public:
   constexpr auto get_geometry() const noexcept { return geometry_; };
@@ -61,18 +78,24 @@ public:
 
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
 
-  constexpr auto get_dofs_index() const noexcept{
-    std::size_t i;
 
-    auto N = num_nodes();
-    std::vector<std::span<std::size_t>> dofs_index; // This thing avoids the copy of the vector.
-    dofs_index.reserve(N);
+  constexpr void set_dof_index(const PetscInt data[]) noexcept{
+    for (std::size_t i = 0; i < num_nodes(); ++i){
+      geometry_->node_p(i).set_dof_index(data);
+    }
+  }; 
 
-    for (i = 0; i < N; ++i)
-      dofs_index.emplace_back(geometry_->node(i).dof_index());
-
-    return dofs_index;
+  // TO DEPRECATE!
+  constexpr void set_dofs_index() noexcept{
+    global_dof_index_.clear();
+    for (auto &idx : get_dofs_index_from_nodes()){
+      for (auto &i : idx){
+        global_dof_index_.push_back(i);
+      }
+    }
+    dofs_set_ = true;
   };
+
   
   inline InterpMatrixT H(const Array &X){
     std::size_t i, k = 0;
@@ -84,14 +107,14 @@ public:
     }
     else if constexpr (dim == 2){
       for (i = 0; i < num_nodes(); ++i){
-        H(0, k) = geometry_->H(i, X);
+        H(0, k    ) = geometry_->H(i, X);
         H(1, k + 1) = geometry_->H(i, X);
         k += dim;
       }
     }
     else if constexpr (dim == 3){
       for (i = 0; i < num_nodes(); ++i){
-        H(0, k) = geometry_->H(i, X);
+        H(0, k    ) = geometry_->H(i, X);
         H(1, k + 1) = geometry_->H(i, X);
         H(2, k + 2) = geometry_->H(i, X);
         k += dim;
@@ -153,7 +176,6 @@ public:
 
   // template<typename M>
   // void inject_K(M model){ // TODO: Constrain with concept };
-
   void inject_K([[maybe_unused]] PETScMatrix &model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
     std::vector<PetscInt> idxs;
     for (std::size_t i = 0; i < num_nodes(); ++i){
@@ -161,33 +183,64 @@ public:
         idxs.push_back(idx);
       }
     }
-
-    #ifdef __clang__ 
-      std::println("DOFs index in order: ");
-      for (const auto idx : idxs){
-        std::cout << idx;
-        if (idx%dim == 2) {
-          std::cout <<  " | ";
-          }
-        else {
-          std::cout << " ";
-        }
-      }
-      std::println(" ");
-    #endif
-    
-    //std::cout << K() << std::endl;
     MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 
-  ContinuumElement() = delete;
-  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {
-                                                       // M[etodo para setear materiales debe ser llamado despues de la creacion de los elementos.
-  }
+  // =================================== Solution manipulation =====================================
 
-  ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}
+
+
+
+//Constraint with model concept 
+  auto get_current_state(const auto &model)  noexcept
   {
-    // set_num_dof_in_nodes();
+    if (!dofs_set_) set_dofs_index(); 
+
+    std::vector<PetscScalar> u(num_nodes()*dim);
+    
+    VecGetValues(model.current_state , num_nodes()*dim, global_dof_index_.data(), u.data());
+
+
+    return u;
+  };
+
+
+  // Templatize this method with an AnalisisT concept
+  //auto get_current_state(const auto &analysis) requires{analysis.get_model()}{ //u_h
+  //    get_current_state(&analysis.get_model());
+  //};
+
+  auto compute_strain(const Array &X, const auto &model) noexcept{
+    typename MaterialPolicy::StrainType e_h;
+
+    std::ranges::contiguous_range auto u = get_current_state(model);
+    Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>> u_h(u.data(), dim*num_nodes());
+
+    e_h.set_strain(B(X)*u_h);
+
+    return e_h; 
+  };
+
+  void set_material_state(const auto &analysis) noexcept{
+    for (auto &point : material_points_){
+      point.update_state(compute_strain(point.coord(), analysis));
+    }
+  };
+
+
+  void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.
+
+  //void set_material_state() noexcept{
+  //  for (auto &point : material_points_){
+  //  }
+  //};
+
+  // ================================= Constructors and Destructor =================================
+  ContinuumElement() = delete;
+  ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {}; // Metodo para setear materiales debe ser llamado despues de la creacion de los elementos.
+  
+
+  ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}{
     for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i){
       material_points_.reserve(geometry_->num_integration_points());
       material_points_.emplace_back(MaterialPointT{material});
@@ -200,4 +253,4 @@ public:
 }; // ContinuumElement
 
 
-#endif
+#endif // FN_CONTINUUM_ELEMENT

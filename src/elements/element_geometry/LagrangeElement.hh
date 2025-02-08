@@ -52,28 +52,28 @@ class LagrangeElement
 
 public:
   static inline constexpr std::size_t dim = sizeof...(N);
-  static inline constexpr std::size_t num_nodes_ = (... * N);
+  static inline constexpr std::size_t num_nodes = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
   static inline constexpr auto VTK_cell_type = reference_element_.VTK_cell_type();
 
-  using pNodeArray = std::optional<std::array<Node<dim> *, num_nodes_>>;
+  using pNodeArray = std::optional<std::array<Node<dim> *, num_nodes>>;
 
 
   std::size_t tag_   ;
   pNodeArray  nodes_p;
 
-  std::array<PetscInt , num_nodes_> nodes_; // Global node numbers in Plex
-  std::array<vtkIdType, num_nodes_> vtk_nodes_{-1};
+  std::array<PetscInt , num_nodes> nodes_; // Global node numbers in Plex
+  std::array<vtkIdType, num_nodes> vtk_nodes_{-1};
 
 private:
 
-  std::array<PetscInt , num_nodes_> local_index_{ // default = 0, 1, 2, 3,..., num_nodes_ - 1
+  std::array<PetscInt , num_nodes> local_index_{ // default = 0, 1, 2, 3,..., num_nodes - 1
       []<std::size_t... I>(std::index_sequence<I...>){return std::array{static_cast<PetscInt>(I)...};
-    }(std::make_index_sequence<num_nodes_>{})};
+    }(std::make_index_sequence<num_nodes>{})};
 
   void set_local_index(const PetscInt idxs[]) noexcept {
-    for (std::size_t i = 0; i < num_nodes_; ++i) local_index_[i] = idxs[i];
+    for (std::size_t i = 0; i < num_nodes; ++i) local_index_[i] = idxs[i];
     };  
 
 public:
@@ -84,15 +84,15 @@ public:
   void print_info() const noexcept{
     // std::format fmt = "Element Tag: {0}\nNumber of Nodes: {1}\nNodes: {2}\n";
     std::cout << "Element Tag    : " << tag_ << std::endl;
-    std::cout << "Number of Nodes: " << num_nodes_ << std::endl;
+    std::cout << "Number of Nodes: " << num_nodes << std::endl;
     std::cout << "Nodes ID       : ";
-    for (std::size_t i = 0; i < num_nodes_; ++i)
+    for (std::size_t i = 0; i < num_nodes; ++i)
       std::cout << nodes_[i] << " ";
     std::cout << std::endl;
 
     #ifdef __clang__ 
     // TALBE [index, local coord..., global coord...] // Using std::format and std::print
-      for (std::size_t i = 0; i < num_nodes_; ++i)
+      for (std::size_t i = 0; i < num_nodes; ++i)
       {
         std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f} \n",
                    i,
@@ -110,7 +110,7 @@ public:
   // =================================================================================================
   // === VTK THINGS ==================================================================================
   // =================================================================================================
-  static constexpr auto num_nodes() noexcept { return num_nodes_; };
+  //static constexpr auto num_nodes() noexcept { return num_nodes; };
   static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
 
   constexpr auto get_VTK_node_ordering() noexcept {
@@ -118,12 +118,12 @@ public:
     //return std::array{ // Esto es para alterar el orden de los nodos en el VTK de aceurdo con la numeracion local
     //  [this]<std::size_t... I>(std::index_sequence<I...>){
     //    return std::array{reference_element_.VTK_node_ordering()[local_index_[I]]...};
-    //  }(std::make_index_sequence<num_nodes_>{})
+    //  }(std::make_index_sequence<num_nodes>{})
     //};
   };
 
   void set_VTK_node_order() noexcept{ // std::cout << "Setting VTK node order for element " << tag_ << std::endl;
-    for (std::size_t i = 0; i < num_nodes_; ++i){
+    for (std::size_t i = 0; i < num_nodes; ++i){
       vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i])); // std::cout << vtk_nodes_[i] << " ";
     } // std::cout << std::endl;
   };
@@ -131,12 +131,12 @@ public:
 
 
   std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept{ // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
-    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes_);
+    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes);
   };
 
   // =================================================================================================
 
-  auto id() const noexcept { return tag_; };
+  auto id()             const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
   PetscInt            node  (std::size_t i) const noexcept { return nodes_[i]; };
@@ -148,7 +148,7 @@ public:
       nodes_p.value()[i] = node;
     }
     else{ // set and assign
-      nodes_p = std::array<Node<dim> *, num_nodes_>{};
+      nodes_p = std::array<Node<dim> *, num_nodes>{};
       nodes_p.value()[i] = node;
     }
   };
@@ -165,12 +165,12 @@ public:
   };
 
   constexpr inline auto coord_array() const noexcept{
-    using CoordArray = std::array<std::array<double, num_nodes_>, dim>;
+    using CoordArray = std::array<std::array<double, num_nodes>, dim>;
     std::size_t i, j;
 
     CoordArray coords{};
     for (i = 0; i < dim; ++i){
-      for (j = 0; j < num_nodes_; ++j){
+      for (j = 0; j < num_nodes; ++j){
         coords[i][j] = nodes_p.value()[j]->coord(i);
       }
     }
@@ -196,7 +196,7 @@ public:
     Eigen::Matrix<double, dim, dim> J = Eigen::Matrix<double, dim, dim>::Zero();
     Array x{0.0};
 
-    for (std::size_t k = 0; k < num_nodes_; ++k){
+    for (std::size_t k = 0; k < num_nodes; ++k){
       x = nodes_p.value()[k]->coord();
       for (std::size_t i = 0; i < dim; ++i){
         for (std::size_t j = 0; j < dim; ++j){

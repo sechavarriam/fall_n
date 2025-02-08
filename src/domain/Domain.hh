@@ -139,7 +139,7 @@ public:
             ElementGeometry<dim>(
                 ElementType( // Forward this?
                     std::forward<std::size_t>(tag),
-                    std::span<PetscInt>(node_ids, ElementType::num_nodes())),
+                    std::span<PetscInt>(node_ids, ElementType::num_nodes)),
                 std::forward<IntegrationStrategy>(integrator)));
 
         return elements_.back(); 

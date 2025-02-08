@@ -13,18 +13,17 @@ class SolidMaterial
 {
   public:
 
-    //using StrainType     = StrainDeprecated<N>;
-    //using StressType     = StressDeprecated<N>;
-    //using StateVariableT = StrainDeprecated<N>;
-
     using StrainType     = Strain<N>;
     using StressType     = Stress<N>;
     using StateVariableT = Strain<N>;
 
     static constexpr std::size_t dim = StrainType::dim;
 
-  private:
+    //DIFERENTIAL OPERATORS
+    
 
+  private:
+  
     constexpr SolidMaterial() = default;
     constexpr ~SolidMaterial() = default;
 };

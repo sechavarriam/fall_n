@@ -16,7 +16,56 @@ int main(int argc, char **args)
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
         
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        
+        VTKDataContainer view1;
+        view1.load_domain(      M1.get_domain());
+        view1.load_gauss_points(M1.get_domain());
 
+
+
+        auto ContElem0 = M1.elements[0];
+
+    
+        const int x = 0;
+        double B0 = 0.0, B1 = 10.0; 
+        
+        M1.fix_x(B0);
+        M1.setup();
+        M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+
+        LinearAnalysis analisis_obj1{&M1};
+        analisis_obj1.solve(); 
+        analisis_obj1.record_solution(view1);
+
+
+        const std::array<double, dim> zero{0.0, 0.0, 0.0};
+
+        auto test_strain = ContElem0.compute_strain(zero, M1);
+        
+        std::cout << "Strain: " << test_strain.vector() << std::endl;
+
+        for(auto &element : M1.elements){
+            //element.set_material_state(analisis_obj1);
+            element.set_material_state(M1);
+        }
+
+
+
+
+
+        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
+        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
+
+        //NLAnalysis nl_analisis_obj{&M1};
+        //nl_analisis_obj.solve();
+
+    } // PETSc Scope ends here
+    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
+};
+  
+
+/*     
         Domain<dim> D2; // Domain Aggregator Object (Second Domain)
 
         double H0 = 0.0, H1 = 4.0;
@@ -40,58 +89,20 @@ int main(int argc, char **args)
         D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
         D2.assemble_sieve();
 
-
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
         Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};        
-
-        std::cout << " ========================== GMSH DOMAIN =============================== " << std::endl;   
-        for (auto& e : M1.get_domain().elements()) e.print_info();
-        std::cout << " ========================== MANUAL DOMAIN ============================= " << std::endl;
-        for (auto& e : M2.get_domain().elements()) e.print_info();
-        std::cout << " ====================================================================== " << std::endl;
-
-        VTKDataContainer view1;
-        view1.load_domain(      M1.get_domain());
-        view1.load_gauss_points(M1.get_domain());
-
+        
         VTKDataContainer view2;
         view2.load_domain(      M2.get_domain());
-        view2.load_gauss_points(M2.get_domain());
+        view2.load_gauss_points(M2.get_domain());Domain<dim> D2; // Domain Aggregator Object (Second Domain)
 
-        const int _x = 0;
+        double H0 = 0.0, H1 = 4.0;
+        double L0 = 0.0, L1 = 5.0;
+        double B0 = 0.0, B1 = 6.0;
 
-        M1.fix_x(B0);
-        M1.setup();
-        M1._force_orthogonal_plane(_x, B1, 1.0, 0.0, 0.0);
+        //double H0 = 1.0, H1 = 1.0;
+        //double L0 = 1.0, L1 = 1.0;
+        //double W0 = 1.0, W1 = 1.0;
 
-        M2.fix_x(B0);
-        M2.setup();
-        M2._force_orthogonal_plane(_x, B1, 1.0, 0.0, 0.0);
-
-
-        LinearAnalysis analisis_obj1{&M1};
-        analisis_obj1.solve(); 
-        analisis_obj1.record_solution(view1);
-
-        LinearAnalysis analisis_obj2{&M2};
-        analisis_obj2.solve();
-        analisis_obj2.record_solution(view2);
-
-        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test1.vtu");
-        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test1.vtu");
-
-        view2.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/test2.vtu");
-        view2.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_test2.vtu");
-
-        //NLAnalysis nl_analisis_obj{&M1};
-        //nl_analisis_obj.solve();
-
-    } // PETSc Scope ends here
-    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-};
-
-
-/*
         // Testing Material Wrapper interface.
         // Printing Material Parameters (Not YET)
         // Printing Material StateC
