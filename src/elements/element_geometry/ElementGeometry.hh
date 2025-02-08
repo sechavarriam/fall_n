@@ -60,7 +60,7 @@ namespace impl
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
-        constexpr virtual Array map_local_point(const Array &x) const = 0;
+        constexpr virtual Array map_local_point(const Array &x) const = 0;   // ESTO SOLO ES VALIDO EN ELEMENTOS AFINES. SACAR DE ACA!
 
         constexpr virtual double detJ(const Array &X) const = 0;
 
@@ -108,7 +108,7 @@ namespace impl
         constexpr unsigned int         VTK_cell_type()        const override { return ElementType::VTK_cell_type; };
         constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
 
-        constexpr std::size_t num_nodes()           const override { return element_.num_nodes(); };
+        constexpr std::size_t num_nodes()           const override { return ElementType::num_nodes; };
         constexpr std::size_t id()                  const override { return element_.id(); };
         constexpr PetscInt    node  (std::size_t i) const override { return element_.node(i)  ;}; // renombrar como node_idx
         constexpr Node<dim>&  node_p(std::size_t i) const override { return element_.node_p(i);};

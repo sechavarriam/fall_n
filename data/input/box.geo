@@ -6,15 +6,14 @@ SetFactory("OpenCASCADE");
 //H =  20.0;
 //L =  20.0;
 
-B = 5;
-H = 4;
-L = 6;
-
+B = 0.40;
+H = 0.80;
+L = 10;
 
 //t = 0.05;
-NX = 1;
-NY = 1;
-NZ = 1;
+NX = 5;//10;
+NY = 1;//1;
+NZ = 1;//2;
 
 //Box(1) = {-L/2,-B/2,-H/2, L,B,H};// Center box
 

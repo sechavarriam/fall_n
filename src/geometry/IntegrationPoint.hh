@@ -10,8 +10,6 @@
 #include "../geometry/Point.hh"
 #include "../geometry/Topology.hh"
 
-// https://www.sandordargo.com/blog/2023/04/12/vector-of-unique-pointers
-
 template <std::size_t dim>
 class IntegrationPoint{
 
@@ -24,7 +22,7 @@ class IntegrationPoint{
 public:
 
      bool is_coordinated_{false}; // Flag to check if the material point has the coordinates set.
-     bool is_weighted_   {false};    // Flag to check if the material point has weights set.
+     bool is_weighted_   {false}; // Flag to check if the material point has weights set.
 
      inline constexpr auto id() const noexcept { return id_; };
      inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; }; // No deberia ser necesario puesto que el ID se asigna desde constructor.
@@ -46,6 +44,11 @@ public:
      inline constexpr void set_coord(const double *coord) noexcept{
           std::copy(coord, coord + dim, coord_.begin());
           is_coordinated_ = true;
+     }
+
+     inline constexpr void set_weight(const double weight) noexcept{
+          weight_ = weight;
+          is_weighted_ = true;
      }
 
      // Constructors 

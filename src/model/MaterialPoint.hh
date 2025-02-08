@@ -29,6 +29,11 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
     public:
 
+        std::array<double, dim> coord() const noexcept {return gauss_point_->coord();};
+
+        void update_state(const StateVariableT& state) noexcept {material_.update_state(state);};
+    
+
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;
         };

@@ -29,8 +29,8 @@ class IsotropicElasticMaterial{
 
   private:
     
-    mutable MaterialStateT   state_ ; // Strain
-    mutable StressType       stress_; // Default initalized in zeros.
+    MaterialStateT   state_ ; // Strain
+    StressType       stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
