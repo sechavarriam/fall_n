@@ -42,12 +42,12 @@ int main(int argc, char **args)
         const std::array<double, dim> zero{0.0, 0.0, 0.0};
 
         auto test_strain = ContElem0.compute_strain(zero, M1);
-        
+
         std::cout << "Strain: " << test_strain.vector() << std::endl;
 
         for(auto &element : M1.elements){
             //element.set_material_state(analisis_obj1);
-            element.set_material_state(M1);
+            element.set_material_point_state(M1);
         }
 
 
