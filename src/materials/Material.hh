@@ -24,8 +24,10 @@
 namespace impl{
    template<class MaterialPolicy>
    class MaterialConcept{ 
+
       using StateVariableT = MaterialPolicy::StateVariableT;
-      using StressT        = MaterialPolicy::StressType;
+      using StressT        = MaterialPolicy::StressT;
+      using MatrixT        = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
    public:
       virtual constexpr ~MaterialConcept() = default;
@@ -33,33 +35,32 @@ namespace impl{
 
    
    public:
+      virtual constexpr MatrixT        C()         const = 0; //The Compliance DeprecatedDenseMatrix 
+      virtual constexpr StateVariableT current_state() const = 0; //The current Value of the State Variable (or the head?)
 
-      
-      virtual constexpr Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() = 0; //The Compliance DeprecatedDenseMatrix
-       
-      virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
+      virtual constexpr void update_state(const StateVariableT& state) = 0;  
 
-      virtual void update_state(const StateVariableT& state) = 0;  
+      //virtual constexpr StressT compute_stress(const StateVariableT& state) const = 0; //The current Value of the State Variable (or the head?)
+
+
 
    };
 
    template <typename MaterialType, typename UpdateStrategy>
-   class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy>
-   {
-   private:
+   class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy>{
 
       using MaterialPolicy = typename MaterialType::MaterialPolicy;
+
       using StateVariableT = MaterialPolicy::StateVariableT;
+      using MatrixT        = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
       MaterialType   material_        ;
       UpdateStrategy update_algorithm_; //or material_integrator
 
    public:
-
-      //Eigen::Ref<const Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>> C() const override {return material_.C();}; //The Compliance DeprecatedDenseMatrix      
-      Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() override {return material_.C();}; //The Compliance DeprecatedDenseMatrix
-
-      StateVariableT get_state() const override {return material_.get_state();}; //CurrentValue
+ 
+      MatrixT        C()             const override {return material_.C()        ;}; //The Compliance DeprecatedDenseMatrix
+      StateVariableT current_state() const override {return material_.current_state();}; //CurrentValue
 
       void update_state(const StateVariableT& state) override {material_.update_state(state);};
 
@@ -77,8 +78,7 @@ namespace impl{
 } // namespace impl
 
 template<class MaterialPolicy>
-class Material
-{
+class Material{
    using StateVariableT = MaterialPolicy::StateVariableT;
 
    std::unique_ptr<impl::MaterialConcept<MaterialPolicy>> pimpl_; // The Bridge design pattern
@@ -87,7 +87,7 @@ public:
 
    Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() const {return pimpl_->C();}; //The Compliance DeprecatedDenseMatrix
 
-   StateVariableT get_state() const {return pimpl_->get_state();};
+   StateVariableT current_state() const {return pimpl_->get_state();};
    void update_state(const StateVariableT& state) {pimpl_->update_state(state);};
 
 public:

@@ -9,8 +9,13 @@ class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMateri
 
   public:
   
-    using StrainType = typename ElasticRelation<ThreeDimensionalMaterial>::StrainType;
-    using StressType = typename ElasticRelation<ThreeDimensionalMaterial>::StressType;
+    using MaterialPolicy = ThreeDimensionalMaterial;
+
+    using MaterialStateT = typename ElasticRelation<ThreeDimensionalMaterial>::MaterialStateT;
+    using StateVariableT = typename MaterialStateT::StateVariableT;
+
+    using StrainT        = typename ElasticRelation<ThreeDimensionalMaterial>::StrainT;
+    using StressT        = typename ElasticRelation<ThreeDimensionalMaterial>::StressT;
 
     using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
     using ConstitutiveModel::compliance_matrix;

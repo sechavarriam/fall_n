@@ -22,14 +22,14 @@ class ContinuumElement
 {
   // ========================= Types and Static Constant Definitions =================================
 
-  using PETScMatrix = Mat; // TODO: Use PETSc DeprecatedDenseMatrix
+  using StateVariableT = typename MaterialPolicy::StateVariableT;
 
   using MaterialPointT = MaterialPoint<MaterialPolicy>;
   using MaterialT      = Material     <MaterialPolicy>;
   using Array          = std::array<double, MaterialPolicy::dim>;
 
   static constexpr auto dim         = MaterialPolicy::dim;
-  static constexpr auto num_strains = MaterialPolicy::StrainType::num_components;
+  static constexpr auto num_strains = MaterialPolicy::StrainT::num_components;
 
   using StrainMatrixT = Eigen::Matrix<double, num_strains, Eigen::Dynamic>;
   using InterpMatrixT = Eigen::Matrix<double, dim        , Eigen::Dynamic>;
@@ -176,7 +176,7 @@ public:
 
   // template<typename M>
   // void inject_K(M model){ // TODO: Constrain with concept };
-  void inject_K([[maybe_unused]] PETScMatrix &model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
+  void inject_K([[maybe_unused]] Mat &model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
     std::vector<PetscInt> idxs;
     for (std::size_t i = 0; i < num_nodes(); ++i){
       for (const auto idx : geometry_->node_p(i).dof_index()){
@@ -186,10 +186,10 @@ public:
     MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
 
-  // =================================== Solution manipulation =====================================
+// =================================== Solution manipulation =====================================
 
-//Constraint with model concept 
-  auto get_current_state(const auto &model) noexcept{
+
+  auto get_current_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
     if (!dofs_set_) set_dofs_index(); 
     std::vector<PetscScalar> u(num_nodes()*dim);
     
@@ -200,7 +200,7 @@ public:
 
   // Templatize this method with an AnalisisT concept
   auto compute_strain(const Array &X, const auto &model) noexcept{
-    typename MaterialPolicy::StrainType e_h;
+    typename MaterialPolicy::StateVariableT e_h;
 
     std::ranges::contiguous_range auto u = get_current_state(model);
     Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>> u_h(u.data(), dim*num_nodes());
@@ -209,9 +209,13 @@ public:
     return e_h; 
   };
 
-  void set_material_point_state(const auto &analysis) noexcept{
+  auto compute_stress([[maybe_unused]]const Array &X, [[maybe_unused]] const auto &model) noexcept{// CONSTRAIN WITH MODEL CONCEPT
+
+  };
+
+  void set_material_point_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
     for (auto &point : material_points_){
-      point.update_state(compute_strain(point.coord(), analysis));
+      point.update_state(compute_strain(point.coord(), model));
     }
   };
 

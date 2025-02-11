@@ -13,11 +13,12 @@ class SolidMaterial
 {
   public:
 
-    using StrainType     = Strain<N>;
-    using StressType     = Stress<N>;
-    using StateVariableT = Strain<N>;
+    using StrainT        = Strain<N>;
+    using StressT        = Stress<N>;
 
-    static constexpr std::size_t dim = StrainType::dim;
+    using StateVariableT = StrainT;
+
+    static constexpr std::size_t dim = StrainT::dim;
 
     //DIFERENTIAL OPERATORS
     

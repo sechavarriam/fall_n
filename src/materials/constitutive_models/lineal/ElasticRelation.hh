@@ -15,24 +15,24 @@
 #include "../../../utils/index.hh"
 
 
-template<class T>
-class ElasticRelation
-  {
+template<class MaterialPolicy>
+class ElasticRelation{
+
     public:
 
-    using MaterialPolicy = T;
+    using StrainT        = typename MaterialPolicy::StrainT;
+    using StressT        = typename MaterialPolicy::StressT;
+    
+    using MaterialStateT = MaterialState<ElasticState,StrainT>;
+    using StateVariableT = typename MaterialStateT::StateVariableT; //Esto es una tupla! o un strain solamente.
+                                                                    //En este caso el StateVariableT es un StrainT.
+                                                                    //Poner un consteval assert!
 
-    using StrainType = typename MaterialPolicy::StrainType;
-    using StressType = typename MaterialPolicy::StressType;
+    using MatrixT = Eigen::Matrix<double, StrainT::num_components, StressT::num_components>;
 
-    using MaterialStateT  = MaterialState<ElasticState,StrainType>;
-    using StateVariableT  = typename MaterialStateT::VariableContainer;
-
-    using MatrixT = Eigen::Matrix<double, StrainType::num_components, StressType::num_components>;
-
-    static constexpr std::size_t dim               = StrainType::dim;
-    static constexpr std::size_t num_strains_      = StrainType::num_components;
-    static constexpr std::size_t num_stresses_     = StressType::num_components;
+    static constexpr std::size_t dim               = StrainT::dim;
+    static constexpr std::size_t num_strains_      = StrainT::num_components;
+    static constexpr std::size_t num_stresses_     = StressT::num_components;
     static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
 
   private:
@@ -42,23 +42,27 @@ class ElasticRelation
 
     MatrixT compliance_matrix = MatrixT::Zero();
 
-    void compute_stress(const StrainType& strain, StressType& stress){
+    StressT compute_stress(const StrainT& strain){ ///Esto debe ser del relation o del material con el update_strategy?
+        StressT stress;
         stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon
-    };
-    
-    constexpr void set_parameter(std::size_t i, std::size_t j, double value){
-        compliance_parameters_[utils::md_index_2_list<num_stresses_,num_strains_>(i,j)] = value;
+        return stress;
     };
 
+    //StressT compute_stress(const StateVariableT& state){
+    //    //StrainT strain;
+    //    //strain.vector = state;
+    //    //return compute_stress(strain);
+    //};
+
+    // TODO:
+    // double potential_energy(const StrainT& strain){
+    //     return 0.5*strain.vector.dot(compliance_matrix*strain.vector);
+    // };
+    
     // =========== CONSTRUCTORS ==========================  
     constexpr ElasticRelation(){};
     constexpr ~ElasticRelation() = default;
 
-    // =========== TESTING FUNCTIONS ============================
-        void print_constitutive_parameters(){
-        std::cout << "Elasticity Tensor Components: " << std::endl;
-        compliance_matrix.print_content();
-    };
 };
     
 // ============================================================================================================
@@ -73,15 +77,15 @@ class ElasticRelation<UniaxialMaterial>{
   public:
   using MaterialPolicy = UniaxialMaterial;
   
-  using StrainType = StrainDeprecated<1>;
-  using StressType = StressDeprecated<1>;
+  using StrainT = StrainDeprecated<1>;
+  using StressT = StressDeprecated<1>;
 
-  using MaterialStateT = MaterialState<ElasticState,StrainType>;
-  using StateVariableT = StrainType;
+  using MaterialStateT = MaterialState<ElasticState,StrainT>;
+  using StateVariableT = StrainT;
 
-  static constexpr std::size_t dim               = StrainType::dim;
-  static constexpr std::size_t num_strains_      = StrainType::num_components;
-  static constexpr std::size_t num_stresses_     = StressType::num_components;
+  static constexpr std::size_t dim               = StrainT::dim;
+  static constexpr std::size_t num_strains_      = StrainT::num_components;
+  static constexpr std::size_t num_stresses_     = StressT::num_components;
   static constexpr std::size_t total_parameters_ = num_stresses_*num_strains_;
   
 private:

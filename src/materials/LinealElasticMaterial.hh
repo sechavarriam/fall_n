@@ -15,37 +15,47 @@ template<class ConstitutiveRelation>
 class IsotropicElasticMaterial{
 
   public:  
-    using StrainType     = typename ConstitutiveRelation::StrainType;
-    using StressType     = typename ConstitutiveRelation::StressType;
-    using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
     using MaterialPolicy = typename ConstitutiveRelation::MaterialPolicy;
+    
+    using StrainT     = typename ConstitutiveRelation::StrainT;
+    using StressT     = typename ConstitutiveRelation::StressT;
+    
+    using MaterialStateT = typename ConstitutiveRelation::MaterialStateT;
+    using StateVariableT = typename ConstitutiveRelation::StateVariableT;
+    
 
-    using StateVariableT = ConstitutiveRelation::StateVariableT;
+    using MatrixT = Eigen::Matrix<double, StrainT::num_components, StressT::num_components>;
 
-    using MatrixT = Eigen::Matrix<double, StrainType::num_components, StressType::num_components>;
-
-    static constexpr std::size_t dim         = StrainType::dim;
-    static constexpr std::size_t num_strains = StrainType::num_components;
+    static constexpr std::size_t dim         = StrainT::dim;
+    static constexpr std::size_t num_strains = StrainT::num_components;
 
   private:
     
     MaterialStateT   state_ ; // Strain
-    StressType       stress_; // Default initalized in zeros.
+    StressT       stress_; // Default initalized in zeros.
 
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
   public:
 
-    inline constexpr StateVariableT get_state()   const {return state_.current_value()  ;};
-    inline constexpr StateVariableT get_state_p() const {return state_.current_value_p();};
+    inline MatrixT C() const {return constitutive_law_->compliance_matrix;}
+    
+    inline constexpr StateVariableT current_state()   const {return state_.current_value()  ;};
+    inline constexpr StateVariableT current_state_p() const {return state_.current_value_p();};
 
-    inline void update_state(const StrainType& e) {state_.update(e);};
+    inline constexpr void update_state(const StrainT& e) {state_.update(e);};
 
-    inline void compute_stress(const StrainType& strain, StressType& stress) const{
-        return constitutive_law_->compute_stress(strain, stress);
+    inline StressT compute_stress(const StrainT& strain) const{
+        return constitutive_law_->compute_stress(strain);
     };
 
-    inline MatrixT C() const {return constitutive_law_->compliance_matrix;}
+    inline StressT compute_stress(const MaterialStateT& state) const{
+        return constitutive_law_->compute_stress(state);
+
+    };
+
+
+    
 
     template<typename... Args>  
     auto set_elasticity(Args... args){
