@@ -41,9 +41,7 @@ namespace impl{
       virtual constexpr void update_state(const StateVariableT& state) = 0;  
 
       //virtual constexpr StressT compute_stress(const StateVariableT& state) const = 0; //The current Value of the State Variable (or the head?)
-
-
-
+      
    };
 
    template <typename MaterialType, typename UpdateStrategy>
