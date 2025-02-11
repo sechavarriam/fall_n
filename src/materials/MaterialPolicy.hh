@@ -20,9 +20,7 @@ class SolidMaterial
 
     static constexpr std::size_t dim = StrainT::dim;
 
-    //DIFERENTIAL OPERATORS
-    
-
+    //DIFERENTIAL OPERATORS ???? 
   private:
   
     constexpr SolidMaterial() = default;
@@ -34,9 +32,6 @@ typedef SolidMaterial<3> PlaneMaterial; // Plane StressDeprecated or Plane Strai
 typedef SolidMaterial<4> AxisymmetricMaterial;
 typedef SolidMaterial<6> ThreeDimensionalMaterial;
 
-
-
-
 //class ForceDeformationMaterial // Define InternalForce Classes as StrainDeprecated and StressDeprecated
 //{
 //  public:
@@ -47,18 +42,5 @@ typedef SolidMaterial<6> ThreeDimensionalMaterial;
 //    constexpr ForceDeformationMaterial() = default;
 //    constexpr ~ForceDeformationMaterial() = default;
 //};
-
-
-
-
-/*
-More Material Policies can be defined here. For example, a TemperatureMaterial policy can be defined as follows:
-
-template <std::size_t N>
-class TermoMaterial: public SolidMaterial<N> {};
-
-
-*/
-
 
 #endif // FALL_N_MATERIAL_POLICY_HH
