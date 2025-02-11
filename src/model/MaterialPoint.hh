@@ -16,7 +16,7 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
         using MaterialT      = Material<MaterialPolicy>;
         using StateVariableT = MaterialPolicy::StateVariableT;
-        using StressT        = MaterialPolicy::StressType;
+        using StressT        = MaterialPolicy::StressT;
 
         static constexpr std::size_t dim = MaterialPolicy::dim;
 
@@ -32,7 +32,13 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         std::array<double, dim> coord() const noexcept {return gauss_point_->coord();};
 
         void update_state(const StateVariableT& state) noexcept {material_.update_state(state);};
-    
+        auto get_state() const noexcept {return material_.get_state();};
+
+        
+
+
+
+
 
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;

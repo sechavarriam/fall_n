@@ -22,11 +22,8 @@ int main(int argc, char **args)
         view1.load_domain(      M1.get_domain());
         view1.load_gauss_points(M1.get_domain());
 
-
-
         auto ContElem0 = M1.elements[0];
 
-    
         const int x = 0;
         double B0 = 0.0, B1 = 10.0; 
         
@@ -39,21 +36,9 @@ int main(int argc, char **args)
         analisis_obj1.record_solution(view1);
 
 
-        const std::array<double, dim> zero{0.0, 0.0, 0.0};
-
-        auto test_strain = ContElem0.compute_strain(zero, M1);
-
-        std::cout << "Strain: " << test_strain.vector() << std::endl;
-
-        for(auto &element : M1.elements){
-            //element.set_material_state(analisis_obj1);
-            element.set_material_point_state(M1);
-        }
-
-
-
-
-
+        for(auto &element : M1.elements) element.set_material_point_state(M1);
+        
+        
         view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
 
