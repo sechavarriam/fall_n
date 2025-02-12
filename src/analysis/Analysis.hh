@@ -183,6 +183,7 @@ public:
         KSPSolve(solver_, F, U);
 
         commit_model_state();
+        model_->update_elements_state();
     }
 
     LinearAnalysis(Model<ThreeDimensionalMaterial, 3> *model) : model_{model}{

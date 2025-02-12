@@ -21,12 +21,17 @@ class VTKDataContainer
     vtkNew<vtkPoints>           vtk_points; // https://vtk.org/doc/nightly/html/classvtkPoints.html
     vtkNew<vtkUnstructuredGrid> vtk_grid;
 
-    vtkNew<vtkPoints>           vtk_gauss_points; //SEPARAR EN OTRA CLASE! un GAUSS RECORDER o algo asi
-    vtkNew<vtkUnstructuredGrid> vtk_gauss_cells;
-
     std::vector<vtkSmartPointer<vtkDoubleArray>> scalar_field;
     std::vector<vtkSmartPointer<vtkDoubleArray>> vector_field;
     std::vector<vtkSmartPointer<vtkDoubleArray>> tensor_field;
+
+
+    vtkNew<vtkPoints>           vtk_gauss_points; //SEPARAR EN OTRA CLASE! un GAUSS RECORDER o algo asi
+    vtkNew<vtkUnstructuredGrid> vtk_gauss_cells;
+
+    std::vector<vtkSmartPointer<vtkDoubleArray>> gauss_scalar_field;
+    std::vector<vtkSmartPointer<vtkDoubleArray>> gauss_vector_field;
+    std::vector<vtkSmartPointer<vtkDoubleArray>> gauss_tensor_field;
 
     //bool gauss_data{false};
     
@@ -60,6 +65,9 @@ public:
         vector_field.push_back(vtk_field);
     }
 
+    
+
+
 
     void load_gauss_points(auto &domain){
         //TODO: if domain hasn't gauss points seted up. setup them. DESDE AC[A SZE PODr[iA DAR ESA ORDEN...]]
@@ -69,23 +77,43 @@ public:
         
         for (const auto& element : domain.elements()){
             for (const auto& gauss_point : element.integration_point_){
-                vtk_gauss_points->SetPoint(static_cast<vtkIdType>(gauss_point.id()), gauss_point.coord(0), gauss_point.coord(1), gauss_point.coord(2));
+                vtk_gauss_points->SetPoint(gauss_point.id(), gauss_point.coord(0), gauss_point.coord(1), gauss_point.coord(2));
             }
         }
 
         vtk_gauss_points->Modified();
-
         vtk_gauss_cells->Allocate(domain.num_integration_points());
-        
         vtk_gauss_cells->SetPoints(vtk_gauss_points);
 
-        //    for (const auto& gauss_point : element.integration_point_){ 
-        //for(auto &element : domain.elements()){
-//
-        //     }
-        //}
+        for (auto &element : domain.elements()){
+            for (auto &gauss_point : element.integration_point_){
+                vtk_gauss_cells->InsertNextCell(VTK_VERTEX,1, gauss_point.id_p());
+            }
+        }                   
+
     }
 
+    //https://vtk.org/doc/nightly/html/classvtkDataSetAttributes.html
+    void load_gauss_tensor_field([[maybe_unused]] std::string_view name,
+                                 [[maybe_unused]] double*          data_array,
+                                 [[maybe_unused]] std::size_t      num_points)
+    {
+        //check array size //https://vtk.org/doc/nightly/html/classvtkDataArray.html#a32eefb4180f5c18455995bb0315bc356
+        auto vtk_tensor_field = vtkSmartPointer<vtkDoubleArray>::New();
+        
+        vtk_tensor_field->SetNumberOfComponents(6); // 3x3 tensor (symmetric)
+        vtk_tensor_field->SetNumberOfTuples(num_points);
+        vtk_tensor_field->SetName(name.data());
+
+        for (std::size_t i = 0; i < num_points; i++){
+            vtk_tensor_field->SetTuple(i, data_array+(i*6));             
+        }
+
+        vtk_gauss_cells->GetPointData()->AddArray(vtk_tensor_field);
+
+        gauss_tensor_field.push_back(vtk_tensor_field);
+    }
+                   
 
     void load_domain(auto &domain) const {
         
@@ -110,13 +138,10 @@ public:
     void write_gauss_vtu(std::string file_name) const
     {
         //if (!gauss_data) throw std::runtime_error("Gauss points not loaded.");
-
-        vtkNew<vtkUnstructuredGrid> vtk_gauss_grid;
-        vtk_gauss_grid->SetPoints(vtk_gauss_points);
-
         vtkNew<vtkXMLUnstructuredGridWriter> writer;
+
         writer->SetFileName(file_name.c_str());
-        writer->SetInputData(vtk_gauss_grid);
+        writer->SetInputData(vtk_gauss_cells);
         writer->SetDataModeToAscii(); // Remove to keep binary 
         writer->Update();             // Remove to keep binary
         writer->Write(); 

@@ -15,7 +15,7 @@ class IntegrationPoint{
 
      using Array = std::array<double, dim>;
 
-     std::size_t id_;
+     vtkIdType   id_;
      Array       coord_;
      double      weight_{0.0};
 
@@ -24,7 +24,8 @@ public:
      bool is_coordinated_{false}; // Flag to check if the material point has the coordinates set.
      bool is_weighted_   {false}; // Flag to check if the material point has weights set.
 
-     inline constexpr auto id() const noexcept { return id_; };
+     inline constexpr auto id()   const noexcept { return id_; };
+     inline constexpr auto id_p() const noexcept { return &id_; }; // Pointer to the id... Reqiured for VTK 
      inline constexpr auto set_id(const std::size_t id) noexcept { id_ = id; }; // No deberia ser necesario puesto que el ID se asigna desde constructor.
 
      inline constexpr auto coord() const noexcept { return coord_; };

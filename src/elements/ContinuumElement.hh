@@ -57,6 +57,11 @@ private:
     };
 
 public:
+
+  constexpr auto material_points() const noexcept { return material_points_; };
+  constexpr auto get_material_point(std::size_t i) noexcept { return material_points_[i]; };
+
+
   constexpr auto get_geometry() const noexcept { return geometry_; };
 
   constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
@@ -201,30 +206,24 @@ public:
   // Templatize this method with an AnalisisT concept
   auto compute_strain(const Array &X, const auto &model) noexcept{
     typename MaterialPolicy::StateVariableT e_h;
+    using EigenMap = Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>>;
 
     std::ranges::contiguous_range auto u = get_current_state(model);
-    Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>> u_h(u.data(), dim*num_nodes());
+    EigenMap u_h(u.data(), dim*num_nodes());
 
     e_h.set_strain(B(X)*u_h);
+
     return e_h; 
   };
 
-  auto compute_stress([[maybe_unused]]const Array &X, [[maybe_unused]] const auto &model) noexcept{// CONSTRAIN WITH MODEL CONCEPT
-
-  };
-
   void set_material_point_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
-    for (auto &point : material_points_){
-      point.update_state(compute_strain(point.coord(), model));
-    }
+    for (auto &point : material_points_) point.update_state(compute_strain(point.coord(), model));
   };
 
   //void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.
-
   // ================================= Constructors and Destructor =================================
   ContinuumElement() = delete;
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {}; // Metodo para setear materiales debe ser llamado despues de la creacion de los elementos.
-  
 
   ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}{
     for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i){
@@ -235,7 +234,6 @@ public:
   };
 
   ~ContinuumElement() = default;
-
 }; // ContinuumElement
 
 

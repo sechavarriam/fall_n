@@ -36,9 +36,11 @@ class IsotropicElasticMaterial{
     inline constexpr MatrixT C() const {return constitutive_law_->compliance_matrix;}
     
     inline constexpr StateVariableT current_state()   const {return state_.current_value()  ;};
-    inline constexpr StateVariableT current_state_p() const {return state_.current_value_p();};
+    //inline constexpr StateVariableT current_state_p() const {return state_.current_value_p();};
 
-    inline constexpr void update_state(const StrainT& e) {state_.update(e);};
+    //inline constexpr void update_state(const StrainT& e) {state_.update(e);};
+    inline constexpr void update_state(const StateVariableT& e) {state_.update(e);};
+    inline constexpr void update_state(StateVariableT&& e) {state_.update(std::forward<StateVariableT>(e));};
 
     inline constexpr StressT compute_stress(const StrainT& strain) const{
         return constitutive_law_->compute_stress(strain);

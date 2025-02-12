@@ -30,17 +30,10 @@ template <std::size_t N> requires(N > 0)
 class Strain : public VoigtVector<N> {
     
   public:
+
     
     using VectorT = Eigen::Vector<double, N>;
     
-    static constexpr std::size_t num_components{N};
-    static constexpr std::size_t dim{[](){if      constexpr (N == 1) return 1;
-                                          else if constexpr (N == 3) return 2;
-                                          else if constexpr (N == 6) return 3;
-                                          else                       return 0; 
-                                          }()}; // Tambien en stress? Subir a VoigtVector?
-
-   
     //VectorT vector() const noexcept { return VoigtVector<N>::vector(); };
 
     template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
