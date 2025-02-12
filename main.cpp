@@ -35,9 +35,9 @@ int main(int argc, char **args)
         analisis_obj1.solve(); 
         analisis_obj1.record_solution(view1);
 
-
-        for(auto &element : M1.elements) element.set_material_point_state(M1);
+        for(auto &element : M1.elements) element.set_material_point_state(M1); 
         
+        M1.record_gauss_strains(view1);
         
         view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");

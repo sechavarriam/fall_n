@@ -39,7 +39,6 @@ public:
     
     inline void update(const StateVariableT &s) {value.update(s);}
 
-
     // Copy and Move constructors
     MaterialState(const MaterialState &s)     : value{s.value} {}
     MaterialState(const StateVariableT &s) : value{s}       {}

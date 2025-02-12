@@ -44,7 +44,6 @@ public:
 private:
     Domain<dim>*      domain_;
     ConstraintDofInfo constraints_; 
-
     PetscSection      dof_section; 
 public:
 
@@ -208,6 +207,40 @@ public:
         MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
     }
+
+
+    void update_elements_state(){
+        for (auto &element : elements) {
+            element.set_material_point_state(*this);
+        }
+    }
+
+
+
+    void record_gauss_strains(VTKDataContainer &recorder){
+
+        std::size_t N = domain_->num_integration_points() * MaterialPolicy::StrainT::num_components;
+        
+        std::vector<PetscScalar> strains; 
+        strains.reserve(N);
+
+        for (auto &element : elements){
+            for (auto &gauss_point : element.material_points()){
+                auto strain = gauss_point.current_state().vector().data();
+                for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++){
+                    strains.push_back(strain[i]);
+                }
+            }
+        }
+
+        recorder.load_gauss_tensor_field("Cauchy Strain", strains.data(), domain_->num_integration_points());  
+
+    }
+
+
+
+
+
 
     // Constructors
     Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
