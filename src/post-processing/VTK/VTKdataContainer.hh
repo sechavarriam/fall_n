@@ -94,9 +94,7 @@ public:
     }
 
     //https://vtk.org/doc/nightly/html/classvtkDataSetAttributes.html
-    void load_gauss_tensor_field([[maybe_unused]] std::string_view name,
-                                 [[maybe_unused]] double*          data_array,
-                                 [[maybe_unused]] std::size_t      num_points)
+    void load_gauss_tensor_field(std::string_view name, double* data_array, std::size_t num_points)
     {
         //check array size //https://vtk.org/doc/nightly/html/classvtkDataArray.html#a32eefb4180f5c18455995bb0315bc356
         auto vtk_tensor_field = vtkSmartPointer<vtkDoubleArray>::New();
@@ -106,7 +104,7 @@ public:
         vtk_tensor_field->SetName(name.data());
 
         for (std::size_t i = 0; i < num_points; i++){
-            vtk_tensor_field->SetTuple(i, data_array+(i*6));             
+            vtk_tensor_field->SetTuple(i, data_array+i*6);             
         }
 
         vtk_gauss_cells->GetPointData()->AddArray(vtk_tensor_field);
