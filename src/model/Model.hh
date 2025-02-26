@@ -174,7 +174,6 @@ public:
         
         auto num_dofs = domain_->node(node_idx).num_dof();
     
-        //if (!is_bc_updated) this->setup_vectors();
         if (sizeof...(force_components) != num_dofs) throw std::runtime_error("Force components size mismatch.");        
         
         auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.

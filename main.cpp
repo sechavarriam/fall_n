@@ -24,12 +24,13 @@ int main(int argc, char **args)
 
         auto ContElem0 = M1.elements[0];
 
-        const int x = 0;
-        double B0 = 0.0, B1 = 10.0; 
+        //const int x = 0;
+        double B0 = 0.0; //B1 = 10.0; 
         
         M1.fix_x(B0);
         M1.setup();
-        M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+        M1.apply_node_force(6 , 0.0, -1.0, -1.0);
+        //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 
         LinearAnalysis analisis_obj1{&M1};
         analisis_obj1.solve(); 
