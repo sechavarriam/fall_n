@@ -201,7 +201,7 @@ public:
       for (std::size_t i = 0; i < dim; ++i){
         for (std::size_t j = 0; j < dim; ++j){
           J(i, j) += (x[i] * dH_dx(k, j, X));
-        }
+            }
       }
     }
     return J;

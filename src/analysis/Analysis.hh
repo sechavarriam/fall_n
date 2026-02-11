@@ -25,10 +25,4 @@
 
 
 
-
-
-
-
-
-
 #endif // FALL_N_ANALYSIS_INTERFACE

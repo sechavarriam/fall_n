@@ -66,9 +66,9 @@ public:
                     switch (block.elementType){
                     case 5:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
+                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; // TODO: Inyectar! 
                            
-                        auto elem = domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
+                        auto elem = domain_->make_element<LagrangeElement<1,1,1>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 2, 6, 3, 7, 1, 5, 0, 4).data() 
@@ -126,8 +126,6 @@ public:
         );
 
         domain_->assemble_sieve(); // Assemble sieve (DAG) for the domain (DMPlex)
-
-
     };
 };
 

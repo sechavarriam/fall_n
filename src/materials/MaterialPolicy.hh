@@ -32,6 +32,7 @@ typedef SolidMaterial<3> PlaneMaterial; // Plane StressDeprecated or Plane Strai
 typedef SolidMaterial<4> AxisymmetricMaterial;
 typedef SolidMaterial<6> ThreeDimensionalMaterial;
 
+
 //class ForceDeformationMaterial // Define InternalForce Classes as StrainDeprecated and StressDeprecated
 //{
 //  public:
@@ -42,5 +43,11 @@ typedef SolidMaterial<6> ThreeDimensionalMaterial;
 //    constexpr ForceDeformationMaterial() = default;
 //    constexpr ~ForceDeformationMaterial() = default;
 //};
+
+
+//template<type ...>
+//CompositeMaterialPolicy< Para permitir modelos con elementos de transici[on y multiples tipos de material. 
+
+
 
 #endif // FALL_N_MATERIAL_POLICY_HH
