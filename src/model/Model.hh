@@ -32,7 +32,7 @@ template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, ps
     std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
     >
 class Model{
-    friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
+    friend class Analysis; // Por ahora. Para no exponer publicamente el dominio.
 
 public:    
     using MaterialT         = Material<MaterialPolicy>;

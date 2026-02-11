@@ -37,7 +37,7 @@ class Strain : public VoigtVector<N> {
     //VectorT vector() const noexcept { return VoigtVector<N>::vector(); };
 
     template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
-    constexpr void set_strain(const Eigen::MatrixBase<Derived> &s) { VoigtVector<N>::set_vector(s); };
+    constexpr void set_strain(const Eigen::MatrixBase<Derived> &s) { VoigtVector<N>::set_vector(s); }
 
     
 

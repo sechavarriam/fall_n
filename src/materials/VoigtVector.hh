@@ -49,12 +49,10 @@ class VoigtVector{
          }
          };
 
-
-
     //constexpr void set_vector(const Eigen::Ref<const Eigen::Vector<double, N>> &v) { components_ = v; };
     
     template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
-    constexpr void set_vector(const Eigen::MatrixBase<Derived> &v) { components_ = v; };
+    constexpr void set_vector(const Eigen::MatrixBase<Derived> &v) { components_ = v; }
     
     
     // Constructors

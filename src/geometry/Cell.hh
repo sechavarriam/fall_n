@@ -75,6 +75,11 @@ consteval std::array<Point<sizeof...(n)>, (n * ...)>cell_nodes(){
 //template <typename T, typename...U> 
 //using is_all_same = std::integral_constant<bool, (... && std::is_same_v<T,U>)>;
 
+
+
+
+
+
 template <std::size_t... n> // TODO: Extract to utilities
 consteval bool are_equal(){ //check if all n are equal{
   std::array<std::size_t, sizeof...(n)> arr{n...};
@@ -99,7 +104,7 @@ class LagrangianCell {
 
 public:  
   static constexpr std::array<Point, num_nodes_> reference_nodes{cell_nodes<n...>()};
-  
+
   static constexpr Basis<n...> basis{equally_spaced_coordinates<n>()...}; //n funtors that generate lambdas
 
   static constexpr double partition_of_unity_test(const Array &X) noexcept{
@@ -117,7 +122,6 @@ public:
     return sum;
 
   };
-
 
 
   static constexpr unsigned int VTK_cell_type(){
