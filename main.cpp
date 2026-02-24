@@ -4,60 +4,61 @@
 int main(int argc, char **args)
 {
         
-    static constexpr std::size_t dim  = 3;
-    //static constexpr std::size_t ndof = dim; // 6;
+    //static constexpr std::size_t dim  = 3;
+    ////static constexpr std::size_t ndof = dim; // 6;
+    //
+    //Node<dim> N1{0, 0.0, 0.0, 0.0};
+    //Node<dim> N2{1, 1.0, 0.0, 0.0};
+    //
+    //auto element_nodes = std::array{&N1, &N2};
+    ////LagrangeElement<2> lagrangian_geometry(element_nodes);
 
-    Node<dim> N1{0, 0.0, 0.0, 0.0};
-    Node<dim> N2{1, 1.0, 0.0, 0.0};
 
-    auto element_nodes = std::array{&N1, &N2};
+    PetscInitialize(&argc, &args, nullptr, nullptr);
+    { // PETSc Scope starts here
 
-    //LagrangeElement<2> lagrangian_geometry(element_nodes);
+        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
+        static constexpr std::size_t dim  = 3;
+        static constexpr std::size_t ndof = dim; // 6;
 
+        Domain<dim> D1; // Domain Aggregator Object
+        GmshDomainBuilder domain_constructor(mesh_file, D1);
+
+        auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
         
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        
+        VTKDataContainer view1;
+        view1.load_domain(      M1.get_domain());
+        view1.load_gauss_points(M1.get_domain());
 
+        auto ContElem0 = M1.elements[0];
 
-    //PetscInitialize(&argc, &args, nullptr, nullptr);
-    //{ // PETSc Scope starts here
-    //} // PETSc Scope ends here
-    //PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
+        //const int x = 0;
+        double B0 = 0.0; //B1 = 10.0; 
+        
+        M1.fix_x(B0);
+        M1.setup();
+        M1.apply_node_force(6 , 0.0, -1.0, -1.0);
+        //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+
+        LinearAnalysis analisis_obj1{&M1};
+        analisis_obj1.solve(); 
+        analisis_obj1.record_solution(view1);
+
+        for(auto &element : M1.elements) element.set_material_point_state(M1); 
+        
+        M1.record_gauss_strains(view1);
+        
+        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
+        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
+
+        //NLAnalysis nl_analisis_obj{&M1};
+    } // PETSc Scope ends here
+    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
 };
   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
