@@ -236,17 +236,12 @@ public:
 
     }
 
-
-
-
-
-
     // Constructors
     Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
         elements.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         // GEOMETRIC ELEMENT WRAPPING        
-        for (auto &element : domain_->elements()){                                     //By now all elements are ContinuumElements
+        for (auto &element : domain_->elements()){ //By now all elements are ContinuumElements
             elements.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material
         }
 

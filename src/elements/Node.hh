@@ -68,13 +68,10 @@ class Node : public geometry::Point<Dim>{
 
     Node() = delete;
 
-
-
-
     template<std::floating_point... Args>
-    Node(std::size_t tag, Args... args) : 
+    Node(std::integral auto tag, Args... args) : 
     geometry::Point<Dim>(std::array<double, Dim>{args...}),
-    id_{tag}{}
+    id_{static_cast<std::size_t>(tag)}{}
 
     //forwarding constructor
     template<std::floating_point... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.

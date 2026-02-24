@@ -3,14 +3,71 @@
 
 int main(int argc, char **args)
 {
-    PetscInitialize(&argc, &args, nullptr, nullptr);
-    { // PETSc Scope starts here
+        
+    static constexpr std::size_t dim  = 3;
+    //static constexpr std::size_t ndof = dim; // 6;
 
-        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+    Node<dim> N1{0, 0.0, 0.0, 0.0};
+    Node<dim> N2{1, 1.0, 0.0, 0.0};
 
-        static constexpr std::size_t dim  = 3;
-        static constexpr std::size_t ndof = dim; // 6;
+    auto element_nodes = std::array{&N1, &N2};
 
+    //LagrangeElement<2> lagrangian_geometry(element_nodes);
+
+
+        
+
+
+    //PetscInitialize(&argc, &args, nullptr, nullptr);
+    //{ // PETSc Scope starts here
+    //} // PETSc Scope ends here
+    //PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
+};
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+// PRUEBA CONSTRUCTOR GMSH y Analisis Lineal
         Domain<dim> D1; // Domain Aggregator Object
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
@@ -44,13 +101,10 @@ int main(int argc, char **args)
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
 
         //NLAnalysis nl_analisis_obj{&M1};
-        //nl_analisis_obj.solve();
+*/
 
-    } // PETSc Scope ends here
-    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-};
-  
 
+// =================================================================================================
 /*     
         Domain<dim> D2; // Domain Aggregator Object (Second Domain)
 

@@ -68,7 +68,7 @@ public:
                         {
                         auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
                            
-                        auto elem = domain_->make_element<LagrangeElement<2,2,2>, decltype(integrator)>(
+                        auto elem = domain_->make_element<LagrangeElement<3,2,2,2>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 2, 6, 3, 7, 1, 5, 0, 4).data() 
@@ -84,7 +84,7 @@ public:
                         {
                         auto integrator = GaussLegendreCellIntegrator<3,3,3>{}; 
                            
-                        domain_->make_element<LagrangeElement<3,3,3>, decltype(integrator)>(
+                        domain_->make_element<LagrangeElement<3,3,3,3>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 

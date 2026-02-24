@@ -1,6 +1,7 @@
 #include <Eigen/Dense>
 #include <petsc.h>
 
+#include <cstddef>
 #include <array>
 #include <concepts>
 #include <functional>
@@ -12,6 +13,7 @@
 #include <tuple>
 #include <utility>
 
+
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -19,11 +21,12 @@
 #include <filesystem>
 
 
-
 #include "src/elements/Node.hh"
+#include "src/elements/NodalSection.hh"
 
 #include "src/elements/FEM_Element.hh"
 #include "src/elements/ContinuumElement.hh"
+#include "src/elements/StructuralElement.hh"
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"

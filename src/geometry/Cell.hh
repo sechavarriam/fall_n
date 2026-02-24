@@ -118,8 +118,7 @@ public:
 
   };
 
-
-
+  
   static constexpr unsigned int VTK_cell_type(){
     if constexpr (dim == 1) {
       if      constexpr (dimensions[0] == 2) return VTK_LINE;

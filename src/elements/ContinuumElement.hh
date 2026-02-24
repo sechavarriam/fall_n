@@ -34,7 +34,7 @@ class ContinuumElement
   using StrainMatrixT = Eigen::Matrix<double, num_strains, Eigen::Dynamic>;
   using InterpMatrixT = Eigen::Matrix<double, dim        , Eigen::Dynamic>;
 
-  // ================================================================================================ =
+  // =================================================================================================
 
   ElementGeometry<dim>*       geometry_         ;
   std::vector<MaterialPointT> material_points_{};
@@ -61,7 +61,6 @@ public:
   constexpr auto material_points() const noexcept { return material_points_; };
   constexpr auto get_material_point(std::size_t i) noexcept { return material_points_[i]; };
 
-
   constexpr auto get_geometry() const noexcept { return geometry_; };
 
   constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
@@ -82,7 +81,6 @@ public:
   };
 
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
-
 
   constexpr void set_dof_index(const PetscInt data[]) noexcept{
     for (std::size_t i = 0; i < num_nodes(); ++i){
