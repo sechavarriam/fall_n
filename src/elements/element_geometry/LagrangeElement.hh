@@ -251,6 +251,10 @@ public:
   constexpr ~LagrangeElement() = default;
 };
 
+template <std::size_t... N> using LagrangeElement1D = LagrangeElement<1, N...>;
+template <std::size_t... N> using LagrangeElement2D = LagrangeElement<2, N...>;
+template <std::size_t... N> using LagrangeElement3D = LagrangeElement<3, N...>;
+
 // =================================================================================================
 // =================================================================================================
 // =================================================================================================
