@@ -33,7 +33,7 @@
 namespace impl
 { // Implementation details
 
-    template <std::size_t dim>
+    template <std::size_t dim> //Spatial dimension
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
     using Array = std::array<double, dim>;
@@ -49,6 +49,8 @@ namespace impl
         constexpr virtual unsigned int VTK_cell_type() const = 0;
 
         constexpr virtual std::span<vtkIdType> VTK_ordered_node_ids() const = 0;
+
+        constexpr virtual std::size_t topological_dimension() const = 0;
 
         constexpr virtual std::size_t num_nodes() const = 0;
         constexpr virtual std::size_t id() const = 0;
@@ -81,6 +83,14 @@ namespace impl
     { // Wrapper for all element types (of any kind)
         using Array = std::array<double, ElementType::dim>;
 
+        static constexpr auto topological_dim = []() constexpr {
+            if constexpr (requires { ElementType::topological_dim; }) {
+                return ElementType::topological_dim;
+            } else {
+                return ElementType::dim; // Default to spatial dimension if topological dimension is not defined
+            }
+        }();
+
         static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
         
         ElementType         element_   ; // Stores the ElementGeometry object
@@ -107,6 +117,8 @@ namespace impl
 
         constexpr unsigned int         VTK_cell_type()        const override { return ElementType::VTK_cell_type; };
         constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
+
+        constexpr std::size_t topological_dimension() const override { return topological_dim; };
 
         constexpr std::size_t num_nodes()           const override { return ElementType::num_nodes; };
         constexpr std::size_t id()                  const override { return element_.id(); };
@@ -155,6 +167,8 @@ public:
 
     constexpr unsigned int         VTK_cell_type()        const { return pimpl_->VTK_cell_type(); };
     constexpr std::span<vtkIdType> VTK_ordered_node_ids() const { return pimpl_->VTK_ordered_node_ids(); };
+
+    constexpr std::size_t topological_dimension() const { return pimpl_->topological_dimension(); };
 
     constexpr std::size_t id()        const { return pimpl_->id(); };
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
