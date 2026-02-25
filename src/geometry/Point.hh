@@ -12,14 +12,23 @@
   #include <print>
 #endif
 
+
+
+template <typename T>
+concept PointT = requires(T point){
+    {point.coord()} -> std::convertible_to<std::array<double, T::dim>>;
+    {point.coord(std::size_t{})} -> std::convertible_to<double>;
+    {point.set_coord(std::size_t{}, double{})} -> std::same_as<void>;
+    {point.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
+    {point.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
+};  
+
+
 namespace geometry {
   
   template<std::size_t dim> requires topology::EmbeddableInSpace<dim>
   class Point {
-   
-    private:
-      //Vector<dim> coord_; //Use of Eigen vector to facilitate operaitons.
-      
+  
       std::array<double, dim> coord_;
 
     public:

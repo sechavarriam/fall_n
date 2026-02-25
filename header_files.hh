@@ -22,7 +22,7 @@
 
 
 #include "src/elements/Node.hh"
-#include "src/elements/NodalSection.hh"
+//#include "src/elements/NodalSection.hh"
 
 #include "src/elements/FEM_Element.hh"
 #include "src/elements/ContinuumElement.hh"
@@ -30,6 +30,7 @@
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"
+#include "src/elements/element_geometry/Section.hh"
 
 #include "src/model/DoF.hh"
 

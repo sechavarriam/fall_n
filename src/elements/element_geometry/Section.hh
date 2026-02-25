@@ -1,19 +1,50 @@
 #ifndef FN_ABSTRACT_STRUCTURAL_ELEM_SECTION
 #define FN_ABSTRACT_STRUCTURAL_ELEM_SECTION
 
+#include <concepts>
 
-//template<u_short Dim, u_short nNodes, u_short nDoF, u_short nGauss>
+
+#include "../../geometry/Point.hh"
+
+
+
+//template <typename T>
+//concept SectionT = requires(T point){
+//    //point.some_method(); // Define the required interface for the Section concept here.
+//};
+
+
+template <PointT SectionT>
 class Section{
-//    
-// private:
-//  Material Mat;
-//  
+
   public:
 
-    Section(){};
-    //Section(int tag, std::array<u_int,nNodes> NodeTAGS): ElementBase<Dim,nNodes,nDoF,nGauss>(tag,NodeTAGS){}
-
-    virtual ~Section(){};
+    
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #endif
