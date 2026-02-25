@@ -12,8 +12,12 @@ int main(int argc, char **args)
     
     auto element_nodes = std::array{&N1, &N2};
     
-    LagrangeElement<3,2> lagrangian_geometry(element_nodes);
+    LagrangeElement3D<2> lagrangian_geometry(element_nodes);
 
+    // Assertion to test NodeT concept.
+    static_assert(NodeT<decltype(N1) >, "Node does not satisfy NodeT concept");
+    static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
+        
 /*
     PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here

@@ -2,9 +2,11 @@
 #define FALL_STRUCTURAL_ELEMENT_ABSTRACTION
 
 
-
-
 // Concept constrained material policy (force-deformation relation) and kinematic policy (static, pseudo-static, dynamic, etc.) to define the structural element behavior.
+
+#include "element_geometry/ElementGeometry.hh"
+#include "element_geometry/Section.hh"
+
 
 template <typename MaterialPolicy, std::size_t ndof>
 class StructuralElement
@@ -14,8 +16,11 @@ class StructuralElement
 
     ElementGeometry* geometry_ ; //ya incluye los nodos y la estrategia de integracion )
 
-    public:
+    
 
+
+
+    public :
 
 
 
