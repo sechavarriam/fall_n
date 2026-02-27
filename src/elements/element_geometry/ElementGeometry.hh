@@ -37,7 +37,7 @@ namespace impl
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
     using LocalCoordView = std::span<const double>;
-    using SpatialArray = std::array<double, dim>;
+    using SpatialArray   = std::array<double, dim>;
     public:
         virtual ~ElementGeometryConcept() = default;
 
@@ -92,14 +92,15 @@ namespace impl
         }();
 
         using LocalCoordView = std::span<const double>;
-        using NaturalArray = std::array<double, topological_dim>;
-        using SpatialArray = std::array<double, ElementType::dim>;
+        using NaturalArray   = std::array<double, topological_dim>;
+        using SpatialArray   = std::array<double, ElementType::dim>;
 
         static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
         
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
-    public:
+    
+     public:
 
         static constexpr auto dim = ElementType::dim;
         

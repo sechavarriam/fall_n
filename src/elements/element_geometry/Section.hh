@@ -22,7 +22,7 @@ class NodeSection{
   public:
 
   template <typename... Args>
-  explicit NodeSection(Node* node_p, Args&&... args) : node_p_{node_p} {
+  explicit NodeSection(Node* node_p, [[maybe_unused]] Args&&... args) : node_p_{node_p} {
     // Initialize the section with the provided arguments if needed.
   }
 
