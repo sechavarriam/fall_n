@@ -5,7 +5,7 @@
 
 
 #include "../../geometry/Point.hh"
-
+#include "../Node.hh"
 
 
 //template <typename T>
@@ -14,17 +14,22 @@
 //};
 
 
-template <PointT SectionT>
-class Section{
+template <NodeT Node>
+class NodeSection{
 
+  Node* node_p_;
+  
   public:
 
-    
+  template <typename... Args>
+  explicit NodeSection(Node* node_p, Args&&... args) : node_p_{node_p} {
+    // Initialize the section with the provided arguments if needed.
+  }
+
+  NodeSection() = delete;
+  ~NodeSection() = default;
+
 };
-
-
-
-
 
 
 

@@ -1,6 +1,13 @@
 
 #include "header_files.hh"
 
+
+
+#include "src/geometry/Point.hh"
+
+// include matplot
+#include <matplot/matplot.h>
+
 int main(int argc, char **args)
 {
         
@@ -17,6 +24,10 @@ int main(int argc, char **args)
     // Assertion to test NodeT concept.
     static_assert(NodeT<decltype(N1) >, "Node does not satisfy NodeT concept");
     static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
+
+    auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
+
+    ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
         
 /*
     PetscInitialize(&argc, &args, nullptr, nullptr);
@@ -24,6 +35,69 @@ int main(int argc, char **args)
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
 */
+    PetscInitialize(&argc, &args, nullptr, nullptr);
+    { // PETSc Scope starts here
+
+        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+
+        static constexpr std::size_t dim  = 3;
+        static constexpr std::size_t ndof = dim; // 6;
+
+        Domain<dim> D1; // Domain Aggregator Object
+        GmshDomainBuilder domain_constructor(mesh_file, D1);
+
+        auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
+        
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        
+        VTKDataContainer view1;
+        view1.load_domain(      M1.get_domain());
+        view1.load_gauss_points(M1.get_domain());
+
+        auto ContElem0 = M1.elements[0];
+
+        //const int x = 0;
+        double B0 = 0.0; //B1 = 10.0; 
+        
+        M1.fix_x(B0);
+        M1.setup();
+        M1.apply_node_force(6 , 0.0, -1.0, -1.0);
+        //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+
+        LinearAnalysis analisis_obj1{&M1};
+        analisis_obj1.solve(); 
+        analisis_obj1.record_solution(view1);
+
+        for(auto &element : M1.elements) element.set_material_point_state(M1); 
+        
+        M1.record_gauss_strains(view1);
+        
+        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
+        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
+
+        //NLAnalysis nl_analisis_obj{&M1};
+    } // PETSc Scope ends here
+    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
+
+    std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
+
+    static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
+
+    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
+    std::cout << F2_2({0.5,0.5}) << std::endl;
+    static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
+    interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
+                                                            5,-5,3,
+                                                            2,3,4,
+                                                            1,2,3});
+    using namespace matplot;
+    auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
+    auto Z = transform(X, Y, [=](double x, double y) {
+        return F3_4({x,y});
+    });
+    surf(X, Y, Z);
+    show();
+
 };
   
 
@@ -34,8 +108,9 @@ int main(int argc, char **args)
 
 
 
-/*
+
 // PRUEBA CONSTRUCTOR GMSH y Analisis Lineal
+/*
     PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here
 

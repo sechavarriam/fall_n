@@ -33,14 +33,15 @@
 namespace impl
 { // Implementation details
 
-    template <std::size_t dim> //Spatial dimension
+    template <std::size_t dim> // Spatial dimension (topological dimension is runtime via virtual)
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
-    using Array = std::array<double, dim>;
+    using LocalCoordView = std::span<const double>;
+    using SpatialArray = std::array<double, dim>;
     public:
         virtual ~ElementGeometryConcept() = default;
 
-        virtual std::unique_ptr<ElementGeometryConcept> clone()    const = 0;    // To allow copy construction of the wrapper
+        virtual std::unique_ptr<ElementGeometryConcept<dim>> clone() const = 0;    // To allow copy construction of the wrapper
 
     public:
 
@@ -62,27 +63,26 @@ namespace impl
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
-        constexpr virtual Array map_local_point(const Array &x) const = 0;   // ESTO SOLO ES VALIDO EN ELEMENTOS AFINES. SACAR DE ACA!
+        constexpr virtual SpatialArray map_local_point(LocalCoordView x) const = 0;   // ESTO SOLO ES VALIDO EN ELEMENTOS AFINES. SACAR DE ACA!
 
-        constexpr virtual double detJ(const Array &X) const = 0;
+        constexpr virtual double detJ(LocalCoordView X) const = 0;
 
-        constexpr virtual double H    (std::size_t i,                const Array &X) const = 0;
-        constexpr virtual double dH_dx(std::size_t i, std::size_t j, const Array &X) const = 0;
+        constexpr virtual double H    (std::size_t i,                LocalCoordView X) const = 0;
+        constexpr virtual double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const = 0;
 
-        constexpr virtual Array  reference_integration_point(std::size_t i) const = 0;
+        constexpr virtual LocalCoordView reference_integration_point(std::size_t i) const = 0;
         constexpr virtual double weight(std::size_t i) const = 0;
 
-        constexpr virtual double integrate(std::function<double(Array)>&& f) const = 0;
+        constexpr virtual double integrate(std::function<double(LocalCoordView)>&& f) const = 0;
         
-        constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const = 0;
+        constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const = 0;
 
     };
              
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
-        using Array = std::array<double, ElementType::dim>;
-
+        
         static constexpr auto topological_dim = []() constexpr {
             if constexpr (requires { ElementType::topological_dim; }) {
                 return ElementType::topological_dim;
@@ -90,6 +90,10 @@ namespace impl
                 return ElementType::dim; // Default to spatial dimension if topological dimension is not defined
             }
         }();
+
+        using LocalCoordView = std::span<const double>;
+        using NaturalArray = std::array<double, topological_dim>;
+        using SpatialArray = std::array<double, ElementType::dim>;
 
         static constexpr auto num_integration_points_ = IntegrationStrategy::num_integration_points;
         
@@ -129,22 +133,39 @@ namespace impl
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
-        constexpr Array map_local_point(const Array &x) const override { return element_.map_local_point(x); };
-
-        constexpr double detJ   (const Array &X) const override {return element_.detJ(X);};
-
-        constexpr double H    (std::size_t i,                const Array& X) const override {return element_.H    (i,    X);};
-        constexpr double dH_dx(std::size_t i, std::size_t j, const Array& X) const override {return element_.dH_dx(i, j, X);};
-
-        constexpr Array reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);}; //maybe private?
-        constexpr double weight                    (std::size_t i) const override {return integrator_.weight(i);};
-
-        constexpr double integrate (std::function<double(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<double(Array)>>(f));
+        constexpr SpatialArray map_local_point(LocalCoordView x) const override {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = x[k];
+            return element_.map_local_point(xi);
         };
 
-        Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
+        constexpr double detJ(LocalCoordView X) const override {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
+            return element_.detJ(xi);
+        };
+
+        constexpr double H(std::size_t i, LocalCoordView X) const override {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
+            return element_.H(i, xi);
+        };
+
+        constexpr double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const override {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
+            return element_.dH_dx(i, j, xi);
+        };
+
+        constexpr LocalCoordView reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);}; //maybe private?
+        constexpr double weight                    (std::size_t i) const override {return integrator_.weight(i);};
+
+        constexpr double integrate (std::function<double(LocalCoordView)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<double(LocalCoordView)>>(f));
+        };
+
+        Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const override {
+            return integrator_(element_,std::forward<std::function<Eigen::MatrixXd(LocalCoordView)>>(f));
         };
 
     };
@@ -153,7 +174,8 @@ namespace impl
 template<std::size_t dim>
 class ElementGeometry
 {
-    using Array = std::array<double, dim>;
+    using LocalCoordView = std::span<const double>;
+    using SpatialArray = std::array<double, dim>;
 
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
 
@@ -178,20 +200,20 @@ public:
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };
 
-    constexpr Array map_local_point(const Array &x) const { return pimpl_->map_local_point(x); };
+    constexpr SpatialArray map_local_point(LocalCoordView x) const { return pimpl_->map_local_point(x); };
 
-    constexpr double detJ(const Array &X) const { return pimpl_->detJ(X);};
+    constexpr double detJ(LocalCoordView X) const { return pimpl_->detJ(X);};
  
-    constexpr double H    (std::size_t i, const Array &X) const { return pimpl_->H(i, X);};
-    constexpr double dH_dx(std::size_t i, std::size_t j,const Array &X) const { return pimpl_->dH_dx(i, j, X);};
+    constexpr double H    (std::size_t i, LocalCoordView X) const { return pimpl_->H(i, X);};
+    constexpr double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const { return pimpl_->dH_dx(i, j, X);};
 
-    constexpr Array  reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
+    constexpr LocalCoordView reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
     constexpr double weight                     (std::size_t i) const {return pimpl_->weight(i);};
 
-    constexpr double integrate(std::function<double(Array)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(Array)>>(f));};
+    constexpr double integrate(std::function<double(LocalCoordView)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(LocalCoordView)>>(f));};
 
-    Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(Array)>&& f) const {
-        return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(Array)>>(f));
+    Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const {
+        return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(LocalCoordView)>>(f));
         };
 
     // Own methods
@@ -214,7 +236,6 @@ public:
             gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
             gauss_point.set_id(offset++);
         }
-
         return offset;
     };
 
@@ -244,7 +265,7 @@ private:
     constexpr inline friend void print_nodes_info(ElementGeometry const& element) { element.pimpl_->print_nodes_info(); };
 
     constexpr inline friend
-    auto integrate(ElementGeometry const &element, std::invocable<Array> auto&& F){
+    auto integrate(ElementGeometry const &element, std::invocable<LocalCoordView> auto&& F){
         return element.pimpl_->integrate(std::forward<decltype(F)>(F));
         };
 

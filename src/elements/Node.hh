@@ -15,26 +15,7 @@
 #include "../geometry/Point.hh"
 
 
-//NodeT concept
 
-template <typename T> //To be used in NodalSection constraint.
-concept NodeT = requires(T node){
-    {node.id()} -> std::convertible_to<std::size_t>;
-    {node.num_dof()} -> std::convertible_to<std::size_t>;
-    {node.set_id(std::size_t{})} -> std::same_as<void>;
-    {node.set_num_dof(std::size_t{})} -> std::same_as<void>;
-    {node.set_dof_index(std::size_t{}, std::size_t{})} -> std::same_as<void>;
-    requires std::ranges::range<std::vector<std::size_t>>;
-    {node.set_dof_index(std::vector<std::size_t>{})} -> std::same_as<void>;
-    {node.dof_index()} -> std::convertible_to<std::span<PetscInt>>;
-    {node.fix_dof(std::size_t{})} -> std::same_as<void>;
-    {node.set_dof_interface()} -> std::same_as<void>;
-    {node.coord()} -> std::convertible_to<std::array<double, T::dim>>;
-    {node.coord(std::size_t{})} -> std::convertible_to<double>;
-    {node.set_coord(std::size_t{}, double{})} -> std::same_as<void>;
-    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
-    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
-};
 
 template<std::size_t Dim>//, ushort nDoF=Dim> 
 class Node : public geometry::Point<Dim>{ 
@@ -108,6 +89,29 @@ class Node : public geometry::Point<Dim>{
     ~Node(){} 
 
 };
+
+
+//NodeT concept
+
+template <typename T> //To be used in NodalSection constraint.
+concept NodeT = requires(T node){
+    {node.id()} -> std::convertible_to<std::size_t>;
+    {node.num_dof()} -> std::convertible_to<std::size_t>;
+    {node.set_id(std::size_t{})} -> std::same_as<void>;
+    {node.set_num_dof(std::size_t{})} -> std::same_as<void>;
+    {node.set_dof_index(std::size_t{}, std::size_t{})} -> std::same_as<void>;
+    requires std::ranges::range<std::vector<std::size_t>>;
+    {node.set_dof_index(std::vector<std::size_t>{})} -> std::same_as<void>;
+    {node.dof_index()} -> std::convertible_to<std::span<PetscInt>>;
+    {node.fix_dof(std::size_t{})} -> std::same_as<void>;
+    {node.set_dof_interface()} -> std::same_as<void>;
+    {node.coord()} -> std::convertible_to<std::array<double, T::dim>>;
+    {node.coord(std::size_t{})} -> std::convertible_to<double>;
+    {node.set_coord(std::size_t{}, double{})} -> std::same_as<void>;
+    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
+    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
+};
+
 
 
 
