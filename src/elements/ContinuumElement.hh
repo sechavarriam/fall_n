@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <array>
+#include <span>
 
 #ifdef __clang__ 
   #include <format>
@@ -28,7 +29,10 @@ class ContinuumElement
   using MaterialT      = Material     <MaterialPolicy>;
   using Array          = std::array<double, MaterialPolicy::dim>;
 
+
   static constexpr auto dim         = MaterialPolicy::dim;
+  static constexpr auto topological_dim = dim; // continuum elements are full-dimensional, so the topological dimension is the same as the spatial dimension.
+
   static constexpr auto num_strains = MaterialPolicy::StrainT::num_components;
 
   using StrainMatrixT = Eigen::Matrix<double, num_strains, Eigen::Dynamic>;
@@ -175,7 +179,13 @@ public:
     return B(X).transpose() * get_C() * B(X);
   };
 
-  Eigen::MatrixXd K(){ return geometry_->integrate([this](const Array &X)->Eigen::MatrixXd{return BtCB(X);});};
+  Eigen::MatrixXd K(){
+    return geometry_->integrate([this](std::span<const double> X) -> Eigen::MatrixXd {
+      Array Xi{};
+      for (std::size_t k = 0; k < dim; ++k) Xi[k] = X[k];
+      return BtCB(Xi);
+    });
+  };
 
   // template<typename M>
   // void inject_K(M model){ // TODO: Constrain with concept };

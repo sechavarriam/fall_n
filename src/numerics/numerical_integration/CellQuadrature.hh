@@ -12,12 +12,12 @@ template <std::size_t... n>
 class CellQuadrature : public Quadrature<(n*...), std::array<std::array<double, sizeof...(n)>,(n*...)>> //For nodes as array of coordinates
 { 
   static constexpr std::size_t dim    {sizeof...(n)};
-  //using Point      = geometry::Point<dim>;
+
   
 public:
-  
 
   static constexpr std::size_t num_points{(n*...)};
+
   using Point      = std::array<double, dim>;
   using PointArray = std::array<Point , num_points>;
 
@@ -51,7 +51,7 @@ public:
   public: 
 
   // TODO: REVISAR QUE TAN VALIDO ES DEVOLVER UNA REFERENCIA.
-  constexpr Point get_point_coords(std::size_t i) const noexcept{
+  constexpr const Point& get_point_coords(std::size_t i) const noexcept{
     return Quadr::evalPoints_[i];
   };
 

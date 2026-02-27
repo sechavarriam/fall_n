@@ -53,15 +53,18 @@ class LagrangeElement
 
   using ReferenceCell = geometry::cell::LagrangianCell<N...>;
 
+  using SpatialArray  = std::array<double, Dim>;          // This is the type of the global coordinates. //TODO: optimizar para caso 1D como double.
+  using NaturalArray  = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local (natural) coordinates.
+
   using Point         = geometry::Point   <sizeof...(N)>; // This is the type of the reference nodes, and the type of the local coordinates.
-  using Array         = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local coordinates.
+  
 
 public:
 
   static inline constexpr std::size_t dim = Dim;
-
   static inline constexpr std::size_t topological_dim = sizeof...(N);
-  static inline constexpr std::size_t num_nodes = (... * N);
+
+  static inline constexpr std::size_t   num_nodes = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
   static inline constexpr auto VTK_cell_type = reference_element_.VTK_cell_type();
@@ -115,24 +118,6 @@ public:
     #endif
   };
 
-  // =================================================================================================
-  // === VTK THINGS ==================================================================================
-  // =================================================================================================
-  //static constexpr auto num_nodes() noexcept { return num_nodes; };
-  static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
-
-  constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering();};
-
-  void set_VTK_node_order() noexcept{
-    for (std::size_t i = 0; i < num_nodes; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i]));
-  };
-
-  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept{ // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
-    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes);
-  };
-
-  // =================================================================================================
-
   auto id()             const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
@@ -149,14 +134,14 @@ public:
       nodes_p.value()[i] = node;
     }
   };
-
   // =================================================================================================
 
-  constexpr inline double H(std::size_t i, const Array &X) const noexcept { 
+  constexpr inline double H(std::size_t i, const NaturalArray &X)
+  const noexcept { 
     return reference_element_.basis.shape_function(local_index_[i])(X);
   };
   
-  constexpr inline double dH_dx(std::size_t i, std::size_t j, const Array &X) const noexcept{
+  constexpr inline double dH_dx(std::size_t i, std::size_t j, const NaturalArray &X) const noexcept{
     return reference_element_.basis.shape_function_derivative(local_index_[i], j)(X);
   };
 
@@ -174,10 +159,10 @@ public:
   };
 
   // map from reference
-  constexpr inline Array map_local_point(const Array &x) const noexcept{
+  constexpr inline SpatialArray map_local_point(const NaturalArray &x) const noexcept{
 
     std::size_t i;
-    Array X{0};
+    SpatialArray X{0};
     auto F = coord_array();
 
     for (i = 0; i < dim; ++i)
@@ -185,17 +170,18 @@ public:
     return X;
   };
 
-  constexpr inline auto map_local_point(const Point &x) const noexcept { return map_local_point(x.coord()); };
+  //constexpr inline auto map_local_point(const Point &x) const noexcept { return map_local_point(x.coord()); };
 
-  constexpr inline auto evaluate_jacobian(const Array &X) const noexcept
+  constexpr inline auto evaluate_jacobian(const NaturalArray &X) const noexcept
   {
-    Eigen::Matrix<double, dim, dim> J = Eigen::Matrix<double, dim, dim>::Zero(); // REVISAR DIMENSION. OPTIMIZAR SI ES ESCALAR.
-    Array x{0.0};
+    //Eigen::Matrix<double, dim, dim> J = Eigen::Matrix<double, dim, dim>::Zero(); // REVISAR DIMENSION. OPTIMIZAR SI ES ESCALAR.
+    Eigen::Matrix<double, dim, topological_dim> J = Eigen::Matrix<double, dim, topological_dim>::Zero(); // REVISAR DIMENSION. OPTIMIZAR SI ES ESCALAR.
+    SpatialArray x{0.0};
 
     for (std::size_t k = 0; k < num_nodes; ++k){
       x = nodes_p.value()[k]->coord();
       for (std::size_t i = 0; i < dim; ++i){
-        for (std::size_t j = 0; j < dim; ++j){
+        for (std::size_t j = 0; j < topological_dim; ++j){
           J(i, j) += (x[i] * dH_dx(k, j, X));
         }
       }
@@ -203,10 +189,9 @@ public:
     return J;
   };
 
-  constexpr inline auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
+  //constexpr inline auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
 
-  constexpr inline auto detJ(const Array &X) const noexcept{return evaluate_jacobian(X).determinant();};
-
+  constexpr inline auto detJ(const NaturalArray &X) const noexcept{return evaluate_jacobian(X).determinant();};
 
   // Constructor
   constexpr LagrangeElement() = default;
@@ -239,7 +224,6 @@ public:
   };
 
 
-
   // Copy and Move Constructors and Assignment Operators
   constexpr LagrangeElement(const LagrangeElement &other) = default;
 
@@ -249,7 +233,26 @@ public:
 
   constexpr LagrangeElement &operator=(LagrangeElement &&other) = default;
   constexpr ~LagrangeElement() = default;
-};
+
+
+  // =================================================================================================
+  // === VTK THINGS ==================================================================================
+  // =================================================================================================
+  //static constexpr auto num_nodes() noexcept { return num_nodes; };
+  static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
+
+  constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering();};
+
+  void set_VTK_node_order() noexcept{
+    for (std::size_t i = 0; i < num_nodes; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i]));
+  };
+
+  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept{ // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
+    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes);
+  };
+
+  // =================================================================================================
+}; // === END OF LagrangeElement Class Definition ====================================================
 
 template <std::size_t... N> using LagrangeElement1D = LagrangeElement<1, N...>;
 template <std::size_t... N> using LagrangeElement2D = LagrangeElement<2, N...>;
@@ -262,33 +265,39 @@ template <std::size_t... N> using LagrangeElement3D = LagrangeElement<3, N...>;
 template <std::size_t... N>
 class GaussLegendreCellIntegrator
 {
-  using Array = std::array<double, sizeof...(N)>;
+  
   using CellQuadrature = GaussLegendre::CellQuadrature<N...>;
-
+  
+  using NaturalArray = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local (natural) coordinates.
+  using LocalCoordView = std::span<const double>;
+  
   static constexpr CellQuadrature integrator_{};
 
 public:
   static constexpr std::size_t num_integration_points = CellQuadrature::num_points;
 
   static constexpr auto reference_integration_point(std::size_t i) noexcept{
-    return integrator_.get_point_coords(i);
+    const auto &p = integrator_.get_point_coords(i);
+    return LocalCoordView{p.data(), p.size()};
   };
 
   static constexpr auto weight(std::size_t i) noexcept {
     return integrator_.get_point_weight(i);
   };
 
-  constexpr decltype(auto) operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<Array> auto &&f) const noexcept{
-    using ReturnType = std::invoke_result_t<decltype(f), Array>;
+  constexpr decltype(auto) operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<LocalCoordView> auto &&f) const noexcept{
+    using ReturnType = std::invoke_result_t<decltype(f), LocalCoordView>;
     
     if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){ // If is EigenType
-      return integrator_([&](const Array &x) -> ReturnType{
-        return (f(x) * element.detJ(x)).eval(); // This temporary has to be created to avoid dangling references!
+      return integrator_([&](const NaturalArray &x) -> ReturnType{
+        const LocalCoordView xv{x.data(), x.size()};
+        return (f(xv) * element.detJ(x)).eval(); // This temporary has to be created to avoid dangling references!
       });
     } 
     else
-    return integrator_([&](const Array &x){  
-        return f(x) * element.detJ(x);
+    return integrator_([&](const NaturalArray &x){  
+        const LocalCoordView xv{x.data(), x.size()};
+        return f(xv) * element.detJ(x);
       });
   };
 
