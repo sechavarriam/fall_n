@@ -276,7 +276,7 @@ namespace interpolation
     constexpr auto operator()(const Array<dim> &X) const noexcept{
       std::floating_point auto value{0.0};
 
-      for (auto i = 0; i < (Ni * ...); ++i)
+      for (std::size_t i = 0; i < (Ni * ...); ++i)
       {
         auto md_index = utils::list_2_md_index<Ni...>(i);
 

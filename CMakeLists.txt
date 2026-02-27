@@ -83,6 +83,28 @@ vtk_module_autoinit(
   MODULES ${VTK_LIBRARIES}
 )
 
+# ==============================================================================
+# ============== Tests ==========================================================
+# ==============================================================================
+
+add_executable(fall_n_tests
+  tests/test_element_geometry.cpp
+)
+
+target_include_directories(fall_n_tests PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_tests PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_tests PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_tests PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_tests PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_tests
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME element_geometry COMMAND fall_n_tests)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================

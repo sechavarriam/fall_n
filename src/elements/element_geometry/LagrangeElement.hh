@@ -265,7 +265,6 @@ template <std::size_t... N> using LagrangeElement3D = LagrangeElement<3, N...>;
 template <std::size_t... N>
 class GaussLegendreCellIntegrator
 {
-  
   using CellQuadrature = GaussLegendre::CellQuadrature<N...>;
   
   using NaturalArray = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local (natural) coordinates.
@@ -289,14 +288,14 @@ public:
     using ReturnType = std::invoke_result_t<decltype(f), LocalCoordView>;
     
     if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){ // If is EigenType
-      return integrator_([&](const NaturalArray &x) -> ReturnType{
-        const LocalCoordView xv{x.data(), x.size()};
+      return integrator_([&](const NaturalArray &x) -> ReturnType{ // This lambda is necessary to create the temporary objects that avoid dangling references when passing the reference of the array to the lambda.
+        const LocalCoordView xv{x.data(), x.size()}; // This temporary has to be created to avoid dangling references when passing the reference of the array to the lambda.
         return (f(xv) * element.detJ(x)).eval(); // This temporary has to be created to avoid dangling references!
       });
     } 
     else
     return integrator_([&](const NaturalArray &x){  
-        const LocalCoordView xv{x.data(), x.size()};
+        const LocalCoordView xv{x.data(), x.size()}; 
         return f(xv) * element.detJ(x);
       });
   };
