@@ -8,11 +8,11 @@
 // include matplot
 #include <matplot/matplot.h>
 
-int main(int argc, char **args)
+int main(int argc [[maybe_unused]], char** args [[maybe_unused]])
 {
         
     static constexpr std::size_t dim  = 3;
-    //static constexpr std::size_t ndof = dim; // 6;
+    //static constexpr std::size_t ndof = dim; // 6...p
     
     Node<dim> N1{0, 0.0, 0.0, 0.0};
     Node<dim> N2{1, 1.0, 0.0, 0.0};
@@ -29,13 +29,20 @@ int main(int argc, char **args)
 
     ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
         
+    //auto Beam = StructuralElement<Material<ContinuumIsotropicElasticMaterial>, dim>{element_geometry};
 /*
-    PetscInitialize(&argc, &args, nullptr, nullptr);
-    { // PETSc Scope starts here
+    PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
 */
-    PetscInitialize(&argc, &args, nullptr, nullptr);
+    
+
+};
+  
+
+
+/*
+PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here
 
         std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
@@ -97,12 +104,8 @@ int main(int argc, char **args)
     });
     surf(X, Y, Z);
     show();
-
-};
-  
-
-
-
+    
+    */
 
 
 

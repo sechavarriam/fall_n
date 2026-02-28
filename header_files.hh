@@ -13,15 +13,14 @@
 #include <tuple>
 #include <utility>
 
-
 #include <charconv>
 #include <string>
 #include <string_view>
 #include <fstream>
 #include <filesystem>
 
-
 #include "src/elements/Node.hh"
+#include "src/elements/Section.hh"
 //#include "src/elements/NodalSection.hh"
 
 #include "src/elements/FEM_Element.hh"
@@ -30,7 +29,6 @@
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"
-#include "src/elements/element_geometry/Section.hh"
 
 #include "src/model/DoF.hh"
 
@@ -85,4 +83,3 @@
 
 #include "src/post-processing/VTK/VTKheaders.hh"
 #include "src/post-processing/VTK/VTKwriter.hh"
-

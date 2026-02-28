@@ -18,55 +18,26 @@
 #include "../../utils/index.hh"
 
 
-// HELPERS
-
-/*
-// utility to avoid serializing function evaluation with comma operator (arguments of a function have no order of evaluation)
-template<class T>
-constexpr void evaluateFoldExpression(std::initializer_list<T>&&)
-{}
-
-// utility to expand integer sequence over a functor
-template<class F, class I, I... i>
-decltype(auto) constexpr unpackIntegerSequence(F&& f, std::integer_sequence<I, i...> sequence)
-{
-    return f(std::integral_constant<I, i>()...);
-}
-
-// utility to evaluate an index sequence at compile time (i.e. unfold a loop with templates)
-template<class I, I... i, class F>
-void forEach(std::integer_sequence<I, i...> sequence, F&& f){
-    unpackIntegerSequence([f](auto... is){
-        evaluateFoldExpression<int>({(f(std::integral_constant<I,i>()), 0)...});
-    }, sequence);
-}
-*/
-
-namespace interpolation
-{
+namespace interpolation{
 
   template <std::size_t nPoints>
-  class LagrangeBasis_1D // constexpr funtor
-  { 
+  class LagrangeBasis_1D{  // constexpr funtor
+  
     
   std::array<double, nPoints> xPoints{};
 
   public:
 
     constexpr std::size_t size() const noexcept { return nPoints; };
-
     constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
 
-    
-    constexpr auto operator[](std::size_t i) const noexcept{ //take the index and return a lambda of x.
-      //return [&, i](std::floating_point auto x){
+    constexpr auto operator[](std::size_t i) const noexcept{
       return [&, i](const double&  x){   
         double L_i = 1.0;
         for (std::size_t j = 0; j < nPoints; ++j){
           (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
                    : L_i *= 1.0;
         }
-        //std::println("shape i = {0}, xPoints[i] = {1}, x = {2}, L_i = {3}", i, xPoints[i], x, L_i);
         return L_i;
       };
     };
@@ -101,7 +72,6 @@ namespace interpolation
     };
 
     consteval LagrangeBasis_1D(const std::array<double, nPoints> &xCoordinates) noexcept : xPoints{xCoordinates} {};
-
     constexpr ~LagrangeBasis_1D() = default;
   };
 
@@ -112,7 +82,7 @@ namespace interpolation
     using Array = std::array<double, nPoints>;
     using Basis = LagrangeBasis_1D<nPoints>;
 
-    Basis L{}; 
+    Basis L      {}; 
     Array fValues{};
 
   public:
@@ -121,18 +91,13 @@ namespace interpolation
       double value{0.0};
       for (std::size_t i = 0; i < nPoints; ++i)
         value += fValues[i] * L[i](x);
-      std::cout << "x= " << x << std::endl;
-      std::cout << "HI! Value = " << value << std::endl;
       return value;
     };
 
     constexpr double derivative(const double x) const noexcept
     {
       double value{0.0};
-      for (std::size_t i = 0; i < nPoints; ++i)
-        value += fValues[i] * std::invoke(L.derivative(i), x);
-      std::cout << "x= " << x << std::endl;
-      std::cout << "Derivative value = " << value << std::endl;
+      for (std::size_t i = 0; i < nPoints; ++i) value += fValues[i] * std::invoke(L.derivative(i), x);
 
       return value;
     };
@@ -151,8 +116,6 @@ namespace interpolation
 // =================================================================================================
 // =================================================================================================
 // =================================================================================================
-
-
 
   template <std::size_t... Ni> 
   class LagrangeBasis_ND{
@@ -193,7 +156,7 @@ namespace interpolation
       }
     };
 
-    constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept{                                                          // $frac{\partial h_i}{\partial x_j}$
+    constexpr auto shape_function_derivative(std::size_t i, std::size_t j) const noexcept{ // $frac{\partial h_i}{\partial x_j}$
       if constexpr (dim == 1){
         return [this, i](const std::ranges::range auto &x) -> double {
           return L.derivative(i)(x[0]);
@@ -337,4 +300,29 @@ namespace interpolation
     });
     surf(X, Y, Z);
     show();
+*/
+
+
+// HELPERS
+
+/*
+// utility to avoid serializing function evaluation with comma operator (arguments of a function have no order of evaluation)
+template<class T>
+constexpr void evaluateFoldExpression(std::initializer_list<T>&&)
+{}
+
+// utility to expand integer sequence over a functor
+template<class F, class I, I... i>
+decltype(auto) constexpr unpackIntegerSequence(F&& f, std::integer_sequence<I, i...> sequence)
+{
+    return f(std::integral_constant<I, i>()...);
+}
+
+// utility to evaluate an index sequence at compile time (i.e. unfold a loop with templates)
+template<class I, I... i, class F>
+void forEach(std::integer_sequence<I, i...> sequence, F&& f){
+    unpackIntegerSequence([f](auto... is){
+        evaluateFoldExpression<int>({(f(std::integral_constant<I,i>()), 0)...});
+    }, sequence);
+}
 */
