@@ -20,34 +20,23 @@
 //    { s.begin().get_strain() };
 //};
 
-// https://stackoverflow.com/questions/64228197/range-concept-for-a-specific-type
-template <typename R, typename V>
-concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
-
-
+//// https://stackoverflow.com/questions/64228197/range-concept-for-a-specific-type
+//template <typename R, typename V>
+//concept RangeOf = std::ranges::range<R> && std::same_as<std::ranges::range_value_t<R>, V>;
 
 template <std::size_t N> requires(N > 0)
 class Strain : public VoigtVector<N> {
     
   public:
-
-    
-    using VectorT = Eigen::Vector<double, N>;
-    
-    //VectorT vector() const noexcept { return VoigtVector<N>::vector(); };
+    using VoigtVector<N>::VoigtVector;  // Inherit constructors from VoigtVector
+    using VoigtVector<N>::num_components;
 
     template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
     constexpr void set_strain(const Eigen::MatrixBase<Derived> &s) { VoigtVector<N>::set_vector(s); };
 
-    
-
     constexpr  Strain() = default;  
     constexpr ~Strain() = default;
 };
-
-
-
-
 
 //=======================================================================================
 // _____           _                               _       _ _ _ 

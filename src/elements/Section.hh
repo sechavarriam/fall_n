@@ -4,8 +4,8 @@
 #include <concepts>
 
 
-#include "../../geometry/Point.hh"
-#include "../Node.hh"
+#include "../geometry/Point.hh"
+#include "Node.hh"
 
 
 //template <typename T>
