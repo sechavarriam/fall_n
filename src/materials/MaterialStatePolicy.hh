@@ -14,12 +14,12 @@ class ElasticState{
     S value;
 
 public:
-    inline constexpr auto current_value()   const noexcept { 
+    inline constexpr const S& current_value() const noexcept {
         //std::cout << "ElasticState::current_value()\n" << value.vector() << std::endl;
-        return  value; 
+        return value;
     }
     
-    inline constexpr auto current_value_p() const noexcept { return &value; }
+    inline constexpr const S* current_value_p() const noexcept { return &value; }
 
     inline void update(const S& s) { value = s; }
 
