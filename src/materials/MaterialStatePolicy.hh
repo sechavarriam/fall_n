@@ -39,8 +39,8 @@ class MemoryState // Dynamic Memory Policy
     ContainerT value;
 
 public:
-    inline constexpr auto current_value() const noexcept { return value.back(); }
-    inline constexpr auto current_value_p() const noexcept { return &value; }
+    inline constexpr const S& current_value() const noexcept { return value.back(); }
+    inline constexpr const S* current_value_p() const noexcept { return value.empty() ? nullptr : &value.back(); }
 
     inline constexpr void update(const S &s) { value.push_back(s); }
 

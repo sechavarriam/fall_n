@@ -34,8 +34,8 @@ private:
     MemoryPolicy<StateVariableT> value;
 
 public:
-    inline auto current_value  () const noexcept {return  value.current_value();}
-    inline auto current_value_p() const noexcept {return &value.current_value();}
+    inline decltype(auto) current_value() const noexcept { return value.current_value(); }
+    inline decltype(auto) current_value_p() const noexcept { return value.current_value_p(); }
     
     inline void update(const StateVariableT &s) {value.update(s);}
 

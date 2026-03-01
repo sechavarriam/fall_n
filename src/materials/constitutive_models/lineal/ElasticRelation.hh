@@ -14,12 +14,11 @@
 #include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
 
-
+// TODO: ElasticRelation<KinematicMeasure, TensionalConjugate>
 template<class MaterialPolicy>
 class ElasticRelation{
 
-    public:
-
+  public:
     using StrainT        = typename MaterialPolicy::StrainT;
     using StressT        = typename MaterialPolicy::StressT;
     
@@ -27,7 +26,7 @@ class ElasticRelation{
     using StateVariableT = typename MaterialStateT::StateVariableT; //Esto es una tupla! o un strain solamente.
                                                                     //En este caso el StateVariableT es un StrainT.
                                                                     //Poner un consteval assert!
-
+    
     using MatrixT = Eigen::Matrix<double, StrainT::num_components, StressT::num_components>;
 
     static constexpr std::size_t dim               = StrainT::dim;
@@ -42,23 +41,16 @@ class ElasticRelation{
 
     MatrixT compliance_matrix = MatrixT::Zero();
 
-    StressT compute_stress(const StrainT& strain){ ///Esto debe ser del relation o del material con el update_strategy?
-        StressT stress;
-        stress.vector = compliance_matrix*strain.vector; // sigma = C*epsilon
+    StressT compute_stress(const StrainT& strain){ 
+        StressT stress;  
+        stress.set_components(compliance_matrix*strain.vector()); // sigma = C*epsilon
         return stress;
     };
 
-    //StressT compute_stress(const StateVariableT& state){
-    //    //StrainT strain;
-    //    //strain.vector = state;
-    //    //return compute_stress(strain);
-    //};
+    void compute_stress(StressT& stress, const StrainT& strain){ ///Esto debe ser del relation o del material con el update_strategy?
+        stress.set_components(compliance_matrix*strain.vector());    // sigma = C*epsilon
+    };
 
-    // TODO:
-    // double potential_energy(const StrainT& strain){
-    //     return 0.5*strain.vector.dot(compliance_matrix*strain.vector);
-    // };
-    
     // =========== CONSTRUCTORS ==========================  
     constexpr ElasticRelation(){};
     constexpr ~ElasticRelation() = default;
@@ -77,8 +69,8 @@ class ElasticRelation<UniaxialMaterial>{
   public:
   using MaterialPolicy = UniaxialMaterial;
   
-  using StrainT = StrainDeprecated<1>;
-  using StressT = StressDeprecated<1>;
+  using StrainT = Strain<1>;
+  using StressT = Stress<1>;
 
   using MaterialStateT = MaterialState<ElasticState,StrainT>;
   using StateVariableT = StrainT;
@@ -94,8 +86,8 @@ private:
 
 public:
 
-    void compute_stress(const StrainDeprecated<1>& strain, StressDeprecated<1>& stress){
-        stress.vector = E_*strain.vector;
+    void compute_stress(const Strain<1>& strain, Stress<1>& stress){
+        stress.set_components(E_ * strain.components()); // sigma = E*epsilon
     };
 
     
@@ -103,7 +95,6 @@ public:
     constexpr inline void update_elasticity(double young_modulus){E_ = young_modulus;};
 
     constexpr ElasticRelation(double young_modulus) : E_{young_modulus}{};
-
 
     // =========== CONSTRUCTORS ==========================
     constexpr  ElasticRelation() = default;

@@ -225,9 +225,11 @@ public:
 
         for (auto &element : elements){
             for (auto &gauss_point : element.material_points()){
-                auto strain = gauss_point.current_state().vector().data();
-                for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++){
-                    strains.push_back(strain[i]);
+                decltype(auto) state  = gauss_point.current_state().components(); // Esto es un span o una referencia a un vector. Ver como optimizar esto para no hacer copias innecesarias.
+                //const auto strain = state.components();
+
+                for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++) {
+                    strains.push_back(state[i]);
                 }
             }
         }
