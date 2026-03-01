@@ -1,45 +1,75 @@
 
 #include "header_files.hh"
 
-
-
 #include "src/geometry/Point.hh"
 
 // include matplot
 #include <matplot/matplot.h>
 
-int main(int argc [[maybe_unused]], char** args [[maybe_unused]])
+int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
 {
-        
-    static constexpr std::size_t dim  = 3;
-    //static constexpr std::size_t ndof = dim; // 6...p
-    
-    Node<dim> N1{0, 0.0, 0.0, 0.0};
-    Node<dim> N2{1, 1.0, 0.0, 0.0};
-    
-    auto element_nodes = std::array{&N1, &N2};
-    
-    LagrangeElement3D<2> lagrangian_geometry(element_nodes);
+    PetscInitialize(&argc, &args, nullptr, nullptr);
+    { // PETSc Scope starts here
 
-    // Assertion to test NodeT concept.
-    static_assert(NodeT<decltype(N1) >, "Node does not satisfy NodeT concept");
-    static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
+        static constexpr std::size_t dim = 3;
+        static constexpr std::size_t ndof = dim; // 6...p
 
-    auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
+        Node<dim> N1{0, 0.0, 0.0, 0.0};
+        Node<dim> N2{1, 1.0, 0.0, 0.0};
 
-    ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
-        
-    //auto Beam = StructuralElement<Material<ContinuumIsotropicElasticMaterial>, dim>{element_geometry};
-/*
-    PetscInitialize(&argc, &args, nullptr, nullptr);{ // PETSc Scope starts here
+        auto element_nodes = std::array{&N1, &N2};
+
+        LagrangeElement3D<2> lagrangian_geometry(element_nodes);
+
+        // Assertion to test NodeT concept.
+        static_assert(NodeT<decltype(N1)>, "Node does not satisfy NodeT concept");
+        static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
+
+        auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
+
+        ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
+
+        // auto Beam = StructuralElement<Material<ContinuumIsotropicElasticMaterial>, dim>{element_geometry};
+
+        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+
+        Domain<dim> D1; // Domain Aggregator Object
+        GmshDomainBuilder domain_constructor(mesh_file, D1);
+
+        auto updateStrategy = []()
+        { std::cout << "TEST: e.g. Linear Update Strategy" << std::endl; };
+
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+
+        VTKDataContainer view1;
+        view1.load_domain(M1.get_domain());
+        view1.load_gauss_points(M1.get_domain());
+
+        auto ContElem0 = M1.elements[0];
+
+        // const int x = 0;
+        double B0 = 0.0; // B1 = 10.0;
+
+        M1.fix_x(B0);
+        M1.setup();
+        M1.apply_node_force(6, 0.0, -1.0, -1.0);
+        // M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+
+        LinearAnalysis analisis_obj1{&M1};
+        analisis_obj1.solve();
+        analisis_obj1.record_solution(view1);
+
+        for (auto &element : M1.elements)
+            element.set_material_point_state(M1);
+
+        M1.record_gauss_strains(view1);
+
+        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/cubito1.vtu");
+        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_cubito1.vtu");
+
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-*/
-    
-
 };
-  
-
 
 /*
 PetscInitialize(&argc, &args, nullptr, nullptr);
@@ -54,9 +84,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
-        
+
         Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-        
+
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
         view1.load_gauss_points(M1.get_domain());
@@ -64,21 +94,21 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         auto ContElem0 = M1.elements[0];
 
         //const int x = 0;
-        double B0 = 0.0; //B1 = 10.0; 
-        
+        double B0 = 0.0; //B1 = 10.0;
+
         M1.fix_x(B0);
         M1.setup();
         M1.apply_node_force(6 , 0.0, -1.0, -1.0);
         //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 
         LinearAnalysis analisis_obj1{&M1};
-        analisis_obj1.solve(); 
+        analisis_obj1.solve();
         analisis_obj1.record_solution(view1);
 
-        for(auto &element : M1.elements) element.set_material_point_state(M1); 
-        
+        for(auto &element : M1.elements) element.set_material_point_state(M1);
+
         M1.record_gauss_strains(view1);
-        
+
         view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
 
@@ -104,13 +134,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
     });
     surf(X, Y, Z);
     show();
-    
+
     */
-
-
-
-
-
 
 // PRUEBA CONSTRUCTOR GMSH y Analisis Lineal
 /*
@@ -126,9 +151,9 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
-        
+
         Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-        
+
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
         view1.load_gauss_points(M1.get_domain());
@@ -136,21 +161,21 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         auto ContElem0 = M1.elements[0];
 
         //const int x = 0;
-        double B0 = 0.0; //B1 = 10.0; 
-        
+        double B0 = 0.0; //B1 = 10.0;
+
         M1.fix_x(B0);
         M1.setup();
         M1.apply_node_force(6 , 0.0, -1.0, -1.0);
         //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 
         LinearAnalysis analisis_obj1{&M1};
-        analisis_obj1.solve(); 
+        analisis_obj1.solve();
         analisis_obj1.record_solution(view1);
 
-        for(auto &element : M1.elements) element.set_material_point_state(M1); 
-        
+        for(auto &element : M1.elements) element.set_material_point_state(M1);
+
         M1.record_gauss_strains(view1);
-        
+
         view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
         view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
 
@@ -159,9 +184,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
 */
 
-
 // =================================================================================================
-/*     
+/*
         Domain<dim> D2; // Domain Aggregator Object (Second Domain)
 
         double H0 = 0.0, H1 = 4.0;
@@ -185,8 +209,8 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
         D2.assemble_sieve();
 
-        Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};        
-        
+        Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+
         VTKDataContainer view2;
         view2.load_domain(      M2.get_domain());
         view2.load_gauss_points(M2.get_domain());Domain<dim> D2; // Domain Aggregator Object (Second Domain)
@@ -212,7 +236,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
 
         // Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
-        Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);        
+        Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
         //auto s1 = mat1D.get_state();
         auto s2 = mat3D.get_state();
 

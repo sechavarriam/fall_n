@@ -1,0 +1,77 @@
+==218760== Memcheck, a memory error detector
+==218760== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==218760== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==218760== Command: ./build/fall_n_tests
+==218760== Parent PID: 98003
+==218760== 
+==218760== 
+==218760== Process terminating with default action of signal 6 (SIGABRT)
+==218760==    at 0xC659B2C: __pthread_kill_implementation (pthread_kill.c:44)
+==218760==    by 0xC659B2C: __pthread_kill_internal (pthread_kill.c:78)
+==218760==    by 0xC659B2C: pthread_kill@@GLIBC_2.34 (pthread_kill.c:89)
+==218760==    by 0xC60027D: raise (raise.c:26)
+==218760==    by 0xC5E38FE: abort (abort.c:79)
+==218760==    by 0xC5E381A: __assert_fail_base.cold (assert.c:96)
+==218760==    by 0xC5F6516: __assert_fail (assert.c:105)
+==218760==    by 0x10ED0E: (anonymous namespace)::test_integrate_span_full_dim_2d_constant() (tests/test_element_geometry.cpp:55)
+==218760==    by 0x10E748: main (tests/test_element_geometry.cpp:96)
+==218760== 
+==218760== HEAP SUMMARY:
+==218760==     in use at exit: 226,210 bytes in 1,047 blocks
+==218760==   total heap usage: 1,284 allocs, 237 frees, 291,597 bytes allocated
+==218760== 
+==218760== 80 bytes in 1 blocks are possibly lost in loss record 720 of 950
+==218760==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==218760==    by 0xDDD10BE: ??? (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xDDD17F3: __glDispatchInit (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xCBFF7AE: ??? (in /usr/lib/x86_64-linux-gnu/libGLX.so.0.0.0)
+==218760==    by 0x400571E: call_init.part.0 (dl-init.c:74)
+==218760==    by 0x4005823: call_init (dl-init.c:120)
+==218760==    by 0x4005823: _dl_init (dl-init.c:121)
+==218760==    by 0x401F59F: ??? (in /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)
+==218760== 
+==218760== 80 bytes in 1 blocks are possibly lost in loss record 721 of 950
+==218760==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==218760==    by 0xDDD10BE: ??? (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xDDD1A1F: __glDispatchRegisterStubCallbacks (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xDB2C228: ??? (in /usr/lib/x86_64-linux-gnu/libGL.so.1.7.0)
+==218760==    by 0x400571E: call_init.part.0 (dl-init.c:74)
+==218760==    by 0x4005823: call_init (dl-init.c:120)
+==218760==    by 0x4005823: _dl_init (dl-init.c:121)
+==218760==    by 0x401F59F: ??? (in /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)
+==218760== 
+==218760== 80 bytes in 1 blocks are possibly lost in loss record 722 of 950
+==218760==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==218760==    by 0xDDD10BE: ??? (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xDDD1A1F: __glDispatchRegisterStubCallbacks (in /usr/lib/x86_64-linux-gnu/libGLdispatch.so.0.0.0)
+==218760==    by 0xCB96208: ??? (in /usr/lib/x86_64-linux-gnu/libOpenGL.so.0.0.0)
+==218760==    by 0x400571E: call_init.part.0 (dl-init.c:74)
+==218760==    by 0x4005823: call_init (dl-init.c:120)
+==218760==    by 0x4005823: _dl_init (dl-init.c:121)
+==218760==    by 0x401F59F: ??? (in /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)
+==218760== 
+==218760== 4,224 bytes in 11 blocks are possibly lost in loss record 948 of 950
+==218760==    at 0x484D953: calloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==218760==    by 0x40145AB: calloc (rtld-malloc.h:44)
+==218760==    by 0x40145AB: allocate_dtv (dl-tls.c:370)
+==218760==    by 0x40145AB: _dl_allocate_tls (dl-tls.c:629)
+==218760==    by 0xC658616: allocate_stack (allocatestack.c:429)
+==218760==    by 0xC658616: pthread_create@@GLIBC_2.34 (pthread_create.c:655)
+==218760==    by 0xE224EFC: blas_thread_init (in /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.26.so)
+==218760==    by 0xDFD00C1: gotoblas_init (in /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.26.so)
+==218760==    by 0x400571E: call_init.part.0 (dl-init.c:74)
+==218760==    by 0x4005823: call_init (dl-init.c:120)
+==218760==    by 0x4005823: _dl_init (dl-init.c:121)
+==218760==    by 0x401F59F: ??? (in /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)
+==218760== 
+==218760== LEAK SUMMARY:
+==218760==    definitely lost: 0 bytes in 0 blocks
+==218760==    indirectly lost: 0 bytes in 0 blocks
+==218760==      possibly lost: 4,464 bytes in 14 blocks
+==218760==    still reachable: 221,746 bytes in 1,033 blocks
+==218760==         suppressed: 0 bytes in 0 blocks
+==218760== Reachable blocks (those to which a pointer was found) are not shown.
+==218760== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==218760== 
+==218760== For lists of detected and suppressed errors, rerun with: -s
+==218760== ERROR SUMMARY: 4 errors from 4 contexts (suppressed: 0 from 0)

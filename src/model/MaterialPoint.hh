@@ -9,11 +9,9 @@
 
 template<class MaterialPolicy> 
 class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
-
         static constexpr std::size_t counter{0};
 
     private:
-
         using MaterialT      = Material<MaterialPolicy>;
         using StateVariableT = MaterialPolicy::StateVariableT;
         using StressT        = MaterialPolicy::StressT;

@@ -10,11 +10,11 @@
 template <typename MaterialPolicy, std::size_t ndof>
 class StructuralElement
 {
-    using ElementGeometry = ElementGeometry<MaterialPolicy::dim>;
+    using ElementGeometryT = ::ElementGeometry<MaterialPolicy::dim>;
     using NodeSection     = NodeSection<Node<MaterialPolicy::dim>>;
     // degenerated geometry
 
-    ElementGeometry* geometry_ ; //ya incluye los nodos y la estrategia de integracion )
+    ElementGeometryT* geometry_ ; //ya incluye los nodos y la estrategia de integracion )
     std::vector<NodeSection> node_sections_; // This is the section of the element, it contains the nodes and the dof information. It can be used to define the boundary conditions and the loads.
     
 
@@ -28,7 +28,7 @@ class StructuralElement
 
     StructuralElement() = delete; 
 
-    StructuralElement(ElementGeometry* degenerated_geometry) : geometry_{degenerated_geometry} 
+    StructuralElement(ElementGeometryT* degenerated_geometry) : geometry_{degenerated_geometry} 
     {
         for (std::size_t i = 0; i < geometry_->num_nodes(); ++i){
             node_sections_.emplace_back(NodeSection(&geometry_->node_p(i)));
