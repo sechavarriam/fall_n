@@ -11,18 +11,17 @@
 // template<typename T> // Concept? CRTP? Policy?
 class NLAnalysis
 {
-    Model<ThreeDimensionalMaterial, 3> *model_;
+    Model<ThreeDimensionalMaterial, 3> *model_{nullptr};
 
-    Vec U, RHS, R; // Global solution vector and Residual.
-    Mat J;         // Jacobian matrix.
+    Vec U{nullptr}, RHS{nullptr}, R{nullptr}; // Global solution vector and Residual.
+    Mat J{nullptr};         // Jacobian matrix.
 
-    Vec u, f; // Local vectors.
+    Vec u{nullptr}, f{nullptr}; // Local vectors.
 
-    SNES solver_;
+    SNES solver_{nullptr};
 
     void setup_solver()
     {
-        SNESCreate(PETSC_COMM_WORLD, &solver_);
         SNESSetFromOptions(solver_);
         SNESSetDM(solver_, model_->get_plex());
     }
@@ -108,6 +107,8 @@ public:
     {
         SNESDestroy(&solver_);
         VecDestroy(&U);
+        VecDestroy(&RHS);
+        VecDestroy(&R);
         VecDestroy(&u);
         VecDestroy(&f);
         MatDestroy(&J);

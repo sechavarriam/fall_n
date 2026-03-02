@@ -30,7 +30,7 @@ class VoigtVector{
     // Accessors are only valid on lvalues. This prevents dangling references
     // when called on temporaries (e.g. current_state() returning by value).
     Eigen::Ref<const VectorT> components() const & { return components_; }
-    //Eigen::Ref<const VectorT> components() const && = delete;
+    Eigen::Ref<const VectorT> components() const && = delete;
 
     const double* data() const & { return components_.data(); }
     const double* data() const && = delete;

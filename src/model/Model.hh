@@ -44,7 +44,7 @@ public:
 private:
     Domain<dim>*      domain_;
     ConstraintDofInfo constraints_; 
-    PetscSection      dof_section; 
+    PetscSection      dof_section{nullptr}; 
 public:
 
     bool is_bc_updated{false}; // Flag to check if the model has been updated (global-local sixes changed).
@@ -52,12 +52,12 @@ public:
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
     std::vector<FEM_Element> elements;
     
-    Vec nodal_forces; 
-    Vec global_imposed_solution; // Global Displacement Vector (coordinate sense and parallel sense)
+    Vec nodal_forces{nullptr}; 
+    Vec global_imposed_solution{nullptr}; // Global Displacement Vector (coordinate sense and parallel sense)
 
-    Vec current_state;           // Current state of the system (Displacements, velocities, accelerations, etc.)
+    Vec current_state{nullptr};  // Current state of the system (Displacements, velocities, accelerations, etc.)
 
-    Mat Kt; // Global Stiffness Matrix
+    Mat Kt{nullptr}; // Global Stiffness Matrix
 
     auto& get_domain(){return *domain_;};
     auto  get_plex()  {return domain_->mesh.dm;};
@@ -225,11 +225,11 @@ public:
 
         for (auto &element : elements){
             for (auto &gauss_point : element.material_points()){
-                decltype(auto) state  = gauss_point.current_state().components(); // Esto es un span o una referencia a un vector. Ver como optimizar esto para no hacer copias innecesarias.
-                //const auto strain = state.components();
+                const auto &state = gauss_point.current_state();
+                const auto  strain = state.components();
 
                 for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++) {
-                    strains.push_back(state[i]);
+                    strains.push_back(strain[i]);
                 }
             }
         }
@@ -258,9 +258,11 @@ public:
 
     Model() = delete;
     ~Model() {
+        MatDestroy(&Kt);
+        VecDestroy(&current_state);
         VecDestroy(&nodal_forces);
         VecDestroy(&global_imposed_solution);
-        //PetscSectionDestroy(&dof_section);
+        PetscSectionDestroy(&dof_section);
     }
 
 };

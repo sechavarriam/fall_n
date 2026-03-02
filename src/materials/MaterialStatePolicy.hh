@@ -22,6 +22,7 @@ public:
     inline constexpr const S* current_value_p() const noexcept { return &value; }
 
     inline void update(const S& s) { value = s; }
+    inline void update(S&& s) { value = std::forward<S>(s); }
 
     // Copy and Move constructors  
     constexpr ElasticState(const ElasticState &s) : value{s.value} {}
@@ -43,6 +44,7 @@ public:
     inline constexpr const S* current_value_p() const noexcept { return value.empty() ? nullptr : &value.back(); }
 
     inline constexpr void update(const S &s) { value.push_back(s); }
+    inline constexpr void update(S &&s) { value.emplace_back(std::forward<S>(s)); }
 
     // Copy and Move constructors
     constexpr MemoryState(const MemoryState &s) : value{s.value} {}
