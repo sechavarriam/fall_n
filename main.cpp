@@ -6,32 +6,32 @@
 // include matplot
 #include <matplot/matplot.h>
 
-//int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
+// int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
 int main(int argc, char **args)
 {
+
+    static constexpr std::size_t dim = 3;
+    static constexpr std::size_t ndof = dim; // 6...p
+
+    Node<dim> N1{0, 0.0, 0.0, 0.0};
+    Node<dim> N2{1, 1.0, 0.0, 0.0};
+
+    auto element_nodes = std::array{&N1, &N2};
+
+    LagrangeElement3D<2> lagrangian_geometry(element_nodes);
+
+    // Assertion to test NodeT concept.
+    static_assert(NodeT<decltype(N1)> , "Node does not satisfy NodeT  concept");
+    static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
+
+    auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
+
+    ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
+
+
+
     PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here
-
-        static constexpr std::size_t dim = 3;
-        static constexpr std::size_t ndof = dim; // 6...p
-
-        Node<dim> N1{0, 0.0, 0.0, 0.0};
-        Node<dim> N2{1, 1.0, 0.0, 0.0};
-
-        auto element_nodes = std::array{&N1, &N2};
-
-        LagrangeElement3D<2> lagrangian_geometry(element_nodes);
-
-        // Assertion to test NodeT concept.
-        static_assert(NodeT<decltype(N1)>, "Node does not satisfy NodeT concept");
-        static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
-
-        auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
-
-        ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
-
-        // auto Beam = StructuralElement<Material<ContinuumIsotropicElasticMaterial>, dim>{element_geometry};
-
         std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
         Domain<dim> D1; // Domain Aggregator Object
@@ -71,6 +71,37 @@ int main(int argc, char **args)
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
 PetscInitialize(&argc, &args, nullptr, nullptr);
@@ -135,7 +166,6 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
     });
     surf(X, Y, Z);
     show();
-
     */
 
 // PRUEBA CONSTRUCTOR GMSH y Analisis Lineal

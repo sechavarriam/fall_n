@@ -14,13 +14,10 @@ class StructuralElement
     using NodeSectionT     = NodeSection<Node<MaterialPolicy::dim>>;
     // degenerated geometry
 
-    ElementGeometryT* geometry_ ; //ya incluye los nodos y la estrategia de integracion )
+    ElementGeometryT*         geometry_ ; //ya incluye los nodos y la estrategia de integracion )
     std::vector<NodeSectionT> node_sections_; // This is the section of the element, it contains the nodes and the dof information. It can be used to define the boundary conditions and the loads.
     
-
-
-
-    public :
+  public :
 
 
 
