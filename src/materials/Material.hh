@@ -34,8 +34,8 @@ namespace impl{
       virtual constexpr std::unique_ptr<MaterialConcept> clone() const = 0; // The Prototype design pattern
 
    public:
-      virtual constexpr MatrixT        C()         const = 0; //The Compliance DeprecatedDenseMatrix 
-      virtual constexpr StateVariableT current_state() const = 0; //The current Value of the State Variable (or the head?)
+      virtual constexpr MatrixT               C()             const = 0; //The Compliance DeprecatedDenseMatrix 
+      virtual constexpr const StateVariableT& current_state() const = 0; //The current Value of the State Variable (or the head?)
 
       virtual constexpr void update_state(const StateVariableT& state) = 0;
       virtual constexpr void update_state(StateVariableT&& state) = 0;
@@ -58,8 +58,8 @@ namespace impl{
 
    public:
  
-      MatrixT        C()             const override {return material_.C()        ;}; //The Compliance DeprecatedDenseMatrix
-      StateVariableT current_state() const override {return material_.current_state();}; //CurrentValue
+      MatrixT               C()             const override {return material_.C()        ;}; //The Compliance DeprecatedDenseMatrix
+      const StateVariableT& current_state() const override {return material_.current_state();}; //CurrentValue
 
       void update_state(const StateVariableT& state) override {material_.update_state(state);};
       void update_state(StateVariableT&& state) override {material_.update_state(std::forward<StateVariableT>(state));};
@@ -88,7 +88,7 @@ public:
 
    Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() const {return pimpl_->C();}; //The Compliance DeprecatedDenseMatrix
 
-   StateVariableT current_state() const {return pimpl_->current_state();};
+   const StateVariableT& current_state() const {return pimpl_->current_state();};
    
    void update_state(const StateVariableT& state) {pimpl_->update_state(state);};
    void update_state(StateVariableT&& state) {pimpl_->update_state(std::forward<StateVariableT>(state));};

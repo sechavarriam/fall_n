@@ -38,6 +38,7 @@ public:
     inline decltype(auto) current_value_p() const noexcept { return value.current_value_p(); }
     
     inline void update(const StateVariableT &s) {value.update(s);}
+    inline void update(StateVariableT &&s) {value.update(std::forward<StateVariableT>(s));}
 
     // Copy and Move constructors
     MaterialState(const MaterialState &s)     : value{s.value} {}

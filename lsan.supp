@@ -1,0 +1,21 @@
+# OpenMPI / ORTE / OPAL / hwloc / libevent runtime allocations
+# that appear as leaks under ASan/LSan when initialized via PetscInitialize.
+
+leak:ompi_mpi_init
+leak:ompi_op_init
+leak:ompi_op_base_op_select
+leak:MPI_Init_thread
+leak:orte_init
+leak:mca_base_framework_components_open
+leak:hwloc_topology_load
+leak:hwloc_topology_reconnect
+leak:libhwloc.so
+leak:libopen-rte.so
+leak:libopen-pal.so
+leak:libmpi.so
+leak:libevent_core
+
+# Residual runtime/plugin allocations sometimes only symbolized as strdup/unknown.
+# Keep these last because they are broader and may hide tiny real leaks involving strdup.
+leak:__interceptor_strdup
+leak:strdup

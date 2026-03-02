@@ -33,7 +33,7 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         void update_state(StateVariableT&& state) noexcept {material_.update_state(std::forward<StateVariableT>(state));};
         //void update_state(StateVariableT state) noexcept {material_.update_state(state);};
         
-        auto current_state()const noexcept {return material_.current_state();};
+        decltype(auto) current_state() const noexcept { return material_.current_state(); };
 
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;

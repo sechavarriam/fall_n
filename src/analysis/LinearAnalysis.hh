@@ -13,14 +13,14 @@ class LinearAnalysis
 {
     using ModelT = Model<ThreeDimensionalMaterial, 3>;
     
-    ModelT *model_; // Pointer to a model base?
+    ModelT *model_{nullptr}; // Pointer to a model base?
 
-    KSP solver_;
+    KSP solver_{nullptr};
 
 public:
 
-    Mat K;    // Global stiffness matrix
-    Vec U, F; // Global solution vector and RHS.
+    Mat K{nullptr};    // Global stiffness matrix
+    Vec U{nullptr}, F{nullptr}; // Global solution vector and RHS.
 
     auto get_model() const { return model_; }
 
@@ -91,6 +91,9 @@ public:
     LinearAnalysis() = default;
 
     ~LinearAnalysis(){
+        MatDestroy(&K);
+        VecDestroy(&U);
+        VecDestroy(&F);
         KSPDestroy(&solver_);
     }
 };

@@ -1,0 +1,16 @@
+# Strict profile: suppress only known MPI/OpenMPI/hwloc/libevent runtime leak noise.
+# Intentionally does NOT suppress strdup to avoid masking potential user-code leaks.
+
+leak:ompi_mpi_init
+leak:ompi_op_init
+leak:ompi_op_base_op_select
+leak:MPI_Init_thread
+leak:orte_init
+leak:mca_base_framework_components_open
+leak:hwloc_topology_load
+leak:hwloc_topology_reconnect
+leak:libhwloc.so
+leak:libopen-rte.so
+leak:libopen-pal.so
+leak:libmpi.so
+leak:libevent_core
