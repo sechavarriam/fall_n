@@ -35,7 +35,7 @@ public:
 
     // --- State access ---------------------------------------------------------
 
-    constexpr MatrixT C() const { return constitutive_law_->compliance_matrix; }
+    constexpr MatrixT C() const { return constitutive_law_->tangent(); }
 
     constexpr const StateVariableT& current_state() const { return state_.current_value(); }
 
@@ -45,11 +45,7 @@ public:
     // --- Stress computation ---------------------------------------------------
 
     constexpr StressT compute_stress(const StrainT& strain) const {
-        return constitutive_law_->compute_stress(strain);
-    }
-
-    StressT compute_stress(const MaterialStateT& state) const {
-        return constitutive_law_->compute_stress(state);
+        return constitutive_law_->compute_response(strain);
     }
 
     // --- Elasticity update ----------------------------------------------------

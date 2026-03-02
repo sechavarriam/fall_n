@@ -1,68 +1,98 @@
 
-#ifndef FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
-#define FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
-
+#ifndef FALL_N_CONSTITUTIVE_ISOTROPIC_LINEAL_RELATION
+#define FALL_N_CONSTITUTIVE_ISOTROPIC_LINEAL_RELATION
 
 #include "ElasticRelation.hh"
 
+// =============================================================================
+//  ContinuumIsotropicRelation — 3D isotropic linear-elastic relation
+// =============================================================================
+//
+//  Derives from ElasticRelation<ThreeDimensionalMaterial> and populates the
+//  tangent (compliance) matrix using two parameters: E (Young's modulus) and
+//  ν (Poisson's ratio).
+//
+//  Inherits full ConstitutiveRelation / ElasticConstitutiveRelation conformance
+//  from the base class. The only responsibility here is parameter management.
+//
+// -----------------------------------------------------------------------------
+
 class ContinuumIsotropicRelation : public ElasticRelation<ThreeDimensionalMaterial> {
 
-  public:
-  
+public:
     using MaterialPolicy = ThreeDimensionalMaterial;
 
-    using MaterialStateT = typename ElasticRelation<ThreeDimensionalMaterial>::MaterialStateT;
-    using StateVariableT = typename MaterialStateT::StateVariableT;
+    // Inherit concept-conforming aliases from base
+    using Base = ElasticRelation<ThreeDimensionalMaterial>;
+    using Base::KinematicT;
+    using Base::ConjugateT;
+    using Base::TangentT;
 
-    using StrainT        = typename ElasticRelation<ThreeDimensionalMaterial>::StrainT;
-    using StressT        = typename ElasticRelation<ThreeDimensionalMaterial>::StressT;
+    using MaterialStateT = Base::MaterialStateT;
+    using StateVariableT = Base::StateVariableT;
+    using StrainT        = Base::StrainT;
+    using StressT        = Base::StressT;
 
-    using ConstitutiveModel = ElasticRelation<ThreeDimensionalMaterial>;
-    using ConstitutiveModel::compliance_matrix;
+private:
+    double E_{0.0};
+    double v_{0.0};
 
-    // https://stackoverflow.com/questions/9864125/c11-how-to-alias-a-function
-    double E{0.0};
-    double v{0.0};
+public:
+    // --- Elastic parameter accessors -----------------------------------------
 
-    constexpr inline void set_E(double E_){E = E_;};
-    constexpr inline void set_v(double v_){v = v_;};
-    
+    constexpr void set_E(double E) { E_ = E; }
+    constexpr void set_v(double v) { v_ = v; }
 
-    constexpr inline double c11 () const{return E*(1-v)/((1.0+v)*(1.0-2.0*v));}
-    constexpr inline double c12 () const{return E*   v /((1.0+v)*(1.0-2.0*v));}
-    
-    constexpr inline double G()      const{return E/(2.0*(1.0+v));};             //Shear Modulus
-    constexpr inline double k()      const{return E/(3.0*(1.0-2.0*v));};         //Bulk Modulus
-    constexpr inline double lambda() const{return E*v/((1.0+v)*(1.0-2.0*v));};   //Lamé's first parameter
-    constexpr inline double mu()     const{return E/(2.0*(1.0+v));};             //Lamé's second parameter
+    constexpr double young_modulus()  const { return E_; }
+    constexpr double poisson_ratio()  const { return v_; }
 
+    constexpr double c11()    const { return E_ * (1.0 - v_) / ((1.0 + v_) * (1.0 - 2.0 * v_)); }
+    constexpr double c12()    const { return E_ * v_         / ((1.0 + v_) * (1.0 - 2.0 * v_)); }
+    constexpr double G()      const { return E_ / (2.0 * (1.0 + v_)); }
+    constexpr double k()      const { return E_ / (3.0 * (1.0 - 2.0 * v_)); }
+    constexpr double lambda() const { return E_ * v_ / ((1.0 + v_) * (1.0 - 2.0 * v_)); }
+    constexpr double mu()     const { return E_ / (2.0 * (1.0 + v_)); }
 
-    constexpr void update_elasticity(){
-      this->compliance_matrix(0,0) = c11();            
-      this->compliance_matrix(1,1) = c11();           
-      this->compliance_matrix(2,2) = c11();           
-      this->compliance_matrix(3,3) = (c11()-c12())/2;   
-      this->compliance_matrix(4,4) = (c11()-c12())/2;   
-      this->compliance_matrix(5,5) = (c11()-c12())/2;   
-      this->compliance_matrix(0,1) = c12();          
-      this->compliance_matrix(0,2) = c12();          
-      this->compliance_matrix(1,0) = c12();          
-      this->compliance_matrix(1,2) = c12();          
-      this->compliance_matrix(2,0) = c12();          
-      this->compliance_matrix(2,1) = c12();          
+    // --- Build the tangent matrix from E, ν ----------------------------------
+
+    constexpr void update_elasticity() {
+        compliance_matrix_(0, 0) = c11();
+        compliance_matrix_(1, 1) = c11();
+        compliance_matrix_(2, 2) = c11();
+        compliance_matrix_(3, 3) = (c11() - c12()) / 2.0;
+        compliance_matrix_(4, 4) = (c11() - c12()) / 2.0;
+        compliance_matrix_(5, 5) = (c11() - c12()) / 2.0;
+        compliance_matrix_(0, 1) = c12();
+        compliance_matrix_(0, 2) = c12();
+        compliance_matrix_(1, 0) = c12();
+        compliance_matrix_(1, 2) = c12();
+        compliance_matrix_(2, 0) = c12();
+        compliance_matrix_(2, 1) = c12();
     }
 
-    constexpr void update_elasticity(double young_modulus, double poisson_ratio){
-        E = young_modulus;
-        v = poisson_ratio;
+    constexpr void update_elasticity(double young_modulus, double poisson_ratio) {
+        E_ = young_modulus;
+        v_ = poisson_ratio;
         update_elasticity();
-    };
+    }
 
-    constexpr ContinuumIsotropicRelation(double young_modulus, double poisson_ratio) : E{young_modulus}, v{poisson_ratio}{
+    // --- Testing -------------------------------------------------------------
+
+    void print_constitutive_parameters() const {
+        std::cout << "E = " << E_ << ", ν = " << v_ << std::endl;
+    }
+
+    // --- Constructors --------------------------------------------------------
+
+    constexpr ContinuumIsotropicRelation(double young_modulus, double poisson_ratio)
+        : E_{young_modulus}, v_{poisson_ratio}
+    {
         update_elasticity();
-    };
+    }
+
+    constexpr ContinuumIsotropicRelation() = default;
 };
 
-typedef ElasticRelation<UniaxialMaterial> UniaxialIsotropicRelation;
+using UniaxialIsotropicRelation = ElasticRelation<UniaxialMaterial>;
 
-#endif // FALL_N_CONSTUTUTIVE_ISOTROPIC_LINEAL_RELATION
+#endif // FALL_N_CONSTITUTIVE_ISOTROPIC_LINEAL_RELATION
