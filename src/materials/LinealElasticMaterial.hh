@@ -1,7 +1,6 @@
 #ifndef FALL_LINEAL_MATERIAL_ABSTRACTION_HH
 #define FALL_LINEAL_MATERIAL_ABSTRACTION_HH
 
-
 #include <memory>
 
 #include "constitutive_models/lineal/ElasticRelation.hh"
@@ -10,10 +9,10 @@
 #include "MaterialState.hh"
 
 
-template<class ConstitutiveRelation>
-class IsotropicElasticMaterial{
+template <class ConstitutiveRelation>
+class IsotropicElasticMaterial {
 
-  public:  
+public:
     using MaterialPolicy = typename ConstitutiveRelation::MaterialPolicy;
     using StrainT        = typename ConstitutiveRelation::StrainT;
     using StressT        = typename ConstitutiveRelation::StressT;
@@ -24,51 +23,59 @@ class IsotropicElasticMaterial{
     static constexpr std::size_t dim         = StrainT::dim;
     static constexpr std::size_t num_strains = StrainT::num_components;
 
-  private:
-    
-    MaterialStateT   state_ ; // Strain
-    StressT          stress_; // Default initalized in zeros.
+private:
+    MaterialStateT state_{};
 
+    // shared_ptr: multiple material instances can share the same constitutive
+    // parameters (e.g. all integration points of the same material zone).
+    // Copies of this class intentionally share the relation — this is by design.
     std::shared_ptr<ConstitutiveRelation> constitutive_law_;
 
-  public:
+public:
 
-    inline constexpr MatrixT C() const {return constitutive_law_->compliance_matrix;}
-    
-    inline constexpr const StateVariableT& current_state() const {return state_.current_value();};
-    //inline constexpr StateVariableT current_state_p() const {return state_.current_value_p();};
+    // --- State access ---------------------------------------------------------
 
-    //inline constexpr void update_state(const StrainT& e) {state_.update(e);};
-    inline constexpr void update_state(const StateVariableT& e) {state_.update(e);};
-    inline constexpr void update_state(StateVariableT&& e) {state_.update(std::forward<StateVariableT>(e));};
+    constexpr MatrixT C() const { return constitutive_law_->compliance_matrix; }
 
-    inline constexpr StressT compute_stress(const StrainT& strain) const{
+    constexpr const StateVariableT& current_state() const { return state_.current_value(); }
+
+    constexpr void update_state(const StateVariableT& e) { state_.update(e); }
+    constexpr void update_state(StateVariableT&& e)      { state_.update(std::move(e)); }
+
+    // --- Stress computation ---------------------------------------------------
+
+    constexpr StressT compute_stress(const StrainT& strain) const {
         return constitutive_law_->compute_stress(strain);
-    };
+    }
 
-    inline StressT compute_stress(const MaterialStateT& state) const{
+    StressT compute_stress(const MaterialStateT& state) const {
         return constitutive_law_->compute_stress(state);
-    };
+    }
 
-    template<typename... Args>  
-    auto set_elasticity(Args... args){
+    // --- Elasticity update ----------------------------------------------------
+
+    template <typename... Args>
+    void set_elasticity(Args&&... args) {
         constitutive_law_->update_elasticity(std::forward<Args>(args)...);
     }
 
-    // ========== CONSTRUCTORS =================================
+    // --- Constructors ---------------------------------------------------------
 
-    template<std::floating_point... Args>
-    explicit IsotropicElasticMaterial(Args... args) :
-        constitutive_law_{std::make_shared<ConstitutiveRelation>(std::forward<Args>(args)...)}
-        {}
+    template <std::floating_point... Args>
+    explicit IsotropicElasticMaterial(Args... args)
+        : constitutive_law_{std::make_shared<ConstitutiveRelation>(args...)}
+    {}
 
     ~IsotropicElasticMaterial() = default;
 
-    // ========== TESTING FUNCTIONS ============================
-    void print_material_parameters() const{constitutive_law_->print_constitutive_parameters();};
+    // --- Testing --------------------------------------------------------------
+
+    void print_material_parameters() const {
+        constitutive_law_->print_constitutive_parameters();
+    }
 };
 
-typedef IsotropicElasticMaterial<ContinuumIsotropicRelation> ContinuumIsotropicElasticMaterial;
-typedef IsotropicElasticMaterial<UniaxialIsotropicRelation > UniaxialIsotropicElasticMaterial;
+using ContinuumIsotropicElasticMaterial = IsotropicElasticMaterial<ContinuumIsotropicRelation>;
+using UniaxialIsotropicElasticMaterial  = IsotropicElasticMaterial<UniaxialIsotropicRelation>;
 
 #endif // FALL_LINEAL_MATERIAL_ABSTRACTION_HH

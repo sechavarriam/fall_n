@@ -1,58 +1,49 @@
-#ifndef MATERIAL_STATE_POLICYS_HH
-#define MATERIAL_STATE_POLICYS_HH
+#ifndef MATERIAL_STATE_HH
+#define MATERIAL_STATE_HH
 
-#include <concepts>
-#include <array>
-#include <vector>
-#include <span>
-#include <ranges>
 #include <cstddef>
-#include <memory>
-
-#include "MaterialStatePolicy.hh"
-
 #include <tuple>
 #include <type_traits>
 
-template <template <typename> class MemoryPolicy, typename... StateVariableTypes> // TODO: Constrain with MemoryPolicy concept. 
-class MaterialState{
-    
-    static consteval bool is_multivariable(){return sizeof...(StateVariableTypes) > 1;};
+#include "MaterialStatePolicy.hh"
 
-    static consteval auto multivariable_type(){
-        if constexpr (is_multivariable())
-            return std::tuple<StateVariableTypes...>{}; 
-        else
-            return std::get<0>(std::tuple<StateVariableTypes...>{}); //Trick: The pack has to be expanded...            
-    };
-    
+
+template <template <typename> class MemoryPolicy, typename... StateVariableTypes>
+requires (sizeof...(StateVariableTypes) >= 1)
+class MaterialState {
+private:
+    using TupleT  = std::tuple<StateVariableTypes...>;
+    using SingleT = std::tuple_element_t<0, TupleT>;
+
 public:
+    using StateVariableT =
+           std::conditional_t<sizeof...(StateVariableTypes) == 1, SingleT, TupleT>;
 
-    using StateVariableT = std::invoke_result_t<decltype(&MaterialState::multivariable_type)>;
+    // Verify that the chosen MemoryPolicy satisfies the concept for StateVariableT
+    static_assert(MemoryPolicyFor<MemoryPolicy, StateVariableT>,
+                  "MemoryPolicy does not satisfy MemoryPolicyFor<StateVariableT>");
 
 private:
-    MemoryPolicy<StateVariableT> value;
+    MemoryPolicy<StateVariableT> value_;
 
 public:
-    inline decltype(auto) current_value() const noexcept { return value.current_value(); }
-    inline decltype(auto) current_value_p() const noexcept { return value.current_value_p(); }
-    
-    inline void update(const StateVariableT &s) {value.update(s);}
-    inline void update(StateVariableT &&s) {value.update(std::forward<StateVariableT>(s));}
+    constexpr const StateVariableT& current_value() const noexcept { return value_.current_value(); }
+    constexpr const StateVariableT* current_value_p() const noexcept { return value_.current_value_p(); }
 
-    // Copy and Move constructors
-    MaterialState(const MaterialState &s)     : value{s.value} {}
-    MaterialState(const StateVariableT &s) : value{s}       {}
-    MaterialState(StateVariableT &&s) : value{std::forward<StateVariableT>(s)} {}
+    constexpr void update(const StateVariableT& s) { value_.update(s); }
+    constexpr void update(StateVariableT&& s) { value_.update(std::move(s)); }
 
+    // --- Rule of zero ---------------------------------------------------------
+    constexpr MaterialState() = default;
+    constexpr ~MaterialState() = default;
 
-    MaterialState() = default;
-    ~MaterialState() = default;
-    
+    constexpr MaterialState(const MaterialState&) = default;
+    constexpr MaterialState(MaterialState&&) noexcept = default;
+    constexpr MaterialState& operator=(const MaterialState&) = default;
+    constexpr MaterialState& operator=(MaterialState&&) noexcept = default;
+
+    explicit constexpr MaterialState(const StateVariableT& s) : value_{s} {}
+    explicit constexpr MaterialState(StateVariableT&& s) : value_{std::move(s)} {}
 };
-
-
-
-
 
 #endif // MATERIAL_STATE_HH
