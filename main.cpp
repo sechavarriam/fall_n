@@ -6,7 +6,8 @@
 // include matplot
 #include <matplot/matplot.h>
 
-int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
+//int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
+int main(int argc, char **args)
 {
     PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here
