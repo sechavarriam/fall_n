@@ -98,8 +98,9 @@ class VoigtVector<1>{
     double component_ = 0.0;
 
   public:
-    constexpr double& operator[](std::size_t i [[maybe_unused]]) { return component_; }; // No se necesita índice, pero se proporciona para mantener la interfaz consistente
-    constexpr double  components() const { return component_; };
+    constexpr double& operator[](std::size_t i [[maybe_unused]])       { return component_; }
+    constexpr double  operator[](std::size_t i [[maybe_unused]]) const { return component_; }
+    constexpr double  components() const { return component_; }
     const double* data() const & { return &component_; }
     const double* data() const && = delete;
     constexpr void set_components(double v) { component_ = v; };
