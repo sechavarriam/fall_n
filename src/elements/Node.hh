@@ -75,14 +75,15 @@ class Node : public geometry::Point<Dim>{
     Node() = delete;
 
     template<std::floating_point... Args>
+      requires (sizeof...(Args) == Dim)
     Node(std::integral auto tag, Args... args) : 
-    geometry::Point<Dim>(std::array<double, Dim>{args...}),
+    geometry::Point<Dim>(args...),
     id_{static_cast<std::size_t>(tag)}{}
 
-    //forwarding constructor
-    template<std::floating_point... Args> //This thing also defines copy and move constructors. If a copy constructor is defined, any member can't be (own) a unique_ptr.
-    Node(std::size_t tag, Args&&... args) : 
-      geometry::Point<Dim>(std::forward<Args>(args)...),
+    template<std::floating_point... Args>
+      requires (sizeof...(Args) == Dim)
+    Node(std::size_t tag, Args... args) : 
+      geometry::Point<Dim>(args...),
       id_{tag}{}
   
 
@@ -94,7 +95,7 @@ class Node : public geometry::Point<Dim>{
 //NodeT concept
 
 template <typename T> //To be used in NodalSection constraint.
-concept NodeT = requires(T node){
+concept NodeT = geometry::PointT<T> && requires(T node){
     {node.id()} -> std::convertible_to<std::size_t>;
     {node.num_dof()} -> std::convertible_to<std::size_t>;
     {node.set_id(std::size_t{})} -> std::same_as<void>;
@@ -105,11 +106,6 @@ concept NodeT = requires(T node){
     {node.dof_index()} -> std::convertible_to<std::span<PetscInt>>;
     {node.fix_dof(std::size_t{})} -> std::same_as<void>;
     {node.set_dof_interface()} -> std::same_as<void>;
-    {node.coord()} -> std::convertible_to<std::array<double, T::dim>>;
-    {node.coord(std::size_t{})} -> std::convertible_to<double>;
-    {node.set_coord(std::size_t{}, double{})} -> std::same_as<void>;
-    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
-    {node.set_coord(std::array<double, T::dim>{})} -> std::same_as<void>;
 };
 
 

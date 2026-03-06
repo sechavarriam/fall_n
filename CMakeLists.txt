@@ -145,6 +145,19 @@ vtk_module_autoinit(
 
 add_test(NAME plasticity_composition COMMAND fall_n_plasticity_test)
 
+# --- Point / geometry test ---
+add_executable(fall_n_point_test
+  tests/test_point.cpp
+)
+
+target_include_directories(fall_n_point_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_point_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_point_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_point_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME point_geometry COMMAND fall_n_point_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
