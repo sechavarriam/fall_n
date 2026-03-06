@@ -319,6 +319,7 @@ public:
   };
 
   //void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.
+  
   // ================================= Constructors and Destructor =================================
   ContinuumElement() = delete;
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {}; // Metodo para setear materiales debe ser llamado despues de la creacion de los elementos.
