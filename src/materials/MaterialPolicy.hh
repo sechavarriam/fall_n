@@ -60,9 +60,8 @@ using ThreeDimensionalMaterial  = SolidMaterial<6>;
 //    StrainT  → BeamGeneralizedStrain<N, Dim>  (satisfies KinematicMeasure)
 //    StressT  → BeamSectionForces<N>           (satisfies TensionalConjugate)
 //
-
-template <std::size_t N, std::size_t Dim>
-    requires (N > 0 && Dim > 0 && Dim <= 3)
+    
+template <std::size_t N, std::size_t Dim> requires (N > 0 && Dim > 0 && Dim <= 3)
 class BeamMaterial {
 public:
     using StrainT        = BeamGeneralizedStrain<N, Dim>;

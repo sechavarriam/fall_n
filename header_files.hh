@@ -18,6 +18,19 @@
 #include <string_view>
 #include <fstream>
 #include <filesystem>
+    
+//================================================================================
+// Geometry Module
+//================================================================================
+
+#include "src/geometry/geometry.hh"
+#include "src/geometry/Topology.hh"
+#include "src/geometry/Cell.hh"
+#include "src/geometry/Point.hh"
+
+//================================================================================
+// Elements Module
+//================================================================================
 
 #include "src/elements/Node.hh"
 #include "src/elements/Section.hh"
@@ -30,15 +43,13 @@
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"
 
-#include "src/model/DoF.hh"
 
-#include "src/geometry/geometry.hh"
-#include "src/geometry/Topology.hh"
-#include "src/geometry/Cell.hh"
-#include "src/geometry/Point.hh"
+// =================================================================================
+// Numerics Module
+// =================================================================================
 
-#include "src/numerics/Polynomial.hh"
-#include "src/numerics/Tensor.hh"
+// #include "src/numerics/Polynomial.hh"
+// #include "src/numerics/Tensor.hh"
 
 #include "src/numerics/Interpolation/GenericInterpolant.hh"
 #include "src/numerics/Interpolation/LagrangeInterpolation.hh"
@@ -51,35 +62,67 @@
 #include "src/numerics/linear_algebra/Vector.hh"
 #include "src/numerics/linear_algebra/LinalgOperations.hh"
 
-#include "src/analysis/Analysis.hh"
+// =================================================================================
+// Material Module
+// =================================================================================
 
-#include "src/model/Model.hh"
+// --- Low-level types (Voigt notation, beam measures) ---
+#include "src/materials/VoigtVector.hh"
+#include "src/materials/Strain.hh"
+#include "src/materials/Stress.hh"
 
+#include "src/materials/beam/BeamGeneralizedStrain.hh"
+#include "src/materials/beam/BeamSectionForces.hh"
+
+// --- Policy / State infrastructure ---
+#include "src/materials/MaterialPolicy.hh"
+#include "src/materials/MaterialStatePolicy.hh"
+#include "src/materials/MaterialState.hh"
+
+// --- Concept hierarchy ---
 #include "src/materials/ConstitutiveRelation.hh"
 
+// --- Concrete constitutive relations ---
 #include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
 #include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
-
+#include "src/materials/constitutive_models/lineal/TimoshenkoBeamSection.hh"
 #include "src/materials/constitutive_models/non_lineal/InelasticRelation.hh"
 
-#include "src/materials/Material.hh"
-
-#include "src/materials/MaterialState.hh"
+// --- Material instance (MaterialInstance<R, StatePolicy>) + aliases ---
 #include "src/materials/LinealElasticMaterial.hh"
 
-#include "src/materials/Stress.hh"
-#include "src/materials/Strain.hh"
+// --- Type-erased wrapper (Material<Policy>) ---
+#include "src/materials/Material.hh"
 
+
+// =================================================================================
+// Model Module
+// =================================================================================
+
+#include "src/model/DoF.hh"
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
 
+// =================================================================================
+// Analysis Module
+// =================================================================================
+
+#include "src/analysis/Analysis.hh"
+
+// =================================================================================
+// Mesh Module
+// =================================================================================
 #include "src/mesh/Mesh.hh"
 
 #include "src/mesh/gmsh/ReadGmsh.hh"
 #include "src/mesh/gmsh/GmshDomainBuilder.hh"
 
-#include "src/graph/AdjacencyList.hh"
-#include "src/graph/AdjacencyMatrix.hh"
+//#include "src/graph/AdjacencyList.hh"
+//#include "src/graph/AdjacencyMatrix.hh"
+
+// =================================================================================
+// Post-processing Module
+// =================================================================================
 
 #include "src/post-processing/VTK/VTKheaders.hh"
 #include "src/post-processing/VTK/VTKwriter.hh"

@@ -36,6 +36,9 @@ template <class MaterialPolicy>
 class ElasticRelation {
 
 public:
+    // --- Policy alias (exposes template parameter as nested type) -------------
+    using MaterialPolicyT = MaterialPolicy;
+
     // --- Type aliases required by ConstitutiveRelation concept ----------------
     using KinematicT = typename MaterialPolicy::StrainT;
     using ConjugateT = typename MaterialPolicy::StressT;
@@ -122,9 +125,12 @@ class ElasticRelation<UniaxialMaterial> {
 
 public:
     // --- Concept-required type aliases ----------------------------------------
-    using KinematicT = Strain<1>;
-    using ConjugateT = Stress<1>;
-    using TangentT   = Eigen::Matrix<double, 1, 1>;
+    using KinematicT     = Strain<1>;
+    using ConjugateT     = Stress<1>;
+    using TangentT       = Eigen::Matrix<double, 1, 1>;
+
+    // --- Policy alias --------------------------------------------------------
+    using MaterialPolicyT = UniaxialMaterial;
 
     // --- Legacy aliases ------------------------------------------------------
     using MaterialPolicy = UniaxialMaterial;

@@ -9,7 +9,6 @@
 // int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
 int main(int argc, char **args)
 {
-
     static constexpr std::size_t dim = 3;
     static constexpr std::size_t ndof = dim; // 6...p
 
