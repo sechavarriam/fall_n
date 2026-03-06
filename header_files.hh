@@ -111,7 +111,8 @@
 // Model Module
 // =================================================================================
 
-#include "src/model/DoF.hh"
+#include "src/model/DoFStorage.hh"
+#include "src/model/DoF.hh"       // TODO: deprecate — kept for transition
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
 
