@@ -91,6 +91,9 @@
 // --- Material instance (MaterialInstance<R, StatePolicy>) + aliases ---
 #include "src/materials/LinealElasticMaterial.hh"
 
+// --- Integration strategies (ElasticUpdate, InelasticUpdate) ---
+#include "src/materials/update_strategy/IntegrationStrategy.hh"
+
 // --- Type-erased wrapper (Material<Policy>) ---
 #include "src/materials/Material.hh"
 
