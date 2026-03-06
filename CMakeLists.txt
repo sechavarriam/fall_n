@@ -158,6 +158,19 @@ target_link_libraries(fall_n_point_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME point_geometry COMMAND fall_n_point_test)
 
+# ── Node + DoF Storage Policy tests ──────────────────────────────────────────
+add_executable(fall_n_node_test
+  tests/test_node_dof.cpp
+)
+
+target_include_directories(fall_n_node_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_node_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_node_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_node_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME node_dof_storage COMMAND fall_n_node_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================

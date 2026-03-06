@@ -1,114 +1,137 @@
 #ifndef FN_NODE
 #define FN_NODE
 
+// =============================================================================
+//  Node<Dim, Storage>  —  geometric point + id + inline DoF storage
+// =============================================================================
+//
+//  The second template parameter selects the DoF index storage policy
+//  (see src/model/DoFStorage.hh).  It defaults to SmallDoFs<6>, which uses
+//  a small-buffer-optimised container: inline for ≤ 6 DoFs per node (covers
+//  solids, shells, beams), transparent heap fallback for exotic formulations.
+//
+//  All existing code that used  Node<dim>  continues to compile unchanged
+//  because Storage has a default value.
+//
+// =============================================================================
+
 #include <array>
 #include <concepts>
 #include <ranges>
 #include <cstddef>
-
-#include <stdexcept>
-#include <initializer_list>
 #include <utility>
 #include <span>
+#include <optional>
 
-#include "../model/DoF.hh"
+#include <petscsys.h>
+
+#include "../model/DoFStorage.hh"
 #include "../geometry/Point.hh"
 
 
+template<std::size_t Dim, dof::DoFStorageLike Storage = dof::DefaultDoFStorage>
+class Node : public geometry::Point<Dim> {
 
+    std::size_t id_{};
+    Storage     dof_indices_;
 
-template<std::size_t Dim>//, ushort nDoF=Dim> 
-class Node : public geometry::Point<Dim>{ 
- using DoF_Interface = domain::DoF_Interface;
- 
-    std::size_t id_{}     ;
-    std::size_t num_dof_{0};
-    
-    DoF_Interface dof_;
-    
-  public:
+public:
 
     static constexpr std::size_t dim = Dim;
 
-    std::optional<PetscInt> sieve_id; // Optional sieve id for the node (vertex) inside DMPlex Mesh
+    // Kept public for backward compatibility (DMPlex sieve assembly).
+    std::optional<PetscInt> sieve_id;
 
-    std::size_t id()      const noexcept {return id_     ;}
-    std::size_t num_dof() const noexcept {return num_dof_;}
+    // ── Identification ───────────────────────────────────────────────────
 
-    //std::span<double*> dofs(){return std::span<double*>(dof_.handler_->dofs_);};
+    [[nodiscard]] std::size_t id()      const noexcept { return id_; }
+    [[nodiscard]] std::size_t num_dof() const noexcept { return dof_indices_.size(); }
 
-    constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
-    constexpr void set_id     (const std::size_t& id) noexcept {id_ = id;};
-    
-    
-    void set_num_dof(std::size_t n) noexcept {
-      num_dof_ = n;
-      dof_.set_handler();
-    };
+    constexpr void set_sieve_id(PetscInt id) noexcept { sieve_id = id; }
+    constexpr void set_id(std::size_t id)    noexcept { id_ = id; }
 
-    constexpr void set_dof_index(std::size_t i, std::size_t dof_index){
-      dof_.handler_->dof_index_[i] = dof_index;
-    };
+    // ── DoF management ───────────────────────────────────────────────────
 
-    constexpr void set_dof_index(std::ranges::range auto&& idxs)
-    requires std::convertible_to<std::ranges::range_value_t<decltype(idxs)>, std::size_t>{
-      dof_.handler_->set_index(idxs);
-    };
+    // Reserve n DoF slots (zero-initialized).  Called during element setup
+    // before PetscSection assigns actual global indices.
+    void set_num_dof(std::size_t n) noexcept { dof_indices_.resize(n); }
 
+    // Single index assignment
+    void set_dof_index(std::size_t i, dof::index_t val) noexcept {
+        dof_indices_[i] = val;
+    }
 
-    std::span<PetscInt> dof_index() const {
-      if (!dof_.handler_) throw std::runtime_error("DoF Handler not set");
-      return std::span<PetscInt>(dof_.handler_->dof_index_);
-      };
+    // Bulk assignment from any range of integral values
+    void set_dof_index(std::ranges::sized_range auto&& idxs)
+    requires std::convertible_to<std::ranges::range_value_t<decltype(idxs)>, dof::index_t> {
+        auto n = std::ranges::size(idxs);
+        dof_indices_.resize(n);
+        std::size_t k = 0;
+        for (auto&& v : idxs) dof_indices_[k++] = static_cast<dof::index_t>(v);
+    }
 
-    void fix_dof(std::size_t i){
-      dof_.handler_->dof_index_[i] *= -1;
-    };
+    // Contiguous view of DoF indices (const and mutable overloads)
+    [[nodiscard]] std::span<const dof::index_t> dof_index() const noexcept {
+        return {dof_indices_.data(), dof_indices_.size()};
+    }
+    [[nodiscard]] std::span<dof::index_t> dof_index() noexcept {
+        return {dof_indices_.data(), dof_indices_.size()};
+    }
 
-    //void set_dof_interface(std::initializer_list<std::size_t>&& dofs_index){
-    //  dof_.set_index(std::forward<std::initializer_list<std::size_t>>(dofs_index));
-    //};
+    // Idempotent constraint: encode index v as -(v+1) so even index 0
+    // becomes negative.  PETSc ignores negative row/col indices in
+    // MatSetValues, which is the intended semantics.
+    void fix_dof(std::size_t i) noexcept {
+        auto& idx = dof_indices_[i];
+        if (idx >= 0) idx = -(idx + 1);
+    }
 
-    void set_dof_interface(){dof_.set_handler();};   
-    
+    void release_dof(std::size_t i) noexcept {
+        auto& idx = dof_indices_[i];
+        if (idx < 0) idx = -(idx + 1);
+    }
+
+    [[nodiscard]] bool is_dof_fixed(std::size_t i) const noexcept {
+        return dof_indices_[i] < 0;
+    }
+
+    // Backward compatibility no-op (storage is always ready).
+    void set_dof_interface() noexcept {}
+
+    // ── Constructors ─────────────────────────────────────────────────────
 
     Node() = delete;
 
     template<std::floating_point... Args>
-      requires (sizeof...(Args) == Dim)
-    Node(std::integral auto tag, Args... args) : 
-    geometry::Point<Dim>(args...),
-    id_{static_cast<std::size_t>(tag)}{}
+        requires (sizeof...(Args) == Dim)
+    Node(std::integral auto tag, Args... args)
+        : geometry::Point<Dim>(args...),
+          id_{static_cast<std::size_t>(tag)} {}
 
     template<std::floating_point... Args>
-      requires (sizeof...(Args) == Dim)
-    Node(std::size_t tag, Args... args) : 
-      geometry::Point<Dim>(args...),
-      id_{tag}{}
-  
-
-    ~Node(){} 
-
+        requires (sizeof...(Args) == Dim)
+    Node(std::size_t tag, Args... args)
+        : geometry::Point<Dim>(args...),
+          id_{tag} {}
 };
 
 
-//NodeT concept
+// ── NodeT concept ────────────────────────────────────────────────────────────
+// Refines geometry::PointT.  Used by Section, NodalSection, and main.cpp.
 
-template <typename T> //To be used in NodalSection constraint.
-concept NodeT = geometry::PointT<T> && requires(T node){
-    {node.id()} -> std::convertible_to<std::size_t>;
-    {node.num_dof()} -> std::convertible_to<std::size_t>;
-    {node.set_id(std::size_t{})} -> std::same_as<void>;
-    {node.set_num_dof(std::size_t{})} -> std::same_as<void>;
-    {node.set_dof_index(std::size_t{}, std::size_t{})} -> std::same_as<void>;
-    requires std::ranges::range<std::vector<std::size_t>>;
-    {node.set_dof_index(std::vector<std::size_t>{})} -> std::same_as<void>;
-    {node.dof_index()} -> std::convertible_to<std::span<PetscInt>>;
-    {node.fix_dof(std::size_t{})} -> std::same_as<void>;
-    {node.set_dof_interface()} -> std::same_as<void>;
+template <typename T>
+concept NodeT = geometry::PointT<T> && requires(T node) {
+    { node.id()      } -> std::convertible_to<std::size_t>;
+    { node.num_dof() } -> std::convertible_to<std::size_t>;
+    { node.set_id(std::size_t{})      } -> std::same_as<void>;
+    { node.set_num_dof(std::size_t{}) } -> std::same_as<void>;
+    { node.set_dof_index(std::size_t{}, dof::index_t{}) } -> std::same_as<void>;
+    requires std::ranges::sized_range<std::vector<dof::index_t>>;
+    { node.set_dof_index(std::vector<dof::index_t>{}) } -> std::same_as<void>;
+    { node.dof_index() };
+    { node.fix_dof(std::size_t{}) }      -> std::same_as<void>;
+    { node.set_dof_interface() }         -> std::same_as<void>;
 };
-
-
 
 
 #endif
