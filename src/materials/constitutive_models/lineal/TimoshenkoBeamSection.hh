@@ -3,6 +3,9 @@
 
 #include "ElasticRelation.hh"
 
+// Tag type for constructor disambiguation (Poisson's ratio → G)
+struct FromPoissonTag {};
+
 // =============================================================================
 //  TimoshenkoBeamSection<Dim>  — Elastic cross-section constitutive relation
 // =============================================================================
@@ -48,7 +51,6 @@
 //  derived classes, or the full matrix can be set directly via set_matrix().
 //
 // =============================================================================
-
 
 // ---------------------------------------------------------------------------
 //  3D Timoshenko beam section (6 generalized strains, dim = 3)
@@ -149,7 +151,7 @@ public:
         double E,  double nu,
         double A,  double Iy, double Iz, double J,
         double ky, double kz,
-        [[maybe_unused]] struct FromPoissonTag {})
+        FromPoissonTag)
         : E_{E}, G_{E / (2.0 * (1.0 + nu))}, A_{A}, Iy_{Iy}, Iz_{Iz}, J_{J}, ky_{ky}, kz_{kz}
     {
         update_section_stiffness();

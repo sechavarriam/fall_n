@@ -215,7 +215,6 @@ public:
     }
 
 
-
     void record_gauss_strains(VTKDataContainer &recorder){
 
         std::size_t N = domain_->num_integration_points() * MaterialPolicy::StrainT::num_components;
