@@ -82,10 +82,19 @@
 // --- Concept hierarchy ---
 #include "src/materials/ConstitutiveRelation.hh"
 
-// --- Concrete constitutive relations ---
+// --- Concrete constitutive relations (elastic) ---
 #include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
 #include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
 #include "src/materials/constitutive_models/lineal/TimoshenkoBeamSection.hh"
+
+// --- Plasticity building blocks ---
+#include "src/materials/constitutive_models/non_lineal/plasticity/PlasticityConcepts.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/VonMises.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/IsotropicHardening.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/AssociatedFlow.hh"
+
+// --- Composed plasticity relation + backward-compat aliases ---
+#include "src/materials/constitutive_models/non_lineal/PlasticityRelation.hh"
 #include "src/materials/constitutive_models/non_lineal/InelasticRelation.hh"
 
 // --- Material instance (MaterialInstance<R, StatePolicy>) + aliases ---
