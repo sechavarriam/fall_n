@@ -36,10 +36,7 @@ int main(int argc, char **args)
         Domain<dim> D1; // Domain Aggregator Object
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
-        auto updateStrategy = []()
-        { std::cout << "TEST: e.g. Linear Update Strategy" << std::endl; };
-
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, ElasticUpdate{}}};
 
         VTKDataContainer view1;
         view1.load_domain(M1.get_domain());

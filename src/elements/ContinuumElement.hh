@@ -45,6 +45,15 @@ class ContinuumElement
 
   std::vector<PetscInt> global_dof_index_;
 
+  // Helper: extract element DOFs from a local PETSc vector
+  Eigen::VectorXd extract_element_dofs(Vec u_local) {
+      if (!dofs_set_) set_dofs_index();
+      Eigen::VectorXd u_e(dim * num_nodes());
+      VecGetValues(u_local, static_cast<PetscInt>(dim * num_nodes()),
+                   global_dof_index_.data(), u_e.data());
+      return u_e;
+  }
+
   bool dofs_set_        {false}; 
   bool is_multimaterial_{true }; // If true, the element has different materials in each integration point.
 
@@ -198,6 +207,87 @@ public:
     }
     MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
   };
+
+  // ========================== Nonlinear element operations ================================
+
+  // Compute internal force vector:  f_int_e = Σ_gp  w·|J|·Bᵀ·σ(ε(u))
+  // The stress σ is computed through the material's Strategy:
+  //   material_point.compute_response(ε) → Strategy.compute_response(model, ε)
+  void compute_internal_forces(Vec u_local, Vec f_local) {
+      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+      Eigen::VectorXd f_e = Eigen::VectorXd::Zero(dim * num_nodes());
+
+      for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+          auto   ref_pt = geometry_->reference_integration_point(gp);
+          double w      = geometry_->weight(gp);
+          double Jdet   = geometry_->detJ(ref_pt);
+
+          Array Xi{};
+          for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+          auto B_x = B(Xi);
+          StateVariableT strain;
+          strain.set_strain(B_x * u_e);
+
+          auto sigma = material_points_[gp].compute_response(strain);
+          f_e += w * Jdet * (B_x.transpose() * sigma.components());
+      }
+
+      VecSetValues(f_local, static_cast<PetscInt>(global_dof_index_.size()),
+                   global_dof_index_.data(), f_e.data(), ADD_VALUES);
+  }
+
+  // Assemble tangent stiffness:  K_e = Σ_gp  w·|J|·Bᵀ·C_t(ε(u))·B
+  // The tangent C_t is computed through the material's Strategy:
+  //   material_point.tangent(ε) → Strategy.tangent(model, ε)
+  void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
+      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+      Eigen::MatrixXd K_e = Eigen::MatrixXd::Zero(dim * num_nodes(), dim * num_nodes());
+
+      for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+          auto   ref_pt = geometry_->reference_integration_point(gp);
+          double w      = geometry_->weight(gp);
+          double Jdet   = geometry_->detJ(ref_pt);
+
+          Array Xi{};
+          for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+          auto B_x = B(Xi);
+          StateVariableT strain;
+          strain.set_strain(B_x * u_e);
+
+          auto C_t = material_points_[gp].tangent(strain);
+          K_e += w * Jdet * (B_x.transpose() * C_t * B_x);
+      }
+
+      std::vector<PetscInt> idxs;
+      for (std::size_t i = 0; i < num_nodes(); ++i)
+          for (const auto idx : geometry_->node_p(i).dof_index())
+              idxs.push_back(idx);
+
+      MatSetValuesLocal(J_mat,
+          static_cast<PetscInt>(idxs.size()), idxs.data(),
+          static_cast<PetscInt>(idxs.size()), idxs.data(),
+          K_e.data(), ADD_VALUES);
+  }
+
+  // Commit material state at all Gauss points after global convergence.
+  // Calls Strategy.commit(model, ε) to evolve internal variables.
+  void commit_material_state(Vec u_local) {
+      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+
+      for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+          auto ref_pt = geometry_->reference_integration_point(gp);
+          Array Xi{};
+          for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+          StateVariableT strain;
+          strain.set_strain(B(Xi) * u_e);
+
+          material_points_[gp].commit(strain);
+          material_points_[gp].update_state(strain);
+      }
+  }
 
 // =================================== Solution manipulation =====================================
 

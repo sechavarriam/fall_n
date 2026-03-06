@@ -31,9 +31,24 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
         void update_state(const StateVariableT& state) noexcept {material_.update_state(state);};
         void update_state(StateVariableT&& state) noexcept {material_.update_state(std::forward<StateVariableT>(state));};
-        //void update_state(StateVariableT state) noexcept {material_.update_state(state);};
         
         decltype(auto) current_state() const noexcept { return material_.current_state(); };
+
+        // ─── Constitutive interface (Strategy-mediated) ─────────────
+        //  These methods delegate through the type-erased Material<>,
+        //  which routes through the injected UpdateStrategy.
+
+        [[nodiscard]] auto compute_response(const StateVariableT& k) const {
+            return material_.compute_response(k);
+        }
+
+        [[nodiscard]] auto tangent(const StateVariableT& k) const {
+            return material_.tangent(k);
+        }
+
+        void commit(const StateVariableT& k) {
+            material_.commit(k);
+        }
 
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;
