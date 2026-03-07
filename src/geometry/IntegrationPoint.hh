@@ -7,6 +7,8 @@
 #include <memory>
 #include <optional>
 
+#include <vtkType.h>
+
 #include "../geometry/Point.hh"
 #include "../geometry/Topology.hh"
 
