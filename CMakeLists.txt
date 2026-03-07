@@ -171,6 +171,47 @@ target_link_libraries(fall_n_node_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME node_dof_storage COMMAND fall_n_node_test)
 
+# ── Static Condensation tests ─────────────────────────────────────────────────
+add_executable(fall_n_condensation_test
+  tests/test_condensation.cpp
+)
+
+target_include_directories(fall_n_condensation_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_condensation_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME static_condensation COMMAND fall_n_condensation_test)
+
+# ── Assembly Policy tests ──────────────────────────────────────────────────────
+add_executable(fall_n_assembly_test
+  tests/test_assembly_policy.cpp
+)
+
+target_include_directories(fall_n_assembly_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_assembly_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME assembly_policy COMMAND fall_n_assembly_test)
+
+# ── Section tests (SectionGeometry + NodeSection + MaterialSection) ────────
+add_executable(fall_n_section_test
+  tests/test_section.cpp
+)
+
+target_include_directories(fall_n_section_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_section_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_section_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_section_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_section_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_section_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME section COMMAND fall_n_section_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
