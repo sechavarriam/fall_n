@@ -99,7 +99,7 @@ public:
 
     // ── Node access (delegation, not wrapping) ───────────────────────────
 
-    [[nodiscard]] NodeType&       node()       noexcept { return *node_; }
+    [[nodiscard]]       NodeType& node()       noexcept { return *node_; }
     [[nodiscard]] const NodeType& node() const noexcept { return *node_; }
 
     [[nodiscard]] std::size_t node_id()  const noexcept { return node_->id(); }
