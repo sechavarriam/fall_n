@@ -1,109 +1,124 @@
 #ifndef FALL_N_FEM_ELEMENT_HH
 #define FALL_N_FEM_ELEMENT_HH
 
+// =============================================================================
+//  FEM_Element — Type-erased finite element wrapper (External Polymorphism)
+// =============================================================================
+//
+//  Wraps any type satisfying the FiniteElement concept behind a uniform
+//  value-semantic interface.  Used by MultiElementPolicy to store
+//  heterogeneous elements (e.g. continuum + beam) in a single container.
+//
+//  Design:
+//    - External Polymorphism (Concept / Model / type-erased handle)
+//    - Value semantics (deep copy via clone(), move = default)
+//    - The wrapper itself satisfies FiniteElement (recursive erasure OK)
+//    - Self-wrapping guard prevents accidental double indirection
+//
+//  Cost of the indirection (per element, per method call):
+//    - One virtual dispatch + one pointer chase (unique_ptr)
+//    - Negligible vs. the Eigen linear algebra inside each element
+//
+//  When homogeneous storage suffices (all elements share the same concrete
+//  type), use SingleElementPolicy<E> instead — zero overhead.
+//
+// =============================================================================
 
-//---- <Shape.h> ----------------------------------------------------------------------------------
-
-#include <array>
-#include <cstdlib>
 #include <memory>
-#include <utility>
+#include <cstddef>
+#include <type_traits>
 
-// Simple Type Erausre
+#include <petsc.h>
 
-namespace impl{
-   template<class MaterialPolicy>
-   class FEM_ElementConcept{ 
-      
-      using StateVariableT = MaterialPolicy::StateVariableT;
-      using StressT        = MaterialPolicy::StressType;     //Effect
+#include "FiniteElementConcept.hh"
 
-   public:
-      virtual constexpr ~FEM_ElementConcept() = default;
-      virtual constexpr std::unique_ptr<FEM_ElementConcept> clone() const = 0; // The Prototype design pattern
-   
-   public:
+class FEM_Element {
 
-      //virtual constexpr Matrix& C() const = 0; //The Compliance Matrix
-      //virtual constexpr StateVariableT get_state() const = 0; //The current Value of the State Variable (or the head?)
-      //virtual void update_state(const StateVariableT& state) = 0;  
+    // ── Inner concept (virtual interface) ─────────────────────────
 
-   };
+    struct Concept {
+        virtual ~Concept() = default;
+        virtual std::unique_ptr<Concept> clone() const = 0;
 
-   template <typename MaterialType, typename UpdateStrategy>
-   class OwningFEM_ElementModel : public FEM_ElementConcept<typename MaterialType::MaterialPolicy>
-   {
-   private:
+        // Assembly interface (mirrors FiniteElement concept)
+        virtual void set_num_dof_in_nodes()                 = 0;
+        virtual void inject_K(Mat K)                        = 0;
+        virtual void compute_internal_forces(Vec u, Vec f)  = 0;
+        virtual void inject_tangent_stiffness(Vec u, Mat K) = 0;
+        virtual void commit_material_state(Vec u)           = 0;
 
-      using MaterialPolicy = typename MaterialType::MaterialPolicy;
-      using StateVariableT = MaterialPolicy::StateVariableT;
+        // Topology
+        virtual std::size_t num_nodes()              const  = 0;
+        virtual std::size_t num_integration_points() const  = 0;
+        virtual PetscInt    sieve_id()               const  = 0;
+    };
 
-      MaterialType   element_        ;
-      UpdateStrategy update_algorithm_; //or material_integrator
+    // ── Inner model (type-specific bridge) ────────────────────────
 
-   public:
-      
-      //Matrix& C() const override {return element_.C();}; //The Compliance Matrix
-      //StateVariableT get_state() const override {return element_.get_state();}; //CurrentValue
-      //void update_state(const StateVariableT& state) override {element_.update_state(state);};
+    template <FiniteElement T>
+    struct Model final : Concept {
+        T element_;
 
-      explicit OwningFEM_ElementModel(MaterialType material, UpdateStrategy material_integrator): 
-          element_        {std::move(material)}, 
-          update_algorithm_{std::move(material_integrator)}
-      {}
+        explicit Model(T elem) : element_(std::move(elem)) {}
 
-      std::unique_ptr<FEM_ElementConcept<MaterialPolicy>> clone() const override{ // The Prototype design pattern
-         return std::make_unique<OwningFEM_ElementModel>(*this);
-      }
+        std::unique_ptr<Concept> clone() const override {
+            return std::make_unique<Model>(*this);
+        }
 
-   }; // OwningFEM_ElementModel
+        void set_num_dof_in_nodes()                 override { element_.set_num_dof_in_nodes(); }
+        void inject_K(Mat K)                        override { element_.inject_K(K); }
+        void compute_internal_forces(Vec u, Vec f)  override { element_.compute_internal_forces(u, f); }
+        void inject_tangent_stiffness(Vec u, Mat K) override { element_.inject_tangent_stiffness(u, K); }
+        void commit_material_state(Vec u)           override { element_.commit_material_state(u); }
 
-} // namespace impl
+        std::size_t num_nodes()              const  override { return element_.num_nodes(); }
+        std::size_t num_integration_points() const  override { return element_.num_integration_points(); }
+        PetscInt    sieve_id()               const  override { return element_.sieve_id(); }
+    };
 
-template<class MaterialPolicy>
-class FEM_Element
-{
-   using StateVariableT = MaterialPolicy::StateVariableT;
+    // ── Pimpl ─────────────────────────────────────────────────────
 
-   std::unique_ptr<impl::FEM_ElementConcept<MaterialPolicy>> pimpl_; // The Bridge design pattern
+    std::unique_ptr<Concept> pimpl_;
 
 public:
 
-   //Matrix& C() const {return pimpl_->C();}; //The Compliance Matrix
-   //StateVariableT get_state() const {return pimpl_->get_state();};
-   //void update_state(const StateVariableT& state) {pimpl_->update_state(state);};
+    // ── Construct from any FiniteElement (self-wrap guard) ────────
 
-public:
-   
-   template <typename MaterialType, typename UpdateStrategy>
-   FEM_Element(MaterialType material, UpdateStrategy material_integrator){
-      using Model = impl::OwningFEM_ElementModel<MaterialType, UpdateStrategy>;
-      pimpl_ = std::make_unique<Model>(
-         std::move(material), 
-         std::move(material_integrator)
-         );
-   }
+    template <FiniteElement T>
+        requires (!std::same_as<std::remove_cvref_t<T>, FEM_Element>)
+    FEM_Element(T element)                                              // NOLINT(google-explicit-constructor)
+        : pimpl_(std::make_unique<Model<std::remove_cvref_t<T>>>(
+              std::move(element))) {}
 
-   FEM_Element(FEM_Element<MaterialPolicy> const &other) : pimpl_(other.pimpl_->clone()){}
+    // ── Value semantics ──────────────────────────────────────────
 
-   FEM_Element &operator=(FEM_Element const &other)
-   {
-      // Copy-and-Swap Idiom
-      FEM_Element copy(other);
-      pimpl_.swap(copy.pimpl_);
-      return *this;
-   }
+    FEM_Element(const FEM_Element& other) : pimpl_(other.pimpl_->clone()) {}
 
-   ~FEM_Element() = default;
-   FEM_Element(FEM_Element &&) = default;
-   FEM_Element &operator=(FEM_Element &&) = default;
+    FEM_Element& operator=(const FEM_Element& other) {
+        FEM_Element tmp(other);         // copy-and-swap
+        pimpl_.swap(tmp.pimpl_);
+        return *this;
+    }
 
-private: //Hidden Friends (Free Functions)
+    FEM_Element(FEM_Element&&) noexcept = default;
+    FEM_Element& operator=(FEM_Element&&) noexcept = default;
+    ~FEM_Element() = default;
 
+    // ── Forwarding interface (satisfies FiniteElement) ────────────
 
+    void set_num_dof_in_nodes()                    { pimpl_->set_num_dof_in_nodes(); }
+    void inject_K(Mat K)                           { pimpl_->inject_K(K); }
+    void compute_internal_forces(Vec u, Vec f)     { pimpl_->compute_internal_forces(u, f); }
+    void inject_tangent_stiffness(Vec u, Mat K)    { pimpl_->inject_tangent_stiffness(u, K); }
+    void commit_material_state(Vec u)              { pimpl_->commit_material_state(u); }
+
+    auto num_nodes()              const -> std::size_t { return pimpl_->num_nodes(); }
+    auto num_integration_points() const -> std::size_t { return pimpl_->num_integration_points(); }
+    auto sieve_id()               const -> PetscInt    { return pimpl_->sieve_id(); }
 };
 
-
-
+// FEM_Element itself satisfies FiniteElement (recursive erasure is valid)
+static_assert(FiniteElement<FEM_Element>,
+    "FEM_Element must satisfy the FiniteElement concept");
 
 #endif // FALL_N_FEM_ELEMENT_HH
