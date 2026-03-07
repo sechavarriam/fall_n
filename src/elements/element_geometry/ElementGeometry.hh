@@ -63,19 +63,24 @@ namespace impl
 
         constexpr virtual std::size_t num_integration_points() const = 0;
 
-        constexpr virtual SpatialArray map_local_point(LocalCoordView x) const = 0;   // ESTO SOLO ES VALIDO EN ELEMENTOS AFINES. SACAR DE ACA!
+        constexpr virtual SpatialArray map_local_point(LocalCoordView x) const = 0;
 
-        constexpr virtual double detJ(LocalCoordView X) const = 0;
+        // Raw Jacobian matrix (dim × topological_dim).
+        virtual Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const = 0;
+
+        // Scalar differential measure, computed from J according to
+        // the relationship between topological_dim and dim:
+        //   topo_dim == dim          : |det(J)|          — volume element
+        //   topo_dim == 1            : ‖J‖ (col norm)     — arc length
+        //   topo_dim == 2, dim == 3  : ‖J₁ × J₂‖          — surface area
+        // Implemented with if constexpr in OwningModel (zero-cost dispatch).
+        virtual double differential_measure(LocalCoordView X) const = 0;
 
         constexpr virtual double H    (std::size_t i,                LocalCoordView X) const = 0;
         constexpr virtual double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const = 0;
 
         constexpr virtual LocalCoordView reference_integration_point(std::size_t i) const = 0;
         constexpr virtual double weight(std::size_t i) const = 0;
-
-        constexpr virtual double integrate(std::function<double(LocalCoordView)>&& f) const = 0;
-        
-        constexpr virtual Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const = 0;
 
     };
              
@@ -140,10 +145,26 @@ namespace impl
             return element_.map_local_point(xi);
         };
 
-        constexpr double detJ(LocalCoordView X) const override {
+        Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const override {
             NaturalArray xi{};
             for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
-            return element_.detJ(xi);
+            return element_.evaluate_jacobian(xi);
+        };
+
+        double differential_measure(LocalCoordView X) const override {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
+            auto J = element_.evaluate_jacobian(xi); // Static-size Eigen matrix
+
+            if constexpr (topological_dim == dim) {
+                return std::abs(J.determinant());
+            } else if constexpr (topological_dim == 1) {
+                return J.col(0).norm();           // arc-length: ‖∂x/∂ξ‖
+            } else if constexpr (topological_dim == 2 && dim == 3) {
+                return J.col(0).cross(J.col(1)).norm(); // surface metric
+            } else { // General: sqrt(det(Jᵀ J))
+                return std::sqrt((J.transpose() * J).determinant());
+            }
         };
 
         constexpr double H(std::size_t i, LocalCoordView X) const override {
@@ -158,16 +179,8 @@ namespace impl
             return element_.dH_dx(i, j, xi);
         };
 
-        constexpr LocalCoordView reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);}; //maybe private?
+        constexpr LocalCoordView reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);};
         constexpr double weight                    (std::size_t i) const override {return integrator_.weight(i);};
-
-        constexpr double integrate (std::function<double(LocalCoordView)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<double(LocalCoordView)>>(f));
-        };
-
-        Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const override {
-            return integrator_(element_,std::forward<std::function<Eigen::MatrixXd(LocalCoordView)>>(f));
-        };
 
     };
 } // impl
@@ -203,19 +216,48 @@ public:
 
     constexpr SpatialArray map_local_point(LocalCoordView x) const { return pimpl_->map_local_point(x); };
 
-    constexpr double detJ(LocalCoordView X) const { return pimpl_->detJ(X);};
- 
+    // Raw Jacobian matrix (dim × topological_dim).
+    Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const { return pimpl_->evaluate_jacobian(X); };
+
+    // Scalar differential measure — topology-aware, computed via if constexpr
+    // inside the OwningModel (static-size J, zero-cost dispatch).
+    double differential_measure(LocalCoordView X) const { return pimpl_->differential_measure(X); };
+
     constexpr double H    (std::size_t i, LocalCoordView X) const { return pimpl_->H(i, X);};
     constexpr double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const { return pimpl_->dH_dx(i, j, X);};
 
     constexpr LocalCoordView reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
     constexpr double weight                     (std::size_t i) const {return pimpl_->weight(i);};
 
-    constexpr double integrate(std::function<double(LocalCoordView)>&& f) const {return pimpl_->integrate(std::forward<std::function<double(LocalCoordView)>>(f));};
+    // ---- Non-virtual template: numerical integration over the geometry ----
+    // Computes  ∫ f(ξ) · dΩ  =  ∑ w_i · |measure(ξ_i)| · f(ξ_i)
+    // using the injected quadrature rule.
+    //
+    // f is a template parameter (no std::function, no heap allocation).
+    // Works for scalar and Eigen return types.
+    template<std::invocable<LocalCoordView> F>
+    auto integrate(F&& f) const {
+        using R = decltype(f(std::declval<LocalCoordView>()));
+        const auto n = num_integration_points();
 
-    Eigen::MatrixXd integrate(std::function<Eigen::MatrixXd(LocalCoordView)>&& f) const {
-        return pimpl_->integrate(std::forward<std::function<Eigen::MatrixXd(LocalCoordView)>>(f));
-        };
+        if constexpr (std::is_arithmetic_v<std::decay_t<R>>) {
+            double result = 0.0;
+            for (std::size_t i = 0; i < n; ++i) {
+                auto xi = reference_integration_point(i);
+                result += weight(i) * differential_measure(xi) * f(xi);
+            }
+            return result;
+        } else {
+            // Eigen or matrix-like return type
+            auto xi_0  = reference_integration_point(0);
+            auto result = (f(xi_0) * (weight(0) * differential_measure(xi_0))).eval();
+            for (std::size_t i = 1; i < n; ++i) {
+                auto xi = reference_integration_point(i);
+                result += f(xi) * (weight(i) * differential_measure(xi));
+            }
+            return result;
+        }
+    };
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
@@ -264,11 +306,6 @@ private:
     constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
     constexpr inline friend void print_nodes_info(ElementGeometry const& element) { element.pimpl_->print_nodes_info(); };
-
-    constexpr inline friend
-    auto integrate(ElementGeometry const &element, std::invocable<LocalCoordView> auto&& F){
-        return element.pimpl_->integrate(std::forward<decltype(F)>(F));
-        };
 
     // -----------------------------------------------------------------------------------------------
 };

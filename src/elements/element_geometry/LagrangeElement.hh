@@ -284,20 +284,24 @@ public:
     return integrator_.get_point_weight(i);
   };
 
-  constexpr decltype(auto) operator()([[maybe_unused]] const is_LagrangeElement auto &element, std::invocable<LocalCoordView> auto &&f) const noexcept{
+  // Pure quadrature: \sum w_i * f(xi_i).
+  // Does NOT multiply by detJ — each element type applies its own
+  // differential measure (detJ, L/2, surface metric, etc.) inside f.
+  constexpr decltype(auto) operator()(std::invocable<LocalCoordView> auto &&f) const noexcept{
     using ReturnType = std::invoke_result_t<decltype(f), LocalCoordView>;
     
-    if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){ // If is EigenType
-      return integrator_([&](const NaturalArray &x) -> ReturnType{ // This lambda is necessary to create the temporary objects that avoid dangling references when passing the reference of the array to the lambda.
-        const LocalCoordView xv{x.data(), x.size()}; // This temporary has to be created to avoid dangling references when passing the reference of the array to the lambda.
-        return (f(xv) * element.detJ(x)).eval(); // This temporary has to be created to avoid dangling references!
+    if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){
+      return integrator_([&](const NaturalArray &x) -> ReturnType{
+        const LocalCoordView xv{x.data(), x.size()};
+        return f(xv).eval();
       });
     } 
-    else
-    return integrator_([&](const NaturalArray &x){  
-        const LocalCoordView xv{x.data(), x.size()}; 
-        return f(xv) * element.detJ(x);
-      });
+    else {
+      return integrator_([&](const NaturalArray &x){  
+          const LocalCoordView xv{x.data(), x.size()}; 
+          return f(xv);
+        });
+    }
   };
 
   constexpr GaussLegendreCellIntegrator() noexcept = default;
