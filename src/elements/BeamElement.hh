@@ -40,7 +40,6 @@
 #include <array>
 #include <cstddef>
 #include <cmath>
-#include <numbers>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -196,16 +195,6 @@ class BeamElement {
     double dN1_ds() const { return dN1_dxi() * 2.0 / length_; }
     double dN2_ds() const { return dN2_dxi() * 2.0 / length_; }
 
-    // Gauss-Legendre quadrature on [-1, 1].
-    // 2-point rule (exact for cubic polynomials — sufficient for linear beam).
-    static constexpr std::size_t n_gp = 2;
-    static constexpr double gp_loc[2]    = { -1.0 / std::numbers::sqrt3,
-                                              1.0 / std::numbers::sqrt3 };
-    static constexpr double gp_weight[2] = { 1.0, 1.0 };
-
-    // Jacobian of the 1D mapping:  ds/dξ = L/2
-    double jacobian_1d() const { return length_ / 2.0; }
-
 
     // ── B matrix (LOCAL coordinates) ────────────────────────────────────
     //
@@ -277,7 +266,7 @@ public:
     // ── Topology queries (FiniteElement interface) ───────────────────────
 
     constexpr auto num_nodes()              const noexcept { return geometry_->num_nodes(); }
-    constexpr auto num_integration_points() const noexcept -> std::size_t { return n_gp; }
+    constexpr auto num_integration_points() const noexcept -> std::size_t { return geometry_->num_integration_points(); }
     constexpr auto sieve_id()               const noexcept { return geometry_->sieve_id.value(); }
 
     constexpr void set_num_dof_in_nodes() noexcept {
@@ -300,16 +289,18 @@ public:
 
     KMatrixT K() {
         KMatrixT K_loc = KMatrixT::Zero();
-        const double jac = jacobian_1d();
+        const auto ngp = geometry_->num_integration_points();
 
-        for (std::size_t gp = 0; gp < n_gp; ++gp) {
-            const double xi = gp_loc[gp];
-            const double w  = gp_weight[gp];
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
 
             auto B_gp = B_local(xi);
             auto C    = sections_[gp].C();
 
-            K_loc += w * jac * (B_gp.transpose() * C * B_gp);
+            K_loc += w * dm * (B_gp.transpose() * C * B_gp);
         }
 
         auto T = transformation_matrix();
@@ -329,16 +320,18 @@ public:
 
     void compute_internal_forces(Vec u_local, Vec f_local) {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
-        const double jac = jacobian_1d();
 
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;  // global → local DOFs
 
         Eigen::Vector<double, total_dofs> f_loc = Eigen::Vector<double, total_dofs>::Zero();
+        const auto ngp = geometry_->num_integration_points();
 
-        for (std::size_t gp = 0; gp < n_gp; ++gp) {
-            const double xi = gp_loc[gp];
-            const double w  = gp_weight[gp];
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
 
             auto B_gp = B_local(xi);
 
@@ -346,7 +339,7 @@ public:
             strain.set_components(B_gp * u_loc);
 
             auto sigma = sections_[gp].compute_response(strain);
-            f_loc += w * jac * (B_gp.transpose() * sigma.components());
+            f_loc += w * dm * (B_gp.transpose() * sigma.components());
         }
 
         // Transform local forces → global and assemble
@@ -359,16 +352,18 @@ public:
 
     void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
-        const double jac = jacobian_1d();
 
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;
 
         KMatrixT K_loc = KMatrixT::Zero();
+        const auto ngp = geometry_->num_integration_points();
 
-        for (std::size_t gp = 0; gp < n_gp; ++gp) {
-            const double xi = gp_loc[gp];
-            const double w  = gp_weight[gp];
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
 
             auto B_gp = B_local(xi);
 
@@ -376,7 +371,7 @@ public:
             strain.set_components(B_gp * u_loc);
 
             auto C_t = sections_[gp].tangent(strain);
-            K_loc += w * jac * (B_gp.transpose() * C_t * B_gp);
+            K_loc += w * dm * (B_gp.transpose() * C_t * B_gp);
         }
 
         KMatrixT K_glob = T.transpose() * K_loc * T;
@@ -391,9 +386,11 @@ public:
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
         auto T = transformation_matrix();
         Eigen::VectorXd u_loc = T * u_e;
+        const auto ngp = geometry_->num_integration_points();
 
-        for (std::size_t gp = 0; gp < n_gp; ++gp) {
-            const double xi = gp_loc[gp];
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
             auto B_gp = B_local(xi);
 
             StateVariableT strain;
@@ -411,8 +408,9 @@ public:
     BeamElement(ElementGeometry<Dim>* geometry, MaterialT section_material)
         : geometry_{geometry}
     {
-        sections_.reserve(n_gp);
-        for (std::size_t gp = 0; gp < n_gp; ++gp)
+        const auto ngp = geometry_->num_integration_points();
+        sections_.reserve(ngp);
+        for (std::size_t gp = 0; gp < ngp; ++gp)
             sections_.emplace_back(MaterialSectionT{section_material});
 
         compute_frame();

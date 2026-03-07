@@ -688,6 +688,287 @@ void test_inclined_plane_higher_order() {
   report(__func__, ok);
 }
 
+// ==========================================================================
+//  MITC4 Shell Element Tests
+// ==========================================================================
+
+// Helpers: build a flat Q4 shell in the XY plane (z = 0) for shell tests.
+//
+//  Node ordering follows tensor-product convention (ξ varies fastest):
+//    0 → (0, 0, 0)   = (-1, -1)
+//    1 → (Lx, 0, 0)  = (+1, -1)
+//    2 → (0, Ly, 0)  = (-1, +1)
+//    3 → (Lx, Ly, 0) = (+1, +1)
+
+struct ShellFixture {
+    static constexpr std::size_t dim = 3;
+
+    Node<dim> n0, n1, n2, n3;
+    LagrangeElement3D<2, 2> element;
+    GaussLegendreCellIntegrator<2, 2> integrator;
+    ElementGeometry<dim> geom;
+
+    // Material: E=200, ν=0.3, t=0.1
+    MindlinShellMaterial mat_inst{200.0, 0.3, 0.1};
+    Material<MindlinReissnerShell3D> mat{mat_inst, ElasticUpdate{}};
+
+    ShellFixture(double Lx = 1.0, double Ly = 1.0)
+        : n0{0,  0.0, 0.0, 0.0}
+        , n1{1,  Lx,  0.0, 0.0}
+        , n2{2,  0.0, Ly,  0.0}
+        , n3{3,  Lx,  Ly,  0.0}
+        , element{std::optional<std::array<Node<dim>*, 4>>{
+              std::array<Node<dim>*, 4>{&n0, &n1, &n2, &n3}}}
+        , geom{element, integrator}
+    {
+        geom.set_sieve_id(0);
+    }
+
+    auto make_shell() {
+        return ShellElement<MindlinReissnerShell3D>{&geom, mat};
+    }
+};
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Test 1: Verify the constitutive matrix D = blkdiag(A, D_b, S)
+// ──────────────────────────────────────────────────────────────────────────────
+
+void test_shell_constitutive_matrix() {
+    const double E = 200.0, nu = 0.3, t = 0.1;
+    MindlinShellSection sec(E, nu, t);
+
+    auto D = sec.compliance_matrix();
+
+    const double Dm  = E * t / (1.0 - nu * nu);
+    const double Db  = E * t * t * t / (12.0 * (1.0 - nu * nu));
+    const double G   = E / (2.0 * (1.0 + nu));
+    const double Ds  = (5.0 / 6.0) * G * t;
+
+    bool ok = true;
+
+    // Membrane block A (rows/cols 0..2)
+    ok = ok && approx(D(0, 0), Dm,                 1e-8);
+    ok = ok && approx(D(0, 1), Dm * nu,            1e-8);
+    ok = ok && approx(D(1, 0), Dm * nu,            1e-8);
+    ok = ok && approx(D(1, 1), Dm,                 1e-8);
+    ok = ok && approx(D(2, 2), Dm * (1 - nu) / 2,  1e-8);
+
+    // Bending block D_b (rows/cols 3..5)
+    ok = ok && approx(D(3, 3), Db,                 1e-10);
+    ok = ok && approx(D(3, 4), Db * nu,            1e-10);
+    ok = ok && approx(D(4, 3), Db * nu,            1e-10);
+    ok = ok && approx(D(4, 4), Db,                 1e-10);
+    ok = ok && approx(D(5, 5), Db * (1 - nu) / 2,  1e-10);
+
+    // Transverse shear block S (rows/cols 6..7)
+    ok = ok && approx(D(6, 6), Ds, 1e-8);
+    ok = ok && approx(D(7, 7), Ds, 1e-8);
+
+    // Off-diagonal blocks must be zero
+    for (int i = 0; i < 3; ++i)
+        for (int j = 3; j < 8; ++j)
+            ok = ok && approx(D(i, j), 0.0, 1e-15);
+    for (int i = 3; i < 6; ++i) {
+        for (int j = 0; j < 3; ++j)
+            ok = ok && approx(D(i, j), 0.0, 1e-15);
+        for (int j = 6; j < 8; ++j)
+            ok = ok && approx(D(i, j), 0.0, 1e-15);
+    }
+    for (int i = 6; i < 8; ++i)
+        for (int j = 0; j < 6; ++j)
+            ok = ok && approx(D(i, j), 0.0, 1e-15);
+
+    report(__func__, ok);
+}
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Test 2: K is 24×24, symmetric, and has rank 18 (6 rigid-body zero modes)
+// ──────────────────────────────────────────────────────────────────────────────
+
+void test_shell_stiffness_symmetry_and_rank() {
+    ShellFixture f(2.0, 2.0);
+    auto shell = f.make_shell();
+    auto K_e = shell.K();
+
+    bool ok = true;
+
+    // Size
+    ok = ok && (K_e.rows() == 24) && (K_e.cols() == 24);
+
+    // Symmetry: K = Kᵀ
+    double asym = (K_e - K_e.transpose()).norm();
+    ok = ok && (asym < 1e-10 * K_e.norm());
+
+    // Eigenvalue analysis: expect 6 zero eigenvalues (rigid body modes)
+    // and 18 positive eigenvalues (+ 4 tiny from drilling penalty).
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(K_e);
+    auto evals = eig.eigenvalues();
+
+    // Sort eigenvalues (they are already sorted ascending by Eigen)
+    // Count zeros (relative to the largest eigenvalue)
+    double max_eval = evals(evals.size() - 1);
+    int n_zero = 0;
+    for (int i = 0; i < evals.size(); ++i) {
+        if (std::abs(evals(i)) < 1e-8 * max_eval)
+            ++n_zero;
+    }
+
+    // A flat shell has 6 rigid-body modes:
+    //   3 translations + 3 rotations
+    // The drilling DOF penalty adds small stiffness to θ₃ DOFs,
+    // so we expect exactly 6 zero eigenvalues.
+    ok = ok && (n_zero == 6);
+
+    // All non-zero eigenvalues must be positive
+    bool all_positive = true;
+    for (int i = n_zero; i < evals.size(); ++i) {
+        if (evals(i) < -1e-12 * max_eval)
+            all_positive = false;
+    }
+    ok = ok && all_positive;
+
+    report(__func__, ok);
+}
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Test 3: Membrane patch test — uniform in-plane stretch ε₁₁ = 1
+// ──────────────────────────────────────────────────────────────────────────────
+//
+//  For a unit square flat shell in the XY plane:
+//  - Apply u₁ = x₁ (i.e. ε₁₁ = 1) to all nodes, all other DOFs = 0.
+//  - Expected: N₁₁ = E·t/(1−ν²)·(ε₁₁ + ν·ε₂₂) = E·t/(1−ν²), N₂₂ = ν·N₁₁
+//  - The internal force should be consistent with K·u.
+//
+//  Since the element is in the XY plane and the local frame coincides with
+//  the global frame, we can directly check K·u.
+
+void test_shell_membrane_patch_test() {
+    const double Lx = 1.0, Ly = 1.0;
+    ShellFixture f(Lx, Ly);
+    auto shell = f.make_shell();
+    auto K_e = shell.K();
+
+    // Displacement vector: u₁ = x (uniform ε₁₁ = 1), all other DOFs zero.
+    // DOF ordering per node: (u, v, w, θx, θy, θz)
+    // Node x-coords: n0=0, n1=Lx, n2=0, n3=Lx
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(24);
+    u(0 * 6 + 0) = 0.0;   // n0: u = x = 0
+    u(1 * 6 + 0) = Lx;    // n1: u = x = Lx
+    u(2 * 6 + 0) = 0.0;   // n2: u = x = 0
+    u(3 * 6 + 0) = Lx;    // n3: u = x = Lx
+
+    Eigen::VectorXd f_int = K_e * u;
+
+    // For a flat shell with local = global frame, T = I.
+    // The strain at each GP due to u₁ = x should be:
+    //   ε₁₁ = ∂u₁/∂x₁ = 1, all others = 0
+    //
+    // Section forces: N₁₁ = D(0,0)·ε₁₁ = Dm, N₂₂ = D(1,0)·ε₁₁ = Dm·ν
+    //
+    // Integrated resultant: f_int should be consistent.
+    // For a unit square, the total force in x at the right edge (nodes 1, 3)
+    // should equal N₁₁ · Ly = Dm · 1.0
+    // and the total force in y should relate to N₂₂.
+    //
+    // Check equilibrium: sum of all x-forces = 0 (Newton's third law)
+
+    bool ok = true;
+
+    double sum_fx = 0.0, sum_fy = 0.0, sum_fz = 0.0;
+    for (int nd = 0; nd < 4; ++nd) {
+        sum_fx += f_int(nd * 6 + 0);
+        sum_fy += f_int(nd * 6 + 1);
+        sum_fz += f_int(nd * 6 + 2);
+    }
+
+    // Global force equilibrium
+    ok = ok && approx(sum_fx, 0.0, 1e-8);
+    ok = ok && approx(sum_fy, 0.0, 1e-8);
+    ok = ok && approx(sum_fz, 0.0, 1e-8);
+
+    // Check right-edge x-force = N₁₁·Ly (nodes 1 and 3 each carry half the load)
+    const double E = 200.0, nu = 0.3, t = 0.1;
+    const double Dm = E * t / (1.0 - nu * nu);
+    double fx_right = f_int(1 * 6 + 0) + f_int(3 * 6 + 0);
+    ok = ok && approx(fx_right, Dm * Ly, 1e-6);
+
+    // Left-edge x-force should be -N₁₁·Ly
+    double fx_left = f_int(0 * 6 + 0) + f_int(2 * 6 + 0);
+    ok = ok && approx(fx_left, -Dm * Ly, 1e-6);
+
+    // No out-of-plane forces (fz) or moments (Mx, My) for pure membrane mode
+    for (int nd = 0; nd < 4; ++nd) {
+        ok = ok && approx(f_int(nd * 6 + 2), 0.0, 1e-10); // w force
+    }
+
+    report(__func__, ok);
+}
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Test 4: Bending patch test — pure curvature κ₁₁ = 1
+// ──────────────────────────────────────────────────────────────────────────────
+//
+//  For θ₂ = x₁ applied to all nodes (and w = 0):
+//    β₁ = θ₂ = x₁  →  κ₁₁ = ∂β₁/∂x₁ = 1
+//    All other generalized strains = 0 EXCEPT the MITC4 transverse shear:
+//    γ₁₃ = Lx/2 ≠ 0  (because w = 0 and β₁ = x₁ → Kirchhoff not satisfied)
+//
+//  The shear contribution is symmetric (same for left/right edges), so:
+//    My_right - My_left = 2 · D_b · Ly  (pure bending difference)
+//
+//  Also:
+//    - No membrane forces (u₁ = u₂ = 0)
+//    - Sum of fz = 0 (translational equilibrium)
+
+void test_shell_bending_patch_test() {
+    const double Lx = 1.0, Ly = 1.0;
+    ShellFixture f(Lx, Ly);
+    auto shell = f.make_shell();
+    auto K_e = shell.K();
+
+    // θ₂ = x₁ at each node
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(24);
+    u(0 * 6 + 4) = 0.0;  // n0: x=0
+    u(1 * 6 + 4) = Lx;   // n1: x=Lx
+    u(2 * 6 + 4) = 0.0;  // n2: x=0
+    u(3 * 6 + 4) = Lx;   // n3: x=Lx
+
+    Eigen::VectorXd f_int = K_e * u;
+
+    bool ok = true;
+
+    // No membrane forces (u₁, u₂ = 0 → ε_membrane = 0)
+    for (int nd = 0; nd < 4; ++nd) {
+        ok = ok && approx(f_int(nd * 6 + 0), 0.0, 1e-10); // fx
+        ok = ok && approx(f_int(nd * 6 + 1), 0.0, 1e-10); // fy
+    }
+
+    // Translational equilibrium in z (sum of w-forces = 0)
+    double sum_fz = 0.0;
+    for (int nd = 0; nd < 4; ++nd)
+        sum_fz += f_int(nd * 6 + 2);
+    ok = ok && approx(sum_fz, 0.0, 1e-8);
+
+    // My_right - My_left = 2·Db·Ly
+    // (shear contributions are identical on left and right edges, so cancel)
+    const double E = 200.0, nu = 0.3, t_ = 0.1;
+    const double Db = E * t_ * t_ * t_ / (12.0 * (1.0 - nu * nu));
+
+    double My_right = f_int(1 * 6 + 4) + f_int(3 * 6 + 4);
+    double My_left  = f_int(0 * 6 + 4) + f_int(2 * 6 + 4);
+
+    ok = ok && approx(My_right - My_left, 2.0 * Db * Ly, 1e-8);
+
+    // Sanity: My_right > 0 (positive bending towards right edge)
+    ok = ok && (My_right > 0.0);
+
+    report(__func__, ok);
+}
+
 } // namespace
 
 int main() {
@@ -711,7 +992,15 @@ int main() {
   test_anisotropic_quadrature();
   test_inclined_plane_higher_order();
 
-  std::cout << "\n=== ElementGeometry Integration Tests ===\n";
+  // =====================================================================
+  // MITC4 Shell Element Tests
+  // =====================================================================
+  test_shell_constitutive_matrix();
+  test_shell_stiffness_symmetry_and_rank();
+  test_shell_membrane_patch_test();
+  test_shell_bending_patch_test();
+
+  std::cout << "\n=== ElementGeometry & Shell Tests ===\n";
   std::cout << "=== " << passed << " PASSED, " << failed << " FAILED ===\n";
 
   return failed ? 1 : 0;

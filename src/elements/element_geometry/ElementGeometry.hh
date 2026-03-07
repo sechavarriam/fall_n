@@ -36,9 +36,13 @@ namespace impl
     template <std::size_t dim> // Spatial dimension (topological dimension is runtime via virtual)
     class ElementGeometryConcept
     { // Define the minimum interface for all element types (of any kind)
-    using LocalCoordView = std::span<const double>;
-    using SpatialArray   = std::array<double, dim>;
     public:
+    using LocalCoordView  = std::span<const double>;
+    using SpatialArray    = std::array<double, dim>;
+    // Stack-allocated Jacobian: fixed rows = dim, dynamic cols (max = dim).
+    // Avoids heap allocation when crossing the virtual boundary.
+    using JacobianMatrix  = Eigen::Matrix<double, dim, Eigen::Dynamic, Eigen::ColMajor, dim, dim>;
+
         virtual ~ElementGeometryConcept() = default;
 
         virtual std::unique_ptr<ElementGeometryConcept<dim>> clone() const = 0;    // To allow copy construction of the wrapper
@@ -65,8 +69,8 @@ namespace impl
 
         constexpr virtual SpatialArray map_local_point(LocalCoordView x) const = 0;
 
-        // Raw Jacobian matrix (dim × topological_dim).
-        virtual Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const = 0;
+        // Raw Jacobian matrix (dim × topological_dim). Stack-allocated.
+        virtual JacobianMatrix evaluate_jacobian(LocalCoordView X) const = 0;
 
         // Scalar differential measure, computed from J according to
         // the relationship between topological_dim and dim:
@@ -104,6 +108,13 @@ namespace impl
         
         ElementType         element_   ; // Stores the ElementGeometry object
         IntegrationStrategy integrator_; // Stores the Integration Strategy object (Spacial integration strategy)
+
+        // Convert type-erased span to statically-sized natural-coordinate array.
+        constexpr NaturalArray to_natural(LocalCoordView X) const noexcept {
+            NaturalArray xi{};
+            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
+            return xi;
+        }
     
      public:
 
@@ -140,21 +151,17 @@ namespace impl
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
 
         constexpr SpatialArray map_local_point(LocalCoordView x) const override {
-            NaturalArray xi{};
-            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = x[k];
-            return element_.map_local_point(xi);
+            return element_.map_local_point(to_natural(x));
         };
 
-        Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const override {
-            NaturalArray xi{};
-            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
-            return element_.evaluate_jacobian(xi);
+        using JacobianMatrix = typename ElementGeometryConcept<dim>::JacobianMatrix;
+
+        JacobianMatrix evaluate_jacobian(LocalCoordView X) const override {
+            return element_.evaluate_jacobian(to_natural(X));
         };
 
         double differential_measure(LocalCoordView X) const override {
-            NaturalArray xi{};
-            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
-            auto J = element_.evaluate_jacobian(xi); // Static-size Eigen matrix
+            auto J = element_.evaluate_jacobian(to_natural(X)); // Static-size Eigen matrix
 
             if constexpr (topological_dim == dim) {
                 return std::abs(J.determinant());
@@ -168,15 +175,11 @@ namespace impl
         };
 
         constexpr double H(std::size_t i, LocalCoordView X) const override {
-            NaturalArray xi{};
-            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
-            return element_.H(i, xi);
+            return element_.H(i, to_natural(X));
         };
 
         constexpr double dH_dx(std::size_t i, std::size_t j, LocalCoordView X) const override {
-            NaturalArray xi{};
-            for (std::size_t k = 0; k < topological_dim; ++k) xi[k] = X[k];
-            return element_.dH_dx(i, j, xi);
+            return element_.dH_dx(i, j, to_natural(X));
         };
 
         constexpr LocalCoordView reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);};
@@ -216,8 +219,8 @@ public:
 
     constexpr SpatialArray map_local_point(LocalCoordView x) const { return pimpl_->map_local_point(x); };
 
-    // Raw Jacobian matrix (dim × topological_dim).
-    Eigen::MatrixXd evaluate_jacobian(LocalCoordView X) const { return pimpl_->evaluate_jacobian(X); };
+    // Raw Jacobian matrix (dim × topological_dim). Stack-allocated.
+    auto evaluate_jacobian(LocalCoordView X) const { return pimpl_->evaluate_jacobian(X); };
 
     // Scalar differential measure — topology-aware, computed via if constexpr
     // inside the OwningModel (static-size J, zero-cost dispatch).
@@ -262,8 +265,8 @@ public:
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
 
-    constexpr void allocate_integration_points(){ // TODO: define a sentincel bool
-    // MPORTANTE! GARANTIZAR QUE ESTO SOLO SE EJECUTE UNA VEZ!  if size != N ...
+    constexpr void allocate_integration_points(){
+        if (!integration_point_.empty()) return; // Already allocated — idempotent guard.
         const auto N = pimpl_->num_integration_points();
         integration_point_.reserve(N);
         for (std::size_t i = 0; i < N; ++i){
