@@ -40,6 +40,7 @@
 #include "src/elements/ContinuumElement.hh"
 #include "src/elements/StructuralElement.hh"
 #include "src/elements/BeamElement.hh"
+#include "src/elements/ShellElement.hh"
 #include "src/elements/ElementPolicy.hh"
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
@@ -76,6 +77,9 @@
 #include "src/materials/beam/BeamGeneralizedStrain.hh"
 #include "src/materials/beam/BeamSectionForces.hh"
 
+#include "src/materials/shell/ShellGeneralizedStrain.hh"
+#include "src/materials/shell/ShellResultants.hh"
+
 // --- Policy / State infrastructure ---
 #include "src/materials/MaterialPolicy.hh"
 #include "src/materials/MaterialStatePolicy.hh"
@@ -88,6 +92,7 @@
 #include "src/materials/constitutive_models/lineal/ElasticRelation.hh"
 #include "src/materials/constitutive_models/lineal/IsotropicRelation.hh"
 #include "src/materials/constitutive_models/lineal/TimoshenkoBeamSection.hh"
+#include "src/materials/constitutive_models/lineal/MindlinShellSection.hh"
 
 // --- Plasticity building blocks ---
 #include "src/materials/constitutive_models/non_lineal/plasticity/PlasticityConcepts.hh"

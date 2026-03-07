@@ -10,6 +10,7 @@
 // Specific relations — needed by convenience aliases at the bottom
 #include "constitutive_models/lineal/IsotropicRelation.hh"
 #include "constitutive_models/lineal/TimoshenkoBeamSection.hh"
+#include "constitutive_models/lineal/MindlinShellSection.hh"
 #include "constitutive_models/non_lineal/InelasticRelation.hh"
 
 // =============================================================================
@@ -242,6 +243,13 @@ using UniaxialIsotropicElasticMaterial  = ElasticMaterial<UniaxialIsotropicRelat
 
 using TimoshenkoBeamMaterial3D = ElasticMaterial<TimoshenkoBeamSection3D>;
 using TimoshenkoBeamMaterial2D = ElasticMaterial<TimoshenkoBeamSection2D>;
+
+
+// =============================================================================
+//  Named material aliases — Shells
+// =============================================================================
+
+using MindlinShellMaterial = ElasticMaterial<MindlinShellSection>;
 
 
 // =============================================================================
