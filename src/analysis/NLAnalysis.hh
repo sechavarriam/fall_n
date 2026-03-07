@@ -34,9 +34,10 @@
 //
 // =============================================================================
 
-template <typename MaterialPolicy, std::size_t ndofs = MaterialPolicy::dim>
+template <typename MaterialPolicy, std::size_t ndofs = MaterialPolicy::dim,
+          typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs>>>
 class NonlinearAnalysis {
-    using ModelT = Model<MaterialPolicy, ndofs>;
+    using ModelT = Model<MaterialPolicy, ndofs, ElemPolicy>;
     static constexpr auto dim = MaterialPolicy::dim;
 
     ModelT* model_{nullptr};

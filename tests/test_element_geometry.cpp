@@ -41,7 +41,10 @@ void test_integrate_span_full_dim_2d_constant() {
   Node<dim> n4{3, 0.0, 1.0};
 
   // Q4 element in 2D (topological_dim = dim = 2)
-  std::optional<std::array<Node<dim> *, 4>> nodes{std::array<Node<dim> *, 4>{&n1, &n2, &n3, &n4}};
+  // Node ordering must follow tensor-product convention of LagrangianCell<2,2>:
+  //   Node 0 = (-1,-1), Node 1 = (+1,-1), Node 2 = (-1,+1), Node 3 = (+1,+1)
+  // i.e. bottom-left, bottom-right, top-left, top-right  (ξ varies fastest)
+  std::optional<std::array<Node<dim> *, 4>> nodes{std::array<Node<dim> *, 4>{&n1, &n2, &n4, &n3}};
   LagrangeElement2D<2, 2> element(nodes);
   GaussLegendreCellIntegrator<2, 2> integrator;
 
@@ -72,7 +75,8 @@ void test_reference_integration_point_span_shape() {
   Node<dim> n3{2, 1.0, 1.0};
   Node<dim> n4{3, 0.0, 1.0};
 
-  std::optional<std::array<Node<dim> *, 4>> nodes{std::array<Node<dim> *, 4>{&n1, &n2, &n3, &n4}};
+  // Tensor-product ordering: BL, BR, TL, TR → {n1, n2, n4, n3}
+  std::optional<std::array<Node<dim> *, 4>> nodes{std::array<Node<dim> *, 4>{&n1, &n2, &n4, &n3}};
   LagrangeElement2D<2, 2> element(nodes);
   GaussLegendreCellIntegrator<2, 2> integrator;
   ElementGeometry<dim> geom(element, integrator);

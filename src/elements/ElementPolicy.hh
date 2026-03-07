@@ -39,6 +39,7 @@
 
 #include "FiniteElementConcept.hh"
 #include "FEM_Element.hh"
+#include "StructuralElement.hh"
 
 
 // ── Concept for element policies ─────────────────────────────────────────────
@@ -80,5 +81,8 @@ struct MultiElementPolicy {
 
 static_assert(ElementPolicyLike<MultiElementPolicy>,
     "MultiElementPolicy must satisfy ElementPolicyLike");
+
+static_assert(ElementPolicyLike<SingleElementPolicy<StructuralElement>>,
+    "SingleElementPolicy<StructuralElement> must satisfy ElementPolicyLike");
 
 #endif // FALL_N_ELEMENT_POLICY_HH

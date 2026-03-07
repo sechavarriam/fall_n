@@ -11,6 +11,7 @@
 #include "../materials/MaterialPolicy.hh"
 
 #include "../elements/ContinuumElement.hh" // Se usa este por ahora mientras se define la interfaz del wrapper.
+#include "../elements/ElementPolicy.hh"
 
 #include "../post-processing/VTK/VTKdataContainer.hh"
 
@@ -29,14 +30,16 @@
 // The MaterialPolicy defines the constitutive relation and the number of dimensions
 template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 
     typename MaterialPolicy,                 //Considerar la definici[on de un ModelPolicy que encapsule estaticamente el MaterialPolicy
-    std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
+    std::size_t ndofs = MaterialPolicy::dim, //Default: Solid Model with "dim" displacements per node.
+    typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs>>
     >
 class Model{
     friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
 
 public:    
     using MaterialT         = Material<MaterialPolicy>;
-    using FEM_Element       = ContinuumElement<MaterialPolicy, ndofs>; // Aca ira en adelante el wrapper de Element FEM_Element
+    using element_type      = typename ElemPolicy::element_type;
+    using container_type    = typename ElemPolicy::container_type;
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
@@ -50,7 +53,7 @@ public:
     bool is_bc_updated{false}; // Flag to check if the model has been updated (global-local sixes changed).
 
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
-    std::vector<FEM_Element> elements;
+    container_type elements;
     
     Vec nodal_forces{nullptr}; 
     Vec global_imposed_solution{nullptr}; // Global Displacement Vector (coordinate sense and parallel sense)
@@ -209,41 +212,51 @@ public:
 
 
     void update_elements_state(){
-        for (auto &element : elements) {
-            element.set_material_point_state(*this);
+        if constexpr (requires(element_type e) { e.set_material_point_state(*static_cast<Model*>(nullptr)); }) {
+            for (auto &element : elements) {
+                element.set_material_point_state(*this);
+            }
         }
+        // For structural elements, commit_material_state already handles state update.
     }
 
 
     void record_gauss_strains(VTKDataContainer &recorder){
-
-        std::size_t N = domain_->num_integration_points() * MaterialPolicy::StrainT::num_components;
+        if constexpr (requires(element_type e) { e.material_points(); }) {
+            std::size_t N = domain_->num_integration_points() * MaterialPolicy::StrainT::num_components;
         
-        std::vector<PetscScalar> strains; 
-        strains.reserve(N);
+            std::vector<PetscScalar> strains; 
+            strains.reserve(N);
 
-        for (auto &element : elements){
-            for (auto &gauss_point : element.material_points()){
-                const auto &state = gauss_point.current_state();
-                const auto  strain = state.components();
+            for (auto &element : elements){
+                for (auto &gauss_point : element.material_points()){
+                    const auto &state = gauss_point.current_state();
+                    const auto  strain = state.components();
 
-                for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++) {
-                    strains.push_back(strain[i]);
+                    for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++) {
+                        strains.push_back(strain[i]);
+                    }
                 }
             }
+
+            recorder.load_gauss_tensor_field("Cauchy Strain", strains.data(), domain_->num_integration_points());
         }
-
-        recorder.load_gauss_tensor_field("Cauchy Strain", strains.data(), domain_->num_integration_points());  
-
     }
 
     // Constructors
-    Model(Domain<dim> &domain, MaterialT default_mat) : domain_(std::addressof(domain)){
+
+    // Constructor 1: auto-creates elements from domain geometries + material.
+    //   Works for ContinuumElement, BeamElement, or any concrete element type
+    //   constructible from (ElementGeometry<dim>*, MaterialT).
+    Model(Domain<dim> &domain, MaterialT default_mat)
+        requires (std::constructible_from<element_type, ElementGeometry<dim>*, MaterialT>)
+        : domain_(std::addressof(domain))
+    {
         elements.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         // GEOMETRIC ELEMENT WRAPPING        
         for (auto &element : domain_->elements()){ //By now all elements are ContinuumElements
-            elements.emplace_back(FEM_Element{std::addressof(element), default_mat}); //By default, all elements have the same material
+            elements.emplace_back(element_type{std::addressof(element), default_mat}); //By default, all elements have the same material
         }
 
         // PETSC SETUP
@@ -253,6 +266,22 @@ public:
 
         set_num_dofs_in_elements(); // 1. Set the number of dofs per node in the elements (FEM_Elements) // TODO: AVOID THIS!.
         set_sieve_layout();         // 2. Set the sieve layout for the mesh
+    }
+
+    // Constructor 2: takes pre-built elements (for type-erased wrappers
+    //   like StructuralElement, or any case where element construction
+    //   differs from the simple (geometry*, material) pattern).
+    Model(Domain<dim> &domain, container_type pre_built)
+        : domain_(std::addressof(domain)),
+          elements(std::move(pre_built))
+    {
+        // PETSC SETUP
+        DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
+        DMSetDimension(domain_->mesh.dm, dim);
+        DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
+
+        set_num_dofs_in_elements();
+        set_sieve_layout();
     }
 
     Model() = delete;

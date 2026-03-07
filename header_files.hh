@@ -39,6 +39,8 @@
 #include "src/elements/FEM_Element.hh"
 #include "src/elements/ContinuumElement.hh"
 #include "src/elements/StructuralElement.hh"
+#include "src/elements/BeamElement.hh"
+#include "src/elements/ElementPolicy.hh"
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"

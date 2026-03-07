@@ -20,6 +20,7 @@
 #include "src/elements/FEM_Element.hh"
 #include "src/elements/ElementPolicy.hh"
 #include "src/elements/ContinuumElement.hh"
+#include "src/elements/StructuralElement.hh"
 #include "src/materials/MaterialPolicy.hh"
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -82,10 +83,15 @@ static_assert( FiniteElement<ContinuumElement<PlaneMaterial, 2>>);
 static_assert( ElementPolicyLike<SingleElementPolicy<MockContinuum>>);
 static_assert( ElementPolicyLike<SingleElementPolicy<MockBeam>>);
 static_assert( ElementPolicyLike<MultiElementPolicy>);
+static_assert( ElementPolicyLike<SingleElementPolicy<StructuralElement>>);
 
 // 5. is_homogeneous flag
 static_assert( SingleElementPolicy<MockContinuum>::is_homogeneous);
 static_assert(!MultiElementPolicy::is_homogeneous);
+static_assert( SingleElementPolicy<StructuralElement>::is_homogeneous);
+
+// 6. StructuralElement satisfies FiniteElement
+static_assert( FiniteElement<StructuralElement>);
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -285,7 +291,60 @@ bool policy_container_check() {
 
 TEST(test_element_policy_concept_constraint) {
     bool ok = policy_container_check<SingleElementPolicy<MockContinuum>>()
-           && policy_container_check<MultiElementPolicy>();
+           && policy_container_check<MultiElementPolicy>()
+           && policy_container_check<SingleElementPolicy<StructuralElement>>();
+
+    report(__func__, ok);
+}
+
+// -- StructuralElement: type-erased wrapper for structural elements --
+
+TEST(test_structural_element_wraps_mock) {
+    StructuralElement se(MockBeam{});
+
+    bool ok = (se.num_nodes()              == 2)
+           && (se.num_integration_points() == 3)
+           && (se.sieve_id()               == 99);
+
+    // Assembly loop works through type erasure
+    se.set_num_dof_in_nodes();
+    se.inject_K(nullptr);
+    se.compute_internal_forces(nullptr, nullptr);
+    se.inject_tangent_stiffness(nullptr, nullptr);
+    se.commit_material_state(nullptr);
+
+    report(__func__, ok);
+}
+
+TEST(test_structural_element_copy_semantics) {
+    StructuralElement se1(MockBeam{});
+    StructuralElement se2 = se1;  // copy
+
+    bool ok = (se2.num_nodes()  == 2)
+           && (se2.sieve_id()   == 99);
+
+    // Move
+    StructuralElement se3 = std::move(se1);
+    ok = ok && (se3.sieve_id() == 99);
+
+    report(__func__, ok);
+}
+
+TEST(test_structural_element_policy_container) {
+    SingleElementPolicy<StructuralElement>::container_type elements;
+
+    elements.emplace_back(MockBeam{});
+    elements.emplace_back(MockContinuum{.nodes_ = 8, .gps_ = 8, .id_ = 55});
+
+    bool ok = (elements.size() == 2)
+           && (elements[0].num_nodes() == 2)
+           && (elements[1].num_nodes() == 8)
+           && (elements[1].sieve_id()  == 55);
+
+    for (auto& e : elements) {
+        e.inject_K(nullptr);
+        e.compute_internal_forces(nullptr, nullptr);
+    }
 
     report(__func__, ok);
 }
