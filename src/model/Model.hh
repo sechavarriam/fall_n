@@ -26,13 +26,18 @@
 //using LinealElastic2D = ElasticRelation<PlaneMaterial>;
 //using LinealElastic1D = ElasticRelation<UniaxialMaterial>;
 
-// The MaterialPolicy defines the constitutive relation and the number of dimensions
-template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 
-    typename MaterialPolicy,                 //Considerar la definici[on de un ModelPolicy que encapsule estaticamente el MaterialPolicy
-    std::size_t ndofs = MaterialPolicy::dim  //Default: Solid Model with "dim" displacements per node. 
+// Model: High-level FEM model that aggregates the spatial domain, finite elements, material 
+// assignments, boundary conditions, and PETSc global vectors/matrices. It coordinates the 
+// assembly pipeline (DoF layout -> BCs -> vectors -> stiffness matrix) and delegates element-level 
+// computations (stiffness, internal forces, state updates) to its ContinuumElement instances.
+//
+// The MaterialPolicy defines the constitutive relation and the number of dimensions.
+template </*TODO: typename KinematicPolicy,*/ // Kinematic Policy (e.g. Static, pseudo-static, dynamic...)
+    typename MaterialPolicy,                  // Considerar la definición de un ModelPolicy que encapsule estáticamente el MaterialPolicy
+    std::size_t ndofs = MaterialPolicy::dim   // Default: Solid Model with "dim" displacements per node.
     >
 class Model{
-    friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
+    friend class Analysis; // Por ahora. Para no exponer públicamente el dominio.
 
 public:    
     using MaterialT         = Material<MaterialPolicy>;
@@ -47,7 +52,7 @@ private:
     PetscSection      dof_section{nullptr}; 
 public:
 
-    bool is_bc_updated{false}; // Flag to check if the model has been updated (global-local sixes changed).
+    bool is_bc_updated{false}; // Flag to check if the boundary conditions have been applied (global-local sizes changed).
 
     //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
     std::vector<FEM_Element> elements;
@@ -163,9 +168,9 @@ public:
         }
     }
 
-    void fix_x (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(0, val, tol);} // ok
-    void fix_y (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(1, val, tol);} // ???
-    void fix_z (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(2, val, tol);} // NOT WORKING???? WHY???
+    void fix_x (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(0, val, tol);}
+    void fix_y (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(1, val, tol);}
+    void fix_z (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(2, val, tol);} // FIXME: Reported as not working — needs investigation.
 
     void apply_node_force(std::size_t node_idx, auto... force_components) //REFACTOR EN TERMINOS DEL PLEX
     requires (std::is_convertible_v<decltype(force_components), PetscScalar> && ...){
@@ -265,25 +270,5 @@ public:
     }
 
 };
-
-    //void inject_K(){
-    //    for (auto &element : elements) element.inject_K(K);
-    //    MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
-    //    MatAssemblyEnd  (K, MAT_FINAL_ASSEMBLY);
-    //    //MatView(K, PETSC_VIEWER_DRAW_WORLD); // Draw the matrix
-    //    //domain_->mesh.view();                // View the mesh
-    //}
-
-    //auto get_node_solution(PetscInt node_plex_id) // move to analysis?
-    //{
-    //    PetscInt offset, num_dofs;
-    //    const PetscScalar *u;
-    //    PetscSectionGetOffset(dof_section, node_plex_id, &offset); 
-    //    PetscSectionGetDof   (dof_section, node_plex_id, &num_dofs);
-    //    VecGetArrayRead(U, &u);
-    //    auto dofs = std::span<const PetscScalar>(u + offset, num_dofs);
-    //    VecRestoreArrayRead(U, &u);
-    //    return dofs; 
-    //}
 
 #endif // FALL_N_MODEL_HH
