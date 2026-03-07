@@ -231,6 +231,25 @@ vtk_module_autoinit(
 
 add_test(NAME element_concept COMMAND fall_n_element_concept_test)
 
+# ── BeamElement tests ──────────────────────────────────────────────────────
+add_executable(fall_n_beam_test
+  tests/test_beam_element.cpp
+)
+
+target_include_directories(fall_n_beam_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_beam_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_beam_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_beam_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_beam_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_beam_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME beam_element COMMAND fall_n_beam_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
