@@ -43,31 +43,38 @@ class ContinuumElement
   ElementGeometry<dim>*       geometry_         ;
   std::vector<MaterialPointT> material_points_{};
 
-  std::vector<PetscInt> global_dof_index_;
+  // ── DOF index cache (flat array, lazily populated) ────────────────────
+  std::vector<PetscInt> dof_indices_;
+  bool                  dofs_cached_{false};
+
+  void ensure_dof_cache() noexcept {
+      if (dofs_cached_) return;
+      collect_dof_indices();
+  }
+
+  void collect_dof_indices() noexcept {
+      const auto total = ndof * num_nodes();
+      dof_indices_.clear();
+      dof_indices_.reserve(total);
+      for (std::size_t i = 0; i < num_nodes(); ++i)
+          for (const auto idx : geometry_->node_p(i).dof_index())
+              dof_indices_.push_back(idx);
+      dofs_cached_ = true;
+  }
+
+  // Invalidate cache (call after DOF renumbering, e.g. Cuthill-McKee)
+  void invalidate_dof_cache() noexcept { dofs_cached_ = false; }
 
   // Helper: extract element DOFs from a local PETSc vector
   Eigen::VectorXd extract_element_dofs(Vec u_local) {
-      if (!dofs_set_) set_dofs_index();
-      Eigen::VectorXd u_e(dim * num_nodes());
-      VecGetValues(u_local, static_cast<PetscInt>(dim * num_nodes()),
-                   global_dof_index_.data(), u_e.data());
+      ensure_dof_cache();
+      const auto n = static_cast<PetscInt>(dof_indices_.size());
+      Eigen::VectorXd u_e(n);
+      VecGetValues(u_local, n, dof_indices_.data(), u_e.data());
       return u_e;
   }
 
-  bool dofs_set_        {false}; 
-  bool is_multimaterial_{true }; // If true, the element has different materials in each integration point.
-
 private:
-  constexpr auto get_dofs_index_from_nodes() const noexcept{
-      PetscInt i;
-      auto N = static_cast<PetscInt>(num_nodes());
-      std::vector<std::span<PetscInt>> dofs_index; // This thing avoids the copy of the vector.
-      dofs_index.reserve(N);
-
-      for (i = 0; i < N; ++i) dofs_index.emplace_back(geometry_->node_p(i).dof_index());
-  
-      return dofs_index;
-    };
 
 public:
 
@@ -94,23 +101,6 @@ public:
   };
 
   constexpr auto num_nodes() const noexcept { return geometry_->num_nodes(); };
-
-  constexpr void set_dof_index(const PetscInt data[]) noexcept{
-    for (std::size_t i = 0; i < num_nodes(); ++i){
-      geometry_->node_p(i).set_dof_index(data);
-    }
-  }; 
-
-  // TO DEPRECATE!
-  constexpr void set_dofs_index() noexcept{
-    global_dof_index_.clear();
-    for (auto &idx : get_dofs_index_from_nodes()){
-      for (auto &i : idx){
-        global_dof_index_.push_back(i);
-      }
-    }
-    dofs_set_ = true;
-  };
 
   
   inline InterpMatrixT H(const Array &X){
@@ -174,38 +164,33 @@ public:
     return B;
   }
 
-  inline Eigen::MatrixXd BtCB(const Array &X){
-    auto get_C = [this](){
-      static std::size_t call{0}; // Esto tiene que ser una muy mala practica.
-      static std::size_t N = num_integration_points(); 
-      if (is_multimaterial_){ // TODO: Cheks...
-        return material_points_[(call++) % N].C();
-      }
-      else{
-        return material_points_[0].C();
-      }
-    };
-    return B(X).transpose() * get_C() * B(X);
+  inline Eigen::MatrixXd BtCB(std::size_t gp, const Array &X){
+    auto B_x = B(X);
+    return B_x.transpose() * material_points_[gp].C() * B_x;
   };
 
   Eigen::MatrixXd K(){
-    return geometry_->integrate([this](std::span<const double> X) -> Eigen::MatrixXd {
-      Array Xi{};
-      for (std::size_t k = 0; k < dim; ++k) Xi[k] = X[k];
-      return BtCB(Xi);
-    });
+    const auto n = ndof * num_nodes();
+    Eigen::MatrixXd K_e = Eigen::MatrixXd::Zero(n, n);
+
+    for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+        auto   ref_pt = geometry_->reference_integration_point(gp);
+        double w      = geometry_->weight(gp);
+        double Jdet   = geometry_->detJ(ref_pt);
+
+        Array Xi{};
+        for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+        K_e += w * Jdet * BtCB(gp, Xi);
+    }
+    return K_e;
   };
 
-  // template<typename M>
-  // void inject_K(M model){ // TODO: Constrain with concept };
-  void inject_K([[maybe_unused]] Mat &model_K){ // No se pasa K sino el modelo_? TER EL PLEX.
-    std::vector<PetscInt> idxs;
-    for (std::size_t i = 0; i < num_nodes(); ++i){
-      for (const auto idx : geometry_->node_p(i).dof_index()){
-        idxs.push_back(idx);
-      }
-    }
-    MatSetValuesLocal(model_K, idxs.size(), idxs.data(), idxs.size(), idxs.data(), this->K().data(), ADD_VALUES);
+  void inject_K(Mat &model_K){
+    ensure_dof_cache();
+    auto K_e = K();
+    const auto n = static_cast<PetscInt>(dof_indices_.size());
+    MatSetValuesLocal(model_K, n, dof_indices_.data(), n, dof_indices_.data(), K_e.data(), ADD_VALUES);
   };
 
   // ========================== Nonlinear element operations ================================
@@ -233,8 +218,9 @@ public:
           f_e += w * Jdet * (B_x.transpose() * sigma.components());
       }
 
-      VecSetValues(f_local, static_cast<PetscInt>(global_dof_index_.size()),
-                   global_dof_index_.data(), f_e.data(), ADD_VALUES);
+      ensure_dof_cache();
+      VecSetValues(f_local, static_cast<PetscInt>(dof_indices_.size()),
+                   dof_indices_.data(), f_e.data(), ADD_VALUES);
   }
 
   // Assemble tangent stiffness:  K_e = Σ_gp  w·|J|·Bᵀ·C_t(ε(u))·B
@@ -260,15 +246,10 @@ public:
           K_e += w * Jdet * (B_x.transpose() * C_t * B_x);
       }
 
-      std::vector<PetscInt> idxs;
-      for (std::size_t i = 0; i < num_nodes(); ++i)
-          for (const auto idx : geometry_->node_p(i).dof_index())
-              idxs.push_back(idx);
-
-      MatSetValuesLocal(J_mat,
-          static_cast<PetscInt>(idxs.size()), idxs.data(),
-          static_cast<PetscInt>(idxs.size()), idxs.data(),
-          K_e.data(), ADD_VALUES);
+      ensure_dof_cache();
+      const auto n = static_cast<PetscInt>(dof_indices_.size());
+      MatSetValuesLocal(J_mat, n, dof_indices_.data(), n, dof_indices_.data(),
+                        K_e.data(), ADD_VALUES);
   }
 
   // Commit material state at all Gauss points after global convergence.
@@ -293,11 +274,10 @@ public:
 
 
   auto get_current_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
-    if (!dofs_set_) set_dofs_index(); 
-    std::vector<PetscScalar> u(num_nodes()*dim);
-    
-    VecGetValues(model.current_state , num_nodes()*dim, global_dof_index_.data(), u.data());
-
+    ensure_dof_cache();
+    std::vector<PetscScalar> u(dof_indices_.size());
+    VecGetValues(model.current_state, static_cast<PetscInt>(dof_indices_.size()),
+                 dof_indices_.data(), u.data());
     return u;
   };
 
@@ -307,7 +287,7 @@ public:
     using EigenMap = Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>>;
 
     std::ranges::contiguous_range auto u = get_current_state(model);
-    EigenMap u_h(u.data(), dim*num_nodes());
+    EigenMap u_h(u.data(), static_cast<Eigen::Index>(u.size()));
 
     e_h.set_strain(B(X)*u_h);
 
@@ -325,11 +305,12 @@ public:
   ContinuumElement(ElementGeometry<dim> *geometry) : geometry_{geometry} {}; // Metodo para setear materiales debe ser llamado despues de la creacion de los elementos.
 
   ContinuumElement(ElementGeometry<dim> *geometry, MaterialT material) : geometry_{geometry}{
-    for (std::size_t i = 0; i < geometry_->num_integration_points(); ++i){
-      material_points_.reserve(geometry_->num_integration_points());
+    const auto n_gp = geometry_->num_integration_points();
+    material_points_.reserve(n_gp);
+    for (std::size_t i = 0; i < n_gp; ++i){
       material_points_.emplace_back(MaterialPointT{material});
     }
-    bind_integration_points(); // its not nedded here. Move and allocate when needed (TODO).
+    bind_integration_points();
   };
 
   ~ContinuumElement() = default;
