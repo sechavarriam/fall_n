@@ -212,6 +212,25 @@ vtk_module_autoinit(
 
 add_test(NAME section COMMAND fall_n_section_test)
 
+# ── FiniteElement concept + FEM_Element + ElementPolicy tests ──────────────
+add_executable(fall_n_element_concept_test
+  tests/test_finite_element_concept.cpp
+)
+
+target_include_directories(fall_n_element_concept_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_element_concept_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_element_concept_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_element_concept_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_element_concept_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_element_concept_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME element_concept COMMAND fall_n_element_concept_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
