@@ -176,7 +176,7 @@ public:
     for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
         auto   ref_pt = geometry_->reference_integration_point(gp);
         double w      = geometry_->weight(gp);
-        double Jdet   = geometry_->detJ(ref_pt);
+        double Jdet   = geometry_->differential_measure(ref_pt);
 
         Array Xi{};
         for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
@@ -205,7 +205,7 @@ public:
       for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
           auto   ref_pt = geometry_->reference_integration_point(gp);
           double w      = geometry_->weight(gp);
-          double Jdet   = geometry_->detJ(ref_pt);
+          double Jdet   = geometry_->differential_measure(ref_pt);
 
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
@@ -233,7 +233,7 @@ public:
       for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
           auto   ref_pt = geometry_->reference_integration_point(gp);
           double w      = geometry_->weight(gp);
-          double Jdet   = geometry_->detJ(ref_pt);
+          double Jdet   = geometry_->differential_measure(ref_pt);
 
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
