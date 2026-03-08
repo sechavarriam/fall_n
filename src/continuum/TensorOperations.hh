@@ -242,16 +242,16 @@ SymmetricTensor2<dim> second_piola_from_first(const Tensor2<dim>& P,
 
 /// Push-forward of a 4th-order tangent: 𝕔 = (1/J) F⊗F : ℂ : Fᵀ⊗Fᵀ
 /// Full index contraction (not optimized — correct reference implementation).
+///
+/// c_ijkl = (1/J) Σ_{IJKL} F_iI F_jJ ℂ_IJKL F_kK F_lL
+///
+/// Works for any dim ∈ {1, 2, 3}.
 template <std::size_t dim>
-    requires (dim == 3)
 Tensor4<dim> push_forward_tangent(const Tensor4<dim>& CC,
                                    const Tensor2<dim>& F) {
     const double J = F.determinant();
     const auto& Fm = F.matrix();
 
-    // Work in full index notation, then convert back to Voigt
-    // c_ijkl = (1/J) F_iI F_jJ ℂ_IJKL F_kK F_lL
-    // We use the Voigt maps to iterate
     constexpr auto N = Tensor4<dim>::N;
     using ST2 = SymmetricTensor2<dim>;
 

@@ -324,6 +324,17 @@ target_link_libraries(fall_n_newton_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME newton_element COMMAND fall_n_newton_test)
 
+# ── Updated Lagrangian tests (Phase 6) ───────────────────────────────────────
+add_executable(fall_n_ul_test
+  tests/test_updated_lagrangian.cpp
+)
+
+target_include_directories(fall_n_ul_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_ul_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME updated_lagrangian COMMAND fall_n_ul_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
