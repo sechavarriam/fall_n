@@ -313,6 +313,17 @@ target_link_libraries(fall_n_tl_integration_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME tl_integration COMMAND fall_n_tl_integration_test)
 
+# ── Newton-Raphson element tests (Phase 5) ───────────────────────────────────
+add_executable(fall_n_newton_test
+  tests/test_newton_element.cpp
+)
+
+target_include_directories(fall_n_newton_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_newton_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME newton_element COMMAND fall_n_newton_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
