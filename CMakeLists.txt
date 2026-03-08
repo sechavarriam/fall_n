@@ -269,6 +269,17 @@ vtk_module_autoinit(
 
 add_test(NAME beam_n_element COMMAND fall_n_beam_n_test)
 
+# ── Continuum tensor module tests ─────────────────────────────────────────────
+add_executable(fall_n_continuum_test
+  tests/test_continuum_tensors.cpp
+)
+
+target_include_directories(fall_n_continuum_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_continuum_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME continuum_tensors COMMAND fall_n_continuum_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
