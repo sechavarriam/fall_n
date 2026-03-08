@@ -302,6 +302,17 @@ target_link_libraries(fall_n_hyperelastic_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME hyperelastic COMMAND fall_n_hyperelastic_test)
 
+# ── TotalLagrangian integration tests (Phase 4) ─────────────────────────────
+add_executable(fall_n_tl_integration_test
+  tests/test_tl_integration.cpp
+)
+
+target_include_directories(fall_n_tl_integration_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_tl_integration_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME tl_integration COMMAND fall_n_tl_integration_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
