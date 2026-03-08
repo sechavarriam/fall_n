@@ -335,6 +335,32 @@ target_link_libraries(fall_n_ul_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME updated_lagrangian COMMAND fall_n_ul_test)
 
+# ── SNES + Hyperelastic end-to-end tests (Phase 7) ──────────────────────────
+add_executable(fall_n_snes_test
+  tests/test_snes_hyperelastic.cpp
+)
+
+target_include_directories(fall_n_snes_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_snes_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_snes_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_snes_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_snes_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_snes_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+# Optional: enable OpenMP for parallel element assembly
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_snes_test PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(fall_n         PUBLIC  OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME snes_hyperelastic COMMAND fall_n_snes_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================

@@ -34,10 +34,12 @@
 //
 // =============================================================================
 
-template <typename MaterialPolicy, std::size_t ndofs = MaterialPolicy::dim,
-          typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs>>>
+template <typename MaterialPolicy,
+          typename KinematicPolicy = continuum::SmallStrain,
+          std::size_t ndofs = MaterialPolicy::dim,
+          typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class NonlinearAnalysis {
-    using ModelT = Model<MaterialPolicy, ndofs, ElemPolicy>;
+    using ModelT = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
     static constexpr auto dim = MaterialPolicy::dim;
 
     ModelT* model_{nullptr};
@@ -62,6 +64,10 @@ class NonlinearAnalysis {
     //  Called by SNES at each Newton iteration to evaluate the residual.
     //  Internal forces f_int are assembled element-by-element, where
     //  each element evaluates σ(ε) through the material's Strategy.
+    //
+    //  Assembly is parallelised in two phases:
+    //    Phase 1 — Extract element DOFs + compute f_e  (parallel, thread-safe)
+    //    Phase 2 — Inject f_e into PETSc local vector  (sequential, PETSc API)
 
     static PetscErrorCode FormResidual(
         SNES /*snes*/, Vec u_global, Vec R_out, void* ctx_ptr)
@@ -79,13 +85,34 @@ class NonlinearAnalysis {
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
         VecAXPY(u_local, 1.0, model->global_imposed_solution);
 
-        // Compute f_int element-by-element
+        const auto num_elems = model->elements.size();
+
+        // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
+        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            elem_dofs[e] = model->elements[e].extract_element_dofs(u_local);
+        }
+
+        // Phase 2: Compute element internal forces (PARALLEL)
+        //   Each element reads only its own geometry + material state.
+        std::vector<Eigen::VectorXd> elem_f(num_elems);
+
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            elem_f[e] = model->elements[e].compute_internal_force_vector(elem_dofs[e]);
+        }
+
+        // Phase 3: Inject into PETSc local vector (sequential — not thread-safe)
         Vec f_int_local;
         DMGetLocalVector(dm, &f_int_local);
         VecSet(f_int_local, 0.0);
 
-        for (auto& element : model->elements) {
-            element.compute_internal_forces(u_local, f_int_local);
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            const auto& dofs = model->elements[e].get_dof_indices();
+            VecSetValues(f_int_local, static_cast<PetscInt>(dofs.size()),
+                         dofs.data(), elem_f[e].data(), ADD_VALUES);
         }
 
         // Scatter local f_int → global residual
@@ -107,6 +134,10 @@ class NonlinearAnalysis {
     //  Each element evaluates C_t(ε) through the material's Strategy:
     //    - ElasticUpdate: C_t = C_e (constant)
     //    - InelasticUpdate: C_t = C_ep (algorithmic consistent tangent)
+    //
+    //  Assembly is parallelised in two phases:
+    //    Phase 1 — Extract DOFs + compute K_e  (parallel, thread-safe)
+    //    Phase 2 — Inject K_e into PETSc Mat   (sequential, PETSc API)
 
     static PetscErrorCode FormJacobian(
         SNES /*snes*/, Vec u_global, Mat J_mat, Mat /*P*/, void* ctx_ptr)
@@ -126,8 +157,32 @@ class NonlinearAnalysis {
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
         VecAXPY(u_local, 1.0, model->global_imposed_solution);
 
-        for (auto& element : model->elements) {
-            element.inject_tangent_stiffness(u_local, J_mat);
+        const auto num_elems = model->elements.size();
+
+        // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
+        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            elem_dofs[e] = model->elements[e].extract_element_dofs(u_local);
+        }
+
+        // Phase 2: Compute element stiffness matrices (PARALLEL)
+        //   Each element reads only its own geometry + material state.
+        //   K_e = Σ_gp  w·|J|·(Bᵀ·C_t·B + K_σ)
+        std::vector<Eigen::MatrixXd> elem_K(num_elems);
+
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            elem_K[e] = model->elements[e].compute_tangent_stiffness_matrix(elem_dofs[e]);
+        }
+
+        // Phase 3: Inject into global matrix (sequential — PETSc not thread-safe)
+        for (std::size_t e = 0; e < num_elems; ++e) {
+            const auto& dofs = model->elements[e].get_dof_indices();
+            const auto n = static_cast<PetscInt>(dofs.size());
+            MatSetValuesLocal(J_mat, n, dofs.data(), n, dofs.data(),
+                              elem_K[e].data(), ADD_VALUES);
         }
 
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);
@@ -163,6 +218,20 @@ class NonlinearAnalysis {
 public:
 
     auto get_model() const { return model_; }
+
+    /// Query SNES convergence reason after solve (positive = converged).
+    SNESConvergedReason converged_reason() const {
+        SNESConvergedReason reason;
+        SNESGetConvergedReason(snes_, &reason);
+        return reason;
+    }
+
+    /// Number of SNES iterations from the last solve.
+    PetscInt num_iterations() const {
+        PetscInt its;
+        SNESGetIterationNumber(snes_, &its);
+        return its;
+    }
 
     void record_solution(VTKDataContainer& recorder) {
         double* u;

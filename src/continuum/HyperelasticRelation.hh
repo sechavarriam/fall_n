@@ -114,6 +114,7 @@ public:
     // ── Type aliases required by ConstitutiveRelation concept ─────────────────
 
     using MaterialPolicyT = SolidMaterial<N>;
+    using MaterialPolicy  = MaterialPolicyT;    // alias for Material<> type-erasure (OwningMaterialModel)
     using KinematicT      = Strain<N>;
     using ConjugateT      = Stress<N>;
     using TangentT        = TangentMatrix<KinematicT, ConjugateT>;
