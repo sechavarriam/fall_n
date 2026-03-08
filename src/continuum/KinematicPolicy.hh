@@ -514,16 +514,37 @@ static_assert(KinematicPolicyConcept<TotalLagrangian>);
 
 
 // =============================================================================
-//  UpdatedLagrangian  — current-configuration formulation (placeholder)
+//  UpdatedLagrangian  — current-configuration (spatial) formulation
 // =============================================================================
 //
-//  All integrals evaluated over the current (deformed) domain Ωₙ.
-//  Strain: Almansi  e = ½(I − b⁻¹)  or rate of deformation d.
-//  Stress: Cauchy σ  or Kirchhoff τ = J·σ.
+//  All integrals can be evaluated equivalently over either the current
+//  domain Ωₙ or the reference domain Ω₀.  For hyperelastic materials
+//  both pathways give identical results; the spatial pathway becomes
+//  essential for:
 //
-//  Implementation deferred to Phase 5 — requires updating nodal
-//  coordinates at each load step and recomputing shape-function
-//  derivatives in the current configuration.
+//    • Spatial constitutive models (Cauchy/Almansi-based plasticity)
+//    • ALE / remeshing (updating the reference configuration)
+//    • Coupled problems requiring Cauchy stress (contact, FSI)
+//
+//  ─── Spatial-pathway assembly (integrated over Ω₀) ───
+//
+//    Spatial gradients:     ∂N_I/∂x_j  =  Σ_J (∂N_I/∂X_J) · F⁻¹_{Jj}
+//    Cauchy stress:         σ = (1/J) F · S · Fᵀ
+//    Spatial tangent:       𝕔_ijkl = (1/J) F_iI F_jJ ℂ_IJKL F_kK F_lL
+//    Spatial B (linear):    same structure as SmallStrain B but with ∂N/∂x
+//
+//    f_int  = J · bᵀ · σ̃              (tensor Voigt)
+//    K_mat  = J · bᵀ · 𝕔̃ · b
+//    k_σ    = J · Σ_{IJ} (grad_x_I · σ_mat · grad_x_Jᵀ) · I_d
+//    K      = K_mat + k_σ
+//
+//  ─── ContinuumElement integration ───
+//
+//    evaluate() / evaluate_from_gradients() return GPKinematics with
+//    Green-Lagrange E and B_NL (same as TotalLagrangian), so existing
+//    hyperelastic Material<> models work transparently.  The spatial
+//    pathway is available via assemble_spatial_from_gradients() for
+//    direct testing and future spatial constitutive models.
 //
 // -----------------------------------------------------------------------------
 
@@ -531,7 +552,142 @@ struct UpdatedLagrangian {
     static constexpr bool is_geometrically_linear    = false;
     static constexpr bool needs_geometric_stiffness  = true;
 
-    // TODO: Phase 5 — implement evaluate(), compute_B_spatial(), etc.
+    // ── Spatial gradients: ∂N_I/∂x_j = (∂N_I/∂X) · F⁻¹ ────────────────────
+    //
+    //  grad_X is (num_nodes × dim):  grad_X(I, J) = ∂N_I/∂X_J
+    //  Returns  (num_nodes × dim):  grad_x(I, j) = ∂N_I/∂x_j
+    //
+    template <std::size_t dim>
+    static Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>
+    compute_spatial_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad_X,
+        const Tensor2<dim>& F)
+    {
+        // grad_x = grad_X · F⁻¹
+        auto F_inv = F.matrix().inverse();
+        return (grad_X * F_inv).eval();
+    }
+
+    // ── Spatial B matrix (linear, using ∂N/∂x) ─────────────────────────────
+    //
+    //  Identical structure to SmallStrain::compute_B_from_gradients, but
+    //  operating on spatial gradients.  Delegates to the SmallStrain builder.
+    //
+    template <std::size_t dim>
+    static auto compute_spatial_B_from_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad_x,
+        std::size_t ndof)
+        -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
+    {
+        return SmallStrain::compute_B_from_gradients<dim>(grad_x, ndof);
+    }
+
+    // ── Spatial geometric stiffness using ∂N/∂x and σ ──────────────────────
+    //
+    //  k_σ,IaJa = (∂N_I/∂x · σ · ∂N_J/∂xᵀ) · δ_{ab}
+    //
+    //  Same formula as TotalLagrangian::compute_geometric_stiffness_from_gradients
+    //  but with spatial gradients and Cauchy stress.
+    //
+    template <std::size_t dim>
+    static Eigen::MatrixXd compute_spatial_geometric_stiffness(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad_x,
+        std::size_t ndof,
+        const Eigen::Matrix<double, static_cast<int>(dim), static_cast<int>(dim)>& sigma_mat)
+    {
+        return TotalLagrangian::compute_geometric_stiffness_from_gradients<dim>(
+            grad_x, ndof, sigma_mat);
+    }
+
+    // ── Spatial assembly: f_int + K_total from reference gradients ──────────
+    //
+    //  Full Updated Lagrangian pathway at a single Gauss point:
+    //
+    //    1.  F  from  grad_X + u_e   (same as TL)
+    //    2.  E, S, ℂ  from hyperelastic model  (material-level, same as TL)
+    //    3.  Push forward:  σ = (1/J) F·S·Fᵀ,  𝕔 = push_forward(ℂ, F)
+    //    4.  Spatial gradients:  grad_x = grad_X · F⁻¹
+    //    5.  Spatial B:  b = linear B(grad_x)
+    //    6.  f_int  = J · bᵀ · σ̃
+    //    7.  K_mat  = J · bᵀ · 𝕔̃ · b
+    //    8.  k_σ    = J · Σ (grad_x · σ_mat · grad_xᵀ) · I_d
+    //    9.  K      = K_mat + k_σ
+    //
+    //  Returns {f_int, K_total} — must agree with TL for hyperelastic.
+    //
+    template <std::size_t dim, typename Model>
+    static std::pair<Eigen::VectorXd, Eigen::MatrixXd>
+    assemble_spatial_from_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad_X,
+        std::size_t ndof,
+        const Eigen::VectorXd& u_e,
+        const Model& model)
+    {
+        // 1. Deformation gradient
+        auto F = TotalLagrangian::compute_F_from_gradients<dim>(grad_X, u_e);
+        const double J = F.determinant();
+
+        // 2. Green-Lagrange E, 2nd PK S, material tangent ℂ
+        auto E    = strain::green_lagrange(F);
+        auto S    = model.second_piola_kirchhoff(E);
+        auto CC   = model.material_tangent(E);
+
+        // 3. Push forward: σ = (1/J)F·S·Fᵀ,  𝕔 = (1/J) F⊗F : ℂ : Fᵀ⊗Fᵀ
+        auto sigma = ops::push_forward(S, F);
+        auto cc    = ops::push_forward_tangent(CC, F);
+
+        // 4. Spatial gradients: grad_x = grad_X · F⁻¹
+        auto grad_x = compute_spatial_gradients<dim>(grad_X, F);
+
+        // 5. Spatial B matrix (standard linear B with ∂N/∂x)
+        auto b = compute_spatial_B_from_gradients<dim>(grad_x, ndof);
+
+        // 6. σ in tensor Voigt form
+        constexpr auto NV = voigt_size<dim>();
+        Eigen::Vector<double, static_cast<int>(NV)> sigma_voigt;
+        for (std::size_t k = 0; k < NV; ++k)
+            sigma_voigt(static_cast<Eigen::Index>(k)) = sigma[k];
+
+        // 7. Internal force: f_int = J · bᵀ · σ̃
+        Eigen::VectorXd f = J * (b.transpose() * sigma_voigt);
+
+        // 8. Material stiffness: K_mat = J · bᵀ · 𝕔̃ · b
+        Eigen::MatrixXd K_mat = J * (b.transpose() * cc.voigt_matrix() * b);
+
+        // 9. Spatial geometric stiffness: k_σ = J · Σ(grad_x·σ·grad_xᵀ)·I_d
+        auto sigma_mat = TotalLagrangian::stress_voigt_to_matrix<dim>(sigma_voigt);
+        Eigen::MatrixXd k_sigma = J *
+            compute_spatial_geometric_stiffness<dim>(grad_x, ndof, sigma_mat);
+
+        return {f, K_mat + k_sigma};
+    }
+
+    // ── Evaluate from gradient data (ContinuumElement-compatible) ───────────
+    //
+    //  Returns GPKinematics with Green-Lagrange E and B_NL, identical to
+    //  TotalLagrangian.  This ensures hyperelastic Material<> models work
+    //  transparently with ContinuumElement<..., UpdatedLagrangian>.
+    //
+    template <std::size_t dim>
+    static GPKinematics<dim> evaluate_from_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad,
+        std::size_t ndof,
+        const Eigen::VectorXd& u_e)
+    {
+        return TotalLagrangian::evaluate_from_gradients<dim>(grad, ndof, u_e);
+    }
+
+    // ── Evaluate kinematics at a Gauss point (ElementGeometry variant) ──────
+    template <std::size_t dim>
+    static GPKinematics<dim> evaluate(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi,
+        const Eigen::VectorXd& u_e)
+    {
+        return TotalLagrangian::evaluate<dim>(geo, num_nodes, ndof, Xi, u_e);
+    }
 };
 
 static_assert(KinematicPolicyConcept<UpdatedLagrangian>);
@@ -553,7 +709,7 @@ struct Corotational {
     static constexpr bool is_geometrically_linear    = false;
     static constexpr bool needs_geometric_stiffness  = true;
 
-    // TODO: Phase 5 — implement evaluate(), extract_rotation(), etc.
+    // TODO: Phase 7+ — implement evaluate(), extract_rotation(), etc.
 };
 
 static_assert(KinematicPolicyConcept<Corotational>);
