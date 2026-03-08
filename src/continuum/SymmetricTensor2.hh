@@ -486,19 +486,27 @@ public:
     // ── Arithmetic operators ─────────────────────────────────────────────────
 
     constexpr SymmetricTensor2 operator+(const SymmetricTensor2& other) const noexcept {
-        return SymmetricTensor2{(voigt_ + other.voigt_).eval()};
+        SymmetricTensor2 r;
+        r.voigt_ = voigt_ + other.voigt_;
+        return r;
     }
 
     constexpr SymmetricTensor2 operator-(const SymmetricTensor2& other) const noexcept {
-        return SymmetricTensor2{(voigt_ - other.voigt_).eval()};
+        SymmetricTensor2 r;
+        r.voigt_ = voigt_ - other.voigt_;
+        return r;
     }
 
     constexpr SymmetricTensor2 operator*(double scalar) const noexcept {
-        return SymmetricTensor2{(voigt_ * scalar).eval()};
+        SymmetricTensor2 r;
+        r.voigt_ = voigt_ * scalar;
+        return r;
     }
 
     constexpr SymmetricTensor2 operator/(double scalar) const noexcept {
-        return SymmetricTensor2{(voigt_ / scalar).eval()};
+        SymmetricTensor2 r;
+        r.voigt_ = voigt_ / scalar;
+        return r;
     }
 
     constexpr SymmetricTensor2& operator+=(const SymmetricTensor2& other) noexcept {

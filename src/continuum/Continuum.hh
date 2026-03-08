@@ -13,6 +13,8 @@
 //    • TensorOperations        — polar decomposition, push-forward / pull-back
 //    • StrainMeasures          — Green-Lagrange, Hencky, Seth-Hill, Almansi, …
 //    • StressMeasures          — Cauchy ↔ 2nd PK ↔ 1st PK ↔ Kirchhoff ↔ Mandel
+//    • KinematicPolicy         — SmallStrain, TotalLagrangian (compile-time)
+//    • HyperelasticModel       — SVK, compressible Neo-Hookean (energy-based)
 //
 // =============================================================================
 
@@ -22,5 +24,7 @@
 #include "TensorOperations.hh"
 #include "StrainMeasures.hh"
 #include "StressMeasures.hh"
+#include "KinematicPolicy.hh"
+#include "HyperelasticModel.hh"
 
 #endif // FALL_N_CONTINUUM_HH

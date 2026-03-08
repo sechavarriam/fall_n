@@ -17,8 +17,10 @@
 
 #include "../model/MaterialPoint.hh"
 #include "../materials/Material.hh"
+#include "../continuum/KinematicPolicy.hh"
 
-template <typename MaterialPolicy, std::size_t ndof>
+template <typename MaterialPolicy, std::size_t ndof,
+          typename KinematicPolicy = continuum::SmallStrain>
 class ContinuumElement
 {
   // ========================= Types and Static Constant Definitions =================================
@@ -129,39 +131,16 @@ public:
     return H;
   };
 
-  // This coul be injected in terms of the material policy StrainDifferentialOperator or something like that.
+  // ── Linear B matrix — delegated to KinematicPolicy ──────────────────────
+  //
+  // For SmallStrain:       Standard ∇ˢ operator (identical to old hardcoded B).
+  // For TotalLagrangian:   SmallStrain B is reused as initial-stiffness B.
+  //
+  // Note: for nonlinear formulations, the displacement-dependent B_NL is
+  // obtained through KinematicPolicy::evaluate(), not through this method.
+  //
   inline StrainMatrixT B(const Array &X){
-    StrainMatrixT B = StrainMatrixT::Zero(num_strains, ndof * num_nodes());
-
-    std::size_t i, k = 0;
-
-    if constexpr (dim == 1){
-      std::runtime_error("B not implemented for dim = 1 yet ");
-    }
-    else if constexpr (dim == 2){
-      for (i = 0; i < num_nodes(); ++i){
-        B(0, k    ) = geometry_->dH_dx(i, 0, X);
-        B(1, k + 1) = geometry_->dH_dx(i, 1, X);
-        B(2, k    ) = geometry_->dH_dx(i, 1, X);
-        B(2, k + 1) = geometry_->dH_dx(i, 0, X);
-        k += dim;
-      }
-    }
-    else if constexpr (dim == 3){
-      for (i = 0; i < num_nodes(); ++i){
-        B(0, k    ) = geometry_->dH_dx(i, 0, X);
-        B(1, k + 1) = geometry_->dH_dx(i, 1, X);
-        B(2, k + 2) = geometry_->dH_dx(i, 2, X);
-        B(3, k + 1) = geometry_->dH_dx(i, 2, X);
-        B(3, k + 2) = geometry_->dH_dx(i, 1, X);
-        B(4, k    ) = geometry_->dH_dx(i, 2, X);
-        B(4, k + 2) = geometry_->dH_dx(i, 0, X);        
-        B(5, k    ) = geometry_->dH_dx(i, 1, X);
-        B(5, k + 1) = geometry_->dH_dx(i, 0, X);
-        k += dim;
-      }
-    }
-    return B;
+    return KinematicPolicy::template compute_B<dim>(geometry_, num_nodes(), ndof, X);
   }
 
   inline Eigen::MatrixXd BtCB(std::size_t gp, const Array &X){
@@ -196,7 +175,11 @@ public:
   // ========================== Nonlinear element operations ================================
 
   // Compute internal force vector:  f_int_e = Σ_gp  w·|J|·Bᵀ·σ(ε(u))
-  // The stress σ is computed through the material's Strategy:
+  //
+  // For SmallStrain:     B is the standard linear operator, ε = B·u.
+  // For TotalLagrangian: B_NL(F) is the nonlinear operator, E = B_NL·u.
+  //
+  // The stress σ (or S for TL) is computed through the material's Strategy:
   //   material_point.compute_response(ε) → Strategy.compute_response(model, ε)
   void compute_internal_forces(Vec u_local, Vec f_local) {
       Eigen::VectorXd u_e = extract_element_dofs(u_local);
@@ -210,12 +193,15 @@ public:
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
 
-          auto B_x = B(Xi);
+          // Evaluate kinematics through the policy (B + strain)
+          auto kin = KinematicPolicy::template evaluate<dim>(
+              geometry_, num_nodes(), ndof, Xi, u_e);
+
           StateVariableT strain;
-          strain.set_strain(B_x * u_e);
+          strain.set_strain(kin.strain_voigt);
 
           auto sigma = material_points_[gp].compute_response(strain);
-          f_e += w * Jdet * (B_x.transpose() * sigma.components());
+          f_e += w * Jdet * (kin.B.transpose() * sigma.components());
       }
 
       ensure_dof_cache();
@@ -224,8 +210,11 @@ public:
   }
 
   // Assemble tangent stiffness:  K_e = Σ_gp  w·|J|·Bᵀ·C_t(ε(u))·B
-  // The tangent C_t is computed through the material's Strategy:
-  //   material_point.tangent(ε) → Strategy.tangent(model, ε)
+  //
+  // For SmallStrain:     K = ∫ Bᵀ C B dV          (no geometric stiffness)
+  // For TotalLagrangian: K = ∫ B_NLᵀ C B_NL dV₀ + K_σ
+  //                      where K_σ = ∫ Σ_{IJ} (g_Iᵀ·S·g_J)·I_dim dV₀
+  //
   void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
       Eigen::VectorXd u_e = extract_element_dofs(u_local);
       Eigen::MatrixXd K_e = Eigen::MatrixXd::Zero(dim * num_nodes(), dim * num_nodes());
@@ -238,12 +227,34 @@ public:
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
 
-          auto B_x = B(Xi);
+          // Evaluate kinematics through the policy (B + strain)
+          auto kin = KinematicPolicy::template evaluate<dim>(
+              geometry_, num_nodes(), ndof, Xi, u_e);
+
           StateVariableT strain;
-          strain.set_strain(B_x * u_e);
+          strain.set_strain(kin.strain_voigt);
 
           auto C_t = material_points_[gp].tangent(strain);
-          K_e += w * Jdet * (B_x.transpose() * C_t * B_x);
+
+          // Material stiffness: K_mat = ∫ Bᵀ C B dV
+          K_e += w * Jdet * (kin.B.transpose() * C_t * kin.B);
+
+          // Geometric stiffness K_σ (only for nonlinear formulations)
+          if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+              auto sigma = material_points_[gp].compute_response(strain);
+
+              // Convert stress Voigt → dim×dim matrix for K_σ
+              constexpr auto NV = continuum::voigt_size<dim>();
+              Eigen::Vector<double, static_cast<int>(NV)> S_voigt;
+              for (std::size_t i = 0; i < NV; ++i)
+                  S_voigt(static_cast<Eigen::Index>(i)) = sigma[i];
+
+              auto S_mat = continuum::TotalLagrangian::stress_voigt_to_matrix<dim>(S_voigt);
+              auto K_sigma = KinematicPolicy::template compute_geometric_stiffness<dim>(
+                  geometry_, num_nodes(), ndof, Xi, S_mat);
+
+              K_e += w * Jdet * K_sigma;
+          }
       }
 
       ensure_dof_cache();
@@ -262,8 +273,12 @@ public:
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
 
+          // Evaluate kinematics through the policy
+          auto kin = KinematicPolicy::template evaluate<dim>(
+              geometry_, num_nodes(), ndof, Xi, u_e);
+
           StateVariableT strain;
-          strain.set_strain(B(Xi) * u_e);
+          strain.set_strain(kin.strain_voigt);
 
           material_points_[gp].commit(strain);
           material_points_[gp].update_state(strain);
@@ -289,7 +304,10 @@ public:
     std::ranges::contiguous_range auto u = get_current_state(model);
     EigenMap u_h(u.data(), static_cast<Eigen::Index>(u.size()));
 
-    e_h.set_strain(B(X)*u_h);
+    // Delegate to KinematicPolicy — handles both linear and nonlinear strain
+    auto kin = KinematicPolicy::template evaluate<dim>(
+        geometry_, num_nodes(), ndof, X, u_h);
+    e_h.set_strain(kin.strain_voigt);
 
     return e_h; 
   };

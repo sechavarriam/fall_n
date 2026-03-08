@@ -280,6 +280,28 @@ target_link_libraries(fall_n_continuum_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME continuum_tensors COMMAND fall_n_continuum_test)
 
+# ── KinematicPolicy tests (Phase 2) ──────────────────────────────────────────
+add_executable(fall_n_kinematic_test
+  tests/test_kinematic_policy.cpp
+)
+
+target_include_directories(fall_n_kinematic_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_kinematic_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME kinematic_policy COMMAND fall_n_kinematic_test)
+
+# ── Hyperelastic model tests (Phase 3) ───────────────────────────────────────
+add_executable(fall_n_hyperelastic_test
+  tests/test_hyperelastic.cpp
+)
+
+target_include_directories(fall_n_hyperelastic_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_hyperelastic_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME hyperelastic COMMAND fall_n_hyperelastic_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================

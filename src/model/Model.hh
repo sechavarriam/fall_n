@@ -13,6 +13,8 @@
 #include "../elements/ContinuumElement.hh" // Se usa este por ahora mientras se define la interfaz del wrapper.
 #include "../elements/ElementPolicy.hh"
 
+#include "../continuum/KinematicPolicy.hh"
+
 #include "../post-processing/VTK/VTKdataContainer.hh"
 
 #include "MaterialPoint.hh"
@@ -27,11 +29,13 @@
 //using LinealElastic2D = ElasticRelation<PlaneMaterial>;
 //using LinealElastic1D = ElasticRelation<UniaxialMaterial>;
 
-// The MaterialPolicy defines the constitutive relation and the number of dimensions
-template </*TOOD: typename KinematicPolicy,*///Kinematic Policy (e.g. Static, pseudo-static, dynamic...) 
-    typename MaterialPolicy,                 //Considerar la definici[on de un ModelPolicy que encapsule estaticamente el MaterialPolicy
+// The MaterialPolicy defines the constitutive relation and the number of dimensions.
+// The KinematicPolicy selects the kinematic formulation (SmallStrain by default).
+template <
+    typename MaterialPolicy,
+    typename KinematicPolicy = continuum::SmallStrain,
     std::size_t ndofs = MaterialPolicy::dim, //Default: Solid Model with "dim" displacements per node.
-    typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs>>
+    typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>
     >
 class Model{
     friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
