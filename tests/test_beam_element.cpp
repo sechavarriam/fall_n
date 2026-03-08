@@ -37,8 +37,8 @@ static int g_fail = 0;
     do {                                                                       \
         if (std::abs((a) - (b)) > (tol)) {                                     \
             std::cerr << "  FAIL  " << __FILE__ << ":" << __LINE__             \
-                      << "  |" << (a) << " - " << (b) << "| = "               \
-                      << std::abs((a) - (b)) << " > " << (tol) << "\n";       \
+                      << "  |" << (a) << " - " << (b) << "| = "                \
+                      << std::abs((a) - (b)) << " > " << (tol) << "\n";        \
             ++g_fail;                                                          \
             return;                                                            \
         }                                                                      \
@@ -229,10 +229,10 @@ void test_K_analytical_aligned_2d() {
     //         u₁      v₁          θ₁           u₂       v₂          θ₂
     //  u₁: [ EA/L      0           0          -EA/L       0           0         ]
     //  v₁: [  0      kGA/L       kGA/2          0      -kGA/L       kGA/2       ]
-    //  θ₁: [  0      kGA/2    EI/L+kGAL/3       0      -kGA/2   -EI/L+kGAL/6   ]
+    //  θ₁: [  0      kGA/2    EI/L+kGAL/3       0      -kGA/2   -EI/L+kGAL/6    ]
     //  u₂: [-EA/L      0           0           EA/L       0           0         ]
     //  v₂: [  0     -kGA/L      -kGA/2          0       kGA/L      -kGA/2       ]
-    //  θ₂: [  0      kGA/2   -EI/L+kGAL/6       0      -kGA/2    EI/L+kGAL/3   ]
+    //  θ₂: [  0      kGA/2   -EI/L+kGAL/6       0      -kGA/2    EI/L+kGAL/3    ]
 
     Beam2DFixture f(0.0, 0.0, 2.0, 0.0);
     auto beam = f.make_beam();

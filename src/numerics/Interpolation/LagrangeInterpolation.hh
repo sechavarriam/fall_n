@@ -29,10 +29,11 @@ namespace interpolation{
   public:
 
     constexpr std::size_t size() const noexcept { return nPoints; };
-    constexpr double x(std::size_t i) const noexcept { return &xPoints[i]; };
+    constexpr double x(std::size_t i) const noexcept { return xPoints[i]; };
+    constexpr const std::array<double, nPoints>& points() const noexcept { return xPoints; };
 
     constexpr auto operator[](std::size_t i) const noexcept{
-      return [&, i](const double&  x){   
+      return [this, i](const double&  x){   
         double L_i = 1.0;
         for (std::size_t j = 0; j < nPoints; ++j){
           (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
@@ -43,7 +44,7 @@ namespace interpolation{
     };
 
     constexpr auto derivative(std::size_t i) const noexcept{
-      return [&, i](const double &x) -> double
+      return [this, i](const double &x) -> double
       {
         std::size_t j,k;
         
@@ -71,7 +72,8 @@ namespace interpolation{
       };
     };
 
-    consteval LagrangeBasis_1D(const std::array<double, nPoints> &xCoordinates) noexcept : xPoints{xCoordinates} {};
+    constexpr LagrangeBasis_1D(const std::array<double, nPoints> &xCoordinates) noexcept : xPoints{xCoordinates} {};
+    constexpr LagrangeBasis_1D() noexcept = default;
     constexpr ~LagrangeBasis_1D() = default;
   };
 
@@ -102,11 +104,11 @@ namespace interpolation{
       return value;
     };
 
-    consteval LagrangeInterpolator_1D(const Array &xPoints_, const Array &yValues_) noexcept : 
+    constexpr LagrangeInterpolator_1D(const Array &xPoints_, const Array &yValues_) noexcept : 
       L{std::forward<const Array &>(xPoints_)},fValues{yValues_} 
       {};
 
-    consteval LagrangeInterpolator_1D(const Basis &basis_,const Array &yValues_) noexcept : 
+    constexpr LagrangeInterpolator_1D(const Basis &basis_,const Array &yValues_) noexcept : 
       L{basis_}, fValues{yValues_} 
       {};
 
