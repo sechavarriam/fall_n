@@ -11,7 +11,7 @@
 
 class LinearAnalysis
 {
-    using ModelT = Model<ThreeDimensionalMaterial, 3>;
+    using ModelT = Model<ThreeDimensionalMaterial, continuum::SmallStrain, 3>;
     
     ModelT *model_{nullptr}; // Pointer to a model base?
 
@@ -83,7 +83,7 @@ public:
         model_->update_elements_state();
     }
 
-    LinearAnalysis(Model<ThreeDimensionalMaterial, 3> *model) : model_{model}{
+    LinearAnalysis(Model<ThreeDimensionalMaterial, continuum::SmallStrain, 3> *model) : model_{model}{
         KSPCreate(PETSC_COMM_WORLD, &solver_);
         setup_solver();
     }

@@ -67,7 +67,9 @@ class ContinuumElement
   // Invalidate cache (call after DOF renumbering, e.g. Cuthill-McKee)
   void invalidate_dof_cache() noexcept { dofs_cached_ = false; }
 
-  // Helper: extract element DOFs from a local PETSc vector
+public:
+  // Helper: extract element DOFs from a local PETSc vector.
+  // Thread-safe for concurrent reads on a shared local Vec.
   Eigen::VectorXd extract_element_dofs(Vec u_local) {
       ensure_dof_cache();
       const auto n = static_cast<PetscInt>(dof_indices_.size());
@@ -174,15 +176,17 @@ public:
 
   // ========================== Nonlinear element operations ================================
 
-  // Compute internal force vector:  f_int_e = Σ_gp  w·|J|·Bᵀ·σ(ε(u))
+  // ── Pure-compute methods (no PETSc writes — thread-safe) ──────────────────
   //
-  // For SmallStrain:     B is the standard linear operator, ε = B·u.
-  // For TotalLagrangian: B_NL(F) is the nonlinear operator, E = B_NL·u.
-  //
-  // The stress σ (or S for TL) is computed through the material's Strategy:
-  //   material_point.compute_response(ε) → Strategy.compute_response(model, ε)
-  void compute_internal_forces(Vec u_local, Vec f_local) {
-      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+  //  These take pre-extracted element DOFs (Eigen::VectorXd) and return
+  //  element-level contributions as Eigen objects. They perform NO writes
+  //  to PETSc Mat/Vec, enabling parallel computation across elements
+  //  while the injection phase remains sequential.
+
+  /// Compute element internal force vector:  f_e = Σ_gp  w·|J|·Bᵀ·σ(ε(u))
+  ///
+  /// Thread-safe: reads only from element-local geometry and material state.
+  Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
       Eigen::VectorXd f_e = Eigen::VectorXd::Zero(dim * num_nodes());
 
       for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
@@ -193,7 +197,6 @@ public:
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
 
-          // Evaluate kinematics through the policy (B + strain)
           auto kin = KinematicPolicy::template evaluate<dim>(
               geometry_, num_nodes(), ndof, Xi, u_e);
 
@@ -203,20 +206,13 @@ public:
           auto sigma = material_points_[gp].compute_response(strain);
           f_e += w * Jdet * (kin.B.transpose() * sigma.components());
       }
-
-      ensure_dof_cache();
-      VecSetValues(f_local, static_cast<PetscInt>(dof_indices_.size()),
-                   dof_indices_.data(), f_e.data(), ADD_VALUES);
+      return f_e;
   }
 
-  // Assemble tangent stiffness:  K_e = Σ_gp  w·|J|·Bᵀ·C_t(ε(u))·B
-  //
-  // For SmallStrain:     K = ∫ Bᵀ C B dV          (no geometric stiffness)
-  // For TotalLagrangian: K = ∫ B_NLᵀ C B_NL dV₀ + K_σ
-  //                      where K_σ = ∫ Σ_{IJ} (g_Iᵀ·S·g_J)·I_dim dV₀
-  //
-  void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
-      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+  /// Compute element tangent stiffness:  K_e = Σ_gp  w·|J|·(Bᵀ·C_t·B + K_σ)
+  ///
+  /// Thread-safe: reads only from element-local geometry and material state.
+  Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) {
       Eigen::MatrixXd K_e = Eigen::MatrixXd::Zero(dim * num_nodes(), dim * num_nodes());
 
       for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
@@ -227,7 +223,6 @@ public:
           Array Xi{};
           for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
 
-          // Evaluate kinematics through the policy (B + strain)
           auto kin = KinematicPolicy::template evaluate<dim>(
               geometry_, num_nodes(), ndof, Xi, u_e);
 
@@ -243,7 +238,6 @@ public:
           if constexpr (KinematicPolicy::needs_geometric_stiffness) {
               auto sigma = material_points_[gp].compute_response(strain);
 
-              // Convert stress Voigt → dim×dim matrix for K_σ
               constexpr auto NV = continuum::voigt_size<dim>();
               Eigen::Vector<double, static_cast<int>(NV)> S_voigt;
               for (std::size_t i = 0; i < NV; ++i)
@@ -256,6 +250,42 @@ public:
               K_e += w * Jdet * K_sigma;
           }
       }
+      return K_e;
+  }
+
+  /// Expose DOF index cache for external injection (parallel assembly).
+  const std::vector<PetscInt>& get_dof_indices() {
+      ensure_dof_cache();
+      return dof_indices_;
+  }
+
+  // ── Legacy PETSc-injecting methods (delegate to pure-compute) ─────────────
+
+  // Compute internal force vector:  f_int_e = Σ_gp  w·|J|·Bᵀ·σ(ε(u))
+  //
+  // For SmallStrain:     B is the standard linear operator, ε = B·u.
+  // For TotalLagrangian: B_NL(F) is the nonlinear operator, E = B_NL·u.
+  //
+  // The stress σ (or S for TL) is computed through the material's Strategy:
+  //   material_point.compute_response(ε) → Strategy.compute_response(model, ε)
+  void compute_internal_forces(Vec u_local, Vec f_local) {
+      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+      Eigen::VectorXd f_e = compute_internal_force_vector(u_e);
+
+      ensure_dof_cache();
+      VecSetValues(f_local, static_cast<PetscInt>(dof_indices_.size()),
+                   dof_indices_.data(), f_e.data(), ADD_VALUES);
+  }
+
+  // Assemble tangent stiffness:  K_e = Σ_gp  w·|J|·Bᵀ·C_t(ε(u))·B
+  //
+  // For SmallStrain:     K = ∫ Bᵀ C B dV          (no geometric stiffness)
+  // For TotalLagrangian: K = ∫ B_NLᵀ C B_NL dV₀ + K_σ
+  //                      where K_σ = ∫ Σ_{IJ} (g_Iᵀ·S·g_J)·I_dim dV₀
+  //
+  void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
+      Eigen::VectorXd u_e = extract_element_dofs(u_local);
+      Eigen::MatrixXd K_e = compute_tangent_stiffness_matrix(u_e);
 
       ensure_dof_cache();
       const auto n = static_cast<PetscInt>(dof_indices_.size());

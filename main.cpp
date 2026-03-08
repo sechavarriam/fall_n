@@ -36,7 +36,7 @@ int main(int argc, char **args)
         Domain<dim> D1; // Domain Aggregator Object
         GmshDomainBuilder domain_constructor(mesh_file, D1);
 
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, ElasticUpdate{}}};
+        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, ElasticUpdate{}}};
 
         VTKDataContainer view1;
         view1.load_domain(M1.get_domain());
@@ -113,7 +113,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
 
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
 
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
@@ -179,7 +179,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
 
         auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
 
-        Model<ThreeDimensionalMaterial, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
 
         VTKDataContainer view1;
         view1.load_domain(      M1.get_domain());
@@ -236,7 +236,7 @@ PetscInitialize(&argc, &args, nullptr, nullptr);
         D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
         D2.assemble_sieve();
 
-        Model<ThreeDimensionalMaterial, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
+        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
 
         VTKDataContainer view2;
         view2.load_domain(      M2.get_domain());
