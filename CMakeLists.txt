@@ -250,6 +250,25 @@ vtk_module_autoinit(
 
 add_test(NAME beam_element COMMAND fall_n_beam_test)
 
+# ── TimoshenkoBeamN tests ──────────────────────────────────────────────────
+add_executable(fall_n_beam_n_test
+  tests/test_timoshenko_beam_n.cpp
+)
+
+target_include_directories(fall_n_beam_n_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_beam_n_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_beam_n_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_beam_n_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_beam_n_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_beam_n_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME beam_n_element COMMAND fall_n_beam_n_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================

@@ -40,6 +40,7 @@
 #include "src/elements/ContinuumElement.hh"
 #include "src/elements/StructuralElement.hh"
 #include "src/elements/BeamElement.hh"
+#include "src/elements/TimoshenkoBeamN.hh"
 #include "src/elements/ShellElement.hh"
 #include "src/elements/ElementPolicy.hh"
 
