@@ -50,6 +50,11 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
             material_.commit(k);
         }
 
+        // ─── Internal state export (post-processing) ────────────
+        [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
+            return material_.internal_field_snapshot();
+        }
+
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;
         };
