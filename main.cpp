@@ -1,281 +1,294 @@
 
 #include "header_files.hh"
+#include "src/continuum/HyperelasticRelation.hh"
 
 #include "src/geometry/Point.hh"
 
-// include matplot
-#include <matplot/matplot.h>
+#include <iostream>
+#include <iomanip>
+#include <string>
 
-// int main(int argc [[maybe_unused]], char **args [[maybe_unused]])
-int main(int argc, char **args)
+// =============================================================================
+//  Nonlinear showcase — 7 cases on the same Gmsh geometry
+// =============================================================================
+//
+//  Mesh:  data/input/box.msh  (20 hex27,  315 nodes,  [0,10]×[0,0.4]×[0,0.8])
+//
+//  BCs:   Fixed face: x = 0   (all DOFs clamped)
+//         Load face:  x = 10  (surface traction via Gauss quadrature)
+//
+//  Each case exports:
+//     data/output/case_N_mesh.vtu   — nodal fields (displacement)
+//     data/output/case_N_gauss.vtu  — Gauss-point fields (strain, stress, ...)
+//
+//  Cases:
+//    1. SmallStrain + Linear Elastic          (reference)
+//    2. TotalLagrangian + SVK                 (small load, single step)
+//    3. TotalLagrangian + SVK incremental     (large load, 5 steps)
+//    4. TotalLagrangian + Neo-Hookean incr.   (large load, 5 steps)
+//    5. UpdatedLagrangian + SVK               (small load, single step)
+//    6. UpdatedLagrangian + Neo-Hookean incr. (large load, 5 steps)
+//    7. SmallStrain + J2 Plasticity incr.     (beyond yield, 20 steps)
+//
+// =============================================================================
+
+static constexpr std::size_t DIM  = 3;
+static constexpr std::size_t NDOF = DIM;
+
+static constexpr double E_mod  = 200.0;
+static constexpr double nu     = 0.3;
+static constexpr double sigma_y= 0.250;   // Initial yield stress (J2)
+static constexpr double H_hard = 10.0;    // Isotropic hardening modulus
+
+static const std::string MESH =
+    "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+static const std::string OUT =
+    "/home/sechavarriam/MyLibs/fall_n/data/output/";
+
+// ── Helper: export model to a pair of VTU files ─────────────────────────────
+template <typename ModelT>
+static void export_vtk(ModelT& M, const std::string& tag) {
+    M.update_elements_state();
+
+    fall_n::vtk::VTKModelExporter exporter(M);
+    exporter.set_displacement();
+    exporter.compute_material_fields();
+
+    exporter.write_mesh       (OUT + tag + "_mesh.vtu");
+    exporter.write_gauss_points(OUT + tag + "_gauss.vtu");
+
+    std::cout << "    → " << tag << "_mesh.vtu  +  " << tag << "_gauss.vtu\n";
+}
+
+// ── Helper: max displacement magnitude ──────────────────────────────────────
+static double max_disp(auto& M) {
+    const PetscScalar* arr;
+    PetscInt n;
+    VecGetLocalSize(M.state_vector(), &n);
+    VecGetArrayRead (M.state_vector(), &arr);
+    double mx = 0.0;
+    for (PetscInt i = 0; i < n; ++i)
+        mx = std::max(mx, std::abs(arr[i]));
+    VecRestoreArrayRead(M.state_vector(), &arr);
+    return mx;
+}
+
+int main(int argc, char** args)
 {
-    static constexpr std::size_t dim = 3;
-    static constexpr std::size_t ndof = dim; // 6...p
-
-    Node<dim> N1{0, 0.0, 0.0, 0.0};
-    Node<dim> N2{1, 1.0, 0.0, 0.0};
-
-    auto element_nodes = std::array{&N1, &N2};
-
-    LagrangeElement3D<2> lagrangian_geometry(element_nodes);
-
-    // Assertion to test NodeT concept.
-    static_assert(NodeT<decltype(N1)> , "Node does not satisfy NodeT  concept");
-    static_assert(PointT<decltype(N1)>, "Node does not satisfy PointT concept");
-
-    auto gaussian_integrator_1D = GaussLegendreCellIntegrator<2>{};
-
-    ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
-
     PetscInitialize(&argc, &args, nullptr, nullptr);
-    { // PETSc Scope starts here
-        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
 
-        Domain<dim> D1; // Domain Aggregator Object
-        GmshDomainBuilder domain_constructor(mesh_file, D1);
+    // SNES options (direct solver for moderate-size problem)
+    PetscOptionsSetValue(nullptr, "-ksp_type",  "preonly");
+    PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
+    PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
+    PetscOptionsSetValue(nullptr, "-snes_atol", "1e-10");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
+    PetscOptionsSetValue(nullptr, "-snes_converged_reason", nullptr);
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+
+    {
+        double small_load = 0.05;  // within linear regime
+        double large_load = 0.50;  // significant geometric nonlinearity
+        double plast_load = 1.00;  // well beyond yield
+
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "============================================================\n"
+                  << "  Nonlinear Showcase — 7 cases on box.msh\n"
+                  << "============================================================\n\n";
 
-        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, ElasticUpdate{}}};
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 1: SmallStrain + Linear Elastic (reference)
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "── Case 1: SmallStrain + Linear Elastic ──\n";
+
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
-        auto ContElem0 = M1.elements()[0];
+            ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+            Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+
+            Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
+
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, small_load, -small_load);
+
+            LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+            solver.solve();
 
-        // const int x = 0;
-        double B0 = 0.0; // B1 = 10.0;
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case1_SS_elastic");
+        }
 
-        M1.fix_x(B0);
-        M1.setup();
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 2: TotalLagrangian + SVK (small load, 1 step)
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 2: TotalLagrangian + SVK (small load) ──\n";
 
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
-        M1.get_domain().create_boundary_from_plane("Load", 0, 10.0);
-        M1.apply_surface_traction("Load", 0.0, 1.0, -1.0);
-        
-        // M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
+            auto svk = continuum::SaintVenantKirchhoff<3>::from_E_nu(E_mod, nu);
+            MaterialInstance<continuum::SVKRelation<3>> inst{svk};
+            Material<ThreeDimensionalMaterial> mat{inst, ElasticUpdate{}};
 
-        LinearAnalysis<ThreeDimensionalMaterial> analisis_obj1{&M1};
-        analisis_obj1.solve();
+            Model<ThreeDimensionalMaterial, continuum::TotalLagrangian, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
+
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, small_load, -small_load);
 
-        for (auto &element : M1.elements())
-            element.set_material_point_state(M1);
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+            nl.solve();
+
+            std::cout << "    SNES iterations: " << nl.num_iterations()
+                      << "  reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case2_TL_SVK_small");
+        }
 
-        // ── VTK export via VTKModelExporter ──────────────────────────────
-        fall_n::vtk::VTKModelExporter exporter(M1);
-        exporter.set_displacement();              // reads M1.current_state
-        exporter.compute_material_fields();       // strain, stress (+ plasticity if present)
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 3: TotalLagrangian + SVK incremental (large load)
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 3: TotalLagrangian + SVK incremental ──\n";
 
-        exporter.write_mesh("/home/sechavarriam/MyLibs/fall_n/data/output/cubito1.vtu");
-        exporter.write_gauss_points("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_cubito1.vtu");
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
-    } // PETSc Scope ends here
-    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-};
+            auto svk = continuum::SaintVenantKirchhoff<3>::from_E_nu(E_mod, nu);
+            MaterialInstance<continuum::SVKRelation<3>> inst{svk};
+            Material<ThreeDimensionalMaterial> mat{inst, ElasticUpdate{}};
 
+            Model<ThreeDimensionalMaterial, continuum::TotalLagrangian, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
 
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, large_load, -large_load);
 
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+            nl.solve_incremental(5);
 
+            std::cout << "    reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case3_TL_SVK_large");
+        }
 
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 4: TotalLagrangian + Neo-Hookean incremental
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 4: TotalLagrangian + Neo-Hookean incremental ──\n";
 
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
+            auto nh = continuum::CompressibleNeoHookean<3>::from_E_nu(E_mod, nu);
+            MaterialInstance<continuum::NeoHookeanRelation<3>> inst{nh};
+            Material<ThreeDimensionalMaterial> mat{inst, ElasticUpdate{}};
 
+            Model<ThreeDimensionalMaterial, continuum::TotalLagrangian, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
 
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, large_load, -large_load);
 
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+            nl.solve_incremental(5);
 
+            std::cout << "    reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case4_TL_NH_large");
+        }
 
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 5: UpdatedLagrangian + SVK (small load, 1 step)
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 5: UpdatedLagrangian + SVK (small load) ──\n";
 
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
+            auto svk = continuum::SaintVenantKirchhoff<3>::from_E_nu(E_mod, nu);
+            MaterialInstance<continuum::SVKRelation<3>> inst{svk};
+            Material<ThreeDimensionalMaterial> mat{inst, ElasticUpdate{}};
 
+            Model<ThreeDimensionalMaterial, continuum::UpdatedLagrangian, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
 
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, small_load, -small_load);
 
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+            nl.solve();
 
+            std::cout << "    SNES iterations: " << nl.num_iterations()
+                      << "  reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case5_UL_SVK_small");
+        }
 
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 6: UpdatedLagrangian + Neo-Hookean incremental
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 6: UpdatedLagrangian + Neo-Hookean incremental ──\n";
 
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
+            auto nh = continuum::CompressibleNeoHookean<3>::from_E_nu(E_mod, nu);
+            MaterialInstance<continuum::NeoHookeanRelation<3>> inst{nh};
+            Material<ThreeDimensionalMaterial> mat{inst, ElasticUpdate{}};
 
+            Model<ThreeDimensionalMaterial, continuum::UpdatedLagrangian, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
 
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, large_load, -large_load);
 
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+            nl.solve_incremental(5);
 
+            std::cout << "    reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case6_UL_NH_large");
+        }
 
+        // ═════════════════════════════════════════════════════════════════
+        //  Case 7: SmallStrain + J2 Plasticity incremental
+        // ═════════════════════════════════════════════════════════════════
+        {
+            std::cout << "\n── Case 7: SmallStrain + J2 Plasticity incremental ──\n";
 
+            Domain<DIM> D;  GmshDomainBuilder b(MESH, D);
 
+            J2PlasticMaterial3D j2_inst{E_mod, nu, sigma_y, H_hard};
+            Material<ThreeDimensionalMaterial> mat{j2_inst, InelasticUpdate{}};
 
+            Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF> M{D, mat};
+            M.fix_x(0.0);
+            M.setup();
 
+            D.create_boundary_from_plane("Load", 0, 10.0);
+            M.apply_surface_traction("Load", 0.0, plast_load, -plast_load);
 
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+            nl.solve_incremental(20);
 
-/*
-PetscInitialize(&argc, &args, nullptr, nullptr);
-    { // PETSc Scope starts here
+            std::cout << "    reason: " << static_cast<int>(nl.converged_reason()) << "\n";
+            std::cout << "    Max |u| = " << max_disp(M) << "\n";
+            export_vtk(M, "case7_SS_J2_plastic");
+        }
 
-        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
+        std::cout << "\n============================================================\n"
+                  << "  All 7 cases exported to " << OUT << "\n"
+                  << "============================================================\n";
 
-        static constexpr std::size_t dim  = 3;
-        static constexpr std::size_t ndof = dim; // 6;
-
-        Domain<dim> D1; // Domain Aggregator Object
-        GmshDomainBuilder domain_constructor(mesh_file, D1);
-
-        auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
-
-        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-
-        VTKDataContainer view1;
-        view1.load_domain(      M1.get_domain());
-        view1.load_gauss_points(M1.get_domain());
-
-        auto ContElem0 = M1.elements[0];
-
-        //const int x = 0;
-        double B0 = 0.0; //B1 = 10.0;
-
-        M1.fix_x(B0);
-        M1.setup();
-        M1.apply_node_force(6 , 0.0, -1.0, -1.0);
-        //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
-
-        LinearAnalysis analisis_obj1{&M1};
-        analisis_obj1.solve();
-        analisis_obj1.record_solution(view1);
-
-        for(auto &element : M1.elements) element.set_material_point_state(M1);
-
-        M1.record_gauss_strains(view1);
-
-        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
-        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
-
-        //NLAnalysis nl_analisis_obj{&M1};
-    } // PETSc Scope ends here
-    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-
-    std::cout << "-- ND INTERPOLATOR ---------------------------------" << std::endl;
-
-    static constexpr interpolation::LagrangeBasis_ND <2,2> L2_2({0.0,1.0},{0.0, 1.0});
-
-    interpolation::LagrangeInterpolator_ND<2,2> F2_2(L2_2, {1.0, 0.5, -1.0, 2.0});
-    std::cout << F2_2({0.5,0.5}) << std::endl;
-    static constexpr interpolation::LagrangeBasis_ND <3,4> L3_4({-1.0,0.0,1.0},{-1.0, -2.0/3.0, 2.0/3.0, 1.0});
-    interpolation::LagrangeInterpolator_ND<3,4> F3_4(L3_4, {-4,2,4,
-                                                            5,-5,3,
-                                                            2,3,4,
-                                                            1,2,3});
-    using namespace matplot;
-    auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
-    auto Z = transform(X, Y, [=](double x, double y) {
-        return F3_4({x,y});
-    });
-    surf(X, Y, Z);
-    show();
-    */
-
-// PRUEBA CONSTRUCTOR GMSH y Analisis Lineal
-/*
-    PetscInitialize(&argc, &args, nullptr, nullptr);
-    { // PETSc Scope starts here
-
-        std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
-
-        static constexpr std::size_t dim  = 3;
-        static constexpr std::size_t ndof = dim; // 6;
-
-        Domain<dim> D1; // Domain Aggregator Object
-        GmshDomainBuilder domain_constructor(mesh_file, D1);
-
-        auto updateStrategy = [](){std::cout << "TEST: e.g. Linear Update Strategy" << std::endl;};
-
-        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-
-        VTKDataContainer view1;
-        view1.load_domain(      M1.get_domain());
-        view1.load_gauss_points(M1.get_domain());
-
-        auto ContElem0 = M1.elements[0];
-
-        //const int x = 0;
-        double B0 = 0.0; //B1 = 10.0;
-
-        M1.fix_x(B0);
-        M1.setup();
-        M1.apply_node_force(6 , 0.0, -1.0, -1.0);
-        //M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
-
-        LinearAnalysis analisis_obj1{&M1};
-        analisis_obj1.solve();
-        analisis_obj1.record_solution(view1);
-
-        for(auto &element : M1.elements) element.set_material_point_state(M1);
-
-        M1.record_gauss_strains(view1);
-
-        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/beam1.vtu");
-        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_beam1.vtu");
-
-        //NLAnalysis nl_analisis_obj{&M1};
-    } // PETSc Scope ends here
-    PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.
-*/
-
-// =================================================================================================
-/*
-        Domain<dim> D2; // Domain Aggregator Object (Second Domain)
-
-        double H0 = 0.0, H1 = 4.0;
-        double L0 = 0.0, L1 = 5.0;
-        double B0 = 0.0, B1 = 6.0;
-
-        //double H0 = 1.0, H1 = 1.0;
-        //double L0 = 1.0, L1 = 1.0;
-        //double W0 = 1.0, W1 = 1.0;
-
-        D2.preallocate_node_capacity(8);
-        D2.add_node(0,  B0,  L0, H0);
-        D2.add_node(1,  B1,  L0, H0);
-        D2.add_node(2,  B0,  L1, H0);
-        D2.add_node(3,  B1,  L1, H0);
-        D2.add_node(4,  B0,  L0, H1);
-        D2.add_node(5,  B1,  L0, H1);
-        D2.add_node(6,  B0,  L1, H1);
-        D2.add_node(7,  B1,  L1, H1);
-
-        D2.make_element<LagrangeElement<2,2,2>>(GaussLegendreCellIntegrator<2,2,2>{}, 0, std::array{0,1,2,3,4,5,6,7}.data());
-        D2.assemble_sieve();
-
-        Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M2{D2, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, updateStrategy}};
-
-        VTKDataContainer view2;
-        view2.load_domain(      M2.get_domain());
-        view2.load_gauss_points(M2.get_domain());Domain<dim> D2; // Domain Aggregator Object (Second Domain)
-
-        double H0 = 0.0, H1 = 4.0;
-        double L0 = 0.0, L1 = 5.0;
-        double B0 = 0.0, B1 = 6.0;
-
-        //double H0 = 1.0, H1 = 1.0;
-        //double L0 = 1.0, L1 = 1.0;
-        //double W0 = 1.0, W1 = 1.0;
-
-        // Testing Material Wrapper interface.
-        // Printing Material Parameters (Not YET)
-        // Printing Material StateC
-
-        Strain<6> e0{0.01, 0.02, 0.03, 0.04, 0.05, 0.06};
-
-        MaterialState<ElasticState, Strain<6>> sv0{e0};
-        MaterialState<MemoryState , Strain<6>> sv1{e0};
-
-        UniaxialIsotropicElasticMaterial  steel_mat1D{200.0};
-        ContinuumIsotropicElasticMaterial steel_mat3D{200.0, 0.3};
-
-        // Material<UniaxialMaterial>         mat1D(steel_mat1D, updateStrategy);
-        Material<ThreeDimensionalMaterial> mat3D(steel_mat3D, updateStrategy);
-        //auto s1 = mat1D.get_state();
-        auto s2 = mat3D.get_state();
-
-        // mat1D.update_state(e0);
-        mat3D.update_state(e0);
-
-        auto s3 = mat3D.get_state();
-
-        //for (auto i = 0; i < 6; i++)
-        //    std::cout << "s2[" << i << "] = " << s2[i] << std::endl;
-        //for (auto i = 0; i < 6; i++)
-        //    std::cout << "s3[" << i << "] = " << s3[i] << std::endl;
-        //steel_mat3D.print_material_parameters();
-
-*/
+    } // PETSc scope
+    PetscFinalize();
+    return 0;
+}
