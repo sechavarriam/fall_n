@@ -384,6 +384,29 @@ endif()
 
 add_test(NAME snes_gmsh_pipeline COMMAND fall_n_snes_gmsh_test)
 
+# ── Subentity topology compile-time tests (Phase 10) ──────────────────────
+add_executable(fall_n_subentity_test
+  tests/test_subentity_topology.cpp
+)
+
+target_include_directories(fall_n_subentity_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_subentity_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_subentity_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_subentity_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_subentity_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_subentity_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_subentity_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME subentity_topology COMMAND fall_n_subentity_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
