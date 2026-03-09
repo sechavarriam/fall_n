@@ -1,7 +1,18 @@
 #ifndef FALL_N_VTKDATACONTAINER_HH
 #define FALL_N_VTKDATACONTAINER_HH
 
-
+// ═══════════════════════════════════════════════════════════════════════════
+//  DEPRECATED — This class is superseded by fall_n::vtk::VTKModelExporter.
+//
+//  VTKModelExporter provides:
+//    • Solver-independent, material-aware export
+//    • L2 projection to nodes (smooth contour plots)
+//    • Gauss-point cloud export (full-fidelity)
+//    • Compile-time field discovery via if constexpr
+//
+//  This file is retained for backward compatibility only and will be
+//  removed in a future release.  Do NOT use in new code.
+// ═══════════════════════════════════════════════════════════════════════════
 
 #include "VTKheaders.hh"
 

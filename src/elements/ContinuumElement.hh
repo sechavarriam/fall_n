@@ -82,13 +82,19 @@ private:
 
 public:
 
-  constexpr auto material_points() const noexcept { return material_points_; };
-  constexpr auto get_material_point(std::size_t i) noexcept { return material_points_[i]; };
+  constexpr const auto& material_points() const noexcept { return material_points_; };
+  constexpr       auto& material_points()       noexcept { return material_points_; };
+
+  constexpr const auto& get_material_point(std::size_t i) const noexcept { return material_points_[i]; };
+  constexpr       auto& get_material_point(std::size_t i)       noexcept { return material_points_[i]; };
 
   constexpr auto get_geometry() const noexcept { return geometry_; };
 
   constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
   constexpr auto node_p(std::size_t i) const noexcept { return geometry_->node_p(i); };
+
+  const std::string& physical_group() const noexcept { return geometry_->physical_group(); }
+  bool has_physical_group() const noexcept { return geometry_->has_physical_group(); }
 
   constexpr void set_num_dof_in_nodes() noexcept{
     for (std::size_t i = 0; i < num_nodes(); ++i)
@@ -321,7 +327,7 @@ public:
   auto get_current_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
     ensure_dof_cache();
     std::vector<PetscScalar> u(dof_indices_.size());
-    VecGetValues(model.current_state, static_cast<PetscInt>(dof_indices_.size()),
+    VecGetValues(model.state_vector(), static_cast<PetscInt>(dof_indices_.size()),
                  dof_indices_.data(), u.data());
     return u;
   };

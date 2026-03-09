@@ -96,17 +96,25 @@ public:
 
         for (auto &block : mesh_info_.elements_info_.entityBlocks){          
             if (block.entityDim == 3){ // 3D volume elements
+                // Resolve physical group name for this volume entity
+                std::string vol_group;
+                if (auto it = entity_to_physical_name_[3].find(block.entityTag);
+                    it != entity_to_physical_name_[3].end()) {
+                    vol_group = it->second;
+                }
+
                 for (auto &[element_tag, node_tags] : block.elementTags){
                     switch (block.elementType){
                     case 5:
                         {
                         auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; 
                            
-                        auto elem = domain_->make_element<LagrangeElement<3,2,2,2>, decltype(integrator)>(
+                        auto& elem = domain_->make_element<LagrangeElement<3,2,2,2>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 2, 6, 3, 7, 1, 5, 0, 4).data() 
                           );
+                        if (!vol_group.empty()) elem.set_physical_group(vol_group);
                         
                         break;
                         }
@@ -114,7 +122,7 @@ public:
                         {
                         auto integrator = GaussLegendreCellIntegrator<3,3,3>{}; 
                            
-                        domain_->make_element<LagrangeElement<3,3,3,3>, decltype(integrator)>(
+                        auto& elem = domain_->make_element<LagrangeElement<3,3,3,3>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 
@@ -123,6 +131,7 @@ public:
                               1,12, 5, 8,21,16,0,10, 4
                              ).data()
                           );
+                        if (!vol_group.empty()) elem.set_physical_group(vol_group);
                         break;
                         }
                     default:

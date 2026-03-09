@@ -253,7 +253,7 @@ private:
 
         std::size_t gp_offset = 0;
 
-        for (auto& element : model_->elements) {
+        for (auto& element : model_->elements()) {
             auto* geom = element.get_geometry();
             const auto nn   = element.num_nodes();
             const auto ngp  = element.num_integration_points();
@@ -307,12 +307,12 @@ public:
     //  set_displacement — record the displacement field
     // ══════════════════════════════════════════════════════════════════════
     //
-    //  Overload 1: uses model_->current_state (the common post-solve case)
+    //  Overload 1: uses model_->state_vector() (the common post-solve case)
     //  Overload 2: accepts an arbitrary PETSc local Vec
     //
 
     void set_displacement() {
-        set_displacement(model_->current_state);
+        set_displacement(model_->state_vector());
     }
 
     void set_displacement(Vec u_local) {
@@ -367,13 +367,10 @@ public:
             bool has_eps_bar_p      = false;
 
             // ── Iterate model elements (ContinuumElement) ────────────────
-            for (auto& element : model_->elements) {
-                // material_points() returns std::vector by value (copy);
-                // the copy carries the committed state, which is what we
-                // want for post-processing.
-                auto mat_points = element.material_points();
+            for (const auto& element : model_->elements()) {
+                const auto& mat_points = element.material_points();
 
-                for (auto& mp : mat_points) {
+                for (const auto& mp : mat_points) {
 
                     // ── Strain (always available) ────────────────────────
                     const auto& state = mp.current_state();

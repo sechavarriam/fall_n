@@ -83,14 +83,14 @@ class NonlinearAnalysis {
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model->global_imposed_solution);
+        VecAXPY(u_local, 1.0, model->imposed_solution());
 
-        const auto num_elems = model->elements.size();
+        const auto num_elems = model->elements().size();
 
         // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
         std::vector<Eigen::VectorXd> elem_dofs(num_elems);
         for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_dofs[e] = model->elements[e].extract_element_dofs(u_local);
+            elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
         }
 
         // Phase 2: Compute element internal forces (PARALLEL)
@@ -101,7 +101,7 @@ class NonlinearAnalysis {
         #pragma omp parallel for schedule(static)
         #endif
         for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_f[e] = model->elements[e].compute_internal_force_vector(elem_dofs[e]);
+            elem_f[e] = model->elements()[e].compute_internal_force_vector(elem_dofs[e]);
         }
 
         // Phase 3: Inject into PETSc local vector (sequential — not thread-safe)
@@ -110,7 +110,7 @@ class NonlinearAnalysis {
         VecSet(f_int_local, 0.0);
 
         for (std::size_t e = 0; e < num_elems; ++e) {
-            const auto& dofs = model->elements[e].get_dof_indices();
+            const auto& dofs = model->elements()[e].get_dof_indices();
             VecSetValues(f_int_local, static_cast<PetscInt>(dofs.size()),
                          dofs.data(), elem_f[e].data(), ADD_VALUES);
         }
@@ -155,14 +155,14 @@ class NonlinearAnalysis {
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model->global_imposed_solution);
+        VecAXPY(u_local, 1.0, model->imposed_solution());
 
-        const auto num_elems = model->elements.size();
+        const auto num_elems = model->elements().size();
 
         // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
         std::vector<Eigen::VectorXd> elem_dofs(num_elems);
         for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_dofs[e] = model->elements[e].extract_element_dofs(u_local);
+            elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
         }
 
         // Phase 2: Compute element stiffness matrices (PARALLEL)
@@ -174,12 +174,12 @@ class NonlinearAnalysis {
         #pragma omp parallel for schedule(static)
         #endif
         for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_K[e] = model->elements[e].compute_tangent_stiffness_matrix(elem_dofs[e]);
+            elem_K[e] = model->elements()[e].compute_tangent_stiffness_matrix(elem_dofs[e]);
         }
 
         // Phase 3: Inject into global matrix (sequential — PETSc not thread-safe)
         for (std::size_t e = 0; e < num_elems; ++e) {
-            const auto& dofs = model->elements[e].get_dof_indices();
+            const auto& dofs = model->elements()[e].get_dof_indices();
             const auto n = static_cast<PetscInt>(dofs.size());
             MatSetValuesLocal(J_mat, n, dofs.data(), n, dofs.data(),
                               elem_K[e].data(), ADD_VALUES);
@@ -202,17 +202,17 @@ class NonlinearAnalysis {
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
         DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->global_imposed_solution);
+        VecAXPY(u_local, 1.0, model_->imposed_solution());
 
-        for (auto& element : model_->elements) {
+        for (auto& element : model_->elements()) {
             element.commit_material_state(u_local);
         }
 
         DMRestoreLocalVector(dm, &u_local);
 
         // Update model's current_state for post-processing
-        DMGlobalToLocal(dm, U, INSERT_VALUES, model_->current_state);
-        VecAXPY(model_->current_state, 1.0, model_->global_imposed_solution);
+        DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
+        VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
     }
 
 public:
@@ -233,14 +233,6 @@ public:
         return its;
     }
 
-    void record_solution(VTKDataContainer& recorder) {
-        double* u;
-        VecGetArray(model_->current_state, &u);
-        recorder.template load_vector_field<dim>(
-            "displacement", u, model_->get_domain().num_nodes());
-        VecRestoreArray(model_->current_state, &u);
-    }
-
     // ─── Setup (call before solve, or called automatically) ──────
 
     void setup() {
@@ -258,7 +250,7 @@ public:
 
         // Assemble global external forces
         VecSet(f_ext, 0.0);
-        DMLocalToGlobal(dm, model_->nodal_forces, ADD_VALUES, f_ext);
+        DMLocalToGlobal(dm, model_->force_vector(), ADD_VALUES, f_ext);
 
         ctx_ = {model_, f_ext};
 

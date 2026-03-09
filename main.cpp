@@ -36,11 +36,7 @@ int main(int argc, char **args)
 
         Model<ThreeDimensionalMaterial, continuum::SmallStrain, ndof> M1{D1, Material<ThreeDimensionalMaterial>{ContinuumIsotropicElasticMaterial{200.0, 0.3}, ElasticUpdate{}}};
 
-        VTKDataContainer view1;
-        view1.load_domain(M1.get_domain());
-        view1.load_gauss_points(M1.get_domain());
-
-        auto ContElem0 = M1.elements[0];
+        auto ContElem0 = M1.elements()[0];
 
         // const int x = 0;
         double B0 = 0.0; // B1 = 10.0;
@@ -54,17 +50,19 @@ int main(int argc, char **args)
         
         // M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 
-        LinearAnalysis analisis_obj1{&M1};
+        LinearAnalysis<ThreeDimensionalMaterial> analisis_obj1{&M1};
         analisis_obj1.solve();
-        analisis_obj1.record_solution(view1);
 
-        for (auto &element : M1.elements)
+        for (auto &element : M1.elements())
             element.set_material_point_state(M1);
 
-        M1.record_gauss_strains(view1);
+        // ── VTK export via VTKModelExporter ──────────────────────────────
+        fall_n::vtk::VTKModelExporter exporter(M1);
+        exporter.set_displacement();              // reads M1.current_state
+        exporter.compute_material_fields();       // strain, stress (+ plasticity if present)
 
-        view1.write_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/cubito1.vtu");
-        view1.write_gauss_vtu("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_cubito1.vtu");
+        exporter.write_mesh("/home/sechavarriam/MyLibs/fall_n/data/output/cubito1.vtu");
+        exporter.write_gauss_points("/home/sechavarriam/MyLibs/fall_n/data/output/gauss_cubito1.vtu");
 
     } // PETSc Scope ends here
     PetscFinalize(); // This is necessary to avoid memory leaks and MPI errors.

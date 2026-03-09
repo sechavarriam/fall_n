@@ -2,7 +2,9 @@
 #define FALL_N_MODEL_HH
 
 #include <cstddef>
+#include <map>
 #include <memory>
+#include <optional>
 #include <type_traits>
 
 #include "../domain/Domain.hh"
@@ -15,8 +17,6 @@
 #include "../elements/SurfaceLoad.hh"
 
 #include "../continuum/KinematicPolicy.hh"
-
-#include "../post-processing/VTK/VTKdataContainer.hh"
 
 #include "MaterialPoint.hh"
 
@@ -53,26 +53,36 @@ private:
     Domain<dim>*      domain_;
     ConstraintDofInfo constraints_; 
     PetscSection      dof_section{nullptr}; 
+
+    container_type elements_;
+
+    Vec nodal_forces_           {nullptr}; 
+    Vec global_imposed_solution_{nullptr};
+    Vec current_state_          {nullptr};
+
+    Mat Kt_{nullptr};
+
 public:
 
-    bool is_bc_updated{false}; // Flag to check if the model has been updated (global-local sixes changed).
+    // ── Element access ───────────────────────────────────────────────
+    const container_type& elements() const noexcept { return elements_; }
+          container_type& elements()       noexcept { return elements_; }
 
-    //std::vector<Material>    materials_; // De momento este catalogo de materiales no es requerido.
-    container_type elements;
-    
-    Vec nodal_forces{nullptr}; 
-    Vec global_imposed_solution{nullptr}; // Global Displacement Vector (coordinate sense and parallel sense)
+    std::size_t num_elements() const noexcept { return elements_.size(); }
 
-    Vec current_state{nullptr};  // Current state of the system (Displacements, velocities, accelerations, etc.)
+    // ── PETSc handle access (non-owning views) ──────────────────────
+    Vec  state_vector()        const noexcept { return current_state_; }
+    Vec  imposed_solution()    const noexcept { return global_imposed_solution_; }
+    Vec  force_vector()        const noexcept { return nodal_forces_; }
+    Mat  stiffness_matrix()    const noexcept { return Kt_; }
 
-    Mat Kt{nullptr}; // Global Stiffness Matrix
-
-    auto& get_domain(){return *domain_;};
-    auto  get_plex()  {return domain_->mesh.dm;};
+    auto& get_domain()       { return *domain_; }
+    const auto& get_domain() const { return *domain_; }
+    auto  get_plex()         { return domain_->mesh.dm; };
 
 private:
 
-    void set_num_dofs_in_elements(){ for (auto &element : elements) element.set_num_dof_in_nodes();}
+    void set_num_dofs_in_elements(){ for (auto &element : elements_) element.set_num_dof_in_nodes();}
 
     void set_dof_index(){
         PetscSection local_section;
@@ -127,21 +137,21 @@ public:
     }
 
     void setup_vectors(){
-        DMCreateLocalVector(domain_->mesh.dm, &nodal_forces);
-        DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution);
-        VecDuplicate(global_imposed_solution, &current_state);
+        DMCreateLocalVector(domain_->mesh.dm, &nodal_forces_);
+        DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution_);
+        VecDuplicate(global_imposed_solution_, &current_state_);
 
-        VecSet(nodal_forces           , 0.0);
-        VecSet(global_imposed_solution, 0.0);
-        VecSet(current_state          , 0.0);
+        VecSet(nodal_forces_           , 0.0);
+        VecSet(global_imposed_solution_, 0.0);
+        VecSet(current_state_          , 0.0);
         
     };
 
     void setup_matrix(){
-        DMCreateMatrix(domain_->mesh.dm, &Kt);
+        DMCreateMatrix(domain_->mesh.dm, &Kt_);
         DMSetMatType  (domain_->mesh.dm, MATAIJ); // Set the matrix type for the mesh
         DMSetUp(domain_->mesh.dm);
-        MatZeroEntries(Kt);
+        MatZeroEntries(Kt_);
     };
 
     void setup(){
@@ -159,8 +169,6 @@ public:
         std::iota(dofs_idx.begin(), dofs_idx.end(), 0);
 
         constraints_.insert({plex_id, {dofs_idx, std::vector<PetscScalar>(num_dofs, 0.0)}});
-
-        is_bc_updated = false;
     }
 
     void fix_orthogonal_plane(const int i, const double val, const double tol = 1.0e-6) noexcept{
@@ -186,10 +194,10 @@ public:
         
         auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
 
-        VecSetValuesLocal(this->nodal_forces, num_dofs, dofs, force, ADD_VALUES);
+        VecSetValuesLocal(this->nodal_forces_, num_dofs, dofs, force, ADD_VALUES);
 
-        VecAssemblyBegin (this->nodal_forces);
-        VecAssemblyEnd   (this->nodal_forces);
+        VecAssemblyBegin (this->nodal_forces_);
+        VecAssemblyEnd   (this->nodal_forces_);
     }   
 
     // Only For Testing Purposes! This thing is not accurate.
@@ -229,11 +237,11 @@ public:
         }
 
         std::array<double, dim> traction = {static_cast<double>(traction_components)...};
-        surface_load::apply_traction<dim>(surf_elems, traction, this->nodal_forces);
+        surface_load::apply_traction<dim>(surf_elems, traction, this->nodal_forces_);
     }       
 
     void inject_K(Mat& analysis_K){
-        for (auto &element : elements) element.inject_K(analysis_K);
+        for (auto &element : elements_) element.inject_K(analysis_K);
 
         MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
@@ -242,35 +250,13 @@ public:
 
     void update_elements_state(){
         if constexpr (requires(element_type e) { e.set_material_point_state(*static_cast<Model*>(nullptr)); }) {
-            for (auto &element : elements) {
+            for (auto &element : elements_) {
                 element.set_material_point_state(*this);
             }
         }
         // For structural elements, commit_material_state already handles state update.
     }
 
-
-    void record_gauss_strains(VTKDataContainer &recorder){
-        if constexpr (requires(element_type e) { e.material_points(); }) {
-            std::size_t N = domain_->num_integration_points() * MaterialPolicy::StrainT::num_components;
-        
-            std::vector<PetscScalar> strains; 
-            strains.reserve(N);
-
-            for (auto &element : elements){
-                for (auto &gauss_point : element.material_points()){
-                    const auto &state = gauss_point.current_state();
-                    const auto  strain = state.components();
-
-                    for (std::size_t i = 0; i < MaterialPolicy::StrainT::num_components; i++) {
-                        strains.push_back(strain[i]);
-                    }
-                }
-            }
-
-            recorder.load_gauss_tensor_field("Cauchy Strain", strains.data(), domain_->num_integration_points());
-        }
-    }
 
     // Constructors
 
@@ -281,11 +267,11 @@ public:
         requires (std::constructible_from<element_type, ElementGeometry<dim>*, MaterialT>)
         : domain_(std::addressof(domain))
     {
-        elements.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
+        elements_.reserve(domain_->num_elements()); // El dominio ya debe tener TODOS LOS ELEMENTOS GEOMETRICOS CREADOS!
 
         // GEOMETRIC ELEMENT WRAPPING        
         for (auto &element : domain_->elements()){ //By now all elements are ContinuumElements
-            elements.emplace_back(element_type{std::addressof(element), default_mat}); //By default, all elements have the same material
+            elements_.emplace_back(element_type{std::addressof(element), default_mat}); //By default, all elements have the same material
         }
 
         // PETSC SETUP
@@ -302,7 +288,7 @@ public:
     //   differs from the simple (geometry*, material) pattern).
     Model(Domain<dim> &domain, container_type pre_built)
         : domain_(std::addressof(domain)),
-          elements(std::move(pre_built))
+          elements_(std::move(pre_built))
     {
         // PETSC SETUP
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
@@ -313,12 +299,56 @@ public:
         set_sieve_layout();
     }
 
+    // Constructor 3: multi-material — assigns material per physical group.
+    //
+    //   material_map: physical group name → material instance.
+    //   Each element's geometry must carry a physical_group() set by the
+    //   mesh builder; elements whose group is not in the map receive
+    //   default_mat (if provided) or trigger an error.
+    //
+    //   Usage:
+    //     std::map<std::string, MaterialT> mats{
+    //         {"Steel",    Material<...>{...}},
+    //         {"Concrete", Material<...>{...}},
+    //     };
+    //     Model M{domain, mats};
+    //
+    Model(Domain<dim> &domain, const std::map<std::string, MaterialT>& material_map,
+          std::optional<MaterialT> default_mat = std::nullopt)
+        requires (std::constructible_from<element_type, ElementGeometry<dim>*, MaterialT>)
+        : domain_(std::addressof(domain))
+    {
+        elements_.reserve(domain_->num_elements());
+
+        for (auto &geom : domain_->elements()) {
+            const auto& group = geom.physical_group();
+
+            if (auto it = material_map.find(group); it != material_map.end()) {
+                elements_.emplace_back(element_type{std::addressof(geom), it->second});
+            } else if (default_mat.has_value()) {
+                elements_.emplace_back(element_type{std::addressof(geom), *default_mat});
+            } else {
+                throw std::runtime_error(
+                    "Model: no material for physical group '" + group
+                    + "' and no default material provided.");
+            }
+        }
+
+        // PETSC SETUP
+        DMSetVecType(domain_->mesh.dm, VECSTANDARD);
+        DMSetDimension(domain_->mesh.dm, dim);
+        DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
+
+        set_num_dofs_in_elements();
+        set_sieve_layout();
+    }
+
     Model() = delete;
     ~Model() {
-        MatDestroy(&Kt);
-        VecDestroy(&current_state);
-        VecDestroy(&nodal_forces);
-        VecDestroy(&global_imposed_solution);
+        MatDestroy(&Kt_);
+        VecDestroy(&current_state_);
+        VecDestroy(&nodal_forces_);
+        VecDestroy(&global_imposed_solution_);
         PetscSectionDestroy(&dof_section);
     }
 

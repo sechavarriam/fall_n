@@ -146,4 +146,4 @@
 // =================================================================================
 
 #include "src/post-processing/VTK/VTKheaders.hh"
-#include "src/post-processing/VTK/VTKwriter.hh"
+#include "src/post-processing/VTK/VTKModelExporter.hh"
