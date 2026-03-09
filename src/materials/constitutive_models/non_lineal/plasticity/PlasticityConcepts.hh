@@ -31,7 +31,6 @@ struct TrialState {
     double                   hydrostatic     = 0; // p = tr(σ_trial) / 3
 };
 
-
 // =============================================================================
 //  PlasticInternalVariables<N, HardeningStateT>
 // =============================================================================
@@ -45,19 +44,19 @@ struct TrialState {
 //  law chosen by the user:
 //
 //    ┌─────────────────────────────────┬───────────────────────────────────┐
-//    │  HardeningStateT               │  Physical meaning                 │
+//    │  HardeningStateT                │  Physical meaning                 │
 //    ├─────────────────────────────────┼───────────────────────────────────┤
-//    │  IsotropicHardeningState        │  scalar ε̄^p  (yield surface      │
+//    │  IsotropicHardeningState        │  scalar ε̄^p  (yield surface       │
 //    │                                 │  expands uniformly)               │
 //    ├─────────────────────────────────┼───────────────────────────────────┤
-//    │  KinematicHardeningState<N>     │  backstress tensor β (yield      │
+//    │  KinematicHardeningState<N>     │  backstress tensor β (yield       │
 //    │  (future)                       │  surface translates — Bauschinger │
 //    │                                 │  effect for hysteretic models)    │
 //    ├─────────────────────────────────┼───────────────────────────────────┤
-//    │  MixedHardeningState<N>         │  {ε̄^p, β}  (both isotropic      │
+//    │  MixedHardeningState<N>         │  {ε̄^p, β}  (both isotropic        │
 //    │  (future)                       │  expansion + kinematic shift)     │
 //    ├─────────────────────────────────┼───────────────────────────────────┤
-//    │  DamageHardeningState<N>        │  {ε̄^p, d, β}  (hysteretic with  │
+//    │  DamageHardeningState<N>        │  {ε̄^p, d, β}  (hysteretic with    │
 //    │  (future)                       │  stiffness/strength degradation)  │
 //    └─────────────────────────────────┴───────────────────────────────────┘
 //
@@ -131,7 +130,7 @@ concept YieldCriterion = requires(const Y& y, const TrialState<N>& trial) {
 //    StateT                     — type representing the hardening state
 //    yield_stress(state)        → current σ_y(α)
 //    modulus(state)             → H_iso = dσ_y/d(ε̄^p)
-//    evolve(state, Δγ)         → updated state (functional, no mutation)
+//    evolve(state, Δγ)          → updated state (functional, no mutation)
 //
 //  ─── Functional style ──────────────────────────────────────────────────
 //
