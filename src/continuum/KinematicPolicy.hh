@@ -599,6 +599,24 @@ struct UpdatedLagrangian {
             grad_x, ndof, sigma_mat);
     }
 
+    // ── Geometric stiffness from ElementGeometry (ContinuumElement interface) ─
+    //
+    //  Since evaluate() delegates to TL (reference-frame kinematics) the
+    //  geometric stiffness must also use reference gradients and S (2nd PK).
+    //  Delegates to TotalLagrangian::compute_geometric_stiffness.
+    //
+    template <std::size_t dim>
+    static Eigen::MatrixXd compute_geometric_stiffness(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi,
+        const Eigen::Matrix<double, static_cast<int>(dim), static_cast<int>(dim)>& S_matrix)
+    {
+        return TotalLagrangian::compute_geometric_stiffness<dim>(
+            geo, num_nodes, ndof, Xi, S_matrix);
+    }
+
     // ── Spatial assembly: f_int + K_total from reference gradients ──────────
     //
     //  Full Updated Lagrangian pathway at a single Gauss point:

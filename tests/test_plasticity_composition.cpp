@@ -360,12 +360,28 @@ void test_type_erasure_integration() {
     assert(approx_equal(sigma.components(), sigma_j2.components()) &&
            "new PlasticityRelation must match J2 alias through type-erasure");
 
-    // Commit and verify state evolution
+    // Commit and verify self-consistency: re-evaluating at the same
+    // purely-normal strain must return the same corrected stress
+    // (return-mapping idempotent when Ce·n̂ = 2G·n̂ for normal strains).
     mat.commit(eps);
     auto sigma_after = mat.compute_response(eps);
     double diff = (sigma_after.components() - sigma.components()).norm();
     std::cout << "  ||σ_after_commit - σ_before|| = " << diff << "\n";
-    assert(diff > 1e-10 && "commit must evolve state");
+    assert(diff < 1e-10 && "committed state must be self-consistent at same strain");
+
+    // Verify that internal state actually evolved: compare committed
+    // material vs a fresh one at a NON-PROPORTIONAL strain (for proportional
+    // loading + linear hardening the return-mapping is path-independent).
+    Strain<6> eps_np;
+    eps_np.set_strain(
+        (Eigen::Vector<double, 6>() << 0.005, 0.005, -0.010, 0, 0, 0).finished());
+    Material<ThreeDimensionalMaterial> mat_fresh{MatInst{200.0, 0.3, 0.250, 10.0}, InelasticUpdate{}};
+    auto sigma_committed = mat.compute_response(eps_np);
+    auto sigma_fresh_val = mat_fresh.compute_response(eps_np);
+    double state_diff = (sigma_committed.components()
+                       - sigma_fresh_val.components()).norm();
+    std::cout << "  ||σ_committed - σ_fresh|| at ε_np = " << state_diff << "\n";
+    assert(state_diff > 1e-10 && "committed material must differ from fresh at non-proportional strain");
 
     // Deep clone:  MaterialInstance uses shared_ptr<Relation> (flyweight).
     // For inelastic materials, the relation carries mutable α, so clones

@@ -31,6 +31,40 @@ class GmshDomainBuilder
 
     bool are_elements_aggregated_{false};
 
+    // ── Physical-group support ──────────────────────────────────────────
+    // Map: entityDim → (entityTag → physical group name)
+    // Built from $PhysicalNames + $Entities sections.
+    std::map<int, std::map<int, std::string>> entity_to_physical_name_;
+
+    void build_physical_name_map() {
+        if (!mesh_info_.physical_names_info_.has_value()) return;
+        if (!mesh_info_.entities_info_.has_value())       return;
+
+        // physical tag → (dimension, name)
+        std::map<int, std::pair<int, std::string>> phys_tag_map;
+        for (const auto& [pdim, ptag, pname] : mesh_info_.physical_names_info_->physical_entities) {
+            phys_tag_map[ptag] = {pdim, pname};
+        }
+
+        // Surfaces: entity tag → physical name
+        for (const auto& surf : mesh_info_.entities_info_->surfaces) {
+            for (int ptag : surf.physical_tags) {
+                if (auto it = phys_tag_map.find(ptag); it != phys_tag_map.end()) {
+                    entity_to_physical_name_[2][surf.tag] = it->second.second;
+                }
+            }
+        }
+
+        // Volumes: entity tag → physical name
+        for (const auto& vol : mesh_info_.entities_info_->volumes) {
+            for (int ptag : vol.physical_tags) {
+                if (auto it = phys_tag_map.find(ptag); it != phys_tag_map.end()) {
+                    entity_to_physical_name_[3][vol.tag] = it->second.second;
+                }
+            }
+        }
+    }
+
 public:
     void aggregate_nodes(){
         domain_->preallocate_node_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
@@ -55,13 +89,13 @@ public:
     };
 
     void aggregate_elements()
-    { // Esto procesa tanto elemento 2d (facets) como 3d  (cells) TODO:FIX.
+    { // Processes both 3D (cells) and 2D (boundary facets) element blocks.
         auto index_ordering = [&](auto& tags, std::integral auto... i) {
             return std::array{static_cast<PetscInt>(tags[i] - 1)...};
              };
 
         for (auto &block : mesh_info_.elements_info_.entityBlocks){          
-            if (block.entityDim == 3){ // Only 3D elements (by now...)
+            if (block.entityDim == 3){ // 3D volume elements
                 for (auto &[element_tag, node_tags] : block.elementTags){
                     switch (block.elementType){
                     case 5:
@@ -72,12 +106,8 @@ public:
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 2, 6, 3, 7, 1, 5, 0, 4).data() 
-                            //index_ordering(node_tags, 0, 1, 3, 2, 4, 5, 7, 6).data(),
-                            //std::array{1,5,3,7,0,4,2,6}.data()
-                            //std::array{1,5,3,7,0,4,2,6}.data() // LocalOrdering 
                           );
                         
-                        //elem.set_local_index(std::array{1,5,3,7,0,4,2,6}.data());
                         break;
                         }
                     case 12:
@@ -92,17 +122,66 @@ public:
                              11,23,18,20,26,25,9,22,17,
                               1,12, 5, 8,21,16,0,10, 4
                              ).data()
-                            //index_ordering(node_tags, 
-                            // 0, 8, 1, 9,20,11, 3,13, 2,
-                            //10,21,12,22,26,23,15,24,14,
-                            // 4,16, 5,17,25,18, 7,19, 6).data()
                           );
                         break;
                         }
                     default:
                         {
-                        //throw std::runtime_error("Element type not supported");
                         std::cout << "Element type "<< block.elementType <<" not supported" << std::endl;
+                        break;
+                        }
+                    }
+                }
+            }
+            else if (block.entityDim == 2) { // 2D surface elements (boundary facets)
+                // Resolve physical group name for this surface entity
+                std::string group_name;
+                if (auto it = entity_to_physical_name_[2].find(block.entityTag);
+                    it != entity_to_physical_name_[2].end()) {
+                    group_name = it->second;
+                } else {
+                    group_name = "__surface_" + std::to_string(block.entityTag);
+                }
+
+                for (auto &[element_tag, node_tags] : block.elementTags) {
+                    switch (block.elementType) {
+                    case 3: // QUA_4 — 4-node quad surface in 3D
+                        {
+                        auto integrator = GaussLegendreCellIntegrator<2,2>{};
+                        domain_->make_boundary_element<LagrangeElement<3,2,2>, decltype(integrator)>(
+                            group_name,
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2, 3).data()
+                        );
+                        break;
+                        }
+                    case 10: // QUA_9 — 9-node quad surface in 3D
+                        {
+                        auto integrator = GaussLegendreCellIntegrator<3,3>{};
+                        domain_->make_boundary_element<LagrangeElement<3,3,3>, decltype(integrator)>(
+                            group_name,
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 4, 1, 7, 8, 5, 3, 6, 2).data()
+                        );
+                        break;
+                        }
+                    case 2: // TRI_3 — 3-node triangle surface in 3D
+                        {
+                        // Not yet supported — skip with warning
+                        std::cout << "Warning: TRI_3 boundary elements not yet supported\n";
+                        break;
+                        }
+                    case 9: // TRI_6 — 6-node triangle surface in 3D
+                        {
+                        std::cout << "Warning: TRI_6 boundary elements not yet supported\n";
+                        break;
+                        }
+                    default:
+                        {
+                        std::cout << "Boundary element type " << block.elementType
+                                  << " not supported" << std::endl;
                         break;
                         }
                     }
@@ -114,11 +193,11 @@ public:
 
     GmshDomainBuilder(std::string_view filename, Domain3D &domain) : mesh_info_(filename), domain_(std::addressof(domain))
     {
+        build_physical_name_map();   // Resolve entity → physical group name
         aggregate_nodes();
-        aggregate_elements();
+        aggregate_elements();        // Now processes both 3D and 2D blocks
 
         // sort nodes with respect to their id
-        // only if node containter is std vector. In is unordered_map, no need to sort.
         std::sort(domain_->nodes().begin(), domain_->nodes().end(), 
         [](Node<3> &a, Node<3> &b) {
              return a.id() < b.id(); 
@@ -126,8 +205,6 @@ public:
         );
 
         domain_->assemble_sieve(); // Assemble sieve (DAG) for the domain (DMPlex)
-
-
     };
 };
 

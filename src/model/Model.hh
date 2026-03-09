@@ -12,6 +12,7 @@
 
 #include "../elements/ContinuumElement.hh" // Se usa este por ahora mientras se define la interfaz del wrapper.
 #include "../elements/ElementPolicy.hh"
+#include "../elements/SurfaceLoad.hh"
 
 #include "../continuum/KinematicPolicy.hh"
 
@@ -205,6 +206,30 @@ public:
                 }
             }
         }
+    }
+
+    // ── Consistent surface traction (proper Neumann BC) ─────────────────
+    //
+    //  Applies uniform traction  t ∈ ℝ^dim  on a boundary surface group.
+    //  The consistent nodal forces  f_I = ∫_Γ N_I t dA  are computed by
+    //  Gauss quadrature over each surface element and assembled into the
+    //  PETSc local nodal_forces vector.
+    //
+    //  group_name: physical group name from the Gmsh mesh (e.g., "Load")
+    //
+    void apply_surface_traction(const std::string& group_name, auto... traction_components)
+    requires (sizeof...(traction_components) == dim
+              && (std::is_convertible_v<decltype(traction_components), double> && ...))
+    {
+        auto surf_elems = domain_->boundary_elements(group_name);
+        if (surf_elems.empty()) {
+            std::cerr << "Warning: No boundary elements found for group '" 
+                      << group_name << "'\n";
+            return;
+        }
+
+        std::array<double, dim> traction = {static_cast<double>(traction_components)...};
+        surface_load::apply_traction<dim>(surf_elems, traction, this->nodal_forces);
     }       
 
     void inject_K(Mat& analysis_K){
