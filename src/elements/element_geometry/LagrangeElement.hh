@@ -14,8 +14,6 @@
 #include <ranges>
 #include <span>
 
-#include <vtkType.h>
-
 #include "../Node.hh"
 
 #include "../../geometry/Topology.hh"
@@ -67,15 +65,12 @@ public:
   static inline constexpr std::size_t   num_nodes = (... * N);
   static inline constexpr ReferenceCell reference_element_{};
 
-  static inline constexpr auto VTK_cell_type = reference_element_.VTK_cell_type();
-
   using pNodeArray = std::optional<std::array<Node<dim>*, num_nodes>>;
 
   std::size_t tag_   ;
   pNodeArray  nodes_p;
 
   std::array<PetscInt , num_nodes> nodes_; // Global node numbers in Plex
-  std::array<vtkIdType, num_nodes> vtk_nodes_{-1};
 
 private:
 
@@ -88,35 +83,6 @@ private:
     };  
 
 public:
-
-  // === INFO FOR DEBUG and TESTING ==================================================================
-  // =================================================================================================
-
-  void print_info() const noexcept{
-    // std::format fmt = "Element Tag: {0}\nNumber of Nodes: {1}\nNodes: {2}\n";
-    std::cout << "Element Tag    : " << tag_ << std::endl;
-    std::cout << "Number of Nodes: " << num_nodes << std::endl;
-    std::cout << "Nodes ID       : ";
-    for (std::size_t i = 0; i < num_nodes; ++i)
-      std::cout << nodes_[i] << " ";
-    std::cout << std::endl;
-
-    #ifdef __clang__ 
-    // TALBE [index, local coord..., global coord...] // Using std::format and std::print
-      for (std::size_t i = 0; i < num_nodes; ++i)
-      {
-        std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f} \n",
-                   i,
-                   nodes_p.value()[i]->id(),
-                   reference_element_.reference_nodes[i].coord()[0],
-                   reference_element_.reference_nodes[i].coord()[1],
-                   reference_element_.reference_nodes[i].coord()[2],
-                   nodes_p.value()[i]->coord(0),
-                   nodes_p.value()[i]->coord(1),
-                   nodes_p.value()[i]->coord(2));
-      }
-    #endif
-  };
 
   auto id()             const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id; };
@@ -197,7 +163,6 @@ public:
   constexpr LagrangeElement() = default;
   
   constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)}{
-    set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)
@@ -205,14 +170,12 @@ public:
   {
     //std::cout << "LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)" << std::endl;
     std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
-    set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)
     requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
     //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)" << std::endl;
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-    set_VTK_node_order();
   };
 
   constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)
@@ -220,7 +183,6 @@ public:
     //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)" << std::endl;
     std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
     set_local_index(local_ordering.data());
-    set_VTK_node_order();
   };
 
 
@@ -235,23 +197,38 @@ public:
   constexpr ~LagrangeElement() = default;
 
 
+    // === INFO FOR DEBUG and TESTING ==================================================================
   // =================================================================================================
-  // === VTK THINGS ==================================================================================
-  // =================================================================================================
-  //static constexpr auto num_nodes() noexcept { return num_nodes; };
-  static constexpr auto get_VTK_cell_type() noexcept { return VTK_cell_type; };
 
-  constexpr auto get_VTK_node_ordering() noexcept { return reference_element_.VTK_node_ordering();};
+  void print_info() const noexcept{
+    // std::format fmt = "Element Tag: {0}\nNumber of Nodes: {1}\nNodes: {2}\n";
+    std::cout << "Element Tag    : " << tag_ << std::endl;
+    std::cout << "Number of Nodes: " << num_nodes << std::endl;
+    std::cout << "Nodes ID       : ";
+    for (std::size_t i = 0; i < num_nodes; ++i)
+      std::cout << nodes_[i] << " ";
+    std::cout << std::endl;
 
-  void set_VTK_node_order() noexcept{
-    for (std::size_t i = 0; i < num_nodes; ++i) vtk_nodes_[i] = static_cast<vtkIdType>(node(get_VTK_node_ordering()[i]));
+    #ifdef __clang__ 
+    // TALBE [index, local coord..., global coord...] // Using std::format and std::print
+      for (std::size_t i = 0; i < num_nodes; ++i)
+      {
+        std::print("Node: {0:>3} Id: {1:>3} local coord: {2:>5.2f} {3:>5.2f} {4:>5.2f} | global coord: {5:>5.2f} {6:>5.2f} {7:>5.2f} \n",
+                   i,
+                   nodes_p.value()[i]->id(),
+                   reference_element_.reference_nodes[i].coord()[0],
+                   reference_element_.reference_nodes[i].coord()[1],
+                   reference_element_.reference_nodes[i].coord()[2],
+                   nodes_p.value()[i]->coord(0),
+                   nodes_p.value()[i]->coord(1),
+                   nodes_p.value()[i]->coord(2));
+      }
+    #endif
   };
 
-  std::span<vtkIdType> get_VTK_ordered_node_ids() const noexcept{ // TODO: check if its ordered and if the VTK_node_ordering is correctly set.
-    return std::span<vtkIdType>(const_cast<vtkIdType *>(vtk_nodes_.data()), num_nodes);
-  };
-
   // =================================================================================================
+  // =================================================================================================
+
 }; // === END OF LagrangeElement Class Definition ====================================================
 
 template <std::size_t... N> using LagrangeElement1D = LagrangeElement<1, N...>;

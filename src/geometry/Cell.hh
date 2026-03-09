@@ -12,9 +12,6 @@
 #include <tuple>
 
 
-#include <vtkCellType.h>
-
-
 #include "Point.hh"
 #include "Topology.hh"
 
@@ -376,57 +373,6 @@ public:
     };
     return sum;
 
-  };
-
-  
-  static constexpr unsigned int VTK_cell_type(){
-    if constexpr (dim == 1) {
-      if      constexpr (dimensions[0] == 2) return VTK_LINE;
-      else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_EDGE;
-      else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_CURVE; // or could be VTK_HIGHER_ORDER_CURVE
-    }
-    else if constexpr (dim == 2)
-      if constexpr (are_equal<n...>()){
-        if      constexpr (dimensions[0] == 2) return VTK_QUAD;
-        else if constexpr (dimensions[0] == 3) return VTK_QUADRATIC_QUAD;
-        else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_QUADRILATERAL; // or could be VTK_HIGHER_ORDER_QUADRILATERAL 
-      }
-      else return VTK_EMPTY_CELL;
-    else if constexpr (dim == 3){
-      if constexpr (are_equal<n...>()){
-        if      constexpr (dimensions[0] == 2) return VTK_HEXAHEDRON;
-        else if constexpr (dimensions[0] == 3) return VTK_TRIQUADRATIC_HEXAHEDRON;
-        else if constexpr (dimensions[0]  > 3) return VTK_LAGRANGE_HEXAHEDRON; // or could be VTK_HIGHER_ORDER_HEXAHEDRON 
-      }
-      else return VTK_EMPTY_CELL;
-    } 
-    else return VTK_EMPTY_CELL; // unsupported dimension
-  }
-
-  static constexpr std::array<std::size_t, num_nodes_> VTK_node_ordering()
-  {
-    using Array = std::array<std::size_t, num_nodes_>;
-    if constexpr (dim == 1) {
-      if      constexpr (dimensions[0] == 2) return Array{0, 1};
-      else if constexpr (dimensions[0] == 3) return Array{0, 2, 1};
-      else if constexpr (dimensions[0]  > 3) return Array{0};
-    }
-    else if constexpr (dim == 2)
-      if constexpr (are_equal<n...>()){
-        if      constexpr (dimensions[0] == 2) return Array{0, 1, 3, 2};
-        else if constexpr (dimensions[0] == 3) return Array{0, 1, 3, 2, 4, 5, 7, 6};
-        else if constexpr (dimensions[0]  > 3) return Array{0};
-      }
-      else return Array{0};
-    else if constexpr (dim == 3){
-      if constexpr (are_equal<n...>()){
-        if      constexpr (dimensions[0] == 2) return Array{0, 1, 3, 2, 4, 5, 7, 6};
-        else if constexpr (dimensions[0] == 3) return Array{0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23 ,25 ,21 ,9 ,11, 17, 15, 12, 14, 10, 16, 4, 22, 13};
-        else if constexpr (dimensions[0]  > 3) return Array{0};
-      }
-      else return Array{0};
-    }
-    else return Array{0}; // unsupported dimension    
   };
 
   // Constructor

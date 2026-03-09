@@ -15,13 +15,10 @@
 #include <span>
 #include <ranges>
 
-// in clang, print
 #ifdef __clang__ 
     #include <format>
     #include <print>
 #endif
-
-#include <vtkType.h>
 
 #include "../Node.hh"
 
@@ -50,10 +47,6 @@ namespace impl
     public:
 
         constexpr virtual void print_info() const = 0;
-
-        constexpr virtual unsigned int VTK_cell_type() const = 0;
-
-        constexpr virtual std::span<vtkIdType> VTK_ordered_node_ids() const = 0;
 
         constexpr virtual std::size_t topological_dimension() const = 0;
 
@@ -147,9 +140,6 @@ namespace impl
     public: // Implementation of the virtual operations derived from ElementGeometryConcept
 
         constexpr void print_info() const override { element_.print_info(); };
-
-        constexpr unsigned int         VTK_cell_type()        const override { return ElementType::VTK_cell_type; };
-        constexpr std::span<vtkIdType> VTK_ordered_node_ids() const override { return element_.get_VTK_ordered_node_ids(); };
 
         constexpr std::size_t topological_dimension() const override { return topological_dim; };
 
@@ -345,9 +335,6 @@ public:
 
     constexpr void print_info() const { pimpl_->print_info(); };
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
-
-    constexpr unsigned int         VTK_cell_type()        const { return pimpl_->VTK_cell_type(); };
-    constexpr std::span<vtkIdType> VTK_ordered_node_ids() const { return pimpl_->VTK_ordered_node_ids(); };
 
     constexpr std::size_t topological_dimension() const { return pimpl_->topological_dimension(); };
 

@@ -5,6 +5,8 @@
 
 #include "VTKheaders.hh"
 
+#include "VTKCellTraits.hh"
+
 #include <vtkDoubleArray.h>
 #include <vtkUnstructuredGrid.h>
 #include <vtkPoints.h>
@@ -128,8 +130,11 @@ public:
         vtk_grid->SetPoints(vtk_points);
 
         for (auto &element : domain.elements()){
-            auto ids = element.VTK_ordered_node_ids().data();
-            vtk_grid->InsertNextCell(element.VTK_cell_type(), static_cast<vtkIdType>(element.num_nodes()), ids); 
+            constexpr std::size_t MAX_VTK_NODES = 64;
+            vtkIdType ordered_ids[MAX_VTK_NODES];
+            auto nn = fall_n::vtk::ordered_node_ids(element, ordered_ids);
+            auto ct = fall_n::vtk::cell_type_from(element.topological_dimension(), element.num_nodes());
+            vtk_grid->InsertNextCell(ct, static_cast<vtkIdType>(nn), ordered_ids); 
         }
     }
 
