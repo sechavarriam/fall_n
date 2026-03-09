@@ -15,6 +15,7 @@
 #include "../numerics/Tensor.hh"
 #include "MaterialState.hh"
 #include "MaterialPolicy.hh"
+#include "InternalFieldSnapshot.hh"
 
 #include "update_strategy/IntegrationStrategy.hh"
 
@@ -54,6 +55,12 @@ namespace impl{
       virtual StressT compute_response(const StateVariableT& k) const = 0;
       virtual MatrixT tangent(const StateVariableT& k)          const = 0;
       virtual void    commit(const StateVariableT& k)                 = 0;
+
+      // ── Internal state export (post-processing) ───────────────────────
+      //  Returns a stack-allocated snapshot of internal variables.
+      //  Default: empty (all nullopt) — elastic materials need no override.
+      //  Inelastic materials fill the snapshot via if constexpr in OwningMaterialModel.
+      virtual InternalFieldSnapshot internal_field_snapshot() const { return {}; }
    };
 
    template <typename MaterialType, typename UpdateStrategy>
@@ -99,6 +106,23 @@ namespace impl{
          strategy_.commit(material_, k);
       }
 
+      // ── Internal state snapshot (post-processing export) ──────────────
+      //  Uses if constexpr to detect whether the concrete material has
+      //  internal_state() (satisfies InelasticConstitutiveRelation).
+      //  This compiles away to a no-op for elastic materials.
+      InternalFieldSnapshot internal_field_snapshot() const override {
+         InternalFieldSnapshot snap;
+         if constexpr (requires { material_.internal_state().eps_p(); }) {
+             const auto& alpha = material_.internal_state();
+             snap.plastic_strain = std::span<const double>(
+                 alpha.eps_p().data(), alpha.eps_p().size());
+         }
+         if constexpr (requires { material_.internal_state().eps_bar_p(); }) {
+             snap.equivalent_plastic_strain = material_.internal_state().eps_bar_p();
+         }
+         return snap;
+      }
+
       explicit OwningMaterialModel(MaterialType material, UpdateStrategy strategy): 
           material_ {std::move(material)}, 
           strategy_ {std::move(strategy)}
@@ -134,6 +158,11 @@ public:
    StressT compute_response(const StateVariableT& k) const { return pimpl_->compute_response(k); }
    MatrixT tangent(const StateVariableT& k)          const { return pimpl_->tangent(k);          }
    void    commit(const StateVariableT& k)                 { pimpl_->commit(k);                  }
+
+   // ── Internal state export (post-processing) ──────────────────────────
+   [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
+       return pimpl_->internal_field_snapshot();
+   }
 
 public:
    

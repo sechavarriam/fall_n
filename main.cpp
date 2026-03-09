@@ -27,8 +27,6 @@ int main(int argc, char **args)
 
     ElementGeometry<dim> element_geometry = ElementGeometry<dim>(lagrangian_geometry, gaussian_integrator_1D);
 
-
-
     PetscInitialize(&argc, &args, nullptr, nullptr);
     { // PETSc Scope starts here
         std::string mesh_file = "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
@@ -52,7 +50,7 @@ int main(int argc, char **args)
 
 
         M1.get_domain().create_boundary_from_plane("Load", 0, 10.0);
-        M1.apply_surface_traction("Load", 1.0, 0.0, 0.0);
+        M1.apply_surface_traction("Load", 0.0, 1.0, -1.0);
         
         // M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 

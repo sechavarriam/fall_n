@@ -324,24 +324,4 @@ public:
 
 };
 
-    //void inject_K(){
-    //    for (auto &element : elements) element.inject_K(K);
-    //    MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
-    //    MatAssemblyEnd  (K, MAT_FINAL_ASSEMBLY);
-    //    //MatView(K, PETSC_VIEWER_DRAW_WORLD); // Draw the matrix
-    //    //domain_->mesh.view();                // View the mesh
-    //}
-
-    //auto get_node_solution(PetscInt node_plex_id) // move to analysis?
-    //{
-    //    PetscInt offset, num_dofs;
-    //    const PetscScalar *u;
-    //    PetscSectionGetOffset(dof_section, node_plex_id, &offset); 
-    //    PetscSectionGetDof   (dof_section, node_plex_id, &num_dofs);
-    //    VecGetArrayRead(U, &u);
-    //    auto dofs = std::span<const PetscScalar>(u + offset, num_dofs);
-    //    VecRestoreArrayRead(U, &u);
-    //    return dofs; 
-    //}
-
 #endif // FALL_N_MODEL_HH
