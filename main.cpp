@@ -49,7 +49,11 @@ int main(int argc, char **args)
 
         M1.fix_x(B0);
         M1.setup();
-        M1.apply_node_force(6, 0.0, -1.0, -1.0);
+
+
+        M1.get_domain().create_boundary_from_plane("Load", 0, 10.0);
+        M1.apply_surface_traction("Load", 1.0, 0.0, 0.0);
+        
         // M1._force_orthogonal_plane(x, B1, 0.0, 0.0, -1.0);
 
         LinearAnalysis analisis_obj1{&M1};
