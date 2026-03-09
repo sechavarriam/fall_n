@@ -1,37 +1,43 @@
 #ifndef FALL_N_SRC_ANALYSIS_LINEARANALYSIS_HH
 #define FALL_N_SRC_ANALYSIS_LINEARANALYSIS_HH
 
-
-
 #include <cstddef>
 #include <petscksp.h>
 
 #include "../model/Model.hh"
 
+// =============================================================================
+//  LinearAnalysis — PETSc KSP-driven linear static solver
+// =============================================================================
+//
+//  Solves the linear system  K u = f  using PETSc's KSP interface.
+//
+//  Template parameters mirror NonlinearAnalysis for consistency:
+//    - MaterialPolicy   : material model (dim, StrainT, StressT)
+//    - KinematicPolicy  : strain measure (SmallStrain default)
+//    - ndofs            : DOFs per node (default: dim)
+//    - ElemPolicy       : element storage policy (Single/Multi)
+//
+// =============================================================================
 
+template <typename MaterialPolicy,
+          typename KinematicPolicy = continuum::SmallStrain,
+          std::size_t ndofs = MaterialPolicy::dim,
+          typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class LinearAnalysis
 {
-    using ModelT = Model<ThreeDimensionalMaterial, continuum::SmallStrain, 3>;
-    
-    ModelT *model_{nullptr}; // Pointer to a model base?
+    using ModelT = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
+    static constexpr auto dim = MaterialPolicy::dim;
 
-    KSP solver_{nullptr};
+    ModelT* model_{nullptr};
+    KSP     solver_{nullptr};
+
+    Mat K{nullptr};
+    Vec U{nullptr}, F{nullptr};
 
 public:
 
-    Mat K{nullptr};    // Global stiffness matrix
-    Vec U{nullptr}, F{nullptr}; // Global solution vector and RHS.
-
     auto get_model() const { return model_; }
-
-    void record_solution(VTKDataContainer &recorder){
-        
-        double *u;
-
-        VecGetArray(model_->current_state, &u);
-        recorder.load_vector_field<3>("displacement", u, model_->get_domain().num_nodes());
-        VecRestoreArray(model_->global_imposed_solution, &u);
-    }
 
     void setup_vector_sizes(){
         DMCreateGlobalVector(model_->get_plex(), &U);
@@ -42,18 +48,13 @@ public:
 
     void setup_matrix_sizes(){
         DMCreateMatrix(model_->get_plex(), &K);
-        DMSetMatType(model_->get_plex(), MATAIJ); // Set the matrix type for the mesh
-                                                  // SetFromOptions in the future.
+        DMSetMatType(model_->get_plex(), MATAIJ);
         DMSetUp(model_->get_plex());
         MatZeroEntries(K);
     }
 
     void set_RHS(){
-        PetscSection global_section, local_section;
-        DMGetGlobalSection(model_->get_plex(), &global_section);
-        DMGetLocalSection(model_->get_plex(), &local_section);
-
-        DMLocalToGlobal(model_->get_plex(), model_->nodal_forces, ADD_VALUES, F); // DMLocalToGlobal() is a short form of DMLocalToGlobalBegin() and DMLocalToGlobalEnd()
+        DMLocalToGlobal(model_->get_plex(), model_->force_vector(), ADD_VALUES, F);
     }
 
     void setup_solver(){
@@ -63,8 +64,8 @@ public:
     }
 
     void commit_model_state(){
-        DMGlobalToLocal(model_->get_plex(), U, INSERT_VALUES, model_->current_state);
-        VecAXPY        (model_->current_state, 1.0, model_->global_imposed_solution);
+        DMGlobalToLocal(model_->get_plex(), U, INSERT_VALUES, model_->state_vector());
+        VecAXPY        (model_->state_vector(), 1.0, model_->imposed_solution());
     }
 
     void solve(){
@@ -74,7 +75,11 @@ public:
 
         model_->inject_K(this->K);
 
-        MatView(this->K, PETSC_VIEWER_DRAW_WORLD);
+        // Honour PETSc runtime visualisation options:
+        //   -mat_view draw          → X11 spy plot
+        //   -mat_view ::ascii_info  → summary to stdout
+        // No-op when none of these options are set.
+        MatViewFromOptions(K, nullptr, "-mat_view");
 
         KSPSetOperators(solver_, K, K);
         KSPSolve(solver_, F, U);
@@ -83,12 +88,12 @@ public:
         model_->update_elements_state();
     }
 
-    LinearAnalysis(Model<ThreeDimensionalMaterial, continuum::SmallStrain, 3> *model) : model_{model}{
+    explicit LinearAnalysis(ModelT* model) : model_{model} {
         KSPCreate(PETSC_COMM_WORLD, &solver_);
         setup_solver();
     }
 
-    LinearAnalysis() = default;
+    LinearAnalysis() = delete;
 
     ~LinearAnalysis(){
         MatDestroy(&K);
@@ -97,20 +102,5 @@ public:
         KSPDestroy(&solver_);
     }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #endif // FALL_N_SRC_ANALYSIS_LINEARANALYSIS_HH

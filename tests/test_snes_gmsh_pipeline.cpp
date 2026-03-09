@@ -85,14 +85,14 @@ static void check(bool cond, const char* msg) {
     }
 }
 
-/// Extract full local solution vector from model's current_state.
+/// Extract full local solution vector from model's state_vector().
 static std::vector<double> extract_solution(auto& model) {
     const PetscScalar* arr;
     PetscInt n;
-    VecGetLocalSize(model.current_state, &n);
-    VecGetArrayRead(model.current_state, &arr);
+    VecGetLocalSize(model.state_vector(), &n);
+    VecGetArrayRead(model.state_vector(), &arr);
     std::vector<double> sol(arr, arr + n);
-    VecRestoreArrayRead(model.current_state, &arr);
+    VecRestoreArrayRead(model.state_vector(), &arr);
     return sol;
 }
 
@@ -145,12 +145,12 @@ static double vec_linf_norm(Vec v) {
 static double max_z_displacement(auto& model) {
     const PetscScalar* arr;
     PetscInt n;
-    VecGetLocalSize(model.current_state, &n);
-    VecGetArrayRead(model.current_state, &arr);
+    VecGetLocalSize(model.state_vector(), &n);
+    VecGetArrayRead(model.state_vector(), &arr);
     double max_uz = 0.0;
     for (PetscInt i = 2; i < n; i += DIM)  // z-component every 3 DOFs
         max_uz = std::max(max_uz, std::abs(arr[i]));
-    VecRestoreArrayRead(model.current_state, &arr);
+    VecRestoreArrayRead(model.state_vector(), &arr);
     return max_uz;
 }
 

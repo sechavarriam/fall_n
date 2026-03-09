@@ -332,6 +332,7 @@ public:
 
     std::vector<IntegrationPoint<dim>> integration_point_;
     std::optional<PetscInt>            sieve_id;  // Optional sieve id for the element inside DMPlex Mesh
+    std::string                        physical_group_;  // Physical group name from Gmsh (e.g., "Steel", "Concrete")
 
     constexpr void print_info() const { pimpl_->print_info(); };
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
@@ -406,6 +407,10 @@ public:
 
     // Own methods
     constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
+
+    void set_physical_group(const std::string& name) { physical_group_ = name; }
+    const std::string& physical_group() const noexcept { return physical_group_; }
+    bool has_physical_group() const noexcept { return !physical_group_.empty(); }
 
     constexpr void allocate_integration_points(){
         if (!integration_point_.empty()) return; // Already allocated — idempotent guard.

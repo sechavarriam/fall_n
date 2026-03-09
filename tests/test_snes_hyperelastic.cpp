@@ -80,14 +80,14 @@ static void create_unit_cube(Domain<DIM>& D) {
     D.assemble_sieve();
 }
 
-/// Extract full local solution vector from a model's current_state.
+/// Extract full local solution vector from a model's state_vector().
 static std::vector<double> extract_solution(auto& model) {
     const PetscScalar* arr;
     PetscInt n;
-    VecGetLocalSize(model.current_state, &n);
-    VecGetArrayRead(model.current_state, &arr);
+    VecGetLocalSize(model.state_vector(), &n);
+    VecGetArrayRead(model.state_vector(), &arr);
     std::vector<double> sol(arr, arr + n);
-    VecRestoreArrayRead(model.current_state, &arr);
+    VecRestoreArrayRead(model.state_vector(), &arr);
     return sol;
 }
 
@@ -99,7 +99,7 @@ static std::array<double, DIM> node_displacement(auto& model, std::size_t node_i
     PetscInt idx[DIM];
     for (std::size_t i = 0; i < DIM; ++i)
         idx[i] = dof_idx[i];
-    VecGetValues(model.current_state, static_cast<PetscInt>(DIM), idx, u.data());
+    VecGetValues(model.state_vector(), static_cast<PetscInt>(DIM), idx, u.data());
     return u;
 }
 
