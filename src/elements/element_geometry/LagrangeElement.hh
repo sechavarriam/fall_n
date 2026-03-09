@@ -51,8 +51,6 @@ class LagrangeElement
   
   static inline constexpr bool _is_LagrangeElement() { return true; };
 
-  using ReferenceCell = geometry::cell::LagrangianCell<N...>;
-
   using SpatialArray  = std::array<double, Dim>;          // This is the type of the global coordinates. //TODO: optimizar para caso 1D como double.
   using NaturalArray  = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local (natural) coordinates.
 
@@ -60,6 +58,8 @@ class LagrangeElement
   
 
 public:
+
+  using ReferenceCell = geometry::cell::LagrangianCell<N...>;
 
   static inline constexpr std::size_t dim = Dim;
   static inline constexpr std::size_t topological_dim = sizeof...(N);

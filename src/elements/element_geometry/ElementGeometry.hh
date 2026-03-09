@@ -86,6 +86,18 @@ namespace impl
         constexpr virtual LocalCoordView reference_integration_point(std::size_t i) const = 0;
         constexpr virtual double weight(std::size_t i) const = 0;
 
+        // ── Subentity topology (codim-1 faces) ──────────────────────────
+        virtual std::size_t              num_faces()                        const = 0;
+        virtual std::size_t              face_num_nodes(std::size_t f)      const = 0;
+        virtual std::vector<std::size_t> face_node_indices(std::size_t f)   const = 0;
+
+        // Create a type-erased ElementGeometry for the f-th face of this element.
+        // The returned geometry has spatial dim = dim but topological_dim = sizeof...(N)-1.
+        // node_ids are the *global* PETSc node IDs for the face.
+        virtual std::unique_ptr<ElementGeometryConcept<dim>>
+        make_face_geometry(std::size_t f, std::size_t tag,
+                           std::span<PetscInt> face_global_node_ids) const = 0;
+
     };
              
     template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
@@ -185,6 +197,136 @@ namespace impl
         constexpr LocalCoordView reference_integration_point(std::size_t i) const override {return integrator_.reference_integration_point(i);};
         constexpr double weight                    (std::size_t i) const override {return integrator_.weight(i);};
 
+        // ── Subentity topology overrides ────────────────────────────────
+        //
+        //  Delegate to the compile-time SubentityDescriptor living inside
+        //  the ReferenceCell of a LagrangeElement.  For non-Lagrange
+        //  element types we fall back to returning 0 / empty.
+        //
+
+        std::size_t num_faces() const override {
+            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+                // topological_dim >= 1 guaranteed by LagrangianCell
+                return ElementType::ReferenceCell::num_faces;
+            } else {
+                return 0;
+            }
+        }
+
+        std::size_t face_num_nodes(std::size_t f) const override {
+            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+                using Faces = typename ElementType::ReferenceCell::Faces;
+                auto lookup = [&]<std::size_t... I>(std::index_sequence<I...>)
+                    -> std::size_t
+                {
+                    static constexpr std::array<std::size_t, sizeof...(I)> table = {
+                        Faces::subentity_num_nodes(I)...
+                    };
+                    return table[f];
+                };
+                return lookup(std::make_index_sequence<ElementType::ReferenceCell::num_faces>{});
+            } else {
+                (void)f;
+                return 0;
+            }
+        }
+
+        std::vector<std::size_t> face_node_indices(std::size_t f) const override {
+            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+                using Faces = typename ElementType::ReferenceCell::Faces;
+                // Faces::node_indices(f) is constexpr but f is a runtime argument,
+                // so we build a small lookup table and dispatch.
+                // For a modest number of faces (≤12 in 3D) this is cheap.
+                auto lookup = [&]<std::size_t... I>(std::index_sequence<I...>) 
+                    -> std::vector<std::size_t>
+                {
+                    using FI = typename Faces::NodeIndices;
+                    // Build constexpr array of all face-node-index lists
+                    static constexpr std::array<FI, sizeof...(I)> table = {
+                        Faces::node_indices(I)...
+                    };
+                    const auto& entry = table[f];
+                    return {entry.indices.begin(), entry.indices.begin() + entry.size};
+                };
+                return lookup(std::make_index_sequence<ElementType::ReferenceCell::num_faces>{});
+            } else {
+                (void)f;
+                return {};
+            }
+        }
+
+        // ── make_face_geometry: create a type-erased surface element for face f ──
+        //
+        //  For each compile-time face index I, we know the free-axis dimensions
+        //  at compile time via SubentityDescriptor.  We build a dispatch table
+        //  of factory functions (one per face) that instantiate the correct
+        //  LagrangeElement<Dim, FreeDim0, FreeDim1, ...> and integrator.
+        //
+        std::unique_ptr<ElementGeometryConcept<dim>> make_face_geometry(
+            std::size_t f, std::size_t tag,
+            std::span<PetscInt> face_global_node_ids) const override
+        {
+            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+                using RC = typename ElementType::ReferenceCell;
+
+                // Factory function type: creates a concept pointer from (tag, node_ids)
+                using FactoryFn = std::unique_ptr<ElementGeometryConcept<dim>>(*)(
+                    std::size_t, std::span<PetscInt>);
+
+                // Build dispatch table: one factory per face index
+                auto table = [&]<std::size_t... I>(std::index_sequence<I...>)
+                    -> std::array<FactoryFn, sizeof...(I)>
+                {
+                    return { &make_face_factory<I>... };
+                }(std::make_index_sequence<RC::num_faces>{});
+
+                return table[f](tag, face_global_node_ids);
+            } else {
+                (void)f; (void)tag; (void)face_global_node_ids;
+                return nullptr;
+            }
+        }
+
+    private:
+        // Compile-time factory for face FaceIdx of this element type.
+        // Uses sub_dimensions(FaceIdx) to deduce the correct LagrangeElement
+        // and GaussLegendreCellIntegrator template parameters.
+        template <std::size_t FaceIdx>
+        static std::unique_ptr<ElementGeometryConcept<dim>>
+        make_face_factory(std::size_t tag, std::span<PetscInt> node_ids)
+            requires (requires { typename ElementType::ReferenceCell; })
+        {
+            using RC    = typename ElementType::ReferenceCell;
+            using Faces = typename RC::Faces;
+            constexpr auto sd = Faces::sub_dimensions(FaceIdx);
+
+            // Dispatch on the number of free dimensions of the face
+            if constexpr (sd.num_free == 2) {
+                // Face of a 3D element → surface element
+                constexpr auto D0 = sd.free_dims[0];
+                constexpr auto D1 = sd.free_dims[1];
+                using FaceElem  = LagrangeElement<dim, D0, D1>;
+                using FaceInteg = GaussLegendreCellIntegrator<D0, D1>;
+                using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
+                return std::make_unique<FaceModel>(
+                    FaceElem(std::forward<std::size_t>(tag), node_ids),
+                    FaceInteg{});
+            } else if constexpr (sd.num_free == 1) {
+                // Face of a 2D element → edge element
+                constexpr auto D0 = sd.free_dims[0];
+                using FaceElem  = LagrangeElement<dim, D0>;
+                using FaceInteg = GaussLegendreCellIntegrator<D0>;
+                using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
+                return std::make_unique<FaceModel>(
+                    FaceElem(std::forward<std::size_t>(tag), node_ids),
+                    FaceInteg{});
+            } else {
+                // Face of a 1D element → point (not useful for boundary elements)
+                (void)tag; (void)node_ids;
+                return nullptr;
+            }
+        }
+
     };
 } // impl
 
@@ -231,6 +373,19 @@ public:
 
     constexpr LocalCoordView reference_integration_point(std::size_t i) const {return pimpl_->reference_integration_point(i);};
     constexpr double weight                     (std::size_t i) const {return pimpl_->weight(i);};
+
+    // ── Subentity topology (codim-1 faces) ──────────────────────────────
+    std::size_t              num_faces()                      const { return pimpl_->num_faces(); }
+    std::size_t              face_num_nodes(std::size_t f)    const { return pimpl_->face_num_nodes(f); }
+    std::vector<std::size_t> face_node_indices(std::size_t f) const { return pimpl_->face_node_indices(f); }
+
+    // Create a new type-erased ElementGeometry for the f-th face.
+    // face_global_node_ids are the PETSc global node IDs for the face nodes.
+    ElementGeometry make_face_geometry(std::size_t f, std::size_t tag,
+                                       std::span<PetscInt> face_global_node_ids) const {
+        auto face_pimpl = pimpl_->make_face_geometry(f, tag, face_global_node_ids);
+        return ElementGeometry(std::move(face_pimpl));
+    }
 
     // ---- Non-virtual template: numerical integration over the geometry ----
     // Computes  ∫ f(ξ) · dΩ  =  ∑ w_i · |measure(ξ_i)| · f(ξ_i)
@@ -305,6 +460,10 @@ public:
     constexpr ElementGeometry &operator=(ElementGeometry &&) = default;
 
 private:
+
+    // Private constructor from a pre-built pimpl (used by make_face_geometry)
+    explicit ElementGeometry(std::unique_ptr<impl::ElementGeometryConcept<dim>> p)
+        : pimpl_(std::move(p)) {}
 
     constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
