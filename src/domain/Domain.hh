@@ -12,7 +12,14 @@
 #include <map>
 #include <string>
 #include <set>
+#include <unordered_set>
 #include <cmath>
+#include <algorithm>
+#include <numeric>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "../geometry/Topology.hh"
 #include "../mesh/Mesh.hh"
@@ -38,6 +45,13 @@ class Domain
     //  whose nodes are pointers to the same Node<dim> objects in nodes_.
     std::map<std::string, std::vector<ElementGeometry<dim>>> boundary_elements_;
 
+    // ── O(1) node lookup: direct-address table (id → pointer) ──────────
+    //  Built once via build_node_index(). Since Gmsh/PETSc IDs are dense
+    //  non-negative integers, a flat vector is optimal: O(1) access,
+    //  perfect cache locality, ~8 bytes per node.
+    std::vector<Node<dim>*> node_by_id_;
+    bool node_index_built_ = false;
+
     std::optional<std::size_t>        num_integration_points_;
 
 public:
@@ -60,26 +74,24 @@ public:
         return num_integration_points_.value();
     };
 
-    // Getters
-    //Node<dim> *node_p(std::size_t i) { return &nodes_[i];};
-    //Node<dim>& node  (std::size_t i) { return  nodes_[i];}; //Esto no es la iesima posicion!!!! debe devolver el nodo con id i.
-                                                              //Esto se podria hacer asi si el vector de nodos fuera desde cero hasta el max id, y dejando espacios vacios.
-                                                              //Otra opcion es almacenar un position_index en el nodo referente al dominio. Para llamar directamente sin buscar.
-                                                              //Otra opcion es un unordered_map con los ids como keys.
-                                                              //Por ahora se hara con un find_if, y luego se cambiara por alguna de las anteriores luego de un profiling.
-    
-    Node<dim> *node_p(std::size_t i) {
-        // El iterador inicial podria tener un atajo si se ordenan los nodos por id.
-        auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return node.id() == i;});
-        
-        std::cout << "Node id: " << pos->id() << std::endl;
-        };
+    // ── Build the O(1) node index ────────────────────────────────────
+    void build_node_index() {
+        if (nodes_.empty()) return;
+        std::size_t max_id = 0;
+        for (const auto& n : nodes_) max_id = std::max(max_id, n.id());
+        node_by_id_.assign(max_id + 1, nullptr);
+        for (auto& n : nodes_) node_by_id_[n.id()] = &n;
+        node_index_built_ = true;
+    }
 
+    // ── Node accessors: O(1) via direct-address table ────────────────
+    Node<dim>* node_p(std::size_t id) {
+        return node_by_id_[id];
+    }
 
-    Node<dim>& node  (std::size_t i) {
-        // El iterador inicial podria tener un atajo si se ordenan los nodos por id.
-        return *std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return node.id() == i;});
-        };
+    Node<dim>& node(std::size_t id) {
+        return *node_by_id_[id];
+    }
 
     std::span<Node<dim>>            nodes()    { return std::span<Node<dim>>           (nodes_);    };  
     std::span<ElementGeometry<dim>> elements() { return std::span<ElementGeometry<dim>>(elements_); };
@@ -132,11 +144,14 @@ public:
                                     int d, double val,
                                     double tol = 1.0e-6)
     {
-        // 1. Collect IDs of nodes on the plane
-        std::set<PetscInt> plane_node_ids;
-        for (auto& node : nodes_) {
-            if (std::abs(node.coord(d) - val) < tol) {
-                plane_node_ids.insert(static_cast<PetscInt>(node.id()));
+        if (!node_index_built_) build_node_index();
+
+        // 1. Collect IDs of nodes on the plane — O(1) lookup via unordered_set
+        std::unordered_set<PetscInt> plane_node_ids;
+        plane_node_ids.reserve(nodes_.size() / 4); // heuristic
+        for (const auto& nd : nodes_) {
+            if (std::abs(nd.coord(d) - val) < tol) {
+                plane_node_ids.insert(static_cast<PetscInt>(nd.id()));
             }
         }
         if (plane_node_ids.empty()) return;
@@ -176,12 +191,10 @@ public:
                         f, surf_tag++,
                         std::span<PetscInt>(face_node_ids.data(), fn)));
 
-                    // Bind nodes immediately
+                    // Bind nodes via O(1) lookup
                     auto& new_elem = vec.back();
                     for (std::size_t i = 0; i < fn; ++i) {
-                        auto pos = std::find_if(nodes_.begin(), nodes_.end(),
-                            [&](auto& node){ return PetscInt(node.id()) == new_elem.node(i); });
-                        new_elem.bind_node(i, std::addressof(*pos));
+                        new_elem.bind_node(i, node_by_id_[new_elem.node(i)]);
                     }
                 }
             }
@@ -191,31 +204,47 @@ public:
     // ===========================================================================================================
 
     void setup_integration_points(){
-        std::size_t gauss_point_counter = 0;
+        const auto ne = elements_.size();
 
-        for (auto &e : elements_){
-            gauss_point_counter = e.setup_integration_points(gauss_point_counter);
+        // 1. Pre-compute per-element offsets via prefix sum (serial — O(n) integers)
+        std::vector<std::size_t> offsets(ne);
+        std::size_t total = 0;
+        for (std::size_t i = 0; i < ne; ++i) {
+            offsets[i] = total;
+            total += elements_[i].num_integration_points();
+        }
+
+        // 2. Initialize integration points in parallel (each element is independent)
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (std::size_t i = 0; i < ne; ++i) {
+            elements_[i].setup_integration_points(offsets[i]);
         }
 
         std::cout << "Number of integration points: " << num_integration_points() << std::endl;
-        std::cout << "offset: " << gauss_point_counter << std::endl;
+        std::cout << "offset: " << total << std::endl;
     }
 
     void link_nodes_to_elements(){
-        for (auto &e : elements_){
-            for (std::size_t i = 0; i < e.num_nodes(); i++){
-                // Find position of node i in domain   
-                auto pos = std::find_if(nodes_.begin(), nodes_.end(), [&](auto &node){return PetscInt(node.id()) == e.node(i);});
-                e.bind_node(i, std::addressof(*pos));
+        if (!node_index_built_) build_node_index();
+
+        // Volume elements — O(1) lookup, parallelizable (each element is independent)
+        const auto ne = elements_.size();
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (std::size_t e = 0; e < ne; ++e) {
+            for (std::size_t i = 0; i < elements_[e].num_nodes(); ++i) {
+                elements_[e].bind_node(i, node_by_id_[elements_[e].node(i)]);
             }
         }
-        // Also link boundary (surface) element nodes
+
+        // Boundary (surface) elements — O(1) lookup
         for (auto& [name, surf_elems] : boundary_elements_) {
-            for (auto& e : surf_elems) {
-                for (std::size_t i = 0; i < e.num_nodes(); i++) {
-                    auto pos = std::find_if(nodes_.begin(), nodes_.end(),
-                        [&](auto &node){ return PetscInt(node.id()) == e.node(i); });
-                    e.bind_node(i, std::addressof(*pos));
+            for (auto& elem : surf_elems) {
+                for (std::size_t i = 0; i < elem.num_nodes(); ++i) {
+                    elem.bind_node(i, node_by_id_[elem.node(i)]);
                 }
             }
         }
@@ -245,13 +274,15 @@ public:
 
         // Set the sieve cone for each entity (only elements by now). 
         // The nodes doesn't cover any entity of lower dimension.
+        // Stack-allocated buffer avoids per-element heap allocation.
+        constexpr std::size_t MAX_NODES_PER_ELEM = 64; // ≥ max(27 hex27, 64 hex4⁴)
         for (auto &e : elements_){
-            std::vector<PetscInt> cone(e.num_nodes());
-
-            for (std::size_t i = 0; i < e.num_nodes(); i++){
+            PetscInt cone[MAX_NODES_PER_ELEM];
+            const auto nn = e.num_nodes();
+            for (std::size_t i = 0; i < nn; ++i){
                 cone[i] = e.node_p(i).sieve_id.value();
             }
-            mesh.set_sieve_cone(e.sieve_id.value(), cone.data());
+            mesh.set_sieve_cone(e.sieve_id.value(), cone);
         }
         mesh.symmetrize_sieve();
     }
@@ -291,18 +322,12 @@ public:
         return &nodes_.back();
     };
 
-    // Tol increases capacity by default in 20%.
-    void preallocate_node_capacity(std::size_t n, double tol = 1.20)
-    { // Use Try and Catch to allow this operation if the container is empty.
-        try{
-            if (nodes_.empty())
-                nodes_.reserve(n * tol);
-            else
-                throw nodes_.empty();
-        }catch (bool NotEmpty){
-            std::cout << "Preallocation should be done only before any node definition. Doing nothing." << std::endl;
+    // Reserve capacity before any node insertion (avoids repeated reallocation).
+    void preallocate_node_capacity(std::size_t n, double margin = 1.20) {
+        if (nodes_.empty()) {
+            nodes_.reserve(static_cast<std::size_t>(n * margin));
         }
-    };
+    }
 
     // Constructors
     // Copy Constructor
