@@ -204,14 +204,32 @@ public:
         : relation_{std::move(relation)}
     {}
 
-    // ─── Special members (rule of zero) ──────────────────────────────────
+    // ─── Special members ─────────────────────────────────────────────────
+    //
+    //  The copy constructor deep-copies the Relation when it holds per-point
+    //  mutable state (InelasticConstitutiveRelation), so each Gauss point
+    //  gets its own copy of the internal variables (ε_p, α, etc.).
+    //  For elastic relations (stateless), deep copy is still correct and
+    //  the cost is negligible.
 
     MaterialInstance()                                      = default;
     ~MaterialInstance()                                     = default;
 
-    MaterialInstance(const MaterialInstance&)                = default;
+    MaterialInstance(const MaterialInstance& other)
+        : state_(other.state_)
+        , relation_(std::make_shared<Relation>(*other.relation_))
+    {}
+
     MaterialInstance(MaterialInstance&&) noexcept            = default;
-    MaterialInstance& operator=(const MaterialInstance&)     = default;
+
+    MaterialInstance& operator=(const MaterialInstance& other) {
+        if (this != &other) {
+            state_    = other.state_;
+            relation_ = std::make_shared<Relation>(*other.relation_);
+        }
+        return *this;
+    }
+
     MaterialInstance& operator=(MaterialInstance&&) noexcept = default;
 };
 

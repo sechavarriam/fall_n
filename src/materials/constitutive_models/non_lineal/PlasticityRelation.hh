@@ -320,11 +320,21 @@ private:
         }
 
         // ── Plastic correction ───────────────────────────────────────
+        //
+        //  Convention (Simo norm-space):
+        //    flow direction  n̂ = s / ‖s‖
+        //    plastic strain  Δε^p = Δγ · n̂
+        //    equiv.pl.strain Δε̄ᵖ = √(2/3) · Δγ
+        //
+        //  Consistency condition  q_{n+1} = σ_y(ε̄ᵖ_{n+1})   gives:
+        //    √(3/2)·(r − 2G·Δγ) = σ_y + H·√(2/3)·Δγ
+        //    ⟹  Δγ = f / [√(2/3)·(3G + H)]
+        //
 
         // Consistency parameter
         double H_mod      = hardening_.modulus(alpha_.hardening_state);
-        double denom      = 3.0 * G_ + H_mod;
-        double delta_gamma = f_trial / denom;
+        double denom_gamma = std::sqrt(2.0 / 3.0) * (3.0 * G_ + H_mod);
+        double delta_gamma = f_trial / denom_gamma;
 
         // Flow direction (via flow rule → yield gradient for associated)
         Eigen::Vector<double, N> n_hat = flow_.direction(yield_, eff);
@@ -343,14 +353,19 @@ private:
         // ── Algorithmic consistent tangent ────────────────────────────
         //
         //  C_ep = C_e
-        //       − (2G)² · (Δγ/‖s‖) · P_dev
-        //       + (2G)² · (Δγ/‖s‖ − 1/(3G+H)) · (n̂ ⊗ n̂)
+        //       − 4G² · (Δγ/r) · P_dev
+        //       + 4G² · (Δγ/r − 3/(2(3G+H))) · (n̂ ⊗ n̂)
         //
-        double two_G       = 2.0 * G_;
-        double s_norm      = eff.deviatoric_norm;
-        double ratio       = (s_norm > 1e-30) ? (delta_gamma / s_norm) : 0.0;
-        double factor_Pdev = two_G * two_G * ratio;
-        double factor_nn   = two_G * two_G * (ratio - 1.0 / denom);
+        //  The n̂⊗n̂ coefficient derives from ∂Δγ/∂r = (3/2)/(3G+H),
+        //  which differs from 1/denom_gamma.  Equivalently:
+        //    coeff = Δγ/r − 1/(2G + 2H/3)
+        //
+        double two_G        = 2.0 * G_;
+        double s_norm       = eff.deviatoric_norm;
+        double ratio        = (s_norm > 1e-30) ? (delta_gamma / s_norm) : 0.0;
+        double factor_Pdev  = two_G * two_G * ratio;
+        double denom_tangent = 2.0 * G_ + (2.0 / 3.0) * H_mod;
+        double factor_nn    = two_G * two_G * (ratio - 1.0 / denom_tangent);
 
         TangentT nn = n_hat * n_hat.transpose();
 

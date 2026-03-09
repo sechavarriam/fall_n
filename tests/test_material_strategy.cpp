@@ -141,24 +141,42 @@ void test_inelastic_strategy() {
     // which runs the return-mapping and updates α = {ε^p, ε̄^p}
     mat.commit(eps_large);
 
-    // After commit, internal variables have changed (ε^p ≠ 0, ε̄^p ≠ 0).
-    // Re-evaluating at the SAME total strain must give a DIFFERENT stress
-    // (since σ_trial = C_e·(ε − ε^p) changes when ε^p changes).
+    // After commit, re-evaluating at the SAME total strain must give the
+    // SAME stress — the return-mapping is self-consistent (idempotent) for
+    // purely normal strains where Ce·n̂ = 2G·n̂ exactly.
     auto sigma_post_commit = mat.compute_response(eps_large);
 
     double stress_diff = (sigma_post_commit.components()
                         - sigma_pre_commit.components()).norm();
     std::cout << "    ||σ_after − σ_before|| = " << stress_diff << "\n";
-    assert(stress_diff > 1e-10 &&
-           "commit must change the constitutive response (internal state evolved)");
+    assert(stress_diff < 1e-10 &&
+           "committed state must be self-consistent at same strain");
 
-    // Also verify that applying a SECOND commit at a larger strain
-    // produces further hardening (yield stress increases)
+    // Verify state ACTUALLY evolved: compare committed material vs a FRESH
+    // (un-committed) material at a NON-PROPORTIONAL strain.  For proportional
+    // loading with linear isotropic hardening the return mapping is path-
+    // independent, so we must change deviatoric direction to reveal the
+    // committed plastic strain.
+    Strain<6> eps_np;
+    eps_np.set_strain(
+        (Eigen::Vector<double, 6>() << 0.005, 0.005, -0.010, 0.0, 0.0, 0.0)
+            .finished());
+
+    Material<ThreeDimensionalMaterial> mat_fresh{
+        J2PlasticMaterial3D{200.0, 0.3, 0.250, 10.0}, InelasticUpdate{}};
+    auto sigma_fresh    = mat_fresh.compute_response(eps_np);
+    auto sigma_commited = mat.compute_response(eps_np);
+    double evolution_diff = (sigma_commited.components()
+                           - sigma_fresh.components()).norm();
+    std::cout << "    ||σ_committed − σ_fresh|| at ε_np = " << evolution_diff << "\n";
+    assert(evolution_diff > 1e-10 &&
+           "committed material must differ from fresh at non-proportional strain");
+
+    // Second commit at a non-proportional strain — again self-consistent
     Strain<6> eps_larger;
     eps_larger.set_strain(
         (Eigen::Vector<double, 6>() << 0.02, -0.006, -0.006, 0.0, 0.0, 0.0)
             .finished());
-
     auto sigma_step2_a = mat.compute_response(eps_larger);
     mat.commit(eps_larger);
     auto sigma_step2_b = mat.compute_response(eps_larger);
@@ -166,8 +184,8 @@ void test_inelastic_strategy() {
     double stress_diff_2 = (sigma_step2_b.components()
                           - sigma_step2_a.components()).norm();
     std::cout << "    ||σ_step2_after − σ_step2_before|| = " << stress_diff_2 << "\n";
-    assert(stress_diff_2 > 1e-10 &&
-           "second commit must further evolve internal state");
+    assert(stress_diff_2 < 1e-10 &&
+           "second commit also self-consistent at same strain");
 
     std::cout << "    PASSED\n\n";
 }

@@ -361,6 +361,29 @@ endif()
 
 add_test(NAME snes_hyperelastic COMMAND fall_n_snes_test)
 
+# ── SNES + Gmsh pipeline tests (Phase 7B: multi-element, UL, plasticity) ────
+add_executable(fall_n_snes_gmsh_test
+  tests/test_snes_gmsh_pipeline.cpp
+)
+
+target_include_directories(fall_n_snes_gmsh_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_snes_gmsh_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_snes_gmsh_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_snes_gmsh_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_snes_gmsh_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_snes_gmsh_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_snes_gmsh_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME snes_gmsh_pipeline COMMAND fall_n_snes_gmsh_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
