@@ -269,6 +269,29 @@ vtk_module_autoinit(
 
 add_test(NAME beam_n_element COMMAND fall_n_beam_n_test)
 
+# ── Timoshenko cantilever benchmark (continuum vs beam vs analytical) ─────────
+add_executable(fall_n_cantilever_benchmark
+  tests/test_timoshenko_cantilever_benchmark.cpp
+)
+
+target_include_directories(fall_n_cantilever_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_cantilever_benchmark PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_cantilever_benchmark PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_cantilever_benchmark PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_cantilever_benchmark PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_cantilever_benchmark
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_cantilever_benchmark PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME cantilever_benchmark COMMAND fall_n_cantilever_benchmark)
+
 # ── Continuum tensor module tests ─────────────────────────────────────────────
 add_executable(fall_n_continuum_test
   tests/test_continuum_tensors.cpp
