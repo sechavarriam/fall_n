@@ -84,6 +84,7 @@
 
 #include "../model/Model.hh"
 #include "../model/BoundaryCondition.hh"
+#include "../utils/Benchmark.hh"
 #include "Damping.hh"
 
 
@@ -109,8 +110,12 @@ class DynamicAnalysis {
     Vec U_{nullptr};       // Global displacement
     Vec V_{nullptr};       // Global velocity
     Vec F_work_{nullptr};  // Work vector for residual assembly
+    Vec f_ext_work_{nullptr}; // Pre-allocated work vector for f_ext (avoid per-step alloc)
 
     bool is_setup_{false};
+
+    // ─── Performance timing ───────────────────────────────────────
+    AnalysisTimer timer_;
 
     // ── Configuration ────────────────────────────────────────────────
 
@@ -221,13 +226,11 @@ class DynamicAnalysis {
         }
 
         // ── 4. F −= f_ext(t) ────────────────────────────────────────
+        //  Uses pre-allocated work vector to avoid per-step allocation.
         if (self->force_evaluator_) {
-            Vec f_ext;
-            VecDuplicate(F, &f_ext);
-            VecSet(f_ext, 0.0);
-            self->force_evaluator_(t, f_ext);
-            VecAXPY(F, -1.0, f_ext);
-            VecDestroy(&f_ext);
+            VecSet(self->f_ext_work_, 0.0);
+            self->force_evaluator_(t, self->f_ext_work_);
+            VecAXPY(F, -1.0, self->f_ext_work_);
         }
 
         // ── 5. F −= ground motion pseudo-forces: −M·ĝ·a_g(t) ───────
@@ -513,6 +516,7 @@ public:
 
     void setup() {
         if (is_setup_) return;
+        timer_.start("setup");
 
         DM dm = model_->get_plex();
 
@@ -526,6 +530,7 @@ public:
             VecSet(V_, 0.0);
         }
         VecDuplicate(U_, &F_work_);
+        VecDuplicate(U_, &f_ext_work_);
 
         // ── Assemble mass matrix ─────────────────────────────────────
         DMCreateMatrix(dm, &M_);
@@ -562,6 +567,7 @@ public:
         TSSetFromOptions(ts_);
 
         is_setup_ = true;
+        timer_.stop("setup");
     }
 
 
@@ -634,7 +640,9 @@ public:
             "  ══════════════════════════════════════════════════════════\n\n",
             t_final, dt);
 
+        timer_.start("solve");
         TSSolve(ts_, U_);
+        timer_.stop("solve");
 
         TSConvergedReason reason;
         TSGetConvergedReason(ts_, &reason);
@@ -650,11 +658,13 @@ public:
             final_time, static_cast<int>(steps), static_cast<int>(reason));
 
         // Update model state after solve
+        timer_.start("post");
         {
             DM dm = model_->get_plex();
             DMGlobalToLocal(dm, U_, INSERT_VALUES, model_->state_vector());
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
         }
+        timer_.stop("post");
 
         return (reason >= 0);
     }
@@ -692,6 +702,9 @@ public:
     Vec velocity()      const { return V_; }
     Mat mass_matrix()   const { return M_; }
     Mat damping_matrix() const { return C_; }
+
+    const AnalysisTimer& timer() const { return timer_; }
+          AnalysisTimer& timer()       { return timer_; }
 
     /// Get current time from TS.
     double current_time() const {
@@ -742,10 +755,11 @@ public:
     DynamicAnalysis() = default;
 
     ~DynamicAnalysis() {
-        if (ts_)     TSDestroy(&ts_);
-        if (U_)      VecDestroy(&U_);
-        if (V_)      VecDestroy(&V_);
-        if (F_work_) VecDestroy(&F_work_);
+        if (ts_)         TSDestroy(&ts_);
+        if (U_)          VecDestroy(&U_);
+        if (V_)          VecDestroy(&V_);
+        if (F_work_)     VecDestroy(&F_work_);
+        if (f_ext_work_) VecDestroy(&f_ext_work_);
         if (M_)      MatDestroy(&M_);
         if (C_)      MatDestroy(&C_);
         if (J_)      MatDestroy(&J_);

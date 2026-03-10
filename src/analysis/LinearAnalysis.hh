@@ -5,6 +5,7 @@
 #include <petscksp.h>
 
 #include "../model/Model.hh"
+#include "../utils/Benchmark.hh"
 
 // =============================================================================
 //  LinearAnalysis — PETSc KSP-driven linear static solver
@@ -35,7 +36,13 @@ class LinearAnalysis
     Mat K{nullptr};
     Vec U{nullptr}, F{nullptr};
 
+    AnalysisTimer timer_;
+
 public:
+
+    /// Access the performance timer.
+    const AnalysisTimer& timer() const { return timer_; }
+          AnalysisTimer& timer()       { return timer_; }
 
     auto get_model() const { return model_; }
 
@@ -69,11 +76,15 @@ public:
     }
 
     void solve(){
+        timer_.start("setup");
         setup_vector_sizes();
         setup_matrix_sizes();
         set_RHS();
+        timer_.stop("setup");
 
+        timer_.start("assembly");
         model_->inject_K(this->K);
+        timer_.stop("assembly");
 
         // Honour PETSc runtime visualisation options:
         //   -mat_view draw          → X11 spy plot
@@ -81,11 +92,15 @@ public:
         // No-op when none of these options are set.
         MatViewFromOptions(K, nullptr, "-mat_view");
 
+        timer_.start("solve");
         KSPSetOperators(solver_, K, K);
         KSPSolve(solver_, F, U);
+        timer_.stop("solve");
 
+        timer_.start("commit");
         commit_model_state();
         model_->update_elements_state();
+        timer_.stop("commit");
     }
 
     explicit LinearAnalysis(ModelT* model) : model_{model} {
