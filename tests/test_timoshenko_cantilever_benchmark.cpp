@@ -254,12 +254,46 @@ static void test_2_continuum_tip_load_z() {
     M.fix_x(0.0);
     M.setup();
 
+    // ─── Diagnostic: count nodes, elements, fixed nodes ───
+    {
+        int n_fixed = 0;
+        for (const auto& nd : D.nodes())
+            if (std::abs(nd.coord(0) - 0.0) < 1e-6) ++n_fixed;
+        std::cout << "  [DIAG] Total nodes: " << D.nodes().size()
+                  << "  Volume elements: " << D.elements().size()
+                  << "  Fixed nodes (x=0): " << n_fixed << "\n";
+    }
+
     // Apply tip force P in Z at x=L face via surface traction
     // Traction = P / face_area,  face_area = B × H = 0.32
     double face_area = B * H;
     double tz = P / face_area;
     D.create_boundary_from_plane("Tip", 0, L);
+
+    // ─── Diagnostic: check surface area and number of face elements ───
+    {
+        auto tip_elems = D.boundary_elements("Tip");
+        double tip_area = surface_load::compute_surface_area<DIM>(tip_elems);
+        std::cout << "  [DIAG] Tip face elements: " << tip_elems.size()
+                  << "  Computed tip area: " << tip_area
+                  << "  Expected: " << face_area
+                  << "  Traction tz: " << tz << "\n";
+    }
+
     M.apply_surface_traction("Tip", 0.0, 0.0, tz);
+
+    // ─── Diagnostic: check total force in z-direction ───
+    {
+        PetscScalar fz_total = 0.0;
+        const PetscScalar* farr;
+        PetscInt fn;
+        VecGetLocalSize(M.force_vector(), &fn);
+        VecGetArrayRead(M.force_vector(), &farr);
+        for (PetscInt i = 2; i < fn; i += 3) fz_total += farr[i];
+        VecRestoreArrayRead(M.force_vector(), &farr);
+        std::cout << "  [DIAG] Sum of nodal forces in z: " << fz_total
+                  << "  Expected: " << P << "\n";
+    }
 
     LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();

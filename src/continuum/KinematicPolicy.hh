@@ -99,6 +99,50 @@ concept KinematicPolicyConcept = requires {
 
 
 // =============================================================================
+//  detail::physical_gradients — ∂N/∂x from ElementGeometry
+// =============================================================================
+//
+//  geo->dH_dx(I, j, Xi) returns reference-coordinate derivatives ∂N_I/∂ξ_j.
+//  Physical-space derivatives require the Jacobian inverse:
+//
+//      ∂N_I/∂x_j = ∑_k (J⁻¹)_{kj} · ∂N_I/∂ξ_k
+//
+//  In matrix form:  grad_phys = dN_dxi · J⁻¹
+//
+//  This helper collects the reference gradients and transforms them.
+//
+// -----------------------------------------------------------------------------
+
+namespace detail {
+
+template <std::size_t dim>
+inline Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>
+physical_gradients(
+    ElementGeometry<dim>* geo,
+    std::size_t num_nodes,
+    const std::array<double, dim>& Xi)
+{
+    constexpr auto D = static_cast<int>(dim);
+    const auto N = static_cast<Eigen::Index>(num_nodes);
+
+    // Collect reference gradients ∂N/∂ξ
+    Eigen::Matrix<double, Eigen::Dynamic, D> dN_dxi(N, D);
+    for (std::size_t I = 0; I < num_nodes; ++I)
+        for (std::size_t j = 0; j < dim; ++j)
+            dN_dxi(static_cast<Eigen::Index>(I), static_cast<Eigen::Index>(j))
+                = geo->dH_dx(I, j, Xi);
+
+    // J = ∂x/∂ξ  (dim × dim for volume elements)
+    auto J = geo->evaluate_jacobian(Xi);
+
+    // ∂N/∂x = ∂N/∂ξ · J⁻¹   (num_nodes × dim)
+    return dN_dxi * J.inverse();
+}
+
+} // namespace detail
+
+
+// =============================================================================
 //  SmallStrain  — default kinematic policy (backward-compatible)
 // =============================================================================
 //
@@ -180,12 +224,7 @@ struct SmallStrain {
         const std::array<double, dim>& Xi)
         -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
     {
-        Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)> grad(
-            static_cast<Eigen::Index>(num_nodes), dim);
-        for (std::size_t I = 0; I < num_nodes; ++I)
-            for (std::size_t j = 0; j < dim; ++j)
-                grad(static_cast<Eigen::Index>(I), static_cast<Eigen::Index>(j))
-                    = geo->dH_dx(I, j, Xi);
+        auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
         return compute_B_from_gradients<dim>(grad, ndof);
     }
 
@@ -304,12 +343,7 @@ struct TotalLagrangian {
         const std::array<double, dim>& Xi,
         const Eigen::VectorXd& u_e)
     {
-        Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)> grad(
-            static_cast<Eigen::Index>(num_nodes), dim);
-        for (std::size_t I = 0; I < num_nodes; ++I)
-            for (std::size_t j = 0; j < dim; ++j)
-                grad(static_cast<Eigen::Index>(I), static_cast<Eigen::Index>(j))
-                    = geo->dH_dx(I, j, Xi);
+        auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
         return compute_F_from_gradients<dim>(grad, u_e);
     }
 
@@ -386,12 +420,7 @@ struct TotalLagrangian {
         const Tensor2<dim>& F)
         -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
     {
-        Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)> grad(
-            static_cast<Eigen::Index>(num_nodes), dim);
-        for (std::size_t I = 0; I < num_nodes; ++I)
-            for (std::size_t j = 0; j < dim; ++j)
-                grad(static_cast<Eigen::Index>(I), static_cast<Eigen::Index>(j))
-                    = geo->dH_dx(I, j, Xi);
+        auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
         return compute_B_NL_from_gradients<dim>(grad, ndof, F);
     }
 
@@ -465,12 +494,7 @@ struct TotalLagrangian {
         const std::array<double, dim>& Xi,
         const Eigen::Matrix<double, static_cast<int>(dim), static_cast<int>(dim)>& S_matrix)
     {
-        Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)> grad(
-            static_cast<Eigen::Index>(num_nodes), dim);
-        for (std::size_t I = 0; I < num_nodes; ++I)
-            for (std::size_t j = 0; j < dim; ++j)
-                grad(static_cast<Eigen::Index>(I), static_cast<Eigen::Index>(j))
-                    = geo->dH_dx(I, j, Xi);
+        auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
         return compute_geometric_stiffness_from_gradients<dim>(grad, ndof, S_matrix);
     }
 
