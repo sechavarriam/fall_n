@@ -5,6 +5,7 @@
 #include <petscsnes.h>
 
 #include "../model/Model.hh"
+#include "../utils/Benchmark.hh"
 
 // =============================================================================
 //  NonlinearAnalysis — PETSc SNES-driven Newton-Raphson solver
@@ -61,6 +62,9 @@ class NonlinearAnalysis {
     Mat J{nullptr};       // Jacobian (tangent stiffness)
 
     bool is_setup_{false};
+
+    // ─── Performance timing ───────────────────────────────────────
+    AnalysisTimer timer_;
 
     // ─── SNES callback context ────────────────────────────────────
 
@@ -283,18 +287,29 @@ public:
     //  After calling solve(), you can always query converged_reason()
     //  and num_iterations() for diagnostics.
 
+    /// Access the performance timer (read timing data after solve).
+    const AnalysisTimer& timer() const { return timer_; }
+          AnalysisTimer& timer()       { return timer_; }
+
     bool solve() {
+        timer_.start("setup");
         setup();
+        timer_.stop("setup");
+
         VecSet(U, 0.0);
 
+        timer_.start("solve");
         SNESSolve(snes_, nullptr, U);
+        timer_.stop("solve");
 
         SNESConvergedReason reason;
         SNESGetConvergedReason(snes_, &reason);
 
         if (reason > 0) {
             // Converged — safe to commit
+            timer_.start("commit");
             commit_state();
+            timer_.stop("commit");
             model_->update_elements_state();
             return true;
         }
