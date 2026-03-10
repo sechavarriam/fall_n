@@ -45,6 +45,8 @@ class ContinuumElement
   ElementGeometry<dim>*       geometry_         ;
   std::vector<MaterialPointT> material_points_{};
 
+  double density_{0.0};  // Mass density ρ [kg/m³] — needed for dynamic analysis
+
   // ── DOF index cache (flat array, lazily populated) ────────────────────
   std::vector<PetscInt> dof_indices_;
   bool                  dofs_cached_{false};
@@ -263,6 +265,58 @@ public:
   const std::vector<PetscInt>& get_dof_indices() {
       ensure_dof_cache();
       return dof_indices_;
+  }
+
+  // ========================== Mass matrix (for dynamics) ================================
+
+  /// Set mass density [kg/m³].
+  void set_density(double rho) noexcept { density_ = rho; }
+
+  /// Get mass density.
+  [[nodiscard]] double density() const noexcept { return density_; }
+
+  /// Consistent mass matrix:  M_e = ρ · Σ_gp (w · |J| · Nᵀ · N)
+  ///
+  /// where N = H(ξ) is the interpolation matrix (dim × ndof·nnodes).
+  /// Thread-safe: reads only from element-local geometry.
+  Eigen::MatrixXd compute_consistent_mass_matrix() {
+      const auto n = ndof * num_nodes();
+      Eigen::MatrixXd M_e = Eigen::MatrixXd::Zero(n, n);
+
+      if (density_ <= 0.0) return M_e;  // no mass if density not set
+
+      for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+          auto   ref_pt = geometry_->reference_integration_point(gp);
+          double w      = geometry_->weight(gp);
+          double Jdet   = geometry_->differential_measure(ref_pt);
+
+          Array Xi{};
+          for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+          auto N = H(Xi);  // dim × (ndof * num_nodes)
+          M_e += density_ * w * Jdet * (N.transpose() * N);
+      }
+      return M_e;
+  }
+
+  /// Lumped mass vector (row-sum of consistent mass matrix).
+  ///
+  /// Returns a vector of size ndof*nnodes where each entry is the
+  /// diagonal mass assigned to that DOF.  This is the simplest
+  /// lumping scheme; for better accuracy, use HRZ lumping.
+  Eigen::VectorXd compute_lumped_mass_vector() {
+      auto M_c = compute_consistent_mass_matrix();
+      return M_c.rowwise().sum();
+  }
+
+  /// Inject consistent mass matrix into a PETSc Mat.
+  void inject_mass(Mat M) {
+      ensure_dof_cache();
+      auto M_e = compute_consistent_mass_matrix();
+      if (M_e.isZero()) return;  // skip if no density
+      const auto n = static_cast<PetscInt>(dof_indices_.size());
+      MatSetValuesLocal(M, n, dof_indices_.data(), n, dof_indices_.data(),
+                        M_e.data(), ADD_VALUES);
   }
 
   // ── Legacy PETSc-injecting methods (delegate to pure-compute) ─────────────

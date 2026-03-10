@@ -130,6 +130,7 @@
 #include "src/model/DoF.hh"       // TODO: deprecate — kept for transition
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
+#include "src/model/BoundaryCondition.hh"
 
 // =================================================================================
 // Analysis Module
@@ -154,3 +155,4 @@
 
 #include "src/post-processing/VTK/VTKheaders.hh"
 #include "src/post-processing/VTK/VTKModelExporter.hh"
+#include "src/post-processing/VTK/PVDWriter.hh"

@@ -10,6 +10,8 @@
 // Analysis heraders
 #include "LinearAnalysis.hh"
 #include "NLAnalysis.hh"
+#include "Damping.hh"
+#include "DynamicAnalysis.hh"
  
  // =========================================================================
 
