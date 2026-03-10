@@ -71,7 +71,7 @@
 //  ACCEPTANCE CRITERIA
 //  -------------------
 //    - Beam FEM vs analytical     :  < 0.5 % (N ≥ 2)
-//    - 3D continuum vs analytical :  < 40  % (generous bound; actual < 5 %
+//    - 3D continuum vs analytical :  < 1.0  % (generous bound; actual < 5 %
 //      with the current refined mesh).
 //
 //  MESH DEPENDENCY
@@ -461,8 +461,8 @@ static void test_2_continuum_tip_load_z() {
     double analytical = delta_z_analytical();
 
     std::cout << "  3D Continuum δ_z at tip: " << std::scientific << dz << "\n";
-    check_tol(std::abs(dz), analytical, 0.40,
-              "3D Continuum vs analytical (Z tip load) < 40%");
+    check_tol(std::abs(dz), analytical, 0.01,
+              "3D Continuum vs analytical (Z tip load) < 1%");
 }
 
 
@@ -505,8 +505,8 @@ static void test_3_continuum_tip_load_y() {
     double analytical = delta_y_analytical();
 
     std::cout << "  3D Continuum δ_y at tip: " << std::scientific << dy << "\n";
-    check_tol(std::abs(dy), analytical, 0.40,
-              "3D Continuum vs analytical (Y tip load) < 40%");
+    check_tol(std::abs(dy), analytical, 0.01,
+              "3D Continuum vs analytical (Y tip load) < 1%");
 }
 
 
@@ -916,10 +916,10 @@ static void test_8_deflection_curve() {
                   << "  " << std::setw(14) << v_anal
                   << "  " << std::fixed << std::setprecision(2) << err << "%\n";
 
-        if (err > 40.0) all_ok = false;
+        if (err > 1.0) all_ok = false;
     }
 
-    check(all_ok, "All stations within 40% of analytical curve");
+    check(all_ok, "All stations within 1% of analytical curve");
 }
 
 
