@@ -15,6 +15,7 @@
 #include "../../elements/element_geometry/ElementGeometry.hh"
 
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
+#include "../../numerics/numerical_integration/SimplexQuadrature.hh"
 
 #include "ReadGmsh.hh"
 #include "GmshElementTypes.hh"
@@ -105,6 +106,30 @@ public:
 
                 for (auto &[element_tag, node_tags] : block.elementTags){
                     switch (block.elementType){
+                    case 4: // TET_4 — 4-node linear tetrahedron
+                        {
+                        auto integrator = SimplexIntegrator<3,1>{};
+                        auto& elem = domain_->make_element<SimplexElement<3,3,1>, decltype(integrator)>(
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2, 3).data()
+                          );
+                        if (!vol_group.empty()) elem.set_physical_group(vol_group);
+                        break;
+                        }
+                    case 11: // TET_10 — 10-node quadratic tetrahedron
+                        {
+                        auto integrator = SimplexIntegrator<3,2>{};
+                        // Gmsh edge midpoints: (0,1)=4, (1,2)=5, (0,2)=6, (0,3)=7, (1,3)=8, (2,3)=9
+                        // fall_n edge midpoints: (0,1)=4, (0,2)=5, (0,3)=6, (1,2)=7, (1,3)=8, (2,3)=9
+                        auto& elem = domain_->make_element<SimplexElement<3,3,2>, decltype(integrator)>(
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2, 3, 4, 6, 7, 5, 8, 9).data()
+                          );
+                        if (!vol_group.empty()) elem.set_physical_group(vol_group);
+                        break;
+                        }
                     case 5:
                         {
                         auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; 
@@ -178,13 +203,26 @@ public:
                         }
                     case 2: // TRI_3 — 3-node triangle surface in 3D
                         {
-                        // Not yet supported — skip with warning
-                        std::cout << "Warning: TRI_3 boundary elements not yet supported\n";
+                        auto integrator = SimplexIntegrator<2,1>{};
+                        domain_->make_boundary_element<SimplexElement<3,2,1>, decltype(integrator)>(
+                            group_name,
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2).data()
+                        );
                         break;
                         }
                     case 9: // TRI_6 — 6-node triangle surface in 3D
                         {
-                        std::cout << "Warning: TRI_6 boundary elements not yet supported\n";
+                        auto integrator = SimplexIntegrator<2,2>{};
+                        // Gmsh edge midpoints: (0,1)=3, (1,2)=4, (0,2)=5
+                        // fall_n edge midpoints: (0,1)=3, (0,2)=4, (1,2)=5
+                        domain_->make_boundary_element<SimplexElement<3,2,2>, decltype(integrator)>(
+                            group_name,
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2, 3, 5, 4).data()
+                        );
                         break;
                         }
                     default:

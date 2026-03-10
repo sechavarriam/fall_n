@@ -107,6 +107,25 @@ vtk_module_autoinit(
 
 add_test(NAME element_geometry COMMAND fall_n_tests)
 
+# --- Simplex (Tetrahedral) Element Family test ---
+add_executable(fall_n_simplex_test
+  tests/test_simplex.cpp
+)
+
+target_include_directories(fall_n_simplex_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_simplex_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_simplex_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_simplex_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_simplex_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_simplex_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME simplex_elements COMMAND fall_n_simplex_test)
+
 # --- Material Strategy test ---
 add_executable(fall_n_strategy_test
   tests/test_material_strategy.cpp
