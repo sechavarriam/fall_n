@@ -49,9 +49,9 @@
 //  integrating the fiber tangent moduli:
 //
 //       ┌──────────────────────────────────────────────┐
-//       │ Σ Et·A      −Σ Et·z·A       Σ Et·y·A       │
-//   D = │ −Σ Et·z·A    Σ Et·z²·A    −Σ Et·y·z·A      │  (upper 3×3)
-//       │  Σ Et·y·A  −Σ Et·y·z·A     Σ Et·y²·A       │
+//       │ Σ Et·A      −Σ Et·z·A       Σ Et·y·A         │
+//   D = │ −Σ Et·z·A    Σ Et·z²·A     −Σ Et·y·z·A       │  (upper 3×3)
+//       │  Σ Et·y·A  −Σ Et·y·z·A      Σ Et·y²·A        │
 //       │                                              │
 //       │          k_y·GA        0          0          │  (lower 3×3)
 //       │            0       k_z·GA         0          │  (diagonal)

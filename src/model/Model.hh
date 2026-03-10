@@ -247,6 +247,54 @@ public:
         MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
     }
 
+    // ── Mass matrix assembly (for dynamics) ──────────────────────────
+    //
+    //  Assembles the global consistent mass matrix M by summing
+    //  element-level contributions:  M = Σ_e M_e
+    //
+    //  Elements must have had their density set (via set_density)
+    //  before calling this.
+
+    void assemble_mass_matrix(Mat M) {
+        MatZeroEntries(M);
+        for (auto& element : elements_) {
+            if constexpr (requires { element.inject_mass(M); }) {
+                element.inject_mass(M);
+            }
+        }
+        MatAssemblyBegin(M, MAT_FINAL_ASSEMBLY);
+        MatAssemblyEnd(M, MAT_FINAL_ASSEMBLY);
+    }
+
+    // ── Set density on all elements ──────────────────────────────────
+
+    void set_density(double rho) {
+        for (auto& element : elements_) {
+            if constexpr (requires { element.set_density(rho); }) {
+                element.set_density(rho);
+            }
+        }
+    }
+
+    // ── Set density per physical group ───────────────────────────────
+
+    void set_density(const std::map<std::string, double>& density_map,
+                     double default_density = 0.0)
+    {
+        for (auto& element : elements_) {
+            double rho = default_density;
+            if constexpr (requires { element.physical_group(); }) {
+                if (element.has_physical_group()) {
+                    auto it = density_map.find(element.physical_group());
+                    if (it != density_map.end()) rho = it->second;
+                }
+            }
+            if constexpr (requires { element.set_density(rho); }) {
+                element.set_density(rho);
+            }
+        }
+    }
+
 
     void update_elements_state(){
         if constexpr (requires(element_type e) { e.set_material_point_state(*static_cast<Model*>(nullptr)); }) {

@@ -51,6 +51,11 @@ class FEM_Element {
         virtual std::size_t num_nodes()              const  = 0;
         virtual std::size_t num_integration_points() const  = 0;
         virtual PetscInt    sieve_id()               const  = 0;
+
+        // Mass matrix (optional — defaults to no-op for elements without mass)
+        virtual double density()                     const  { return 0.0; }
+        virtual void   set_density(double /*rho*/)          {}
+        virtual void   inject_mass(Mat /*M*/)               {}
     };
 
     // ── Inner model (type-specific bridge) ────────────────────────
@@ -74,6 +79,22 @@ class FEM_Element {
         std::size_t num_nodes()              const  override { return element_.num_nodes(); }
         std::size_t num_integration_points() const  override { return element_.num_integration_points(); }
         PetscInt    sieve_id()               const  override { return element_.sieve_id(); }
+
+        // Mass matrix — forward if element supports it, else use defaults
+        double density() const override {
+            if constexpr (requires { element_.density(); })
+                return element_.density();
+            else
+                return 0.0;
+        }
+        void set_density(double rho) override {
+            if constexpr (requires { element_.set_density(rho); })
+                element_.set_density(rho);
+        }
+        void inject_mass(Mat M) override {
+            if constexpr (requires { element_.inject_mass(M); })
+                element_.inject_mass(M);
+        }
     };
 
     // ── Pimpl ─────────────────────────────────────────────────────
@@ -115,6 +136,11 @@ public:
     auto num_nodes()              const -> std::size_t { return pimpl_->num_nodes(); }
     auto num_integration_points() const -> std::size_t { return pimpl_->num_integration_points(); }
     auto sieve_id()               const -> PetscInt    { return pimpl_->sieve_id(); }
+
+    // Mass matrix interface
+    auto density()           const -> double   { return pimpl_->density(); }
+    void set_density(double rho)               { pimpl_->set_density(rho); }
+    void inject_mass(Mat M)                    { pimpl_->inject_mass(M); }
 };
 
 // FEM_Element itself satisfies FiniteElement (recursive erasure is valid)
