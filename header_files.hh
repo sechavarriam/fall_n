@@ -26,6 +26,7 @@
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
 #include "src/geometry/Cell.hh"
+#include "src/geometry/SimplexCell.hh"
 #include "src/geometry/Point.hh"
 
 //================================================================================
@@ -46,6 +47,7 @@
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"
+#include "src/elements/element_geometry/SimplexElement.hh"
 
 
 // =================================================================================
@@ -61,6 +63,7 @@
 #include "src/numerics/numerical_integration/Quadrature.hh"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
+#include "src/numerics/numerical_integration/SimplexQuadrature.hh"
 
 #include "src/numerics/linear_algebra/Matrix.hh"
 #include "src/numerics/linear_algebra/Vector.hh"

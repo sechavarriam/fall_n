@@ -26,6 +26,7 @@
 
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
+#include "SimplexElement.hh"
 
 namespace impl
 { // Implementation details
@@ -256,7 +257,25 @@ namespace impl
             std::size_t f, std::size_t tag,
             std::span<PetscInt> face_global_node_ids) const override
         {
-            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+            if constexpr (is_SimplexElement<ElementType>) {
+                // ── Simplex path ────────────────────────────────────────
+                // All faces of a D-simplex are (D-1)-simplices of the same order.
+                if constexpr (ElementType::topological_dim > 1) {
+                    constexpr std::size_t face_top_dim = ElementType::topological_dim - 1;
+                    constexpr std::size_t face_order   = ElementType::order;
+                    using FaceElem  = SimplexElement<dim, face_top_dim, face_order>;
+                    using FaceInteg = SimplexIntegrator<face_top_dim, face_order>;
+                    using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
+                    return std::make_unique<FaceModel>(
+                        FaceElem(std::forward<std::size_t>(tag), face_global_node_ids),
+                        FaceInteg{});
+                } else {
+                    // TopDim == 1 → faces are points, not meaningful
+                    (void)f; (void)tag; (void)face_global_node_ids;
+                    return nullptr;
+                }
+            }
+            else if constexpr (requires { typename ElementType::ReferenceCell; }) {
                 using RC = typename ElementType::ReferenceCell;
 
                 // Factory function type: creates a concept pointer from (tag, node_ids)
@@ -281,10 +300,11 @@ namespace impl
         // Compile-time factory for face FaceIdx of this element type.
         // Uses sub_dimensions(FaceIdx) to deduce the correct LagrangeElement
         // and GaussLegendreCellIntegrator template parameters.
+        // Only valid for tensor-product (Lagrange) element families.
         template <std::size_t FaceIdx>
         static std::unique_ptr<ElementGeometryConcept<dim>>
         make_face_factory(std::size_t tag, std::span<PetscInt> node_ids)
-            requires (requires { typename ElementType::ReferenceCell; })
+            requires (requires { typename ElementType::ReferenceCell; } && !is_SimplexElement<ElementType>)
         {
             using RC    = typename ElementType::ReferenceCell;
             using Faces = typename RC::Faces;
