@@ -105,6 +105,13 @@
 #include "src/materials/constitutive_models/non_lineal/PlasticityRelation.hh"
 #include "src/materials/constitutive_models/non_lineal/InelasticRelation.hh"
 
+// --- Uniaxial cyclic materials (Phase 2) ---
+#include "src/materials/constitutive_models/non_lineal/MenegottoPintoSteel.hh"
+#include "src/materials/constitutive_models/non_lineal/KentParkConcrete.hh"
+
+// --- Fiber section (Phase 3) ---
+#include "src/materials/constitutive_models/non_lineal/FiberSection.hh"
+
 // --- Material instance (MaterialInstance<R, StatePolicy>) + aliases ---
 #include "src/materials/LinealElasticMaterial.hh"
 

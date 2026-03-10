@@ -453,6 +453,29 @@ endif()
 
 add_test(NAME subentity_topology COMMAND fall_n_subentity_test)
 
+# ── Uniaxial Materials + Fiber Section tests (Phase 2–3) ────────────────────
+add_executable(fall_n_uniaxial_fiber_test
+  tests/test_uniaxial_fiber.cpp
+)
+
+target_include_directories(fall_n_uniaxial_fiber_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_uniaxial_fiber_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME uniaxial_fiber COMMAND fall_n_uniaxial_fiber_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
