@@ -113,9 +113,15 @@ public:
         // For cell-vertex meshes, vertices are depth 0 and cells are depth 1. For fully interpolated meshes, depth 0 for vertices, 
         // 1 for edges, and so on  until cells have depth equal to the dimension of the mesh.
 
-        PetscSectionSetChart(dof_section, vStart, vEnd); // Set the chart for the section (PetscSection)
+        // Use the full DM chart [pStart, pEnd) instead of [vStart, vEnd).
+        // Workaround: PETSc ≤3.24 PetscSectionSetConstraintIndices()
+        // accesses atlasDof[point] instead of atlasDof[point - pStart],
+        // causing out-of-bounds reads when pStart > 0 and pStart > (pEnd-pStart).
+        // Setting pStart = 0 makes the raw index coincide with the adjusted one.
+        // Elements simply keep 0 DOFs.
+        PetscSectionSetChart(dof_section, pStart, pEnd);
         std::cout << "  [SIEVE-DBG] section_ptr=" << (void*)dof_section
-                  << " chart=[" << vStart << "," << vEnd << ")" << std::endl;
+                  << " chart=[" << pStart << "," << pEnd << ")" << std::endl;
         for (auto &node: domain_->nodes()) {
             PetscSectionSetDof(dof_section, node.sieve_id.value(), node.num_dof()); 
             }
@@ -195,8 +201,9 @@ public:
 
     void setup_matrix(){
         DMCreateMatrix(domain_->mesh.dm, &Kt_);
-        DMSetMatType  (domain_->mesh.dm, MATAIJ); // Set the matrix type for the mesh
-        DMSetUp(domain_->mesh.dm);
+        // Allow dynamic allocation for entries missed by DMPlex preallocation
+        // (unstructured simplex meshes may have adjacency underestimates).
+        MatSetOption(Kt_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
         MatZeroEntries(Kt_);
     };
 

@@ -55,8 +55,7 @@ public:
 
     void setup_matrix_sizes(){
         DMCreateMatrix(model_->get_plex(), &K);
-        DMSetMatType(model_->get_plex(), MATAIJ);
-        DMSetUp(model_->get_plex());
+        MatSetOption(K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
         MatZeroEntries(K);
     }
 

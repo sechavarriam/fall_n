@@ -258,6 +258,7 @@ public:
         VecDuplicate(U, &R_vec);
         VecDuplicate(U, &f_ext);
         DMCreateMatrix(dm, &J);
+        MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
         VecSet(U, 0.0);
         VecSet(R_vec, 0.0);
