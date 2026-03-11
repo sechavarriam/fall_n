@@ -114,9 +114,35 @@ public:
         // 1 for edges, and so on  until cells have depth equal to the dimension of the mesh.
 
         PetscSectionSetChart(dof_section, vStart, vEnd); // Set the chart for the section (PetscSection)
+        std::cout << "  [SIEVE-DBG] section_ptr=" << (void*)dof_section
+                  << " chart=[" << vStart << "," << vEnd << ")" << std::endl;
         for (auto &node: domain_->nodes()) {
             PetscSectionSetDof(dof_section, node.sieve_id.value(), node.num_dof()); 
             }
+
+        // ── DEBUG: verify section DOFs ───
+        {
+            PetscInt sec_pStart, sec_pEnd;
+            PetscSectionGetChart(dof_section, &sec_pStart, &sec_pEnd);
+            int mismatches = 0;
+            for (auto &node: domain_->nodes()) {
+                PetscInt ndof;
+                PetscSectionGetDof(dof_section, node.sieve_id.value(), &ndof);
+                if (ndof != static_cast<PetscInt>(node.num_dof())) {
+                    if (mismatches < 10)
+                        std::cerr << "  [SIEVE-DBG] MISMATCH sieve=" << node.sieve_id.value()
+                                  << " node_id=" << node.id()
+                                  << " section_dof=" << ndof
+                                  << " node_dof=" << node.num_dof()
+                                  << " chart=[" << sec_pStart << "," << sec_pEnd << ")\n";
+                    ++mismatches;
+                }
+            }
+            if (mismatches > 0)
+                std::cerr << "  [SIEVE-DBG] Total mismatches: " << mismatches << "\n";
+            else
+                std::cerr << "  [SIEVE-DBG] All " << domain_->nodes().size() << " section DOFs OK\n";
+        }
     };
 
     void setup_boundary_conditions(){
@@ -124,21 +150,41 @@ public:
             PetscSectionAddConstraintDof(this->dof_section, plex_id,static_cast<PetscInt>(idx.first.size()));
             }
 
-        PetscSectionSetUp(this->dof_section);
+        PetscErrorCode ierr = PetscSectionSetUp(this->dof_section);
+        if (ierr) std::cerr << "  [BC-ERR] PetscSectionSetUp returned " << ierr << std::endl;
+
+        // ── DEBUG: verify section DOFs before SetConstraintIndices ───
+        {
+            std::cout << "  [BC-DBG] Constraints count: " << constraints_.size() << std::endl;
+            for (const auto &[plex_id, idx] : constraints_){
+                PetscInt ndof = -999;
+                PetscSectionGetDof(this->dof_section, plex_id, &ndof);
+                std::cout << "  [BC-DBG] plex_id=" << plex_id
+                          << " section_dof=" << ndof
+                          << " constraint_size=" << idx.first.size() << std::endl;
+            }
+            std::cout << std::flush;
+        }
         
         for (const auto &[plex_id, idx] : constraints_){
-            PetscSectionSetConstraintIndices(this->dof_section, plex_id, idx.first.data());
+            ierr = PetscSectionSetConstraintIndices(this->dof_section, plex_id, idx.first.data());
+            if (ierr) std::cerr << "  [BC-ERR] SetConstraintIndices for plex_id=" << plex_id << " returned " << ierr << std::endl;
             }
 
-        DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
-        DMSetUp(domain_->mesh.dm); // Setup the mesh
+        ierr = DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
+        if (ierr) std::cerr << "  [BC-ERR] DMSetLocalSection returned " << ierr << std::endl;
+        ierr = DMSetUp(domain_->mesh.dm); // Setup the mesh
+        if (ierr) std::cerr << "  [BC-ERR] DMSetUp returned " << ierr << std::endl;
 
         set_dof_index(); // Set the dof index for each node in the domain IN EACH NODE OBJECT.
     }
 
     void setup_vectors(){
-        DMCreateLocalVector(domain_->mesh.dm, &nodal_forces_);
-        DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution_);
+        PetscErrorCode verr;
+        verr = DMCreateLocalVector(domain_->mesh.dm, &nodal_forces_);
+        if (verr) std::cerr << "  [VEC-ERR] DMCreateLocalVector(nf) returned " << verr << std::endl;
+        verr = DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution_);
+        if (verr) std::cerr << "  [VEC-ERR] DMCreateLocalVector(gis) returned " << verr << std::endl;
         VecDuplicate(global_imposed_solution_, &current_state_);
 
         VecSet(nodal_forces_           , 0.0);
@@ -393,11 +439,12 @@ public:
 
     Model() = delete;
     ~Model() {
-        MatDestroy(&Kt_);
-        VecDestroy(&current_state_);
-        VecDestroy(&nodal_forces_);
-        VecDestroy(&global_imposed_solution_);
-        PetscSectionDestroy(&dof_section);
+        PetscErrorCode e;
+        e = MatDestroy(&Kt_); if (e) std::cerr << "[~Model] MatDestroy: " << e << "\n";
+        e = VecDestroy(&current_state_); if (e) std::cerr << "[~Model] VecDestroy(cs): " << e << "\n";
+        e = VecDestroy(&nodal_forces_); if (e) std::cerr << "[~Model] VecDestroy(nf): " << e << "\n";
+        e = VecDestroy(&global_imposed_solution_); if (e) std::cerr << "[~Model] VecDestroy(gis): " << e << "\n";
+        e = PetscSectionDestroy(&dof_section); if (e) std::cerr << "[~Model] SectionDestroy: " << e << "\n";
     }
 
 };

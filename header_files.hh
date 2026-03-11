@@ -64,6 +64,7 @@
 #include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
 #include "src/numerics/numerical_integration/SimplexQuadrature.hh"
+#include "src/numerics/numerical_integration/StroudConicalProduct.hh"
 
 #include "src/numerics/linear_algebra/Matrix.hh"
 #include "src/numerics/linear_algebra/Vector.hh"

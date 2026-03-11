@@ -201,7 +201,13 @@ consteval auto default_simplex_rule() {
         return make_simplex_rule_3d_4();      // 4-point, degree 2
     }
     else if constexpr (Dim == 3 && Order == 2) {
-        return make_simplex_rule_3d_5();      // 5-point, degree 3
+        // Use 4-point HMS rule (degree 2, all positive weights).
+        // The 5-point Keast rule (degree 3) has a negative centroid weight
+        // w₀ = −2/15 which corrupts lumped L2 projection: vertex nodes of
+        // TET10 accumulate negative denominator weights and are zeroed out,
+        // producing a checkerboard pattern in post-processed fields.
+        // 4-point integration is the standard choice (cf. ABAQUS C3D10).
+        return make_simplex_rule_3d_4();      // 4-point, degree 2
     }
     else {
         static_assert(Dim <= 3 && Order <= 2,

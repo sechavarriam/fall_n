@@ -40,6 +40,7 @@
 
 #include "../../utils/small_math.hh"
 #include "../../numerics/numerical_integration/SimplexQuadrature.hh"
+#include "../../numerics/numerical_integration/StroudConicalProduct.hh"
 
 #include "../../numerics/linear_algebra/LinalgOperations.hh"
 

@@ -796,6 +796,112 @@ int main(int argc, char** args) {
 
         // Group A: Linearization tests (small load)
         test_1_small_strain_reference();
+
+        // ── Strain verification diagnostic ──────────────────────────────
+        //  For the reference case (SmallStrain + Linear Elastic, uniaxial z),
+        //  every Gauss point should have approximately:
+        //    ε₃₃ ≈ σ₃₃/E = small_load / E_mod                (axial)
+        //    ε₁₁ ≈ ε₂₂ ≈ -ν · ε₃₃                            (Poisson)
+        //    γ₂₃ ≈ γ₁₃ ≈ γ₁₂ ≈ 0                              (no shear)
+        //    σ₃₃ ≈ small_load (traction = stress for uniform)
+        //
+        //  Near the clamped face (z=0), Poisson constraint causes deviations,
+        //  but away from it the solution should match. We check average strains
+        //  across ALL Gauss points (the interior points dominate).
+        {
+            std::cout << "\n─── Strain/Stress Verification at Gauss Points ───\n";
+
+            // Rebuild the model for Test 1 (the scope closed above)
+            Domain<DIM> D;
+            GmshDomainBuilder builder(MESH_FILE, D);
+            ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+            Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+            Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF> M{D, mat};
+            M.fix_z(0.0);
+            M.setup();
+            apply_z_traction(M, small_load);
+
+            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+            nl.solve();
+
+            // update_elements_state is called inside solve; call again for safety
+            M.update_elements_state();
+
+            // Expected values for uniaxial tension (away from clamped face)
+            double eps_zz_expect = small_load / E_mod;
+            double eps_xx_expect = -nu * eps_zz_expect;
+            double sig_zz_expect = small_load;
+
+            // Collect strains from ALL Gauss points
+            double sum_e11 = 0, sum_e22 = 0, sum_e33 = 0;
+            double sum_g23 = 0, sum_g13 = 0, sum_g12 = 0;
+            double sum_s33 = 0;
+            int n_gp = 0;
+
+            for (const auto& elem : M.elements()) {
+                for (const auto& mp : elem.material_points()) {
+                    const auto& state = mp.current_state();
+                    sum_e11 += state[0];
+                    sum_e22 += state[1];
+                    sum_e33 += state[2];
+                    sum_g23 += state[3];
+                    sum_g13 += state[4];
+                    sum_g12 += state[5];
+
+                    auto stress = mp.compute_response(state);
+                    sum_s33 += stress[2];
+                    ++n_gp;
+                }
+            }
+
+            double avg_e11 = sum_e11 / n_gp;
+            double avg_e22 = sum_e22 / n_gp;
+            double avg_e33 = sum_e33 / n_gp;
+            double avg_g23 = sum_g23 / n_gp;
+            double avg_g13 = sum_g13 / n_gp;
+            double avg_g12 = sum_g12 / n_gp;
+            double avg_s33 = sum_s33 / n_gp;
+
+            std::cout << "  Expected: ε₃₃=" << std::scientific << eps_zz_expect
+                      << "  ε₁₁=ε₂₂=" << eps_xx_expect << "\n";
+            std::cout << "  Avg GP:   ε₁₁=" << avg_e11 << "  ε₂₂=" << avg_e22
+                      << "  ε₃₃=" << avg_e33 << "\n";
+            std::cout << "            γ₂₃=" << avg_g23 << "  γ₁₃=" << avg_g13
+                      << "  γ₁₂=" << avg_g12 << "\n";
+            std::cout << "  Avg σ₃₃=" << avg_s33
+                      << "  (expected ≈" << sig_zz_expect << ")\n";
+
+            // Checks: average ε₃₃ should be close to analytical
+            double e33_rel = std::abs(avg_e33 - eps_zz_expect) / std::abs(eps_zz_expect);
+            check(e33_rel < 0.10,
+                  "Avg ε₃₃ within 10% of analytical (uniaxial tension)");
+
+            // Shear strains should be negligible
+            double max_shear = std::max({std::abs(avg_g23), std::abs(avg_g13), std::abs(avg_g12)});
+            check(max_shear < 0.1 * std::abs(avg_e33),
+                  "Shear strains negligible vs axial");
+
+            // Stress σ₃₃ should be close to applied traction
+            double s33_rel = std::abs(avg_s33 - sig_zz_expect) / std::abs(sig_zz_expect);
+            check(s33_rel < 0.10,
+                  "Avg σ₃₃ within 10% of applied traction");
+
+            // Print first element, first GP detailed state for debugging
+            {
+                const auto& first_elem = M.elements().front();
+                const auto& first_mp = first_elem.material_points().front();
+                const auto& s = first_mp.current_state();
+                auto sig = first_mp.compute_response(s);
+                auto coord = first_mp.coord();
+                std::cout << "  [Detail] GP0 coords=("
+                          << coord[0] << "," << coord[1] << "," << coord[2] << ")\n";
+                std::cout << "           strain=[" << s[0] << ", " << s[1] << ", "
+                          << s[2] << ", " << s[3] << ", " << s[4] << ", " << s[5] << "]\n";
+                std::cout << "           stress=[" << sig[0] << ", " << sig[1] << ", "
+                          << sig[2] << ", " << sig[3] << ", " << sig[4] << ", " << sig[5] << "]\n";
+            }
+        }
+
         test_2_tl_svk_vs_small_strain();
         test_3_tl_nh_vs_small_strain();
 

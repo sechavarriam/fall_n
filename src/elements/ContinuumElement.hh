@@ -403,7 +403,21 @@ public:
   };
 
   void set_material_point_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
-    for (auto &point : material_points_) point.update_state(compute_strain(point.coord(), model));
+    // Extract element DOFs once — identical to commit_material_state path
+    Eigen::VectorXd u_e = extract_element_dofs(model.state_vector());
+
+    for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+        auto ref_pt = geometry_->reference_integration_point(gp);
+        Array Xi{};
+        for (std::size_t k = 0; k < dim; ++k) Xi[k] = ref_pt[k];
+
+        auto kin = KinematicPolicy::template evaluate<dim>(
+            geometry_, num_nodes(), ndof, Xi, u_e);
+
+        StateVariableT strain;
+        strain.set_strain(kin.strain_voigt);
+        material_points_[gp].update_state(strain);
+    }
   };
 
   //void get_nodal_strains(){}; //Esto no se puede tan facil si el elemento es multimaterial.

@@ -461,6 +461,200 @@ void test_simplex_quadrature_tri_degree5() {
     report(__func__, ok);
 }
 
+// ─── 3b. Stroud conical product quadrature ──────────────────────────────
+
+void test_conical_product_weight_sum_1d() {
+    // Weights must sum to 1/1! = 1  (volume of [0,1] simplex)
+    bool ok = true;
+    for (int n = 1; n <= 6; ++n) {
+        auto rule = simplex_quadrature::stroud_conical_product<1>(n);
+        double sum = 0.0;
+        for (std::size_t i = 0; i < rule.num_points; ++i) sum += rule.weights[i];
+        ok = ok && approx(sum, 1.0, 1e-13);
+    }
+    report(__func__, ok);
+}
+
+void test_conical_product_weight_sum_2d() {
+    // Weights must sum to 1/2! = 0.5  (area of reference triangle)
+    bool ok = true;
+    for (int n = 1; n <= 6; ++n) {
+        auto rule = simplex_quadrature::stroud_conical_product<2>(n);
+        double sum = 0.0;
+        for (std::size_t i = 0; i < rule.num_points; ++i) sum += rule.weights[i];
+        ok = ok && approx(sum, 0.5, 1e-13);
+    }
+    report(__func__, ok);
+}
+
+void test_conical_product_weight_sum_3d() {
+    // Weights must sum to 1/3! = 1/6  (volume of reference tetrahedron)
+    bool ok = true;
+    for (int n = 1; n <= 6; ++n) {
+        auto rule = simplex_quadrature::stroud_conical_product<3>(n);
+        double sum = 0.0;
+        for (std::size_t i = 0; i < rule.num_points; ++i) sum += rule.weights[i];
+        ok = ok && approx(sum, 1.0 / 6.0, 1e-13);
+    }
+    report(__func__, ok);
+}
+
+void test_conical_product_all_weights_positive() {
+    // ALL weights must be strictly positive for every n and every dimension
+    bool ok = true;
+    for (int n = 1; n <= 6; ++n) {
+        { auto r = simplex_quadrature::stroud_conical_product<1>(n);
+          for (auto w : r.weights) ok = ok && (w > 0.0); }
+        { auto r = simplex_quadrature::stroud_conical_product<2>(n);
+          for (auto w : r.weights) ok = ok && (w > 0.0); }
+        { auto r = simplex_quadrature::stroud_conical_product<3>(n);
+          for (auto w : r.weights) ok = ok && (w > 0.0); }
+    }
+    report(__func__, ok);
+}
+
+void test_conical_product_points_inside_simplex() {
+    // All points must lie inside the reference simplex: ξ_i ≥ 0, Σξ_i ≤ 1
+    bool ok = true;
+    for (int n = 1; n <= 5; ++n) {
+        auto rule = simplex_quadrature::stroud_conical_product<3>(n);
+        for (std::size_t i = 0; i < rule.num_points; ++i) {
+            double s = 0.0;
+            for (std::size_t d = 0; d < 3; ++d) {
+                ok = ok && (rule.points[i][d] >= -1e-15);
+                s += rule.points[i][d];
+            }
+            ok = ok && (s <= 1.0 + 1e-14);
+        }
+    }
+    report(__func__, ok);
+}
+
+void test_conical_product_degree3_tet() {
+    // n=2 → degree 3 exactness.  Test all cubic monomials over tet:
+    //   ∫ ξ₁³ dV = 1/120,  ∫ ξ₁²ξ₂ dV = 1/360,  ∫ ξ₁ξ₂ξ₃ dV = 1/720
+    auto rule = simplex_quadrature::stroud_conical_product<3>(2);
+    bool ok = true;
+
+    // ∫ ξ₁³ dV on ref tet = B(4,1,1,1)·3! = 3!·0!·0!·0!/6! = 6/720 = 1/120
+    double I1 = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        double x = rule.points[i][0];
+        I1 += rule.weights[i] * x * x * x;
+    }
+    ok = ok && approx(I1, 1.0 / 120.0, 1e-13);
+
+    // ∫ ξ₁²ξ₂ dV = 2!·1!·0!·0!/6! = 2/720 = 1/360
+    double I2 = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        double x = rule.points[i][0], y = rule.points[i][1];
+        I2 += rule.weights[i] * x * x * y;
+    }
+    ok = ok && approx(I2, 1.0 / 360.0, 1e-13);
+
+    // ∫ ξ₁ξ₂ξ₃ dV = 1!·1!·1!·0!/6! = 1/720
+    double I3 = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        auto& p = rule.points[i];
+        I3 += rule.weights[i] * p[0] * p[1] * p[2];
+    }
+    ok = ok && approx(I3, 1.0 / 720.0, 1e-13);
+
+    report(__func__, ok);
+}
+
+void test_conical_product_degree5_tet() {
+    // n=3 → degree 5 exactness.  Test quintic monomial:
+    //   ∫ ξ₁²ξ₂²ξ₃ dV = 2!·2!·1!·0!/8! = 4/40320 = 1/10080
+    auto rule = simplex_quadrature::stroud_conical_product<3>(3);
+    bool ok = true;
+
+    double I = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        auto& p = rule.points[i];
+        I += rule.weights[i] * p[0]*p[0] * p[1]*p[1] * p[2];
+    }
+    ok = ok && approx(I, 1.0 / 10080.0, 1e-12);
+
+    report(__func__, ok);
+}
+
+void test_conical_product_degree7_tet() {
+    // n=4 → degree 7.  Test ∫ ξ₁³ξ₂²ξ₃² dV = 3!·2!·2!·0!/10! = 24/3628800 = 1/151200
+    auto rule = simplex_quadrature::stroud_conical_product<3>(4);
+    bool ok = true;
+
+    double I = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        auto& p = rule.points[i];
+        I += rule.weights[i] * p[0]*p[0]*p[0] * p[1]*p[1] * p[2]*p[2];
+    }
+    ok = ok && approx(I, 1.0 / 151200.0, 1e-11);
+
+    report(__func__, ok);
+}
+
+void test_conical_product_degree5_tri() {
+    // n=3, D=2 → degree 5. Test ∫ ξ₁²ξ₂² dA = 2!·2!·0!/6! = 4/720 = 1/180
+    auto rule = simplex_quadrature::stroud_conical_product<2>(3);
+    bool ok = true;
+
+    double I = 0.0;
+    for (std::size_t i = 0; i < rule.num_points; ++i) {
+        I += rule.weights[i] * rule.points[i][0]*rule.points[i][0]
+                              * rule.points[i][1]*rule.points[i][1];
+    }
+    ok = ok && approx(I, 1.0 / 180.0, 1e-13);
+
+    report(__func__, ok);
+}
+
+void test_conical_product_integrator_tet() {
+    // Test the ConicalProductIntegrator template class.
+    // NPerDir=2, TopDim=3 → 8 points, degree 3
+    simplex_quadrature::ConicalProductIntegrator<3, 2> integrator;
+    bool ok = true;
+
+    // Check num_integration_points
+    ok = ok && (integrator.num_integration_points == 8);
+
+    // Weight sum = 1/6
+    double wsum = 0.0;
+    for (std::size_t i = 0; i < integrator.num_integration_points; ++i) {
+        wsum += integrator.weight(i);
+    }
+    ok = ok && approx(wsum, 1.0 / 6.0, 1e-14);
+
+    // Use operator() to integrate a constant function: ∑ w_i · 1 = 1/6
+    double result = integrator([](std::span<const double>) { return 1.0; });
+    ok = ok && approx(result, 1.0 / 6.0, 1e-14);
+
+    // Integrate ξ₁² via operator(): should give 1/60
+    double result2 = integrator([](std::span<const double> pt) {
+        return pt[0] * pt[0];
+    });
+    ok = ok && approx(result2, 1.0 / 60.0, 1e-14);
+
+    report(__func__, ok);
+}
+
+void test_conical_product_integrator_tri() {
+    // NPerDir=3, TopDim=2 → 9 points, degree 5
+    simplex_quadrature::ConicalProductIntegrator<2, 3> integrator;
+    bool ok = true;
+
+    ok = ok && (integrator.num_integration_points == 9);
+
+    // ∫ ξ₁²ξ₂² dA = 1/180
+    double result = integrator([](std::span<const double> pt) {
+        return pt[0]*pt[0] * pt[1]*pt[1];
+    });
+    ok = ok && approx(result, 1.0 / 180.0, 1e-13);
+
+    report(__func__, ok);
+}
+
+
 // =========================================================================
 //  4. SimplexElement — isoparametric mapping & Jacobian
 // =========================================================================
@@ -955,6 +1149,19 @@ int main() {
     test_simplex_quadrature_tet_quadratic();
     test_simplex_quadrature_1d();
     test_simplex_quadrature_tri_degree5();
+
+    // 3b. Stroud conical product
+    test_conical_product_weight_sum_1d();
+    test_conical_product_weight_sum_2d();
+    test_conical_product_weight_sum_3d();
+    test_conical_product_all_weights_positive();
+    test_conical_product_points_inside_simplex();
+    test_conical_product_degree3_tet();
+    test_conical_product_degree5_tet();
+    test_conical_product_degree7_tet();
+    test_conical_product_degree5_tri();
+    test_conical_product_integrator_tet();
+    test_conical_product_integrator_tri();
 
     // 4. Isoparametric mapping
     test_simplex_element_tet4_unit_jacobian();

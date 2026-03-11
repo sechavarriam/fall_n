@@ -37,8 +37,8 @@ static constexpr std::size_t NDOF = DIM;
 
 static constexpr double E_mod  = 200.0;
 static constexpr double nu     = 0.3;
-static constexpr double sigma_y= 0.250;   // Initial yield stress (J2)
-static constexpr double H_hard = 10.0;    // Isotropic hardening modulus
+//static constexpr double sigma_y= 0.250;   // Initial yield stress (J2)
+//static constexpr double H_hard = 10.0;    // Isotropic hardening modulus
 
 static const std::string MESH =
     "/home/sechavarriam/MyLibs/fall_n/data/input/box.msh";
@@ -88,8 +88,8 @@ int main(int argc, char** args)
 
     {
         double small_load = 0.05;  // within linear regime
-        double large_load = 0.50;  // significant geometric nonlinearity
-        double plast_load = 1.00;  // well beyond yield
+       // double large_load = 0.50;  // significant geometric nonlinearity
+        //double plast_load = 1.00;  // well beyond yield
 
         std::cout << std::fixed << std::setprecision(6);
         std::cout << "============================================================\n"
@@ -120,7 +120,7 @@ int main(int argc, char** args)
             std::cout << "    Max |u| = " << max_disp(M) << "\n";
             export_vtk(M, "case1_SS_elastic");
         }
-
+/*^
         // ═════════════════════════════════════════════════════════════════
         //  Case 2: TotalLagrangian + SVK (small load, 1 step)
         // ═════════════════════════════════════════════════════════════════
@@ -283,7 +283,7 @@ int main(int argc, char** args)
             std::cout << "    Max |u| = " << max_disp(M) << "\n";
             export_vtk(M, "case7_SS_J2_plastic");
         }
-
+*/
         std::cout << "\n============================================================\n"
                   << "  All 7 cases exported to " << OUT << "\n"
                   << "============================================================\n";
