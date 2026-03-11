@@ -16,6 +16,7 @@
 
 #include "../../numerics/numerical_integration/CellQuadrature.hh"
 #include "../../numerics/numerical_integration/SimplexQuadrature.hh"
+#include "../../numerics/numerical_integration/StroudConicalProduct.hh"
 
 #include "ReadGmsh.hh"
 #include "GmshElementTypes.hh"
@@ -119,7 +120,7 @@ public:
                         }
                     case 11: // TET_10 — 10-node quadratic tetrahedron
                         {
-                        auto integrator = SimplexIntegrator<3,2>{};
+                        auto integrator = simplex_quadrature::ConicalProductIntegrator<3,3>{}; // 27-pt Stroud conical product (degree 5, all w>0)
                         // Gmsh edge midpoints: (0,1)=4, (1,2)=5, (0,2)=6, (0,3)=7, (2,3)=8, (1,3)=9
                         // fall_n edge midpoints (lexicographic): (0,1)=4, (0,2)=5, (0,3)=6, (1,2)=7, (1,3)=8, (2,3)=9
                         auto& elem = domain_->make_element<SimplexElement<3,3,2>, decltype(integrator)>(
@@ -132,7 +133,7 @@ public:
                         }
                     case 5:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<1,1,1>{}; 
+                        auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; // 2×2×2 full integration for HEX8
                            
                         auto& elem = domain_->make_element<LagrangeElement<3,2,2,2>, decltype(integrator)>(
                             std::move(integrator),

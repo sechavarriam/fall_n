@@ -369,6 +369,7 @@ class DynamicAnalysis {
 
     void assemble_initial_stiffness() {
         DMCreateMatrix(model_->get_plex(), &K0_);
+        MatSetOption(K0_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
         MatZeroEntries(K0_);
 
         // For initial stiffness, evaluate at u = 0
@@ -534,6 +535,7 @@ public:
 
         // ── Assemble mass matrix ─────────────────────────────────────
         DMCreateMatrix(dm, &M_);
+        MatSetOption(M_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
         model_->assemble_mass_matrix(M_);
 
         // ── Assemble damping matrix (if damping is configured) ───────
@@ -542,6 +544,7 @@ public:
             if (!K0_) assemble_initial_stiffness();
 
             DMCreateMatrix(dm, &C_);
+            MatSetOption(C_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
             damping_assembler_(M_, K0_, C_);
         }
 
@@ -552,6 +555,7 @@ public:
 
         // ── Create Jacobian matrix ───────────────────────────────────
         DMCreateMatrix(dm, &J_);
+        MatSetOption(J_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
         // ── Register TS callbacks ────────────────────────────────────
         ctx_ = {this, model_};
