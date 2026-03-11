@@ -1,0 +1,294 @@
+% =============================================================================
+%  Chapter 1 — Simplex Finite Elements
+% =============================================================================
+
+\chapter{Simplex Finite Elements}
+\label{ch:simplex}
+
+This chapter describes the construction of Lagrangian finite elements on
+simplicial cells (triangles in 2D, tetrahedra in 3D) as implemented in
+\texttt{fall\_n}.  The development follows the classical Ciarlet
+definition~\cite{Ciarlet1972} specialised to Lagrange interpolation on the
+reference simplex.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Reference Simplex}
+\label{sec:refsimplex}
+
+\begin{definition}[Reference simplex]
+The \emph{reference simplex} in $\R^D$ is the convex hull
+\begin{equation}
+  \calS_D \;=\; \Bigl\{
+    \bxi = (\xi_1, \dots, \xi_D) \in \R^D
+    \;\Big|\;
+    \xi_i \ge 0,\;
+    \sum_{i=1}^{D} \xi_i \le 1
+  \Bigr\},
+  \label{eq:ref_simplex}
+\end{equation}
+with \emph{vertices}
+\[
+  \mathbf{v}_0 = \mathbf{0}, \qquad
+  \mathbf{v}_i = \mathbf{e}_i \quad (i = 1, \dots, D),
+\]
+where $\mathbf{e}_i$ is the $i$-th standard basis vector.
+\end{definition}
+
+The \emph{barycentric coordinates} $(\lambda_0, \lambda_1, \dots, \lambda_D)$
+are defined as
+\begin{equation}
+  \lambda_0 = 1 - \sum_{i=1}^{D} \xi_i, \qquad
+  \lambda_i = \xi_i \quad (i = 1, \dots, D).
+  \label{eq:bary}
+\end{equation}
+They form a partition of unity, $\sum_{i=0}^{D} \lambda_i = 1$, and satisfy
+$\lambda_i \ge 0$ on $\calS_D$.
+
+The volume of the reference simplex is
+\begin{equation}
+  |\calS_D| = \frac{1}{D!}\,.
+  \label{eq:simplex_volume}
+\end{equation}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Lagrange Shape Functions}
+\label{sec:shape_functions}
+
+\subsection{Linear Elements (Order 1)}
+
+The linear simplex has $D+1$ nodes (the vertices).  The shape functions are
+simply the barycentric coordinates:
+\begin{equation}
+  N_i(\bxi) = \lambda_i(\bxi), \qquad i = 0, 1, \dots, D.
+  \label{eq:shape_linear}
+\end{equation}
+
+Since $\lambda_i \ge 0$ on $\calS_D$ and $\lambda_i(\mathbf{v}_j) =
+\delta_{ij}$, these are the unique linear polynomials that interpolate the
+nodal values.
+
+\paragraph{Concrete instances in \texttt{fall\_n}:}
+\begin{itemize}[nosep]
+  \item TRI3 ($D=2$, 3 nodes): \texttt{SimplexElement<3,2,1>} (triangle in 3D
+        ambient space, used for boundary faces)
+  \item TET4 ($D=3$, 4 nodes): \texttt{SimplexElement<3,3,1>}
+\end{itemize}
+
+
+\subsection{Quadratic Elements (Order 2)}
+\label{sec:quadratic_simplex}
+
+The quadratic simplex has
+\begin{equation}
+  n_{\text{nodes}} = \binom{D+2}{2} = \frac{(D+1)(D+2)}{2}
+  \label{eq:numnodes_quadratic}
+\end{equation}
+nodes: the $D+1$ vertices plus $\binom{D+1}{2}$ edge midpoints.
+
+\paragraph{Vertex shape functions.}
+For vertex $i$ ($i=0,\dots,D$):
+\begin{equation}
+  \boxed{N_i(\bxi) = \lambda_i\,(2\lambda_i - 1)}
+  \label{eq:shape_vertex_quad}
+\end{equation}
+
+\begin{remark}[Sign of vertex shape functions]
+\label{rem:vertex_negative}
+The vertex shape function $N_i = \lambda_i(2\lambda_i - 1)$ is \emph{negative}
+whenever $0 < \lambda_i < \tfrac{1}{2}$.  This region is non-empty in the
+interior of $\calS_D$.  In particular, interior quadrature points that are
+``far'' from vertex $i$ will have $\lambda_i \ll \tfrac{1}{2}$, making
+$N_i < 0$ at those points.
+
+This fact is benign for stiffness matrix assembly (the bilinear form involves
+gradients, not function values).  However, it becomes critical for lumped $L^2$
+projection, as discussed in~\cref{ch:negative_weights}.
+\end{remark}
+
+\paragraph{Edge midpoint shape functions.}
+For the midpoint of edge $(i, j)$ with $0 \le i < j \le D$:
+\begin{equation}
+  \boxed{N_{ij}(\bxi) = 4\,\lambda_i\,\lambda_j}
+  \label{eq:shape_edge_quad}
+\end{equation}
+
+These are always non-negative on $\calS_D$, since both $\lambda_i, \lambda_j
+\ge 0$.
+
+\paragraph{Concrete instances:}
+\begin{itemize}[nosep]
+  \item TRI6 ($D=2$, 6 nodes): \texttt{SimplexElement<3,2,2>}
+  \item TET10 ($D=3$, 10 nodes): \texttt{SimplexElement<3,3,2>}
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Shape Function Derivatives}
+\label{sec:derivatives}
+
+Since $\lambda_0 = 1 - \xi_1 - \cdots - \xi_D$ and $\lambda_i = \xi_i$ for
+$i \ge 1$, the barycentric coordinate gradients (with respect to $\bxi$) are:
+\begin{equation}
+  \frac{\partial \lambda_0}{\partial \xi_k} = -1, \qquad
+  \frac{\partial \lambda_i}{\partial \xi_k} = \delta_{ik}
+  \quad (i = 1, \dots, D).
+  \label{eq:bary_grad}
+\end{equation}
+
+For the quadratic vertex shape function $N_i = \lambda_i(2\lambda_i - 1)$:
+\begin{equation}
+  \frac{\partial N_i}{\partial \xi_k}
+  = (4\lambda_i - 1)\,\frac{\partial \lambda_i}{\partial \xi_k}\,.
+  \label{eq:dNi_vertex}
+\end{equation}
+
+For the edge midpoint $N_{ij} = 4\lambda_i\lambda_j$:
+\begin{equation}
+  \frac{\partial N_{ij}}{\partial \xi_k}
+  = 4\Bigl(
+    \lambda_j\,\frac{\partial \lambda_i}{\partial \xi_k}
+  + \lambda_i\,\frac{\partial \lambda_j}{\partial \xi_k}
+  \Bigr).
+  \label{eq:dNij_edge}
+\end{equation}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Isoparametric Mapping}
+\label{sec:isoparametric}
+
+The isoparametric map from the reference simplex $\calS_D$ to a physical
+element $\Omega^e \subset \R^d$ (with $d \ge D$) is
+\begin{equation}
+  \mathbf{x}(\bxi)
+  = \sum_{I=1}^{n_{\text{nodes}}} N_I(\bxi)\,\mathbf{x}_I,
+  \label{eq:isoparametric_map}
+\end{equation}
+where $\mathbf{x}_I \in \R^d$ are the physical nodal coordinates.  The
+\emph{Jacobian matrix} of the mapping is
+\begin{equation}
+  J_{ij} = \frac{\partial x_i}{\partial \xi_j}
+         = \sum_{I=1}^{n_{\text{nodes}}}
+           \frac{\partial N_I}{\partial \xi_j}\, x_{I,i}\,,
+  \qquad
+  \mathbf{J} \in \R^{d \times D}.
+  \label{eq:jacobian}
+\end{equation}
+
+When $d = D$ (volume elements), $\mathbf{J}$ is square and the differential
+volume element is $\dd\Omega = |\det\mathbf{J}|\,\dd\bxi$.
+
+When $d > D$ (surface elements, e.g.\ TRI6 boundary faces in 3D), the surface
+measure is computed from the metric tensor:
+\begin{equation}
+  \dd S = \sqrt{\det(\mathbf{J}^T \mathbf{J})}\;\dd\bxi.
+  \label{eq:surface_measure}
+\end{equation}
+
+\paragraph{Gradient transformation.}
+The gradient of a scalar field in physical space is obtained from the
+reference-space gradient via
+\begin{equation}
+  \frac{\partial N_I}{\partial x_j}
+  = \sum_{k=1}^{D} \frac{\partial N_I}{\partial \xi_k}\,
+    (J^{-1})_{kj}\,.
+  \label{eq:grad_transform}
+\end{equation}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Subentity Topology: Faces of the Simplex}
+\label{sec:faces}
+
+A $D$-simplex has $D+1$ faces (codimension-$1$ sub-simplices).  The $f$-th face
+($f = 0, \dots, D$) is the sub-simplex \emph{opposite} vertex $f$, spanned by
+all vertices \emph{except} $\mathbf{v}_f$.
+
+\subsection{Face Local Node Ordering (TET10)}
+
+For a quadratic tetrahedron ($D=3$, TET10, 10~nodes), each of the 4~triangular
+faces is a TRI6 sub-element.  The face-to-global node mapping implemented in
+\texttt{SimplexCell<3,2>} is:
+
+\begin{center}
+\begin{tabular}{ccc}
+  \toprule
+  Face $f$ & Opposite vertex & Global nodes \\
+  \midrule
+  0 & $\mathbf{v}_0$ & (1, 2, 3, 5, 8, 7) \\
+  1 & $\mathbf{v}_1$ & (0, 3, 2, 6, 8, 5) \\
+  2 & $\mathbf{v}_2$ & (0, 1, 3, 4, 7, 6) \\
+  3 & $\mathbf{v}_3$ & (0, 2, 1, 5, 4, 6) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The outward normal direction follows from the right-hand rule applied to the
+first three (vertex) nodes of each face.  This topology is critical for
+consistent surface traction application via Gauss quadrature on boundary faces.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Gmsh Node Ordering for TET10}
+\label{sec:gmsh_reorder}
+
+Gmsh uses a different midpoint ordering than
+\texttt{fall\_n}~\cite{Geuzaine2009}.  The Gmsh TET10 local ordering is:
+
+\begin{center}
+\begin{tabular}{ccccccccccc}
+  \toprule
+  Position & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 \\
+  \midrule
+  Gmsh     & $v_0$ & $v_1$ & $v_2$ & $v_3$ & $m_{01}$ & $m_{12}$ & $m_{02}$ & $m_{03}$ & $m_{13}$ & $m_{23}$ \\
+  \texttt{fall\_n} & $v_0$ & $v_1$ & $v_2$ & $v_3$ & $m_{01}$ & $m_{02}$ & $m_{03}$ & $m_{12}$ & $m_{23}$ & $m_{13}$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The reordering applied in \texttt{GmshDomainBuilder.hh} maps Gmsh indices to
+\texttt{fall\_n} indices via the permutation:
+\begin{equation}
+  (0, 1, 2, 3, 4, 6, 7, 5, 9, 8).
+  \label{eq:gmsh_perm}
+\end{equation}
+This is implemented as:
+\begin{lstlisting}
+index_ordering(node_tags, 0,1,2,3,4,6,7,5,9,8).data()
+\end{lstlisting}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implementation in \texttt{fall\_n}}
+\label{sec:simplex_impl}
+
+The simplex element hierarchy consists of three layers:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{\texttt{SimplexCell<D, Order>}} (\texttt{SimplexCell.hh}) ---
+        Purely geometric: reference coordinates, shape functions and their
+        derivatives, face topology.  All methods are \texttt{consteval} or
+        \texttt{constexpr}, enabling compile-time evaluation.
+
+  \item \textbf{\texttt{SimplexElement<Dim, TopDim, Order>}}
+        (\texttt{SimplexElement.hh}) --- Combines a \texttt{SimplexCell} with
+        an integration strategy.  Template parameters:
+        \begin{itemize}[nosep]
+          \item \texttt{Dim}: ambient space dimension (e.g., 3 for 3D problems);
+          \item \texttt{TopDim}: topological dimension ($D$);
+          \item \texttt{Order}: Lagrange interpolation order.
+        \end{itemize}
+
+  \item \textbf{\texttt{ElementGeometry<ElemType, Integrator>}}
+        (\texttt{ElementGeometry.hh}) --- Manages the Jacobian, physical
+        gradients, and integration; parameterised by element type and
+        quadrature rule.  The integrator is a duck-typed object exposing
+        \texttt{num\_integration\_points}, \texttt{reference\_integration\_point(i)},
+        and \texttt{weight(i)}.
+\end{enumerate}
+
+This layered design allows the quadrature rule to be swapped independently of
+the element geometry, which was crucial for diagnosing and resolving the
+negative-weight problem (see~\cref{ch:negative_weights,ch:quadrature}).

@@ -1,0 +1,148 @@
+% =============================================================================
+%  Chapter 5 — PETSc 3.24.5 Patch: section.c Indexing Bug
+% =============================================================================
+
+\chapter{PETSc Patch: \texttt{section.c} Indexing Bug}
+\label{ch:petsc}
+
+This chapter documents a bug in PETSc~3.24.5~\cite{PETSc2024} that affects
+higher-order finite elements whose DMPlex point numbering does not start at
+zero.  The bug was discovered during the development of simplex element support
+in \texttt{fall\_n} and confirmed to be an upstream issue.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Context: DMPlex and PetscSection}
+\label{sec:dmplex_context}
+
+PETSc's \texttt{DMPlex} represents an unstructured mesh as a directed acyclic
+graph (DAG) of \emph{points}: vertices, edges, faces, and cells, numbered from
+$0$ to $N-1$ (though the numbering of each \emph{stratum} may start at a
+non-zero offset).
+
+A \texttt{PetscSection} associates degrees of freedom (DOFs) with mesh points.
+It uses an \emph{atlas} (\texttt{s->atlasDof[]}) indexed relative to the
+chart $[\texttt{pStart}, \texttt{pEnd})$, and a \emph{constraint} mechanism
+to impose Dirichlet boundary conditions by specifying which DOFs at a point
+are constrained.
+
+The function \texttt{PetscSectionSetConstraintIndices()} sets the constrained
+DOF indices at a given point.  Its implementation reads:
+\begin{lstlisting}[language=C]
+PetscCall(PetscSectionCheckConstraints_Private(s));
+/* Bug: should subtract pStart to get the atlas offset */
+if (s->atlasDof[point]) {              // <-- HERE
+    PetscInt cdof;
+    PetscCall(PetscSectionGetConstraintDof(s, point, &cdof));
+    // ...
+}
+\end{lstlisting}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{The Bug}
+\label{sec:the_bug}
+
+In \texttt{src/sys/utils/section.c}, at approximately line~2997, the code reads:
+\begin{lstlisting}[language=C,escapechar=@]
+if (s->atlasDof[@\textcolor{red}{point}@]) {
+\end{lstlisting}
+but the atlas array is indexed relative to \texttt{pStart}, so the correct
+access is:
+\begin{lstlisting}[language=C,escapechar=@]
+if (s->atlasDof[@\textcolor{green!50!black}{point - s->pStart}@]) {
+\end{lstlisting}
+
+When \texttt{pStart = 0} (as happens for vertex stratum when vertices are
+numbered from zero), the two expressions are identical and the bug is
+invisible.  However, when a mesh's vertex stratum starts at a non-zero offset
+--- which occurs in \texttt{fall\_n} because Gmsh-imported meshes place cells
+before vertices in the DAG, giving the vertex stratum
+$\texttt{pStart} = 8$~(for 8~hex cells) or larger --- the raw \texttt{point}
+index overflows the atlas array, reading uninitialised memory.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Manifestation in \texttt{fall\_n}}
+\label{sec:manifestation}
+
+The bug manifests during the application of Dirichlet boundary conditions
+via \texttt{PetscSectionSetConstraintIndices}.  Specifically:
+\begin{itemize}[nosep]
+  \item For HEX27 meshes with 20 cells, the vertex stratum starts at
+        \texttt{pStart} $\ge$ 20.
+  \item When setting constraints on vertex DOFs, the index
+        \texttt{s->atlasDof[point]} reads from memory at offset 20+
+        instead of offset 0+.
+  \item The read value is unpredictable: it may be zero (causing the
+        constraints to be silently skipped) or non-zero (proceeding correctly
+        by accident).
+  \item The symptom was a segmentation fault or incorrect constraint
+        application on some meshes but not others, depending on memory layout.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{The Fix}
+\label{sec:the_fix}
+
+The fix is a one-line change in
+\texttt{src/sys/utils/section.c}:
+
+\begin{lstlisting}[language=C]
+// Before (buggy):
+if (s->atlasDof[point]) {
+
+// After (fixed):
+if (s->atlasDof[point - s->pStart]) {
+\end{lstlisting}
+
+This was applied to the local PETSc installation at:
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize,breaklines=true]
+/home/sechavarriam/MyLibs/petsc-3.24.5/src/sys/utils/section.c
+\end{lstlisting}
+
+After applying the patch, PETSc was rebuilt and all \texttt{fall\_n} constraint
+tests passed on both HEX27 and TET10 meshes.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Verification}
+\label{sec:petsc_verification}
+
+The fix was verified by:
+\begin{enumerate}[nosep]
+  \item Running the debug output in \texttt{fall\_n}'s boundary condition
+        application code, which prints:
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+[SIEVE-DBG] section_ptr=0x... chart=[9152,23629)
+[SIEVE-DBG] All 14477 section DOFs OK
+[BC-DBG] Constraints count: 145
+[BC-DBG] plex_id=9152 section_dof=3 constraint_size=3
+  ...
+\end{lstlisting}
+        confirming that all 145~Dirichlet-constrained vertices are correctly
+        handled with \texttt{pStart} = 9152.
+
+  \item Comparing the Case~1 (SmallStrain + Linear Elastic) displacement field
+        on HEX27 against the expected Timoshenko beam solution: the
+        tip displacement matches the analytical result to within the expected
+        discretisation error.
+
+  \item Running all 7~nonlinear cases on both HEX27 and TET10 meshes without
+        segfaults or constraint errors.
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Upstream Status}
+
+As of PETSc~3.24.5, this bug is present in the release source.  It has been
+reported to the PETSc developers.  Since the bug only affects codes that:
+\begin{itemize}[nosep]
+  \item use \texttt{PetscSectionSetConstraintIndices} directly (rather than
+        through higher-level \texttt{DMPlexSetBoundaryConditions}), and
+  \item have a \texttt{PetscSection} chart with \texttt{pStart} $> 0$,
+\end{itemize}
+it may not have been triggered by the PETSc test suite, which may use meshes
+with vertex-first ordering (\texttt{pStart} = 0 for the vertex stratum).
