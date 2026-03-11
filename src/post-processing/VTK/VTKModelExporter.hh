@@ -513,6 +513,84 @@ public:
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    //  compute_material_fields_spr — same field collection as above,
+    //  but uses SPR volume-weighted averaging for the projection.
+    //
+    //  This is unconditionally robust: all weights are element volumes
+    //  (always positive), so the checkerboard artefact from negative
+    //  quadrature weights or lumped L2 denominators cannot occur.
+    // ══════════════════════════════════════════════════════════════════════
+
+    void compute_material_fields_spr() {
+        if constexpr (requires(element_type e) { e.material_points(); }) {
+
+            auto& domain  = model_->get_domain();
+            const auto total_gp = domain.num_integration_points();
+
+            std::vector<double> strain_buf;
+            std::vector<double> stress_buf;
+            std::vector<double> eps_p_buf;
+            std::vector<double> eps_bar_p_buf;
+
+            strain_buf.reserve(total_gp * nvoigt);
+            stress_buf.reserve(total_gp * nvoigt);
+
+            bool has_plastic_strain = false;
+            bool has_eps_bar_p      = false;
+
+            for (const auto& element : model_->elements()) {
+                const auto& mat_points = element.material_points();
+
+                for (const auto& mp : mat_points) {
+                    const auto& state = mp.current_state();
+                    const auto* sdata = state.data();
+                    for (int c = 0; c < nvoigt; ++c)
+                        strain_buf.push_back(sdata[c]);
+
+                    auto stress = mp.compute_response(state);
+                    const auto* sigma = stress.data();
+                    for (int c = 0; c < nvoigt; ++c)
+                        stress_buf.push_back(sigma[c]);
+
+                    auto snap = mp.internal_field_snapshot();
+
+                    if (snap.has_plastic_strain()) {
+                        has_plastic_strain = true;
+                        for (double v : snap.plastic_strain.value())
+                            eps_p_buf.push_back(v);
+                    }
+
+                    if (snap.has_equivalent_plastic_strain()) {
+                        has_eps_bar_p = true;
+                        eps_bar_p_buf.push_back(
+                            snap.equivalent_plastic_strain.value());
+                    }
+                }
+            }
+
+            gauss_fields_.push_back(
+                {"strain", std::move(strain_buf), nvoigt});
+            gauss_fields_.push_back(
+                {"stress", std::move(stress_buf), nvoigt});
+
+            if (has_plastic_strain) {
+                gauss_fields_.push_back(
+                    {"plastic_strain", std::move(eps_p_buf), nvoigt});
+            }
+            if (has_eps_bar_p) {
+                gauss_fields_.push_back(
+                    {"equivalent_plastic_strain",
+                     std::move(eps_bar_p_buf), 1});
+            }
+
+            // ── SPR volume-weighted averaging to mesh nodes ──────────
+            for (const auto& gf : gauss_fields_) {
+                spr_average_to_nodes(gf.name, gf.data, gf.num_components);
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     //  write_mesh — primary mesh .vtu with nodal & L2-projected fields
     // ══════════════════════════════════════════════════════════════════════
 

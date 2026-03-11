@@ -1,0 +1,37 @@
+# LaTeX auxiliary and build files to ignore
+# Keeps generated PDFs tracked by allowing them (!*.pdf)
+
+# LaTeX aux files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.idx
+*.ilg
+*.ind
+*.run.xml
+*.auxlock
+*.xdv
+
+# LaTeX build/cache dirs
+_build/
+build/
+_minted-*/
+minted/
+_cache/
+
+# Editor/temp files
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Keep PDFs tracked
+!*.pdf
