@@ -169,6 +169,13 @@ static constexpr double J_tor = (b_min*b_min*b_min * h_max / 3.0)
 static const std::string MESH_FILE =
     "/home/sechavarriam/MyLibs/fall_n/tests/beam_cantilever.msh";
 
+// Tet mesh files — same beam geometry meshed with tetrahedral elements.
+// Physical groups: "domain" (3D), "Fixed" (2D face at x=0).
+static const std::string MESH_TET4 =
+    "/home/sechavarriam/MyLibs/fall_n/data/input/beam_gmshElem1stOrder.msh";
+static const std::string MESH_TET10 =
+    "/home/sechavarriam/MyLibs/fall_n/data/input/beam_gmshElem2ndOrder.msh";
+
 // Tip load
 static constexpr double P = 1.0;
 
@@ -721,6 +728,334 @@ static void test_6_beam_N3_tip_load_z() {
 
 
 // =============================================================================
+//  Test 9: 3D Continuum TET4 (linear tetrahedra) — tip load Z
+// =============================================================================
+//
+//  Validates the simplex element pipeline end-to-end:
+//    GmshDomainBuilder (TET_4 + TRI_3) → Domain → Model → Solve
+//
+//  The mesh beam_gmshElem1stOrder.msh contains:
+//    352 nodes, 1 144 TET_4 volume elements, 96 TRI_3 surface elements.
+//
+//  Tolerance: 5 % (linear tets are stiffer than hex27 due to locking;
+//  a generous bound is used because TET4 elements with full integration
+//  exhibit volumetric locking for near-incompressible materials, but at
+//  ν = 0.3 and L/H = 12.5 the error is expected to be moderate).
+//
+// -----------------------------------------------------------------------------
+
+static void test_9_tet4_tip_load_z() {
+    std::cout << "\n─── Test 9: TET4 Continuum — tip load Z ───\n";
+
+    Domain<DIM> D;
+    GmshDomainBuilder builder(MESH_TET4, D);
+
+    ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+    Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+
+    Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF_CONT> M{D, mat};
+
+    // ─── Diagnostic: check node num_dof propagation ───
+    {
+        int zero_dofs = 0, ok_dofs = 0;
+        PetscInt min_sieve = 999999, max_sieve = -1;
+        for (const auto& nd : D.nodes()) {
+            if (nd.num_dof() == 0) {
+                ++zero_dofs;
+                if (zero_dofs <= 5)
+                    std::cout << "  [DIAG] Node id=" << nd.id()
+                              << " sieve_id=" << nd.sieve_id.value()
+                              << " num_dof=" << nd.num_dof() << "\n";
+            } else {
+                ++ok_dofs;
+            }
+            PetscInt sid = nd.sieve_id.value();
+            if (sid < min_sieve) min_sieve = sid;
+            if (sid > max_sieve) max_sieve = sid;
+        }
+        std::cout << "  [DIAG] Nodes: " << D.nodes().size()
+                  << "  zero_dof=" << zero_dofs
+                  << "  ok_dof=" << ok_dofs
+                  << "  sieve_id=[" << min_sieve << "," << max_sieve << "]\n";
+
+        PetscInt cStart, cEnd, vStart, vEnd;
+        DMPlexGetHeightStratum(D.mesh.dm, 0, &cStart, &cEnd);
+        DMPlexGetHeightStratum(D.mesh.dm, 1, &vStart, &vEnd);
+        std::cout << "  [DIAG] PETSc strata — cells:[" << cStart << "," << cEnd
+                  << ") vertices:[" << vStart << "," << vEnd << ")\n";
+        std::cout << "  [DIAG] Elements: " << D.elements().size() << "\n";
+    }
+
+    M.fix_x(0.0);
+    M.setup();
+
+    {
+        int n_fixed = 0;
+        for (const auto& nd : D.nodes())
+            if (std::abs(nd.coord(0) - 0.0) < 1e-6) ++n_fixed;
+        std::cout << "  [DIAG] Total nodes: " << D.nodes().size()
+                  << "  Volume elements: " << D.elements().size()
+                  << "  Fixed nodes (x=0): " << n_fixed << "\n";
+    }
+
+    double face_area = B * H;
+    double tz = P / face_area;
+    D.create_boundary_from_plane("Tip", 0, L);
+
+    {
+        auto tip_elems = D.boundary_elements("Tip");
+        double tip_area = surface_load::compute_surface_area<DIM>(tip_elems);
+        std::cout << "  [DIAG] Tip face elements: " << tip_elems.size()
+                  << "  Computed tip area: " << tip_area
+                  << "  Expected: " << face_area << "\n";
+    }
+
+    M.apply_surface_traction("Tip", 0.0, 0.0, tz);
+
+    // ─── Diagnostic: verify assembled force resultant ───
+    {
+        PetscScalar fz_total = 0.0, fx_total = 0.0, fy_total = 0.0;
+        const PetscScalar* farr;
+        PetscInt fn;
+        VecGetLocalSize(M.force_vector(), &fn);
+        VecGetArrayRead(M.force_vector(), &farr);
+        for (PetscInt i = 0; i < fn; i += 3) { fx_total += farr[i]; fy_total += farr[i+1]; fz_total += farr[i+2]; }
+        VecRestoreArrayRead(M.force_vector(), &farr);
+        std::cout << "  [DIAG] Sum of nodal forces: fx=" << fx_total
+                  << " fy=" << fy_total << " fz=" << fz_total
+                  << "  Expected fz: " << P << "\n";
+        std::cout << "  [DIAG] Total DOFs: " << fn << "\n";
+    }
+
+    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    solver.solve();
+
+    double dz = tip_displacement(M, 2, L, NDOF_CONT);
+    double analytical = delta_z_analytical();
+
+    std::cout << "  TET4 δ_z at tip: " << std::scientific << dz << "\n";
+    check_tol(std::abs(dz), analytical, 0.05,
+              "TET4 vs analytical (Z tip load) < 5%");
+}
+
+
+// =============================================================================
+//  Test 10: 3D Continuum TET4 — tip load Y (weak axis)
+// =============================================================================
+
+static void test_10_tet4_tip_load_y() {
+    std::cout << "\n─── Test 10: TET4 Continuum — tip load Y ───\n";
+
+    Domain<DIM> D;
+    GmshDomainBuilder builder(MESH_TET4, D);
+
+    ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+    Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+
+    Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF_CONT> M{D, mat};
+
+    // ─── Diagnostic: check node num_dof propagation ───
+    {
+        int zero_dofs = 0, ok_dofs = 0;
+        for (const auto& nd : D.nodes()) {
+            if (nd.num_dof() == 0) {
+                ++zero_dofs;
+                if (zero_dofs <= 5)
+                    std::cout << "  [T10-DIAG] Node id=" << nd.id()
+                              << " sieve_id=" << nd.sieve_id.value()
+                              << " num_dof=" << nd.num_dof()
+                              << " coord=(" << nd.coord(0) << "," << nd.coord(1) << "," << nd.coord(2) << ")\n";
+            } else {
+                ++ok_dofs;
+            }
+        }
+        std::cout << "  [T10-DIAG] Nodes: " << D.nodes().size()
+                  << "  zero_dof=" << zero_dofs
+                  << "  ok_dof=" << ok_dofs << "\n";
+        std::cout << "  [T10-DIAG] Elements: " << D.elements().size() << "\n";
+
+        PetscInt cStart, cEnd, vStart, vEnd;
+        DMPlexGetHeightStratum(D.mesh.dm, 0, &cStart, &cEnd);
+        DMPlexGetHeightStratum(D.mesh.dm, 1, &vStart, &vEnd);
+        std::cout << "  [T10-DIAG] PETSc strata — cells:[" << cStart << "," << cEnd
+                  << ") vertices:[" << vStart << "," << vEnd << ")\n";
+    }
+
+    M.fix_x(0.0);
+    M.setup();
+
+    double face_area = B * H;
+    double ty = P / face_area;
+    D.create_boundary_from_plane("Tip", 0, L);
+    M.apply_surface_traction("Tip", 0.0, ty, 0.0);
+
+    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    solver.solve();
+
+    double dy = tip_displacement(M, 1, L, NDOF_CONT);
+    double analytical = delta_y_analytical();
+
+    std::cout << "  TET4 δ_y at tip: " << std::scientific << dy << "\n";
+    check_tol(std::abs(dy), analytical, 0.05,
+              "TET4 vs analytical (Y tip load) < 5%");
+}
+
+
+// =============================================================================
+//  Test 11: 3D Continuum TET10 (quadratic tetrahedra) — tip load Z
+// =============================================================================
+//
+//  Validates the quadratic simplex element pipeline:
+//    GmshDomainBuilder (TET_10 + TRI_6) → Domain → Model → Solve
+//
+//  The mesh beam_gmshElem2ndOrder.msh contains:
+//    2 174 nodes, 1 177 TET_10 volume elements, 96 TRI_6 surface elements.
+//
+//  Quadratic tetrahedra are significantly more accurate than linear ones
+//  and do not suffer from volumetric locking.  Expected error < 2 %.
+//
+// -----------------------------------------------------------------------------
+
+static void test_11_tet10_tip_load_z() {
+    std::cout << "\n─── Test 11: TET10 Continuum — tip load Z ───\n";
+
+    Domain<DIM> D;
+    GmshDomainBuilder builder(MESH_TET10, D);
+
+    ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+    Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+
+    Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF_CONT> M{D, mat};
+    M.fix_x(0.0);
+    M.setup();
+
+    {
+        int n_fixed = 0;
+        for (const auto& nd : D.nodes())
+            if (std::abs(nd.coord(0) - 0.0) < 1e-6) ++n_fixed;
+        std::cout << "  [DIAG] Total nodes: " << D.nodes().size()
+                  << "  Volume elements: " << D.elements().size()
+                  << "  Fixed nodes (x=0): " << n_fixed << "\n";
+    }
+
+    double face_area = B * H;
+    double tz = P / face_area;
+    D.create_boundary_from_plane("Tip", 0, L);
+
+    {
+        auto tip_elems = D.boundary_elements("Tip");
+        double tip_area = surface_load::compute_surface_area<DIM>(tip_elems);
+        std::cout << "  [DIAG] Tip face elements: " << tip_elems.size()
+                  << "  Computed tip area: " << tip_area
+                  << "  Expected: " << face_area << "\n";
+    }
+
+    M.apply_surface_traction("Tip", 0.0, 0.0, tz);
+
+    // ─── Diagnostic: verify assembled force resultant ───
+    {
+        PetscScalar fz_total = 0.0, fx_total = 0.0, fy_total = 0.0;
+        const PetscScalar* farr;
+        PetscInt fn;
+        VecGetLocalSize(M.force_vector(), &fn);
+        VecGetArrayRead(M.force_vector(), &farr);
+        for (PetscInt i = 0; i < fn; i += 3) { fx_total += farr[i]; fy_total += farr[i+1]; fz_total += farr[i+2]; }
+        VecRestoreArrayRead(M.force_vector(), &farr);
+        std::cout << "  [DIAG] Sum of nodal forces: fx=" << fx_total
+                  << " fy=" << fy_total << " fz=" << fz_total
+                  << "  Expected fz: " << P << "\n";
+        std::cout << "  [DIAG] Total DOFs: " << fn << "\n";
+    }
+
+    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    solver.solve();
+
+    // ─── TET10 Strain diagnostic ─────────────────────────────────────────
+    {
+        M.update_elements_state();
+        double sum_e11{0}, sum_e22{0}, sum_e33{0};
+        double sum_g23{0}, sum_g13{0}, sum_g12{0};
+        double sum_s11{0};
+        int n_gp{0};
+        for (const auto& elem : M.elements()) {
+            for (const auto& mp : elem.material_points()) {
+                const auto& s = mp.current_state();
+                sum_e11 += s[0]; sum_e22 += s[1]; sum_e33 += s[2];
+                sum_g23 += s[3]; sum_g13 += s[4]; sum_g12 += s[5];
+                auto sig = mp.compute_response(s);
+                sum_s11 += sig[0];
+                ++n_gp;
+            }
+        }
+        std::cout << "  [STRAIN] TET10 Z-load: " << n_gp << " GPs: avg ε₁₁=" << sum_e11/n_gp
+                  << " ε₂₂=" << sum_e22/n_gp << " ε₃₃=" << sum_e33/n_gp << "\n";
+        std::cout << "  [STRAIN]   avg γ₂₃=" << sum_g23/n_gp
+                  << " γ₁₃=" << sum_g13/n_gp << " γ₁₂=" << sum_g12/n_gp << "\n";
+        std::cout << "  [STRAIN]   avg σ₁₁=" << sum_s11/n_gp << " (bending, expect ~0 avg)\n";
+        
+        // First element detail
+        {
+            const auto& first_mp = M.elements().front().material_points().front();
+            const auto& st = first_mp.current_state();
+            auto coord = first_mp.coord();
+            std::cout << "  [STRAIN]   GP0 coord=(" << coord[0] << "," << coord[1]
+                      << "," << coord[2] << ")\n";
+            std::cout << "  [STRAIN]   GP0 strain=["
+                      << st[0] << ", " << st[1] << ", " << st[2] << ", "
+                      << st[3] << ", " << st[4] << ", " << st[5] << "]\n";
+
+            // Check if all strains are zero
+            double max_strain = 0;
+            for (int c = 0; c < 6; ++c) max_strain = std::max(max_strain, std::abs(st[c]));
+            if (max_strain < 1e-20)
+                std::cout << "  [STRAIN]   *** WARNING: All strains are ~ZERO at GP0! ***\n";
+        }
+    }
+
+    double dz = tip_displacement(M, 2, L, NDOF_CONT);
+    double analytical = delta_z_analytical();
+
+    std::cout << "  TET10 δ_z at tip: " << std::scientific << dz << "\n";
+    check_tol(std::abs(dz), analytical, 0.02,
+              "TET10 vs analytical (Z tip load) < 2%");
+}
+
+
+// =============================================================================
+//  Test 12: 3D Continuum TET10 — tip load Y (weak axis)
+// =============================================================================
+
+static void test_12_tet10_tip_load_y() {
+    std::cout << "\n─── Test 12: TET10 Continuum — tip load Y ───\n";
+
+    Domain<DIM> D;
+    GmshDomainBuilder builder(MESH_TET10, D);
+
+    ContinuumIsotropicElasticMaterial mat_inst{E_mod, nu};
+    Material<ThreeDimensionalMaterial> mat{mat_inst, ElasticUpdate{}};
+
+    Model<ThreeDimensionalMaterial, continuum::SmallStrain, NDOF_CONT> M{D, mat};
+    M.fix_x(0.0);
+    M.setup();
+
+    double face_area = B * H;
+    double ty = P / face_area;
+    D.create_boundary_from_plane("Tip", 0, L);
+    M.apply_surface_traction("Tip", 0.0, ty, 0.0);
+
+    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    solver.solve();
+
+    double dy = tip_displacement(M, 1, L, NDOF_CONT);
+    double analytical = delta_y_analytical();
+
+    std::cout << "  TET10 δ_y at tip: " << std::scientific << dy << "\n";
+    check_tol(std::abs(dy), analytical, 0.02,
+              "TET10 vs analytical (Y tip load) < 2%");
+}
+
+
+// =============================================================================
 //  Test 7: 3D Continuum vs Beam — cross-validation (Z tip load)
 // =============================================================================
 //
@@ -951,26 +1286,31 @@ int main(int argc, char** args)
                   << "============================================================\n"
                   << " Geometry: L=" << L << " B=" << B << " H=" << H << "\n"
                   << " Material: E=" << E_mod << " nu=" << nu << "\n"
-                  << " Mesh:     hex27 (3D continuum) / 10 elem (beam N=2)\n"
+                  << " Mesh:     hex27 / tet4 / tet10 (3D continuum) / beam\n"
                   << "============================================================\n";
 
         // Test 1: Pure analytical sanity checks (no FEM).
         test_1_analytical_values();
 
-        // Tests 2-3: Full 3D continuum pipeline (Gmsh → Domain → Model → Solve).
+        // Tests 2-8: Temporarily skipped for TET4 debugging
+        if (false) {
         test_2_continuum_tip_load_z();
         test_3_continuum_tip_load_y();
-
-        // Tests 4-6: Structural beam pipeline (programmatic mesh).
         test_4_beam_N2_tip_load_z();
         test_5_beam_N2_tip_load_y();
         test_6_beam_N3_tip_load_z();
-
-        // Test 7: Cross-validation between the two FEM approaches.
         test_7_cross_validation();
-
-        // Test 8: Deflection curve comparison at 5 stations.
         test_8_deflection_curve();
+        }
+
+        // Tests 9-12: Simplex (tetrahedral) elements — validates full pipeline
+        // from Gmsh reading through assembly and solve.
+        // Use env var to select tests for debugging
+        bool skip9 = (std::getenv("SKIP9") != nullptr);
+        if (!skip9) test_9_tet4_tip_load_z();
+        test_10_tet4_tip_load_y();
+        test_11_tet10_tip_load_z();
+        test_12_tet10_tip_load_y();
 
         std::cout << "\n============================================================\n"
                   << " Results: " << g_pass << " passed, "

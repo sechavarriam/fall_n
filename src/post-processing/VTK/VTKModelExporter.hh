@@ -281,17 +281,102 @@ private:
         }
 
         // ── Normalize by accumulated weights ─────────────────────────────
+        //  Use std::abs so that quadrature rules with negative weights
+        //  (e.g. Keast-5) do not zero-out vertex nodes whose accumulated
+        //  weight happens to be negative.
         FieldBuffer fb;
         fb.name = name;
         fb.num_components = ncomp;
         fb.data.resize(num_nodes * ncomp, 0.0);
 
         for (std::size_t n = 0; n < num_nodes; ++n) {
-            if (nodal_weight[n] > 0.0) {
+            if (std::abs(nodal_weight[n]) > 1.0e-30) {
                 for (int c = 0; c < ncomp; ++c) {
                     fb.data[n * ncomp + c] =
                         nodal_sum[n * ncomp + c] / nodal_weight[n];
                 }
+            }
+        }
+
+        nodal_fields_.push_back(std::move(fb));
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  Alternative: SPR-like volume-weighted nodal averaging
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    //  For each element, compute the volume-average of the GP field:
+    //      f̄_e = Σ_gp w_gp |J_gp| f_gp  /  V_e
+    //
+    //  Then at each node, average over all patch elements weighted by
+    //  their volume:
+    //      f̃_I = Σ_{e ∋ I} V_e · f̄_e  /  Σ_{e ∋ I} V_e
+    //
+    //  This method is unconditionally robust: all weights (volumes)
+    //  are positive regardless of quadrature rule.  It is less accurate
+    //  than the lumped L2 projection for smooth fields but never produces
+    //  checkerboard artefacts.
+    //
+
+    void spr_average_to_nodes(const std::string& name,
+                              const std::vector<double>& gauss_data,
+                              int ncomp)
+    {
+        auto& domain = model_->get_domain();
+        const auto num_nodes = domain.num_nodes();
+
+        std::vector<double> nodal_sum(num_nodes * ncomp, 0.0);
+        std::vector<double> nodal_vol(num_nodes, 0.0);
+
+        std::size_t gp_offset = 0;
+
+        for (auto& element : model_->elements()) {
+            auto* geom = element.get_geometry();
+            const auto nn   = element.num_nodes();
+            const auto ngp  = element.num_integration_points();
+
+            // ── Element volume and volume-averaged field ─────────────
+            double Ve = 0.0;
+            std::vector<double> f_bar(ncomp, 0.0);
+
+            for (std::size_t g = 0; g < ngp; ++g) {
+                auto   xi   = geom->reference_integration_point(g);
+                double w    = geom->weight(g);
+                double Jdet = geom->differential_measure(xi);
+                double wJ   = w * Jdet;
+                Ve += wJ;
+
+                for (int c = 0; c < ncomp; ++c)
+                    f_bar[c] += wJ * gauss_data[(gp_offset + g) * ncomp + c];
+            }
+
+            if (Ve > 0.0) {
+                for (int c = 0; c < ncomp; ++c) f_bar[c] /= Ve;
+            }
+
+            // ── Distribute to nodes ──────────────────────────────────
+            for (std::size_t i = 0; i < nn; ++i) {
+                auto node_id = element.node_p(i).id();
+                nodal_vol[node_id] += Ve;
+                for (int c = 0; c < ncomp; ++c)
+                    nodal_sum[node_id * ncomp + c] += Ve * f_bar[c];
+            }
+
+            gp_offset += ngp;
+        }
+
+        // ── Normalize ────────────────────────────────────────────────
+        FieldBuffer fb;
+        fb.name = name;
+        fb.num_components = ncomp;
+        fb.data.resize(num_nodes * ncomp, 0.0);
+
+        for (std::size_t n = 0; n < num_nodes; ++n) {
+            if (nodal_vol[n] > 0.0) {
+                for (int c = 0; c < ncomp; ++c)
+                    fb.data[n * ncomp + c] =
+                        nodal_sum[n * ncomp + c] / nodal_vol[n];
             }
         }
 

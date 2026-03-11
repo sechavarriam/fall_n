@@ -120,12 +120,12 @@ public:
                     case 11: // TET_10 — 10-node quadratic tetrahedron
                         {
                         auto integrator = SimplexIntegrator<3,2>{};
-                        // Gmsh edge midpoints: (0,1)=4, (1,2)=5, (0,2)=6, (0,3)=7, (1,3)=8, (2,3)=9
-                        // fall_n edge midpoints: (0,1)=4, (0,2)=5, (0,3)=6, (1,2)=7, (1,3)=8, (2,3)=9
+                        // Gmsh edge midpoints: (0,1)=4, (1,2)=5, (0,2)=6, (0,3)=7, (2,3)=8, (1,3)=9
+                        // fall_n edge midpoints (lexicographic): (0,1)=4, (0,2)=5, (0,3)=6, (1,2)=7, (1,3)=8, (2,3)=9
                         auto& elem = domain_->make_element<SimplexElement<3,3,2>, decltype(integrator)>(
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
-                            index_ordering(node_tags, 0, 1, 2, 3, 4, 6, 7, 5, 8, 9).data()
+                            index_ordering(node_tags, 0, 1, 2, 3, 4, 6, 7, 5, 9, 8).data()
                           );
                         if (!vol_group.empty()) elem.set_physical_group(vol_group);
                         break;

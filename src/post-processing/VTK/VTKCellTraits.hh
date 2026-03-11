@@ -94,11 +94,19 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             return 6;
         }
         if (num_nodes == 9) {
-            constexpr vtkIdType o[] = {0, 1, 3, 2, 4, 5, 7, 6};
-            // Note: only first 8 entries specified (biquadratic quad in VTK has
-            // 9 nodes; the 9th — center — keeps its position).
-            for (std::size_t i = 0; i < 8; ++i) out[i] = o[i];
-            out[8] = 8; // center node
+            // VTK_BIQUADRATIC_QUAD (VTK_QUADRATIC_QUAD = 9 nodes)
+            //
+            // fall_n column-major: flat = i0 + 3*i1
+            //   0=(−1,−1) 1=(0,−1) 2=(+1,−1)
+            //   3=(−1, 0) 4=(0, 0) 5=(+1, 0)
+            //   6=(−1,+1) 7=(0,+1) 8=(+1,+1)
+            //
+            // VTK: corners 0-3, mid-edges 4-7, center 8
+            //   0=(−1,−1) 1=(+1,−1) 2=(+1,+1) 3=(−1,+1)
+            //   4=(0,−1) 5=(+1,0) 6=(0,+1) 7=(−1,0)
+            //   8=(0,0)
+            constexpr vtkIdType o[] = {0, 2, 8, 6, 1, 5, 7, 3, 4};
+            for (std::size_t i = 0; i < 9; ++i) out[i] = o[i];
             return 9;
         }
     }
@@ -116,12 +124,25 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             return 8;
         }
         if (num_nodes == 27) {
+            // VTK_TRIQUADRATIC_HEXAHEDRON
+            //
+            // fall_n column-major: flat = i0 + 3*i1 + 9*i2  on [−1,+1]³
+            //   Face centers in fall_n:  4(z=−1), 10(y=−1), 12(x=−1),
+            //                           14(x=+1), 16(y=+1), 22(z=+1)
+            //
+            // VTK face center positions 20-25:
+            //   20: face(0,1,5,4) y=−1 → fall_n 10
+            //   21: face(1,2,6,5) x=+1 → fall_n 14
+            //   22: face(2,3,7,6) y=+1 → fall_n 16
+            //   23: face(3,0,4,7) x=−1 → fall_n 12
+            //   24: face(0,1,2,3) z=−1 → fall_n  4
+            //   25: face(4,5,6,7) z=+1 → fall_n 22
             constexpr vtkIdType o[] = {
                 0, 2, 8, 6, 18, 20, 26, 24,   // corners
-                1, 5, 7, 3, 19, 23, 25, 21,   // mid-edge
-                9, 11, 17, 15,                 // mid-face edges (z-edges)
-                12, 14, 10, 16,                // face centers
-                4, 22, 13                      // body center
+                1, 5, 7, 3, 19, 23, 25, 21,   // mid-edge (bottom + top faces)
+                9, 11, 17, 15,                 // mid-edge (z-direction)
+                10, 14, 16, 12,                // face centers (y−, x+, y+, x−)
+                4, 22, 13                      // face z−, face z+, body center
             };
             for (std::size_t i = 0; i < 27; ++i) out[i] = o[i];
             return 27;
