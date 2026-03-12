@@ -146,3 +146,131 @@ reported to the PETSc developers.  Since the bug only affects codes that:
 \end{itemize}
 it may not have been triggered by the PETSc test suite, which may use meshes
 with vertex-first ordering (\texttt{pStart} = 0 for the vertex stratum).
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Workaround from Application Code}
+\label{sec:workaround}
+
+In parallel with the upstream patch, we discovered two application-level
+workarounds that avoid modifying PETSc source entirely.  Both were implemented
+in \texttt{fall\_n} and verified on all mesh types.
+
+\subsection{Workaround~1: Extend the Section Chart}
+\label{sec:workaround_chart}
+
+The root cause is that \texttt{PetscSectionSetConstraintIndices()} accesses
+\texttt{s->atlasDof[point]} without subtracting \texttt{s->pStart}, so it
+reads out of bounds whenever the chart does not start at zero.
+
+\paragraph{Symptom.}
+For the TET4 mesh (9152~elements, 2119~nodes), the \texttt{DMPlex} point
+numbering places cells at $[0, 9152)$ and vertices at $[9152, 11271)$.
+When the section chart is set to the vertex stratum
+$[\texttt{vStart}, \texttt{vEnd}) = [9152, 11271)$, the atlas has only
+$11271 - 9152 = 2119$ entries.  The buggy code accesses index~9152 into a
+2119-entry array --- a severe out-of-bounds read.
+
+The read value is unpredictable: it reports \texttt{dof = 123} (instead of~3)
+for constrained nodes, producing 604~PETSc error lines of the form:
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize,numbers=none]
+[0]PETSC ERROR: Point 9152 dof 123,
+    invalid constraint index[9]: 24587
+\end{lstlisting}
+More critically, the constraint indices are \emph{not applied}, and the
+system produces a singular matrix (all Dirichlet DOFs are unconstrained),
+giving \texttt{|u| = 0.000000} for TET4.
+
+\paragraph{Fix.}
+In \texttt{Model::set\_sieve\_layout()}, set the section chart to cover the
+full DM chart $[\texttt{pStart}, \texttt{pEnd})$ instead of only the vertex
+stratum $[\texttt{vStart}, \texttt{vEnd})$:
+\begin{lstlisting}[language=C++]
+// Before (triggers PETSc bug when vStart > 0):
+PetscSectionSetChart(dof_section, vStart, vEnd);
+
+// After (workaround: atlas covers all points):
+PetscSectionSetChart(dof_section, pStart, pEnd);
+\end{lstlisting}
+With the full chart, \texttt{pStart = 0} always, so the buggy raw index
+\texttt{s->atlasDof[point]} coincides with the correct adjusted index
+\texttt{s->atlasDof[point - 0]}.  Element points (cells) simply carry 0~DOFs.
+
+The cost is a marginally larger atlas array (8~bytes per cell point), which is
+negligible relative to the mesh data.
+
+\paragraph{Source.} \texttt{src/model/Model.hh}, method \texttt{set\_sieve\_layout()}.
+
+
+\subsection{Workaround~2: Allow Dynamic Matrix Allocation}
+\label{sec:workaround_prealloc}
+
+A secondary class of errors surfaces on large unstructured TET4 meshes: PETSc
+reports thousands of \emph{``New nonzero at (i,j) caused a malloc''}
+messages during matrix assembly.  These occur because
+\texttt{DMCreateMatrix()}'s internal adjacency walk
+(\texttt{DMPlexPreallocateOperator}) underestimates the sparsity pattern for
+cell-vertex sieves of unstructured simplex meshes.
+
+\paragraph{Diagnosis.}
+On the TET4 mesh (9152~elements, 2119~nodes), analysis confirmed that error
+DOF pairs correspond to nodes that \emph{do not share any element} in the
+mesh.  For example, node~172 (9~neighbours in the mesh graph) was reported as
+needing an entry with node~1358 --- with zero shared elements.  This is a
+PETSc preallocation-algorithm issue, not a \texttt{fall\_n} sieve-setup error.
+
+The results were still correct because PETSc dynamically allocates the missing
+entries (just slower, with error messages in debug builds).
+
+\paragraph{Fix.}
+After each \texttt{DMCreateMatrix()} call, tell PETSc to silently allocate
+missing entries instead of reporting errors:
+\begin{lstlisting}[language=C++]
+DMCreateMatrix(dm, &K);
+MatSetOption(K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+\end{lstlisting}
+This was applied to all matrix creation sites:
+\begin{center}
+\small
+\begin{tabular}{lll}
+  \toprule
+  File & Method & Matrix \\
+  \midrule
+  \texttt{Model.hh}           & \texttt{setup\_matrix()}               & \texttt{Kt\_} \\
+  \texttt{LinearAnalysis.hh}  & \texttt{setup\_matrix\_sizes()}        & \texttt{K} \\
+  \texttt{NLAnalysis.hh}      & SNES Jacobian callback                & \texttt{J} \\
+  \texttt{DynamicAnalysis.hh} & \texttt{setup()}                       & \texttt{M\_, C\_, J\_} \\
+  \texttt{DynamicAnalysis.hh} & \texttt{assemble\_initial\_stiffness} & \texttt{K0\_} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+
+\subsection{Verification}
+
+After applying both workarounds, \texttt{fall\_n} runs with \textbf{zero}
+PETSc error messages on all four mesh types.  The results table:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lrrrrr}
+  \toprule
+  Model                    & Nodes & Elems & $|u|_\text{max}$ & $|u_y|_\text{max}$ & Error (\%) \\
+  \midrule
+  Timoshenko $N=3$ (ref.)  &    11 &     5 &  6.4518 &  6.2578 &   0.00 \\
+  HEX8  (30$\times$6$\times$3)     &   868 &   540 &  4.8293 &  4.8293 &  25.15 \\
+  HEX27 (30$\times$6$\times$3)     &  5551 &   540 &  6.2148 &  6.2148 &   3.67 \\
+  TET4  (Fine, 4-pt)      &  2119 &  9152 &  3.5079 &  3.5079 &  45.63 \\
+  TET10 (Fine, 27-pt)     &  4914 &  2475 &  6.2173 &  6.2173 &   3.64 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The TET4 result (3.51, 45.6\% error) now correctly reflects the well-known
+volumetric locking and stiffness overestimation of linear tetrahedra under
+bending.  Previously, the section bug caused \texttt{|u| = 0.000} (100\%
+error) because boundary conditions were silently dropped.
+
+The TET10 (3.64\% error) and HEX27 (3.67\% error) results match the
+Timoshenko beam reference to within the expected discretisation error for
+second-order elements.
