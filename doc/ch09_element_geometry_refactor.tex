@@ -1,0 +1,312 @@
+% =============================================================================
+%  Chapter 9 — ElementGeometry Refactor
+% =============================================================================
+
+\chapter{ElementGeometry Refactor}
+\label{ch:element_geometry_refactor}
+
+This chapter documents the refactor of the \texttt{ElementGeometry} subsystem.
+The goal of the change was not to redesign the whole geometry layer from
+scratch, but to fix the most important semantic and architectural weaknesses
+without degrading the hot path of element integration.
+
+The guiding constraint was explicit:
+\emph{prefer compile-time cost over runtime cost whenever the trade-off is
+reasonable}.  In other words, stronger type constraints, cleaner ownership,
+and slightly more template work at compile time are acceptable, whereas extra
+runtime indirection inside the Gauss loop is not.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Problem Statement}
+\label{sec:eg_problem_statement}
+
+Before the refactor, \texttt{ElementGeometry<dim>} already had a good high-level
+idea: concrete geometry and quadrature strategy were stored behind a
+type-erased, value-semantic wrapper.  However, three problems were
+architecturally significant.
+
+\subsection{Broken value semantics}
+
+The wrapper cloned only its internal \texttt{pimpl\_}, while metadata such as
+\texttt{integration\_point\_}, \texttt{sieve\_id}, and
+\texttt{physical\_group\_} lived outside the cloned state.  As a consequence,
+copy construction and copy assignment were semantically incomplete: two
+\texttt{ElementGeometry} objects could share the same geometric map while
+disagreeing on already-materialised Gauss-point data or mesh metadata.
+
+This violated a core expectation of value types:
+\[
+\texttt{b = a} \quad \Longrightarrow \quad \texttt{b} \text{ must represent the same logical value as } \texttt{a}.
+\]
+
+\subsection{Integration strategy mixed into concrete geometry headers}
+
+The concrete geometry headers contained both the element type and the
+quadrature strategy implementation.  This worked, but it blurred the boundary
+between two distinct concepts:
+
+\begin{itemize}[nosep]
+  \item a geometric interpolation on a reference cell, and
+  \item a numerical integration policy on that reference cell.
+\end{itemize}
+
+Architecturally this was undesirable because the element family and the
+quadrature family evolve for different reasons.
+
+\subsection{Weak compile-time invariants}
+
+Some invalid states were still representable:
+
+\begin{itemize}[nosep]
+  \item unsupported Gauss--Legendre orders silently produced zero-filled arrays;
+  \item \texttt{detJ()} was visible even for embedded geometries with
+        non-square Jacobians;
+  \item tensor-product geometries did not consistently enforce
+        \(\texttt{topological\_dim} \le \texttt{dim}\).
+\end{itemize}
+
+These were not merely cosmetic issues.  They weakened the library contract and
+made failures harder to interpret.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Design Goals}
+\label{sec:eg_design_goals}
+
+The refactor was driven by the following goals:
+
+\begin{enumerate}[nosep]
+  \item Preserve the existing \emph{external polymorphism} structure.
+  \item Keep quadrature evaluation monomorphic and inlineable inside the
+        concrete model.
+  \item Repair value semantics of the wrapper.
+  \item Make invalid geometric or quadrature configurations fail early.
+  \item Reduce conceptual coupling between geometry and integration.
+\end{enumerate}
+
+Equally important is what was \emph{not} attempted in this refactor:
+the geometry layer still depends on \texttt{Node<dim>}, which means it is not
+yet a purely geometric vertex layer.  That larger ontological cleanup remains a
+future step because it cuts across \texttt{Model}, DOF storage, and multiple
+element families.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Refactor Overview}
+\label{sec:eg_refactor_overview}
+
+\subsection{Metadata moved under wrapper ownership}
+
+\texttt{ElementGeometry} now owns an internal metadata aggregate containing:
+
+\begin{itemize}[nosep]
+  \item the materialised integration points,
+  \item the optional DMPlex sieve identifier, and
+  \item the physical-group label imported from Gmsh.
+\end{itemize}
+
+This has two consequences.
+
+First, copy construction and copy assignment now copy both the cloned geometry
+implementation and the metadata, restoring proper value semantics.
+
+Second, the metadata is no longer a public bag of fields.  It is accessed
+through a narrow API:
+\texttt{sieve\_id()}, \texttt{has\_sieve\_id()},
+\texttt{physical\_group()}, \texttt{integration\_points()}, etc.
+
+This is a direct SRP improvement: the wrapper remains responsible for its own
+logical state, and downstream code no longer reaches into its internals.
+
+\subsection{Quadrature strategies extracted to dedicated headers}
+
+Two strategy types were extracted:
+
+\begin{itemize}[nosep]
+  \item \texttt{GaussLegendreCellIntegrator.hh}
+  \item \texttt{SimplexIntegrator.hh}
+\end{itemize}
+
+The concrete geometry classes remain pure descriptions of interpolation and
+mapping.  The numerical integration policy is still attached at compile time,
+but it is no longer embedded in the same header for incidental reasons.
+
+This separation is conceptually important.  In isoparametric finite elements,
+geometry defines the map
+\[
+\mathbf{x}(\boldsymbol{\xi}) = \sum_{a=1}^{n_n} N_a(\boldsymbol{\xi})\,\mathbf{x}_a,
+\]
+while quadrature defines an approximation of
+\[
+\int_{\hat{\Omega}} f(\boldsymbol{\xi}) \,\mathrm{d}\hat{\Omega}
+\;\approx\;
+\sum_{g=1}^{n_g} w_g\,f(\boldsymbol{\xi}_g).
+\]
+They are related in use, but they are not the same abstraction.
+
+\subsection{A small quadrature concept}
+
+The new \texttt{QuadratureStrategy} concept formalises the contract expected by
+\texttt{ElementGeometry}'s internal model:
+
+\begin{itemize}[nosep]
+  \item \texttt{num\_integration\_points}
+  \item \texttt{reference\_integration\_point(i)}
+  \item \texttt{weight(i)}
+\end{itemize}
+
+The benefit is not runtime polymorphism.  The benefit is that failures move to
+compile time, where the error is cheaper and more local.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Geometry and Measure}
+\label{sec:eg_geometry_measure}
+
+The refactor keeps the existing zero-cost logic for the differential measure.
+Given the Jacobian \(J = \partial \mathbf{x} / \partial \boldsymbol{\xi}\), the
+integration measure depends on the relationship between topological and
+embedding dimensions:
+
+\begin{align}
+\text{full-dimensional cell:} \quad
+& \mathrm{d}\Omega = |\det J|\,\mathrm{d}\hat{\Omega}, \\
+\text{embedded curve:} \quad
+& \mathrm{d}s = \lVert J \rVert\,\mathrm{d}\hat{s}, \\
+\text{embedded surface in } \mathbb{R}^3: \quad
+& \mathrm{d}S = \lVert J_1 \times J_2 \rVert\,\mathrm{d}\hat{S}.
+\end{align}
+
+This dispatch still happens inside
+\texttt{OwningModel\_ElementGeometry<ElementType, IntegrationStrategy>} using
+\texttt{if constexpr}.  Therefore the compiler sees the concrete element type,
+the concrete topological dimension, and the concrete matrix shape.  No extra
+runtime branch was introduced inside the integration loop.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{API Hardening}
+\label{sec:eg_api_hardening}
+
+\subsection{Restricting \texttt{detJ()}}
+
+\texttt{detJ()} now exists only when the Jacobian is square, namely when the
+element is full-dimensional:
+\[
+\texttt{topological\_dim} = \texttt{dim}.
+\]
+
+This is important because a determinant is not defined for the Jacobian of an
+embedded beam or surface.  Exposing the member unconditionally was misleading:
+it suggested a mathematically meaningful operation where none exists.
+
+\subsection{Fail-fast Gauss--Legendre tables}
+
+Unsupported Gauss--Legendre orders no longer fall back to zero arrays.
+Instead, they trigger a compile-time error.  This is the right contract for a
+template-based numerical kernel: if the requested order is unsupported, the
+program should fail where the invalid instantiation occurs.
+
+\subsection{Safer tensor-product constraints}
+
+\texttt{LagrangeElement<Dim, N...>} now enforces that the number of natural
+coordinates does not exceed the embedding dimension.  This prevents invalid
+type combinations from entering the system.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Materialised Integration Points}
+\label{sec:eg_integration_points}
+
+The wrapper continues to precompute physical Gauss-point coordinates when the
+domain requests them.  The refactor extends this step so that the integration
+weight is also stored in each materialised point.
+
+This is useful for post-processing and point-wise objects attached to Gauss
+points because the point now carries a coherent local state:
+
+\begin{itemize}[nosep]
+  \item physical coordinates,
+  \item global identifier for VTK export,
+  \item quadrature weight.
+\end{itemize}
+
+The operation remains amortised and explicit.  It does not change the
+quadrature path used in stiffness or residual evaluation.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Performance Discussion}
+\label{sec:eg_performance}
+
+The refactor was intentionally biased toward preserving runtime behaviour.
+
+\subsection{What did not change}
+
+\begin{itemize}[nosep]
+  \item Concrete geometry evaluation is still template-based.
+  \item The Jacobian and shape-function evaluation remain statically resolved.
+  \item The quadrature loop still uses direct calls on the concrete strategy
+        stored inside the model.
+  \item No new virtual call was inserted inside \texttt{integrate()}.
+\end{itemize}
+
+\subsection{What did change}
+
+\begin{itemize}[nosep]
+  \item More errors are now diagnosed at compile time.
+  \item Integration strategies live in dedicated headers, reducing conceptual
+        coupling and making future dependency management easier.
+  \item Copying \texttt{ElementGeometry} is slightly more expensive if
+        integration points have already been materialised, because the copy now
+        correctly copies them.  This is not a regression; it is the real cost
+        of correct value semantics.
+\end{itemize}
+
+This is the intended trade-off.  Copying a fully materialised geometric entity
+is not a hot-path operation in FEM assembly, whereas incorrect copies are
+architecturally dangerous.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{What Was Deliberately Deferred}
+\label{sec:eg_deferred}
+
+The refactor does \emph{not} yet solve the deeper issue that the geometry layer
+depends on \texttt{Node<dim>}, and \texttt{Node<dim>} already contains DOF
+state.  From a strict modelling standpoint, a geometric layer should ideally
+depend on a lighter vertex concept carrying only:
+
+\begin{itemize}[nosep]
+  \item identifier,
+  \item coordinates,
+  \item optional mesh-backend handle.
+\end{itemize}
+
+That separation would improve the ontology of the codebase and further align
+the design with SRP and DIP.  However, it affects much more than
+\texttt{ElementGeometry}; it is therefore better handled as a dedicated
+follow-up refactor instead of being folded into the present change.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Result}
+\label{sec:eg_result}
+
+Architecturally, the refactor moves \texttt{ElementGeometry} from
+``good idea with leaky semantics'' toward ``stable boundary abstraction''.
+
+The most important outcomes are:
+
+\begin{enumerate}[nosep]
+  \item wrapper copies are now semantically correct;
+  \item geometry and quadrature are more cleanly separated;
+  \item invalid numerical configurations fail early;
+  \item the hot numerical path remains compile-time resolved.
+\end{enumerate}
+
+This is a meaningful improvement even though the subsystem is not yet the final
+form of the geometry layer.  It removes a real correctness bug, strengthens the
+public contract, and prepares the code for a later, larger cleanup around
+geometric vertices versus analysis nodes.

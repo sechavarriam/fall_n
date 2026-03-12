@@ -8,6 +8,9 @@
 
 namespace GaussLegendre{
 
+    template <std::size_t>
+    inline constexpr bool unsupported_gauss_legendre_weight_order = false;
+
     template<std::size_t n> requires (n>0)
     static consteval std::array<double,n> weights(){
         if constexpr (n==1){
@@ -51,7 +54,8 @@ namespace GaussLegendre{
         }else if constexpr (n==20){
             return std::array<double,n>{0.017614007139152118311861,0.040601429800386941331040,0.062672048334109063569506,0.083276741576704748724758,0.101930119817240435036750,0.118194531961518417312377,0.131688638449176626898494,0.142096109318382051329298,0.149172986472603746787828,0.152753387130725850698084,0.152753387130725850698084,0.149172986472603746787828,0.142096109318382051329298,0.131688638449176626898494,0.118194531961518417312377,0.101930119817240435036750,0.083276741576704748724758,0.062672048334109063569506,0.040601429800386941331040,0.017614007139152118311861};
         }else{
-            return std::array<double,n>{};
+            static_assert(unsupported_gauss_legendre_weight_order<n>,
+                          "Gauss-Legendre weights are implemented only for orders 1 through 20.");
         }   
     };
 

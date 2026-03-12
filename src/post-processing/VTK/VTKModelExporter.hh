@@ -180,7 +180,7 @@ private:
             static_cast<vtkIdType>(domain.num_integration_points()));
 
         for (const auto& elem : domain.elements()) {
-            for (const auto& gp : elem.integration_point_) {
+            for (const auto& gp : elem.integration_points()) {
                 if constexpr (dim == 3) {
                     gauss_points_->SetPoint(
                         gp.id(), gp.coord(0), gp.coord(1), gp.coord(2));
@@ -200,7 +200,7 @@ private:
         gauss_grid_->SetPoints(gauss_points_);
 
         for (auto& elem : domain.elements()) {
-            for (auto& gp : elem.integration_point_) {
+            for (auto& gp : elem.integration_points()) {
                 gauss_grid_->InsertNextCell(VTK_VERTEX, 1, gp.id_p());
             }
         }

@@ -4,25 +4,30 @@
 #include <Eigen/Dense>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
-#include <iostream>
-#include <utility>
-#include <memory>
-#include <vector>
-#include <functional>
 #include <concepts>
-
-#include <span>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <optional>
 #include <ranges>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-#ifdef __clang__ 
-    #include <format>
-    #include <print>
+#ifdef __clang__
+  #include <format>
+  #include <print>
 #endif
 
 #include "../Node.hh"
 
 #include "../../geometry/IntegrationPoint.hh"
+#include "../../numerics/numerical_integration/QuadratureStrategy.hh"
 
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
@@ -94,7 +99,7 @@ namespace impl
 
     };
              
-    template <typename ElementType, typename IntegrationStrategy> // External Polymorfism Design Pattern
+    template <typename ElementType, QuadratureStrategy IntegrationStrategy> // External Polymorfism Design Pattern
     class OwningModel_ElementGeometry : public ElementGeometryConcept<ElementType::dim>
     { // Wrapper for all element types (of any kind)
         
@@ -267,7 +272,7 @@ namespace impl
                     using FaceInteg = SimplexIntegrator<face_top_dim, face_order>;
                     using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
                     return std::make_unique<FaceModel>(
-                        FaceElem(std::forward<std::size_t>(tag), face_global_node_ids),
+                        FaceElem(tag, face_global_node_ids),
                         FaceInteg{});
                 } else {
                     // TopDim == 1 → faces are points, not meaningful
@@ -319,7 +324,7 @@ namespace impl
                 using FaceInteg = GaussLegendreCellIntegrator<D0, D1>;
                 using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
                 return std::make_unique<FaceModel>(
-                    FaceElem(std::forward<std::size_t>(tag), node_ids),
+                    FaceElem(tag, node_ids),
                     FaceInteg{});
             } else if constexpr (sd.num_free == 1) {
                 // Face of a 2D element → edge element
@@ -328,7 +333,7 @@ namespace impl
                 using FaceInteg = GaussLegendreCellIntegrator<D0>;
                 using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
                 return std::make_unique<FaceModel>(
-                    FaceElem(std::forward<std::size_t>(tag), node_ids),
+                    FaceElem(tag, node_ids),
                     FaceInteg{});
             } else {
                 // Face of a 1D element → point (not useful for boundary elements)
@@ -346,13 +351,25 @@ class ElementGeometry
     using LocalCoordView = std::span<const double>;
     using SpatialArray = std::array<double, dim>;
 
+    struct Metadata {
+        std::vector<IntegrationPoint<dim>> integration_points{};
+        std::optional<PetscInt>            sieve_id{};
+        std::string                        physical_group{};
+    };
+
     std::unique_ptr<impl::ElementGeometryConcept<dim>> pimpl_; // Bridge to implementation details (compiler generated).
+    Metadata                                            metadata_{};
+
+    static auto clone_pimpl(const ElementGeometry& other)
+        -> std::unique_ptr<impl::ElementGeometryConcept<dim>>
+    {
+        if (!other.pimpl_) {
+            return nullptr;
+        }
+        return other.pimpl_->clone();
+    }
 
 public:
-
-    std::vector<IntegrationPoint<dim>> integration_point_;
-    std::optional<PetscInt>            sieve_id;  // Optional sieve id for the element inside DMPlex Mesh
-    std::string                        physical_group_;  // Physical group name from Gmsh (e.g., "Steel", "Concrete")
 
     constexpr void print_info() const { pimpl_->print_info(); };
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
@@ -392,6 +409,9 @@ public:
     ElementGeometry make_face_geometry(std::size_t f, std::size_t tag,
                                        std::span<PetscInt> face_global_node_ids) const {
         auto face_pimpl = pimpl_->make_face_geometry(f, tag, face_global_node_ids);
+        if (!face_pimpl) {
+            throw std::logic_error("ElementGeometry cannot create a null face geometry.");
+        }
         return ElementGeometry(std::move(face_pimpl));
     }
 
@@ -426,18 +446,24 @@ public:
     };
 
     // Own methods
-    constexpr void set_sieve_id(PetscInt id){sieve_id = id;};
+    constexpr void set_sieve_id(PetscInt id) noexcept { metadata_.sieve_id = id; };
+    constexpr bool has_sieve_id() const noexcept { return metadata_.sieve_id.has_value(); }
+    constexpr PetscInt sieve_id() const { return metadata_.sieve_id.value(); }
+    constexpr const std::optional<PetscInt>& optional_sieve_id() const noexcept { return metadata_.sieve_id; }
 
-    void set_physical_group(const std::string& name) { physical_group_ = name; }
-    const std::string& physical_group() const noexcept { return physical_group_; }
-    bool has_physical_group() const noexcept { return !physical_group_.empty(); }
+    void set_physical_group(const std::string& name) { metadata_.physical_group = name; }
+    const std::string& physical_group() const noexcept { return metadata_.physical_group; }
+    bool has_physical_group() const noexcept { return !metadata_.physical_group.empty(); }
+
+    constexpr auto& integration_points() noexcept { return metadata_.integration_points; }
+    constexpr const auto& integration_points() const noexcept { return metadata_.integration_points; }
 
     constexpr void allocate_integration_points(){
-        if (!integration_point_.empty()) return; // Already allocated — idempotent guard.
+        if (!metadata_.integration_points.empty()) return; // Already allocated — idempotent guard.
         const auto N = pimpl_->num_integration_points();
-        integration_point_.reserve(N);
+        metadata_.integration_points.reserve(N);
         for (std::size_t i = 0; i < N; ++i){
-            integration_point_.emplace_back(IntegrationPoint<dim>{});
+            metadata_.integration_points.emplace_back(IntegrationPoint<dim>{});
         }
     };
 
@@ -445,26 +471,37 @@ public:
         allocate_integration_points();
         std::size_t x{0};
 
-        for(auto& gauss_point : integration_point_){
-            gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(x++)));
+        for(auto& gauss_point : metadata_.integration_points){
+            const auto gp_index = x++;
+            gauss_point.set_coord(pimpl_->map_local_point(pimpl_->reference_integration_point(gp_index)));
             gauss_point.set_id(offset++);
+            gauss_point.set_weight(pimpl_->weight(gp_index));
         }
         return offset;
     };
 
     // Constructors
-    template <typename ElementType, typename IntegrationStrategy> // CAN BE CONSTRAINED WITH CONCEPTS!
-    constexpr ElementGeometry(ElementType element, IntegrationStrategy integrator){
-        using Model = impl::OwningModel_ElementGeometry<ElementType, IntegrationStrategy>;
+    template <typename ElementType, typename IntegrationStrategy>
+        requires (!std::same_as<std::remove_cvref_t<ElementType>, ElementGeometry> &&
+                  QuadratureStrategy<std::remove_cvref_t<IntegrationStrategy>>)
+    constexpr ElementGeometry(ElementType&& element, IntegrationStrategy&& integrator){
+        using ConcreteElement = std::remove_cvref_t<ElementType>;
+        using ConcreteStrategy = std::remove_cvref_t<IntegrationStrategy>;
+        using Model = impl::OwningModel_ElementGeometry<ConcreteElement, ConcreteStrategy>;
         pimpl_ = std::make_unique<Model>(
-            std::move(element),     // forward perhaphs?=
-            std::move(integrator)); //
-                //set_integration_point_coordinates();  //ESTO LO DEBE HACER EL DOMINIO!
+            std::forward<ElementType>(element),
+            std::forward<IntegrationStrategy>(integrator));
     }
 
-    ElementGeometry(ElementGeometry const &other) : pimpl_{other.pimpl_->clone()} {};
+    ElementGeometry(ElementGeometry const &other)
+        : pimpl_{clone_pimpl(other)}, metadata_{other.metadata_} {}
+
     ElementGeometry &operator=(ElementGeometry const &other) {
-        pimpl_ = other.pimpl_->clone();
+        if (this == &other) {
+            return *this;
+        }
+        pimpl_ = clone_pimpl(other);
+        metadata_ = other.metadata_;
         return *this;
     }
     constexpr ~ElementGeometry() = default;
@@ -479,7 +516,6 @@ private:
 
     constexpr inline friend std::size_t        id(ElementGeometry const& element) { return element.pimpl_->id()       ; };
     constexpr inline friend std::size_t num_nodes(ElementGeometry const& element) { return element.pimpl_->num_nodes(); };
-    constexpr inline friend void print_nodes_info(ElementGeometry const& element) { element.pimpl_->print_nodes_info(); };
 
     // -----------------------------------------------------------------------------------------------
 };

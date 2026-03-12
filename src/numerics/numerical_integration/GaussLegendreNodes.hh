@@ -6,6 +6,9 @@
 
 namespace GaussLegendre{
 
+    template <std::size_t>
+    inline constexpr bool unsupported_gauss_legendre_order = false;
+
     //Gauss-Legendre points for 1D
     template<unsigned short n> requires (n>0)
     static consteval std::array<double,n> evaluation_points(){
@@ -50,7 +53,8 @@ namespace GaussLegendre{
         }else if constexpr (n==20){
             return std::array<double,n>{-0.99312859918509492478612,-0.96397192727791379126767,-0.91223442825132590586775,-0.83911697182221882339452,-0.74633190646015079261431,-0.63605368072651502545284,-0.51086700195082709800436,-0.37370608871541956067255,-0.22778585114164507808050,-0.07652652113349733375464,0.07652652113349733375464,0.22778585114164507808050,0.37370608871541956067255,0.51086700195082709800436,0.63605368072651502545284,0.74633190646015079261431,0.83911697182221882339452,0.91223442825132590586775,0.96397192727791379126767,0.99312859918509492478612};
         }else{
-            return std::array<double,n>{};
+            static_assert(unsupported_gauss_legendre_order<n>,
+                          "Gauss-Legendre nodes are implemented only for orders 1 through 20.");
         }   
     };
 

@@ -265,7 +265,7 @@ public:
 
     constexpr auto num_nodes()              const noexcept { return geometry_->num_nodes(); }
     constexpr auto num_integration_points() const noexcept -> std::size_t { return geometry_->num_integration_points(); }
-    constexpr auto sieve_id()               const noexcept { return geometry_->sieve_id.value(); }
+    constexpr auto sieve_id()               const noexcept { return geometry_->sieve_id(); }
 
     constexpr void set_num_dof_in_nodes() noexcept {
         for (std::size_t i = 0; i < num_nodes(); ++i)

@@ -17,8 +17,8 @@ class IntegrationPoint{
 
      using Array = std::array<double, dim>;
 
-     vtkIdType   id_;
-     Array       coord_;
+     vtkIdType   id_{0};
+     Array       coord_{};
      double      weight_{0.0};
 
 public:
@@ -32,6 +32,9 @@ public:
 
      inline constexpr auto coord() const noexcept { return coord_; };
      inline constexpr auto coord(const std::size_t i) const noexcept { return coord_[i]; };
+     inline constexpr auto weight() const noexcept { return weight_; }
+     inline constexpr auto is_weighted() const noexcept { return is_weighted_; }
+     inline constexpr auto is_coordinated() const noexcept { return is_coordinated_; }
 
      inline constexpr void set_coord(std::floating_point auto &...coord) noexcept
           requires(sizeof...(coord) == dim){

@@ -109,6 +109,60 @@ void test_reference_integration_point_span_shape() {
   assert(p0_again.data() == p0.data());
 }
 
+void test_copy_preserves_geometry_metadata() {
+  static constexpr std::size_t dim = 2;
+
+  Node<dim> n1{0, 0.0, 0.0};
+  Node<dim> n2{1, 1.0, 0.0};
+  Node<dim> n3{2, 1.0, 1.0};
+  Node<dim> n4{3, 0.0, 1.0};
+
+  std::optional<std::array<Node<dim> *, 4>> nodes{
+      std::array<Node<dim> *, 4>{&n1, &n2, &n4, &n3}};
+  LagrangeElement2D<2, 2> element(nodes);
+  GaussLegendreCellIntegrator<2, 2> integrator;
+  ElementGeometry<dim> geom(element, integrator);
+
+  geom.set_sieve_id(17);
+  geom.set_physical_group("solid");
+  const auto next_offset = geom.setup_integration_points(5);
+
+  ElementGeometry<dim> copied = geom;
+  ElementGeometry<dim> assigned(element, integrator);
+  assigned = geom;
+
+  bool ok = true;
+  ok = ok && (next_offset == 9);
+  ok = ok && copied.has_sieve_id() && assigned.has_sieve_id();
+  ok = ok && (copied.sieve_id() == 17) && (assigned.sieve_id() == 17);
+  ok = ok && (copied.physical_group() == "solid");
+  ok = ok && (assigned.physical_group() == "solid");
+  ok = ok && (copied.integration_points().size() == geom.integration_points().size());
+  ok = ok && (assigned.integration_points().size() == geom.integration_points().size());
+
+  for (std::size_t i = 0; i < geom.integration_points().size(); ++i) {
+    const auto& original_gp = geom.integration_points()[i];
+    const auto& copied_gp = copied.integration_points()[i];
+    const auto& assigned_gp = assigned.integration_points()[i];
+
+    ok = ok && (copied_gp.id() == original_gp.id());
+    ok = ok && (assigned_gp.id() == original_gp.id());
+    ok = ok && approx(copied_gp.coord(0), original_gp.coord(0), 1e-12);
+    ok = ok && approx(copied_gp.coord(1), original_gp.coord(1), 1e-12);
+    ok = ok && approx(assigned_gp.coord(0), original_gp.coord(0), 1e-12);
+    ok = ok && approx(assigned_gp.coord(1), original_gp.coord(1), 1e-12);
+    ok = ok && copied_gp.is_weighted() && assigned_gp.is_weighted();
+    ok = ok && approx(copied_gp.weight(), geom.weight(i), 1e-12);
+    ok = ok && approx(assigned_gp.weight(), geom.weight(i), 1e-12);
+  }
+
+  copied.integration_points()[0].set_id(99);
+  ok = ok && (geom.integration_points()[0].id() == 5);
+  ok = ok && (copied.integration_points()[0].id() == 99);
+
+  report(__func__, ok);
+}
+
 void test_integrate_embedded_1d_in_3d() {
   // A line element of length 1.0 embedded in 3D.
   // ∫ 1 ds = L = 1.0 (using differential_measure = ‖J‖ = L/2).
@@ -976,6 +1030,7 @@ int main() {
   test_type_erasure_allows_embedded_topological_dim();
   test_integrate_span_full_dim_2d_constant();
   test_reference_integration_point_span_shape();
+  test_copy_preserves_geometry_metadata();
   test_integrate_embedded_1d_in_3d();
 
   // New integration tests

@@ -122,7 +122,7 @@ public:
         vec.emplace_back(
             ElementGeometry<dim>(
                 ElementType(
-                    std::forward<std::size_t>(tag),
+                    tag,
                     std::span<PetscInt>(node_ids, ElementType::num_nodes)),
                 std::forward<IntegrationStrategy>(integrator)));
         return vec.back();
@@ -282,7 +282,7 @@ public:
             for (std::size_t i = 0; i < nn; ++i){
                 cone[i] = e.node_p(i).sieve_id.value();
             }
-            mesh.set_sieve_cone(e.sieve_id.value(), cone);
+            mesh.set_sieve_cone(e.sieve_id(), cone);
         }
         mesh.symmetrize_sieve();
     }
@@ -292,7 +292,7 @@ public:
         elements_.emplace_back(
             ElementGeometry<dim>(
                 ElementType( // Forward this?
-                    std::forward<std::size_t>(tag),
+                    tag,
                     std::span<PetscInt>(node_ids, ElementType::num_nodes)),
                 std::forward<IntegrationStrategy>(integrator)));
 
@@ -304,9 +304,9 @@ public:
         elements_.emplace_back(
             ElementGeometry<dim>(
                 ElementType( // Forward this?
-                    std::forward<std::size_t>(tag),
-                    std::span<PetscInt>(node_ids      , ElementType::num_nodes()),
-                    std::span<PetscInt>(local_ordering, ElementType::num_nodes())),
+                    tag,
+                    std::span<PetscInt>(node_ids      , ElementType::num_nodes),
+                    std::span<PetscInt>(local_ordering, ElementType::num_nodes)),
                 std::forward<IntegrationStrategy>(integrator)));
         return elements_.back();
     }

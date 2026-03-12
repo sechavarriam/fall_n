@@ -1,18 +1,18 @@
 #ifndef FALL_N_LAGRANGIAN_FINITE_ELEMENT
 #define FALL_N_LAGRANGIAN_FINITE_ELEMENT
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <ranges>
 #include <span>
 #include <tuple>
-#include <vector>
 #include <type_traits>
-#include <ranges>
-#include <span>
+#include <vector>
 
 #include "../Node.hh"
 
@@ -21,9 +21,7 @@
 #include "../../geometry/Point.hh"
 
 #include "../../utils/small_math.hh"
-#include "../../numerics/numerical_integration/CellQuadrature.hh"
-
-#include "../../numerics/linear_algebra/LinalgOperations.hh"
+#include "../../numerics/numerical_integration/GaussLegendreCellIntegrator.hh"
 
 template <typename T>
 concept private_Lagrange_check_ = requires(T t) {
@@ -42,7 +40,8 @@ concept is_LagrangeElement = LagrangeConceptTester<T>::_is_in_Lagrange_Family;
 // == LagrangeElement Class Definition ===========================================================
 // ===============================================================================================
 
-template <std::size_t Dim, std::size_t... N> requires(topology::EmbeddableInSpace<sizeof...(N)>)
+template <std::size_t Dim, std::size_t... N>
+    requires (topology::EmbeddableInSpace<Dim> && sizeof...(N) > 0 && sizeof...(N) <= Dim)
 class LagrangeElement
 {
   template <typename T> friend struct LagrangeConceptTester;
@@ -67,10 +66,10 @@ public:
 
   using pNodeArray = std::optional<std::array<Node<dim>*, num_nodes>>;
 
-  std::size_t tag_   ;
-  pNodeArray  nodes_p;
+  std::size_t tag_{0};
+  pNodeArray  nodes_p{};
 
-  std::array<PetscInt , num_nodes> nodes_; // Global node numbers in Plex
+  std::array<PetscInt , num_nodes> nodes_{}; // Global node numbers in Plex
 
 private:
 
@@ -87,8 +86,8 @@ public:
   auto id()             const noexcept { return tag_; };
   void set_id(std::size_t id) noexcept { tag_ = id; };
 
-  PetscInt            node  (std::size_t i) const noexcept { return nodes_[i]; };
-  std::span<PetscInt> nodes ()              const noexcept { return std::span<PetscInt>(nodes_); };
+  PetscInt                  node  (std::size_t i) const noexcept { return nodes_[i]; };
+  std::span<const PetscInt> nodes ()              const noexcept { return std::span<const PetscInt>(nodes_); };
   Node<dim>          &node_p(std::size_t i) const noexcept { return *nodes_p.value()[i]; };
 
   void bind_node(std::size_t i, Node<dim> *node) noexcept{
@@ -157,7 +156,11 @@ public:
 
   //constexpr inline auto evaluate_jacobian(const Point &X) const noexcept { return evaluate_jacobian(X.coord()); };
 
-  constexpr inline auto detJ(const NaturalArray &X) const noexcept{return evaluate_jacobian(X).determinant();};
+  constexpr inline auto detJ(const NaturalArray &X) const noexcept
+    requires (topological_dim == dim)
+  {
+    return evaluate_jacobian(X).determinant();
+  };
 
   // Constructor
   constexpr LagrangeElement() = default;
@@ -165,24 +168,17 @@ public:
   constexpr LagrangeElement(pNodeArray nodes) : nodes_p{std::forward<pNodeArray>(nodes)}{
   };
 
-  constexpr LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)
-    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} 
+  constexpr LagrangeElement(std::size_t tag, std::ranges::input_range auto&& node_ids)
+    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag}
   {
-    //std::cout << "LagrangeElement(std::size_t &tag, const std::ranges::range auto &node_ids)" << std::endl;
-    std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
+    std::ranges::copy(node_ids, nodes_.begin());
   };
 
-  constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)
+  constexpr LagrangeElement(std::size_t tag, std::ranges::input_range auto&& node_ids,
+                            std::ranges::input_range auto&& local_ordering)
     requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
-    //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids)" << std::endl;
-    std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-  };
-
-  constexpr LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)
-    requires(std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>) : tag_{tag} {
-    //std::cout << "LagrangeElement(std::size_t &&tag, std::ranges::range auto &&node_ids, std::ranges::range auto &&local_ordering)" << std::endl;
-    std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-    set_local_index(local_ordering.data());
+    std::ranges::copy(node_ids, nodes_.begin());
+    std::ranges::copy(local_ordering, local_index_.begin());
   };
 
 
@@ -234,56 +230,6 @@ public:
 template <std::size_t... N> using LagrangeElement1D = LagrangeElement<1, N...>;
 template <std::size_t... N> using LagrangeElement2D = LagrangeElement<2, N...>;
 template <std::size_t... N> using LagrangeElement3D = LagrangeElement<3, N...>;
-
-// =================================================================================================
-// =================================================================================================
-// =================================================================================================
-
-template <std::size_t... N>
-class GaussLegendreCellIntegrator
-{
-  using CellQuadrature = GaussLegendre::CellQuadrature<N...>;
-  
-  using NaturalArray = std::array<double, sizeof...(N)>; // This is the type of the reference nodes, and the type of the local (natural) coordinates.
-  using LocalCoordView = std::span<const double>;
-  
-  static constexpr CellQuadrature integrator_{};
-
-public:
-  static constexpr std::size_t num_integration_points = CellQuadrature::num_points;
-
-  static constexpr auto reference_integration_point(std::size_t i) noexcept{
-    const auto &p = integrator_.get_point_coords(i);
-    return LocalCoordView{p.data(), p.size()};
-  };
-
-  static constexpr auto weight(std::size_t i) noexcept {
-    return integrator_.get_point_weight(i);
-  };
-
-  // Pure quadrature: \sum w_i * f(xi_i).
-  // Does NOT multiply by detJ — each element type applies its own
-  // differential measure (detJ, L/2, surface metric, etc.) inside f.
-  constexpr decltype(auto) operator()(std::invocable<LocalCoordView> auto &&f) const noexcept{
-    using ReturnType = std::invoke_result_t<decltype(f), LocalCoordView>;
-    
-    if constexpr (std::is_base_of_v<Eigen::MatrixBase<ReturnType>, ReturnType>){
-      return integrator_([&](const NaturalArray &x) -> ReturnType{
-        const LocalCoordView xv{x.data(), x.size()};
-        return f(xv).eval();
-      });
-    } 
-    else {
-      return integrator_([&](const NaturalArray &x){  
-          const LocalCoordView xv{x.data(), x.size()}; 
-          return f(xv);
-        });
-    }
-  };
-
-  constexpr GaussLegendreCellIntegrator() noexcept = default;
-  constexpr ~GaussLegendreCellIntegrator() noexcept = default;
-};
 
 // =================================================================================================
 // =================================================================================================

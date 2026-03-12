@@ -20,7 +20,7 @@
 \usepackage{array}
 \usepackage{graphicx}
 \usepackage{xcolor}
-\usepackage{listings}
+\usepackage{listings} 
 \usepackage{hyperref}
 \usepackage{cleveref}
 \usepackage{algorithm2e}
@@ -112,6 +112,9 @@ Key topics include:
         projections on quadratic tetrahedra;
   \item Volume-weighted (SPR-type) nodal averaging as a robust projection
         method;
+  \item The refactor of \texttt{ElementGeometry}: corrected value semantics,
+        explicit quadrature strategy contracts, compile-time invariant
+        enforcement, and preservation of runtime performance in the hot path;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -135,6 +138,7 @@ discussion of the design rationale.
 \input{ch06_implementation}
 \input{ch07_architecture}
 \input{ch08_boundary_conditions}
+\input{ch09_element_geometry_refactor}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}
