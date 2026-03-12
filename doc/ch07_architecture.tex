@@ -1,0 +1,868 @@
+% =============================================================================
+%  Chapter 7 — Element Architecture: Design Patterns and Extensibility
+% =============================================================================
+
+\chapter{Element Architecture: Design Patterns and Extensibility}
+\label{ch:architecture}
+
+This chapter documents the layered element architecture of \texttt{fall\_n},
+focusing on two central abstractions --- \texttt{ElementGeometry} and
+\texttt{FEM\_Element} --- their interaction with policy-based design, and the
+resulting customisation points.  We compare the approach against the
+architectures of OpenSees~\cite{OpenSees} and Kratos
+Multiphysics~\cite{Kratos}, highlighting trade-offs in extensibility, compile
+time, and runtime efficiency.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Guiding Principles}
+\label{sec:principles}
+
+\texttt{fall\_n} is designed around three principles that permeate the element
+subsystem:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Zero-cost abstractions.}  Template instantiation resolves
+        element type, quadrature rule, kinematic formulation, and constitutive
+        model at compile time.  No virtual dispatch in the inner quadrature
+        loop.  The compiler sees the full call chain from Gauss-point
+        integration down to the shape function evaluation, enabling inlining
+        and SIMD vectorisation.
+
+  \item \textbf{Separation of geometry from physics.}  The geometric
+        interpolation (shape functions, Jacobian, quadrature) is decoupled
+        from the physical element (strain--displacement operator, constitutive
+        law, DOF assembly).  The same \texttt{ElementGeometry<3>} serves both
+        a \texttt{ContinuumElement} (3D solid) and a \texttt{SurfaceLoad}
+        (boundary traction).
+
+  \item \textbf{Type erasure at system boundaries only.}  Within a single
+        element type, everything is monomorphic and stack-allocated.  Virtual
+        dispatch is introduced only where heterogeneity is required: storing
+        mixed element types in a single container (\texttt{FEM\_Element}) or
+        interfacing geometry with the mesh manager
+        (\texttt{ElementGeometry::pimpl\_}).
+\end{enumerate}
+
+These principles are realised through two complementary patterns:
+\emph{policy-based design} (compile-time customisation) and
+\emph{external polymorphism} (runtime type erasure).
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Layer Decomposition}
+\label{sec:layers}
+
+The element subsystem is organised in four layers, each with a clear
+responsibility boundary:
+
+\begin{center}
+\begin{tikzpicture}[
+    layer/.style={draw, rounded corners=3pt, minimum width=13cm,
+                  minimum height=1.1cm, font=\small},
+    arr/.style={-{Stealth[length=5pt]}, thick}
+  ]
+  \node[layer, fill=blue!8]   (L4) at (0, 4.5)
+    {\textbf{Layer 4 — Analysis} : \texttt{Model}, \texttt{LinearAnalysis},
+     \texttt{NLAnalysis}, \texttt{DynamicAnalysis}};
+  \node[layer, fill=green!8]  (L3) at (0, 3.0)
+    {\textbf{Layer 3 — Physical Element} : \texttt{ContinuumElement},
+     \texttt{BeamElement}, \texttt{SurfaceLoad}};
+  \node[layer, fill=orange!8] (L2) at (0, 1.5)
+    {\textbf{Layer 2 — Element Geometry} : \texttt{ElementGeometry<dim>}
+     (type-erased handle)};
+  \node[layer, fill=red!8]    (L1) at (0, 0.0)
+    {\textbf{Layer 1 — Concrete Geometry} : \texttt{LagrangeElement<Dim,N...>},
+     \texttt{SimplexElement<Dim,Top,Ord>}};
+
+  \draw[arr] (L1) -- (L2);
+  \draw[arr] (L2) -- (L3);
+  \draw[arr] (L3) -- (L4);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Layer~1: Concrete Geometry Types}
+
+These are pure value types with \emph{no virtual functions}.  They encode
+the reference element, shape functions, and Jacobian evaluation as
+compile-time-resolved operations.
+
+\paragraph{LagrangeElement\texttt{<Dim, N...>}.}
+A tensor-product Lagrange element parameterised by the embedding dimension
+\texttt{Dim} and per-axis node counts \texttt{N...} (variadic).
+
+\begin{center}
+\small
+\begin{tabular}{lcl}
+  \toprule
+  Instantiation & Topology & Gmsh type \\
+  \midrule
+  \texttt{LagrangeElement<3, 2, 2, 2>} & HEX8  & 5 \\
+  \texttt{LagrangeElement<3, 3, 3, 3>} & HEX27 & 12 \\
+  \texttt{LagrangeElement<3, 2, 2>}    & QUAD4 (surface) & 3 \\
+  \texttt{LagrangeElement<3, 3, 3>}    & QUAD9 (surface) & 10 \\
+  \texttt{LagrangeElement<3, 2>}       & LINE2 (edge)    & 1 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Key design features:
+\begin{itemize}[nosep]
+  \item The reference cell (\texttt{geometry::cell::LagrangianCell<N...>}) is a
+        \texttt{constexpr} object holding the nodal coordinates, the
+        tensor-product basis, and the subentity topology --- all computed at
+        compile time.
+  \item The topological dimension is deduced from the parameter pack:
+        $\texttt{sizeof...(N)}$.  Thus a surface element is simply a
+        \texttt{LagrangeElement<3, 3, 3>} --- same code path, fewer
+        template parameters.
+  \item Shape functions are products of 1D Lagrange polynomials, evaluated by
+        index decomposition.  No lookup table; the compiler folds constant
+        expressions.
+  \item The \texttt{local\_index\_[]} array enables node reordering (e.g., Gmsh
+        to internal convention) without modifying the connectivity array.
+\end{itemize}
+
+\paragraph{SimplexElement\texttt{<Dim, TopDim, Order>}.}
+A simplex element parameterised by embedding dimension, topological dimension,
+and polynomial order.  It mirrors the \texttt{LagrangeElement} public
+interface but derives its reference cell from
+\texttt{geometry::simplex::SimplexCell<TopDim, Order>}, which stores the
+barycentric-based Lagrange shape functions for simplicial geometry.
+
+Both families share a structurally identical interface (node access,
+\texttt{H()}, \texttt{dH\_dx()}, \texttt{evaluate\_jacobian()},
+\texttt{map\_local\_point()}) but they are \emph{unrelated types} ---
+there is no inheritance hierarchy linking them.  Uniformity is achieved
+through duck-typing in the next layer.
+
+
+\subsection{Layer~2: ElementGeometry (Type-Erased Handle)}
+\label{sec:elem_geom}
+
+\texttt{ElementGeometry<dim>} is a type-erased value-semantic wrapper that
+stores \emph{any} concrete geometry type together with its quadrature rule
+behind a single, uniform interface.  It is the pivot of the entire element
+subsystem.
+
+\paragraph{Pattern: External Polymorphism.}
+The design follows the \emph{External Polymorphism} pattern
+(Cleary et al.\ 1997, popularised by Sean Parent's ``Inheritance Is the Base
+Class of Evil'' talk):
+
+\begin{enumerate}[nosep]
+  \item \textbf{Concept} (\texttt{impl::ElementGeometryConcept<dim>}) ---
+        abstract base with pure virtual methods: \texttt{H()},
+        \texttt{dH\_dx()}, \texttt{evaluate\_jacobian()},
+        \texttt{differential\_measure()}, \texttt{num\_integration\_points()},
+        quadrature accessors, and subentity topology.
+
+  \item \textbf{Model} (\texttt{impl::OwningModel\_ElementGeometry%
+        <ElementType, IntegrationStrategy>}) ---
+        template class deriving from the concept, \emph{owning} a concrete
+        \texttt{ElementType} and \texttt{IntegrationStrategy} by value.
+        Each virtual override delegates to the stored objects.
+
+  \item \textbf{Handle} (\texttt{ElementGeometry<dim>}) ---
+        holds a \texttt{std::unique\_ptr<ElementGeometryConcept<dim>>}
+        (\texttt{pimpl\_}).  Provides value semantics via \texttt{clone()},
+        move defaulted.
+\end{enumerate}
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=2pt, minimum width=4cm,
+                minimum height=0.9cm, font=\small\ttfamily},
+    arr/.style={-{Stealth[length=4pt]}, thick},
+    impl/.style={-{Stealth[length=4pt]}, thick, dashed}
+  ]
+  \node[box, fill=orange!10] (handle) at (0, 3)
+    {ElementGeometry<dim>};
+  \node[box, fill=gray!10]   (concept) at (0, 1.5)
+    {ElementGeometryConcept<dim>};
+  \node[box, fill=green!10]  (model1) at (-3.5, 0)
+    {OwningModel<Lag,GL>};
+  \node[box, fill=green!10]  (model2) at (3.5, 0)
+    {OwningModel<Simp,CP>};
+
+  \draw[impl] (handle) -- node[right, font=\scriptsize]
+    {unique\_ptr} (concept);
+  \draw[arr]  (model1) -- (concept);
+  \draw[arr]  (model2) -- (concept);
+
+  \node[font=\scriptsize, below=2pt of model1]
+    {LagrangeElement + GaussLegendre};
+  \node[font=\scriptsize, below=2pt of model2]
+    {SimplexElement + ConicalProduct};
+\end{tikzpicture}
+\end{center}
+
+\paragraph{Why External Polymorphism and not classical inheritance?}
+
+\begin{itemize}[nosep]
+  \item \texttt{LagrangeElement} and \texttt{SimplexElement} remain pure value
+        types --- no vtable pointer, no heap allocation, fully
+        \texttt{constexpr}-eligible.  They can be used independently of the
+        type-erasure layer (e.g., in constexpr unit tests).
+  \item The virtual dispatch lives in the \emph{wrapper}, not in the element
+        itself.  Concrete element code retains full optimisation potential.
+  \item New element families (e.g., NURBS, serendipity, spectral) are added by
+        writing a new value type with the required interface --- no base class
+        to inherit from, no code changes in existing elements.
+\end{itemize}
+
+\paragraph{Differential measure dispatch.}
+The \texttt{differential\_measure()} method in \texttt{OwningModel} uses
+\texttt{if constexpr} on the compile-time-known topological dimension:
+\begin{lstlisting}[language=C++]
+if constexpr (topological_dim == dim)
+    return std::abs(J.determinant());        // volume
+else if constexpr (topological_dim == 1)
+    return J.col(0).norm();                  // arc length
+else if constexpr (topological_dim == 2 && dim == 3)
+    return J.col(0).cross(J.col(1)).norm();  // surface area
+\end{lstlisting}
+Despite crossing the virtual boundary, the Jacobian matrix itself is
+stack-allocated (Eigen fixed-size \texttt{Matrix<double, dim, Dynamic, \ldots,
+dim, dim>}), so no heap allocation occurs inside the hot loop.
+
+\paragraph{Integration via template callback.}
+\texttt{ElementGeometry} exposes a non-virtual template method
+\texttt{integrate(f)} that accepts any callable \texttt{f(LocalCoordView)}
+and loops over quadrature points:
+\begin{lstlisting}[language=C++]
+template<std::invocable<LocalCoordView> F>
+auto integrate(F&& f) const {
+    // ... sum w_i * |J(xi_i)| * f(xi_i) ...
+}
+\end{lstlisting}
+Because \texttt{f} is a template parameter (not \texttt{std::function}), the
+compiler inlines the integrand.  Only the quadrature point data (coordinates,
+weights) and the Jacobian evaluation pass through the virtual boundary; the
+user's element-level computation stays in the monomorphic world.
+
+
+\subsection{Layer~3: Physical Elements}
+\label{sec:physical_elements}
+
+Physical elements combine an \texttt{ElementGeometry} with material data and
+DOF assembly logic.  Each physical element type is a class template
+parameterised by a \emph{MaterialPolicy} and a \emph{KinematicPolicy}.
+
+\paragraph{ContinuumElement\texttt{<MaterialPolicy, ndof, KinematicPolicy>}.}
+The workhorse for 1D/2D/3D solid mechanics:
+\begin{itemize}[nosep]
+  \item Holds a non-owning pointer to an \texttt{ElementGeometry<dim>} (owned
+        by the \texttt{Domain}).
+  \item Owns the \texttt{MaterialPoint} array (one per Gauss point), each
+        holding a \texttt{Material<MaterialPolicy>} with its constitutive
+        strategy.
+  \item Provides \texttt{inject\_K()}, \texttt{compute\_internal\_forces()},
+        \texttt{inject\_tangent\_stiffness()}, \texttt{commit\_material\_state()}
+        --- the full \texttt{FiniteElement} concept interface.
+  \item The strain--displacement operator $\mathbf{B}$ is delegated to the
+        \texttt{KinematicPolicy} (e.g., \texttt{SmallStrain} or
+        \texttt{TotalLagrangian}), resolved at compile time.
+\end{itemize}
+
+\paragraph{BeamElement\texttt{<BeamPolicy, Dim, AsmPolicy>}.}
+Timoshenko beam with section integration:
+\begin{itemize}[nosep]
+  \item Two-node, local-frame kinematics with a rotation matrix $\mathbf{R}$.
+  \item Integration along the beam axis uses
+        \texttt{MaterialSection<BeamPolicy>} objects instead of
+        \texttt{MaterialPoint}.
+  \item The \texttt{AsmPolicy} template parameter selects between direct
+        assembly (\texttt{DirectAssembly}) and static condensation
+        (\texttt{CondensedAssembly}) --- a compile-time strategy switch.
+\end{itemize}
+
+\paragraph{SurfaceLoad.}
+Not a ``physical element'' in the structural sense, but uses the
+\texttt{ElementGeometry} quadrature machinery to compute consistent nodal
+forces from a distributed traction on a boundary face.
+
+
+\subsection{Layer~4: Analysis Level}
+\label{sec:analysis_layer}
+
+\texttt{Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>} owns the
+element container, the \texttt{Domain}, and the PETSc objects
+(\texttt{PetscSection}, matrices, vectors).
+
+The \texttt{ElemPolicy} template parameter controls element storage
+(\cref{sec:elem_policy}).  For homogeneous meshes, the container is a raw
+\texttt{std::vector<ContinuumElement<\ldots>>} with zero overhead.  For
+mixed meshes, it is \texttt{std::vector<FEM\_Element>} with one virtual
+dispatch per element call.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{FEM\_Element: Top-Level Type Erasure}
+\label{sec:fem_element}
+
+\texttt{FEM\_Element} applies the same External Polymorphism pattern as
+\texttt{ElementGeometry}, but at the assembly level:
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=2pt, minimum width=4.2cm,
+                minimum height=0.9cm, font=\small\ttfamily},
+    arr/.style={-{Stealth[length=4pt]}, thick},
+    impl/.style={-{Stealth[length=4pt]}, thick, dashed}
+  ]
+  \node[box, fill=orange!10] (handle) at (0, 3)
+    {FEM\_Element};
+  \node[box, fill=gray!10]   (concept) at (0, 1.5)
+    {Concept (inner struct)};
+  \node[box, fill=green!10]  (model1) at (-3.5, 0)
+    {Model<ContinuumElem>};
+  \node[box, fill=green!10]  (model2) at (3.5, 0)
+    {Model<BeamElement>};
+
+  \draw[impl] (handle) -- node[right, font=\scriptsize]
+    {unique\_ptr} (concept);
+  \draw[arr]  (model1) -- (concept);
+  \draw[arr]  (model2) -- (concept);
+\end{tikzpicture}
+\end{center}
+
+Key design decisions:
+
+\begin{itemize}[nosep]
+  \item \textbf{Value semantics.} Copy via \texttt{clone()}, move defaulted.
+        No shared ownership, no reference counting.
+  \item \textbf{Self-wrap guard.} A \texttt{requires} clause prevents wrapping
+        a \texttt{FEM\_Element} inside another \texttt{FEM\_Element} (double
+        indirection).
+  \item \textbf{Recursive concept satisfaction.} \texttt{FEM\_Element} itself
+        satisfies the \texttt{FiniteElement} concept, verified by a
+        \texttt{static\_assert} at the bottom of the header.  This means it
+        can be nested inside other type-erased wrappers without losing the
+        concept constraint.
+  \item \textbf{Optional interface methods.} Mass matrix operations
+        (\texttt{density()}, \texttt{inject\_mass()}) use \texttt{if constexpr}
+        inside \texttt{Model<T>} to detect whether the concrete element
+        supports them, defaulting to a no-op otherwise.  This avoids bloating
+        the concept with operations not all elements provide.
+\end{itemize}
+
+There is also a \texttt{StructuralElement} wrapper, identical in pattern,
+that provides type safety for structural-only models (beams, shells).  Both
+derive from \emph{no common base class} --- they are independent type-erasure
+handles, unified only by the \texttt{FiniteElement} concept.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Policy-Based Design: Customisation Points}
+\label{sec:policies}
+
+\texttt{fall\_n} uses policies --- template parameters that select
+compile-time strategies --- at multiple levels.  Each policy is a
+\emph{customisation point}: a seam where the user can inject different
+behaviour without modifying existing code.
+
+\subsection{MaterialPolicy}
+\label{sec:mat_policy}
+
+A \emph{trait bag} that binds kinematic and conjugate types:
+
+\begin{center}
+\small
+\begin{tabular}{lllc}
+  \toprule
+  Policy & \texttt{StrainT} & \texttt{StressT} & \texttt{dim} \\
+  \midrule
+  \texttt{ThreeDimensionalMaterial} & \texttt{Strain<6>} & \texttt{Stress<6>} & 3 \\
+  \texttt{PlaneMaterial}            & \texttt{Strain<3>} & \texttt{Stress<3>} & 2 \\
+  \texttt{UniaxialMaterial}         & \texttt{Strain<1>} & \texttt{Stress<1>} & 1 \\
+  \texttt{TimoshenkoBeam3D}         & \texttt{BeamStrain<6,3>} & \texttt{BeamForces<6>} & 3 \\
+  \texttt{TimoshenkoBeam2D}         & \texttt{BeamStrain<3,2>} & \texttt{BeamForces<3>} & 2 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+All generic code (\texttt{Material<P>}, \texttt{MaterialPoint<P>},
+\texttt{MaterialState<P>}, \texttt{ElasticRelation<P>}) is parameterised
+on a single \texttt{MaterialPolicy} and extracts its types via
+\texttt{P::StrainT}, \texttt{P::StressT}, etc.
+
+\paragraph{Extensibility.}
+Adding a shell element requires only:
+\begin{enumerate}[nosep]
+  \item Define \texttt{ShellMaterial<N, 3>} with appropriate
+        \texttt{ShellGeneralizedStrain<N,3>} and
+        \texttt{ShellResultants<N>}.
+  \item Write a constitutive model conforming to
+        \texttt{ConstitutiveRelation<ShellMaterial<N,3>>}.
+  \item Write the element class (\texttt{ShellElement}) satisfying
+        \texttt{FiniteElement}.
+\end{enumerate}
+No existing code changes; the policy mechanism propagates types automatically.
+
+
+\subsection{KinematicPolicy}
+\label{sec:kin_policy}
+
+Selects the strain--displacement relationship at compile time:
+
+\begin{center}
+\small
+\begin{tabular}{lp{5cm}cc}
+  \toprule
+  Policy & Description & Linear? & $K_\sigma$? \\
+  \midrule
+  \texttt{SmallStrain}       & $\bvarepsilon = \nabla^s \mathbf{u}$ & yes & no \\
+  \texttt{TotalLagrangian}   & $\mathbf{E} = \frac{1}{2}(\bF^T\bF - \bI)$ & no & yes \\
+  \texttt{UpdatedLagrangian} & Cauchy strain in current config. & no & yes \\
+  \texttt{Corotational}      & Large rotation, small strain & no & yes \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Each policy is a struct with static methods:
+\begin{lstlisting}[language=C++]
+struct SmallStrain {
+    static constexpr bool is_geometrically_linear    = true;
+    static constexpr bool needs_geometric_stiffness  = false;
+    
+    template <std::size_t dim>
+    static GPKinematics<dim> evaluate(
+        ElementGeometry<dim>* geo, std::size_t num_nodes,
+        std::size_t ndof, const Array& Xi,
+        const Eigen::VectorXd& u_e);
+
+    template <std::size_t dim>
+    static auto compute_B(ElementGeometry<dim>* geo, ...);
+};
+\end{lstlisting}
+
+\texttt{ContinuumElement} calls \texttt{KinematicPolicy::evaluate<dim>()} at
+each quadrature point.  The boolean traits steer \texttt{if constexpr}
+branches inside the element (e.g., add $K_\sigma$ only when
+\texttt{needs\_geometric\_stiffness == true}).
+
+\paragraph{Extensibility.}
+A new formulation (e.g., logarithmic strain) is added by defining a new
+struct satisfying \texttt{KinematicPolicyConcept} with the required static
+methods and boolean traits.  No changes to \texttt{ContinuumElement} or any
+analysis class.
+
+
+\subsection{ElementPolicy (Storage Strategy)}
+\label{sec:elem_policy}
+
+Controls how \texttt{Model} stores its element collection:
+
+\begin{center}
+\small
+\begin{tabular}{lp{4.5cm}cc}
+  \toprule
+  Policy & Container & Homogeneous & Overhead \\
+  \midrule
+  \texttt{SingleElementPolicy<E>} & \texttt{std::vector<E>}
+    & yes & none \\
+  \texttt{MultiElementPolicy}     & \texttt{std::vector<FEM\_Element>}
+    & no  & 1 vtable + 1 ptr chase \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The concept \texttt{ElementPolicyLike} enforces the policy interface:
+\begin{lstlisting}[language=C++]
+template <typename P>
+concept ElementPolicyLike = requires {
+    typename P::element_type;
+    typename P::container_type;
+    { P::is_homogeneous } -> std::convertible_to<bool>;
+} && FiniteElement<typename P::element_type>;
+\end{lstlisting}
+
+\paragraph{Default path.}
+$\texttt{Model<ThreeDimensionalMaterial>}$ defaults to:\\
+$\texttt{SingleElementPolicy<ContinuumElement<ThreeDimensionalMaterial, 3,}$
+$\texttt{SmallStrain>>}$,\\
+yielding a contiguous \texttt{std::vector} of monomorphic elements --- optimal
+for cache locality and auto-vectorisation.
+
+
+\subsection{AssemblyPolicy (Beams)}
+
+Beam elements accept an \texttt{AsmPolicy} parameter:
+\begin{itemize}[nosep]
+  \item \texttt{DirectAssembly} --- full stiffness matrix, no condensation.
+  \item \texttt{CondensedAssembly} --- static condensation of internal DOFs
+        before injection into PETSc.
+\end{itemize}
+Both are stateless tag types; the choice is resolved at compile time via
+\texttt{if constexpr} inside \texttt{BeamElement::inject\_K()}.
+
+\subsection{ConstitutiveStrategy (Material Update)}
+
+The material update mechanism (\texttt{Material<P>}) delegates to a
+type-erased strategy object (\texttt{IntegrationStrategy<P>}), enabling
+runtime polymorphism over the constitutive response:
+\begin{itemize}[nosep]
+  \item \texttt{ElasticRelation<P>} --- linear elastic.
+  \item \texttt{HyperelasticRelation<P>} --- Neo-Hookean, SVK, etc.
+  \item \texttt{J2Plasticity<P>} --- return mapping with isotropic hardening.
+\end{itemize}
+This is the \emph{only} place in the element quadrature loop where runtime
+polymorphism is used, because the constitutive model is genuinely a runtime
+choice (same mesh, different materials per physical group).
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Compile-Time Cost Analysis}
+\label{sec:compile_time}
+
+Policy-based design with heavy template usage has a well-known compile-time
+cost.  \texttt{fall\_n} mitigates this through several strategies:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Header-only by necessity, not by choice.}  The library is
+        header-only because C++ templates must be visible at the point of
+        instantiation.  However, explicit template instantiation could be
+        added in \texttt{.cpp} files for the most common configurations to
+        reduce redundant codegen across translation units.
+
+  \item \textbf{Type erasure as a firewall.}  \texttt{ElementGeometry<dim>}
+        and \texttt{FEM\_Element} act as \emph{template firewalls}: code that
+        consumes an \texttt{ElementGeometry<3>} does not need to see the
+        headers of \texttt{LagrangeElement} or \texttt{SimplexElement}.
+        This significantly reduces transitive include graphs.
+
+  \item \textbf{Consteval reference cells.}  The \texttt{LagrangianCell<N...>}
+        and \texttt{SimplexCell<TopDim, Order>} objects with their basis
+        functions and topological tables are \texttt{constexpr}/\texttt{consteval},
+        evaluated by the compiler once.  They produce no runtime code unless
+        actually called; the compiler may fold constant subexpressions entirely.
+
+  \item \textbf{Concept constraints as documentation.}  The
+        \texttt{FiniteElement}, \texttt{KinematicPolicyConcept},
+        \texttt{ElementPolicyLike} concepts serve as lightweight checks that
+        produce clear error messages at instantiation time, avoiding the
+        traditional deep-template-error-message problem.
+\end{enumerate}
+
+\paragraph{Measured impact.}
+A full rebuild of \texttt{fall\_n} (main + 12 test targets) takes approximately
+105~seconds on a single core with GCC~11 and debug optimisation (\texttt{-g}).
+The dominant cost is Eigen's template instantiation inside
+\texttt{ContinuumElement} and \texttt{BeamElement}; the element geometry layer
+adds minimal overhead because the type-erasure boundary limits template
+propagation.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Comparison with OpenSees and Kratos}
+\label{sec:comparison}
+
+\subsection{Overview}
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{3.8cm}p{3.8cm}p{3.8cm}p{3.8cm}}
+  \toprule
+  Aspect & \textbf{OpenSees} & \textbf{Kratos} & \textbf{fall\_n} \\
+  \midrule
+  Language &
+    C++ (C++11/14) &
+    C++ (C++17) + Python &
+    C++ (C++20/23) \\
+  Polymorphism model &
+    Classical inheritance &
+    Classical inheritance + Python bridge &
+    Policies + External Polymorphism \\
+  Element base &
+    \texttt{Element} (virtual) &
+    \texttt{Element} (virtual) &
+    \texttt{FiniteElement} (concept) \\
+  Geometry base &
+    \texttt{CrdTransf} (virtual) &
+    \texttt{Geometry<TPoint>} (virtual) &
+    \texttt{ElementGeometry<dim>} (type-erased) \\
+  Material base &
+    \texttt{UniaxialMaterial} / \texttt{NDMaterial} (virtual) &
+    \texttt{ConstitutiveLaw} (virtual) &
+    \texttt{Material<Policy>} (policy + type-erased strategy) \\
+  Dispatch cost &
+    1--3 vtable calls per GP &
+    1--2 vtable calls per GP &
+    0 (homogeneous) or 1 (heterogeneous) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{OpenSees}
+
+OpenSees~\cite{OpenSees} uses a deep inheritance hierarchy:
+$\texttt{DomainComponent} \to \texttt{Element} \to$ concrete types.
+Materials form an even deeper tree:
+$\texttt{Material} \to \texttt{UniaxialMaterial} \to$ specific laws.
+
+\paragraph{Strengths.}
+\begin{itemize}[nosep]
+  \item Extremely mature (20+ years), battle-tested in earthquake engineering.
+  \item Simple runtime scripting via Tcl (later Python) --- users define
+        models without recompiling.
+  \item Large element library (200+ elements).
+\end{itemize}
+
+\paragraph{Weaknesses (from an architecture perspective).}
+\begin{itemize}[nosep]
+  \item \textbf{Monolithic virtual hierarchy.}  All elements inherit from
+        \texttt{Element}, which carries 30+ virtual methods including
+        \texttt{getResistingForce()}, \texttt{getTangentStiff()}, etc.
+        Adding a new element requires implementing all of them (or relying
+        on default no-ops that may silently produce incorrect results).
+  \item \textbf{No separation of geometry and physics.}  A \texttt{Brick20N}
+        element hard-codes its shape functions, Jacobian, AND constitutive
+        integration in a single class.  Changing the quadrature rule requires
+        modifying the element source.
+  \item \textbf{Dynamic dispatch in the inner loop.}  Every call to
+        \texttt{material->getStress()} and \texttt{material->getTangent()}
+        at each Gauss point goes through virtual dispatch.  While the cost
+        is small relative to the linear algebra, it inhibits inlining and
+        auto-vectorisation across the material boundary.
+  \item \textbf{No concept or constraint checking.}  Adding a new element
+        with a typo in a virtual override signature compiles silently and
+        produces incorrect results at runtime.
+\end{itemize}
+
+\paragraph{Contrast with fall\_n.}
+\texttt{fall\_n} eliminates the monolithic base class by defining
+\texttt{FiniteElement} as a C++20 concept that enforces the interface at
+compile time.  The element is free to organise its internals however it
+pleases; the concept checks only what the assembler needs.  Geometry is
+factored out into \texttt{ElementGeometry}, so the same mesh can serve
+continuum, surface-load, and post-processing operations.
+
+
+\subsection{Kratos Multiphysics}
+
+Kratos~\cite{Kratos} uses a more modular architecture than OpenSees, with
+explicit separation of geometry (\texttt{Geometry<TPoint>}), element
+(\texttt{Element}), condition (\texttt{Condition}), constitutive law
+(\texttt{ConstitutiveLaw}), and process (\texttt{Process}).
+
+\paragraph{Strengths.}
+\begin{itemize}[nosep]
+  \item \textbf{Multi-physics by design.}  The \texttt{ModelPart} /
+        \texttt{ProcessInfo} / \texttt{Variable} registry enables coupling of
+        disparate physics (structural, fluid, thermal) sharing the same mesh.
+  \item \textbf{Python-driven workflow.}  Element selection, boundary
+        conditions, solver parameters, and post-processing are all scriptable
+        in Python without recompilation.
+  \item \textbf{Geometry separated from element.}  \texttt{Geometry<TPoint>}
+        handles shape functions and Jacobian; \texttt{Element} handles physics.
+        This is conceptually analogous to \texttt{fall\_n}'s two-layer split.
+\end{itemize}
+
+\paragraph{Weaknesses (from an architecture perspective).}
+\begin{itemize}[nosep]
+  \item \textbf{Runtime overhead of the variable system.}
+        Each nodal value is stored in a hash-map-like container
+        (\texttt{Variable<T>} keys), requiring a lookup per node per variable
+        access.  This sacrifices cache locality and prevents compile-time
+        resolution of DOF layouts.
+  \item \textbf{Virtual geometry hierarchy.}  \texttt{Geometry<TPoint>} is an
+        inheritance tree: $\texttt{Geometry} \to \texttt{Triangle2D3}$, etc.
+        Shape functions are declared \texttt{virtual}, adding dispatch cost at
+        each Gauss point.  There is no mechanism to ``inline'' the geometry into
+        the element at compile time.
+  \item \textbf{Heavyweight element interface.}  \texttt{Element} carries
+        methods for \texttt{CalculateLocalSystem},
+        \texttt{CalculateMassMatrix}, \texttt{CalculateDampingMatrix},
+        \texttt{GetDofList}, etc.  Many elements implement subsets, leaving
+        the rest as no-ops or throwing exceptions --- a code-smell of
+        interface bloat.
+  \item \textbf{No compile-time guarantees.}  Registering a new element
+        involves adding entries to a factory map at runtime.  Errors in the
+        element's interface (wrong return type, missing method) are caught
+        only at link time or, worse, at runtime.
+\end{itemize}
+
+\paragraph{Contrast with fall\_n.}
+\texttt{fall\_n}'s policy-based design replaces the Kratos variable registry
+with compile-time type parameters: the \texttt{MaterialPolicy} selects the
+strain/stress types, the \texttt{KinematicPolicy} selects the B-operator, and
+the \texttt{ElementPolicy} selects the storage strategy --- all resolved by
+the compiler.  The trade-off is that \texttt{fall\_n} requires recompilation
+to change element types, whereas Kratos allows runtime scripting.
+
+
+\subsection{Summary: Architectural Trade-offs}
+\label{sec:tradeoffs}
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{4cm}ccc}
+  \toprule
+  Trade-off & OpenSees & Kratos & fall\_n \\
+  \midrule
+  Runtime scripting         & \checkmark\checkmark & \checkmark\checkmark\checkmark & --- \\
+  Compile-time safety       & ---  & ---  & \checkmark\checkmark\checkmark \\
+  Zero-cost inner loop      & ---  & ---  & \checkmark\checkmark \\
+  Geometry--physics split   & ---  & \checkmark\checkmark & \checkmark\checkmark\checkmark \\
+  Heterogeneous elements    & \checkmark\checkmark\checkmark & \checkmark\checkmark\checkmark & \checkmark\checkmark \\
+  Multi-physics coupling    & \checkmark & \checkmark\checkmark\checkmark & --- \\
+  Maturity / element count  & \checkmark\checkmark\checkmark & \checkmark\checkmark\checkmark & \checkmark \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{fall\_n} occupies a different niche: it is \emph{not} a general-purpose
+production FE framework, but a research library where the primary concern is
+\textbf{architectural clarity and compile-time correctness} over runtime
+flexibility.  The policy-based approach is intentionally opinionated: it makes
+the ``easy things trivial'' (adding a new constitutive model, kinematic
+formulation, or element family within the existing type system) at the cost of
+making the ``hard things hard'' (mixing unrelated physics, runtime element
+selection from user input).
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Extensibility Guide: Adding a New Element Family}
+\label{sec:extensibility}
+
+This section walks through the concrete steps to add a hypothetical
+``Serendipity element'' family, illustrating each customisation point.
+
+\begin{enumerate}
+  \item \textbf{Layer~1: Concrete geometry type.}
+    Create \texttt{SerendipityElement<Dim, Order>}:
+    \begin{itemize}[nosep]
+      \item Store node coordinates, define \texttt{H()}, \texttt{dH\_dx()},
+            \texttt{evaluate\_jacobian()}, \texttt{map\_local\_point()} with
+            the serendipity basis functions.
+      \item No base class needed.  The type must be movable and copyable.
+    \end{itemize}
+
+  \item \textbf{Layer~1: Integration strategy.}
+    Create or reuse a quadrature class (\texttt{GaussLegendre2D<p>},
+    \texttt{ReducedIntegration<\ldots>}, etc.) exposing
+    \texttt{reference\_integration\_point(i)} and \texttt{weight(i)}.
+
+  \item \textbf{Layer~2: Instantiate through ElementGeometry.}
+    No code changes.  The constructor template:
+\begin{lstlisting}[language=C++]
+ElementGeometry<3> geo(
+    SerendipityElement<3, 2>{tag, node_ids},
+    GaussLegendre2D<3>{});
+\end{lstlisting}
+    automatically instantiates an
+    \texttt{OwningModel<Serendipity..., GL...>} and stores it behind the
+    type-erased handle.
+
+  \item \textbf{Layer~3: Use with ContinuumElement.}
+    No code changes.  \texttt{ContinuumElement} receives a pointer to the
+    geometry and calls \texttt{H()}, \texttt{dH\_dx()},
+    \texttt{differential\_measure()} through the virtual interface.  The
+    $\mathbf{B}$ matrix and assembly are generic.
+
+  \item \textbf{Layer~4: Mesh import.}
+    Add a case in \texttt{GmshDomainBuilder.hh} for the Gmsh element type
+    code, constructing \texttt{ElementGeometry} with the serendipity concrete
+    type and the desired integrator.
+
+  \item \textbf{Optional: Type-safe model.}
+    If the serendipity element will be used in its own model (no mixing),
+    define:
+\begin{lstlisting}[language=C++]
+using SerendipitySolid =
+    ContinuumElement<ThreeDimensionalMaterial, 3,
+                     SmallStrain>;
+using SerendipityModel =
+    Model<ThreeDimensionalMaterial, SmallStrain, 3,
+          SingleElementPolicy<SerendipitySolid>>;
+\end{lstlisting}
+    This compiles to a contiguous vector with zero virtual dispatch.
+\end{enumerate}
+
+\paragraph{What does NOT need to change:}
+\begin{itemize}[nosep]
+  \item \texttt{ElementGeometry.hh} (new type is auto-detected by the
+        templated constructor).
+  \item \texttt{ContinuumElement.hh} (works through geometry pointer).
+  \item \texttt{FEM\_Element.hh} (type erasure is generic).
+  \item \texttt{Model.hh} (policy-parameterised).
+  \item Any analysis class (\texttt{LinearAnalysis}, \texttt{NLAnalysis}, etc.).
+  \item Any material or constitutive model.
+\end{itemize}
+
+This is the central extensibility promise: \textbf{new element families are
+additive} --- they require only new files, not modifications to existing ones
+--- conforming to the Open/Closed Principle.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Runtime Efficiency Considerations}
+\label{sec:efficiency}
+
+\subsection{Virtual Dispatch Budget}
+
+In the homogeneous path (\texttt{SingleElementPolicy}), the element assembly
+loop has \textbf{zero} virtual calls for the physics: all
+\texttt{inject\_K()}, \texttt{B()}, \texttt{H()}, \texttt{dH\_dx()} calls are
+monomorphic and inlineable.
+
+The only virtual calls per Gauss point are:
+\begin{itemize}[nosep]
+  \item \texttt{ElementGeometry::evaluate\_jacobian()} --- 1 vcall for the
+        Jacobian (through pimpl).
+  \item \texttt{ElementGeometry::H()}, \texttt{dH\_dx()} --- $n_\text{nodes}
+        \times (1 + \text{dim})$ vcalls for shape functions and derivatives.
+  \item \texttt{Material::compute\_response()} --- 1 vcall for the
+        constitutive model (through the strategy pointer).
+\end{itemize}
+This is \emph{identical per-element overhead} to OpenSees or Kratos, but
+\texttt{fall\_n} avoids the additional vtable dispatch that those frameworks
+incur at the element container level.
+
+\subsection{Cache-Friendly Layout}
+
+\texttt{SingleElementPolicy<E>} stores all elements contiguously in a single
+\texttt{std::vector<E>}.  Each element's \texttt{MaterialPoint} array is
+heap-allocated (as a \texttt{std::vector<MaterialPointT>}), but its entries
+are contiguous for that element.
+
+\texttt{MultiElementPolicy} stores \texttt{FEM\_Element} objects contiguously
+(the \texttt{unique\_ptr<Concept>} wrappers are packed), but the pointed-to
+\texttt{Model<T>} objects are heap-allocated with potentially scattered
+addresses.  This adds one pointer chase per element --- acceptable for
+heterogeneous cases where the element count is moderate.
+
+\subsection{DOF Index Caching}
+
+\texttt{ContinuumElement} caches its flat \texttt{dof\_indices\_[]} array
+(one entry per element DOF, combining all nodes).  The cache is populated
+lazily on first use and reused across \texttt{inject\_K()},
+\texttt{compute\_internal\_forces()}, and \texttt{inject\_tangent\_stiffness()}.
+This avoids the per-call overhead of traversing the node pointers to
+collect DOF indices at every assembly step.
+\begin{lstlisting}[language=C++]
+void ensure_dof_cache() noexcept {
+    if (dofs_cached_) return;
+    collect_dof_indices();
+}
+\end{lstlisting}
+
+\subsection{Stack-Allocated Jacobians}
+
+The Jacobian matrix crossing the virtual boundary is declared as:
+\begin{lstlisting}[language=C++]
+using JacobianMatrix = Eigen::Matrix<double, dim,
+    Eigen::Dynamic, Eigen::ColMajor, dim, dim>;
+\end{lstlisting}
+The \texttt{MaxRows = dim}, \texttt{MaxCols = dim} template parameters tell
+Eigen to use a fixed-size stack buffer (up to $3 \times 3 = 72$ bytes) with
+a dynamic column count.  Since \texttt{dim} $\le 3$, no heap allocation
+occurs, even though the column count is ``dynamic'' (it varies between volume
+and surface elements).
+
+This ensures that the virtual call to \texttt{evaluate\_jacobian()} returns by
+value without any \texttt{new}/\texttt{delete}, making the hot path
+allocation-free.

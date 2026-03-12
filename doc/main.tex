@@ -84,7 +84,7 @@
 \title{%
   \textbf{\texttt{fall\_n}} --- Technical Documentation\\[1ex]
   \large Simplex Elements, Quadrature Theory,\\
-  and Implementation Decisions}
+  Element Architecture, and Implementation Decisions}
 \author{S. E. Chavarría-Miranda}
 \date{\today}
 
@@ -95,10 +95,11 @@
 
 \begin{abstract}
 This document provides a comprehensive technical reference for the
-\texttt{fall\_n} nonlinear finite element library.  It focuses on the
+\texttt{fall\_n} nonlinear finite element library.  It covers the
 implementation of simplex (tetrahedral) finite elements, numerical integration
-strategies on simplicial domains, and the engineering decisions made to ensure
-robust post-processing.
+strategies on simplicial domains, the engineering decisions made to ensure
+robust post-processing, and the layered element architecture with its
+policy-based design patterns.
 
 Key topics include:
 \begin{itemize}[nosep]
@@ -111,8 +112,12 @@ Key topics include:
         projections on quadratic tetrahedra;
   \item Volume-weighted (SPR-type) nodal averaging as a robust projection
         method;
-  \item A bug fix in PETSc~3.24.5 \texttt{section.c} that affects higher-order
-        simplex elements.
+  \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
+        workarounds for PETSc indexing and preallocation issues;
+  \item The element architecture design: External Polymorphism at the geometry
+        and assembly levels, policy-based customisation points
+        (MaterialPolicy, KinematicPolicy, ElementPolicy), compile-time
+        efficiency, and comparison with OpenSees and Kratos Multiphysics.
 \end{itemize}
 Each chapter includes the relevant mathematical theory with bibliographic
 references, the concrete C++ implementation in \texttt{fall\_n}, and a
@@ -128,6 +133,7 @@ discussion of the design rationale.
 \input{ch04_projection}
 \input{ch05_petsc_patch}
 \input{ch06_implementation}
+\input{ch07_architecture}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}
