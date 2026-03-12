@@ -19,6 +19,8 @@
 #include "../continuum/KinematicPolicy.hh"
 
 #include "MaterialPoint.hh"
+#include "NodeSelector.hh"
+#include "ModelState.hh"
 
 #include <petsc.h>
 
@@ -207,13 +209,92 @@ public:
         MatZeroEntries(Kt_);
     };
 
+    // ── Fill imposed solution from non-zero constraint values ────────
+    //
+    //  After setup_boundary_conditions() assigns DOF indices and
+    //  setup_vectors() creates the PETSc vectors, this method populates
+    //  global_imposed_solution_ with any non-zero prescribed displacement
+    //  values stored in constraints_.
+    //
+    //  For homogeneous Dirichlet (all values = 0), this is a no-op.
+    //  For non-zero Dirichlet (imposed displacements), the values are
+    //  placed in the correct local DOF slots.
+    //
+    //  NOTE: Non-zero Dirichlet works correctly with NonlinearAnalysis
+    //  and DynamicAnalysis (internal forces recomputed with full u).
+    //  LinearAnalysis does NOT account for K_fc coupling — use
+    //  NonlinearAnalysis with a single step for non-zero Dirichlet.
+
+    void fill_imposed_solution(){
+        bool has_nonzero = false;
+
+        for (const auto& node : domain_->nodes()) {
+            auto plex_id = node.sieve_id.value();
+            auto it = constraints_.find(plex_id);
+            if (it == constraints_.end()) continue;
+
+            const auto& [dof_indices, values] = it->second;
+            auto all_dofs = node.dof_index();
+
+            for (std::size_t i = 0; i < dof_indices.size(); ++i) {
+                if (values[i] != 0.0) {
+                    VecSetValueLocal(global_imposed_solution_,
+                                     all_dofs[dof_indices[i]],
+                                     values[i], INSERT_VALUES);
+                    has_nonzero = true;
+                }
+            }
+        }
+
+        if (has_nonzero) {
+            VecAssemblyBegin(global_imposed_solution_);
+            VecAssemblyEnd(global_imposed_solution_);
+        }
+    }
+
     void setup(){
         setup_boundary_conditions();
         setup_vectors();
+        fill_imposed_solution();
         setup_matrix();
     };
 
-    void fix_node(std::size_t node_idx) noexcept{
+    // ═══════════════════════════════════════════════════════════════════
+    //  Per-DOF Constraint API
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  These methods provide fine-grained control over Dirichlet BCs.
+    //  Constraint indices within each node are kept sorted (PETSc
+    //  requirement for PetscSectionSetConstraintIndices).
+
+    /// Constrain a single DOF of a node.  value = prescribed displacement.
+    /// Multiple calls for the same (node, dof) update the value.
+    void constrain_dof(std::size_t node_idx, std::size_t local_dof,
+                       double value = 0.0) noexcept
+    {
+        auto& node    = domain_->node(node_idx);
+        auto  plex_id = node.sieve_id.value();
+        auto  dof     = static_cast<PetscInt>(local_dof);
+
+        auto& [dof_indices, values] = constraints_[plex_id];
+
+        // Insert in sorted order (PETSc requires sorted constraint indices)
+        auto it = std::lower_bound(dof_indices.begin(), dof_indices.end(), dof);
+        if (it != dof_indices.end() && *it == dof) {
+            // Update existing
+            auto idx = static_cast<std::size_t>(std::distance(dof_indices.begin(), it));
+            values[idx] = static_cast<PetscScalar>(value);
+        } else {
+            // Insert new
+            auto idx = static_cast<std::size_t>(std::distance(dof_indices.begin(), it));
+            dof_indices.insert(it, dof);
+            values.insert(values.begin() + static_cast<std::ptrdiff_t>(idx),
+                          static_cast<PetscScalar>(value));
+        }
+    }
+
+    /// Constrain ALL DOFs of a node (homogeneous by default).
+    void fix_node(std::size_t node_idx) noexcept {
         auto& node = domain_->node(node_idx);
         auto  num_dofs = node.num_dof();
         auto  plex_id  = node.sieve_id.value();
@@ -224,17 +305,80 @@ public:
         constraints_.insert({plex_id, {dofs_idx, std::vector<PetscScalar>(num_dofs, 0.0)}});
     }
 
-    void fix_orthogonal_plane(const int i, const double val, const double tol = 1.0e-6) noexcept{
-        for (auto &node : domain_->nodes()){
-            if (std::abs(node.coord(i) - val) < tol){ //std::cout << "Fixing node: " << node.id() << " ----> "<< node.sieve_id.value() << std::endl;
+    /// Constrain ALL DOFs of a node with prescribed values.
+    void constrain_node(std::size_t node_idx,
+                        const std::array<double, ndofs>& values) noexcept
+    {
+        auto& node    = domain_->node(node_idx);
+        auto  plex_id = node.sieve_id.value();
+
+        auto dofs_idx = std::vector<PetscInt>(ndofs);
+        std::iota(dofs_idx.begin(), dofs_idx.end(), 0);
+
+        auto vals = std::vector<PetscScalar>(values.begin(), values.end());
+        constraints_[plex_id] = {std::move(dofs_idx), std::move(vals)};
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Selector-based Constraint API
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  Apply constraints to all nodes matching a compile-time predicate.
+    //  Selectors are any callable  f(const Node<dim>&) → bool.
+    //  See NodeSelector.hh for built-in selectors and combinators.
+
+    /// Constrain a single DOF for all nodes matching the selector.
+    template <typename Selector>
+    void constrain_dof_where(Selector&& sel, std::size_t local_dof,
+                             double value = 0.0) noexcept
+    {
+        for (const auto& node : domain_->nodes()) {
+            if (sel(node)) {
+                constrain_dof(node.id(), local_dof, value);
+            }
+        }
+    }
+
+    /// Constrain ALL DOFs (homogeneous) for all nodes matching the selector.
+    template <typename Selector>
+    void constrain_where(Selector&& sel) noexcept
+    {
+        for (const auto& node : domain_->nodes()) {
+            if (sel(node)) {
                 fix_node(node.id());
             }
         }
     }
 
-    void fix_x (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(0, val, tol);} // ok
-    void fix_y (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(1, val, tol);} // ???
-    void fix_z (const double val, const double tol = 1.0e-6) noexcept {fix_orthogonal_plane(2, val, tol);} // NOT WORKING???? WHY???
+    /// Constrain ALL DOFs with prescribed values for all matching nodes.
+    template <typename Selector>
+    void constrain_where(Selector&& sel,
+                         const std::array<double, ndofs>& values) noexcept
+    {
+        for (const auto& node : domain_->nodes()) {
+            if (sel(node)) {
+                constrain_node(node.id(), values);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Legacy API (backward compatibility)
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  fix_x/y/z fix ALL DOFs of nodes on a coordinate plane.
+    //  For single-direction roller BCs, use constrain_dof_where instead:
+    //
+    //    M.constrain_dof_where(fn::PlaneSelector<3>{0, 0.0}, 0);  // fix u_x only
+    //    M.fix_x(0.0);  // fixes u_x, u_y, u_z (clamped)
+
+    void fix_orthogonal_plane(const int i, const double val, const double tol = 1.0e-6) noexcept {
+        constrain_where(fn::PlaneSelector<dim>{i, val, tol});
+    }
+
+    void fix_x(const double val, const double tol = 1.0e-6) noexcept { fix_orthogonal_plane(0, val, tol); }
+    void fix_y(const double val, const double tol = 1.0e-6) noexcept { fix_orthogonal_plane(1, val, tol); }
+    void fix_z(const double val, const double tol = 1.0e-6) noexcept { fix_orthogonal_plane(2, val, tol); }
 
     void apply_node_force(std::size_t node_idx, auto... force_components) //REFACTOR EN TERMINOS DEL PLEX
     requires (std::is_convertible_v<decltype(force_components), PetscScalar> && ...){
@@ -291,6 +435,142 @@ public:
 
         std::array<double, dim> traction = {static_cast<double>(traction_components)...};
         surface_load::apply_traction<dim>(surf_elems, traction, this->nodal_forces_);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  State Capture / Restore  (for analysis continuation)
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  capture_state():  Extracts the current solved state (nodal
+    //  displacements + GP stress/strain) into a PETSc-independent
+    //  ModelState<dim>.  Call AFTER a successful solve.
+    //
+    //  apply_initial_displacement():  Sets global_imposed_solution_
+    //  from a previously captured ModelState.  Call BEFORE setup().
+    //  The displacement field is treated as prescribed u₀ at
+    //  constrained DOFs, or as an initial guess for NL solvers.
+
+    [[nodiscard]] ModelState<dim> capture_state() const {
+        ModelState<dim> state;
+
+        // ── Nodal displacements ──────────────────────────────────────
+        const PetscScalar* u_arr;
+        VecGetArrayRead(current_state_, &u_arr);
+
+        state.nodes.reserve(domain_->nodes().size());
+        for (const auto& node : domain_->nodes()) {
+            typename ModelState<dim>::NodalData nd;
+            nd.node_id = node.id();
+            auto dofs = node.dof_index();
+            for (std::size_t d = 0; d < dim && d < dofs.size(); ++d)
+                nd.displacement[d] = u_arr[dofs[d]];
+            state.nodes.push_back(nd);
+        }
+
+        VecRestoreArrayRead(current_state_, &u_arr);
+
+        // ── Element Gauss-point stress/strain ────────────────────────
+        if constexpr (requires { elements_.front().material_points(); }) {
+            state.elements.reserve(elements_.size());
+            for (std::size_t e = 0; e < elements_.size(); ++e) {
+                typename ModelState<dim>::ElementData ed;
+                ed.element_index = e;
+                const auto& mps = elements_[e].material_points();
+                ed.gauss_points.reserve(mps.size());
+                for (const auto& mp : mps) {
+                    typename ModelState<dim>::GaussPointData gpd;
+                    const auto& strain_state = mp.current_state();
+                    // Copy strain (Voigt) — num_components is a compile-time constant
+                    constexpr std::size_t nc = std::remove_cvref_t<
+                        decltype(strain_state)>::num_components;
+                    for (std::size_t v = 0;
+                         v < ModelState<dim>::nvoigt && v < nc; ++v)
+                        gpd.strain[v] = strain_state[v];
+                    // Compute and copy stress
+                    auto stress = mp.compute_response(strain_state);
+                    constexpr std::size_t sc = std::remove_cvref_t<
+                        decltype(stress)>::num_components;
+                    for (std::size_t v = 0;
+                         v < ModelState<dim>::nvoigt && v < sc; ++v)
+                        gpd.stress[v] = stress[v];
+                    ed.gauss_points.push_back(gpd);
+                }
+                state.elements.push_back(std::move(ed));
+            }
+        }
+
+        return state;
+    }
+
+    /// Apply a captured displacement field as the initial imposed
+    /// solution.  Call BEFORE setup() — the values are stored in
+    /// constraints_ and will flow into global_imposed_solution_
+    /// during fill_imposed_solution().
+    ///
+    /// For continuation analysis, constrain the DOFs that should
+    /// retain their previous value, then call this method.
+    void apply_initial_displacement(const ModelState<dim>& state) noexcept {
+        // Put prescribed displacements into the already-created imposed vector.
+        // Requires setup_vectors() to have been called (global_imposed_solution_ != null).
+        if (!global_imposed_solution_) return;
+
+        for (const auto& nd : state.nodes) {
+            if (nd.node_id >= domain_->nodes().size()) continue;
+            const auto& node = domain_->node(nd.node_id);
+            auto dofs = node.dof_index();
+            for (std::size_t d = 0; d < dim && d < dofs.size(); ++d) {
+                if (nd.displacement[d] != 0.0) {
+                    VecSetValueLocal(global_imposed_solution_,
+                                     dofs[d], nd.displacement[d],
+                                     INSERT_VALUES);
+                }
+            }
+        }
+        VecAssemblyBegin(global_imposed_solution_);
+        VecAssemblyEnd(global_imposed_solution_);
+    }
+
+    /// Number of constrained DOFs across all nodes.
+    [[nodiscard]] std::size_t num_constraints() const noexcept {
+        std::size_t n = 0;
+        for (const auto& [plex_id, info] : constraints_)
+            n += info.first.size();
+        return n;
+    }
+
+    /// Query: is a specific node constrained?
+    [[nodiscard]] bool is_constrained(std::size_t node_idx) const noexcept {
+        auto plex_id = domain_->node(node_idx).sieve_id.value();
+        return constraints_.find(plex_id) != constraints_.end();
+    }
+
+    /// Query: is a specific DOF of a node constrained?
+    [[nodiscard]] bool is_dof_constrained(std::size_t node_idx,
+                                          std::size_t local_dof) const noexcept
+    {
+        auto plex_id = domain_->node(node_idx).sieve_id.value();
+        auto it = constraints_.find(plex_id);
+        if (it == constraints_.end()) return false;
+        auto dof = static_cast<PetscInt>(local_dof);
+        return std::binary_search(it->second.first.begin(),
+                                  it->second.first.end(), dof);
+    }
+
+    /// Get the prescribed value for a constrained DOF (0.0 if not constrained).
+    [[nodiscard]] double prescribed_value(std::size_t node_idx,
+                                          std::size_t local_dof) const noexcept
+    {
+        auto plex_id = domain_->node(node_idx).sieve_id.value();
+        auto it = constraints_.find(plex_id);
+        if (it == constraints_.end()) return 0.0;
+        const auto& [dof_indices, values] = it->second;
+        auto dof = static_cast<PetscInt>(local_dof);
+        auto dit = std::lower_bound(dof_indices.begin(), dof_indices.end(), dof);
+        if (dit != dof_indices.end() && *dit == dof) {
+            auto idx = static_cast<std::size_t>(std::distance(dof_indices.begin(), dit));
+            return static_cast<double>(values[idx]);
+        }
+        return 0.0;
     }       
 
     void inject_K(Mat& analysis_K){

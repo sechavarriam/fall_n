@@ -132,6 +132,8 @@
 
 #include "src/model/DoFStorage.hh"
 #include "src/model/DoF.hh"       // TODO: deprecate — kept for transition
+#include "src/model/NodeSelector.hh"
+#include "src/model/ModelState.hh"
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
 #include "src/model/BoundaryCondition.hh"

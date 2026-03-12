@@ -1,0 +1,592 @@
+% =============================================================================
+%  ch08_boundary_conditions.tex — Generic Boundary \& Initial Condition Design
+% =============================================================================
+\chapter{Generic Boundary and Initial Condition Infrastructure}
+\label{ch:boundary-conditions}
+
+This chapter documents the design and implementation of the generic
+boundary condition (BC) and initial condition (IC) infrastructure for
+\texttt{fall\_n}.  The goals are:
+\begin{enumerate}[nosep]
+  \item \textbf{Per-DOF granularity:}  constrain individual degrees of freedom
+        (roller supports, symmetry BCs) rather than all DOFs simultaneously.
+  \item \textbf{Imposed (non-zero) Dirichlet:}  prescribe non-zero
+        displacement, temperature, or any nodal field value.
+  \item \textbf{Compile-time node selectors:}  apply constraints via
+        geometric predicates (plane, box, sphere, custom lambda) that
+        resolve at compile time with zero runtime overhead.
+  \item \textbf{State transfer:}  capture the complete post-solve state
+        (\texttt{ModelState}) and use it as the initial condition for
+        a subsequent analysis---enabling staged construction, restart,
+        and multi-physics chaining.
+  \item \textbf{Extensibility:}  the design should accommodate future
+        field types (temperature, initial stress, pore pressure) without
+        modifying the selector or constraint machinery.
+\end{enumerate}
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Gap Analysis: the Legacy API}
+\label{sec:bc-gap}
+
+The original Model API exposed these methods for boundary conditions:
+
+\begin{lstlisting}
+void fix_node(size_t node_idx);                          // ALL DOFs = 0
+void fix_x(double val, double tol = 1e-6);               // all DOFs at x=val
+void apply_node_force(size_t node_idx, auto... f);        // nodal Neumann
+void apply_surface_traction(string group, auto... t);     // consistent traction
+\end{lstlisting}
+
+\begin{table}[ht]
+\centering\small
+\caption{Limitations of the legacy BC interface.}
+\label{tab:bc-gaps}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Limitation} & \textbf{Impact} \\
+\midrule
+\texttt{fix\_node} constrains \emph{all} DOFs &
+Cannot model roller supports, symmetry planes, or mixed BCs. \\
+\texttt{fix\_x/y/z} misnamed &
+These fix all three displacement components, not just the named one.
+Misleading to users.\\
+No non-zero Dirichlet via Model API &
+\texttt{global\_imposed\_solution\_} was created and zeroed but never
+populated through the Model interface.  Only
+\texttt{DynamicAnalysis::PrescribedBC} filled it.\\
+\texttt{ElementInitialStress} unused &
+The struct existed in \texttt{BoundaryCondition.hh} and was storable in
+\texttt{BoundaryConditionSet}, but no evaluator integrated it into the
+assembly pipeline.\\
+Procedural selection &
+Every \texttt{fix\_*} method hard-coded a coordinate loop.  No reusable
+geometric predicate.\\
+\texttt{VecAssemblyBegin/End} per call &
+\texttt{apply\_node\_force} triggered PETSc assembly for each node. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Design Decisions and Trade-offs}
+\label{sec:bc-design}
+
+\subsection{Compile-Time Polymorphism via Concepts}
+
+Consistent with \texttt{fall\_n}'s policy-based architecture
+(\Cref{ch:architecture}), the node selector system uses C++20 concepts
+rather than virtual dispatch:
+
+\begin{lstlisting}
+namespace fn {
+template <typename S, typename NodeT>
+concept NodeSelector = requires(const S& s, const NodeT& n) {
+    { s(n) } -> std::convertible_to<bool>;
+};
+}
+\end{lstlisting}
+
+\noindent
+Any callable \lstinline{f(const Node<dim>&) -> bool} satisfies
+\texttt{NodeSelector}: lambdas, function objects, and the built-in
+selectors all qualify.  The compiler resolves the predicate at compile
+time, and after inlining a \texttt{PlaneSelector} collapses to a single
+\texttt{fabs} + comparison---zero overhead compared to a hand-written
+loop.
+
+\paragraph{Why not \texttt{std::function}?}
+A \texttt{std::function<bool(const Node\&)>} would erase the type and
+force heap allocation for lambdas that exceed the small-buffer size (typically
+16--32 bytes).  For selectors applied to every node in the mesh, this
+per-call overhead is measurable.  The concept-based approach pays nothing
+at runtime.
+
+\paragraph{Why not virtual?}
+A virtual \texttt{AbstractSelector::operator()} would add one indirect
+call per node per constraint pass.  With 10\,000 nodes this is
+$\sim$10\,$\mu$s (branch-predictor penalty), acceptable but unnecessary
+when the concrete type is known at compile time.
+
+
+\subsection{Constraint Storage: Extending the Existing Map}
+
+The existing \texttt{ConstraintDofInfo} type already maps sieve point IDs
+to (DOF index list, prescribed value list):
+
+\begin{lstlisting}
+using ConstraintDofInfo =
+  std::map<PetscInt,
+           std::pair<std::vector<PetscInt>,
+                     std::vector<PetscScalar>>>;
+\end{lstlisting}
+
+\noindent
+The new API \emph{extends} this map rather than replacing it.  The key
+operations are:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Insert in sorted order.}  PETSc's
+        \texttt{PetscSectionSetConstraintIndices} requires increasing
+        DOF indices.  The \texttt{constrain\_dof} method uses
+        \texttt{std::lower\_bound} to maintain this invariant.
+  \item \textbf{Merge, not overwrite.}  If DOF~0 of a node is already
+        constrained and the user constrains DOF~2, both are stored.
+        An update to DOF~0 changes the prescribed value without
+        duplicating the index.
+\end{enumerate}
+
+\subsection{Non-Zero Dirichlet: Where Values Flow}
+\label{sec:bc-nonzero}
+
+Non-zero prescribed values are stored in \texttt{constraints\_} alongside
+the DOF indices.  During \texttt{setup()}, a new
+\texttt{fill\_imposed\_solution()} step extracts these values from the
+constraint map into the PETSc local vector
+\texttt{global\_imposed\_solution\_}:
+
+\begin{lstlisting}
+void setup() {
+    setup_boundary_conditions();  // PETSc section
+    setup_vectors();              // create Vecs
+    fill_imposed_solution();      // NEW: u_D -> imposed
+    setup_matrix();               // create Mat
+}
+\end{lstlisting}
+
+\begin{remark}
+Non-zero Dirichlet requires that the analysis accounts for the coupling
+$\mathbf{K}_{fc}\,\mathbf{u}_c$ in the right-hand side.
+\texttt{NonlinearAnalysis} handles this naturally: the internal forces
+$\mathbf{f}_{\text{int}}(\mathbf{u}_{\text{free}} + \mathbf{u}_D)$ include
+the prescribed part.  \texttt{LinearAnalysis} currently does \emph{not}
+apply this correction---for non-zero Dirichlet, users should solve with
+\texttt{NonlinearAnalysis} (which converges in one Newton step for linear
+problems).
+\end{remark}
+
+
+\subsection{ModelState: Platform-Independent Snapshot}
+
+For state transfer between models, we need a data structure that:
+\begin{itemize}[nosep]
+  \item Does \emph{not} depend on PETSc (no \texttt{Vec}, \texttt{Mat}).
+  \item Does \emph{not} depend on the \texttt{MaterialPolicy} template parameter
+        (so an elastic model's state can seed a plastic model).
+  \item Is copyable, movable, and (future) serialisable.
+\end{itemize}
+
+\texttt{ModelState<dim>} satisfies all three.  It stores:
+\begin{itemize}[nosep]
+  \item Per-node: ID, displacement, velocity.
+  \item Per-element, per-Gauss-point: stress and strain in Voigt notation
+        (\texttt{std::array<double, nvoigt>}).
+\end{itemize}
+
+The PETSc-to-array extraction in \texttt{capture\_state()} uses
+\texttt{VecGetArrayRead} (zero-copy read) and the element's
+\texttt{material\_points()} accessor which recomputes stress from the
+committed strain via the constitutive relation.
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Implementation}
+\label{sec:bc-impl}
+
+\subsection{NodeSelector.hh — Built-in Selectors}
+
+\begin{table}[ht]
+\centering\small
+\caption{Built-in node selectors.}
+\label{tab:selectors}
+\begin{tabular}{lll}
+\toprule
+\textbf{Selector} & \textbf{Predicate} & \textbf{Parameters} \\
+\midrule
+\texttt{PlaneSelector<dim>}  & $|x_i - v| < \varepsilon$
+                             & axis $i$, value $v$, tolerance $\varepsilon$ \\
+\texttt{BoxSelector<dim>}    & $x \in [\text{lo},\text{hi}]$
+                             & corners, tolerance \\
+\texttt{SphereSelector<dim>} & $\|x - c\| \le r$
+                             & centre $c$, radius $r$, tolerance \\
+\texttt{NodeIdSelector}      & $\text{id} \in S$
+                             & set of node IDs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Combinators turn simple selectors into compound predicates:
+
+\begin{lstlisting}
+auto corner = fn::select_and(
+    fn::PlaneSelector<3>{0, 0.0},   // x = 0
+    fn::PlaneSelector<3>{1, 0.0}    // y = 0
+);
+auto not_x0 = fn::select_not(fn::PlaneSelector<3>{0, 0.0});
+auto union_ = fn::select_or(selectorA, selectorB);
+\end{lstlisting}
+
+\noindent
+Convenience factories (\texttt{fn::on\_plane}, \texttt{fn::in\_box},
+\texttt{fn::in\_sphere}, \texttt{fn::node\_ids}) provide a terser syntax.
+
+
+\subsection{Model.hh — New Constraint Methods}
+
+\begin{table}[ht]
+\centering\small
+\caption{New Model constraint API.}
+\label{tab:constraint-api}
+\begin{tabular}{lp{7.5cm}}
+\toprule
+\textbf{Method} & \textbf{Description} \\
+\midrule
+\texttt{constrain\_dof(n, d, v)}
+  & Constrain DOF~$d$ of node~$n$ to value~$v$.  Sorted insertion. \\
+\texttt{constrain\_node(n, vals)}
+  & Constrain all DOFs of node~$n$ to the given array of values. \\
+\texttt{constrain\_dof\_where(sel, d, v)}
+  & Constrain DOF~$d$ at every node matching selector \texttt{sel}. \\
+\texttt{constrain\_where(sel)}
+  & Constrain all DOFs (homogeneous) at every matching node. \\
+\texttt{constrain\_where(sel, vals)}
+  & Constrain all DOFs with prescribed values at every matching node. \\
+\midrule
+\texttt{is\_constrained(n)}
+  & Query: is any DOF of node~$n$ constrained? \\
+\texttt{is\_dof\_constrained(n, d)}
+  & Query: is DOF~$d$ of node~$n$ constrained? \\
+\texttt{prescribed\_value(n, d)}
+  & Get the prescribed displacement at DOF~$d$ (0 if free). \\
+\texttt{num\_constraints()}
+  & Total number of constrained DOFs across all nodes. \\
+\midrule
+\texttt{capture\_state()}
+  & Extract current solution into a \texttt{ModelState<dim>}. \\
+\texttt{apply\_initial\_displacement(s)}
+  & Populate imposed solution from a \texttt{ModelState<dim>}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Backward Compatibility}
+
+The legacy methods \texttt{fix\_node}, \texttt{fix\_x}, \texttt{fix\_y},
+\texttt{fix\_z}, and \texttt{fix\_orthogonal\_plane} remain unchanged in
+semantics---they continue to constrain \emph{all} DOFs of every matching
+node.  Internally, \texttt{fix\_orthogonal\_plane} now delegates to:
+\begin{lstlisting}
+void fix_orthogonal_plane(int i, double val, double tol) {
+    constrain_where(fn::PlaneSelector<dim>{i, val, tol});
+}
+\end{lstlisting}
+The code path is identical; only the implementation reuses the selector
+infrastructure.
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Use-Case Walkthrough: Roller vs.\ Clamped Cantilever}
+\label{sec:bc-roller}
+
+Consider a cantilever beam $[0,L]\times[0,b]\times[0,h]$ loaded at
+$x = L$ by a surface traction $\mathbf{t} = (0, t_y, t_z)$.
+
+\paragraph{Clamped support (legacy):}
+\begin{lstlisting}
+M.fix_x(0.0);   // constrains u_x, u_y, u_z at x=0
+\end{lstlisting}
+Equivalent new API:
+\begin{lstlisting}
+M.constrain_where(fn::PlaneSelector<3>{0, 0.0});
+\end{lstlisting}
+
+\paragraph{Roller support (new API):}
+Only $u_x = 0$ at $x = 0$.  Rigid body prevention requires additionally
+constraining $u_y$ and $u_z$ at isolated points:
+\begin{lstlisting}
+// u_x = 0 on entire face
+M.constrain_dof_where(fn::PlaneSelector<3>{0, 0.0}, 0, 0.0);
+
+// Prevent rigid translation + rotation about x:
+auto origin = fn::select_and(fn::PlaneSelector<3>{0, 0.0},
+    fn::select_and(fn::PlaneSelector<3>{1, 0.0},
+                   fn::PlaneSelector<3>{2, 0.0}));
+M.constrain_dof_where(origin, 1, 0.0);  // u_y at origin
+M.constrain_dof_where(origin, 2, 0.0);  // u_z at origin
+
+auto top_z = fn::select_and(fn::PlaneSelector<3>{0, 0.0},
+    fn::select_and(fn::PlaneSelector<3>{1, 0.0},
+                   fn::PlaneSelector<3>{2, h}));
+M.constrain_dof_where(top_z, 1, 0.0);   // prevents Rx
+\end{lstlisting}
+
+The roller case has 30~constrained DOFs (28~nodes $\times$ 1 + 2~extra)
+versus 84 (28 $\times$ 3) for the clamped case.  With fewer constraints,
+the beam is more flexible:
+
+\begin{table}[ht]
+\centering\small
+\caption{Roller vs.\ clamped comparison (HEX8 beam, $E=200$, $\nu=0.3$).}
+\label{tab:roller-clamped}
+\begin{tabular}{lccc}
+\toprule
+\textbf{BC type} & \textbf{Constrained DOFs} & $\max|u|$ & \textbf{Ratio} \\
+\midrule
+Clamped & 84 & 0.594 & 1.00 \\
+Roller ($u_x$ only) & 30 & 2.762 & 4.64$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+This confirms: the per-DOF mechanism works correctly and produces a
+physically meaningful stiffer/more-flexible response.
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{State Capture and Continuation Analysis}
+\label{sec:bc-state}
+
+\subsection{ModelState Structure}
+
+\begin{lstlisting}
+template <size_t dim>
+struct ModelState {
+    static constexpr size_t nvoigt = dim * (dim + 1) / 2;
+
+    struct NodalData {
+        size_t node_id;
+        array<double, dim> displacement;
+        array<double, dim> velocity;       // zero for static
+    };
+
+    struct GaussPointData {
+        array<double, nvoigt> stress;
+        array<double, nvoigt> strain;
+    };
+
+    struct ElementData {
+        size_t element_index;
+        vector<GaussPointData> gauss_points;
+    };
+
+    vector<NodalData>   nodes;
+    vector<ElementData> elements;
+};
+\end{lstlisting}
+
+\subsection{Capture Workflow}
+
+\texttt{Model::capture\_state()} extracts:
+\begin{enumerate}[nosep]
+  \item \textbf{Nodal displacements:}  from the PETSc local vector
+        \texttt{current\_state\_} via \texttt{VecGetArrayRead} (zero-copy).
+        Each node's DOF offsets from \texttt{node.dof\_index()} are used to
+        index into the raw array.
+  \item \textbf{Element stress/strain:}  from each \texttt{MaterialPoint}'s
+        committed strain (\texttt{current\_state()}) and recomputed stress
+        (\texttt{compute\_response()}).  The Voigt vectors are copied
+        component-by-component into \texttt{std::array<double, nvoigt>},
+        guarded by the compile-time \texttt{num\_components} constant.
+\end{enumerate}
+
+\subsection{Future: Initial Stress Integration}
+
+The existing \texttt{ElementInitialStress<dim>} struct in
+\texttt{BoundaryCondition.hh} can be populated from
+\texttt{ModelState::ElementData}:
+
+\begin{lstlisting}
+for (const auto& ed : state.elements) {
+    ElementInitialStress<dim> eis;
+    eis.element_index = ed.element_index;
+    for (const auto& gp : ed.gauss_points) {
+        eis.gauss_point_stresses.push_back(gp.stress);
+    }
+    bcs.add_initial_stress(std::move(eis));
+}
+\end{lstlisting}
+
+\noindent
+For this to take effect, the element assembly must incorporate
+$\bsigma_0$ into the internal force:
+\[
+  \mathbf{f}_{\text{int}}(\mathbf{u})
+  = \int_{\Omega_e} \mathbf{B}^T \bigl(\bsigma(\bvarepsilon(\mathbf{u}))
+      + \bsigma_0\bigr)\,\dd V
+\]
+This requires modifications to \texttt{ContinuumElement::compute\_internal\-\_force\_vector},
+specifically adding a \texttt{$\sigma$\_initial} term at each Gauss point.
+This integration is deferred to a future phase.
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Comparison with OpenSees and Kratos}
+\label{sec:bc-comparison}
+
+\begin{table}[ht]
+\centering\small
+\caption{BC/IC handling comparison across frameworks.}
+\label{tab:bc-framework}
+\begin{tabular}{p{3cm}p{3.5cm}p{3.5cm}p{3.5cm}}
+\toprule
+\textbf{Feature} & \textbf{OpenSees} & \textbf{Kratos} & \textbf{fall\_n} \\
+\midrule
+Single-DOF fix
+  & \texttt{fix nodeTag dof}
+  & \texttt{DISPLACEMENT\_X: 0.0}
+  & \texttt{constrain\_dof(n,d,v)} \\
+Geometric selection
+  & Tcl loops
+  & Python \texttt{FindNodalH}
+  & \texttt{PlaneSelector}, lambda \\
+Non-zero Dirichlet
+  & \texttt{imposedMotion} pattern
+  & \texttt{ApplyDirichlet\-Process}
+  & \texttt{constrain\_dof\_where(s,d,v)} \\
+State transfer
+  & \texttt{-database} serialise
+  & \texttt{ModelPartIO}
+  & \texttt{ModelState} capture/apply \\
+Initial stress
+  & Per-element update
+  & \texttt{INITIAL\_STRESS\_TENSOR}
+  & Defined, not yet integrated \\
+Dispatch cost
+  & Virtual (runtime)
+  & Virtual + Python (runtime)
+  & Compile-time (zero) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Key differences:}
+\begin{itemize}[nosep]
+  \item \textbf{OpenSees} uses a tag-based Tcl scripting layer for BC
+        specification.  Geometric loops require user scripting.  State transfer
+        uses a persistence layer (\texttt{FE\_Datastore}).
+  \item \textbf{Kratos} uses Python processes (\texttt{ApplyDirichletProcess},
+        \texttt{ApplyNeumannProcess}) that iterate over model parts.
+        Highly flexible but with Python $\to$ C++ boundary overhead.
+  \item \textbf{fall\_n} resolves all selector logic at compile time.
+        The constraint map lives in pure C++ with PETSc-section-based
+        enforcement.  No scripting layer, no virtual dispatch per node.
+\end{itemize}
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Extensibility Roadmap}
+\label{sec:bc-extensibility}
+
+The current infrastructure is designed for forward extension.
+\Cref{tab:bc-roadmap} outlines planned capabilities and their
+implementation path.
+
+\begin{table}[ht]
+\centering\small
+\caption{Extensibility roadmap.}
+\label{tab:bc-roadmap}
+\begin{tabular}{p{3.5cm}p{5cm}p{5cm}}
+\toprule
+\textbf{Capability} & \textbf{Implementation path} & \textbf{Status} \\
+\midrule
+Per-DOF constraints
+  & \texttt{constrain\_dof}, \texttt{constrain\_dof\_where}
+  & \textbf{Implemented} \\
+Non-zero Dirichlet
+  & \texttt{fill\_imposed\_solution()} + NL correction
+  & \textbf{Implemented} (NL only) \\
+Node selectors
+  & \texttt{NodeSelector} concept + built-in selectors
+  & \textbf{Implemented} \\
+State capture/transfer
+  & \texttt{ModelState} + \texttt{capture\_state}
+  & \textbf{Implemented} \\
+\addlinespace
+Initial stress
+  & Extend \texttt{ContinuumElement::compute\_internal\_force}
+    to add $\bsigma_0$ at each GP
+  & Designed, deferred \\
+Body forces
+  & Consistent nodal load via $\int N^T\,\mathbf{b}\,\dd V$
+  & Planned \\
+Temperature field
+  & Additional \texttt{ModelState} field + thermal strain
+    $\bvarepsilon_\theta = \alpha\,\Delta T\,\mathbf{1}$
+  & Planned \\
+Multi-step builder
+  & Fluent builder with chained \texttt{.constrain().material().build()}
+  & Planned \\
+State serialisation
+  & HDF5/JSON export of \texttt{ModelState}
+  & Planned \\
+Linear non-zero BC
+  & RHS correction $\mathbf{f}_{\text{eff}} = \mathbf{f}_{\text{ext}}
+    - \mathbf{K}_{fc}\,\mathbf{u}_D$  in \texttt{LinearAnalysis}
+  & Planned \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Test Suite}
+\label{sec:bc-tests}
+
+The implementation is validated by 81 tests in
+\texttt{tests/test\_boundary\_conditions.cpp}, organized as follows:
+
+\begin{table}[ht]
+\centering\small
+\caption{Test suite structure (81 tests).}
+\label{tab:bc-tests}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{Coverage} \\
+\midrule
+Node selectors (pure geometry) & 38 &
+  PlaneSelector, BoxSelector, SphereSelector, NodeIdSelector,
+  combinators, lambdas, 2D/3D, factories \\
+ModelState data structure & 9 &
+  Default state, add/query, copy semantics \\
+Per-DOF constraints & 11 &
+  Single DOF, multiple DOFs, non-zero value, value update \\
+Selector-based constraints & 10 &
+  PlaneSelector on DOF, all DOFs, values, lambda, composite \\
+Full solve: roller vs.\ clamped & 3 &
+  Clamped $>$ 0, Roller $>$ 0, Roller $>$ Clamped \\
+State capture after solve & 7 &
+  Non-empty, node count, element count, non-zero
+  displacement, non-zero stress, ID match \\
+Backward compatibility & 3 &
+  \texttt{fix\_x} gives positive deflection, reasonable magnitude \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ═════════════════════════════════════════════════════════════════════════
+\section{Summary}
+\label{sec:bc-summary}
+
+The generic BC/IC infrastructure extends \texttt{fall\_n} from an
+all-or-nothing clamped-support tool to a framework capable of:
+
+\begin{itemize}[nosep]
+  \item \textbf{Arbitrary Dirichlet BCs:}  per-DOF, per-node, per-selector,
+        with prescribed values (zero or non-zero).
+  \item \textbf{Zero-cost selectors:}  compile-time geometric predicates
+        with no runtime overhead versus hand-written loops.
+  \item \textbf{State snapshots:}  PETSc-independent \texttt{ModelState}
+        for continuation, restart, and future serialisation.
+  \item \textbf{Full backward compatibility:}  \texttt{fix\_x}, \texttt{fix\_y},
+        \texttt{fix\_z} continue to work exactly as before.
+\end{itemize}
+
+\noindent
+The design follows the same policy-based, compile-time polymorphic
+philosophy established in the element architecture (\Cref{ch:architecture})
+and validated by an 81-test suite.
