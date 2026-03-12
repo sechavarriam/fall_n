@@ -89,7 +89,7 @@ public:
         vtk_gauss_points->SetNumberOfPoints(domain.num_integration_points());
         
         for (const auto& element : domain.elements()){
-            for (const auto& gauss_point : element.integration_point_){
+            for (const auto& gauss_point : element.integration_points()){
                 vtk_gauss_points->SetPoint(gauss_point.id(), gauss_point.coord(0), gauss_point.coord(1), gauss_point.coord(2));
             }
         }
@@ -99,7 +99,7 @@ public:
         vtk_gauss_cells->SetPoints(vtk_gauss_points);
 
         for (auto &element : domain.elements()){
-            for (auto &gauss_point : element.integration_point_){
+            for (auto &gauss_point : element.integration_points()){
                 vtk_gauss_cells->InsertNextCell(VTK_VERTEX,1, gauss_point.id_p());
             }
         }                   

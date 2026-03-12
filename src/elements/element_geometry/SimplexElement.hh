@@ -26,8 +26,10 @@
 
 #include <array>
 #include <cstddef>
+#include <iostream>
 #include <memory>
 #include <optional>
+#include <algorithm>
 #include <span>
 #include <ranges>
 #include <type_traits>
@@ -39,10 +41,7 @@
 #include "../../geometry/Point.hh"
 
 #include "../../utils/small_math.hh"
-#include "../../numerics/numerical_integration/SimplexQuadrature.hh"
-#include "../../numerics/numerical_integration/StroudConicalProduct.hh"
-
-#include "../../numerics/linear_algebra/LinalgOperations.hh"
+#include "../../numerics/numerical_integration/SimplexIntegrator.hh"
 
 
 // =============================================================================
@@ -90,10 +89,10 @@ public:
 
     using pNodeArray = std::optional<std::array<Node<dim>*, num_nodes>>;
 
-    std::size_t tag_;
-    pNodeArray  nodes_p;
+    std::size_t tag_{0};
+    pNodeArray  nodes_p{};
 
-    std::array<PetscInt, num_nodes> nodes_; // Global node numbers in Plex
+    std::array<PetscInt, num_nodes> nodes_{}; // Global node numbers in Plex
 
 private:
 
@@ -112,8 +111,8 @@ public:
     auto id()                      const noexcept { return tag_; }
     void set_id(std::size_t id)          noexcept { tag_ = id; }
 
-    PetscInt            node  (std::size_t i) const noexcept { return nodes_[i]; }
-    std::span<PetscInt> nodes ()              const noexcept { return std::span<PetscInt>(nodes_); }
+    PetscInt                  node  (std::size_t i) const noexcept { return nodes_[i]; }
+    std::span<const PetscInt> nodes ()              const noexcept { return std::span<const PetscInt>(nodes_); }
     Node<dim>&          node_p(std::size_t i) const noexcept { return *nodes_p.value()[i]; }
 
     void bind_node(std::size_t i, Node<dim>* node) noexcept {
@@ -175,7 +174,9 @@ public:
         return J;
     }
 
-    constexpr inline auto detJ(const NaturalArray& X) const noexcept {
+    constexpr inline auto detJ(const NaturalArray& X) const noexcept
+        requires (topological_dim == dim)
+    {
         return evaluate_jacobian(X).determinant();
     }
 
@@ -186,27 +187,20 @@ public:
     constexpr SimplexElement(pNodeArray nodes)
         : nodes_p{std::forward<pNodeArray>(nodes)} {}
 
-    constexpr SimplexElement(std::size_t& tag, const std::ranges::range auto& node_ids)
+    constexpr SimplexElement(std::size_t tag, std::ranges::input_range auto&& node_ids)
         requires (std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
         : tag_{tag}
     {
-        std::copy(node_ids.begin(), node_ids.end(), nodes_.begin());
+        std::ranges::copy(node_ids, nodes_.begin());
     }
 
-    constexpr SimplexElement(std::size_t&& tag, std::ranges::range auto&& node_ids)
+    constexpr SimplexElement(std::size_t tag, std::ranges::input_range auto&& node_ids,
+                             std::ranges::input_range auto&& local_ordering)
         requires (std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
         : tag_{tag}
     {
-        std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-    }
-
-    constexpr SimplexElement(std::size_t&& tag, std::ranges::range auto&& node_ids,
-                             std::ranges::range auto&& local_ordering)
-        requires (std::same_as<std::ranges::range_value_t<decltype(node_ids)>, PetscInt>)
-        : tag_{tag}
-    {
-        std::move(node_ids.begin(), node_ids.end(), nodes_.begin());
-        set_local_index(local_ordering.data());
+        std::ranges::copy(node_ids, nodes_.begin());
+        std::ranges::copy(local_ordering, local_index_.begin());
     }
 
     // Copy / move
@@ -228,85 +222,6 @@ public:
             std::cout << nodes_[i] << " ";
         std::cout << std::endl;
     }
-};
-
-
-// =============================================================================
-//  SimplexIntegrator<TopDim, Order>
-// =============================================================================
-//
-//  Wraps the appropriate simplex quadrature rule and exposes:
-//    - num_integration_points
-//    - reference_integration_point(i)  → span<const double>
-//    - weight(i)                       → double
-//    - operator()(f)                   → ∑ w_i · f(ξ_i)
-//
-
-template <std::size_t TopDim, std::size_t Order>
-class SimplexIntegrator
-{
-    using Rule = decltype(simplex_quadrature::default_simplex_rule<TopDim, Order>());
-
-    static constexpr Rule rule_ = simplex_quadrature::default_simplex_rule<TopDim, Order>();
-
-    using NaturalArray   = std::array<double, TopDim>;
-    using LocalCoordView = std::span<const double>;
-
-public:
-
-    static constexpr std::size_t num_integration_points = Rule::num_points;
-
-    static constexpr auto reference_integration_point(std::size_t i) noexcept {
-        const auto& p = rule_.get_point_coords(i);
-        return LocalCoordView{p.data(), p.size()};
-    }
-
-    static constexpr double weight(std::size_t i) noexcept {
-        return rule_.get_point_weight(i);
-    }
-
-    /// Pure quadrature: ∑ w_i · f(ξ_i)
-    /// Does NOT multiply by |J| — the element applies its own differential measure.
-    constexpr decltype(auto) operator()(std::invocable<LocalCoordView> auto&& f) const noexcept {
-        using ReturnType = std::invoke_result_t<decltype(f), LocalCoordView>;
-
-        if constexpr (std::is_arithmetic_v<std::decay_t<ReturnType>>) {
-            double result = 0.0;
-            for (std::size_t i = 0; i < num_integration_points; ++i) {
-                const auto& pt = rule_.get_point_coords(i);
-                const LocalCoordView xv{pt.data(), pt.size()};
-                result += rule_.get_point_weight(i) * f(xv);
-            }
-            return result;
-        }
-        else if constexpr (std::is_base_of_v<
-                               Eigen::MatrixBase<ReturnType>, ReturnType>) {
-            // Eigen matrices/vectors — return an evaluated copy (no aliasing)
-            const auto& pt0 = rule_.get_point_coords(0);
-            const LocalCoordView xv0{pt0.data(), pt0.size()};
-            auto result = (f(xv0) * rule_.get_point_weight(0)).eval();
-            for (std::size_t i = 1; i < num_integration_points; ++i) {
-                const auto& pt = rule_.get_point_coords(i);
-                const LocalCoordView xv{pt.data(), pt.size()};
-                result += f(xv) * rule_.get_point_weight(i);
-            }
-            return result;
-        }
-        else {
-            const auto& pt0 = rule_.get_point_coords(0);
-            const LocalCoordView xv0{pt0.data(), pt0.size()};
-            auto result = f(xv0) * rule_.get_point_weight(0);
-            for (std::size_t i = 1; i < num_integration_points; ++i) {
-                const auto& pt = rule_.get_point_coords(i);
-                const LocalCoordView xv{pt.data(), pt.size()};
-                result += f(xv) * rule_.get_point_weight(i);
-            }
-            return result;
-        }
-    }
-
-    constexpr SimplexIntegrator() noexcept = default;
-    constexpr ~SimplexIntegrator() noexcept = default;
 };
 
 

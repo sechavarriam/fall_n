@@ -92,7 +92,7 @@ public:
 
   constexpr auto get_geometry() const noexcept { return geometry_; };
 
-  constexpr auto sieve_id() const noexcept { return geometry_->sieve_id.value(); };
+  constexpr auto sieve_id() const noexcept { return geometry_->sieve_id(); };
   constexpr auto node_p(std::size_t i) const noexcept { return geometry_->node_p(i); };
 
   const std::string& physical_group() const noexcept { return geometry_->physical_group(); }
@@ -108,7 +108,7 @@ public:
   constexpr inline auto bind_integration_points() noexcept{
     std::size_t count{0};
     for (auto &point : material_points_){
-      point.bind_integration_point(geometry_->integration_point_[count++]);
+      point.bind_integration_point(geometry_->integration_points()[count++]);
     }
   };
 
