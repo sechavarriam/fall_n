@@ -67,7 +67,7 @@ class BeamElement {
 
     using StateVariableT  = typename BeamPolicy::StateVariableT;
     using MaterialT       = Material<BeamPolicy>;
-    using MaterialSectionT = MaterialSection<BeamPolicy>;
+    using MaterialSectionT = MaterialSection<BeamPolicy, Dim>;
 
     // DOFs per node: in 2D = 3 (u,v,θ), in 3D = 6 (u,v,w,θx,θy,θz)
     static constexpr std::size_t dofs_per_node = (Dim == 2) ? 3 : 6;
@@ -89,15 +89,15 @@ class BeamElement {
     double length_{0.0};
 
     // ── DOF index cache ─────────────────────────────────────────────────
-    std::vector<PetscInt> dof_indices_;
-    bool                  dofs_cached_{false};
+    mutable std::vector<PetscInt> dof_indices_;
+    mutable bool                  dofs_cached_{false};
 
-    void ensure_dof_cache() noexcept {
+    void ensure_dof_cache() const noexcept {
         if (dofs_cached_) return;
         collect_dof_indices();
     }
 
-    void collect_dof_indices() noexcept {
+    void collect_dof_indices() const noexcept {
         const auto total = dofs_per_node * num_nodes();
         dof_indices_.clear();
         dof_indices_.reserve(total);
@@ -253,7 +253,7 @@ class BeamElement {
 
     // ── Extract element DOFs from PETSc vector ──────────────────────────
 
-    Eigen::VectorXd extract_element_dofs(Vec u_local) {
+    Eigen::VectorXd extract_element_dofs(Vec u_local) const {
         ensure_dof_cache();
         const auto n = static_cast<PetscInt>(dof_indices_.size());
         Eigen::VectorXd u_e(n);
@@ -278,9 +278,79 @@ public:
 
     auto& sections() noexcept { return sections_; }
     const auto& sections() const noexcept { return sections_; }
+    const auto& geometry() const noexcept { return *geometry_; }
 
     double element_length() const noexcept { return length_; }
     const auto& rotation_matrix() const noexcept { return R_; }
+
+    auto local_state_vector(Vec u_local) const {
+        Eigen::VectorXd u_e = extract_element_dofs(u_local);
+        auto T = transformation_matrix();
+        return (T * u_e).eval();
+    }
+
+    StateVariableT sample_generalized_strain_local(
+        double xi,
+        const Eigen::Vector<double, total_dofs>& u_loc) const
+    {
+        StateVariableT strain;
+        strain.set_components(B_local(xi) * u_loc);
+        return strain;
+    }
+
+    StateVariableT sample_generalized_strain_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, total_dofs>& u_loc) const
+    {
+        const auto xi = geometry_->reference_integration_point(gp);
+        return sample_generalized_strain_local(xi[0], u_loc);
+    }
+
+    auto sample_resultants_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, total_dofs>& u_loc) const
+    {
+        return sections_[gp].compute_response(sample_generalized_strain_at_gp(gp, u_loc));
+    }
+
+    Eigen::Vector<double, Dim> sample_centerline_translation_local(
+        double xi,
+        const Eigen::Vector<double, total_dofs>& u_loc) const
+    {
+        Eigen::Vector<double, Dim> u = Eigen::Vector<double, Dim>::Zero();
+        const double n1 = N1(xi);
+        const double n2 = N2(xi);
+
+        if constexpr (Dim == 2) {
+            u[0] = n1 * u_loc[0] + n2 * u_loc[3];
+            u[1] = n1 * u_loc[1] + n2 * u_loc[4];
+        } else {
+            u[0] = n1 * u_loc[0] + n2 * u_loc[6];
+            u[1] = n1 * u_loc[1] + n2 * u_loc[7];
+            u[2] = n1 * u_loc[2] + n2 * u_loc[8];
+        }
+
+        return u;
+    }
+
+    Eigen::Vector3d sample_rotation_vector_local(
+        double xi,
+        const Eigen::Vector<double, total_dofs>& u_loc) const
+    {
+        Eigen::Vector3d theta = Eigen::Vector3d::Zero();
+        const double n1 = N1(xi);
+        const double n2 = N2(xi);
+
+        if constexpr (Dim == 2) {
+            theta[2] = n1 * u_loc[2] + n2 * u_loc[5];
+        } else {
+            theta[0] = n1 * u_loc[3] + n2 * u_loc[9];
+            theta[1] = n1 * u_loc[4] + n2 * u_loc[10];
+            theta[2] = n1 * u_loc[5] + n2 * u_loc[11];
+        }
+
+        return theta;
+    }
 
     // ── Element stiffness matrix (elastic) ──────────────────────────────
     //
@@ -409,9 +479,14 @@ public:
         : geometry_{geometry}
     {
         const auto ngp = geometry_->num_integration_points();
+        if (geometry_->integration_points().size() != ngp) {
+            geometry_->setup_integration_points(0);
+        }
         sections_.reserve(ngp);
-        for (std::size_t gp = 0; gp < ngp; ++gp)
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
             sections_.emplace_back(MaterialSectionT{section_material});
+            sections_.back().bind_integration_point(geometry_->integration_points()[gp]);
+        }
 
         compute_frame();
     }

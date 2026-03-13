@@ -124,6 +124,7 @@
 #include "../../MaterialPolicy.hh"
 #include "../../Material.hh"
 #include "../../ConstitutiveRelation.hh"
+#include "../../SectionConstitutiveSnapshot.hh"
 
 
 // =============================================================================
@@ -216,6 +217,7 @@ private:
 
     // ── Section-level internal state ──────────────────────────────────
     mutable FiberSectionState state_;
+    mutable std::vector<FiberSectionSample> fiber_field_cache_;
 
 
     // =================================================================
@@ -436,6 +438,30 @@ public:
 
     [[nodiscard]] const std::vector<Fiber>& fibers() const noexcept { return fibers_; }
     [[nodiscard]]       std::vector<Fiber>& fibers()       noexcept { return fibers_; }
+
+    [[nodiscard]] std::span<const FiberSectionSample> fiber_field_snapshot(const KinematicT& e) const {
+        if (fiber_field_cache_.size() != fibers_.size()) {
+            fiber_field_cache_.resize(fibers_.size());
+        }
+
+        for (std::size_t i = 0; i < fibers_.size(); ++i) {
+            const auto& fiber = fibers_[i];
+            const double eps_f = fiber_strain(e, fiber.y, fiber.z);
+
+            Strain<1> strain_1d;
+            strain_1d.set_components(eps_f);
+            const auto stress_1d = fiber.material.compute_response(strain_1d);
+
+            fiber_field_cache_[i] = FiberSectionSample{
+                    .y = fiber.y,
+                    .z = fiber.z,
+                    .area = fiber.A,
+                    .strain_xx = eps_f,
+                    .stress_xx = stress_1d.components(),
+                };
+        }
+        return fiber_field_cache_;
+    }
 
 
     // =================================================================

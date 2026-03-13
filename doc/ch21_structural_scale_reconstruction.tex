@@ -1,0 +1,357 @@
+\chapter{Structural Scale Reconstruction and Multi-Block VTK Export}
+
+\section{Motivation}
+
+The continuum exporter described in earlier chapters is not sufficient for
+structural finite elements.  Beams and shells do not store a full
+three-dimensional stress or strain field at every spatial point.  Instead,
+their formulation \emph{degenerates} the continuum kinematics into a smaller
+set of generalized measures:
+\begin{itemize}
+  \item beam sections carry axial strain, curvature, shear strains, and
+        torsion rate;
+  \item shell sections carry membrane strains, curvatures, and transverse
+        shears.
+\end{itemize}
+
+For the present work, reconstructing the lost three-dimensional field is not a
+mere visualisation problem.  The same machinery will later be used for
+\emph{scale reconstruction}: transferring a reduced structural solution into an
+initial condition for a continuum discretisation.  For that reason, the
+reconstruction logic must live in its own compile-time module rather than be
+buried inside a VTK writer.
+
+\section{Architectural Split}
+
+The implementation introduced in this phase is organised in three layers:
+\begin{enumerate}
+  \item \textbf{Constitutive snapshot layer}.  The type-erased
+        \texttt{Material<Policy>} now exports a lightweight
+        \texttt{SectionConstitutiveSnapshot}.  This is the structural analogue
+        of the previously introduced \texttt{InternalFieldSnapshot}.  It
+        carries only the constitutive data needed to reconstruct a section:
+        beam stiffness parameters $(E,G,A,I_y,I_z,J,k_y,k_z)$, shell thickness
+        parameters $(E,\nu,G,t,\kappa)$, and, when applicable, the current
+        fiber field.
+  \item \textbf{Reduction / reconstruction layer}.  The new
+        \texttt{StructuralReductionPolicy<ElementT>} specialisations in
+        \texttt{src/reconstruction/StructuralFieldReconstruction.hh} encode the
+        formulation-specific mapping from reduced kinematics to reconstructed
+        fields.  These policies are specialised for:
+        \begin{itemize}
+          \item \texttt{BeamElement<TimoshenkoBeam3D,3>},
+          \item \texttt{TimoshenkoBeamN<N>},
+          \item \texttt{ShellElement<MindlinReissnerShell3D>}.
+        \end{itemize}
+  \item \textbf{Carrier / export layer}.  The new
+        \texttt{StructuralVTMExporter} builds a \texttt{.vtm} multi-block file
+        from the reconstruction layer.  It does not implement beam or shell
+        theory; it only requests samples from the reduction policy and maps
+        them onto VTK carriers.
+\end{enumerate}
+
+This split is deliberate.  The exporter is allowed to disappear or to be
+replaced by another post-processing backend; the reconstruction module should
+remain valid because it expresses the structural theory itself.
+
+\section{Spatial Roles and Ontology}
+
+The reconstruction work reinforced the ontology introduced during the domain
+refactor:
+\begin{itemize}
+  \item \texttt{Point} remains pure geometry.
+  \item \texttt{Vertex} remains a geometric mesh entity.
+  \item \texttt{Node} remains a carrier of degrees of freedom.
+  \item \texttt{IntegrationPoint<dim>} is a spatial sampling site in the
+        \emph{embedding} dimension, not in the topological dimension.
+  \item \texttt{MaterialPoint} is a continuum constitutive role layered on an
+        \texttt{IntegrationPoint}.
+  \item \texttt{MaterialSection} is the structural analogue of
+        \texttt{MaterialPoint}: a constitutive role layered on an integration
+        site, but carrying generalized beam or shell measures.
+  \item \texttt{NodeSection} is a nodal geometric station, not a constitutive
+        point.
+\end{itemize}
+
+The crucial correction in this phase is that \texttt{MaterialSection} now binds
+to \texttt{IntegrationPoint<MaterialPolicy::dim>}, i.e.\ to a point in the
+embedding space.  The previous 1D-only design was semantically too narrow even
+for beams, because the constitutive site of a beam is spatially embedded in
+$\mathbb{R}^3$.
+
+\section{Constitutive Snapshots}
+
+The new \texttt{SectionConstitutiveSnapshot} is returned by a single extra
+virtual method on the type-erased material wrapper.  This follows the same
+reasoning as the internal-field export: the runtime indirection is paid only
+when post-processing asks for it, whereas the reconstruction kernels still
+operate with fully static element and field types.
+
+\subsection{Beam Snapshot}
+
+For elastic Timoshenko sections the snapshot contains:
+\[
+\{E,\; G,\; A,\; I_y,\; I_z,\; J,\; k_y,\; k_z\}.
+\]
+This is sufficient to reconstruct the standard sectional field:
+\[
+\varepsilon_{xx}(y,z) = \varepsilon_0 - z\,\kappa_y + y\,\kappa_z,
+\]
+\[
+\sigma_{xx}(y,z) = E\,\varepsilon_{xx}(y,z),
+\]
+\[
+\tau_{xy} = G\,\gamma_y, \qquad \tau_{xz} = G\,\gamma_z.
+\]
+
+For higher-fidelity torsion reconstruction one would need a section warping
+model.  The present implementation does \emph{not} invent one.  Torsion
+remains available as a generalized measure, and can later be lifted by a
+specialised profile/warping policy.
+
+\subsection{Shell Snapshot}
+
+For Mindlin--Reissner shells the snapshot contains:
+\[
+\{E,\; \nu,\; G,\; t,\; \kappa\}.
+\]
+Given the mid-surface generalized strains
+\[
+\{\varepsilon_{11}, \varepsilon_{22}, \gamma_{12},
+  \kappa_{11}, \kappa_{22}, \kappa_{12},
+  \gamma_{13}, \gamma_{23}\},
+\]
+the through-thickness reconstruction is:
+\[
+\varepsilon_{11}(z) = \varepsilon_{11}^0 + z\,\kappa_{11}, \qquad
+\varepsilon_{22}(z) = \varepsilon_{22}^0 + z\,\kappa_{22},
+\]
+\[
+\gamma_{12}(z) = \gamma_{12}^0 + z\,\kappa_{12}, \qquad
+\gamma_{13}(z) = \gamma_{13}, \qquad
+\gamma_{23}(z) = \gamma_{23}.
+\]
+For the present linear elastic shell model, the in-plane stresses are obtained
+with the plane-stress relation:
+\[
+\sigma_{11} = \frac{E}{1-\nu^2}\left(\varepsilon_{11} + \nu\varepsilon_{22}\right),
+\qquad
+\sigma_{22} = \frac{E}{1-\nu^2}\left(\nu\varepsilon_{11} + \varepsilon_{22}\right),
+\]
+\[
+\tau_{12} = G\,\gamma_{12}, \qquad
+\tau_{13} = G\,\gamma_{13}, \qquad
+\tau_{23} = G\,\gamma_{23}.
+\]
+
+\subsection{Fiber Snapshot}
+
+The previous architecture allowed nonlinear fiber sections in the solver, but
+the layout and the current fiber state were hidden behind type erasure.  This
+phase adds a structural export path that exposes the \emph{current} fiber field
+through the snapshot:
+\[
+\{y_i,\; z_i,\; A_i,\; \varepsilon_i,\; \sigma_i\}_{i=1}^{n_f}.
+\]
+This is obtained from the current generalized strain stored at the section and
+the constitutive response of each fiber material:
+\[
+\varepsilon_i = \varepsilon_0 - z_i\kappa_y + y_i\kappa_z,
+\qquad
+\sigma_i = \sigma_i(\varepsilon_i).
+\]
+No ad-hoc extrapolation is introduced: the fiber block reflects the actual
+constitutive state of the section.
+
+\section{Reduction Policies}
+
+\subsection{Why Policies and Not VTK-Specific Code}
+
+Each structural formulation degenerates the continuum in a different way.  A
+Timoshenko beam, an Euler--Bernoulli beam, an MITC shell, and a future
+geometrically exact beam do not lose the same kinematic information, and
+therefore they do not admit the same reconstruction.  A generic ``visual
+beam'' abstraction would hide this distinction and eventually become
+architecturally wrong.
+
+The chosen design is therefore:
+\[
+\texttt{StructuralReductionPolicy<ElementT>}
+\]
+with one specialisation per formulation.  This respects the origin of the
+abstraction: the reconstruction belongs to the formulation, not to the
+renderer.
+
+\subsection{3D Timoshenko Beam}
+
+For \texttt{BeamElement<TimoshenkoBeam3D,3>} and \texttt{TimoshenkoBeamN<N>},
+the reduction policy reconstructs:
+\begin{itemize}
+  \item the axis displacement,
+  \item the section rotation vector,
+  \item the generalized section strain,
+  \item the generalized section resultants,
+  \item the reconstructed section field at any local section coordinate
+        $(y,z)$.
+\end{itemize}
+
+The displacement of a reconstructed section point is computed with the standard
+small-rotation lifting:
+\[
+\mathbf{u}(y,z) = \mathbf{u}_c + \boldsymbol{\theta}\times(0,y,z).
+\]
+This is the same kinematic relation that will later be needed for continuum
+initialisation from a beam model.
+
+\subsection{MITC4 Mindlin Shell}
+
+For \texttt{ShellElement<MindlinReissnerShell3D>} the reduction policy
+reconstructs:
+\begin{itemize}
+  \item the mid-surface displacement,
+  \item the local rotation vector,
+  \item the generalized shell strain at an arbitrary parametric point,
+  \item the generalized shell resultants at a material site,
+  \item the through-thickness field at an arbitrary signed thickness position.
+\end{itemize}
+
+The displaced position of a point offset by $z$ from the mid-surface is:
+\[
+\mathbf{u}(z) = \mathbf{u}_m + \boldsymbol{\theta}\times(0,0,z).
+\]
+Again, this is not a visual trick; it is the actual lifting implied by the
+Mindlin kinematics used by the element.
+
+\section{Compile-Time and HPC Considerations}
+
+The new module intentionally favours compile-time structure over generic
+runtime indirection:
+\begin{itemize}
+  \item the reconstruction layer is specialised by concrete element type;
+  \item element-local vectors remain fixed-size Eigen objects;
+  \item no new virtual dispatch appears inside the hot reconstruction formulas;
+  \item the only extra virtual call is the constitutive section snapshot, used
+        outside the solver kernel;
+  \item the element DoF index caches were made \texttt{mutable}, so the
+        exporter and reconstruction layer can extract element-local states in
+        \texttt{const} traversals without breaking value semantics or
+        reintroducing non-const APIs.
+\end{itemize}
+
+This keeps the intended performance hierarchy intact:
+\begin{enumerate}
+  \item solver kernels remain governed by the concrete element type and Eigen
+        stack objects;
+  \item post-processing may pay a small dynamic cost at the boundary to the
+        type-erased material wrapper;
+  \item VTK-specific costs are isolated in the exporter only.
+\end{enumerate}
+
+\section{Section Profiles}
+
+To separate structural theory from rendering carriers, a second layer of
+abstraction is introduced: \texttt{SectionProfile}.
+
+\subsection{Beam Profiles}
+
+For beams, the exporter currently provides:
+\begin{itemize}
+  \item \texttt{RectangularSectionProfile<SamplesPerEdge>},
+  \item \texttt{CircularSectionProfile<Segments>}.
+\end{itemize}
+
+These profiles do not define a constitutive law.  They only provide the local
+boundary points used to build the visualization carriers.  The profile points
+are generated from \texttt{consteval} reference rings and scaled at runtime by
+the actual section dimensions.  This keeps the topology static and the
+per-element work minimal.  The VTK exporter constrains its beam and shell
+carrier types with dedicated compile-time concepts:
+\texttt{BeamSectionProfileLike} and \texttt{ShellThicknessProfileLike}.  This
+keeps the carrier contract explicit and prevents the exporter from turning into
+an untyped runtime adapter.
+
+\subsection{Shell Thickness Profile}
+
+For shells, the relevant geometric carrier is the thickness direction.  The
+new \texttt{ShellThicknessProfile<Samples>} provides compile-time sample
+locations on the interval $[-\tfrac12,\tfrac12]$.  The exporter uses this both
+for the section block and for any future scale transfer through the thickness.
+
+\section{The Multi-Block \texttt{.vtm} Contract}
+
+The exporter writes a ParaView/VTK multiblock file with the following semantic
+blocks:
+\begin{enumerate}
+  \item \texttt{axis}: reduced carrier of the structural model.
+        For beams this is the centerline polyline; for shells it is the
+        mid-surface wireframe.
+  \item \texttt{surface}: a display carrier built from the section profile
+        (beams) or the top/bottom shell surfaces.
+  \item \texttt{sections}: section stations.  For beams this contains section
+        rings; for shells this contains through-thickness section lines.
+  \item \texttt{material\_sites}: actual constitutive sites.
+  \item \texttt{fibers}: actual fibers when the section model provides them.
+\end{enumerate}
+
+Every geometric carrier that is meant to deform in ParaView carries a
+\texttt{displacement} vector in \texttt{PointData}.  Thus the standard
+\texttt{Warp By Vector} filter works directly, without any native VTK
+quadrature metadata.
+
+\subsection{A Note on Empty Trailing Blocks}
+
+The VTK XML multiblock writer may elide a trailing empty block when the last
+dataset has no geometry.  This is a writer/reader behaviour, not a loss of
+semantic information in the implementation.  The exporter therefore keeps the
+logical block layout fixed, but consumers should not rely on a trailing empty
+block being materialised on disk when, for example, no fiber section exists in
+the current model.
+
+\section{Testing Strategy}
+
+Two new tests were introduced:
+\begin{itemize}
+  \item \texttt{test\_structural\_reconstruction.cpp} verifies the
+        formulation-level reconstruction:
+        \begin{itemize}
+          \item a 3D Timoshenko beam reconstruction is checked against the
+                expected axial-plus-bending field;
+          \item a flat MITC4 shell reconstruction is checked for linear
+                through-thickness variation.
+        \end{itemize}
+  \item \texttt{test\_structural\_vtm\_export.cpp} verifies the VTK contract:
+        the axis, surface, sections, and material-sites blocks exist and carry
+        the expected arrays for both a beam and a shell model, while the fiber
+        block is emitted only when it has actual content.
+\end{itemize}
+
+The multiblock writer was also given an auxiliary method,
+\texttt{write\_with\_local\_states()}, so that the export contract can be
+tested without requiring a PETSc/MPI runtime.  This turns out to be useful
+beyond testing: it decouples the structural carriers from a specific solver
+backend and makes the exporter equally applicable to offline reconstructed
+states.  In the same spirit, the beam surface and section carriers now use the
+first and last section snapshots at the element ends instead of blindly
+reusing the first material site on both sides.  This is a small but important
+correction for future non-uniform beam sections.
+
+\section{Limitations and Future Work}
+
+This phase intentionally does not solve every structural post-processing
+problem.  The most relevant open items are:
+\begin{itemize}
+  \item Euler--Bernoulli and geometrically exact beam policies still need their
+        own reduction specialisations.
+  \item Torsional warping reconstruction is not yet implemented.
+  \item The beam section block currently uses end and material stations; a
+        future step should expose exact interpolation nodes for arbitrary
+        higher-order line elements.
+  \item For nonlinear shells with layered constitutive laws, a richer shell
+        section snapshot will be required.
+  \item Fiber blocks currently export the actual fiber field but do not yet
+        generate a finite-area carrier; they are emitted as point sites.
+\end{itemize}
+
+These are acceptable limitations because the key architectural property is now
+in place: \emph{reconstruction belongs to the structural formulation and is
+available independently of the visualization backend}.

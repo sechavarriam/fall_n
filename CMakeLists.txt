@@ -140,6 +140,44 @@ vtk_module_autoinit(
 
 add_test(NAME vtk_gauss_cloud_contract COMMAND fall_n_vtk_gauss_cloud_test)
 
+# --- Structural reconstruction test ---
+add_executable(fall_n_structural_reconstruction_test
+  tests/test_structural_reconstruction.cpp
+)
+
+target_include_directories(fall_n_structural_reconstruction_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_structural_reconstruction_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_structural_reconstruction_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_structural_reconstruction_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_structural_reconstruction_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_structural_reconstruction_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME structural_reconstruction COMMAND fall_n_structural_reconstruction_test)
+
+# --- Structural VTM export test ---
+add_executable(fall_n_structural_vtm_test
+  tests/test_structural_vtm_export.cpp
+)
+
+target_include_directories(fall_n_structural_vtm_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_structural_vtm_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_structural_vtm_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_structural_vtm_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_structural_vtm_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_structural_vtm_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME structural_vtm_export COMMAND fall_n_structural_vtm_test)
+
 # --- Serendipity element family test ---
 add_executable(fall_n_serendipity_test
   tests/test_serendipity.cpp

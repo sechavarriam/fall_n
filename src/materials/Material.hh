@@ -16,6 +16,7 @@
 #include "MaterialState.hh"
 #include "MaterialPolicy.hh"
 #include "InternalFieldSnapshot.hh"
+#include "SectionConstitutiveSnapshot.hh"
 
 #include "update_strategy/IntegrationStrategy.hh"
 
@@ -61,6 +62,7 @@ namespace impl{
       //  Default: empty (all nullopt) — elastic materials need no override.
       //  Inelastic materials fill the snapshot via if constexpr in OwningMaterialModel.
       virtual InternalFieldSnapshot internal_field_snapshot() const { return {}; }
+      virtual SectionConstitutiveSnapshot section_snapshot() const { return {}; }
    };
 
    template <typename MaterialType, typename UpdateStrategy>
@@ -123,6 +125,75 @@ namespace impl{
          return snap;
       }
 
+      SectionConstitutiveSnapshot section_snapshot() const override {
+         SectionConstitutiveSnapshot snap;
+
+         const auto& relation = material_.constitutive_relation();
+
+         if constexpr (requires {
+              relation.young_modulus();
+              relation.shear_modulus();
+              relation.area();
+         }) {
+             BeamSectionConstitutiveSnapshot beam;
+             beam.young_modulus = relation.young_modulus();
+             beam.shear_modulus = relation.shear_modulus();
+             beam.area          = relation.area();
+
+             if constexpr (requires { relation.moment_of_inertia_y(); }) {
+                 beam.moment_y = relation.moment_of_inertia_y();
+             } else if constexpr (requires { relation.moment_of_inertia(); }) {
+                 beam.moment_y = relation.moment_of_inertia();
+             }
+
+             if constexpr (requires { relation.moment_of_inertia_z(); }) {
+                 beam.moment_z = relation.moment_of_inertia_z();
+             }
+
+             if constexpr (requires { relation.torsional_constant(); }) {
+                 beam.torsion_J = relation.torsional_constant();
+             }
+
+             if constexpr (requires { relation.shear_correction_y(); }) {
+                 beam.shear_factor_y = relation.shear_correction_y();
+             } else if constexpr (requires { relation.shear_correction(); }) {
+                 beam.shear_factor_y = relation.shear_correction();
+             }
+
+             if constexpr (requires { relation.shear_correction_z(); }) {
+                 beam.shear_factor_z = relation.shear_correction_z();
+             } else if constexpr (requires { relation.shear_correction(); }) {
+                 beam.shear_factor_z = relation.shear_correction();
+             }
+
+             snap.beam = beam;
+         }
+
+         if constexpr (requires {
+              relation.young_modulus();
+              relation.poisson_ratio();
+              relation.thickness();
+         }) {
+             ShellSectionConstitutiveSnapshot shell;
+             shell.young_modulus    = relation.young_modulus();
+             shell.poisson_ratio    = relation.poisson_ratio();
+             if constexpr (requires { relation.shear_modulus(); }) {
+                 shell.shear_modulus = relation.shear_modulus();
+             }
+             shell.thickness        = relation.thickness();
+             if constexpr (requires { relation.shear_correction(); }) {
+                 shell.shear_correction = relation.shear_correction();
+             }
+             snap.shell = shell;
+         }
+
+         if constexpr (requires { relation.fiber_field_snapshot(material_.current_state()); }) {
+             snap.fibers = relation.fiber_field_snapshot(material_.current_state());
+         }
+
+         return snap;
+      }
+
       explicit OwningMaterialModel(MaterialType material, UpdateStrategy strategy): 
           material_ {std::move(material)}, 
           strategy_ {std::move(strategy)}
@@ -162,6 +233,10 @@ public:
    // ── Internal state export (post-processing) ──────────────────────────
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
        return pimpl_->internal_field_snapshot();
+   }
+
+   [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const {
+       return pimpl_->section_snapshot();
    }
 
 public:
