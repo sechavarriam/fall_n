@@ -1,0 +1,109 @@
+% =============================================================================
+%  Chapter 20 — VTK Export Cleanup
+% =============================================================================
+
+\chapter{VTK Export Cleanup}
+\label{ch:vtk_cleanup}
+
+This chapter documents the cleanup pass that reduced the VTK layer to the
+smallest operational contract that still preserves extension points.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Retained Responsibilities}
+\label{sec:vtk_cleanup_retained}
+
+After the cleanup, the active VTK surface in \texttt{fall\_n} is:
+\begin{itemize}[nosep]
+  \item \texttt{VTKCellTraits.hh}: mapping from \texttt{fall\_n} topology to
+        VTK cell ids and local-node permutations;
+  \item \texttt{VTKTensorFieldDerivatives.hh}: deterministic tensor-to-scalar
+        post-processing utilities;
+  \item \texttt{VTKModelExporter.hh}: split export of the continuum mesh and
+        the Gauss cloud;
+  \item \texttt{PVDWriter.hh}: time-series collection writer.
+\end{itemize}
+
+This is enough for the current library needs:
+\begin{itemize}[nosep]
+  \item clean nodal contour plots on the mesh;
+  \item faithful material-point inspection on a warpable Gauss cloud;
+  \item explicit scalar invariants for ParaView;
+  \item time-series support through \texttt{.pvd}.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Removed Complexity}
+\label{sec:vtk_cleanup_removed}
+
+The cleanup explicitly removed three categories of dead or unstable
+implementation:
+\begin{enumerate}[nosep]
+  \item embedded native quadrature export as part of the main exporter API;
+  \item the mixed single-file visualization mesh that combined continuum cells
+        and Gauss glyphs in one \texttt{.vtu};
+  \item broad VTK rendering and GUI dependencies from the common include path.
+\end{enumerate}
+
+These paths were not removed because they were impossible.  They were removed
+because they increased API surface, state management, and cognitive load
+without yielding a robust everyday workflow in ParaView.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why the Split Export Is the Right Current Boundary}
+\label{sec:vtk_cleanup_boundary}
+
+The split contract is not merely a fallback; it is the correct current
+boundary between FE post-processing and VTK:
+\begin{itemize}[nosep]
+  \item the continuum mesh remains semantically clean;
+  \item the Gauss cloud carries only material-point quantities;
+  \item \texttt{Warp By Vector} works directly on both datasets;
+  \item ParaView is not asked to reconstruct semantics from ambiguous metadata;
+  \item the exporter state is easy to test and reason about.
+\end{itemize}
+
+This matters architecturally.  A post-processing layer should not be clever
+just because VTK allows it; it should be explicit enough that future extensions
+do not inherit accidental complexity.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Compile-Time and Dependency Impact}
+\label{sec:vtk_cleanup_compiletime}
+
+The cleanup also reduced compilation and linkage overhead:
+\begin{itemize}[nosep]
+  \item \texttt{header\_files.hh} no longer pulls the broad
+        \texttt{VTKheaders.hh} compatibility umbrella;
+  \item the compatibility umbrella itself was reduced to minimal data-model and
+        IO includes for legacy code;
+  \item the CMake VTK dependency set now targets only the modules needed by the
+        active exporter and tests.
+\end{itemize}
+
+This follows the library's general HPC-oriented guideline: keep heavyweight and
+GUI-oriented dependencies out of the transitive include path unless they are
+strictly required.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Retained Extension Points}
+\label{sec:vtk_cleanup_extensions}
+
+The cleanup did \emph{not} freeze the VTK layer.  The intended extension points
+remain:
+\begin{itemize}[nosep]
+  \item adding new explicit scalar filters from tensor data;
+  \item adding new Gauss-cloud fields as constitutive models evolve;
+  \item extending \texttt{VTKCellTraits} as new geometries are introduced;
+  \item adding alternate writers as isolated adapters rather than as branches
+        inside the main exporter.
+\end{itemize}
+
+That is the key design rule going forward: extend through small orthogonal
+adapters, not by re-expanding \texttt{VTKModelExporter} into a multipurpose
+state machine.
+

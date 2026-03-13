@@ -18,22 +18,29 @@
 //      strain, equivalent plastic strain) based on the Model's
 //      MaterialPolicy.  Zero cost for fields that don't exist.
 //
-//    • Dual Gauss-point representation:
+//    • ParaView-oriented field naming:
+//        raw tensor arrays are exported as `*_voigt`, while explicit scalar
+//        views such as `qp_stress_xx`, `qp_stress_von_mises`,
+//        `nodal_strain_equivalent_strain`, etc. are generated alongside
+//        them to avoid ambiguous rendering of raw Voigt tensors in
+//        quadrature-aware pipelines.
 //
-//        GaussPointView   — full fidelity: each Gauss point is a VTK
-//                           vertex in a separate vtkUnstructuredGrid.
-//                           Fields are per-point.  Use ParaView's
-//                           "Gauss Points" or "Point Gaussian" repr.
+//    • Split ParaView export:
 //
-//        NodalProjectionView — smooth contours: Gauss-point fields are
-//                              transferred onto the mesh nodes using either
-//                              lumped L2 or polynomial patch recovery,
-//                              selected automatically by default.  A low-order
-//                              volume average is kept only as an explicit
-//                              fallback path.  Fields are PointData on the
-//                              primary mesh grid, ready for contour plots.
+//        MeshView              — `*_mesh.vtu` carries the continuum mesh with
+//                                 displacement and nodal projections only.
 //
-//      Both are emitted simultaneously.
+//        GaussCloudView        — `*_gauss.vtu` carries one VTK_VERTEX per
+//                                 material point, plus the displacement field
+//                                 interpolated to those points so Warp By
+//                                 Vector works directly on the Gauss cloud.
+//
+//        NodalProjectionView   — smooth contours: Gauss-point fields are
+//                                 transferred onto the mesh nodes using
+//                                 either lumped L2 or polynomial patch
+//                                 recovery, selected automatically by
+//                                 default. A low-order volume average is
+//                                 kept only as an explicit fallback path.
 //
 //  ── Usage ───────────────────────────────────────────────────────────────
 //
@@ -49,10 +56,10 @@
 //    // polynomial patch recovery.
 //    exporter.compute_material_fields();
 //
-//    // Write primary mesh with nodal displacement + projected fields
+//    // Write the clean continuum mesh.
 //    exporter.write_mesh("output/result.vtu");
 //
-//    // Write Gauss-point cloud with full-fidelity fields
+//    // Write the Gauss-point cloud with interpolated displacement.
 //    exporter.write_gauss_points("output/gauss_result.vtu");
 //
 // ═══════════════════════════════════════════════════════════════════════════
@@ -70,16 +77,17 @@
 #include <petsc.h>
 #include <Eigen/Dense>
 
-// VTK includes — confined to post-processing module
-#include "VTKheaders.hh"
 #include "VTKCellTraits.hh"
 
+#include <vtkNew.h>
+#include <vtkSmartPointer.h>
 #include <vtkDoubleArray.h>
-#include <vtkUnstructuredGrid.h>
-#include <vtkPoints.h>
 #include <vtkPointData.h>
-#include <vtkCellData.h>
+#include <vtkPoints.h>
+#include <vtkUnstructuredGrid.h>
 #include <vtkXMLUnstructuredGridWriter.h>
+
+#include "VTKTensorFieldDerivatives.hh"
 
 namespace fall_n::vtk {
 
@@ -364,9 +372,10 @@ private:
     std::vector<FieldBuffer> gauss_fields_;   // fields on Gauss grid
     std::vector<FieldBuffer> nodal_fields_;   // fields on mesh grid
 
-    bool has_displacement_ = false;
     MaterialFieldProjection last_material_field_projection_{
         MaterialFieldProjection::Auto};
+    std::vector<std::string> attached_mesh_point_field_names_;
+    std::vector<std::string> attached_gauss_point_field_names_;
 
     // ══════════════════════════════════════════════════════════════════════
     //  Internal: load mesh topology into VTK
@@ -454,10 +463,12 @@ private:
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  Internal: attach a FieldBuffer to a VTK grid as PointData
+    //  Internal: VTK array construction & ownership hygiene
     // ══════════════════════════════════════════════════════════════════════
 
-    static void attach_field(vtkUnstructuredGrid* grid, const FieldBuffer& field) {
+    static auto make_vtk_array(const FieldBuffer& field)
+        -> vtkSmartPointer<vtkDoubleArray>
+    {
         auto vtk_array = vtkSmartPointer<vtkDoubleArray>::New();
         vtk_array->SetNumberOfComponents(field.num_components);
         vtk_array->SetNumberOfTuples(
@@ -469,7 +480,325 @@ private:
                 i, field.data.data() + i * field.num_components);
         }
 
-        grid->GetPointData()->AddArray(vtk_array);
+        return vtk_array;
+    }
+
+    static void remove_named_arrays(vtkFieldData* data,
+                                    const std::vector<std::string>& names)
+    {
+        if (data == nullptr) return;
+        for (const auto& name : names) {
+            data->RemoveArray(name.c_str());
+        }
+    }
+
+    static void push_field_buffer(std::vector<FieldBuffer>& storage,
+                                  std::string name,
+                                  std::vector<double>&& data,
+                                  int num_components)
+    {
+        storage.push_back(FieldBuffer{
+            .name = std::move(name),
+            .data = std::move(data),
+            .num_components = num_components,
+        });
+    }
+
+    static void push_scalar_field_buffer(std::vector<FieldBuffer>& storage,
+                                         std::string name,
+                                         std::vector<double>&& data)
+    {
+        push_field_buffer(storage, std::move(name), std::move(data), 1);
+    }
+
+    static std::string nodal_name_for(std::string_view quadrature_name) {
+        constexpr std::string_view qp_prefix = "qp_";
+        if (quadrature_name.starts_with(qp_prefix)) {
+            return std::string("nodal_") +
+                std::string(quadrature_name.substr(qp_prefix.size()));
+        }
+        return std::string("nodal_") + std::string(quadrature_name);
+    }
+
+    static std::string field_prefix_from_raw_name(std::string_view raw_name) {
+        constexpr std::string_view voigt_suffix = "_voigt";
+        if (raw_name.ends_with(voigt_suffix)) {
+            return std::string(
+                raw_name.substr(0, raw_name.size() - voigt_suffix.size()));
+        }
+        return std::string(raw_name);
+    }
+
+    void clear_material_field_buffers() {
+        gauss_fields_.clear();
+
+        auto keep_from = std::remove_if(
+            nodal_fields_.begin(),
+            nodal_fields_.end(),
+            [](const auto& field) { return field.name != "displacement"; });
+        nodal_fields_.erase(keep_from, nodal_fields_.end());
+    }
+
+    void detach_mesh_exported_arrays() {
+        if (!mesh_loaded_) return;
+
+        remove_named_arrays(
+            mesh_grid_->GetPointData(), attached_mesh_point_field_names_);
+
+        attached_mesh_point_field_names_.clear();
+    }
+
+    void detach_gauss_exported_arrays() {
+        if (!gauss_loaded_) return;
+        remove_named_arrays(
+            gauss_grid_->GetPointData(), attached_gauss_point_field_names_);
+        attached_gauss_point_field_names_.clear();
+    }
+
+    static void attach_point_field(vtkUnstructuredGrid* grid,
+                                   const FieldBuffer& field) {
+        grid->GetPointData()->AddArray(make_vtk_array(field));
+    }
+
+    [[nodiscard]] const FieldBuffer* find_nodal_field(
+        std::string_view name) const noexcept
+    {
+        for (const auto& field : nodal_fields_) {
+            if (field.name == name) {
+                return std::addressof(field);
+            }
+        }
+        return nullptr;
+    }
+
+    std::vector<double> interpolate_gauss_displacement_field() const {
+        const auto* displacement = find_nodal_field("displacement");
+        if (displacement == nullptr ||
+            displacement->num_components != static_cast<int>(dim))
+        {
+            return {};
+        }
+
+        std::vector<double> gauss_displacement;
+        gauss_displacement.resize(
+            model_->get_domain().num_integration_points() * dim, 0.0);
+
+        std::size_t gp_offset = 0;
+        for (const auto& element : model_->elements()) {
+            const auto* geom = element.get_geometry();
+            if (geom == nullptr) {
+                return {};
+            }
+
+            const auto nn = element.num_nodes();
+            const auto ngp = element.num_integration_points();
+
+            for (std::size_t g = 0; g < ngp; ++g) {
+                const auto xi = geom->reference_integration_point(g);
+                double* target =
+                    gauss_displacement.data() + (gp_offset + g) * dim;
+
+                for (std::size_t i = 0; i < nn; ++i) {
+                    const double Ni = geom->H(i, xi);
+                    const auto node_id = static_cast<std::size_t>(geom->node(i));
+                    const double* nodal_u =
+                        displacement->data.data() + node_id * dim;
+                    for (std::size_t d = 0; d < dim; ++d) {
+                        target[d] += Ni * nodal_u[d];
+                    }
+                }
+            }
+
+            gp_offset += ngp;
+        }
+
+        return gauss_displacement;
+    }
+
+    static void set_active_mesh_point_fields(vtkUnstructuredGrid* grid) {
+        if (auto* pd = grid->GetPointData(); pd != nullptr) {
+            if (pd->HasArray("displacement")) {
+                pd->SetActiveVectors("displacement");
+            }
+
+            constexpr std::array<std::string_view, 5> scalar_candidates{
+                "nodal_stress_von_mises",
+                "nodal_stress_beltrami_haigh",
+                "nodal_stress_xx",
+                "nodal_strain_equivalent_strain",
+                "nodal_strain_xx",
+            };
+
+            for (auto name : scalar_candidates) {
+                if (pd->HasArray(name.data())) {
+                    pd->SetActiveScalars(name.data());
+                    break;
+                }
+            }
+        }
+    }
+
+    static void set_active_gauss_point_fields(vtkUnstructuredGrid* grid) {
+        if (auto* pd = grid->GetPointData(); pd != nullptr) {
+            if (pd->HasArray("displacement")) {
+                pd->SetActiveVectors("displacement");
+            }
+
+            constexpr std::array<std::string_view, 5> scalar_candidates{
+                "qp_stress_von_mises",
+                "qp_stress_beltrami_haigh",
+                "qp_stress_xx",
+                "qp_strain_equivalent_strain",
+                "qp_strain_xx",
+            };
+
+            for (auto name : scalar_candidates) {
+                if (pd->HasArray(name.data())) {
+                    pd->SetActiveScalars(name.data());
+                    break;
+                }
+            }
+        }
+    }
+
+    static void append_tensor_component_fields(std::vector<FieldBuffer>& storage,
+                                               std::string_view prefix,
+                                               const std::vector<double>& data)
+    {
+        constexpr auto suffixes = fall_n::vtk::detail::voigt_component_suffixes<dim>();
+        constexpr std::size_t ncomp = suffixes.size();
+        const auto num_tuples = data.size() / ncomp;
+
+        std::array<std::vector<double>, ncomp> components;
+        for (auto& buffer : components) {
+            buffer.resize(num_tuples, 0.0);
+        }
+
+        for (std::size_t tuple = 0; tuple < num_tuples; ++tuple) {
+            const double* values = data.data() + tuple * ncomp;
+            for (std::size_t c = 0; c < ncomp; ++c) {
+                components[c][tuple] = values[c];
+            }
+        }
+
+        for (std::size_t c = 0; c < ncomp; ++c) {
+            push_scalar_field_buffer(
+                storage,
+                std::string(prefix) + "_" + std::string(suffixes[c]),
+                std::move(components[c]));
+        }
+    }
+
+    static void append_stress_field_views(std::vector<FieldBuffer>& storage,
+                                          std::string_view prefix,
+                                          const std::vector<double>& data)
+    {
+        constexpr std::size_t ncomp =
+            fall_n::vtk::detail::voigt_components<dim>();
+        const auto num_tuples = data.size() / ncomp;
+
+        append_tensor_component_fields(storage, prefix, data);
+
+        std::vector<double> trace(num_tuples, 0.0);
+        std::vector<double> mean_stress(num_tuples, 0.0);
+        std::vector<double> hydrostatic_stress(num_tuples, 0.0);
+        std::vector<double> pressure(num_tuples, 0.0);
+        std::vector<double> deviatoric_norm(num_tuples, 0.0);
+        std::vector<double> J2(num_tuples, 0.0);
+        std::vector<double> von_mises(num_tuples, 0.0);
+        std::vector<double> beltrami_haigh(num_tuples, 0.0);
+        std::vector<double> triaxiality(num_tuples, 0.0);
+        std::vector<double> octahedral_shear(num_tuples, 0.0);
+
+        for (std::size_t tuple = 0; tuple < num_tuples; ++tuple) {
+            const auto scalars =
+                fall_n::vtk::detail::derive_stress_field_scalars<dim>(
+                    data.data() + tuple * ncomp);
+
+            trace[tuple] = scalars.trace;
+            mean_stress[tuple] = scalars.mean_stress;
+            hydrostatic_stress[tuple] = scalars.hydrostatic_stress;
+            pressure[tuple] = scalars.pressure;
+            deviatoric_norm[tuple] = scalars.deviatoric_norm;
+            J2[tuple] = scalars.J2;
+            von_mises[tuple] = scalars.von_mises;
+            beltrami_haigh[tuple] = scalars.beltrami_haigh;
+            triaxiality[tuple] = scalars.triaxiality;
+            octahedral_shear[tuple] = scalars.octahedral_shear_stress;
+        }
+
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_trace", std::move(trace));
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_mean_stress", std::move(mean_stress));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_hydrostatic_stress",
+            std::move(hydrostatic_stress));
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_pressure", std::move(pressure));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_deviatoric_norm",
+            std::move(deviatoric_norm));
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_J2", std::move(J2));
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_von_mises", std::move(von_mises));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_beltrami_haigh",
+            std::move(beltrami_haigh));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_triaxiality",
+            std::move(triaxiality));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_octahedral_shear_stress",
+            std::move(octahedral_shear));
+    }
+
+    static void append_strain_field_views(std::vector<FieldBuffer>& storage,
+                                          std::string_view prefix,
+                                          const std::vector<double>& data)
+    {
+        constexpr std::size_t ncomp =
+            fall_n::vtk::detail::voigt_components<dim>();
+        const auto num_tuples = data.size() / ncomp;
+
+        append_tensor_component_fields(storage, prefix, data);
+
+        std::vector<double> trace(num_tuples, 0.0);
+        std::vector<double> volumetric(num_tuples, 0.0);
+        std::vector<double> deviatoric_norm(num_tuples, 0.0);
+        std::vector<double> equivalent(num_tuples, 0.0);
+
+        for (std::size_t tuple = 0; tuple < num_tuples; ++tuple) {
+            const auto scalars =
+                fall_n::vtk::detail::derive_strain_field_scalars<dim>(
+                    data.data() + tuple * ncomp);
+
+            trace[tuple] = scalars.trace;
+            volumetric[tuple] = scalars.volumetric_strain;
+            deviatoric_norm[tuple] = scalars.deviatoric_norm;
+            equivalent[tuple] = scalars.equivalent_strain;
+        }
+
+        push_scalar_field_buffer(
+            storage, std::string(prefix) + "_trace", std::move(trace));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_volumetric_strain",
+            std::move(volumetric));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_deviatoric_norm",
+            std::move(deviatoric_norm));
+        push_scalar_field_buffer(
+            storage,
+            std::string(prefix) + "_equivalent_strain",
+            std::move(equivalent));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -761,8 +1090,16 @@ public:
 
         VecRestoreArray(u_local, &u);
 
-        nodal_fields_.push_back(std::move(fb));
-        has_displacement_ = true;
+        auto existing = std::find_if(
+            nodal_fields_.begin(),
+            nodal_fields_.end(),
+            [](const auto& field) { return field.name == "displacement"; });
+
+        if (existing != nodal_fields_.end()) {
+            *existing = std::move(fb);
+        } else {
+            nodal_fields_.push_back(std::move(fb));
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -792,6 +1129,7 @@ public:
             MaterialFieldProjection::Auto)
     {
         if constexpr (requires(element_type e) { e.material_points(); }) {
+            clear_material_field_buffers();
 
             auto& domain  = model_->get_domain();
             const auto total_gp = domain.num_integration_points();
@@ -849,39 +1187,106 @@ public:
                 }
             }
 
-            // ── Register Gauss-point fields ──────────────────────────────
-            gauss_fields_.push_back(
-                {"strain", std::move(strain_buf), nvoigt});
-            gauss_fields_.push_back(
-                {"stress", std::move(stress_buf), nvoigt});
+            auto register_gauss_strain_tensor =
+                [&](std::string raw_name, std::vector<double>&& data) {
+                    gauss_fields_.reserve(gauss_fields_.size() + 2 * nvoigt + 8);
+                    push_field_buffer(
+                        gauss_fields_, std::move(raw_name), std::move(data), nvoigt);
+                    append_strain_field_views(
+                        gauss_fields_,
+                        field_prefix_from_raw_name(gauss_fields_.back().name),
+                        gauss_fields_.back().data);
+                };
+
+            auto register_gauss_stress_tensor =
+                [&](std::string raw_name, std::vector<double>&& data) {
+                    gauss_fields_.reserve(gauss_fields_.size() + 2 * nvoigt + 16);
+                    push_field_buffer(
+                        gauss_fields_, std::move(raw_name), std::move(data), nvoigt);
+                    append_stress_field_views(
+                        gauss_fields_,
+                        field_prefix_from_raw_name(gauss_fields_.back().name),
+                        gauss_fields_.back().data);
+                };
+
+            std::vector<std::pair<std::string, std::size_t>> projected_raw_fields;
+            projected_raw_fields.reserve(4);
+
+            register_gauss_strain_tensor("qp_strain_voigt", std::move(strain_buf));
+            register_gauss_stress_tensor("qp_stress_voigt", std::move(stress_buf));
 
             if (has_plastic_strain) {
-                gauss_fields_.push_back(
-                    {"plastic_strain", std::move(eps_p_buf), nvoigt});
+                register_gauss_strain_tensor(
+                    "qp_plastic_strain_voigt", std::move(eps_p_buf));
             }
             if (has_eps_bar_p) {
-                gauss_fields_.push_back(
-                    {"equivalent_plastic_strain",
-                     std::move(eps_bar_p_buf), 1});
+                push_field_buffer(
+                    gauss_fields_,
+                    "qp_equivalent_plastic_strain",
+                    std::move(eps_bar_p_buf),
+                    1);
             }
 
-            // ── Project all Gauss-point fields to mesh nodes ─────────────
+            // ── Project raw Gauss-point fields to mesh nodes ─────────────
             for (const auto& gf : gauss_fields_) {
+                const bool is_raw_tensor = gf.name.ends_with("_voigt");
+                const bool is_projectable_scalar =
+                    gf.name == "qp_equivalent_plastic_strain";
+
+                if (!is_raw_tensor && !is_projectable_scalar) {
+                    continue;
+                }
+
+                const auto target_name = nodal_name_for(gf.name);
                 switch (resolved_strategy) {
                     case MaterialFieldProjection::LumpedL2:
-                        l2_project_to_nodes(gf.name, gf.data, gf.num_components);
+                        l2_project_to_nodes(target_name, gf.data, gf.num_components);
                         break;
                     case MaterialFieldProjection::PolynomialPatchRecovery:
                         patch_recover_to_nodes(
-                            gf.name, gf.data, gf.num_components);
+                            target_name, gf.data, gf.num_components);
                         break;
                     case MaterialFieldProjection::VolumeWeightedAveraging:
-                        spr_average_to_nodes(gf.name, gf.data, gf.num_components);
+                        spr_average_to_nodes(
+                            target_name, gf.data, gf.num_components);
                         break;
                     case MaterialFieldProjection::Auto:
                         break;
                 }
+
+                if (!nodal_fields_.empty()) {
+                    if (is_raw_tensor) {
+                        projected_raw_fields.push_back(
+                            {target_name, nodal_fields_.size() - 1});
+                    }
+                }
             }
+
+            for (const auto& [name, field_index] : projected_raw_fields) {
+                if (field_index >= nodal_fields_.size()) {
+                    continue;
+                }
+
+                if (name == "nodal_stress_voigt") {
+                    nodal_fields_.reserve(
+                        nodal_fields_.size() + 2 * nvoigt + 16);
+                    const auto& field = nodal_fields_[field_index];
+                    append_stress_field_views(
+                        nodal_fields_,
+                        field_prefix_from_raw_name(name),
+                        field.data);
+                } else if (name == "nodal_strain_voigt" ||
+                           name == "nodal_plastic_strain_voigt") {
+                    nodal_fields_.reserve(
+                        nodal_fields_.size() + 2 * nvoigt + 8);
+                    const auto& field = nodal_fields_[field_index];
+                    append_strain_field_views(
+                        nodal_fields_,
+                        field_prefix_from_raw_name(name),
+                        field.data);
+                }
+            }
+
         }
     }
 
@@ -919,30 +1324,50 @@ public:
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  write_mesh — primary mesh .vtu with nodal & projected fields
+    //  write_mesh — simple continuum mesh .vtu with nodal fields only
     // ══════════════════════════════════════════════════════════════════════
 
     void write_mesh(const std::string& filename) {
         ensure_mesh_loaded();
+        detach_mesh_exported_arrays();
 
         for (const auto& field : nodal_fields_) {
-            attach_field(mesh_grid_, field);
+            attach_point_field(mesh_grid_, field);
+            attached_mesh_point_field_names_.push_back(field.name);
         }
 
+        set_active_mesh_point_fields(mesh_grid_);
         fall_n::vtk::write_vtu(mesh_grid_, filename);
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  write_gauss_points — Gauss-point cloud .vtu (full-fidelity fields)
+    //  write_gauss_points — Gauss-point cloud .vtu with quadrature fields
     // ══════════════════════════════════════════════════════════════════════
+    //
+    //  This is the pragmatic ParaView-facing path: the material fields live on
+    //  a dedicated point cloud, and if nodal displacement is available it is
+    //  interpolated to the material points so Warp By Vector can be applied
+    //  directly on the Gauss cloud.
 
     void write_gauss_points(const std::string& filename) {
         ensure_gauss_loaded();
+        detach_gauss_exported_arrays();
 
-        for (const auto& field : gauss_fields_) {
-            attach_field(gauss_grid_, field);
+        FieldBuffer displacement;
+        displacement.name = "displacement";
+        displacement.num_components = static_cast<int>(dim);
+        displacement.data = interpolate_gauss_displacement_field();
+        if (!displacement.data.empty()) {
+            attach_point_field(gauss_grid_, displacement);
+            attached_gauss_point_field_names_.push_back(displacement.name);
         }
 
+        for (const auto& field : gauss_fields_) {
+            attach_point_field(gauss_grid_, field);
+            attached_gauss_point_field_names_.push_back(field.name);
+        }
+
+        set_active_gauss_point_fields(gauss_grid_);
         fall_n::vtk::write_vtu(gauss_grid_, filename);
     }
 
@@ -955,9 +1380,10 @@ public:
     //
 
     void clear_fields() {
+        detach_mesh_exported_arrays();
+        detach_gauss_exported_arrays();
         gauss_fields_.clear();
         nodal_fields_.clear();
-        has_displacement_ = false;
     }
 };
 

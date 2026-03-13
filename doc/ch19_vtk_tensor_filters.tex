@@ -1,0 +1,190 @@
+% =============================================================================
+%  Chapter 19 — Explicit Tensor Filters for VTK / ParaView
+% =============================================================================
+
+\chapter{Explicit Tensor Filters for VTK / ParaView}
+\label{ch:vtk_tensor_filters}
+
+The current VTK contract in \texttt{fall\_n} is intentionally simple:
+\begin{itemize}[nosep]
+  \item \texttt{*\_mesh.vtu} stores the continuum mesh and nodal fields;
+  \item \texttt{*\_gauss.vtu} stores one point per material point and the
+        quadrature fields \texttt{qp\_*};
+  \item both datasets can carry \texttt{displacement}, and the Gauss cloud
+        receives the interpolated material-point displacement explicitly.
+\end{itemize}
+
+Within that split workflow, the remaining post-processing problem is not data
+transport but \emph{field semantics}.  A raw array named simply
+\texttt{stress} or \texttt{strain} is a weak contract: it hides both the
+carrier and the tensor convention.  This chapter documents the cleaned-up
+naming and the explicit scalar filters now emitted by the exporter.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Naming Contract}
+\label{sec:vtk_tensor_filters_naming}
+
+The exporter distinguishes both \emph{location} and \emph{representation}:
+\begin{itemize}[nosep]
+  \item \texttt{nodal\_*}: values projected onto mesh nodes;
+  \item \texttt{qp\_*}: values evaluated or stored at material points;
+  \item \texttt{\_voigt}: raw symmetric-tensor storage in the library's Voigt
+        convention;
+  \item scalar suffixes such as \texttt{\_xx}, \texttt{\_von\_mises}, or
+        \texttt{\_equivalent\_strain}: explicit post-processing views.
+\end{itemize}
+
+Examples:
+\begin{itemize}[nosep]
+  \item \texttt{qp\_stress\_voigt}, \texttt{qp\_stress\_xx},
+        \texttt{qp\_stress\_von\_mises};
+  \item \texttt{nodal\_strain\_voigt}, \texttt{nodal\_strain\_xx},
+        \texttt{nodal\_strain\_equivalent\_strain};
+  \item \texttt{qp\_plastic\_strain\_voigt},
+        \texttt{nodal\_plastic\_strain\_equivalent\_strain}.
+\end{itemize}
+
+This is the main usability improvement.  The user no longer has to infer
+whether a field is nodal or quadrature-based, and the exporter no longer asks
+ParaView to reinterpret unnamed raw tensors on the fly.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Stress Filters}
+\label{sec:vtk_tensor_filters_stress}
+
+For a symmetric stress tensor $\bsigma$, the exporter emits:
+\begin{itemize}[nosep]
+  \item component scalars
+        $\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \sigma_{yz}, \sigma_{xz},
+        \sigma_{xy}$;
+  \item trace
+        \[
+          \tr(\bsigma) = \sigma_{xx} + \sigma_{yy} + \sigma_{zz};
+        \]
+  \item mean / hydrostatic stress
+        \[
+          \sigma_m = \sigma_h = \frac{1}{d}\tr(\bsigma);
+        \]
+  \item pressure
+        \[
+          p = -\sigma_m;
+        \]
+  \item deviatoric norm
+        \[
+          \|\dev \bsigma\| = \sqrt{\dev \bsigma : \dev \bsigma};
+        \]
+  \item second deviatoric invariant
+        \[
+          J_2 = \frac{1}{2}\,\dev \bsigma : \dev \bsigma;
+        \]
+  \item von Mises / Beltrami--Haigh equivalent stress
+        \[
+          \sigma_{\mathrm{vm}}
+          =
+          \sigma_{\mathrm{BH}}
+          =
+          \sqrt{\frac{3}{2}\,\dev \bsigma : \dev \bsigma};
+        \]
+  \item triaxiality
+        \[
+          \eta = \frac{\sigma_m}{\sigma_{\mathrm{vm}}};
+        \]
+  \item octahedral shear stress
+        \[
+          \tau_{\mathrm{oct}} = \sqrt{\frac{2}{3}J_2}.
+        \]
+\end{itemize}
+
+The exporter writes both \texttt{von\_mises} and
+\texttt{beltrami\_haigh}.  In this context they are numerically the same
+$J_2$-based equivalent stress, but exposing both names removes friction for
+users who search for one label or the other in ParaView.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Strain Filters}
+\label{sec:vtk_tensor_filters_strain}
+
+The strain arrays are stored in engineering Voigt notation:
+\[
+  \{\varepsilon_{xx}, \varepsilon_{yy}, \varepsilon_{zz},
+    \gamma_{yz}, \gamma_{xz}, \gamma_{xy}\},
+  \qquad
+  \gamma_{ij} = 2\varepsilon_{ij}.
+\]
+
+The exporter therefore converts the off-diagonal entries back to tensor shear
+components before evaluating invariants.  The derived strain filters are:
+\begin{itemize}[nosep]
+  \item component scalars in the stored engineering convention;
+  \item trace / volumetric strain
+        \[
+          \varepsilon_v = \tr(\bvarepsilon);
+        \]
+  \item deviatoric norm
+        \[
+          \|\dev \bvarepsilon\|
+          =
+          \sqrt{\dev \bvarepsilon : \dev \bvarepsilon};
+        \]
+  \item equivalent strain
+        \[
+          \varepsilon_{\mathrm{eq}}
+          =
+          \sqrt{\frac{2}{3}\,\dev \bvarepsilon : \dev \bvarepsilon}.
+        \]
+\end{itemize}
+
+The same reconstruction is applied to plastic-strain-like quantities, which is
+why arrays such as \texttt{qp\_plastic\_strain\_xx} and
+\texttt{nodal\_plastic\_strain\_equivalent\_strain} are available without any
+ParaView-side calculator.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why the Exporter Owns These Scalars}
+\label{sec:vtk_tensor_filters_why}
+
+There are two architectural reasons to compute the scalar filters inside
+\texttt{fall\_n}:
+\begin{enumerate}[nosep]
+  \item the library owns the tensor convention and therefore should own the
+        conversion rules;
+  \item explicit scalar arrays are stable extension points for downstream
+        scripts, regression tests, dashboards, and future post-processing
+        modules.
+\end{enumerate}
+
+This is compatible with the HPC direction of the library.  The additional work
+is restricted to post-processing, while the FE hot path remains unchanged.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Recommended ParaView Usage}
+\label{sec:vtk_tensor_filters_paraview}
+
+For smooth contours on the continuum mesh:
+\begin{enumerate}[nosep]
+  \item load \texttt{*\_mesh.vtu};
+  \item if desired, apply \texttt{Warp By Vector} with \texttt{displacement};
+  \item colour by \texttt{nodal\_stress\_von\_mises},
+        \texttt{nodal\_strain\_xx}, or any other explicit nodal scalar.
+\end{enumerate}
+
+For material-point inspection:
+\begin{enumerate}[nosep]
+  \item load \texttt{*\_gauss.vtu};
+  \item apply \texttt{Warp By Vector} directly using \texttt{displacement};
+  \item colour by \texttt{qp\_stress\_von\_mises},
+        \texttt{qp\_stress\_xx}, \texttt{qp\_strain\_equivalent\_strain}, or
+        similar explicit scalars;
+  \item use \texttt{Points} or \texttt{Point Gaussian} representation as
+        appropriate.
+\end{enumerate}
+
+The raw \texttt{\_voigt} arrays remain in the files for traceability and
+advanced tooling, but they are no longer the primary user-facing
+representation.
+

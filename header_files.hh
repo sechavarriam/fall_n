@@ -169,6 +169,5 @@
 // Post-processing Module
 // =================================================================================
 
-#include "src/post-processing/VTK/VTKheaders.hh"
 #include "src/post-processing/VTK/VTKModelExporter.hh"
 #include "src/post-processing/VTK/PVDWriter.hh"
