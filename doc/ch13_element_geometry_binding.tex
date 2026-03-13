@@ -1,0 +1,248 @@
+\chapter{Geometry-Only Element Binding}
+
+\section{Context}
+
+After the first \texttt{Domain} transition, the library already stored
+\texttt{Vertex<Dim>} as the canonical geometric entity while keeping a lazy
+\texttt{Node<Dim>} cache for analysis.  That solved the ownership problem in
+\texttt{Domain}, but a structural coupling remained in the element layer:
+\texttt{ElementGeometry} and the concrete element families still used
+\texttt{Node} as the source of physical coordinates.
+
+Architecturally, that was still inconsistent with the ontology established in
+Chapter~\ref{ch:domain-ontology}.  A \texttt{Node} is an analysis attachment
+that carries degrees of freedom, PETSc numbering, and constraints.  Geometry,
+however, only needs physical coordinates.  The second phase of the refactor
+therefore separates these two bindings inside the element geometry layer.
+
+\section{Problem Statement}
+
+Before this change, a tensor-product, simplex, or serendipity element stored a
+single pointer array
+\[
+  \{\texttt{Node<dim>*}\}_{a=1}^{n_\mathrm{node}}
+\]
+and used that same array both for:
+\begin{enumerate}[nosep]
+  \item geometric interpolation and Jacobian evaluation, and
+  \item analysis-level access to nodal degrees of freedom.
+\end{enumerate}
+
+This conflated two different roles:
+\begin{align*}
+  \text{geometry site} &\neq \text{analysis node}.
+\end{align*}
+
+Even when both roles are collocated in space, their semantics are distinct.  A
+continuum element can be fully geometrically defined from vertices without any
+DOF allocation.  Conversely, an analysis formulation may decorate a point with
+DOFs, constraints, or solver indices without changing its geometric role.
+
+\section{Design Objective}
+
+The goal of this phase was to make the geometry layer depend only on the
+minimum abstraction required for isoparametric mapping:
+
+\begin{center}
+\texttt{Point<Dim>} or a type derived from it.
+\end{center}
+
+At the same time, the analysis layer still needs direct access to
+\texttt{Node<Dim>} once PETSc sections and elemental DOFs are assigned.
+
+The desired split is therefore:
+\begin{align*}
+  \texttt{ElementGeometry}
+  &\longrightarrow
+  \texttt{Point/Vertex binding} && \text{for } x(\bxi), J(\bxi), \dd\Omega, \\
+  \texttt{ElementGeometry}
+  &\longrightarrow
+  \texttt{Node binding} && \text{for DoFs, constraints, and PETSc layout.}
+\end{align*}
+
+\section{Implemented Refactor}
+
+\subsection{New dual binding inside concrete elements}
+
+The three concrete element families
+\begin{itemize}[nosep]
+  \item \texttt{LagrangeElement},
+  \item \texttt{SimplexElement}, and
+  \item \texttt{SerendipityElement}
+\end{itemize}
+now hold two logically distinct pointer arrays:
+\begin{align*}
+  \texttt{points\_p} &:\ \texttt{Point<Dim>*} \\
+  \texttt{nodes\_p}  &:\ \texttt{Node<Dim>*}
+\end{align*}
+
+The geometry path uses only \texttt{points\_p}.  In particular:
+\begin{itemize}[nosep]
+  \item \texttt{coord\_array()},
+  \item \texttt{map\_local\_point()}, and
+  \item \texttt{evaluate\_jacobian()}
+\end{itemize}
+no longer depend on \texttt{Node}.
+
+The analysis path continues to use \texttt{nodes\_p}.  Methods such as
+\texttt{node\_p()} and all element-level DOF collection code remain unchanged.
+
+\subsection{Wrapper-level support in \texttt{ElementGeometry}}
+
+The type-erased wrapper was extended with:
+\begin{itemize}[nosep]
+  \item \texttt{bind\_point(i, Point<dim>*)},
+  \item \texttt{point\_p(i)},
+  \item existing \texttt{bind\_node(i, Node<dim>*)}, and
+  \item existing \texttt{node\_p(i)}.
+\end{itemize}
+
+This preserves the previous public API for analysis code while adding an
+explicit geometry-only binding channel.
+
+\subsection{Key compatibility rule}
+
+Whenever a \texttt{Node} is bound, the corresponding geometry point is also
+bound automatically.  In symbols:
+\[
+  \texttt{bind\_node}(i, n) \Longrightarrow \texttt{bind\_point}(i, n).
+\]
+
+This means:
+\begin{itemize}[nosep]
+  \item legacy code that only binds nodes still works unchanged;
+  \item new geometry-first code can bind vertices before any DOFs exist.
+\end{itemize}
+
+\section{Domain-Level Consequences}
+
+\subsection{Geometry-first linking}
+
+\texttt{Domain} now exposes a dedicated
+\texttt{link\_geometry\_to\_elements()} phase.  It binds each element node id to
+its canonical \texttt{Vertex<dim>}:
+\[
+  \texttt{element.node(i)} \mapsto \texttt{vertex\_by\_id[element.node(i)]}.
+\]
+
+This enables:
+\begin{itemize}[nosep]
+  \item geometric mapping,
+  \item Jacobian evaluation,
+  \item integration point placement, and
+  \item geometry-driven boundary extraction
+\end{itemize}
+without first materialising the analysis-node cache.
+
+\subsection{Boundary extraction no longer needs \texttt{node\_p().id()}}
+
+The plane-based boundary builder previously queried geometric membership
+through \texttt{elem.node\_p(local).id()}, which forced the existence of node
+bindings.  After the refactor, face detection uses only the canonical element
+connectivity:
+\[
+  \texttt{elem.node(local)}.
+\]
+
+The resulting boundary element is then:
+\begin{enumerate}[nosep]
+  \item created from the face connectivity,
+  \item immediately bound to \texttt{Vertex} objects for geometry, and
+  \item optionally bound to \texttt{Node} objects if the analysis cache already
+        exists.
+\end{enumerate}
+
+\subsection{Sieve assembly remains analysis-oriented}
+
+The PETSc sieve assembly still needs analysis nodes because sieve ids and DOF
+layout belong to the solver layer.  However, even there the distinction is now
+cleaner:
+\begin{itemize}[nosep]
+  \item geometry binding prepares the element for integration and mapping;
+  \item node binding prepares the element for DOF and PETSc interaction.
+\end{itemize}
+
+\section{Why this is efficient}
+
+\subsection{No new runtime polymorphism in the hot path}
+
+The critical loops for element integration remain unchanged:
+\begin{itemize}[nosep]
+  \item quadrature rule selection is still static via templates,
+  \item local reference-space evaluation remains compile-time typed,
+  \item Jacobian and interpolation work on fixed-size Eigen objects,
+  \item the type-erased wrapper is still crossed only at the same boundary as
+        before.
+\end{itemize}
+
+The only additional state is a pointer array to \texttt{Point<Dim>} inside each
+concrete element.  Accessing \texttt{coord(i)} through a \texttt{Point} base
+reference is not virtual; it is just a normal base-subobject access.  Therefore
+this refactor does not introduce a new dynamic-dispatch cost in the Gauss loop.
+
+\subsection{Compile-time impact}
+
+The change slightly increases template surface area in the element headers, but
+the trade-off is favourable:
+\begin{itemize}[nosep]
+  \item \texttt{Domain.hh} no longer needs to include Gmsh reader details;
+  \item geometry-only workflows can avoid dragging analysis semantics into
+        lower layers;
+  \item future specialisations can target \texttt{Point}/\texttt{Vertex}
+        independently of PETSc-related analysis infrastructure.
+\end{itemize}
+
+For an HPC-oriented codebase this is important because the hottest kernels
+remain statically shaped, while architectural boundaries become cleaner and
+easier to optimise separately.
+
+\section{Validation}
+
+The test suite was extended with geometry-first checks in the
+\texttt{domain\_vertex\_refactor} executable:
+\begin{enumerate}[nosep]
+  \item a quadrilateral element can map its centre and integrate area after
+        binding only vertices;
+  \item a boundary element generated by
+        \texttt{create\_boundary\_from\_plane()} can map and integrate from
+        vertex binding alone.
+\end{enumerate}
+
+These tests validate the new invariant:
+\begin{center}
+\emph{element geometry is usable as soon as geometry is bound, even if analysis
+nodes have not yet been materialised.}
+\end{center}
+
+\section{Architectural Interpretation}
+
+This phase does not eliminate \texttt{Node} from the library.  It puts
+\texttt{Node} back in its proper role.
+
+\begin{itemize}[nosep]
+  \item \texttt{Vertex}: canonical domain geometry/topology entity;
+  \item \texttt{Point}: minimal coordinate carrier;
+  \item \texttt{ElementGeometry}: geometric interpolation operator over bound
+        points;
+  \item \texttt{Node}: analysis decorator attached later when the model
+        introduces DOFs.
+\end{itemize}
+
+That separation is especially important for future mixed and structural
+formulations, where collocation between geometry sites, integration sites, and
+DOF-carrying sites may occur but should not collapse the underlying concepts.
+
+\section{Next Step}
+
+The next logical phase is to propagate this distinction upward:
+\begin{itemize}[nosep]
+  \item reduce remaining read paths that only need connectivity ids but still
+        access \texttt{node\_p()};
+  \item make geometry-only exporters and preprocessors depend only on
+        \texttt{Vertex}/\texttt{Point};
+  \item move more of the solver-specific state management out of
+        \texttt{Domain} and into the model/analysis side.
+\end{itemize}
+
+At that stage, \texttt{Domain} will be geometrically pure not only in storage,
+but also in the majority of its operational paths.

@@ -209,6 +209,25 @@ target_link_libraries(fall_n_node_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME node_dof_storage COMMAND fall_n_node_test)
 
+# ── Domain / Vertex refactor tests ───────────────────────────────────────────
+add_executable(fall_n_domain_test
+  tests/test_domain_vertex.cpp
+)
+
+target_include_directories(fall_n_domain_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_domain_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_domain_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_domain_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_domain_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_domain_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME domain_vertex_refactor COMMAND fall_n_domain_test)
+
 # ── Static Condensation tests ─────────────────────────────────────────────────
 add_executable(fall_n_condensation_test
   tests/test_condensation.cpp

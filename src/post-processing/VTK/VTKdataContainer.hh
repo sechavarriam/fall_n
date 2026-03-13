@@ -128,11 +128,10 @@ public:
 
     void load_domain(auto &domain) const {
         
-        vtk_points->SetNumberOfPoints(domain.num_nodes());
+        vtk_points->SetNumberOfPoints(domain.num_vertices());
         
-        for (const auto& node : domain.nodes()){
-            //vtk_points->InsertPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
-            vtk_points->SetPoint(static_cast<vtkIdType>(node.id()), node.coord(0), node.coord(1), node.coord(2));
+        for (const auto& vertex : domain.vertices()){
+            vtk_points->SetPoint(static_cast<vtkIdType>(vertex.id()), vertex.coord(0), vertex.coord(1), vertex.coord(2));
         }
 
         vtk_points->Modified();
