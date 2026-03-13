@@ -9,11 +9,15 @@
 
 #include <vtkType.h>
 
-#include "../geometry/Point.hh"
 #include "../geometry/Topology.hh"
 
 template <std::size_t dim>
 class IntegrationPoint{
+
+     // Numerical sample site used by quadrature.  It is intentionally distinct
+     // from mesh vertices/nodes even when collocated with them (e.g. Lobatto
+     // endpoints), because integration role and nodal-interpolation role are
+     // not the same concept.
 
      using Array = std::array<double, dim>;
 

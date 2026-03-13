@@ -2,13 +2,17 @@
 #define FN_NODE
 
 // =============================================================================
-//  Node<Dim, Storage>  —  geometric point + id + inline DoF storage
+//  Node<Dim, Storage>  —  analysis node = geometric location + DoF carrier
 // =============================================================================
 //
 //  The second template parameter selects the DoF index storage policy
 //  (see src/model/DoFStorage.hh).  It defaults to SmallDoFs<6>, which uses
 //  a small-buffer-optimised container: inline for ≤ 6 DoFs per node (covers
 //  solids, shells, beams), transparent heap fallback for exotic formulations.
+//
+//  Architecturally, Node is not the pure mesh-geometry entity of the domain.
+//  That role belongs to Vertex<Dim>.  Node should be understood as the
+//  analysis-layer attachment that carries primary unknowns and PETSc indexing.
 //
 //  All existing code that used  Node<dim>  continues to compile unchanged
 //  because Storage has a default value.

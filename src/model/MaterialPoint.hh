@@ -20,7 +20,10 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
         std::size_t id_; // Unique identifier for the material point.
 
-        IntegrationPoint<dim>* gauss_point_; // The integration point where the material point is located.
+        IntegrationPoint<dim>* gauss_point_;
+        // Non-owning link to the numerical sampling site.  MaterialPoint is a
+        // constitutive role layered on top of an integration site, not a
+        // geometric/topological entity of the mesh.
 
         MaterialT material_; // material instance. 
                             // It encapsulates the constitutive relation, the state variable and the update strategy.
