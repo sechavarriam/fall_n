@@ -64,7 +64,7 @@ namespace impl
         constexpr virtual PetscInt node(std::size_t i) const = 0;
         constexpr virtual const geometry::Point<dim>& point_p(std::size_t i) const = 0;
         constexpr virtual Node<dim>& node_p(std::size_t i) const = 0;
-
+ 
         constexpr virtual void bind_point(std::size_t i, const geometry::Point<dim>* point) = 0;
         constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
 

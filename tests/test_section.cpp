@@ -250,8 +250,8 @@ void test_material_section_bind_integration_point() {
 
     MaterialSection<TimoshenkoBeam3D> ms(std::move(mat));
 
-    IntegrationPoint<1> gp;
-    std::array<double, 1> coord{0.5};
+    IntegrationPoint<3> gp;
+    std::array<double, 3> coord{0.5, 0.0, 0.0};
     gp.set_coord(coord);
 
     ms.bind_integration_point(gp);
