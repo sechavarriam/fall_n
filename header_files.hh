@@ -29,6 +29,7 @@
 #include "src/geometry/SerendipityCell.hh"
 #include "src/geometry/SimplexCell.hh"
 #include "src/geometry/Point.hh"
+#include "src/geometry/Vertex.hh"
 
 //================================================================================
 // Elements Module

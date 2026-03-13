@@ -1,0 +1,608 @@
+% =============================================================================
+%  Chapter 11 — Domain Refactor Ontology
+% =============================================================================
+
+\chapter{Domain Refactor Ontology}
+\label{ch:domain-ontology}
+
+This chapter does not yet present the final implementation of the
+\texttt{Domain} refactor.  Its purpose is more foundational: to fix the
+\emph{ontology} of the codebase before more invasive changes are made.
+
+The current implementation already contains several useful abstractions:
+\texttt{Point}, \texttt{Node}, \texttt{IntegrationPoint},
+\texttt{MaterialPoint}, \texttt{NodeSection}, \texttt{MaterialSection}, and
+\texttt{SectionGeometry}.  The architectural difficulty is that some of these
+types represent \emph{different concepts that happen to coincide
+geometrically}, while others represent \emph{the same physical location under
+different numerical roles}.  If those roles are not separated explicitly,
+\texttt{Domain} becomes the place where geometry, analysis state, quadrature,
+and constitutive bookkeeping collapse into a single layer.
+
+The refactor should therefore begin by answering a simple question:
+
+\begin{quote}
+What kinds of ``points'' exist in the library, and what exactly does each one
+mean?
+\end{quote}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Architectural Diagnosis}
+\label{sec:domain-ontology-diagnosis}
+
+At present, the library contains three partially overlapping strata:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Geometric entities:} reference cells, mapped element geometry,
+        coordinates, frames, section shapes.
+  \item \textbf{Discrete unknown carriers:} nodal degrees of freedom,
+        constrained DOFs, PETSc indexing.
+  \item \textbf{Sampling / constitutive sites:} Gauss points, material points,
+        beam sections, shell sections.
+\end{enumerate}
+
+The main architectural leak is that \texttt{Node} currently belongs to both
+the first and second strata at the same time.  It is a geometric point, but
+it is also the owner of nodal DOF indices and PETSc-related mesh indexing.
+This is convenient for a first implementation, but it prevents a clean
+\texttt{Domain} abstraction because a geometry-only domain should not need to
+know anything about nodal unknown layouts.
+
+There is a second leak in the repeated use of the word \emph{section}.  In the
+current code, \emph{section} may refer to:
+
+\begin{itemize}[nosep]
+  \item a structural cross-section shape (\texttt{SectionGeometry});
+  \item a section plane located at a node (\texttt{NodeSection});
+  \item a constitutive section sample along a beam or shell
+        (\texttt{MaterialSection});
+  \item a PETSc \texttt{PetscSection}, which is purely an indexing map and not
+        a structural section at all.
+\end{itemize}
+
+These are not small naming issues.  They correspond to genuinely distinct
+mathematical objects.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Entity-by-Entity Semantics}
+\label{sec:domain-ontology-entities}
+
+\subsection{\texttt{Point<Dim>}}
+
+\texttt{Point<Dim>} is the cleanest entity in the current design.  It is a
+coordinate value type: a point in physical space with no identity, no topology,
+no DOFs, no material, and no ownership semantics beyond ordinary C++ value
+semantics.
+
+\paragraph{What it is.}
+A metric object in \(\mathbb{R}^{\mathrm{Dim}}\).
+
+\paragraph{What it is not.}
+It is not a mesh vertex, not a quadrature point, not a node in the FEM sense,
+and not a constitutive point.
+
+\paragraph{Architectural role.}
+\texttt{Point} should remain the lowest-level geometric atom.  Any richer
+entity that has coordinates should refine or contain a \texttt{Point}.
+
+
+\subsection{\texttt{Vertex<Dim>} (proposed and introduced in this step)}
+
+\texttt{Vertex<Dim>} is the missing geometry/topology abstraction.  It is a
+\texttt{Point} with a stable mesh identity, but without analysis state.  In
+other words:
+
+\[
+\texttt{Vertex} = \texttt{Point} + \texttt{mesh identity}.
+\]
+
+\paragraph{What it is.}
+A vertex of the discrete domain mesh.  It represents a topological 0-cell and
+its physical coordinates.
+
+\paragraph{What it is not.}
+It is not a carrier of primary unknowns.  It has no nodal DOFs, no constraint
+state, and no constitutive variables.
+
+\paragraph{Why it matters.}
+If \texttt{Domain} is supposed to live at the geometric level, then it should
+own \texttt{Vertex} objects, not \texttt{Node} objects.  The new
+\texttt{Vertex.hh} introduced in this iteration fixes the intended target
+abstraction without forcing an immediate rewrite of every consumer.
+
+
+\subsection{\texttt{Node<Dim, Storage>}}
+
+\texttt{Node} is currently defined as
+\[
+\texttt{Node} = \texttt{Point} + \texttt{id} + \texttt{DoF storage} +
+\texttt{PETSc/DMPlex indexing metadata}.
+\]
+
+\paragraph{What it is.}
+An analysis-layer discrete unknown carrier.  More precisely, it is a nodal site
+where one or more primary fields are stored and indexed globally.
+
+\paragraph{What it is not.}
+It should not be interpreted as the pure geometric vertex of the domain.
+
+\paragraph{Current status.}
+The current implementation uses \texttt{Node} in both senses: as the thing
+owned by the domain, and as the thing that carries DOFs.  This is precisely
+the coupling that the refactor should remove.
+
+\paragraph{Target interpretation after refactor.}
+\[
+\texttt{Node} = \texttt{Vertex} + \texttt{field attachment}.
+\]
+This does not necessarily mean inheritance.  The important point is semantic:
+\texttt{Node} belongs to the analysis/model layer, not to the geometry/domain
+layer.
+
+
+\subsection{\texttt{IntegrationPoint<dim>}}
+
+\texttt{IntegrationPoint} is a sampling site used by numerical integration.
+It stores physical coordinates, a quadrature weight, and an identifier.
+
+\paragraph{What it is.}
+A numerical quadrature sample attached to an element geometry.
+
+\paragraph{What it is not.}
+It is not a mesh vertex and not a constitutive model by itself.
+
+\paragraph{Important nuance.}
+An integration point represents a \emph{role}, not merely a location.  Two
+different entities can occupy the same coordinates and still not be the same
+thing.  This is crucial for understanding Lobatto collocation and mixed
+formulations.
+
+\paragraph{Potential improvement.}
+Eventually, \texttt{IntegrationPoint} should probably be understood as a
+\emph{sample site} with:
+
+\begin{itemize}[nosep]
+  \item a physical coordinate;
+  \item a reference coordinate;
+  \item a numerical weight;
+  \item possibly the differential measure \(|J|\) or a cached metric.
+\end{itemize}
+
+The current implementation already covers the first and third items.
+
+
+\subsection{\texttt{MaterialPoint<MaterialPolicy>}}
+
+\texttt{MaterialPoint} is the constitutive analogue of a continuum Gauss point.
+It binds a \texttt{Material<Policy>} to an \texttt{IntegrationPoint}.
+
+\paragraph{What it is.}
+A constitutive state machine attached to a continuum sampling site.
+
+\paragraph{What it is not.}
+It is not geometry, not a mesh node, and not a quadrature rule.
+
+\paragraph{Mathematical meaning.}
+For a continuum element, the geometric interpolation produces the kinematic
+state at a sampling location; the material point then stores and updates the
+constitutive history at that location:
+\[
+\texttt{ElementGeometry} \longrightarrow \texttt{IntegrationPoint}
+\longrightarrow \texttt{MaterialPoint}.
+\]
+
+
+\subsection{\texttt{SectionGeometry}}
+
+\texttt{SectionGeometry} is not a point at all.  It is the geometric
+description of a structural cross-section: area, moments of inertia, torsional
+constant, and shear factors.
+
+\paragraph{What it is.}
+Cross-section \emph{shape} data.
+
+\paragraph{What it is not.}
+It is not a location, not a node, and not a constitutive point.
+
+\paragraph{Architectural consequence.}
+The name is correct, but it must stay clearly separated from both
+\texttt{PetscSection} and \texttt{MaterialSection}.
+
+
+\subsection{\texttt{NodeSection<Dim, Geom>}}
+
+\texttt{NodeSection} combines:
+
+\begin{enumerate}[nosep]
+  \item a nodal location;
+  \item a local section frame;
+  \item a cross-section geometry.
+\end{enumerate}
+
+\paragraph{What it is.}
+A \emph{section station} located at a node, that is, a nodal section plane with
+shape data and orientation.
+
+\paragraph{What it is not.}
+It is not a constitutive sampling point unless a formulation explicitly chooses
+to collocate section constitutive evaluation at that nodal station.
+
+\paragraph{Why this distinction matters.}
+In many beam and shell formulations, the nodal section plane is a geometric
+interpolation entity, whereas the constitutive update happens at different
+quadrature stations.
+
+
+\subsection{\texttt{MaterialSection<MaterialPolicy>}}
+
+\texttt{MaterialSection} is the structural analogue of \texttt{MaterialPoint}.
+It binds a section constitutive law to an integration point along a beam axis
+or shell midsurface.
+
+\paragraph{What it is.}
+A constitutive state machine attached to a structural sampling site.
+
+\paragraph{What it is not.}
+It is not the same as \texttt{SectionGeometry}, and not the same as
+\texttt{NodeSection}.
+
+\paragraph{Mathematical meaning.}
+It stores and updates generalized stress-resultants as functions of generalized
+strain measures:
+\[
+\texttt{generalized strains} \mapsto \texttt{section resultants}.
+\]
+
+\paragraph{Architectural observation.}
+\texttt{MaterialPoint} and \texttt{MaterialSection} are role siblings.  The
+first is a continuum constitutive site; the second is a structural
+constitutive site.
+
+
+\subsection{\texttt{PetscSection}}
+
+Although it is not a C++ entity defined in this library, it deserves explicit
+mention because it introduces the strongest terminological collision.
+
+\paragraph{What it is.}
+A PETSc map from mesh points to numbers of DOFs, offsets, and constraints.
+
+\paragraph{What it is not.}
+It is neither a structural section nor a constitutive section.
+
+\paragraph{Architectural rule.}
+\texttt{PetscSection} belongs to the solver/indexing infrastructure and should
+never be allowed to contaminate the semantics of structural section objects.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Coincidence Versus Identity}
+\label{sec:domain-ontology-coincidence}
+
+The most important conceptual rule for the refactor is the following:
+
+\begin{quote}
+Two entities may coincide in space without being the same numerical object.
+\end{quote}
+
+This rule resolves the apparent paradoxes raised by Lobatto quadrature and
+mixed formulations.
+
+\subsection{Case 1: Gauss--Lobatto beam quadrature}
+
+Suppose a beam formulation uses Gauss--Lobatto integration.  Then the end
+quadrature points lie exactly at the beam endpoints.  If the beam also uses
+nodal section stations at the endpoints, then:
+
+\begin{itemize}[nosep]
+  \item the \emph{nodal section station} at the endpoint;
+  \item the \emph{quadrature point} at the endpoint;
+  \item the \emph{constitutive section sample} at the endpoint
+\end{itemize}
+
+all share the same physical coordinates.
+
+That does \emph{not} mean they should necessarily be represented by the same
+object.  Their roles are distinct:
+
+\begin{itemize}[nosep]
+  \item the nodal station belongs to interpolation and field attachment;
+  \item the quadrature point belongs to integration;
+  \item the constitutive section sample belongs to material evolution.
+\end{itemize}
+
+The right design principle is therefore:
+
+\begin{quote}
+collocation should be represented as a relationship, not as ontological
+collapse.
+\end{quote}
+
+In practice, this means that a Lobatto endpoint can be modelled as
+\emph{three roles sharing one location}, rather than as a single overloaded
+object.
+
+
+\subsection{Case 2: mixed or assumed-strain formulations}
+
+In formulations such as degenerated Timoshenko beams or MITC shell families,
+some sampling sites may acquire independent unknowns, tying variables, or
+assumed-strain parameters.
+
+Here again, the key is to separate:
+
+\begin{enumerate}[nosep]
+  \item the geometric location of the sample;
+  \item the fact that it is used in integration;
+  \item the fact that additional discrete unknowns live there.
+\end{enumerate}
+
+An integration point with independent unknowns is therefore \emph{not}
+``a node in disguise''; rather, it is a sampling site that additionally plays
+the role of a field carrier.
+
+\paragraph{Recommended interpretation.}
+The library should treat this as:
+\[
+\texttt{SampleSite} + \texttt{FieldAttachment},
+\]
+not as a reason to redefine \texttt{IntegrationPoint} itself as a node.
+
+This preserves both conceptual clarity and extensibility.  The same sampling
+site can later carry:
+
+\begin{itemize}[nosep]
+  \item a constitutive law only;
+  \item constitutive law plus internal variables;
+  \item constitutive law plus independent element-local DOFs;
+  \item tying or assumed-strain data without constitutive history.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Proposed Ontology for the Refactor}
+\label{sec:domain-ontology-proposal}
+
+The cleanest layered ontology for \texttt{fall\_n} is the following.
+
+\subsection{Layer 0: pure geometry/topology}
+
+\begin{itemize}[nosep]
+  \item \texttt{Point<Dim>}:
+        coordinates only.
+  \item \texttt{Vertex<Dim>}:
+        point + mesh identity.
+  \item \texttt{ElementGeometry<Dim>}:
+        mapped geometry, reference interpolation, quadrature mapping, face
+        extraction.
+  \item \texttt{Domain<Dim>}:
+        owns vertices, element geometries, boundary groups, and PETSc mesh
+        materialisation support, but no DOFs and no constitutive state.
+\end{itemize}
+
+\subsection{Layer 1: discrete field attachment}
+
+\begin{itemize}[nosep]
+  \item \texttt{Node}:
+        a field-bearing attachment to a vertex, carrying nodal DOFs and
+        constraints.
+  \item future internal field sites:
+        element-local unknown carriers for mixed methods or assumed-strain
+        formulations.
+  \item \texttt{PetscSection}:
+        global indexing metadata for those field sites.
+\end{itemize}
+
+\subsection{Layer 2: sampling and constitutive sites}
+
+\begin{itemize}[nosep]
+  \item \texttt{IntegrationPoint}:
+        numerical sample site.
+  \item \texttt{MaterialPoint}:
+        continuum constitutive site.
+  \item \texttt{MaterialSection}:
+        structural constitutive site.
+  \item future tying or assumed-strain sites:
+        sampled kinematic fields that may or may not have constitutive state.
+\end{itemize}
+
+\subsection{Layer 3: structural section semantics}
+
+\begin{itemize}[nosep]
+  \item \texttt{SectionGeometry}:
+        cross-section shape properties.
+  \item \texttt{NodeSection}:
+        nodal section station = node + frame + section geometry.
+  \item section constitutive relations
+        (\texttt{TimoshenkoBeamSection3D}, \texttt{MindlinShellSection},
+        \texttt{FiberSection}):
+        map generalized strains to resultants.
+\end{itemize}
+
+This layering produces a clean separation between:
+
+\begin{enumerate}[nosep]
+  \item \emph{where something is};
+  \item \emph{how it is sampled};
+  \item \emph{what unknowns live there};
+  \item \emph{what constitutive law is evaluated there}.
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implications for \texttt{Domain}}
+\label{sec:domain-ontology-domain}
+
+Under this ontology, \texttt{Domain} should evolve toward the following
+responsibilities:
+
+\begin{enumerate}[nosep]
+  \item ownership of mesh vertices;
+  \item ownership of element geometry objects;
+  \item storage of boundary groups and physical labels;
+  \item translation to \texttt{DMPlex};
+  \item topology and geometry queries.
+\end{enumerate}
+
+And it should explicitly \emph{not} own:
+
+\begin{enumerate}[nosep]
+  \item nodal DOF layouts;
+  \item constitutive points;
+  \item material state;
+  \item structural section stations;
+  \item solver vectors or matrices.
+\end{enumerate}
+
+This has a direct consequence for the current code:
+
+\begin{quote}
+\texttt{Domain} owning \texttt{Node} is architecturally temporary, not final.
+\end{quote}
+
+The first code step taken in this iteration is therefore the introduction of
+\texttt{Vertex<Dim>} as the future geometry-level entity.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{HPC and Compile-Time Guidance}
+\label{sec:domain-ontology-hpc}
+
+The user requirement for the refactor is not only architectural cleanliness but
+also efficiency in a high-performance context.  That requirement strongly
+favours a few design rules.
+
+\subsection{Prefer static structure in hot paths}
+
+The current library already uses static polymorphism effectively in the element
+kernel.  That should continue.  In particular:
+
+\begin{itemize}[nosep]
+  \item shape functions, quadrature rules, and reference-cell topology should
+        remain compile-time objects whenever possible;
+  \item constitutive updates should stay inside element-local loops with no new
+        virtual dispatch;
+  \item small fixed-size Eigen matrices are still the right choice for local
+        operators.
+\end{itemize}
+
+\subsection{Keep \texttt{Domain} simple, not hyper-generic}
+
+The right way to favour HPC here is \emph{not} to template \texttt{Domain} on
+every imaginable backend or policy.  That would increase compile times,
+fragment code paths, and create speculative abstraction.
+
+The efficient choice is:
+
+\begin{itemize}[nosep]
+  \item keep \texttt{Domain} concrete and PETSc-oriented;
+  \item separate concepts cleanly;
+  \item minimise includes and cross-layer dependencies;
+  \item keep backend-specific code concentrated in a few classes.
+\end{itemize}
+
+\subsection{Avoid type collapse when roles overlap}
+
+Role overlap should be represented through composition and index maps rather
+than inheritance-heavy unions of responsibilities.
+
+This means:
+
+\begin{itemize}[nosep]
+  \item a Lobatto endpoint may be both nodal station and quadrature sample, but
+        that is best represented by shared coordinates or shared IDs, not by
+        redefining one type to become the other;
+  \item a mixed formulation with internal DOFs at sample sites should introduce
+        a dedicated field attachment for those sites, not redefine every
+        integration point in the library as a node.
+\end{itemize}
+
+\subsection{Recommended storage philosophy}
+
+For the next stages of the refactor, the following storage strategy is the most
+coherent with the current codebase:
+
+\begin{itemize}[nosep]
+  \item \texttt{Vertex}: compact aggregate, trivially copyable if possible;
+  \item \texttt{Node}: inline or SBO DOF storage as already implemented;
+  \item \texttt{IntegrationPoint}: compact POD-like sample record;
+  \item constitutive points: element-local vectors, because they are naturally
+        owned by elements and evolved elementwise;
+  \item PETSc indexing: stored in model/solver-side data structures, not in the
+        geometric domain.
+\end{itemize}
+
+This preserves cache locality while keeping compile-time structure strong and
+runtime dispatch localized.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Migration Plan}
+\label{sec:domain-ontology-migration}
+
+The refactor should proceed incrementally.
+
+\subsection*{Phase 1: fix ontology}
+
+\begin{itemize}[nosep]
+  \item introduce \texttt{Vertex};
+  \item document the role separation;
+  \item stop using ``section'' ambiguously in new code.
+\end{itemize}
+
+\subsection*{Phase 2: decouple geometry from nodal unknowns}
+
+\begin{itemize}[nosep]
+  \item move \texttt{Domain} toward \texttt{std::vector<Vertex<dim>>};
+  \item make \texttt{ElementGeometry} depend on a geometry-only vertex concept
+        rather than directly on \texttt{Node};
+  \item relocate DOF assignment and constraints fully to \texttt{Model}.
+\end{itemize}
+
+\subsection*{Phase 3: make field attachments explicit}
+
+\begin{itemize}[nosep]
+  \item define how primary nodal unknowns are attached to vertices;
+  \item introduce dedicated internal field sites for mixed methods when needed;
+  \item keep collocation and coincidence as relationships, not type collapse.
+\end{itemize}
+
+\subsection*{Phase 4: unify constitutive-site patterns}
+
+\begin{itemize}[nosep]
+  \item consider a shared abstraction behind \texttt{MaterialPoint} and
+        \texttt{MaterialSection};
+  \item preserve policy-based constitutive dispatch and element-local storage.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:domain-ontology-conclusion}
+
+The central conclusion of this chapter is simple:
+
+\begin{quote}
+The library does not suffer from having too many abstractions; it suffers from
+having a few abstractions that currently play more than one role.
+\end{quote}
+
+The remedy is therefore not more runtime polymorphism, but better ontological
+separation:
+
+\begin{itemize}[nosep]
+  \item \texttt{Point} for coordinates;
+  \item \texttt{Vertex} for mesh geometry/topology;
+  \item \texttt{Node} for field attachment and DOFs;
+  \item \texttt{IntegrationPoint} for numerical sampling;
+  \item \texttt{MaterialPoint}/\texttt{MaterialSection} for constitutive state;
+  \item \texttt{SectionGeometry}/\texttt{NodeSection} for structural section
+        geometry and nodal section stations.
+\end{itemize}
+
+Once this distinction is enforced, the \texttt{Domain} refactor becomes much
+less ambiguous.  The domain can stay geometrically clean, the model can own the
+discrete unknowns, and the element layer can continue to exploit strong
+compile-time structure without sacrificing conceptual clarity.

@@ -118,6 +118,10 @@ Key topics include:
   \item Serendipity tensor-product and simplex element families, including
         static reference cells, benchmark validation, VTK support, and Gmsh
         import paths for HEX20 and QUA8;
+  \item A detailed ontology for the \texttt{Domain} refactor, separating
+        geometry, mesh vertices, nodal unknown carriers, integration sites,
+        constitutive points, and structural section entities under a
+        compile-time-oriented HPC design philosophy;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -143,6 +147,7 @@ discussion of the design rationale.
 \input{ch08_boundary_conditions}
 \input{ch09_element_geometry_refactor}
 \input{ch10_serendipity_elements}
+\input{ch11_domain_ontology}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}
