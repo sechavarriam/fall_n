@@ -1,0 +1,344 @@
+% =============================================================================
+%  Chapter 10 — Serendipity Element Families
+% =============================================================================
+
+\chapter{Serendipity Element Families}
+\label{ch:serendipity}
+
+This chapter documents the implementation of the new serendipity element
+families added to \texttt{fall\_n}, their integration into
+\texttt{ElementGeometry}, the associated tests, and the benchmark results.
+
+The implementation goal was architectural, not merely additive:
+to introduce a new family without changing the overall layering of the codebase.
+In particular:
+
+\begin{itemize}[nosep]
+  \item the concrete element remains a pure value type;
+  \item \texttt{ElementGeometry} continues to provide the type-erased boundary;
+  \item quadrature remains a separate compile-time policy;
+  \item no new virtual dispatch is introduced in the hot integration path.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why Serendipity?}
+\label{sec:serendipity_why}
+
+For tensor-product cells, the quadratic Lagrange family and the quadratic
+serendipity family differ substantially in node count:
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Reference cell & Quadratic Lagrange & Quadratic serendipity \\
+  \midrule
+  Quadrilateral & 9 nodes  & 8 nodes \\
+  Hexahedron    & 27 nodes & 20 nodes \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The serendipity family removes face-center and volume-center nodes while
+retaining vertex and edge nodes.  This makes the element attractive when the
+primary objective is to reduce geometry, interpolation, and assembly cost
+without dropping to first order.
+
+Architecturally, serendipity is also a good stress test of the current design.
+It requires:
+
+\begin{itemize}[nosep]
+  \item a new reference cell type;
+  \item a new concrete geometry type;
+  \item VTK support for new node counts;
+  \item optional Gmsh import support;
+  \item no changes in the physical element layer.
+\end{itemize}
+
+That is precisely the extensibility story claimed in
+\cref{sec:extensibility}; this chapter documents the claim becoming real code.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Mathematical Structure}
+\label{sec:serendipity_math}
+
+\subsection{Tensor-product serendipity on the cube}
+
+For the quadratic serendipity family on the reference hypercube
+\(\hat{\Omega} = [-1,1]^d\), nodes are located at:
+
+\begin{itemize}[nosep]
+  \item the \(2^d\) vertices;
+  \item the \(d\,2^{d-1}\) edge midpoints.
+\end{itemize}
+
+Thus, for \(d=3\), the quadratic hexahedron has
+\[
+2^3 + 3 \cdot 2^2 = 8 + 12 = 20
+\]
+nodes.
+
+\paragraph{Corner shape functions.}
+Let \(\mathbf{r} = (r_1,\dots,r_d)\) be a corner node with \(r_j \in \{-1,1\}\).
+The quadratic serendipity shape function is
+\[
+N_{\mathbf{r}}(\mathbf{x})
+=
+2^{-d}
+\Bigg( \prod_{j=1}^{d}(1+r_j x_j) \Bigg)
+\Bigg( 1 + \sum_{j=1}^{d} r_j x_j - d \Bigg).
+\]
+
+\paragraph{Edge-midpoint shape functions.}
+Let \(\mathbf{r}\) be an edge node, so exactly one component \(r_k = 0\) and all
+others are \(\pm 1\).  Then
+\[
+N_{\mathbf{r}}(\mathbf{x})
+=
+2^{1-d}(1-x_k^2)\prod_{j \ne k}(1+r_j x_j).
+\]
+
+These expressions unify the 1D, 2D, and 3D quadratic serendipity family.
+The implementation therefore uses a single generic formula for
+\texttt{TopDim} \(=1,2,3\), with compile-time node descriptors and
+\texttt{consteval} reference-node tables.
+
+\subsection{Why the tetrahedral ``serendipity'' family is different}
+
+The simplex case requires more care.  For tetrahedra at order \(p=2\), the
+standard quadratic Lagrange simplex already uses only:
+
+\begin{itemize}[nosep]
+  \item 4 vertices;
+  \item 6 edge midpoints;
+  \item no face-interior nodes;
+  \item no volume-interior nodes.
+\end{itemize}
+
+Therefore the practical quadratic tetrahedral family is already
+``serendipity-like'' in the sense relevant to this codebase: there are no
+face-center or body-center DOFs to remove.
+
+For this reason, the new \texttt{SerendipitySimplexElement} is represented as an
+explicit family alias over the existing simplex implementation for
+orders \(1\) and \(2\).  This is mathematically honest and avoids inventing an
+ad hoc reduced tetrahedron with unclear approximation properties.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implementation Structure}
+\label{sec:serendipity_impl}
+
+\subsection{Reference cells}
+
+The tensor-product family is implemented in
+\texttt{SerendipityCell.hh}.  The file introduces:
+
+\begin{itemize}[nosep]
+  \item \texttt{serendipity\_num\_nodes(top\_dim, order)};
+  \item \texttt{serendipity\_reference\_nodes<TopDim, Order>()};
+  \item \texttt{SerendipityBasis<TopDim, Order>};
+  \item \texttt{SerendipityCell<TopDim, Order>}.
+\end{itemize}
+
+Reference nodes are computed with \texttt{consteval}, so the full node layout is
+available at compile time and can participate in static assertions and
+compile-time topology generation.
+
+\subsection{Concrete geometry}
+
+The concrete tensor-product family is implemented in
+\texttt{SerendipityElement.hh} as
+\[
+\texttt{SerendipityElement<Dim, TopDim, Order>},
+\]
+mirroring the shape of the existing \texttt{SimplexElement} and
+\texttt{LagrangeElement} abstractions:
+
+\begin{itemize}[nosep]
+  \item it stores node IDs and bound node pointers;
+  \item it exposes \texttt{H()}, \texttt{dH\_dx()},
+        \texttt{map\_local\_point()}, and \texttt{evaluate\_jacobian()};
+  \item it carries a \texttt{ReferenceCell} type with compile-time topology.
+\end{itemize}
+
+The new family is therefore a first-class Layer~1 geometry type.
+
+\subsection{ElementGeometry integration}
+
+\texttt{ElementGeometry.hh} was extended in only one place:
+its face-topology and face-factory logic now recognises the serendipity family.
+No changes were required in the outer wrapper API.
+
+This confirms the architectural objective:
+the extension point is the concrete geometry type, not the type-erasure layer.
+
+\subsection{Quadrature choices}
+
+The following quadratures were selected from the rules already present in the
+library:
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  Element & Quadrature & Rationale \\
+  \midrule
+  HEX20 & \texttt{GaussLegendreCellIntegrator<3,3,3>} & full quadratic tensor-product integration \\
+  QUAD8 face & \texttt{GaussLegendreCellIntegrator<3,3>} & compatible face integration \\
+  EDGE3 face & \texttt{GaussLegendreCellIntegrator<3>} & compatible edge integration \\
+  TET10 serendipity & \texttt{SimplexIntegrator<3,2>} & same requirements as quadratic simplex \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The choice is intentionally conservative.  The goal of this first integration is
+correctness and compatibility, not aggressive reduced integration.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{VTK and Gmsh Support}
+\label{sec:serendipity_io}
+
+\subsection{VTK}
+
+\texttt{VTKCellTraits.hh} now recognises:
+
+\begin{itemize}[nosep]
+  \item 8-node quadratic serendipity quadrilaterals
+        (\texttt{VTK\_QUADRATIC\_QUAD});
+  \item 20-node quadratic serendipity hexahedra
+        (\texttt{VTK\_QUADRATIC\_HEXAHEDRON}).
+\end{itemize}
+
+The test executable writes four validation files:
+
+\begin{itemize}[nosep]
+  \item \texttt{data/output/serendipity\_hex20\_sample\_mesh.vtu}
+  \item \texttt{data/output/serendipity\_hex20\_sample\_gauss.vtu}
+  \item \texttt{data/output/serendipity\_tet10\_sample\_mesh.vtu}
+  \item \texttt{data/output/serendipity\_tet10\_sample\_gauss.vtu}
+\end{itemize}
+
+These contain both the cell geometry and the materialised Gauss cloud, together
+with a simple scalar field for visual inspection in ParaView.
+
+\subsection{Gmsh}
+
+\texttt{GmshDomainBuilder.hh} was extended with support for:
+
+\begin{itemize}[nosep]
+  \item \texttt{HEX\_20} (element type 17);
+  \item \texttt{QUA\_8} (element type 16) for boundary faces.
+\end{itemize}
+
+The chosen internal node ordering matches the standard corner-plus-edge layout,
+so no nontrivial permutation was required for these two element types.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Validation Tests}
+\label{sec:serendipity_tests}
+
+The new test executable \texttt{test\_serendipity.cpp} validates:
+
+\begin{enumerate}[nosep]
+  \item static node counts for the family;
+  \item reference-node coordinates for HEX20;
+  \item partition of unity of the HEX20 basis;
+  \item Kronecker interpolation property at all 20 reference nodes;
+  \item exact reproduction of a representative quadratic polynomial;
+  \item unit-cube volume and mixed-monomial integration through
+        \texttt{ElementGeometry};
+  \item creation and integration of quadratic serendipity face geometry;
+  \item partition of unity and volume for the tetrahedral serendipity family;
+  \item VTK cell-type dispatch and actual file generation.
+\end{enumerate}
+
+This test set is deliberately front-loaded toward interpolation quality.
+Before benchmarking or embedding the element into larger analyses, the basis
+itself must satisfy the core finite element identities.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Benchmark Results}
+\label{sec:serendipity_benchmark}
+
+The microbenchmark measures repeated geometric integration of a constant field
+through \texttt{ElementGeometry}.  It was executed locally after the full test
+suite passed.
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Case & Wall time [s] & Observation \\
+  \midrule
+  HEX20 serendipity & 6.04 & baseline for 4000 integrations \\
+  HEX27 triquadratic & 19.14 & about \(3.2\times\) slower than HEX20 \\
+  TET10 serendipity(simplex) & 0.334 & practically same as quadratic simplex \\
+  TET10 quadratic simplex & 0.364 & expected baseline \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Interpretation.}
+The HEX20 result is the important one.  The node reduction from 27 to 20 lowers
+the cost of geometry interpolation and Jacobian assembly enough to be visible
+even though both elements use the same \(3 \times 3 \times 3\) Gauss rule.
+
+The tetrahedral result confirms the modelling claim made earlier:
+at quadratic order, ``serendipity tetrahedron'' and the existing quadratic
+simplex are effectively the same finite element family in this codebase.
+
+\paragraph{Iteration after benchmarking.}
+No further optimisation was required after the first measurement because the
+results already matched the intended architectural outcome:
+
+\begin{itemize}[nosep]
+  \item reduced tensor-product node count translated into lower runtime cost;
+  \item simplex serendipity remained mathematically and computationally aligned
+        with the existing implementation;
+  \item no additional runtime indirection was introduced.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Architectural Takeaways}
+\label{sec:serendipity_takeaways}
+
+This extension validates several design choices of the current library:
+
+\begin{enumerate}[nosep]
+  \item \textbf{External polymorphism works.}
+        A new family was added without redesigning \texttt{ElementGeometry}.
+  \item \textbf{Reference-cell-centric design scales.}
+        Static reference nodes and subentity topology remain the right place to
+        encode geometric knowledge.
+  \item \textbf{Geometry and physics remain decoupled.}
+        The new elements plug into the same generic physical element and VTK
+        machinery.
+  \item \textbf{The simplex/tensor-product split is conceptually sound.}
+        The tetrahedral case did not need an artificial reduced basis, while
+        the hexahedral case benefited from a genuinely different family.
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Future Work}
+\label{sec:serendipity_future}
+
+The present implementation intentionally stops at order \(2\).  Sensible next
+steps would be:
+
+\begin{itemize}[nosep]
+  \item reduced-integration variants for HEX20;
+  \item serendipity quadrilateral usage in shell formulations;
+  \item higher-order incomplete tensor-product families if they are needed;
+  \item a more explicit distinction in the type system between
+        ``quadratic simplex'' and ``serendipity simplex'' if higher-order
+        simplex variants are later introduced.
+\end{itemize}
+
+At this stage, however, the library now has a complete and usable quadratic
+serendipity pathway for both the tensor-product and simplex branches, with
+tests, benchmark coverage, and VTK output.

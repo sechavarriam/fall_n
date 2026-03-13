@@ -32,14 +32,16 @@ inline constexpr unsigned int cell_type_from(std::size_t top_dim, std::size_t nu
     if (top_dim == 2) {
         if (num_nodes == 3) return VTK_TRIANGLE;
         if (num_nodes == 4) return VTK_QUAD;
+        if (num_nodes == 8) return VTK_QUADRATIC_QUAD;
         if (num_nodes == 6) return VTK_QUADRATIC_TRIANGLE;
-        if (num_nodes == 9) return VTK_QUADRATIC_QUAD;
+        if (num_nodes == 9) return VTK_BIQUADRATIC_QUAD;
         return VTK_LAGRANGE_QUADRILATERAL;
     }
     if (top_dim == 3) {
         if (num_nodes ==  4) return VTK_TETRA;
         if (num_nodes ==  8) return VTK_HEXAHEDRON;
         if (num_nodes == 10) return VTK_QUADRATIC_TETRA;
+        if (num_nodes == 20) return VTK_QUADRATIC_HEXAHEDRON;
         if (num_nodes == 27) return VTK_TRIQUADRATIC_HEXAHEDRON;
         return VTK_LAGRANGE_HEXAHEDRON;
     }
@@ -93,8 +95,14 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             for (std::size_t i = 0; i < 6; ++i) out[i] = o[i];
             return 6;
         }
+        if (num_nodes == 8) {
+            // VTK_QUADRATIC_QUAD
+            constexpr vtkIdType o[] = {0, 1, 2, 3, 4, 5, 6, 7};
+            for (std::size_t i = 0; i < 8; ++i) out[i] = o[i];
+            return 8;
+        }
         if (num_nodes == 9) {
-            // VTK_BIQUADRATIC_QUAD (VTK_QUADRATIC_QUAD = 9 nodes)
+            // VTK_BIQUADRATIC_QUAD
             //
             // fall_n column-major: flat = i0 + 3*i1
             //   0=(−1,−1) 1=(0,−1) 2=(+1,−1)
@@ -154,6 +162,16 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             constexpr vtkIdType o[] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 9};
             for (std::size_t i = 0; i < 10; ++i) out[i] = o[i];
             return 10;
+        }
+        if (num_nodes == 20) {
+            // VTK_QUADRATIC_HEXAHEDRON
+            constexpr vtkIdType o[] = {
+                0, 1, 2, 3, 4, 5, 6, 7,
+                8, 9, 10, 11, 12, 13, 14, 15,
+                16, 17, 18, 19
+            };
+            for (std::size_t i = 0; i < 20; ++i) out[i] = o[i];
+            return 20;
         }
     }
 

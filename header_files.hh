@@ -26,6 +26,7 @@
 #include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
 #include "src/geometry/Cell.hh"
+#include "src/geometry/SerendipityCell.hh"
 #include "src/geometry/SimplexCell.hh"
 #include "src/geometry/Point.hh"
 
@@ -47,6 +48,8 @@
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
 #include "src/elements/element_geometry/LagrangeElement.hh"
+#include "src/elements/element_geometry/SerendipityElement.hh"
+#include "src/elements/element_geometry/SerendipitySimplexElement.hh"
 #include "src/elements/element_geometry/SimplexElement.hh"
 
 

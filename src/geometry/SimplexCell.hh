@@ -269,7 +269,7 @@ public:
     ///
     ///   Order 1: D nodes per face   (just vertices)
     ///   Order 2: simplex_num_nodes(D-1, 2) nodes per face
-    static consteval std::size_t face_num_nodes(std::size_t /*f*/) {
+    static constexpr std::size_t face_num_nodes(std::size_t /*f*/) {
         return simplex_num_nodes(D - 1, Order);
     }
 
@@ -288,7 +288,7 @@ public:
         std::size_t size = 0;
     };
 
-    static consteval FaceNodeIndices face_node_indices(std::size_t f) {
+    static constexpr FaceNodeIndices face_node_indices(std::size_t f) {
         FaceNodeIndices result{};
 
         if constexpr (Order == 1) {
