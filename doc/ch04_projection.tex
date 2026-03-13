@@ -13,8 +13,9 @@ element.  For post-processing and visualisation, these quantities must be
 rendered as continuous fields in VTK/ParaView.
 
 This chapter compares the three projection methods implemented in
-\texttt{fall\_n} and justifies the choice of volume-weighted averaging as the
-default for production use.
+\texttt{fall\_n} and explains the current adaptive default: lumped $L^2$ when
+the local nodal lumping is strictly positive, and volume-weighted averaging
+otherwise.
 
 
 % ─────────────────────────────────────────────────────────────────────────
@@ -74,19 +75,32 @@ For it to be meaningful, we need
   \label{eq:denominator_positive}
 \end{equation}
 
-As demonstrated in \cref{ch:negative_weights}, this condition \emph{fails} at
-vertex nodes of TET10 when the Keast 5-point rule is used, due to the
-interaction of negative weights with negative vertex shape function values.
+As demonstrated in \cref{ch:negative_weights} and refined in
+\cref{ch:adaptive_projection}, this condition can fail in two distinct ways:
+\begin{itemize}[nosep]
+  \item \emph{catastrophically}, when negative quadrature weights amplify the
+        signed support of higher-order simplex basis functions;
+  \item \emph{structurally}, when the exact row-sum lumping
+        $\int_\Omega N_I\,\dd\Omega$ is itself non-positive, as happens for the
+        vertex functions of TET10 even under all-positive quadrature.
+\end{itemize}
+In the second case the formula is still well-defined, but it is no longer a
+nodal average.  It becomes a signed extrapolation operator, which is precisely
+what produces the spurious oscillations seen in TET10 contour plots.
 
 \paragraph{Implementation.}  The lumped $L^2$ projection is implemented in
-\texttt{l2\_project\_to\_nodes()} in \texttt{VTKModelExporter.hh}.  After the
-checkerboard diagnosis, the code was patched with an \texttt{std::abs} guard on
-the denominator:
+\texttt{l2\_project\_to\_nodes()} in \texttt{VTKModelExporter.hh}.  The legacy
+\texttt{std::abs} guard on the denominator remains in the explicit
+\texttt{LumpedL2} path as a defensive measure against future negative-weight
+rules:
 \begin{lstlisting}
 double denom = std::abs(node_lump[I]);
 if (denom < 1e-14) denom = 1e-14;
 node_val[I] /= denom;
 \end{lstlisting}
+but this is no longer relied on as the production fix for quadratic simplex
+elements.  The production path is now the adaptive resolver documented in
+\cref{ch:adaptive_projection}.
 
 
 % ─────────────────────────────────────────────────────────────────────────
@@ -195,8 +209,12 @@ The volume-weighted averaging is implemented in two methods in
   \item[\texttt{compute\_material\_fields\_spr()}]
     Applies \texttt{spr\_average\_to\_nodes()} to all material fields: strain
     tensor (6 components), stress tensor (6 components), plastic strain tensor
-    (6 components), and equivalent plastic strain (1 scalar).  This is the
-    method called in the updated \texttt{main.cpp}.
+    (6 components), and equivalent plastic strain (1 scalar).
+
+  \item[\texttt{compute\_material\_fields()}]
+    Resolves the projection strategy automatically.  It uses lumped $L^2$
+    only if every element in the model has strictly positive local lumped nodal
+    weights; otherwise it dispatches to volume-weighted averaging.
 \end{description}
 
 
@@ -204,18 +222,22 @@ The volume-weighted averaging is implemented in two methods in
 \section{Verification}
 \label{sec:projection_verification}
 
-The SPR volume-weighted averaging was verified on the cantilever benchmark
+The adaptive projection policy was verified on the cantilever benchmark
 ($10 \times 0.4 \times 0.8$ box, $E = 200$, $\nu = 0.3$):
 \begin{itemize}[nosep]
-  \item \textbf{HEX27 mesh} (20 elements, 315 nodes): Both lumped $L^2$ and
-        SPR produce smooth, visually identical stress fields.
+  \item \textbf{HEX27 mesh} (20 elements, 315 nodes): the local lumped nodal
+        weights are strictly positive, so the adaptive policy resolves to
+        lumped $L^2$.  The projected fields remain smooth.
   \item \textbf{TET10 mesh} ($\sim 1329$ elements, 2840 nodes):
     \begin{itemize}[nosep]
       \item Lumped $L^2$ with Keast-5: \textbf{checkerboard at vertices}.
-      \item Lumped $L^2$ with HMS-4 + \texttt{abs} guard: smooth, correct.
-      \item SPR volume-weighted: smooth, correct.
+      \item Lumped $L^2$ with HMS-4 or Stroud conical product: still not a
+            true nodal average, because the TET10 vertex lump weights remain
+            negative.
+      \item Adaptive mode therefore resolves to SPR volume-weighted
+            averaging, which yields smooth, correct fields.
     \end{itemize}
   \item The main showcase (\texttt{main.cpp}) now uses
-        \texttt{compute\_material\_fields\_spr()} by default for all 14~cases
-        (7~formulations $\times$ 2~element types).
+        \texttt{compute\_material\_fields()} with adaptive dispatch for all
+        14~cases (7~formulations $\times$ 2~element types).
 \end{itemize}

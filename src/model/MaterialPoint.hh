@@ -16,11 +16,9 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         using StateVariableT = MaterialPolicy::StateVariableT;
         using StressT        = MaterialPolicy::StressT;
 
-        static constexpr std::size_t dim = MaterialPolicy::dim;
-
         std::size_t id_; // Unique identifier for the material point.
 
-        IntegrationPoint<dim>* gauss_point_;
+        IntegrationPoint<MaterialPolicy::dim>* gauss_point_;
         // Non-owning link to the numerical sampling site.  MaterialPoint is a
         // constitutive role layered on top of an integration site, not a
         // geometric/topological entity of the mesh.
@@ -30,7 +28,14 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
 
     public:
 
-        std::array<double, dim> coord() const noexcept {return gauss_point_->coord();};
+        static constexpr std::size_t dim = MaterialPolicy::dim;
+
+        [[nodiscard]] const std::array<double, dim>& coord() const noexcept { return gauss_point_->coord(); }
+        [[nodiscard]] double coord(std::size_t i) const noexcept { return gauss_point_->coord(i); }
+        [[nodiscard]] const std::array<double, dim>& coord_ref() const noexcept { return gauss_point_->coord_ref(); }
+        [[nodiscard]] const double* data() const noexcept { return gauss_point_->data(); }
+        [[nodiscard]] double* data() noexcept { return gauss_point_->data(); }
+        [[nodiscard]] double weight() const noexcept { return gauss_point_->weight(); }
 
         void update_state(const StateVariableT& state) noexcept {material_.update_state(state);};
         void update_state(StateVariableT&& state) noexcept {material_.update_state(std::forward<StateVariableT>(state));};
@@ -61,6 +66,9 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;
         };
+
+        [[nodiscard]] IntegrationPoint<dim>* integration_point() noexcept { return gauss_point_; }
+        [[nodiscard]] const IntegrationPoint<dim>* integration_point() const noexcept { return gauss_point_; }
 
 
         Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components> C() {return material_.C();}; 

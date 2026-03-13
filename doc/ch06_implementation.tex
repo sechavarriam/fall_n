@@ -96,29 +96,34 @@ templates without virtual dispatch.
 \end{description}
 
 
-\subsection{Decision 3: SPR Volume-Weighted Averaging as Default Projection}
+\subsection{Decision 3: Adaptive Projection as Default}
 \label{sec:dec_spr}
 
 \begin{description}[leftmargin=0pt,style=nextline]
   \item[Context] Gauss-point fields must be projected to nodes for VTU export.
 
-  \item[Problem] Lumped $L^2$ projection is sensitive to negative quadrature
-    weights (\cref{ch:negative_weights}).  Even with HMS 4-point (all positive
-    weights), future element types or user-supplied quadrature rules could
-    reintroduce negative weights.
+  \item[Problem] Lumped $L^2$ projection is not robust on higher-order simplex
+    elements.  The issue is deeper than negative quadrature weights:
+    quadratic simplex vertex functions have signed support, so the row-sum
+    lumped nodal measures can become non-positive even when \emph{all}
+    quadrature weights are positive (\cref{ch:adaptive_projection}).
 
-  \item[Decision] Use volume-weighted averaging
-    (\texttt{spr\_average\_to\_nodes()}) as the default production projection
-    method.  This method is unconditionally robust because all weights are
-    element volumes (\cref{ch:projection}).
+  \item[Decision] Make \texttt{compute\_material\_fields()} adaptive.  The
+    exporter first inspects the local lumped nodal weights induced by the
+    current element geometry and quadrature rule.  If every local weight is
+    strictly positive, it uses lumped $L^2$ projection; otherwise it falls
+    back to volume-weighted averaging
+    (\texttt{spr\_average\_to\_nodes()}).
 
-  \item[Trade-off] Volume-weighted averaging is $O(h^k)$ vs.\ $O(h^{k+1})$
-    for lumped $L^2$, but this one-order accuracy difference is irrelevant for
-    visualisation at practical mesh sizes.
+  \item[Trade-off] The adaptive pre-scan adds one post-processing pass over
+    element quadrature points, but this cost is negligible compared with a
+    solve and preserves the smoother lumped $L^2$ path for element families
+    such as HEX27 where it is mathematically sound.
 
   \item[Source] \texttt{VTKModelExporter.hh}, methods
-    \texttt{spr\_average\_to\_nodes()} and
-    \texttt{compute\_material\_fields\_spr()}.
+    \texttt{lumped\_projection\_weights\_into()},
+    \texttt{compute\_material\_fields()}, and
+    \texttt{spr\_average\_to\_nodes()}.
 \end{description}
 
 
@@ -164,6 +169,35 @@ templates without virtual dispatch.
     incorrect on meshes where the vertex stratum does not start at point~0.
 
   \item[Source] PETSc~3.24.5, \texttt{src/sys/utils/section.c}, line~$\sim$2997.
+\end{description}
+
+
+\subsection{Decision 6: Hex27 VTK Face-Center Ordering}
+\label{sec:dec_vtk_hex27}
+
+\begin{description}[leftmargin=0pt,style=nextline]
+  \item[Context] \texttt{fall\_n} stores the 27-node tensor-product HEX27 in
+    lexicographic tensor order, while ParaView reads the exported VTU using
+    \texttt{VTK\_TRIQUADRATIC\_HEXAHEDRON}.
+
+  \item[Problem] The VTK exporter had the 6 face-center nodes partially
+    permuted.  Corners and edge midpoints were correct, but ids 20--23 did not
+    match VTK's actual \texttt{vtkTriQuadraticHexahedron} parametric-node
+    ordering.  The visible symptom was a folded or diamond-like surface pattern
+    on otherwise regular HEX27 meshes.
+
+  \item[Decision] Correct the VTK permutation in
+    \texttt{VTKCellTraits.hh}.  For the face centers, VTK expects the order
+    $(x^-, x^+, y^-, y^+, z^-, z^+)$, which maps to the internal
+    \texttt{fall\_n} indices $(12,14,10,16,4,22)$.
+
+  \item[Verification] Add a regression test that compares the exporter
+    permutation against the coordinates returned by
+    \texttt{vtkTriQuadraticHexahedron::GetParametricCoords()}, instead of
+    relying on a hand-written table alone.
+
+  \item[Source] \texttt{src/post-processing/VTK/VTKCellTraits.hh},
+    \texttt{tests/test\_simplex.cpp}.
 \end{description}
 
 

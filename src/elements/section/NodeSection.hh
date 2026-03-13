@@ -107,6 +107,12 @@ public:
 
     [[nodiscard]] auto dof_index() const noexcept { return node_->dof_index(); }
     [[nodiscard]] auto dof_index()       noexcept { return node_->dof_index(); }
+    [[nodiscard]] const dof::index_t* dof_data() const noexcept { return node_->dof_data(); }
+    [[nodiscard]] dof::index_t* dof_data() noexcept { return node_->dof_data(); }
+    [[nodiscard]] const auto& coord() const noexcept { return node_->coord(); }
+    [[nodiscard]] double coord(std::size_t i) const noexcept { return node_->coord(i); }
+    [[nodiscard]] const auto& coord_ref() const noexcept { return node_->coord_ref(); }
+    [[nodiscard]] const double* data() const noexcept { return node_->data(); }
 
     // ── Section plane access ────────────────────────────────────────────
 

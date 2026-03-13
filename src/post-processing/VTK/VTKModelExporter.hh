@@ -25,10 +25,12 @@
 //                           Fields are per-point.  Use ParaView's
 //                           "Gauss Points" or "Point Gaussian" repr.
 //
-//        L2ProjectionView — smooth contours: Gauss-point fields are
-//                           L2-projected (extrapolated + averaged) onto
-//                           the mesh nodes.  Fields are PointData on the
-//                           primary mesh grid, ready for contour plots.
+//        NodalProjectionView — smooth contours: Gauss-point fields are
+//                              transferred onto the mesh nodes using either
+//                              lumped L2 or volume-weighted averaging,
+//                              selected automatically by default.  Fields
+//                              are PointData on the primary mesh grid, ready
+//                              for contour plots.
 //
 //      Both are emitted simultaneously.
 //
@@ -40,10 +42,13 @@
 //    // Attach displacement field from model's current_state Vec
 //    exporter.set_displacement();
 //
-//    // Compute material fields (strain, stress, plasticity if present)
+//    // Compute material fields (strain, stress, plasticity if present).
+//    // The default chooses the nodal projection strategy automatically:
+//    // lumped L2 when all nodal lump weights are positive, otherwise
+//    // volume-weighted averaging (SPR-type).
 //    exporter.compute_material_fields();
 //
-//    // Write primary mesh with nodal displacement + L2-projected fields
+//    // Write primary mesh with nodal displacement + projected fields
 //    exporter.write_mesh("output/result.vtu");
 //
 //    // Write Gauss-point cloud with full-fidelity fields
@@ -81,6 +86,60 @@ inline void write_vtu(vtkUnstructuredGrid* grid, const std::string& filename) {
     writer->SetDataModeToAscii();
     writer->Update();
     writer->Write();
+}
+
+enum class MaterialFieldProjection {
+    Auto,
+    LumpedL2,
+    VolumeWeightedAveraging,
+};
+
+constexpr std::string_view to_string(MaterialFieldProjection strategy) noexcept {
+    switch (strategy) {
+        case MaterialFieldProjection::Auto:
+            return "auto";
+        case MaterialFieldProjection::LumpedL2:
+            return "lumped_l2";
+        case MaterialFieldProjection::VolumeWeightedAveraging:
+            return "volume_weighted_averaging";
+    }
+    return "unknown";
+}
+
+template <typename GeometryLike>
+std::size_t lumped_projection_weights_into(const GeometryLike& geom, double* out) {
+    const auto nn = geom.num_nodes();
+    for (std::size_t i = 0; i < nn; ++i) out[i] = 0.0;
+
+    for (std::size_t g = 0; g < geom.num_integration_points(); ++g) {
+        const auto xi = geom.reference_integration_point(g);
+        const double wJ = geom.weight(g) * geom.differential_measure(xi);
+        for (std::size_t i = 0; i < nn; ++i) {
+            out[i] += geom.H(i, xi) * wJ;
+        }
+    }
+
+    return nn;
+}
+
+template <typename GeometryLike>
+bool has_strictly_positive_lumped_projection_weights(
+    const GeometryLike& geom,
+    double tol = 1.0e-12) noexcept
+{
+    constexpr std::size_t max_local_nodes = 64;
+    if (geom.num_nodes() > max_local_nodes) {
+        return false;
+    }
+
+    std::array<double, max_local_nodes> lump{};
+    const auto nn = lumped_projection_weights_into(geom, lump.data());
+    for (std::size_t i = 0; i < nn; ++i) {
+        if (!(lump[i] > tol)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -122,6 +181,8 @@ private:
     std::vector<FieldBuffer> nodal_fields_;   // fields on mesh grid
 
     bool has_displacement_ = false;
+    MaterialFieldProjection last_material_field_projection_{
+        MaterialFieldProjection::Auto};
 
     // ══════════════════════════════════════════════════════════════════════
     //  Internal: load mesh topology into VTK
@@ -383,6 +444,29 @@ private:
         nodal_fields_.push_back(std::move(fb));
     }
 
+    MaterialFieldProjection resolve_material_field_projection(
+        MaterialFieldProjection requested) const
+    {
+        if (requested != MaterialFieldProjection::Auto) {
+            return requested;
+        }
+
+        if constexpr (requires(const element_type& e) { e.get_geometry(); }) {
+            for (const auto& element : model_->elements()) {
+                const auto* geom = element.get_geometry();
+                if (geom == nullptr) {
+                    return MaterialFieldProjection::VolumeWeightedAveraging;
+                }
+                if (!has_strictly_positive_lumped_projection_weights(*geom)) {
+                    return MaterialFieldProjection::VolumeWeightedAveraging;
+                }
+            }
+            return MaterialFieldProjection::LumpedL2;
+        } else {
+            return MaterialFieldProjection::VolumeWeightedAveraging;
+        }
+    }
+
 public:
 
     explicit VTKModelExporter(ModelT& model)
@@ -430,14 +514,22 @@ public:
     //    - Equiv. plastic strain    (inelastic only, via InternalFieldSnapshot)
     //
     //  After collecting Gauss-point buffers, all tensor/scalar fields are
-    //  L2-projected to the mesh nodes.
+    //  projected to the mesh nodes. By default the exporter resolves the
+    //  strategy automatically: lumped L2 only when every element induces a
+    //  strictly positive local nodal lumping, otherwise SPR-style averaging.
     //
 
-    void compute_material_fields() {
+    void compute_material_fields(
+        MaterialFieldProjection requested_strategy =
+            MaterialFieldProjection::Auto)
+    {
         if constexpr (requires(element_type e) { e.material_points(); }) {
 
             auto& domain  = model_->get_domain();
             const auto total_gp = domain.num_integration_points();
+            const auto resolved_strategy =
+                resolve_material_field_projection(requested_strategy);
+            last_material_field_projection_ = resolved_strategy;
 
             // ── Pre-allocate flat Gauss-point buffers ────────────────────
             std::vector<double> strain_buf;
@@ -505,11 +597,24 @@ public:
                      std::move(eps_bar_p_buf), 1});
             }
 
-            // ── L2 project all Gauss-point fields to mesh nodes ──────────
+            // ── Project all Gauss-point fields to mesh nodes ─────────────
             for (const auto& gf : gauss_fields_) {
-                l2_project_to_nodes(gf.name, gf.data, gf.num_components);
+                switch (resolved_strategy) {
+                    case MaterialFieldProjection::LumpedL2:
+                        l2_project_to_nodes(gf.name, gf.data, gf.num_components);
+                        break;
+                    case MaterialFieldProjection::VolumeWeightedAveraging:
+                        spr_average_to_nodes(gf.name, gf.data, gf.num_components);
+                        break;
+                    case MaterialFieldProjection::Auto:
+                        break;
+                }
             }
         }
+    }
+
+    void compute_material_fields_l2() {
+        compute_material_fields(MaterialFieldProjection::LumpedL2);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -522,76 +627,23 @@ public:
     // ══════════════════════════════════════════════════════════════════════
 
     void compute_material_fields_spr() {
-        if constexpr (requires(element_type e) { e.material_points(); }) {
+        compute_material_fields(MaterialFieldProjection::VolumeWeightedAveraging);
+    }
 
-            auto& domain  = model_->get_domain();
-            const auto total_gp = domain.num_integration_points();
+    [[nodiscard]] MaterialFieldProjection
+    recommended_material_field_projection() const
+    {
+        return resolve_material_field_projection(MaterialFieldProjection::Auto);
+    }
 
-            std::vector<double> strain_buf;
-            std::vector<double> stress_buf;
-            std::vector<double> eps_p_buf;
-            std::vector<double> eps_bar_p_buf;
-
-            strain_buf.reserve(total_gp * nvoigt);
-            stress_buf.reserve(total_gp * nvoigt);
-
-            bool has_plastic_strain = false;
-            bool has_eps_bar_p      = false;
-
-            for (const auto& element : model_->elements()) {
-                const auto& mat_points = element.material_points();
-
-                for (const auto& mp : mat_points) {
-                    const auto& state = mp.current_state();
-                    const auto* sdata = state.data();
-                    for (int c = 0; c < nvoigt; ++c)
-                        strain_buf.push_back(sdata[c]);
-
-                    auto stress = mp.compute_response(state);
-                    const auto* sigma = stress.data();
-                    for (int c = 0; c < nvoigt; ++c)
-                        stress_buf.push_back(sigma[c]);
-
-                    auto snap = mp.internal_field_snapshot();
-
-                    if (snap.has_plastic_strain()) {
-                        has_plastic_strain = true;
-                        for (double v : snap.plastic_strain.value())
-                            eps_p_buf.push_back(v);
-                    }
-
-                    if (snap.has_equivalent_plastic_strain()) {
-                        has_eps_bar_p = true;
-                        eps_bar_p_buf.push_back(
-                            snap.equivalent_plastic_strain.value());
-                    }
-                }
-            }
-
-            gauss_fields_.push_back(
-                {"strain", std::move(strain_buf), nvoigt});
-            gauss_fields_.push_back(
-                {"stress", std::move(stress_buf), nvoigt});
-
-            if (has_plastic_strain) {
-                gauss_fields_.push_back(
-                    {"plastic_strain", std::move(eps_p_buf), nvoigt});
-            }
-            if (has_eps_bar_p) {
-                gauss_fields_.push_back(
-                    {"equivalent_plastic_strain",
-                     std::move(eps_bar_p_buf), 1});
-            }
-
-            // ── SPR volume-weighted averaging to mesh nodes ──────────
-            for (const auto& gf : gauss_fields_) {
-                spr_average_to_nodes(gf.name, gf.data, gf.num_components);
-            }
-        }
+    [[nodiscard]] MaterialFieldProjection
+    last_material_field_projection() const noexcept
+    {
+        return last_material_field_projection_;
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  write_mesh — primary mesh .vtu with nodal & L2-projected fields
+    //  write_mesh — primary mesh .vtu with nodal & projected fields
     // ══════════════════════════════════════════════════════════════════════
 
     void write_mesh(const std::string& filename) {

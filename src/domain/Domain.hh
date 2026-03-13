@@ -88,11 +88,7 @@ public:
 
 private:
     static Node<dim> make_node_from_vertex(const geometry::Vertex<dim>& vertex) {
-        return std::apply(
-            [&vertex](auto... coords) {
-                return Node<dim>(vertex.id(), static_cast<double>(coords)...);
-            },
-            vertex.coord_ref());
+        return Node<dim>(vertex.id(), vertex.coord_ref());
     }
 
     void invalidate_vertex_index() noexcept {
@@ -164,8 +160,7 @@ public:
 
     // ── Node accessors: O(1) via direct-address table ────────────────
     Node<dim>* node_p(std::size_t id) {
-        if (!vertex_index_built_) build_vertex_index();
-        if (node_cache_valid_ && !node_index_built_) build_node_index();
+        if (!node_index_built_) build_node_index();
         return node_by_id_[id];
     }
     const Node<dim>* node_p(std::size_t id) const {
@@ -198,6 +193,9 @@ public:
     std::span<const ElementGeometry<dim>>   elements() const { return std::span<const ElementGeometry<dim>>(elements_); };
     ElementGeometry<dim>&           element(std::size_t i) { return elements_[i]; };
     const ElementGeometry<dim>&     element(std::size_t i) const { return elements_[i]; };
+    [[nodiscard]] bool has_materialized_nodes() const noexcept { return node_cache_valid_; }
+    [[nodiscard]] bool has_vertex_index() const noexcept { return vertex_index_built_; }
+    [[nodiscard]] bool has_node_index() const noexcept { return node_index_built_; }
 
     void sort_vertices_by_id() {
         std::sort(vertices_.begin(), vertices_.end(),
@@ -249,14 +247,13 @@ public:
     //  This is useful when the mesh doesn't define boundary physical groups
     //  for all surfaces of interest.
     //
-    //  Must be called AFTER assemble_sieve() (nodes need to be bound).
+    //  This operation is geometry-first: it can run before the analysis-node
+    //  cache exists.  If nodes are already materialized they are rebound too.
     //
     void create_boundary_from_plane(const std::string& group_name,
                                     int d, double val,
                                     double tol = 1.0e-6)
     {
-        if (!node_index_built_) build_node_index();
-
         // 1. Collect IDs of nodes on the plane — O(1) lookup via unordered_set
         std::unordered_set<PetscInt> plane_node_ids;
         plane_node_ids.reserve(vertices_.size() / 4); // heuristic
@@ -305,6 +302,7 @@ public:
                     for (std::size_t i = 0; i < fn; ++i) {
                         new_elem.bind_point(i, vertex_by_id_[new_elem.node(i)]);
                         if (node_cache_valid_) {
+                            if (!node_index_built_) build_node_index();
                             new_elem.bind_node(i, node_by_id_[new_elem.node(i)]);
                         }
                     }

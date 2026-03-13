@@ -375,7 +375,7 @@ public:
             const auto& node = model.get_domain().node(bc.node_id);
             auto f = bc.evaluate(t);
             auto num_dofs = static_cast<PetscInt>(node.num_dof());
-            const auto* dofs = node.dof_index().data();
+            const auto* dofs = node.dof_data();
 
             std::array<PetscScalar, dim> vals{};
             for (std::size_t i = 0; i < dim; ++i)
@@ -421,7 +421,7 @@ public:
         for (const auto& ic : initial_conditions_) {
             const auto& node = model.get_domain().node(ic.node_id);
             auto num_dofs = static_cast<PetscInt>(node.num_dof());
-            const auto* dofs = node.dof_index().data();
+            const auto* dofs = node.dof_data();
 
             std::array<PetscScalar, dim> vals{};
             for (std::size_t i = 0; i < dim; ++i)
@@ -443,7 +443,7 @@ public:
         for (const auto& ic : initial_conditions_) {
             const auto& node = model.get_domain().node(ic.node_id);
             auto num_dofs = static_cast<PetscInt>(node.num_dof());
-            const auto* dofs = node.dof_index().data();
+            const auto* dofs = node.dof_data();
 
             std::array<PetscScalar, dim> vals{};
             for (std::size_t i = 0; i < dim; ++i)

@@ -1,0 +1,261 @@
+\chapter{Spatial Sites and Lazy Domain Materialisation}
+
+\section{Scope of this pass}
+
+This chapter documents the next incremental step of the \texttt{Domain}
+refactor.  The change is deliberately modest in algorithmic scope and strict in
+architectural intent:
+\begin{itemize}[nosep]
+  \item keep \texttt{Domain} geometry-first;
+  \item avoid materialising analysis nodes when only geometry is needed;
+  \item make the different ``point-like'' entities comparable through a small
+        static concept vocabulary;
+  \item preserve the low-level requirements of HPC kernels: contiguous storage,
+        inlining, and minimal pointer chasing.
+\end{itemize}
+
+The result is not a full removal of \texttt{Node} from the upper layers.  It is
+an ontologically cleaner and computationally cheaper boundary between geometry,
+analysis, and constitutive sampling.
+
+\section{The problem of overlapping point-like concepts}
+
+Finite-element codes naturally generate several entities that look similar
+because they all carry coordinates.  However, they are not the same concept.
+The overlap becomes especially visible in structural and mixed formulations:
+\begin{itemize}[nosep]
+  \item in Gauss--Lobatto beam integration, an endpoint may be both a nodal
+        station and an integration station;
+  \item in continuum formulations, a constitutive material point is collocated
+        with a quadrature point but is not itself the quadrature rule;
+  \item in mixed formulations, an integration site may also carry field
+        unknowns, but that does not make it identical to a mesh vertex.
+\end{itemize}
+
+Therefore the correct design rule is:
+\begin{center}
+\emph{same spatial position does not imply same semantic type.}
+\end{center}
+
+The implementation should model collocation by \emph{binding} or
+\emph{decoration}, not by collapsing all roles into a single class.
+
+\section{A static ontology of spatial sites}
+
+\subsection{Read-only coordinate site: \texttt{PointViewT}}
+
+This pass introduces a small compile-time concept,
+\texttt{geometry::PointViewT}.  A type satisfies it if it exposes:
+\begin{itemize}[nosep]
+  \item a static \texttt{dim},
+  \item \texttt{coord()},
+  \item \texttt{coord(i)},
+  \item \texttt{coord\_ref()},
+  \item \texttt{data()}.
+\end{itemize}
+
+This concept is intentionally read-only.  It captures the minimum common
+geometry-facing contract needed by algorithms that only inspect coordinates.
+
+\subsection{Mutable point: \texttt{PointT}}
+
+\texttt{PointT} now refines \texttt{PointViewT} by adding coordinate mutation:
+\begin{itemize}[nosep]
+  \item \texttt{set\_coord(i, value)},
+  \item \texttt{set\_coord(array)}.
+\end{itemize}
+
+This split matters because not every site should be mutable.  A constitutive
+wrapper such as \texttt{MaterialPoint} should forward coordinates from the
+integration point it decorates, but it should not pretend to own or mutate the
+geometry itself.
+
+\subsection{Entity-by-entity interpretation}
+
+With the new interface split, the point-like entities can be classified as
+follows:
+\begin{description}[nosep]
+  \item[\texttt{Point<Dim>}] mutable geometric carrier; coordinates only.
+  \item[\texttt{Vertex<Dim>}] point plus stable mesh identity.
+  \item[\texttt{Node<Dim, Storage>}] point plus analysis identity, DoF storage,
+        and PETSc-related node metadata.
+  \item[\texttt{IntegrationPoint<Dim>}] mutable quadrature site; coordinates,
+        weight, and identifier.
+  \item[\texttt{MaterialPoint<Policy>}] read-only constitutive decorator bound
+        to an \texttt{IntegrationPoint}.
+  \item[\texttt{MaterialSection<Policy>}] read-only constitutive decorator for
+        structural sections, also bound to an \texttt{IntegrationPoint}.
+  \item[\texttt{NodeSection<Dim>}] read-only geometric and DoF-forwarding view
+        over a \texttt{Node}, enriched with section frame and section geometry.
+\end{description}
+
+The important architectural detail is that only some of these types own
+coordinates.  The others forward them.
+
+\section{Why forwarding is the right model}
+
+\subsection{Material points and sections}
+
+A \texttt{MaterialPoint} does not own geometry.  It owns constitutive state and
+binds to the numerical sampling site where that state is evaluated.  Therefore
+it now forwards:
+\begin{itemize}[nosep]
+  \item \texttt{coord()},
+  \item \texttt{coord\_ref()},
+  \item \texttt{data()},
+  \item \texttt{weight()}.
+\end{itemize}
+
+The same is true for \texttt{MaterialSection}.  This makes both types valid
+\texttt{PointViewT} sites without duplicating coordinate storage.
+
+\subsection{Node sections}
+
+\texttt{NodeSection} already bound a \texttt{Node} plus section-specific
+metadata.  This pass makes the forwarding explicit for:
+\begin{itemize}[nosep]
+  \item coordinates (\texttt{coord}, \texttt{coord\_ref}, \texttt{data}),
+  \item contiguous DoF storage (\texttt{dof\_data()}).
+\end{itemize}
+
+This is particularly useful for structural formulations, because a section
+station is often treated as a special nodal view rather than as a new point
+owner.
+
+\section{Lazy node materialisation in \texttt{Domain}}
+
+\subsection{Geometric operations should not force analysis state}
+
+The earlier \texttt{Domain} transition already made \texttt{Vertex<Dim>} the
+canonical geometric storage.  However, there were still two remaining issues:
+\begin{enumerate}[nosep]
+  \item \texttt{create\_boundary\_from\_plane()} still forced node-cache
+        materialisation even when only geometry was needed;
+  \item the non-const \texttt{node\_p(id)} path had an incorrect guard and
+        could skip node-index construction.
+\end{enumerate}
+
+\subsection{Implemented fix}
+
+This pass changes the behaviour as follows:
+\begin{itemize}[nosep]
+  \item \texttt{create\_boundary\_from\_plane()} is now geometry-first; it binds
+        face elements to vertices immediately and binds nodes only if the node
+        cache already exists;
+  \item \texttt{node\_p(id)} now reliably builds the node index on demand;
+  \item \texttt{Domain} exposes three explicit traceability predicates:
+        \texttt{has\_materialized\_nodes()},
+        \texttt{has\_vertex\_index()},
+        \texttt{has\_node\_index()}.
+\end{itemize}
+
+The first predicate is important both for debugging and for architectural
+tests: it allows the test suite to assert that a geometry-only workflow truly
+stays geometry-only.
+
+\subsection{Why the node cache still exists}
+
+From a purely ontological point of view, one might want to remove
+\texttt{Node} duplication entirely and replace it with a thinner attachment
+structure.  That direction is still plausible, but it should not be taken
+lightly.
+
+The current element kernels, structural sections, PETSc section setup, and
+element-level DoF caches still benefit from a stable \texttt{Node\&} view with:
+\begin{itemize}[nosep]
+  \item inline coordinate access,
+  \item contiguous DoF access,
+  \item zero-cost SBO-backed DoF storage policies,
+  \item no proxy objects in the inner assembly path.
+\end{itemize}
+
+Keeping the node cache while making it lazy is therefore the pragmatic design
+point for this stage of the refactor.
+
+\section{Data-layout implications for HPC}
+
+\subsection{Owned storage vs forwarded storage}
+
+The implementation now follows a simple rule:
+\begin{itemize}[nosep]
+  \item \texttt{Point}, \texttt{Vertex}, \texttt{Node}, and
+        \texttt{IntegrationPoint} own contiguous coordinate storage;
+  \item \texttt{MaterialPoint}, \texttt{MaterialSection}, and
+        \texttt{NodeSection} do not own coordinates and only forward views.
+\end{itemize}
+
+This keeps the hot data local and prevents hidden copies when decorating an
+existing site with extra semantics.
+
+\subsection{Why no generic runtime interface was added}
+
+An obvious alternative would be an inheritance hierarchy such as:
+\[
+  \texttt{ISpatialSite} \leftarrow
+  \{\texttt{Vertex}, \texttt{Node}, \texttt{IntegrationPoint}, \dots\}
+\]
+with virtual coordinate access.
+
+That was intentionally rejected.  The reasons are both architectural and
+computational:
+\begin{itemize}[nosep]
+  \item the library already has enough runtime polymorphism at the
+        \texttt{ElementGeometry} and \texttt{Material} wrappers;
+  \item coordinate access is too frequent to justify another virtual boundary;
+  \item the overlap between site types is semantic, not behavioural in the
+        object-oriented sense.
+\end{itemize}
+
+Compile-time concepts are the better fit here: they make the common contract
+explicit without imposing a vtable or pointer-indirection tax.
+
+\section{What this means for overlapping formulations}
+
+The new model clarifies how to think about several important special cases:
+\begin{description}[nosep]
+  \item[Gauss--Lobatto beam integration] an endpoint may be represented by a
+        \texttt{NodeSection} and by a \texttt{MaterialSection} bound to an
+        \texttt{IntegrationPoint} at the same coordinate.  The location is
+        shared; the role is not.
+  \item[Continuum material points] a \texttt{MaterialPoint} is bound to an
+        \texttt{IntegrationPoint}.  It is not itself the quadrature rule and
+        not a mesh node.
+  \item[Mixed or assumed-strain formulations] if a sampling site later carries
+        unknowns, that should be modelled as an additional attachment or
+        dedicated type, not by erasing the distinction between integration and
+        nodal roles.
+\end{description}
+
+This is the key conceptual payoff of the refactor: the code can represent
+collocation without ontological collapse.
+
+\section{Validation}
+
+This pass was validated by extending the test suite in two directions:
+\begin{enumerate}[nosep]
+  \item \texttt{domain\_vertex\_refactor} now verifies that geometry-only
+        element binding and boundary creation do not materialise the node cache;
+  \item \texttt{integration\_sites} verifies that
+        \texttt{IntegrationPoint}, \texttt{MaterialPoint},
+        \texttt{MaterialSection}, and \texttt{NodeSection} satisfy the new
+        static geometry-view contract.
+\end{enumerate}
+
+This complements the earlier low-level tests on contiguous access and keeps the
+refactor traceable from architecture to implementation.
+
+\section{Interpretation}
+
+The central lesson of this step is that the library does not need fewer
+concepts; it needs cleaner boundaries between them.  The right optimisation was
+not to merge \texttt{Point}, \texttt{Node}, \texttt{IntegrationPoint}, and
+\texttt{Section}-like entities.  The right optimisation was:
+\begin{itemize}[nosep]
+  \item to expose their common geometric contract statically,
+  \item to preserve ownership only where ownership is real,
+  \item to keep \texttt{Domain} geometry-first for as long as possible,
+  \item to materialise analysis state only when the solver path requires it.
+\end{itemize}
+
+That is a better match for both SOLID-style concept clarity and HPC-oriented
+implementation discipline.

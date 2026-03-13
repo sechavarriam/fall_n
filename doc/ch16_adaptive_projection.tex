@@ -1,0 +1,237 @@
+% =============================================================================
+%  Chapter 16 — Adaptive Nodal Projection for Material Fields
+% =============================================================================
+
+\chapter{Adaptive Nodal Projection for Material Fields}
+\label{ch:adaptive_projection}
+
+This chapter refines the earlier diagnosis of the TET10 post-processing
+artefact and documents the resulting architectural change in
+\texttt{VTKModelExporter}.  The key conclusion is that \emph{negative
+quadrature weights are not the only failure mode}.  For quadratic simplex
+elements, the row-sum lumped nodal measures can be non-positive even under
+all-positive quadrature.  Therefore the exporter now chooses the projection
+operator adaptively.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why the Previous Diagnosis Was Incomplete}
+\label{sec:adaptive_prev_diag}
+
+\cref{ch:negative_weights} correctly identified a catastrophic failure mode:
+if a simplex rule contains negative weights, then the signed support of the
+quadratic simplex basis can drive the lumped $L^2$ denominator to zero or to
+the wrong sign.
+
+However, the ParaView artefact observed for the current TET10 path persisted
+even after switching to all-positive quadrature rules such as:
+\begin{itemize}[nosep]
+  \item the 4-point Hammer--Marlowe--Stroud rule
+        (\texttt{SimplexIntegrator<3,2>}), and
+  \item the 27-point Stroud conical product rule
+        (\texttt{ConicalProductIntegrator<3,3>}).
+\end{itemize}
+
+That observation immediately rules out ``negative quadrature weights'' as the
+sole root cause.  The actual issue lies in the \emph{row-sum lumping itself}.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Exact Row-Sum Lumping for TET10}
+\label{sec:adaptive_tet10_exact}
+
+For the quadratic tetrahedron, the vertex and edge shape functions are:
+\begin{align}
+  N_i^{(v)} &= \lambda_i(2\lambda_i - 1), \\
+  N_{ij}^{(e)} &= 4\lambda_i\lambda_j,
+\end{align}
+where $\lambda_i$ are barycentric coordinates.
+
+The lumped nodal measure attached to node $I$ is
+\begin{equation}
+  m_I^{(\ell)} = \int_T N_I \,\dd V.
+\end{equation}
+
+Using the standard simplex moment formula
+\begin{equation}
+  \int_T \lambda_1^{a_1}\lambda_2^{a_2}\lambda_3^{a_3}\lambda_4^{a_4}\,\dd V
+  = |T|\,
+    \frac{a_1!a_2!a_3!a_4! \, 3!}
+         {(a_1+a_2+a_3+a_4+3)!},
+\end{equation}
+we obtain:
+
+\subsection{Vertex nodes}
+\begin{align}
+  \int_T N_i^{(v)}\,\dd V
+  &= \int_T \left( 2\lambda_i^2 - \lambda_i \right)\,\dd V \\
+  &= 2\frac{|T|}{10} - \frac{|T|}{4} \\
+  &= -\frac{|T|}{20}.
+\end{align}
+
+\subsection{Edge-midpoint nodes}
+\begin{align}
+  \int_T N_{ij}^{(e)}\,\dd V
+  &= 4 \int_T \lambda_i\lambda_j \,\dd V \\
+  &= 4\frac{|T|}{20} \\
+  &= \frac{|T|}{5}.
+\end{align}
+
+Therefore, for \emph{every} non-degenerate TET10:
+\begin{equation}
+  m_i^{(\ell)} = -\frac{|T|}{20} < 0
+  \qquad \text{for the four vertex nodes,}
+\end{equation}
+and
+\begin{equation}
+  m_{ij}^{(\ell)} = \frac{|T|}{5} > 0
+  \qquad \text{for the six edge nodes.}
+\end{equation}
+
+This is an exact statement.  It does not depend on the particular positive
+quadrature rule, provided the rule is at least degree-2 exact.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Consequence: Lumped \texorpdfstring{$L^2$}{L2} Is Not a Nodal Average}
+\label{sec:adaptive_not_average}
+
+For a nodal projection to behave as an average, the local weights attached to
+each node must be strictly positive.  TET10 violates that requirement at its
+vertex nodes by construction.
+
+This has two implications:
+\begin{itemize}[nosep]
+  \item The projected nodal value is no longer an average of nearby Gauss-point
+        data.
+  \item The operator behaves like a signed extrapolation, which can overshoot
+        even when the Gauss-point field is smooth and monotone.
+\end{itemize}
+
+This explains the visual symptom seen in ParaView:
+\begin{itemize}[nosep]
+  \item the displacement field is correct, because it is a primary nodal field;
+  \item the Gauss-point strains are correct, because they come directly from
+        the element kinematics;
+  \item the \emph{projected} nodal strains are oscillatory for TET10, because
+        the transfer operator is not a proper averaging operator.
+\end{itemize}
+
+Hence the issue is fundamentally a \emph{post-processing transfer} problem,
+not a stiffness integration problem.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why HEX27 Remains Safe}
+\label{sec:adaptive_hex27}
+
+For the quadratic tensor-product hexahedron, the shape functions are products
+of one-dimensional quadratic Lagrange polynomials on $[-1,1]$.  Their lumped
+nodal measures remain strictly positive under the standard
+$3\times3\times3$ Gauss--Legendre rule used in \texttt{fall\_n}.  Therefore
+the row-sum lumped projection still behaves as a genuine nodal average and
+produces smooth fields.
+
+This distinction is important:
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lcc}
+  \toprule
+  Family & Local lumped nodal weights & Safe to use lumped $L^2$ by default? \\
+  \midrule
+  HEX27 & strictly positive & yes \\
+  TET10 & mixed sign        & no  \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Adaptive Policy Implemented in \texttt{VTKModelExporter}}
+\label{sec:adaptive_policy}
+
+The exporter now exposes:
+\begin{lstlisting}
+enum class MaterialFieldProjection {
+    Auto,
+    LumpedL2,
+    VolumeWeightedAveraging
+};
+\end{lstlisting}
+
+The production path is \texttt{Auto}.  Its algorithm is:
+\begin{enumerate}[nosep]
+  \item For each element geometry, compute the local lumped nodal weights
+        \[
+          m_i^{(\ell)} \approx \sum_g N_i(\bxi_g)\, w_g\, |J_g|.
+        \]
+  \item If \emph{all} local weights are strictly positive for \emph{all}
+        elements, use lumped $L^2$ projection.
+  \item Otherwise, use volume-weighted averaging
+        (\texttt{spr\_average\_to\_nodes()}).
+\end{enumerate}
+
+This choice is conservative and appropriate for production visualisation:
+\begin{itemize}[nosep]
+  \item it preserves the smoother lumped $L^2$ path for element families where
+        it is mathematically sound;
+  \item it automatically protects higher-order simplex elements without forcing
+        the user to know the details of the underlying quadrature rule.
+\end{itemize}
+
+\paragraph{Complexity.}
+The detection pass costs
+$O(n_{\mathrm{elem}}\,n_{\mathrm{gp}}\,n_{\mathrm{node}})$, which is of the
+same order as the projection itself and negligible compared with an FE solve.
+Because this happens only during post-processing, the architectural priority is
+robustness and traceability, not micro-optimisation.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Code-Level Traceability}
+\label{sec:adaptive_traceability}
+
+The implementation is localised in:
+\begin{itemize}[nosep]
+  \item \texttt{src/post-processing/VTK/VTKModelExporter.hh}
+        — \texttt{MaterialFieldProjection},
+        \texttt{lumped\_projection\_weights\_into()},
+        \texttt{has\_strictly\_positive\_lumped\_projection\_weights()},
+        and adaptive dispatch in \texttt{compute\_material\_fields()}.
+  \item \texttt{main.cpp}
+        — unchanged call site: \texttt{compute\_material\_fields()},
+        but its semantics are now adaptive rather than hard-coded lumped $L^2$.
+  \item \texttt{tests/test\_simplex.cpp}
+        — regression tests that prove:
+        \begin{itemize}[nosep]
+          \item TET10 keeps negative vertex lump weights under positive
+                quadrature;
+          \item HEX27 keeps strictly positive lump weights.
+        \end{itemize}
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Verification}
+\label{sec:adaptive_verification}
+
+Two levels of verification were added:
+\begin{enumerate}[nosep]
+  \item \textbf{Mathematical regression:} the simplex test suite now checks the
+        exact TET10 lumped nodal weights under the 4-point positive HMS rule,
+        obtaining
+        $-\frac{1}{120}$ at the four vertices and $\frac{1}{30}$ at the six
+        edge nodes of the reference tetrahedron.
+  \item \textbf{Implementation regression:} the same suite verifies that the
+        27-point Stroud conical product rule also yields negative TET10 vertex
+        lumps despite its strictly positive quadrature weights, while HEX27
+        remains strictly positive.
+\end{enumerate}
+
+These checks establish the core architectural point:
+\begin{quote}
+For TET10, the unsafe behaviour is not caused by the constitutive model, nor by
+the computed Gauss-point strains, nor by the positivity of the stiffness
+quadrature weights.  It is caused by using row-sum lumped nodal projection on a
+shape-function family whose local lumped nodal measures are signed.
+\end{quote}

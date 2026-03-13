@@ -40,7 +40,7 @@ class MaterialSection {
     using StateVariableT = typename MaterialPolicy::StateVariableT;
     using StressT        = typename MaterialPolicy::StressT;
 
-    static constexpr std::size_t dim = MaterialPolicy::dim;
+    static constexpr std::size_t material_dim = MaterialPolicy::dim;
 
     std::size_t id_{};
 
@@ -54,9 +54,16 @@ class MaterialSection {
 
 public:
 
+    static constexpr std::size_t dim = 1;
+
     // ── Coordinate access (from the integration point) ──────────────────
 
-    auto coord() const noexcept { return integration_point_->coord(); }
+    [[nodiscard]] const std::array<double, dim>& coord() const noexcept { return integration_point_->coord(); }
+    [[nodiscard]] double coord(std::size_t i) const noexcept { return integration_point_->coord(i); }
+    [[nodiscard]] const std::array<double, dim>& coord_ref() const noexcept { return integration_point_->coord_ref(); }
+    [[nodiscard]] const double* data() const noexcept { return integration_point_->data(); }
+    [[nodiscard]] double* data() noexcept { return integration_point_->data(); }
+    [[nodiscard]] double weight() const noexcept { return integration_point_->weight(); }
 
     // ── State management ────────────────────────────────────────────────
 

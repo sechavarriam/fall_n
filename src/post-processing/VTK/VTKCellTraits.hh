@@ -139,17 +139,19 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             //                           14(x=+1), 16(y=+1), 22(z=+1)
             //
             // VTK face center positions 20-25:
-            //   20: face(0,1,5,4) y=−1 → fall_n 10
-            //   21: face(1,2,6,5) x=+1 → fall_n 14
-            //   22: face(2,3,7,6) y=+1 → fall_n 16
-            //   23: face(3,0,4,7) x=−1 → fall_n 12
+            //   20: x=−1 → fall_n 12
+            //   21: x=+1 → fall_n 14
+            //   22: y=−1 → fall_n 10
+            //   23: y=+1 → fall_n 16
             //   24: face(0,1,2,3) z=−1 → fall_n  4
             //   25: face(4,5,6,7) z=+1 → fall_n 22
+            //
+            // Verified against vtkTriQuadraticHexahedron::GetParametricCoords().
             constexpr vtkIdType o[] = {
                 0, 2, 8, 6, 18, 20, 26, 24,   // corners
                 1, 5, 7, 3, 19, 23, 25, 21,   // mid-edge (bottom + top faces)
                 9, 11, 17, 15,                 // mid-edge (z-direction)
-                10, 14, 16, 12,                // face centers (y−, x+, y+, x−)
+                12, 14, 10, 16,                // face centers (x−, x+, y−, y+)
                 4, 22, 13                      // face z−, face z+, body center
             };
             for (std::size_t i = 0; i < 27; ++i) out[i] = o[i];

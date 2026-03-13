@@ -20,6 +20,9 @@
 #include <span>
 #include <numeric>
 
+#include <vtkNew.h>
+#include <vtkTriQuadraticHexahedron.h>
+
 #include "header_files.hh"
 
 namespace {
@@ -970,6 +973,133 @@ void test_vtk_cell_type_simplex() {
     report(__func__, ok);
 }
 
+void test_vtk_hex27_ordering_matches_triquadratic_hex() {
+    using namespace fall_n::vtk;
+
+    vtkIdType perm[27];
+    node_ordering_into(3, 27, perm);
+
+    vtkNew<vtkTriQuadraticHexahedron> vtk_hex27;
+    const double* vtk_coords = vtk_hex27->GetParametricCoords();
+
+    constexpr auto ref_nodes = geometry::cell::cell_nodes<3, 3, 3>();
+
+    bool ok = true;
+    for (std::size_t vtk_id = 0; vtk_id < 27; ++vtk_id) {
+        const auto& local = ref_nodes[perm[vtk_id]];
+        const double x = 0.5 * (local.coord(0) + 1.0);
+        const double y = 0.5 * (local.coord(1) + 1.0);
+        const double z = 0.5 * (local.coord(2) + 1.0);
+
+        ok = ok && approx(x, vtk_coords[3 * vtk_id + 0], 1e-12);
+        ok = ok && approx(y, vtk_coords[3 * vtk_id + 1], 1e-12);
+        ok = ok && approx(z, vtk_coords[3 * vtk_id + 2], 1e-12);
+    }
+
+    report(__func__, ok);
+}
+
+void test_tet10_positive_quadrature_still_has_signed_lumped_weights() {
+    using Tet10 = SimplexElement<3, 3, 2>;
+    using HMS4 = SimplexIntegrator<3, 2>;
+    using Stroud27 = simplex_quadrature::ConicalProductIntegrator<3, 3>;
+    using namespace fall_n::vtk;
+
+    constexpr auto ref_nodes = geometry::simplex::SimplexCell<3, 2>::reference_nodes;
+
+    std::vector<Node<3>> nodes;
+    nodes.reserve(10);
+    std::array<Node<3>*, 10> node_ptrs{};
+    for (std::size_t i = 0; i < node_ptrs.size(); ++i) {
+        nodes.emplace_back(
+            static_cast<PetscInt>(i),
+            ref_nodes[i].coord(0),
+            ref_nodes[i].coord(1),
+            ref_nodes[i].coord(2));
+        node_ptrs[i] = &nodes.back();
+    }
+
+    Tet10 elem(std::optional{node_ptrs});
+
+    bool ok = true;
+
+    {
+        HMS4 integrator;
+        ElementGeometry<3> geom(elem, integrator);
+
+        for (std::size_t g = 0; g < geom.num_integration_points(); ++g) {
+            ok = ok && (geom.weight(g) > 0.0);
+        }
+
+        std::array<double, 64> lump{};
+        lumped_projection_weights_into(geom, lump.data());
+
+        for (std::size_t i = 0; i < 4; ++i) {
+            ok = ok && approx(lump[i], -1.0 / 120.0, 1e-12);
+        }
+        for (std::size_t i = 4; i < 10; ++i) {
+            ok = ok && approx(lump[i], 1.0 / 30.0, 1e-12);
+        }
+        ok = ok && !has_strictly_positive_lumped_projection_weights(geom);
+    }
+
+    {
+        Stroud27 integrator;
+        ElementGeometry<3> geom(elem, integrator);
+
+        for (std::size_t g = 0; g < geom.num_integration_points(); ++g) {
+            ok = ok && (geom.weight(g) > 0.0);
+        }
+
+        std::array<double, 64> lump{};
+        lumped_projection_weights_into(geom, lump.data());
+
+        for (std::size_t i = 0; i < 4; ++i) {
+            ok = ok && (lump[i] < 0.0);
+        }
+        for (std::size_t i = 4; i < 10; ++i) {
+            ok = ok && (lump[i] > 0.0);
+        }
+        ok = ok && !has_strictly_positive_lumped_projection_weights(geom);
+    }
+
+    report(__func__, ok);
+}
+
+void test_hex27_lumped_projection_weights_are_positive() {
+    using Hex27 = LagrangeElement<3, 3, 3, 3>;
+    using Integrator = GaussLegendreCellIntegrator<3, 3, 3>;
+    using namespace fall_n::vtk;
+
+    constexpr auto ref_nodes = geometry::cell::cell_nodes<3, 3, 3>();
+
+    std::vector<Node<3>> nodes;
+    nodes.reserve(27);
+    std::array<Node<3>*, 27> node_ptrs{};
+    for (std::size_t i = 0; i < node_ptrs.size(); ++i) {
+        nodes.emplace_back(
+            static_cast<PetscInt>(i),
+            ref_nodes[i].coord(0),
+            ref_nodes[i].coord(1),
+            ref_nodes[i].coord(2));
+        node_ptrs[i] = &nodes.back();
+    }
+
+    Hex27 elem(std::optional{node_ptrs});
+    Integrator integrator;
+    ElementGeometry<3> geom(elem, integrator);
+
+    std::array<double, 64> lump{};
+    lumped_projection_weights_into(geom, lump.data());
+
+    bool ok = has_strictly_positive_lumped_projection_weights(geom);
+    for (std::size_t i = 0; i < geom.num_nodes(); ++i) {
+        ok = ok && (lump[i] > 0.0);
+    }
+
+    report(__func__, ok);
+}
+
 // =========================================================================
 //  7. Face geometry creation (sub-entity topology)
 // =========================================================================
@@ -1180,6 +1310,9 @@ int main() {
 
     // 6. VTK dispatch
     test_vtk_cell_type_simplex();
+    test_vtk_hex27_ordering_matches_triquadratic_hex();
+    test_tet10_positive_quadrature_still_has_signed_lumped_weights();
+    test_hex27_lumped_projection_weights_are_positive();
 
     // 7. Face geometry
     test_simplex_face_geometry_tet4();

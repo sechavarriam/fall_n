@@ -330,6 +330,26 @@ void test_node_dof_span_contiguous() {
     assert(sp[0] == 0 && sp[1] == 1 && sp[2] == 2);
 }
 
+void test_node_array_constructor() {
+    const std::array<double, 3> coords{1.5, -2.0, 4.25};
+    Node<3> n{7, coords};
+    assert(n.id() == 7);
+    assert(n.coord_ref() == coords);
+}
+
+void test_node_dof_data_aliases_span() {
+    Node<3> n{0, 0.0, 0.0, 0.0};
+    n.set_num_dof(3);
+    n.set_dof_index(0, 21);
+    n.set_dof_index(1, 22);
+    n.set_dof_index(2, 23);
+
+    const auto sp = n.dof_index();
+    assert(n.dof_data() == sp.data());
+    assert(n.dof_data()[0] == 21);
+    assert(n.dof_data()[2] == 23);
+}
+
 void test_node_copy_value_semantics() {
     Node<3> a{0, 1.0, 2.0, 3.0};
     a.set_num_dof(3);
@@ -397,8 +417,10 @@ int main() {
     RUN(test_node_with_dynamic_storage);
     RUN(test_node_concept);
     RUN(test_node_dof_span_contiguous);
+    RUN(test_node_array_constructor);
+    RUN(test_node_dof_data_aliases_span);
     RUN(test_node_copy_value_semantics);
 
-    __builtin_printf("\n=== All %d Node/DoF tests PASSED ===\n", 31);
+    __builtin_printf("\n=== All %d Node/DoF tests PASSED ===\n", 33);
     return 0;
 }

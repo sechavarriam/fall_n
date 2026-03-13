@@ -81,6 +81,9 @@ public:
     [[nodiscard]] std::span<dof::index_t> dof_index() noexcept {
         return {dof_indices_.data(), dof_indices_.size()};
     }
+    // Direct contiguous pointer for PETSc-heavy paths that already know the size.
+    [[nodiscard]] const dof::index_t* dof_data() const noexcept { return dof_indices_.data(); }
+    [[nodiscard]] dof::index_t* dof_data() noexcept { return dof_indices_.data(); }
 
     // Idempotent constraint: encode index v as -(v+1) so even index 0
     // becomes negative.  PETSc ignores negative row/col indices in
@@ -117,6 +120,10 @@ public:
     Node(std::size_t tag, Args... args)
         : geometry::Point<Dim>(args...),
           id_{tag} {}
+
+    Node(std::size_t tag, const std::array<double, Dim>& coords)
+        : geometry::Point<Dim>(coords),
+          id_{tag} {}
 };
 
 
@@ -133,6 +140,7 @@ concept NodeT = geometry::PointT<T> && requires(T node) {
     requires std::ranges::sized_range<std::vector<dof::index_t>>;
     { node.set_dof_index(std::vector<dof::index_t>{}) } -> std::same_as<void>;
     { node.dof_index() };
+    { node.dof_data() } -> std::same_as<dof::index_t*>;
     { node.fix_dof(std::size_t{}) }      -> std::same_as<void>;
     { node.set_dof_interface() }         -> std::same_as<void>;
 };

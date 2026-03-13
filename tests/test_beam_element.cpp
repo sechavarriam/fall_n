@@ -120,6 +120,34 @@ struct Beam3DFixture {
     }
 };
 
+// Build a 2-node line ElementGeometry<2> from geometric vertices only.
+// This verifies that BeamElement frame construction depends on geometry,
+// not on analysis-node materialisation.
+struct Beam2DVertexFixture {
+    geometry::Vertex<2> v0, v1;
+    LagrangeElement2D<2> element;
+    GaussLegendreCellIntegrator<2> integrator;
+    ElementGeometry<2> geom;
+
+    TimoshenkoBeamMaterial2D mat_instance{10.0, 5.0, 10.0, 1.0, 1.0};
+    Material<TimoshenkoBeam2D> mat{mat_instance, ElasticUpdate{}};
+
+    Beam2DVertexFixture(double x0, double y0, double x1, double y1)
+        : v0{0, x0, y0}
+        , v1{1, x1, y1}
+        , element{0, std::array<PetscInt, 2>{0, 1}}
+        , geom{element, integrator}
+    {
+        geom.bind_point(0, &v0);
+        geom.bind_point(1, &v1);
+        geom.set_sieve_id(0);
+    }
+
+    auto make_beam() {
+        return BeamElement<TimoshenkoBeam2D, 2>{&geom, mat};
+    }
+};
+
 
 // ============================================================================
 //  2D Beam Tests
@@ -200,6 +228,16 @@ void test_sieve_id() {
     Beam2DFixture f(0.0, 0.0, 1.0, 0.0);
     auto beam = f.make_beam();
     ASSERT_TRUE(beam.sieve_id() == 0);
+}
+
+void test_beam_frame_uses_geometry_points_only() {
+    Beam2DVertexFixture f(0.0, 0.0, 3.0, 4.0);
+    auto beam = f.make_beam();
+    auto R = beam.rotation_matrix();
+
+    ASSERT_NEAR(beam.element_length(), 5.0, 1e-12);
+    ASSERT_NEAR(R(0, 0), 3.0 / 5.0, 1e-12);
+    ASSERT_NEAR(R(0, 1), 4.0 / 5.0, 1e-12);
 }
 
 void test_K_symmetry_2d() {
@@ -481,6 +519,7 @@ int main() {
     RUN_TEST(test_num_nodes);
     RUN_TEST(test_num_integration_points);
     RUN_TEST(test_sieve_id);
+    RUN_TEST(test_beam_frame_uses_geometry_points_only);
     RUN_TEST(test_K_symmetry_2d);
     RUN_TEST(test_K_analytical_aligned_2d);
     RUN_TEST(test_K_rotation_invariance_2d);

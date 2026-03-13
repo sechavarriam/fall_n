@@ -1,0 +1,176 @@
+\chapter{Low-Level Geometry and DoF Access}
+
+\section{Motivation}
+
+Once the higher-level ontological split between \texttt{Vertex}, \texttt{Node},
+and \texttt{ElementGeometry} was in place, the next question was lower-level:
+how much indirection remains in the hot path, and where does the code still pay
+avoidable access cost?
+
+The target of this pass was not a redesign of algorithms.  It was a careful
+data-access refinement guided by three HPC-oriented principles:
+\begin{enumerate}[nosep]
+  \item keep the public concepts explicit and semantically correct;
+  \item reduce repeated pointer chasing in frequently evaluated geometry code;
+  \item preserve value semantics and compile-time structure.
+\end{enumerate}
+
+\section{\texttt{Point<Dim>} as a contiguous data source}
+
+\subsection{Previous state}
+
+\texttt{Point<Dim>} already stored coordinates in a
+\texttt{std::array<double, Dim>}.  However, the main accessor returned that
+array by value.  For a small fixed-size object this is not catastrophic, but it
+encourages copies and obscures the fact that the coordinates are already stored
+contiguously in memory.
+
+\subsection{Implemented change}
+
+\texttt{Point<Dim>} now exposes:
+\begin{itemize}[nosep]
+  \item \texttt{coord()} returning a \emph{const reference} to the internal
+        array for lvalues,
+  \item \texttt{coord\_ref()} as the explicit aliasing form, and
+  \item \texttt{data()} returning a raw pointer to the contiguous coordinate
+        storage.
+\end{itemize}
+
+This is a small but important clarification.  It makes \texttt{Point} suitable
+not only as a semantic geometry entity but also as a low-level storage source
+for element kernels.
+
+\subsection{Why this matters}
+
+The geometry kernels repeatedly evaluate expressions of the form
+\[
+  x_i = \sum_a N_a(\bxi)\, x_{a,i},
+  \qquad
+  J_{ij} = \sum_a x_{a,i}\, \frac{\partial N_a}{\partial \xi_j}.
+\]
+
+The coordinates \(x_{a,i}\) are read many times.  Making the contiguous storage
+explicit enables later code to cache direct pointers to those values instead of
+repeatedly calling higher-level accessors.
+
+\section{\texttt{Node<Dim, Storage>} and direct DoF access}
+
+\subsection{Added direct pointer interface}
+
+\texttt{Node} already exposed \texttt{dof\_index()} as a span, which is a good
+high-level interface.  This pass adds \texttt{dof\_data()} for the cases where
+the caller already knows the number of DOFs and only needs the raw contiguous
+pointer for PETSc interaction.
+
+This is now used in selected PETSc-heavy paths such as boundary-condition and
+model bookkeeping code.
+
+\subsection{Array constructors}
+
+\texttt{Node} also gained constructors from
+\texttt{std::array<double, Dim>}.  This reduces the need for
+\texttt{std::apply}-style reconstruction when a node is materialised from a
+geometry object such as \texttt{Vertex<Dim>}.  In practice, this simplifies the
+\texttt{Domain} transition code and keeps template instantiation noise lower.
+
+\section{Cached coordinate pointers inside geometric elements}
+
+\subsection{Problem}
+
+After the previous refactor, each concrete geometry family already stored a
+geometry-only binding to \texttt{Point/Vertex}.  That fixed the architectural
+coupling, but the implementation still fetched coordinates through chains like
+\[
+  \texttt{points}[a] \rightarrow \texttt{coord()} \rightarrow \texttt{array}[i].
+\]
+
+This is acceptable, but it is still more indirect than necessary inside the
+innermost geometry loops.
+
+\subsection{Implemented solution}
+
+The concrete families
+\begin{itemize}[nosep]
+  \item \texttt{LagrangeElement},
+  \item \texttt{SimplexElement}, and
+  \item \texttt{SerendipityElement}
+\end{itemize}
+now cache, at bind time, direct pointers to the coordinate storage of each
+bound point:
+\[
+  \texttt{coord\_data\_[a]} = \texttt{point\_a.data()}.
+\]
+
+The geometric hot path then uses:
+\begin{itemize}[nosep]
+  \item \texttt{coord\_data\_[a][i]} in \texttt{coord\_array()},
+  \item \texttt{coord\_data\_[a][i]} in \texttt{evaluate\_jacobian()}.
+\end{itemize}
+
+This removes a repeated layer of accessor traffic while preserving the semantic
+\texttt{Point}/\texttt{Vertex} binding.
+
+\subsection{Why this is safe}
+
+The cached coordinate pointers are non-owning views into the bound geometry
+objects.  They are valid under the same condition that already governed the
+older point/node pointer bindings:
+\begin{center}
+the lifetime and address stability of the bound geometry objects must exceed the
+lifetime of the bound element geometry.
+\end{center}
+
+This is not a new invariant; it is simply made more explicit.
+
+\section{Residual geometry-via-node usage in beam elements}
+
+\subsection{Observation}
+
+Even after the previous phases, \texttt{BeamElement::compute\_frame()} still
+read coordinates from \texttt{geometry\_->node\_p(0)} and
+\texttt{geometry\_->node\_p(1)}.  That meant the beam frame computation still
+depended on analysis nodes even though it is purely geometric.
+
+\subsection{Implemented change}
+
+The beam frame is now built from:
+\[
+  \texttt{geometry\_->point\_p(0).coord\_ref()},
+  \qquad
+  \texttt{geometry\_->point\_p(1).coord\_ref()}.
+\]
+
+Therefore a beam element can compute its frame from geometry-only bindings
+before nodal DOFs are present.
+
+\section{Validation and traceability}
+
+This pass added or extended tests in three places:
+\begin{enumerate}[nosep]
+  \item \texttt{test\_point.cpp}: verifies aliasing and contiguous pointer
+        access for \texttt{Point};
+  \item \texttt{test\_node\_dof.cpp}: verifies array construction and
+        \texttt{dof\_data()} consistency for \texttt{Node};
+  \item \texttt{test\_beam\_element.cpp}: verifies that beam frame construction
+        works from geometric vertices alone, without materialising analysis
+        nodes.
+\end{enumerate}
+
+These tests complement the earlier \texttt{domain\_vertex\_refactor} checks and
+make the refactor traceable from ontology down to low-level data access.
+
+\section{Interpretation}
+
+This chapter is intentionally modest in scope.  It does not claim a
+microbenchmark-proven global speedup.  What it does provide is a stricter and
+cleaner data path:
+\begin{itemize}[nosep]
+  \item geometry entities expose their contiguous storage explicitly;
+  \item analysis entities expose their contiguous DOF storage explicitly;
+  \item geometric elements cache the minimal data needed for repeated
+        interpolation and Jacobian evaluation;
+  \item structural elements use geometry where geometry is enough.
+\end{itemize}
+
+That is the right kind of optimisation for this codebase: local, transparent,
+semantically aligned, and compatible with the broader compile-time design.
