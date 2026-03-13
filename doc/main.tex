@@ -137,6 +137,11 @@ Key topics include:
         optional analysis-node binding, vertex-driven boundary extraction, and
         preservation of the compile-time/HPC characteristics of the element
         kernels;
+  \item A quadrature-postprocessing clarification for VTK/ParaView:
+        explicit nodal and quadrature tensor naming, scalar component export,
+        and invariant filters such as von Mises, Beltrami--Haigh, pressure,
+        triaxiality, and equivalent strain to avoid ambiguous rendering of
+        raw Voigt arrays in quadrature-aware pipelines;
   \item A low-level performance pass on point, vertex, node, and element
         geometry access paths: contiguous coordinate access, direct DoF pointer
         access, cached coordinate pointers inside geometric elements, and
@@ -178,6 +183,8 @@ discussion of the design rationale.
 \input{ch15_spatial_sites_and_lazy_domain}
 \input{ch16_adaptive_projection}
 \input{ch17_patch_recovery}
+\input{ch19_vtk_tensor_filters}
+\input{ch20_vtk_cleanup}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

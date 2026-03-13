@@ -58,18 +58,9 @@ target_link_libraries(fall_n PUBLIC Eigen3::Eigen)
 # ============== VTK ============================================================
 # ===============================================================================
 find_package(VTK COMPONENTS 
-  CommonColor
   CommonCore
   CommonDataModel
   IOXML
-  FiltersGeneral
-  FiltersSources
-  InteractionStyle
-  RenderingContextOpenGL2
-  RenderingCore
-  RenderingFreeType
-  RenderingGL2PSOpenGL2
-  RenderingOpenGL2
 )
 
 set(VTK_USE_MPI ON)
@@ -125,6 +116,29 @@ vtk_module_autoinit(
 )
 
 add_test(NAME simplex_elements COMMAND fall_n_simplex_test)
+
+# --- VTK tensor-field derivative test ---
+add_executable(fall_n_vtk_tensor_fields_test
+  tests/test_vtk_tensor_field_derivatives.cpp
+)
+
+target_include_directories(fall_n_vtk_tensor_fields_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+add_test(NAME vtk_tensor_field_derivatives COMMAND fall_n_vtk_tensor_fields_test)
+
+# --- VTK Gauss-cloud contract test ---
+add_executable(fall_n_vtk_gauss_cloud_test
+  tests/test_vtk_gauss_cloud_contract.cpp
+)
+
+target_link_libraries(fall_n_vtk_gauss_cloud_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_vtk_gauss_cloud_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME vtk_gauss_cloud_contract COMMAND fall_n_vtk_gauss_cloud_test)
 
 # --- Serendipity element family test ---
 add_executable(fall_n_serendipity_test

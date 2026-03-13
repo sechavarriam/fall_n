@@ -204,6 +204,71 @@ templates without virtual dispatch.
 \end{description}
 
 
+\subsection{Decision 7: Split VTK Export as the Supported Contract}
+\label{sec:dec_split_vtk_export}
+
+\begin{description}[leftmargin=0pt,style=nextline]
+  \item[Context] The exporter explored two more ambitious alternatives to the
+    original split workflow: a native quadrature-aware \texttt{.vtu} and a
+    single-file visualization mesh mixing continuum cells with explicit Gauss
+    glyphs.
+
+  \item[Problem] Both alternatives were architecturally interesting but
+    operationally noisy.  The native route depended on ParaView's
+    quadrature-specific metadata handling, while the mixed visualization mesh
+    overloaded a single dataset with two different semantic carriers.  In both
+    cases, the resulting workflow was harder to explain and easier to misuse
+    than the original two-file export.
+
+  \item[Decision] Keep only one supported ParaView-facing contract:
+    \texttt{*\_mesh.vtu} for the continuum mesh with nodal fields and
+    \texttt{*\_gauss.vtu} for the material-point cloud with \texttt{qp\_*}
+    fields.  The displacement field is interpolated onto the Gauss cloud so
+    \texttt{Warp By Vector} works directly on the material points.
+
+  \item[Architectural consequence] The post-processing boundary is now small
+    and explicit.  The exporter no longer carries status flags or helper paths
+    for embedded quadrature or mixed visualization meshes.  The retained
+    extension points are the nodal projection strategy, the Gauss-cloud field
+    inventory, and the tensor-scalar derivation utilities.
+
+  \item[Source] \texttt{VTKModelExporter.hh},
+    \texttt{tests/test\_vtk\_gauss\_cloud\_contract.cpp}.
+\end{description}
+
+
+\subsection{Decision 8: Explicit Scalar Filters over Raw Voigt Arrays in ParaView}
+\label{sec:dec_vtk_tensor_filters}
+
+\begin{description}[leftmargin=0pt,style=nextline]
+  \item[Context] Even with a clean split export, raw Voigt arrays remain a poor
+    visualisation contract.  ParaView can show them, but the user still has to
+    remember the Voigt ordering and the engineering-shear convention.
+
+  \item[Problem] A raw array named simply \texttt{strain} or \texttt{stress}
+    is a poor post-processing contract.  The user must remember both the Voigt
+    convention and the data association, and the same logical field can appear
+    in both \texttt{FieldData} and generated \texttt{PointData}.
+
+  \item[Decision] Rename the raw tensors explicitly as
+    \texttt{*\_voigt}, separate nodal and quadrature views through the
+    prefixes \texttt{nodal\_} and \texttt{qp\_}, and export scalar component
+    and invariant fields such as
+    \texttt{qp\_stress\_von\_mises},
+    \texttt{qp\_stress\_pressure},
+    \texttt{qp\_strain\_equivalent\_strain}, etc.
+
+  \item[Architectural consequence] The exporter now owns the Voigt-to-scalar
+    mapping explicitly, including the engineering-shear correction for
+    strain-like tensors.  This is preferable to deferring the convention to
+    ad-hoc ParaView calculators.
+
+  \item[Source] \texttt{VTKTensorFieldDerivatives.hh},
+    \texttt{VTKModelExporter.hh},
+    \texttt{tests/test\_vtk\_tensor\_field\_derivatives.cpp}.
+\end{description}
+
+
 % ─────────────────────────────────────────────────────────────────────────
 \section{Nonlinear Showcase (\texttt{main.cpp})}
 \label{sec:showcase}
@@ -244,9 +309,10 @@ Fixed face at $x = 0$, traction on face at $x = 10$.
 
 \paragraph{Post-processing:}
 All cases use \texttt{compute\_material\_fields()} with adaptive dispatch
-(lumped $L^2$ when safe, polynomial patch recovery otherwise), producing dual
-VTU outputs (mesh + Gauss cloud) in
-\texttt{data/output/}.
+(lumped $L^2$ when safe, polynomial patch recovery otherwise), producing two
+VTUs in \texttt{data/output/}: a continuum \texttt{*\_mesh.vtu} with nodal
+fields and a \texttt{*\_gauss.vtu} cloud with material-point fields plus the
+interpolated displacement vector.
 
 
 % ─────────────────────────────────────────────────────────────────────────
