@@ -122,6 +122,15 @@ Key topics include:
         geometry, mesh vertices, nodal unknown carriers, integration sites,
         constitutive points, and structural section entities under a
         compile-time-oriented HPC design philosophy;
+  \item The first implementation phase of the \texttt{Domain} refactor:
+        canonical \texttt{Vertex} storage, lazy PETSc mesh creation,
+        transitional nodal caching, and geometry-only mesh export through
+        vertices;
+  \item The second implementation phase of the \texttt{Domain} refactor:
+        geometry-only element binding through \texttt{Point}/\texttt{Vertex},
+        optional analysis-node binding, vertex-driven boundary extraction, and
+        preservation of the compile-time/HPC characteristics of the element
+        kernels;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -148,6 +157,8 @@ discussion of the design rationale.
 \input{ch09_element_geometry_refactor}
 \input{ch10_serendipity_elements}
 \input{ch11_domain_ontology}
+\input{ch12_domain_vertex_transition}
+\input{ch13_element_geometry_binding}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

@@ -42,6 +42,10 @@ public:
 
     constexpr Vertex() = default;
 
+    constexpr Vertex(std::size_t tag, const std::array<double, Dim>& coords) noexcept
+        : Point<Dim>(coords),
+          id_{tag} {}
+
     template <std::floating_point... Args>
         requires (sizeof...(Args) == Dim)
     constexpr Vertex(std::integral auto tag, Args... args) noexcept

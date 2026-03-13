@@ -1,0 +1,306 @@
+% =============================================================================
+%  Chapter 12 — Domain Vertex Transition
+% =============================================================================
+
+\chapter{Domain Vertex Transition}
+\label{ch:domain-vertex-transition}
+
+Chapter~\ref{ch:domain-ontology} fixed the ontology of the refactor.  This
+chapter documents the next implementation step: the domain now treats
+\texttt{Vertex} as the canonical geometric storage, while \texttt{Node}
+survives as a transitional analysis-layer cache.
+
+The design goal of this step is deliberately modest:
+
+\begin{quote}
+move the ownership boundary of \texttt{Domain} toward pure geometry without
+breaking the current element, model, and PETSc assembly pipelines.
+\end{quote}
+
+That means this is not yet the final state of the refactor.  It is the
+bridge state that keeps existing kernels working while removing the strongest
+geometric/analysis conflation.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Motivation}
+\label{sec:domain-vertex-transition-motivation}
+
+Before this step, \texttt{Domain} owned a vector of \texttt{Node<dim>}.  That
+had three consequences:
+
+\begin{enumerate}[nosep]
+  \item the geometric domain depended directly on nodal DOF storage;
+  \item simply constructing a domain implied that the domain was already in an
+        analysis-ready state;
+  \item purely geometric consumers such as mesh export were forced to read
+        geometry through analysis nodes.
+\end{enumerate}
+
+This was workable, but it obscured the intended layering:
+
+\[
+\texttt{Domain} \not\equiv \texttt{Model}.
+\]
+
+The refactor therefore changes the ownership model to:
+
+\[
+\texttt{Domain owns vertices}, \qquad
+\texttt{Model / assembly consume nodes}.
+\]
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implemented Transition Design}
+\label{sec:domain-vertex-transition-design}
+
+\subsection{Canonical storage}
+
+\texttt{Domain} now stores
+\[
+\texttt{std::vector<Vertex<dim>>}
+\]
+as its primary geometric container.  This is the authoritative representation
+of mesh points for:
+
+\begin{itemize}[nosep]
+  \item coordinates;
+  \item mesh identity;
+  \item sorting and lookup by vertex ID;
+  \item geometry-only consumers.
+\end{itemize}
+
+\subsection{Node cache}
+
+To preserve compatibility with the current element and model infrastructure,
+\texttt{Domain} also materialises a
+\[
+\texttt{std::vector<Node<dim>>}
+\]
+cache on demand.  This cache is derived from the vertices and is used only when
+analysis-level operations require nodal DOFs or PETSc indexing.
+
+This means the runtime interpretation is now:
+
+\begin{itemize}[nosep]
+  \item \texttt{vertices\_} is the geometric truth;
+  \item \texttt{nodes\_cache\_} is a derived analysis view.
+\end{itemize}
+
+\paragraph{Why this is acceptable.}
+The cache is not introduced for performance in the hot path.  It is a
+compatibility layer during migration.  Since nodes are created once and then
+reused during analysis, the cost is negligible relative to element assembly and
+material updates.
+
+\subsection{Cache invalidation rule}
+
+Whenever the vertex container changes, the node cache is invalidated.  The next
+request for \texttt{nodes()}, \texttt{node(id)}, or element-node binding
+rebuilds the cache.
+
+This makes the design explicit:
+
+\begin{quote}
+geometry changes invalidate analysis views.
+\end{quote}
+
+That is the correct dependency direction.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why This Preserves Performance}
+\label{sec:domain-vertex-transition-performance}
+
+The user requirement for this refactor was clear: do not sacrifice runtime
+performance unnecessarily, and favour compile-time structure suitable for HPC.
+
+This implementation respects that requirement in three ways.
+
+\subsection{No change to element hot loops}
+
+The integration, constitutive update, and local stiffness computations remain
+exactly where they already were:
+
+\begin{itemize}[nosep]
+  \item \texttt{ElementGeometry};
+  \item \texttt{ContinuumElement};
+  \item \texttt{BeamElement};
+  \item \texttt{TimoshenkoBeamN};
+  \item \texttt{ShellElement}.
+\end{itemize}
+
+Those kernels still operate on bound \texttt{Node} objects and continue to
+benefit from fixed-size matrices, compile-time quadrature, and policy-based
+dispatch.
+
+\subsection{Geometry-only consumers stop depending on nodes}
+
+The VTK mesh-export path was updated to read coordinates from
+\texttt{Domain::vertices()} rather than from \texttt{Domain::nodes()}.
+This is architecturally cleaner and slightly cheaper conceptually: geometry is
+now consumed as geometry.
+
+\subsection{PETSc creation is now lazy}
+
+An important side effect of the refactor is the change to \texttt{Mesh}.  The
+\texttt{DM} object is no longer created in the \texttt{Mesh} constructor.
+Instead, it is created lazily when the DMPlex-specific operations are first
+needed.
+
+This has two benefits:
+
+\begin{enumerate}[nosep]
+  \item a purely geometric \texttt{Domain} can be created and manipulated
+        without immediately entering PETSc runtime semantics;
+  \item tests that exercise only the geometric/domain side no longer require
+        \texttt{PetscInitialize}.
+\end{enumerate}
+
+Architecturally, this is important because it moves PETSc from
+``always present'' to ``activated when the backend is actually used''.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Code-Level Changes}
+\label{sec:domain-vertex-transition-code}
+
+The main code changes in this phase are:
+
+\begin{enumerate}[nosep]
+  \item \texttt{Vertex<Dim>} introduced earlier becomes the canonical
+        storage type inside \texttt{Domain}.
+  \item \texttt{Domain} gains explicit vertex accessors:
+        \texttt{vertices()}, \texttt{vertex(id)}, \texttt{num\_vertices()}.
+  \item \texttt{Domain::nodes()} becomes a lazily materialised analysis view.
+  \item \texttt{GmshDomainBuilder} now sorts the domain through
+        \texttt{sort\_vertices\_by\_id()} rather than sorting the nodal view.
+  \item \texttt{VTKModelExporter} and the legacy \texttt{VTKDataContainer}
+        now use vertices for mesh coordinates.
+  \item \texttt{Mesh} now creates the PETSc \texttt{DM} lazily.
+\end{enumerate}
+
+This is intentionally a minimal-surface-area change.  The aim was to shift the
+ownership boundary without forcing an immediate rewrite of
+\texttt{ElementGeometry} or \texttt{Model}.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{What Remains Transitional}
+\label{sec:domain-vertex-transition-transitional}
+
+This phase does \emph{not} yet complete the domain refactor.
+
+The following are still transitional:
+
+\begin{itemize}[nosep]
+  \item \texttt{ElementGeometry} still binds concrete \texttt{Node} pointers,
+        not geometry-only vertex handles.
+  \item \texttt{Model} still reads and writes nodal DOF data through the
+        domain-level node view.
+  \item PETSc sieve IDs are still stored in \texttt{Node}, not yet in a
+        dedicated analysis/indexing layer.
+\end{itemize}
+
+That is acceptable at this stage.  The important structural improvement is that
+these analysis concerns are no longer the \emph{canonical ownership model} of
+the domain itself.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Validation}
+\label{sec:domain-vertex-transition-validation}
+
+This phase adds a dedicated test executable for the transition.
+
+\subsection{Domain/Vertex refactor test}
+
+The new test checks:
+
+\begin{enumerate}[nosep]
+  \item that vertices are the canonical stored geometry;
+  \item that the nodal view is materialised from those vertices;
+  \item that sorting vertices updates the nodal view coherently;
+  \item that analysis-only data written into the node cache does not alter the
+        geometric meaning of the corresponding vertex;
+  \item that the legacy \texttt{add\_node(Node\&\&)} path still preserves
+        geometry correctly.
+\end{enumerate}
+
+\subsection{Regression coverage}
+
+The existing serendipity test suite was recompiled and rerun after this change,
+which is a useful regression check because it exercises:
+
+\begin{itemize}[nosep]
+  \item \texttt{ElementGeometry};
+  \item quadrature;
+  \item VTK export;
+  \item geometry binding through nodes.
+\end{itemize}
+
+In addition, the Gmsh pipeline target was rebuilt successfully, confirming that
+the builder and domain interface remain consistent at compile time.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Architectural Consequences}
+\label{sec:domain-vertex-transition-consequences}
+
+This transition has one especially important architectural consequence:
+
+\begin{quote}
+\texttt{Domain} can now be understood as a geometric object that happens to be
+able to provide an analysis view, rather than as an analysis object that also
+stores geometry.
+\end{quote}
+
+That inversion is subtle, but it matters.  It clarifies the dependency
+direction for the next phase:
+
+\begin{enumerate}[nosep]
+  \item first, geometry is owned by the domain;
+  \item second, analysis nodes are attached or materialised from it;
+  \item third, elements and solvers consume those analysis nodes.
+\end{enumerate}
+
+This is much closer to the ontology laid out in the previous chapter.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Next Step}
+\label{sec:domain-vertex-transition-next}
+
+The next logical step is now well defined:
+
+\begin{quote}
+remove the direct \texttt{Node}-dependence from \texttt{ElementGeometry}.
+\end{quote}
+
+That will require introducing a geometry-facing vertex handle or concept for
+binding coordinates, while the model layer separately manages nodal DOFs and
+PETSc indexing.
+
+Once that is done, \texttt{Domain} will no longer need to expose a nodal cache
+at all, except perhaps as a legacy adapter.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:domain-vertex-transition-conclusion}
+
+This chapter marks the first real implementation step of the domain refactor.
+The main result is not a new feature but a new ownership boundary:
+
+\begin{itemize}[nosep]
+  \item vertices own domain geometry;
+  \item nodes are an analysis view;
+  \item mesh export reads geometry from vertices;
+  \item PETSc mesh backend creation is deferred until needed.
+\end{itemize}
+
+No element hot path was slowed down, no quadrature logic was generalized away,
+and existing element kernels continue to operate unchanged.  That is the right
+kind of progress for this refactor: architectural movement without numerical
+regression.

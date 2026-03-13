@@ -27,6 +27,7 @@
 #include "../Node.hh"
 
 #include "../../geometry/IntegrationPoint.hh"
+#include "../../geometry/Point.hh"
 #include "../../numerics/numerical_integration/QuadratureStrategy.hh"
 
 // HEADER FILES FOR ELEMENTS.
@@ -61,8 +62,10 @@ namespace impl
         constexpr virtual std::size_t id() const = 0;
 
         constexpr virtual PetscInt node(std::size_t i) const = 0;
+        constexpr virtual const geometry::Point<dim>& point_p(std::size_t i) const = 0;
         constexpr virtual Node<dim>& node_p(std::size_t i) const = 0;
 
+        constexpr virtual void bind_point(std::size_t i, const geometry::Point<dim>* point) = 0;
         constexpr virtual void bind_node(std::size_t i, Node<dim> *node) = 0;
 
         constexpr virtual std::size_t num_integration_points() const = 0;
@@ -153,8 +156,10 @@ namespace impl
         constexpr std::size_t num_nodes()           const override { return ElementType::num_nodes; };
         constexpr std::size_t id()                  const override { return element_.id(); };
         constexpr PetscInt    node  (std::size_t i) const override { return element_.node(i)  ;}; // renombrar como node_idx
+        constexpr const geometry::Point<dim>& point_p(std::size_t i) const override { return element_.point_p(i); };
         constexpr Node<dim>&  node_p(std::size_t i) const override { return element_.node_p(i);};
 
+        constexpr void bind_point(std::size_t i, const geometry::Point<dim>* point) override { element_.bind_point(i, point); };
         constexpr void bind_node(std::size_t i, Node<dim> *node) override { element_.bind_node(i, node); };
         
         constexpr std::size_t num_integration_points() const override { return num_integration_points_; };
@@ -406,6 +411,7 @@ class ElementGeometry
 public:
 
     constexpr void print_info() const { pimpl_->print_info(); };
+    constexpr void bind_point(std::size_t i, const geometry::Point<dim> *point) { pimpl_->bind_point(i, point); };
     constexpr void bind_node(std::size_t i, Node<dim> *node) { pimpl_->bind_node(i, node); };
 
     constexpr std::size_t topological_dimension() const { return pimpl_->topological_dimension(); };
@@ -414,6 +420,7 @@ public:
     constexpr std::size_t num_nodes() const { return pimpl_->num_nodes(); };
 
     constexpr PetscInt   node  (std::size_t i) const { return pimpl_->node  (i); };
+    constexpr const geometry::Point<dim>& point_p(std::size_t i) const { return pimpl_->point_p(i); };
     constexpr Node<dim>& node_p(std::size_t i) const { return pimpl_->node_p(i); };
 
     constexpr std::size_t num_integration_points() const { return pimpl_->num_integration_points(); };

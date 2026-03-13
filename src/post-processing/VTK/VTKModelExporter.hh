@@ -134,21 +134,21 @@ private:
 
         // ── Nodes ────────────────────────────────────────────────────────
         mesh_points_->SetNumberOfPoints(
-            static_cast<vtkIdType>(domain.num_nodes()));
+            static_cast<vtkIdType>(domain.num_vertices()));
 
-        for (const auto& node : domain.nodes()) {
+        for (const auto& vertex : domain.vertices()) {
             if constexpr (dim == 3) {
                 mesh_points_->SetPoint(
-                    static_cast<vtkIdType>(node.id()),
-                    node.coord(0), node.coord(1), node.coord(2));
+                    static_cast<vtkIdType>(vertex.id()),
+                    vertex.coord(0), vertex.coord(1), vertex.coord(2));
             } else if constexpr (dim == 2) {
                 mesh_points_->SetPoint(
-                    static_cast<vtkIdType>(node.id()),
-                    node.coord(0), node.coord(1), 0.0);
+                    static_cast<vtkIdType>(vertex.id()),
+                    vertex.coord(0), vertex.coord(1), 0.0);
             } else {
                 mesh_points_->SetPoint(
-                    static_cast<vtkIdType>(node.id()),
-                    node.coord(0), 0.0, 0.0);
+                    static_cast<vtkIdType>(vertex.id()),
+                    vertex.coord(0), 0.0, 0.0);
             }
         }
         mesh_points_->Modified();
@@ -268,7 +268,7 @@ private:
                     double Ni      = geom->H(i, xi);
                     double contrib = Ni * wJ;
 
-                    auto node_id = element.node_p(i).id();
+                    auto node_id = geom->node(i);
                     nodal_weight[node_id] += contrib;
 
                     for (int c = 0; c < ncomp; ++c) {
@@ -357,7 +357,7 @@ private:
 
             // ── Distribute to nodes ──────────────────────────────────
             for (std::size_t i = 0; i < nn; ++i) {
-                auto node_id = element.node_p(i).id();
+                auto node_id = geom->node(i);
                 nodal_vol[node_id] += Ve;
                 for (int c = 0; c < ncomp; ++c)
                     nodal_sum[node_id * ncomp + c] += Ve * f_bar[c];

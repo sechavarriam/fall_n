@@ -10,7 +10,6 @@
 #include <ranges>
 
 #include "../../domain/Domain.hh"
-#include "../../elements/Node.hh"
 
 #include "../../elements/element_geometry/ElementGeometry.hh"
 
@@ -28,8 +27,6 @@ class GmshDomainBuilder
 
     GmshMesh  mesh_info_;
     Domain3D* domain_;
-
-    std::vector<Node<3> *> node_addresses_;
 
     bool are_elements_aggregated_{false};
 
@@ -69,23 +66,17 @@ class GmshDomainBuilder
 
 public:
     void aggregate_nodes(){
-        domain_->preallocate_node_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
-
-        node_addresses_.reserve(mesh_info_.nodes_info_.numNodes);
+        domain_->preallocate_vertex_capacity(mesh_info_.nodes_info_.numNodes); // IMPORTANT!!!!
 
         for (auto &block : mesh_info_.nodes_info_.entityBlocks)
         {
-            //std::cout << "Adding nodes from block: " << block.entityDim << std::endl;
             for (std::size_t node = 0; node < block.numNodesInBlock; node++)
             {
-                //std::cout << "Node: " << block.nodeTag[node] << " " << block.coordinates[node][0] << " " << block.coordinates[node][1] << " " << block.coordinates[node][2] << std::endl;
-                node_addresses_.push_back( // Stores the address of the node created.
-                    domain_->add_node(     // Create Node in the domain
-                        Node<3>(
-                            block.nodeTag[node] -1 , // Node tag starts at 1, but the vector starts at 0.
-                            block.coordinates[node][0],
-                            block.coordinates[node][1],
-                            block.coordinates[node][2])));
+                domain_->add_vertex(
+                    block.nodeTag[node] - 1, // Node tag starts at 1, but the vector starts at 0.
+                    block.coordinates[node][0],
+                    block.coordinates[node][1],
+                    block.coordinates[node][2]);
             }
         }
     };
@@ -271,12 +262,7 @@ public:
         aggregate_nodes();
         aggregate_elements();        // Now processes both 3D and 2D blocks
 
-        // sort nodes with respect to their id
-        std::sort(domain_->nodes().begin(), domain_->nodes().end(), 
-        [](Node<3> &a, Node<3> &b) {
-             return a.id() < b.id(); 
-             }
-        );
+        domain_->sort_vertices_by_id();
 
         domain_->assemble_sieve(); // Assemble sieve (DAG) for the domain (DMPlex)
     };
