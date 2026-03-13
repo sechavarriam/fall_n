@@ -160,6 +160,21 @@ public:
                         if (!vol_group.empty()) elem.set_physical_group(vol_group);
                         break;
                         }
+                    case 17: // HEX_20 — 20-node quadratic serendipity hexahedron
+                        {
+                        auto integrator = GaussLegendreCellIntegrator<3,3,3>{};
+
+                        auto& elem = domain_->make_element<SerendipityElement<3,3,2>, decltype(integrator)>(
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags,
+                                0, 1, 2, 3, 4, 5, 6, 7,
+                                8, 9, 10, 11, 12, 13, 14, 15,
+                                16, 17, 18, 19).data()
+                        );
+                        if (!vol_group.empty()) elem.set_physical_group(vol_group);
+                        break;
+                        }
                     default:
                         {
                         std::cout << "Element type "<< block.elementType <<" not supported" << std::endl;
@@ -199,6 +214,17 @@ public:
                             std::move(integrator),
                             static_cast<std::size_t>(element_tag),
                             index_ordering(node_tags, 0, 4, 1, 7, 8, 5, 3, 6, 2).data()
+                        );
+                        break;
+                        }
+                    case 16: // QUA_8 — 8-node quadratic serendipity quadrilateral in 3D
+                        {
+                        auto integrator = GaussLegendreCellIntegrator<3,3>{};
+                        domain_->make_boundary_element<SerendipityElement<3,2,2>, decltype(integrator)>(
+                            group_name,
+                            std::move(integrator),
+                            static_cast<std::size_t>(element_tag),
+                            index_ordering(node_tags, 0, 1, 2, 3, 4, 5, 6, 7).data()
                         );
                         break;
                         }

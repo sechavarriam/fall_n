@@ -115,6 +115,9 @@ Key topics include:
   \item The refactor of \texttt{ElementGeometry}: corrected value semantics,
         explicit quadrature strategy contracts, compile-time invariant
         enforcement, and preservation of runtime performance in the hot path;
+  \item Serendipity tensor-product and simplex element families, including
+        static reference cells, benchmark validation, VTK support, and Gmsh
+        import paths for HEX20 and QUA8;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -139,6 +142,7 @@ discussion of the design rationale.
 \input{ch07_architecture}
 \input{ch08_boundary_conditions}
 \input{ch09_element_geometry_refactor}
+\input{ch10_serendipity_elements}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

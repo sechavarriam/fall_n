@@ -126,6 +126,25 @@ vtk_module_autoinit(
 
 add_test(NAME simplex_elements COMMAND fall_n_simplex_test)
 
+# --- Serendipity element family test ---
+add_executable(fall_n_serendipity_test
+  tests/test_serendipity.cpp
+)
+
+target_include_directories(fall_n_serendipity_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_serendipity_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_serendipity_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_serendipity_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_serendipity_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_serendipity_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME serendipity_family COMMAND fall_n_serendipity_test)
+
 # --- Material Strategy test ---
 add_executable(fall_n_strategy_test
   tests/test_material_strategy.cpp
@@ -569,6 +588,7 @@ add_test(NAME boundary_conditions COMMAND fall_n_bc_test)
 # ===============================================================================
 
 #if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU.  
+  set(FETCHCONTENT_UPDATES_DISCONNECTED_MATPLOTPLUSPLUS ON)
   FetchContent_Declare(
       matplotplusplus
       GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus

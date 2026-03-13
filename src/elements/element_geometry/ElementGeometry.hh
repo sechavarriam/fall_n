@@ -31,6 +31,7 @@
 
 // HEADER FILES FOR ELEMENTS.
 #include "LagrangeElement.hh"
+#include "SerendipityElement.hh"
 #include "SimplexElement.hh"
 
 namespace impl
@@ -201,7 +202,7 @@ namespace impl
         //
 
         std::size_t num_faces() const override {
-            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+            if constexpr (requires { typename ElementType::ReferenceCell; ElementType::ReferenceCell::num_faces; }) {
                 // topological_dim >= 1 guaranteed by LagrangianCell
                 return ElementType::ReferenceCell::num_faces;
             } else {
@@ -210,7 +211,9 @@ namespace impl
         }
 
         std::size_t face_num_nodes(std::size_t f) const override {
-            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+            if constexpr (is_SimplexElement<ElementType> || is_SerendipityElement<ElementType>) {
+                return ElementType::ReferenceCell::face_num_nodes(f);
+            } else if constexpr (requires { typename ElementType::ReferenceCell; }) {
                 using Faces = typename ElementType::ReferenceCell::Faces;
                 auto lookup = [&]<std::size_t... I>(std::index_sequence<I...>)
                     -> std::size_t
@@ -228,7 +231,10 @@ namespace impl
         }
 
         std::vector<std::size_t> face_node_indices(std::size_t f) const override {
-            if constexpr (requires { typename ElementType::ReferenceCell; }) {
+            if constexpr (is_SimplexElement<ElementType> || is_SerendipityElement<ElementType>) {
+                const auto entry = ElementType::ReferenceCell::face_node_indices(f);
+                return {entry.indices.begin(), entry.indices.begin() + entry.size};
+            } else if constexpr (requires { typename ElementType::ReferenceCell; }) {
                 using Faces = typename ElementType::ReferenceCell::Faces;
                 // Faces::node_indices(f) is constexpr but f is a runtime argument,
                 // so we build a small lookup table and dispatch.
@@ -276,6 +282,34 @@ namespace impl
                         FaceInteg{});
                 } else {
                     // TopDim == 1 → faces are points, not meaningful
+                    (void)f; (void)tag; (void)face_global_node_ids;
+                    return nullptr;
+                }
+            }
+            else if constexpr (is_SerendipityElement<ElementType>) {
+                if constexpr (ElementType::topological_dim > 1) {
+                    constexpr std::size_t face_top_dim = ElementType::topological_dim - 1;
+                    constexpr std::size_t face_order   = ElementType::order;
+                    constexpr std::size_t q            = face_order + 1;
+                    using FaceElem = SerendipityElement<dim, face_top_dim, face_order>;
+
+                    if constexpr (face_top_dim == 2) {
+                        using FaceInteg = GaussLegendreCellIntegrator<q, q>;
+                        using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
+                        return std::make_unique<FaceModel>(
+                            FaceElem(tag, face_global_node_ids),
+                            FaceInteg{});
+                    } else if constexpr (face_top_dim == 1) {
+                        using FaceInteg = GaussLegendreCellIntegrator<q>;
+                        using FaceModel = OwningModel_ElementGeometry<FaceElem, FaceInteg>;
+                        return std::make_unique<FaceModel>(
+                            FaceElem(tag, face_global_node_ids),
+                            FaceInteg{});
+                    } else {
+                        (void)f; (void)tag; (void)face_global_node_ids;
+                        return nullptr;
+                    }
+                } else {
                     (void)f; (void)tag; (void)face_global_node_ids;
                     return nullptr;
                 }
