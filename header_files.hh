@@ -93,6 +93,7 @@
 #include "src/materials/MaterialPolicy.hh"
 #include "src/materials/MaterialStatePolicy.hh"
 #include "src/materials/MaterialState.hh"
+#include "src/materials/SectionConstitutiveSnapshot.hh"
 
 // --- Concept hierarchy ---
 #include "src/materials/ConstitutiveRelation.hh"
@@ -143,6 +144,13 @@
 #include "src/model/BoundaryCondition.hh"
 
 // =================================================================================
+// Reconstruction Module
+// =================================================================================
+
+#include "src/reconstruction/SectionProfile.hh"
+#include "src/reconstruction/StructuralFieldReconstruction.hh"
+
+// =================================================================================
 // Utils Module
 // =================================================================================
 
@@ -170,4 +178,5 @@
 // =================================================================================
 
 #include "src/post-processing/VTK/VTKModelExporter.hh"
+#include "src/post-processing/VTK/StructuralVTMExporter.hh"
 #include "src/post-processing/VTK/PVDWriter.hh"

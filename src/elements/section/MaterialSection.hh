@@ -33,7 +33,7 @@
 #include "../../materials/Material.hh"
 #include "../../geometry/IntegrationPoint.hh"
 
-template <class MaterialPolicy>
+template <class MaterialPolicy, std::size_t PointDim = MaterialPolicy::dim>
 class MaterialSection {
 
     using MaterialT      = Material<MaterialPolicy>;
@@ -44,9 +44,7 @@ class MaterialSection {
 
     std::size_t id_{};
 
-    IntegrationPoint<1>* integration_point_{nullptr};
-    // ↑ The integration point lies on the 1D beam axis (parametric coordinate).
-    //   For shells it would be IntegrationPoint<2>, but we model beams here.
+    IntegrationPoint<PointDim>* integration_point_{nullptr};
 
     MaterialT material_;
     // ↑ Type-erased section constitutive relation (e.g. TimoshenkoBeamSection3D
@@ -54,7 +52,7 @@ class MaterialSection {
 
 public:
 
-    static constexpr std::size_t dim = 1;
+    static constexpr std::size_t dim = PointDim;
 
     // ── Coordinate access (from the integration point) ──────────────────
 
@@ -98,12 +96,18 @@ public:
 
     // ── Binding ─────────────────────────────────────────────────────────
 
-    void bind_integration_point(IntegrationPoint<1>& pt) {
+    void bind_integration_point(IntegrationPoint<PointDim>& pt) {
         integration_point_ = &pt;
     }
 
-    [[nodiscard]] IntegrationPoint<1>*       integration_point()       noexcept { return integration_point_; }
-    [[nodiscard]] const IntegrationPoint<1>* integration_point() const noexcept { return integration_point_; }
+    [[nodiscard]] bool has_integration_point() const noexcept { return integration_point_ != nullptr; }
+
+    [[nodiscard]] IntegrationPoint<PointDim>*       integration_point()       noexcept { return integration_point_; }
+    [[nodiscard]] const IntegrationPoint<PointDim>* integration_point() const noexcept { return integration_point_; }
+
+    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const {
+        return material_.section_snapshot();
+    }
 
     // ── Identification ──────────────────────────────────────────────────
 
