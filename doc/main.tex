@@ -62,7 +62,9 @@
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\N}{\mathbb{N}}
 \newcommand{\dd}{\mathrm{d}}
+\newcommand{\ba}{\mathbf{a}}
 \newcommand{\bxi}{\bm{\xi}}
+\newcommand{\bx}{\mathbf{x}}
 \newcommand{\blambda}{\bm{\lambda}}
 \newcommand{\bsigma}{\bm{\sigma}}
 \newcommand{\bvarepsilon}{\bm{\varepsilon}}
@@ -110,11 +112,12 @@ Key topics include:
         Golub--Welsch algorithm as an all-positive-weight alternative;
   \item Diagnosis and resolution of the checkerboard artefact in lumped $L^2$
         projections on quadratic tetrahedra;
-  \item Volume-weighted (SPR-type) nodal averaging as a robust projection
-        method;
+  \item Polynomial patch recovery as the production nodal reconstruction for
+        higher-order simplex visualisation, with volume-weighted averaging kept
+        as a conservative fallback;
   \item An adaptive material-field projection strategy that distinguishes
         between element families with strictly positive local lumping and
-        those that require robust averaging;
+        those that require robust local reconstruction;
   \item The refactor of \texttt{ElementGeometry}: corrected value semantics,
         explicit quadrature strategy contracts, compile-time invariant
         enforcement, and preservation of runtime performance in the hot path;
@@ -174,6 +177,7 @@ discussion of the design rationale.
 \input{ch14_low_level_access}
 \input{ch15_spatial_sites_and_lazy_domain}
 \input{ch16_adaptive_projection}
+\input{ch17_patch_recovery}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

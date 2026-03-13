@@ -27,10 +27,11 @@
 //
 //        NodalProjectionView — smooth contours: Gauss-point fields are
 //                              transferred onto the mesh nodes using either
-//                              lumped L2 or volume-weighted averaging,
-//                              selected automatically by default.  Fields
-//                              are PointData on the primary mesh grid, ready
-//                              for contour plots.
+//                              lumped L2 or polynomial patch recovery,
+//                              selected automatically by default.  A low-order
+//                              volume average is kept only as an explicit
+//                              fallback path.  Fields are PointData on the
+//                              primary mesh grid, ready for contour plots.
 //
 //      Both are emitted simultaneously.
 //
@@ -45,7 +46,7 @@
 //    // Compute material fields (strain, stress, plasticity if present).
 //    // The default chooses the nodal projection strategy automatically:
 //    // lumped L2 when all nodal lump weights are positive, otherwise
-//    // volume-weighted averaging (SPR-type).
+//    // polynomial patch recovery.
 //    exporter.compute_material_fields();
 //
 //    // Write primary mesh with nodal displacement + projected fields
@@ -56,14 +57,18 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
-#include <string>
-#include <vector>
-#include <span>
-#include <string_view>
 #include <concepts>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <petsc.h>
+#include <Eigen/Dense>
 
 // VTK includes — confined to post-processing module
 #include "VTKheaders.hh"
@@ -91,6 +96,7 @@ inline void write_vtu(vtkUnstructuredGrid* grid, const std::string& filename) {
 enum class MaterialFieldProjection {
     Auto,
     LumpedL2,
+    PolynomialPatchRecovery,
     VolumeWeightedAveraging,
 };
 
@@ -100,6 +106,8 @@ constexpr std::string_view to_string(MaterialFieldProjection strategy) noexcept 
             return "auto";
         case MaterialFieldProjection::LumpedL2:
             return "lumped_l2";
+        case MaterialFieldProjection::PolynomialPatchRecovery:
+            return "polynomial_patch_recovery";
         case MaterialFieldProjection::VolumeWeightedAveraging:
             return "volume_weighted_averaging";
     }
@@ -140,6 +148,182 @@ bool has_strictly_positive_lumped_projection_weights(
         }
     }
     return true;
+}
+
+template <std::size_t dim>
+struct PatchRecoveryObservation {
+    std::array<double, dim> coord{};
+    double                  weight{1.0};
+    std::size_t             value_index{};
+};
+
+template <std::size_t dim>
+constexpr int patch_basis_size(int degree) noexcept {
+    if (degree <= 0) return 1;
+    if constexpr (dim == 1) {
+        return degree == 1 ? 2 : 3;
+    } else if constexpr (dim == 2) {
+        return degree == 1 ? 3 : 6;
+    } else {
+        return degree == 1 ? 4 : 10;
+    }
+}
+
+template <std::size_t dim>
+void fill_patch_basis(const std::array<double, dim>& x,
+                      int degree,
+                      double* out) noexcept
+{
+    out[0] = 1.0;
+    if (degree <= 0) return;
+
+    if constexpr (dim == 1) {
+        out[1] = x[0];
+        if (degree >= 2) {
+            out[2] = x[0] * x[0];
+        }
+        return;
+    }
+
+    if constexpr (dim == 2) {
+        const double x0 = x[0];
+        const double x1 = x[1];
+        out[1] = x0;
+        out[2] = x1;
+        if (degree >= 2) {
+            out[3] = x0 * x0;
+            out[4] = x0 * x1;
+            out[5] = x1 * x1;
+        }
+        return;
+    }
+
+    const double x0 = x[0];
+    const double x1 = x[1];
+    const double x2 = x[2];
+    out[1] = x0;
+    out[2] = x1;
+    out[3] = x2;
+    if (degree >= 2) {
+        out[4] = x0 * x0;
+        out[5] = x0 * x1;
+        out[6] = x0 * x2;
+        out[7] = x1 * x1;
+        out[8] = x1 * x2;
+        out[9] = x2 * x2;
+    }
+}
+
+template <std::size_t dim>
+bool polynomial_patch_recover_to_point(
+    std::span<const PatchRecoveryObservation<dim>> observations,
+    std::span<const double> flat_values,
+    int num_components,
+    const std::array<double, dim>& eval_coord,
+    double* out)
+{
+    auto weighted_average = [&]() -> bool {
+        double total_weight = 0.0;
+        for (int c = 0; c < num_components; ++c) out[c] = 0.0;
+
+        for (const auto& obs : observations) {
+            const double w = std::max(std::abs(obs.weight), 1.0e-14);
+            const double* values =
+                flat_values.data() + obs.value_index * num_components;
+            total_weight += w;
+            for (int c = 0; c < num_components; ++c) {
+                out[c] += w * values[c];
+            }
+        }
+
+        if (total_weight <= 0.0) {
+            return false;
+        }
+
+        for (int c = 0; c < num_components; ++c) {
+            out[c] /= total_weight;
+        }
+        return true;
+    };
+
+    if (observations.empty()) {
+        return false;
+    }
+
+    double h2 = 0.0;
+    for (const auto& obs : observations) {
+        double r2 = 0.0;
+        for (std::size_t d = 0; d < dim; ++d) {
+            const double dx = obs.coord[d] - eval_coord[d];
+            r2 += dx * dx;
+        }
+        h2 = std::max(h2, r2);
+    }
+
+    if (h2 <= 1.0e-28) {
+        return weighted_average();
+    }
+
+    constexpr int max_terms = patch_basis_size<dim>(2);
+    constexpr int max_components = 6;
+    if (num_components > max_components) {
+        return weighted_average();
+    }
+
+    const double h = std::sqrt(h2);
+    std::array<double, max_terms> basis_buffer{};
+    using NormalMatrix = Eigen::Matrix<double, max_terms, max_terms>;
+    using RHSMatrix = Eigen::Matrix<double, max_terms, max_components>;
+
+    for (int degree = 2; degree >= 1; --degree) {
+        const int terms = patch_basis_size<dim>(degree);
+        if (observations.size() < static_cast<std::size_t>(terms)) {
+            continue;
+        }
+
+        NormalMatrix normal = NormalMatrix::Zero();
+        RHSMatrix rhs = RHSMatrix::Zero();
+
+        for (const auto& observation : observations) {
+            std::array<double, dim> local{};
+            for (std::size_t d = 0; d < dim; ++d) {
+                local[d] = (observation.coord[d] - eval_coord[d]) / h;
+            }
+
+            fill_patch_basis<dim>(local, degree, basis_buffer.data());
+
+            const double weight = std::max(std::abs(observation.weight), 1.0e-14);
+            const double* values =
+                flat_values.data() + observation.value_index * num_components;
+
+            for (int i = 0; i < terms; ++i) {
+                const double bi = basis_buffer[i];
+                for (int j = 0; j < terms; ++j) {
+                    normal(i, j) += weight * bi * basis_buffer[j];
+                }
+                for (int c = 0; c < num_components; ++c) {
+                    rhs(i, c) += weight * bi * values[c];
+                }
+            }
+        }
+
+        const Eigen::MatrixXd normal_block =
+            normal.topLeftCorner(terms, terms);
+        const auto lu = normal_block.fullPivLu();
+        if (lu.rank() < terms) {
+            continue;
+        }
+
+        const Eigen::MatrixXd rhs_block =
+            rhs.topLeftCorner(terms, num_components);
+        const Eigen::MatrixXd coeffs = lu.solve(rhs_block);
+        for (int c = 0; c < num_components; ++c) {
+            out[c] = coeffs(0, c);
+        }
+        return true;
+    }
+
+    return weighted_average();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -444,6 +628,88 @@ private:
         nodal_fields_.push_back(std::move(fb));
     }
 
+    void patch_recover_to_nodes(const std::string& name,
+                                const std::vector<double>& gauss_data,
+                                int ncomp)
+    {
+        auto& domain = model_->get_domain();
+        const auto num_nodes = domain.num_nodes();
+
+        std::vector<std::size_t> patch_sizes(num_nodes, 0);
+        for (const auto& element : model_->elements()) {
+            const auto* geom = element.get_geometry();
+            if (geom == nullptr) {
+                spr_average_to_nodes(name, gauss_data, ncomp);
+                return;
+            }
+
+            const auto nn = element.num_nodes();
+            const auto ngp = element.num_integration_points();
+            for (std::size_t i = 0; i < nn; ++i) {
+                patch_sizes[geom->node(i)] += ngp;
+            }
+        }
+
+        std::vector<std::vector<PatchRecoveryObservation<dim>>> patches(num_nodes);
+        for (std::size_t node = 0; node < num_nodes; ++node) {
+            patches[node].reserve(patch_sizes[node]);
+        }
+
+        std::size_t gp_offset = 0;
+        for (const auto& element : model_->elements()) {
+            const auto* geom = element.get_geometry();
+            const auto nn = element.num_nodes();
+            const auto ngp = element.num_integration_points();
+
+            for (std::size_t g = 0; g < ngp; ++g) {
+                const auto xi = geom->reference_integration_point(g);
+                const auto x = geom->map_local_point(xi);
+                const double sample_weight =
+                    std::abs(geom->weight(g) * geom->differential_measure(xi));
+
+                PatchRecoveryObservation<dim> observation{
+                    .coord = x,
+                    .weight = sample_weight,
+                    .value_index = gp_offset + g,
+                };
+
+                for (std::size_t i = 0; i < nn; ++i) {
+                    patches[geom->node(i)].push_back(observation);
+                }
+            }
+            gp_offset += ngp;
+        }
+
+        FieldBuffer fb;
+        fb.name = name;
+        fb.num_components = ncomp;
+        fb.data.resize(num_nodes * ncomp, 0.0);
+
+        std::array<double, nvoigt> recovered{};
+        for (std::size_t node = 0; node < num_nodes; ++node) {
+            recovered.fill(0.0);
+            const auto& eval_coord = domain.vertex(node).coord_ref();
+            const std::span<const PatchRecoveryObservation<dim>> patch{
+                patches[node].data(), patches[node].size()};
+
+            if (!polynomial_patch_recover_to_point<dim>(
+                    patch,
+                    gauss_data,
+                    ncomp,
+                    eval_coord,
+                    recovered.data()))
+            {
+                continue;
+            }
+
+            for (int c = 0; c < ncomp; ++c) {
+                fb.data[node * ncomp + c] = recovered[c];
+            }
+        }
+
+        nodal_fields_.push_back(std::move(fb));
+    }
+
     MaterialFieldProjection resolve_material_field_projection(
         MaterialFieldProjection requested) const
     {
@@ -458,7 +724,7 @@ private:
                     return MaterialFieldProjection::VolumeWeightedAveraging;
                 }
                 if (!has_strictly_positive_lumped_projection_weights(*geom)) {
-                    return MaterialFieldProjection::VolumeWeightedAveraging;
+                    return MaterialFieldProjection::PolynomialPatchRecovery;
                 }
             }
             return MaterialFieldProjection::LumpedL2;
@@ -516,7 +782,9 @@ public:
     //  After collecting Gauss-point buffers, all tensor/scalar fields are
     //  projected to the mesh nodes. By default the exporter resolves the
     //  strategy automatically: lumped L2 only when every element induces a
-    //  strictly positive local nodal lumping, otherwise SPR-style averaging.
+    //  strictly positive local nodal lumping, otherwise polynomial patch
+    //  recovery.  The low-order volume average is retained as an explicit
+    //  fallback/debug path.
     //
 
     void compute_material_fields(
@@ -603,6 +871,10 @@ public:
                     case MaterialFieldProjection::LumpedL2:
                         l2_project_to_nodes(gf.name, gf.data, gf.num_components);
                         break;
+                    case MaterialFieldProjection::PolynomialPatchRecovery:
+                        patch_recover_to_nodes(
+                            gf.name, gf.data, gf.num_components);
+                        break;
                     case MaterialFieldProjection::VolumeWeightedAveraging:
                         spr_average_to_nodes(gf.name, gf.data, gf.num_components);
                         break;
@@ -617,13 +889,17 @@ public:
         compute_material_fields(MaterialFieldProjection::LumpedL2);
     }
 
+    void compute_material_fields_patch() {
+        compute_material_fields(MaterialFieldProjection::PolynomialPatchRecovery);
+    }
+
     // ══════════════════════════════════════════════════════════════════════
-    //  compute_material_fields_spr — same field collection as above,
-    //  but uses SPR volume-weighted averaging for the projection.
+    //  compute_material_fields_spr — legacy same-field collection path
+    //  using explicit volume-weighted averaging for the projection.
     //
-    //  This is unconditionally robust: all weights are element volumes
-    //  (always positive), so the checkerboard artefact from negative
-    //  quadrature weights or lumped L2 denominators cannot occur.
+    //  This is unconditionally robust and intentionally diffusive.  It is
+    //  retained as an explicit fallback/debug path now that the adaptive
+    //  production route prefers polynomial patch recovery on unsafe patches.
     // ══════════════════════════════════════════════════════════════════════
 
     void compute_material_fields_spr() {

@@ -155,6 +155,7 @@ The exporter now exposes:
 enum class MaterialFieldProjection {
     Auto,
     LumpedL2,
+    PolynomialPatchRecovery,
     VolumeWeightedAveraging
 };
 \end{lstlisting}
@@ -167,8 +168,10 @@ The production path is \texttt{Auto}.  Its algorithm is:
         \]
   \item If \emph{all} local weights are strictly positive for \emph{all}
         elements, use lumped $L^2$ projection.
-  \item Otherwise, use volume-weighted averaging
-        (\texttt{spr\_average\_to\_nodes()}).
+  \item Otherwise, use polynomial patch recovery
+        (\texttt{patch\_recover\_to\_nodes()}).
+  \item Retain volume-weighted averaging only as an explicit low-order
+        fallback path.
 \end{enumerate}
 
 This choice is conservative and appropriate for production visualisation:
@@ -176,7 +179,9 @@ This choice is conservative and appropriate for production visualisation:
   \item it preserves the smoother lumped $L^2$ path for element families where
         it is mathematically sound;
   \item it automatically protects higher-order simplex elements without forcing
-        the user to know the details of the underlying quadrature rule.
+        the user to know the details of the underlying quadrature rule;
+  \item it avoids the excessive diffusion of a pure volume-average fallback by
+        using a real local reconstruction on unsafe patches.
 \end{itemize}
 
 \paragraph{Complexity.}
@@ -197,7 +202,8 @@ The implementation is localised in:
         — \texttt{MaterialFieldProjection},
         \texttt{lumped\_projection\_weights\_into()},
         \texttt{has\_strictly\_positive\_lumped\_projection\_weights()},
-        and adaptive dispatch in \texttt{compute\_material\_fields()}.
+        \texttt{patch\_recover\_to\_nodes()}, and adaptive dispatch in
+        \texttt{compute\_material\_fields()}.
   \item \texttt{main.cpp}
         — unchanged call site: \texttt{compute\_material\_fields()},
         but its semantics are now adaptive rather than hard-coded lumped $L^2$.
@@ -207,6 +213,8 @@ The implementation is localised in:
           \item TET10 keeps negative vertex lump weights under positive
                 quadrature;
           \item HEX27 keeps strictly positive lump weights.
+          \item The new patch-recovery path reproduces exact linear and
+                quadratic fields on TET10 patches.
         \end{itemize}
 \end{itemize}
 
@@ -225,7 +233,9 @@ Two levels of verification were added:
   \item \textbf{Implementation regression:} the same suite verifies that the
         27-point Stroud conical product rule also yields negative TET10 vertex
         lumps despite its strictly positive quadrature weights, while HEX27
-        remains strictly positive.
+        remains strictly positive.  It also verifies exact linear recovery on a
+        single TET10 and exact quadratic recovery on a multi-element TET10
+        patch.
 \end{enumerate}
 
 These checks establish the core architectural point:
