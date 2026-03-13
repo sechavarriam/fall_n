@@ -5,17 +5,26 @@
 \chapter{Gauss-Point to Nodal Projection}
 \label{ch:projection}
 
-In displacement-based finite elements, the primary unknowns (displacements)
-are nodal.  Derived quantities\,---\,strains, stresses, internal
-variables\,---\,are computed at \emph{Gauss (integration) points} inside each
-element.  For post-processing and visualisation, these quantities must be
-\emph{projected} or \emph{averaged} to the mesh nodes so that they can be
-rendered as continuous fields in VTK/ParaView.
+In displacement-based finite elements, the primary unknowns are nodal.  The
+derived fields of engineering interest\,---\,strains, stresses, and internal
+variables\,---\,are instead evaluated at Gauss points.  For VTK/ParaView
+visualisation, those material fields must be transferred to the mesh nodes.
 
-This chapter compares the three projection methods implemented in
-\texttt{fall\_n} and explains the current adaptive default: lumped $L^2$ when
-the local nodal lumping is strictly positive, and volume-weighted averaging
-otherwise.
+\texttt{fall\_n} currently implements three nodal transfer operators:
+\begin{enumerate}[nosep]
+  \item lumped $L^2$ projection;
+  \item polynomial patch recovery (the production fallback for higher-order
+        simplex elements);
+  \item volume-weighted averaging (a deliberately low-order but very robust
+        explicit fallback).
+\end{enumerate}
+
+The adaptive default is now:
+\begin{center}
+  \fbox{\parbox{0.85\linewidth}{
+  use lumped $L^2$ only when every local nodal lump is strictly positive;
+  otherwise use polynomial patch recovery.}}
+\end{center}
 
 
 % ─────────────────────────────────────────────────────────────────────────
@@ -24,40 +33,38 @@ otherwise.
 
 \subsection{Consistent \texorpdfstring{$L^2$}{L2} Projection}
 
-The mathematically rigorous approach minimises the $L^2$ norm of the error
-between the discrete Gauss-point field and a continuous nodal field.  Let
-$\sigma^h$ be the Gauss-point field and $\tilde{\sigma}^h = \sum_I
-\tilde{\sigma}_I N_I$ the nodal projection.  The consistent $L^2$ projection
-solves:
+Let $\sigma^h$ be the field known at Gauss points and let
+$\tilde{\sigma}^h = \sum_I \tilde{\sigma}_I N_I$ be its nodal projection.
+The consistent $L^2$ projection solves:
 \begin{equation}
   \mathbf{M}\,\tilde{\bsigma} = \mathbf{f},
   \label{eq:consistent_L2}
 \end{equation}
-where $\mathbf{M}$ is the global mass matrix ($M_{IJ} = \int_\Omega N_I N_J
-\,\dd\Omega$) and $\mathbf{f}$ is the right-hand side ($f_I = \int_\Omega N_I
-\sigma^h \,\dd\Omega$).
+with
+\begin{equation}
+  M_{IJ} = \int_\Omega N_I N_J \,\dd\Omega,
+  \qquad
+  f_I = \int_\Omega N_I \sigma^h \,\dd\Omega.
+\end{equation}
 
-This requires solving a global linear system, which is expensive and may
-introduce oscillations at element boundaries (Gibbs-like effects) for
-discontinuous fields.
+This is mathematically clean but operationally unattractive for
+post-processing: it introduces a global solve whose cost is disproportionate
+to the visualisation task.
 
 \subsection{Row-Sum Lumping}
 \label{sec:lumping}
 
-The standard shortcut is to \emph{lump} the mass matrix by replacing it with
-its row sums on the diagonal:
+The classical shortcut is to lump the mass matrix by row sum:
 \begin{equation}
-  \tilde{M}_{II} = \sum_J M_{IJ}
+  \tilde{M}_{II}
+  = \sum_J M_{IJ}
   = \int_\Omega N_I \sum_J N_J \,\dd\Omega
-  = \int_\Omega N_I\,\dd\Omega,
+  = \int_\Omega N_I \,\dd\Omega.
   \label{eq:lumped_mass}
 \end{equation}
-using the partition of unity $\sum_J N_J = 1$.  The lumped projection then
-becomes a local (node-by-node) average:
+Using quadrature,
 \begin{equation}
   \tilde{\sigma}_I
-  = \frac{\displaystyle\int_\Omega N_I\, \sigma^h \,\dd\Omega}
-         {\displaystyle\int_\Omega N_I \,\dd\Omega}
   \approx
   \frac{\displaystyle\sum_{e \in \mathcal{E}_I}
         \sum_{g=1}^{n_g} N_I(\bxi_g)\, w_g\, |J_g|\, \sigma_g}
@@ -66,178 +73,248 @@ becomes a local (node-by-node) average:
   \label{eq:lumped_L2_final}
 \end{equation}
 
-The denominator is the ``nodal volume'' contributed by the quadrature rule.
-For it to be meaningful, we need
-\begin{equation}
-  D_I = \sum_{e \in \mathcal{E}_I}
-        \sum_g N_I(\bxi_g)\, w_g\, |J_g| > 0
-        \qquad \forall\, I.
-  \label{eq:denominator_positive}
-\end{equation}
+This behaves as a nodal average only if every denominator is strictly
+positive.  For higher-order simplex elements that condition may fail even
+under all-positive quadrature, because the exact lumped nodal measure
+$\int_\Omega N_I \,\dd\Omega$ can itself be signed.  The TET10 vertex nodes
+are precisely such a case, as shown in \cref{ch:adaptive_projection}.
 
-As demonstrated in \cref{ch:negative_weights} and refined in
-\cref{ch:adaptive_projection}, this condition can fail in two distinct ways:
-\begin{itemize}[nosep]
-  \item \emph{catastrophically}, when negative quadrature weights amplify the
-        signed support of higher-order simplex basis functions;
-  \item \emph{structurally}, when the exact row-sum lumping
-        $\int_\Omega N_I\,\dd\Omega$ is itself non-positive, as happens for the
-        vertex functions of TET10 even under all-positive quadrature.
-\end{itemize}
-In the second case the formula is still well-defined, but it is no longer a
-nodal average.  It becomes a signed extrapolation operator, which is precisely
-what produces the spurious oscillations seen in TET10 contour plots.
-
-\paragraph{Implementation.}  The lumped $L^2$ projection is implemented in
-\texttt{l2\_project\_to\_nodes()} in \texttt{VTKModelExporter.hh}.  The legacy
-\texttt{std::abs} guard on the denominator remains in the explicit
-\texttt{LumpedL2} path as a defensive measure against future negative-weight
-rules:
-\begin{lstlisting}
-double denom = std::abs(node_lump[I]);
-if (denom < 1e-14) denom = 1e-14;
-node_val[I] /= denom;
-\end{lstlisting}
-but this is no longer relied on as the production fix for quadratic simplex
-elements.  The production path is now the adaptive resolver documented in
-\cref{ch:adaptive_projection}.
+\paragraph{Status in \texttt{fall\_n}.}
+Lumped $L^2$ remains the preferred projection when it is mathematically sound.
+For element families such as HEX27, where the local lumped nodal measures stay
+strictly positive under the chosen quadrature, it yields the smoothest and
+least diffusive nodal field at essentially zero additional complexity.
 
 
 % ─────────────────────────────────────────────────────────────────────────
-\section{Volume-Weighted Averaging (SPR-Type)}
-\label{sec:spr_averaging}
+\section{Polynomial Patch Recovery}
+\label{sec:projection_patch}
 
 \subsection{Motivation}
 
-The Superconvergent Patch Recovery (SPR) method of Zienkiewicz and
-Zhu~\cite{ZienkiewiczZhu1992a,ZienkiewiczZhu1992b} fits a polynomial to the
-Gauss-point values in a \emph{patch} of elements surrounding each node and
-evaluates the polynomial at the node.  In its full form, SPR requires solving
-local least-squares problems.
+When lumped $L^2$ stops being a true average, the right replacement is not a
+coarser averaging operator but a \emph{local reconstruction} operator.  The
+classical Superconvergent Patch Recovery (SPR) method of Zienkiewicz and
+Zhu~\cite{ZienkiewiczZhu1992a,ZienkiewiczZhu1992b} fits a polynomial over the
+patch of elements surrounding a node and evaluates that polynomial at the
+node.  For \texttt{TET10} this is the correct architectural move: the Gauss
+point data are smooth, but the nodal transfer operator must stop behaving like
+signed lumping.
 
-For production post-processing where visual smoothness (rather than
-superconvergent error estimation) is the primary goal, a simpler and even more
-robust approach suffices: \textbf{volume-weighted element averaging}.
+\subsection{Patch Definition}
 
-\subsection{Algorithm}
-\label{sec:spr_algorithm}
-
-For each node $I$, compute the nodal field as a weighted average of the
-element centroid values:
+For a node $I$, define its patch as the union of elements that contain that
+node:
 \begin{equation}
-  \boxed{
-  \tilde{\sigma}_I
-  = \frac{\displaystyle\sum_{e \in \mathcal{E}_I} V_e\, \bar{\sigma}_e}
-         {\displaystyle\sum_{e \in \mathcal{E}_I} V_e},
-  }
-  \label{eq:spr_average}
+  \mathcal{P}_I = \{\, e \in \mathcal{E} \mid I \in e \,\}.
 \end{equation}
-where:
-\begin{itemize}[nosep]
-  \item $\mathcal{E}_I$ is the set of elements sharing node $I$;
-  \item $V_e$ is the volume of element $e$ (computed via quadrature:
-        $V_e = \sum_g w_g |J_g|$);
-  \item $\bar{\sigma}_e$ is the element-average value, computed as the
-        weighted mean of Gauss-point values:
-        \begin{equation}
-          \bar{\sigma}_e
-          = \frac{\sum_g w_g\, |J_g|\, \sigma_g}{\sum_g w_g\, |J_g|}.
-          \label{eq:element_average}
-        \end{equation}
-\end{itemize}
+All Gauss points of all elements in $\mathcal{P}_I$ are used as sample sites.
+If the patch contributes observations
+$\{(\bx_g, \sigma_g, \omega_g)\}_{g=1}^{n_p}$, we seek a polynomial
+$p_I(\bx)$ that best fits the data in weighted least squares.
 
-\subsection{Robustness Guarantee}
+\subsection{Local Polynomial Basis}
 
-\begin{proposition}[Unconditional positivity]
-All weights in the averaging formula~\eqref{eq:spr_average} are element
-volumes $V_e > 0$, which are strictly positive for any non-degenerate element
-regardless of the quadrature rule used for stiffness integration.  Even if the
-quadrature rule contains negative weights, the element volume $V_e = \sum_g
-w_g |J_g|$ remains positive (it is the exact volume when the quadrature degree
-is sufficient to integrate polynomials of the Jacobian's degree).
+To improve conditioning, the implementation uses centered and scaled local
+coordinates around the evaluation node $\bx_I$:
+\begin{equation}
+  \hat{\bx}_g = \frac{\bx_g - \bx_I}{h_I},
+  \qquad
+  h_I = \max_{g \in \mathcal{P}_I} \|\bx_g - \bx_I\|_2.
+\end{equation}
 
-Therefore, SPR volume-weighted averaging is \textbf{unconditionally robust}:
-the denominator is always positive, and no sign flip or division by zero can
-occur at any node, regardless of element type or quadrature rule.
-\end{proposition}
+For three-dimensional continuum elements the quadratic basis is
+\begin{equation}
+  \mathbf{p}(\hat{\bx}) =
+  \begin{bmatrix}
+  1 &
+  \hat{x} &
+  \hat{y} &
+  \hat{z} &
+  \hat{x}^2 &
+  \hat{x}\hat{y} &
+  \hat{x}\hat{z} &
+  \hat{y}^2 &
+  \hat{y}\hat{z} &
+  \hat{z}^2
+  \end{bmatrix}^{\!\mathsf{T}}.
+\end{equation}
+The implementation uses the corresponding reduced bases in 1D and 2D.
 
-\subsection{Comparison with Lumped \texorpdfstring{$L^2$}{L2}}
+\subsection{Weighted Least Squares}
 
-\begin{center}
-\renewcommand{\arraystretch}{1.2}
-\begin{tabular}{p{4cm}cc}
-  \toprule
-  Property & Lumped $L^2$ & Volume-weighted avg. \\
-  \midrule
-  Denominator sign    & Can be $\le 0$ & Always $> 0$ \\
-  Sensitivity to $w_g < 0$ & High (catastrophic) & None \\
-  Accuracy order      & Optimal ($O(h^{k+1})$) & $O(h^k)$ \\
-  Superconvergent?    & No  & No \\
-  Computational cost  & $O(n_e \cdot n_g)$ & $O(n_e \cdot n_g)$ \\
-  Requires global solve? & No & No \\
-  \bottomrule
-\end{tabular}
-\end{center}
+The coefficients $\ba_I$ are obtained from
+\begin{equation}
+  \ba_I
+  = \arg\min_{\ba}
+    \sum_{g=1}^{n_p} \omega_g
+    \left(
+      \mathbf{p}(\hat{\bx}_g)^{\mathsf{T}}\ba - \sigma_g
+    \right)^2.
+\end{equation}
+The normal equations are
+\begin{equation}
+  \left(
+    \sum_g \omega_g\, \mathbf{p}_g \mathbf{p}_g^{\mathsf{T}}
+  \right)\ba_I
+  =
+  \sum_g \omega_g\, \mathbf{p}_g \sigma_g.
+\end{equation}
 
-For visualisation purposes, the $O(h^k)$ vs.\ $O(h^{k+1})$ accuracy
-difference is negligible.  The robustness advantage of volume-weighted
-averaging is decisive.
+In the current implementation, the weights are
+\begin{equation}
+  \omega_g = |w_g J_g|,
+\end{equation}
+that is, the \emph{magnitude} of the quadrature measure.  This is intentional:
+for patch fitting the weight is a confidence/importance measure for a sample,
+not a signed coefficient of an integral approximation.  Therefore negative
+quadrature weights must not flip the sign of the least-squares metric.
+
+\subsection{Adaptive Degree Fallback}
+
+Boundary patches or coarse patches may not contain enough independent samples
+to support a quadratic fit.  The exporter therefore applies a strict
+hierarchy:
+\begin{enumerate}[nosep]
+  \item try a quadratic polynomial;
+  \item if the patch is rank-deficient, try a linear polynomial;
+  \item if the patch is still insufficient, use a weighted average of the
+        patch samples.
+\end{enumerate}
+
+This fallback is important for robustness near boundaries and corners.  It
+keeps the high-order path where the local data support it, without making the
+visualisation pipeline brittle.
+
+\subsection{Evaluation at the Node}
+
+Because the polynomial basis is centered at $\bx_I$, the recovered nodal value
+is simply the constant coefficient:
+\begin{equation}
+  \tilde{\sigma}_I = p_I(\bx_I) = a_{I,0}.
+\end{equation}
+This is why the implementation can recover the nodal value directly after the
+solve of the local least-squares system.
 
 
 % ─────────────────────────────────────────────────────────────────────────
-\section{Implementation: \texttt{spr\_average\_to\_nodes()}}
-\label{sec:spr_impl}
+\section{Volume-Weighted Averaging}
+\label{sec:projection_volume_average}
 
-The volume-weighted averaging is implemented in two methods in
-\texttt{VTKModelExporter.hh}:
+Volume-weighted averaging is retained as an explicit low-order fallback:
+\begin{equation}
+  \tilde{\sigma}_I
+  = \frac{\displaystyle\sum_{e \in \mathcal{E}_I} V_e\, \bar{\sigma}_e}
+         {\displaystyle\sum_{e \in \mathcal{E}_I} V_e},
+\end{equation}
+where
+\begin{equation}
+  \bar{\sigma}_e
+  = \frac{\sum_g w_g |J_g| \sigma_g}{\sum_g w_g |J_g|}.
+\end{equation}
 
+This operator is deliberately diffusive.  Its purpose is no longer to serve as
+the default production path, but to remain available when a user wants the
+most conservative possible smoothing or when investigating pathological
+patches.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implementation in \texttt{VTKModelExporter}}
+\label{sec:projection_impl}
+
+The implementation lives in \texttt{src/post-processing/VTK/VTKModelExporter.hh}.
+The key pieces are:
 \begin{description}
-  \item[\texttt{spr\_average\_to\_nodes()}]
-    Computes a single scalar field $\sigma$:
-    \begin{enumerate}[nosep]
-      \item For each element $e$, compute $V_e$ and $\bar{\sigma}_e$ from
-            Gauss-point data.
-      \item For each node $I$ of element $e$, accumulate:
-            \begin{align}
-              \text{numerator}[I]   &\mathrel{+}= V_e \cdot \bar{\sigma}_e, \\
-              \text{denominator}[I] &\mathrel{+}= V_e.
-            \end{align}
-      \item After all elements: $\tilde{\sigma}_I = \text{numerator}[I] \,/\,
-            \text{denominator}[I]$.
-    \end{enumerate}
+  \item[\texttt{l2\_project\_to\_nodes()}]
+    Implements lumped $L^2$ projection.
 
-  \item[\texttt{compute\_material\_fields\_spr()}]
-    Applies \texttt{spr\_average\_to\_nodes()} to all material fields: strain
-    tensor (6 components), stress tensor (6 components), plastic strain tensor
-    (6 components), and equivalent plastic strain (1 scalar).
+  \item[\texttt{patch\_recover\_to\_nodes()}]
+    Builds nodal patches from element-to-node connectivity, gathers Gauss-point
+    samples, and performs centered/scaled least-squares recovery.
+
+  \item[\texttt{spr\_average\_to\_nodes()}]
+    Retained as the explicit volume-weighted fallback path.
 
   \item[\texttt{compute\_material\_fields()}]
-    Resolves the projection strategy automatically.  It uses lumped $L^2$
-    only if every element in the model has strictly positive local lumped nodal
-    weights; otherwise it dispatches to volume-weighted averaging.
+    Resolves the strategy automatically:
+    \begin{enumerate}[nosep]
+      \item if every element has strictly positive local lumped nodal weights,
+            use lumped $L^2$;
+      \item otherwise use polynomial patch recovery.
+    \end{enumerate}
+
+  \item[\texttt{compute\_material\_fields\_patch()}]
+    Exposes polynomial patch recovery explicitly.
+
+  \item[\texttt{compute\_material\_fields\_spr()}]
+    Preserves the old volume-average path as an explicit user choice.
 \end{description}
+
+\paragraph{Computational structure.}
+The hot finite-element kernels are untouched.  All additional work is confined
+to post-processing and uses only geometry already available in the element
+wrappers.  This preserves the compile-time and inlining properties of the
+assembly path while upgrading the quality of the visualisation path.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Comparison of the Three Operators}
+\label{sec:projection_comparison}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{4.0cm}ccc}
+  \toprule
+  Property & Lumped $L^2$ & Patch recovery & Volume average \\
+  \midrule
+  Requires positive local lumps & yes & no & no \\
+  Exactness on linear fields & yes & yes & no \\
+  Exactness on quadratic fields & family-dependent & patch-dependent & no \\
+  Continuity of rendered field & good when safe & good & fair / diffusive \\
+  Sensitivity to signed simplex lumps & high & none & none \\
+  Additional local solves & none & yes & none \\
+  Intended use & best smooth path when safe & adaptive default for simplex & conservative fallback \\
+  \bottomrule
+\end{tabular}
+\end{center}
 
 
 % ─────────────────────────────────────────────────────────────────────────
 \section{Verification}
 \label{sec:projection_verification}
 
-The adaptive projection policy was verified on the cantilever benchmark
-($10 \times 0.4 \times 0.8$ box, $E = 200$, $\nu = 0.3$):
+The implementation was verified at two levels.
+
+\subsection{Algebraic regression}
+
+The simplex test suite now checks:
 \begin{itemize}[nosep]
-  \item \textbf{HEX27 mesh} (20 elements, 315 nodes): the local lumped nodal
-        weights are strictly positive, so the adaptive policy resolves to
-        lumped $L^2$.  The projected fields remain smooth.
-  \item \textbf{TET10 mesh} ($\sim 1329$ elements, 2840 nodes):
-    \begin{itemize}[nosep]
-      \item Lumped $L^2$ with Keast-5: \textbf{checkerboard at vertices}.
-      \item Lumped $L^2$ with HMS-4 or Stroud conical product: still not a
-            true nodal average, because the TET10 vertex lump weights remain
-            negative.
-      \item Adaptive mode therefore resolves to SPR volume-weighted
-            averaging, which yields smooth, correct fields.
-    \end{itemize}
-  \item The main showcase (\texttt{main.cpp}) now uses
-        \texttt{compute\_material\_fields()} with adaptive dispatch for all
-        14~cases (7~formulations $\times$ 2~element types).
+  \item TET10 retains signed lumped nodal measures even under the
+        positive-weight Hammer--Marlowe--Stroud rule and under the positive
+        Stroud conical-product rule;
+  \item polynomial patch recovery reproduces an exact linear field on a single
+        TET10, which exercises the quadratic$\rightarrow$linear fallback;
+  \item polynomial patch recovery reproduces an exact quadratic scalar field
+        on a patch of multiple TET10 elements.
 \end{itemize}
+
+\subsection{Application-level behaviour}
+
+On the cantilever benchmark:
+\begin{itemize}[nosep]
+  \item \textbf{HEX27}: the adaptive resolver chooses lumped $L^2$, and the
+        resulting field remains smooth as before.
+  \item \textbf{TET10}: the adaptive resolver now chooses polynomial patch
+        recovery instead of volume averaging, eliminating the signed-lumping
+        artefact without introducing the excessive diffusion of the old
+        fallback.
+\end{itemize}
+
+This is the important practical conclusion:
+\begin{quote}
+The constitutive update and the element kinematics were already correct.  The
+remaining ParaView artefact came from the nodal transfer operator, and the
+appropriate cure was a better local reconstruction, not a change in the
+stiffness quadrature.
+\end{quote}

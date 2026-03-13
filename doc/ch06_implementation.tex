@@ -112,18 +112,21 @@ templates without virtual dispatch.
     exporter first inspects the local lumped nodal weights induced by the
     current element geometry and quadrature rule.  If every local weight is
     strictly positive, it uses lumped $L^2$ projection; otherwise it falls
-    back to volume-weighted averaging
-    (\texttt{spr\_average\_to\_nodes()}).
+    back to polynomial patch recovery
+    (\texttt{patch\_recover\_to\_nodes()}).  The old volume-weighted averaging
+    path is kept only as an explicit low-order fallback.
 
   \item[Trade-off] The adaptive pre-scan adds one post-processing pass over
     element quadrature points, but this cost is negligible compared with a
     solve and preserves the smoother lumped $L^2$ path for element families
-    such as HEX27 where it is mathematically sound.
+    such as HEX27 where it is mathematically sound.  The patch-recovery path
+    adds local least-squares work in post-processing only; it does not touch
+    the FE assembly hot path.
 
   \item[Source] \texttt{VTKModelExporter.hh}, methods
     \texttt{lumped\_projection\_weights\_into()},
     \texttt{compute\_material\_fields()}, and
-    \texttt{spr\_average\_to\_nodes()}.
+    \texttt{patch\_recover\_to\_nodes()}.
 \end{description}
 
 
@@ -240,8 +243,9 @@ Fixed face at $x = 0$, traction on face at $x = 10$.
 \end{itemize}
 
 \paragraph{Post-processing:}
-All cases use \texttt{compute\_material\_fields\_spr()} for Gauss-to-node
-projection, producing dual VTU outputs (mesh + Gauss cloud) in
+All cases use \texttt{compute\_material\_fields()} with adaptive dispatch
+(lumped $L^2$ when safe, polynomial patch recovery otherwise), producing dual
+VTU outputs (mesh + Gauss cloud) in
 \texttt{data/output/}.
 
 

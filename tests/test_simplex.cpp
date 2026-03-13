@@ -1100,6 +1100,161 @@ void test_hex27_lumped_projection_weights_are_positive() {
     report(__func__, ok);
 }
 
+void test_tet10_patch_recovery_recovers_linear_field_on_single_element() {
+    using Tet10 = SimplexElement<3, 3, 2>;
+    using Integrator = SimplexIntegrator<3, 2>;
+    using Observation = fall_n::vtk::PatchRecoveryObservation<3>;
+    using namespace fall_n::vtk;
+
+    constexpr auto ref_nodes = geometry::simplex::SimplexCell<3, 2>::reference_nodes;
+
+    const std::array<std::array<double, 3>, 4> vertices{{
+        {0.0, 0.0, 0.0},
+        {1.0, 0.0, 0.0},
+        {0.0, 1.0, 0.0},
+        {0.0, 0.0, 1.0},
+    }};
+
+    std::vector<Node<3>> nodes;
+    nodes.reserve(10);
+    std::array<Node<3>*, 10> node_ptrs{};
+    for (std::size_t i = 0; i < ref_nodes.size(); ++i) {
+        const auto& xi = ref_nodes[i].coord_ref();
+        const double l0 = 1.0 - xi[0] - xi[1] - xi[2];
+        const double l1 = xi[0];
+        const double l2 = xi[1];
+        const double l3 = xi[2];
+
+        std::array<double, 3> x{};
+        for (std::size_t d = 0; d < 3; ++d) {
+            x[d] = l0 * vertices[0][d] + l1 * vertices[1][d] +
+                   l2 * vertices[2][d] + l3 * vertices[3][d];
+        }
+
+        nodes.emplace_back(static_cast<PetscInt>(i), x[0], x[1], x[2]);
+        node_ptrs[i] = &nodes.back();
+    }
+
+    ElementGeometry<3> geom(Tet10(std::optional{node_ptrs}), Integrator{});
+
+    std::vector<Observation> observations;
+    std::vector<double> values;
+    observations.reserve(geom.num_integration_points());
+    values.reserve(geom.num_integration_points());
+
+    auto linear_field = [](const std::array<double, 3>& x) {
+        return 1.25 + 2.0 * x[0] - 3.0 * x[1] + 4.0 * x[2];
+    };
+
+    for (std::size_t g = 0; g < geom.num_integration_points(); ++g) {
+        const auto xi = geom.reference_integration_point(g);
+        const auto x = geom.map_local_point(xi);
+        observations.push_back(Observation{
+            .coord = x,
+            .weight = std::abs(geom.weight(g) * geom.differential_measure(xi)),
+            .value_index = values.size(),
+        });
+        values.push_back(linear_field(x));
+    }
+
+    std::array<double, 1> recovered{};
+    const std::array<double, 3> eval_coord{0.0, 0.0, 0.0};
+    const bool ok = polynomial_patch_recover_to_point<3>(
+        std::span<const Observation>(observations.data(), observations.size()),
+        std::span<const double>(values.data(), values.size()),
+        1,
+        eval_coord,
+        recovered.data());
+
+    report(__func__, ok && approx(recovered[0], linear_field(eval_coord), 1e-12));
+}
+
+void test_tet10_patch_recovery_recovers_quadratic_field_on_patch() {
+    using Tet10 = SimplexElement<3, 3, 2>;
+    using Integrator = SimplexIntegrator<3, 2>;
+    using Observation = fall_n::vtk::PatchRecoveryObservation<3>;
+    using namespace fall_n::vtk;
+
+    constexpr auto ref_nodes = geometry::simplex::SimplexCell<3, 2>::reference_nodes;
+
+    const std::array<std::array<std::array<double, 3>, 4>, 4> patch_tets{{
+        {{{0.0, 0.0, 0.0}, { 1.0, 0.0, 0.0}, { 0.0, 1.0, 0.0}, { 0.0, 0.0, 1.0}}},
+        {{{0.0, 0.0, 0.0}, { 0.0, 1.0, 0.0}, {-1.0, 0.0, 0.0}, { 0.0, 0.0, 1.0}}},
+        {{{0.0, 0.0, 0.0}, { 1.0, 0.0, 0.0}, { 0.0, 0.0, 1.0}, { 0.0,-1.0, 0.0}}},
+        {{{0.0, 0.0, 0.0}, { 0.0, 1.0, 0.0}, { 1.0, 0.0, 0.0}, { 0.0, 0.0,-1.0}}},
+    }};
+
+    std::vector<std::vector<Node<3>>> storage;
+    storage.reserve(patch_tets.size());
+    std::vector<ElementGeometry<3>> geometries;
+    geometries.reserve(patch_tets.size());
+
+    std::vector<Observation> observations;
+    std::vector<double> values;
+    observations.reserve(patch_tets.size() * 4);
+    values.reserve(patch_tets.size() * 4);
+
+    auto quadratic_field = [](const std::array<double, 3>& x) {
+        return 1.25 + 0.75 * x[0] - 0.50 * x[1] + 0.25 * x[2]
+             + 0.40 * x[0] * x[1] - 0.60 * x[0] * x[2] + 0.30 * x[1] * x[2]
+             + 0.20 * x[0] * x[0] - 0.10 * x[1] * x[1] + 0.35 * x[2] * x[2];
+    };
+
+    std::size_t next_node_id = 0;
+    for (const auto& tet_vertices : patch_tets) {
+        storage.emplace_back();
+        auto& nodes = storage.back();
+        nodes.reserve(10);
+
+        for (const auto& ref_node : ref_nodes) {
+            const auto& xi = ref_node.coord_ref();
+            const double l0 = 1.0 - xi[0] - xi[1] - xi[2];
+            const double l1 = xi[0];
+            const double l2 = xi[1];
+            const double l3 = xi[2];
+
+            std::array<double, 3> x{};
+            for (std::size_t d = 0; d < 3; ++d) {
+                x[d] = l0 * tet_vertices[0][d] + l1 * tet_vertices[1][d] +
+                       l2 * tet_vertices[2][d] + l3 * tet_vertices[3][d];
+            }
+
+            nodes.emplace_back(
+                static_cast<PetscInt>(next_node_id++), x[0], x[1], x[2]);
+        }
+
+        std::array<Node<3>*, 10> node_ptrs{};
+        for (std::size_t i = 0; i < node_ptrs.size(); ++i) {
+            node_ptrs[i] = &nodes[i];
+        }
+
+        geometries.emplace_back(Tet10(std::optional{node_ptrs}), Integrator{});
+        auto& geom = geometries.back();
+
+        for (std::size_t g = 0; g < geom.num_integration_points(); ++g) {
+            const auto xi = geom.reference_integration_point(g);
+            const auto x = geom.map_local_point(xi);
+            observations.push_back(Observation{
+                .coord = x,
+                .weight = std::abs(geom.weight(g) * geom.differential_measure(xi)),
+                .value_index = values.size(),
+            });
+            values.push_back(quadratic_field(x));
+        }
+    }
+
+    std::array<double, 1> recovered{};
+    const std::array<double, 3> eval_coord{0.0, 0.0, 0.0};
+    const bool ok = polynomial_patch_recover_to_point<3>(
+        std::span<const Observation>(observations.data(), observations.size()),
+        std::span<const double>(values.data(), values.size()),
+        1,
+        eval_coord,
+        recovered.data());
+
+    report(__func__, ok && approx(recovered[0], quadratic_field(eval_coord), 1e-11));
+}
+
 // =========================================================================
 //  7. Face geometry creation (sub-entity topology)
 // =========================================================================
@@ -1313,6 +1468,8 @@ int main() {
     test_vtk_hex27_ordering_matches_triquadratic_hex();
     test_tet10_positive_quadrature_still_has_signed_lumped_weights();
     test_hex27_lumped_projection_weights_are_positive();
+    test_tet10_patch_recovery_recovers_linear_field_on_single_element();
+    test_tet10_patch_recovery_recovers_quadratic_field_on_patch();
 
     // 7. Face geometry
     test_simplex_face_geometry_tet4();

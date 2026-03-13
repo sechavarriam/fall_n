@@ -142,13 +142,13 @@ static double max_uz_disp(auto& M, std::size_t ndof = 3) {
 
 // Export mesh VTU + Gauss-point VTU with adaptive nodal projection.
 // The exporter uses lumped L2 only when the local nodal lumping remains
-// strictly positive; otherwise it falls back to SPR-style averaging.
+// strictly positive; otherwise it falls back to polynomial patch recovery.
 template <typename ModelT>
 static void export_vtk(ModelT& M, const std::string& tag) {
     M.update_elements_state();
     fall_n::vtk::VTKModelExporter exporter(M);
     exporter.set_displacement();
-    exporter.compute_material_fields();        // <── adaptive: L2 when safe, SPR otherwise
+    exporter.compute_material_fields();        // <── adaptive: L2 when safe, patch recovery otherwise
     exporter.write_mesh        (OUT + tag + "_mesh.vtu");
     exporter.write_gauss_points(OUT + tag + "_gauss.vtu");
     std::cout << "       VTU : " << tag << "_mesh.vtu  +  " << tag << "_gauss.vtu\n";

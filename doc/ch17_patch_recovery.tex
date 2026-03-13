@@ -1,0 +1,226 @@
+% =============================================================================
+%  Chapter 17 — Polynomial Patch Recovery for TET10 Visualisation
+% =============================================================================
+
+\chapter{Polynomial Patch Recovery for TET10 Visualisation}
+\label{ch:patch_recovery}
+
+This chapter documents the second-stage fix for the TET10 visualisation path.
+The first fix\,---\,avoiding unsafe lumped $L^2$ projection\,---\,was
+necessary but not sufficient.  Replacing signed lumping with a plain
+volume-weighted average removed the gross artefact, but it also produced a
+field that was too diffusive for smooth contour rendering.  The proper
+solution is a local polynomial reconstruction over nodal patches.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Why Averaging Was Not Enough}
+\label{sec:patch_not_enough}
+
+The TET10 strain field in the cantilever benchmark is smooth at the level of
+Gauss-point samples: the displacement solution is correct, the kinematics are
+correct, and the constitutive update is correct.  The visual defect appears
+only after transfer to the nodes.
+
+Volume-weighted averaging fixes the sign problem but throws away too much
+information:
+\begin{itemize}[nosep]
+  \item it compresses each element to a single average value before nodal
+        transfer;
+  \item it cannot reproduce linear or quadratic intra-element variation;
+  \item it therefore damps gradients that should remain visible in the final
+        contour plot.
+\end{itemize}
+
+For higher-order simplex elements this is the wrong trade-off.  The data are
+already rich enough to support a better local fit, so a production-quality
+visualisation path should use them.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Recovered Quantity and Patch Topology}
+\label{sec:patch_quantity}
+
+Let node $I$ have coordinate $\bx_I$.  Its patch is the set of all elements
+incident on that node:
+\begin{equation}
+  \mathcal{P}_I = \{ e \in \mathcal{E} \mid I \in e \}.
+\end{equation}
+
+The exporter gathers every Gauss point of every element in $\mathcal{P}_I$.
+Each observation contributes:
+\begin{equation}
+  (\bx_g,\; \sigma_g,\; \omega_g),
+\end{equation}
+where $\bx_g$ is the physical coordinate of the sample, $\sigma_g$ is the
+material field component value, and $\omega_g = |w_g J_g|$ is the positive
+sample weight.
+
+\paragraph{Important distinction.}
+The recovery patch is a \emph{post-processing construct}.  It is not part of
+the FE approximation space, does not add new unknowns, and does not alter the
+element stiffness formulation.  It exists solely to reconstruct a nodal field
+for rendering.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Centered and Scaled Basis}
+\label{sec:patch_basis}
+
+To reduce conditioning problems and keep the constant coefficient equal to the
+recovered nodal value, the polynomial basis is centered at the node:
+\begin{equation}
+  \hat{\bx}_g = \frac{\bx_g - \bx_I}{h_I},
+  \qquad
+  h_I = \max_{g \in \mathcal{P}_I} \|\bx_g - \bx_I\|_2.
+\end{equation}
+
+For the 3D case, the quadratic basis is
+\begin{equation}
+  \mathbf{p}(\hat{\bx}) =
+  \begin{bmatrix}
+  1 &
+  \hat{x} &
+  \hat{y} &
+  \hat{z} &
+  \hat{x}^2 &
+  \hat{x}\hat{y} &
+  \hat{x}\hat{z} &
+  \hat{y}^2 &
+  \hat{y}\hat{z} &
+  \hat{z}^2
+  \end{bmatrix}^{\!\mathsf{T}}.
+\end{equation}
+
+With this choice,
+\begin{equation}
+  \tilde{\sigma}_I = p_I(\bx_I) = a_{I,0},
+\end{equation}
+because all non-constant basis terms vanish at the origin of the local patch
+coordinates.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Least-Squares System}
+\label{sec:patch_lsq}
+
+For one field component, the recovery solves
+\begin{equation}
+  \ba_I
+  = \arg\min_{\ba}
+    \sum_{g \in \mathcal{P}_I}
+    \omega_g
+    \left(
+      \mathbf{p}(\hat{\bx}_g)^{\mathsf{T}} \ba - \sigma_g
+    \right)^2.
+\end{equation}
+
+The implementation accumulates the normal equations
+\begin{equation}
+  \mathbf{N}_I = \sum_g \omega_g\, \mathbf{p}_g \mathbf{p}_g^{\mathsf{T}},
+  \qquad
+  \mathbf{r}_I = \sum_g \omega_g\, \mathbf{p}_g \sigma_g,
+\end{equation}
+and solves
+\begin{equation}
+  \mathbf{N}_I \ba_I = \mathbf{r}_I.
+\end{equation}
+
+\paragraph{Why use \texorpdfstring{$|w_g J_g|$}{|wJ|}?}
+In numerical integration the sign of $w_g$ matters because it contributes to
+an integral approximation.  In patch recovery the role of the weight is
+different: it measures the local influence of a sample.  A negative
+quadrature weight should therefore \emph{not} negate the influence of a
+perfectly valid sample in the least-squares fit.  Using $|w_g J_g|$ is the
+correct semantics for recovery.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Rank-Adaptive Fallback}
+\label{sec:patch_rank}
+
+Not every nodal patch can support a full quadratic fit:
+\begin{itemize}[nosep]
+  \item a boundary node may see too few neighbouring elements;
+  \item a coarse mesh may provide too few independent Gauss points;
+  \item a highly directional patch may lead to rank deficiency.
+\end{itemize}
+
+The exporter therefore uses the following hierarchy:
+\begin{enumerate}[nosep]
+  \item quadratic fit if the patch has enough samples and full rank;
+  \item linear fit if the quadratic system is rank-deficient;
+  \item weighted average if even the linear fit is not admissible.
+\end{enumerate}
+
+This hierarchy matters in practice.  A single TET10 contributes four HMS Gauss
+points, which is not enough for a quadratic 3D fit (ten coefficients) but is
+exactly enough for a linear fit (four coefficients).  The new regression tests
+check this explicitly.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Implementation Choices and HPC Considerations}
+\label{sec:patch_hpc}
+
+The implementation in \texttt{VTKModelExporter.hh} was written to avoid
+contaminating the assembly kernels with post-processing concerns:
+\begin{itemize}[nosep]
+  \item all recovery logic is isolated in the exporter;
+  \item the FE solve path, material update path, and element geometry kernels
+        are unchanged;
+  \item the recovery loop uses geometry already bound in the elements, so no
+        new ownership or pointer chains were introduced into the hot path;
+  \item the least-squares accumulation uses fixed-size small Eigen matrices for
+        the normal equations, with only a tiny dynamic solve on the active
+        block size.
+\end{itemize}
+
+This is the right architectural compromise for \texttt{fall\_n}:
+\begin{itemize}[nosep]
+  \item \textbf{compile-time and runtime discipline} are preserved in the FE
+        kernels;
+  \item \textbf{visualisation quality} is upgraded where it belongs, in
+        post-processing;
+  \item \textbf{traceability} remains high because the policy is explicit in
+        \texttt{MaterialFieldProjection}.
+\end{itemize}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Regression Coverage}
+\label{sec:patch_tests}
+
+Two new tests were added in \texttt{tests/test\_simplex.cpp}:
+\begin{enumerate}[nosep]
+  \item \texttt{test\_tet10\_patch\_recovery\_recovers\_linear\_field\_on\_single\_element()}
+        verifies that the fallback from quadratic to linear fit works and is
+        exact for a linear field on one straight-sided TET10.
+  \item \texttt{test\_tet10\_patch\_recovery\_recovers\_quadratic\_field\_on\_patch()}
+        verifies exact recovery of a quadratic scalar field at a shared patch
+        node using multiple TET10 elements and real simplex quadrature points.
+\end{enumerate}
+
+These tests are more valuable than a screenshot-based validation because they
+check the transfer operator directly, independently of ParaView rendering
+settings.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Architectural Outcome}
+\label{sec:patch_outcome}
+
+The final picture is now clean:
+\begin{itemize}[nosep]
+  \item \textbf{HEX27} stays on lumped $L^2$ because its local nodal lumping is
+        positive and well behaved.
+  \item \textbf{TET10} automatically switches to polynomial patch recovery
+        because signed lumping makes row-sum $L^2$ unsuitable as a nodal
+        average.
+  \item \textbf{Volume averaging} remains available for debugging and for the
+        rare case where a deliberately diffusive fallback is preferred.
+\end{itemize}
+
+This resolves the remaining mismatch between mathematically correct Gauss-point
+fields and visually acceptable nodal contours without degrading the
+performance-oriented architecture of the main finite element code.
