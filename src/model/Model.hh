@@ -389,7 +389,7 @@ public:
     
         if (sizeof...(force_components) != num_dofs) throw std::runtime_error("Force components size mismatch.");        
         
-        auto dofs = domain_->node(node_idx).dof_index().data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
+        auto dofs = domain_->node(node_idx).dof_data(); // TODO: Poner en terminos del plex para no depender del puntero al nodo.
 
         VecSetValuesLocal(this->nodal_forces_, num_dofs, dofs, force, ADD_VALUES);
 

@@ -85,6 +85,22 @@ void test_add_node_from_analysis_node_preserves_geometry() {
     assert(domain.node(7).coord(0) == 3.5);
 }
 
+void test_geometry_link_does_not_materialize_analysis_nodes() {
+    Domain<2> domain;
+    domain.add_vertex(0, 0.0, 0.0);
+    domain.add_vertex(1, 1.0, 0.0);
+    domain.add_vertex(2, 0.0, 1.0);
+    domain.add_vertex(3, 1.0, 1.0);
+
+    PetscInt node_ids[] = {0, 1, 2, 3};
+    domain.make_element<LagrangeElement<2, 2, 2>>(
+        GaussLegendreCellIntegrator<2, 2>{}, 0, node_ids);
+
+    assert(!domain.has_materialized_nodes());
+    domain.link_geometry_to_elements();
+    assert(!domain.has_materialized_nodes());
+}
+
 void test_element_geometry_binds_vertices_before_nodes() {
     Domain<2> domain;
     domain.add_vertex(0, 0.0, 0.0);
@@ -125,7 +141,9 @@ void test_boundary_from_plane_uses_vertex_binding() {
         GaussLegendreCellIntegrator<2, 2>{}, 0, node_ids);
 
     domain.link_geometry_to_elements();
+    assert(!domain.has_materialized_nodes());
     domain.create_boundary_from_plane("left", 0, 0.0);
+    assert(!domain.has_materialized_nodes());
 
     assert(domain.has_boundary_group("left"));
     const auto edges = domain.boundary_elements("left");
@@ -160,6 +178,9 @@ int main() {
 
     test_add_node_from_analysis_node_preserves_geometry();
     std::cout << "  PASS  test_add_node_from_analysis_node_preserves_geometry\n";
+
+    test_geometry_link_does_not_materialize_analysis_nodes();
+    std::cout << "  PASS  test_geometry_link_does_not_materialize_analysis_nodes\n";
 
     test_element_geometry_binds_vertices_before_nodes();
     std::cout << "  PASS  test_element_geometry_binds_vertices_before_nodes\n";

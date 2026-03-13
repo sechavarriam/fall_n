@@ -113,13 +113,13 @@ class BeamElement {
 
     // Compute element length and local frame from node coordinates.
     void compute_frame() noexcept {
-        auto& n0 = geometry_->node_p(0);
-        auto& n1 = geometry_->node_p(1);
+        const auto& x0_ref = geometry_->point_p(0).coord_ref();
+        const auto& x1_ref = geometry_->point_p(1).coord_ref();
 
         Eigen::Vector<double, Dim> x0, x1;
         for (std::size_t i = 0; i < Dim; ++i) {
-            x0[i] = n0.coord(i);
-            x1[i] = n1.coord(i);
+            x0[i] = x0_ref[i];
+            x1[i] = x1_ref[i];
         }
 
         Eigen::Vector<double, Dim> dx = x1 - x0;

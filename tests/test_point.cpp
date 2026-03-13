@@ -153,6 +153,32 @@ static void test_wrong_arity_rejected() {
 }
 
 // ===========================================================================
+// 12. coord() aliases the internal storage for lvalues
+// ===========================================================================
+static void test_coord_aliases_internal_storage() {
+    geometry::Point<3> p{2.0, 4.0, 6.0};
+    const auto& coords = p.coord();
+    assert(&coords == &p.coord_ref());
+    assert(coords.data() == p.data());
+    std::cout << "[PASS] test_coord_aliases_internal_storage\n";
+}
+
+// ===========================================================================
+// 13. data() exposes contiguous coordinate storage
+// ===========================================================================
+static void test_data_pointer() {
+    geometry::Point<2> p{5.0, 7.0};
+    const double* data = p.data();
+    assert(approx(data[0], 5.0));
+    assert(approx(data[1], 7.0));
+
+    double* mutable_data = p.data();
+    mutable_data[1] = 9.0;
+    assert(approx(p.coord(1), 9.0));
+    std::cout << "[PASS] test_data_pointer\n";
+}
+
+// ===========================================================================
 
 int main() {
     test_default_construction();
@@ -166,7 +192,9 @@ int main() {
     test_1d_point();
     test_copy();
     test_wrong_arity_rejected();
+    test_coord_aliases_internal_storage();
+    test_data_pointer();
 
-    std::cout << "\n=== All 11 Point tests PASSED ===\n";
+    std::cout << "\n=== All 13 Point tests PASSED ===\n";
     return 0;
 }

@@ -25,10 +25,14 @@ namespace geometry {
 
       // --- Coordinate access ---------------------------------------------------
 
-      constexpr std::array<double, Dim>  coord()                    const noexcept { return coord_;    }
-      constexpr double                   coord(std::size_t i)       const noexcept { return coord_[i]; }
+      // Return the underlying coordinate array by const reference to avoid
+      // copying small fixed-size arrays in geometry kernels.
+      [[nodiscard]] constexpr const std::array<double, Dim>& coord() const noexcept { return coord_; }
+      [[nodiscard]] constexpr double coord(std::size_t i) const noexcept { return coord_[i]; }
 
-      constexpr const std::array<double, Dim>& coord_ref()         const noexcept { return coord_;    }
+      [[nodiscard]] constexpr const std::array<double, Dim>& coord_ref() const noexcept { return coord_; }
+      [[nodiscard]] constexpr const double* data() const noexcept { return coord_.data(); }
+      [[nodiscard]] constexpr double* data() noexcept { return coord_.data(); }
 
       // --- Coordinate mutation -------------------------------------------------
 
@@ -52,19 +56,34 @@ namespace geometry {
   };
 
   // ---------------------------------------------------------------------------
-  // PointT concept — verifies the public coordinate interface.
-  // Any type exposing coord() / set_coord() with a static `dim` member satisfies it.
+  // PointViewT concept — read-only coordinate-bearing site.
+  // This is the common geometry-facing denominator shared by Point, Vertex,
+  // Node, IntegrationPoint, MaterialPoint, MaterialSection, and NodeSection.
   // ---------------------------------------------------------------------------
   template <typename T>
-  concept PointT = requires(T point) {
+  concept PointViewT = requires(T point, const T cpoint) {
       { T::dim } -> std::convertible_to<std::size_t>;
-      { point.coord()              } -> std::convertible_to<std::array<double, T::dim>>;
-      { point.coord(std::size_t{}) } -> std::convertible_to<double>;
+      { cpoint.coord()              } -> std::convertible_to<std::array<double, T::dim>>;
+      { cpoint.coord(std::size_t{}) } -> std::convertible_to<double>;
+      { cpoint.coord_ref()          } -> std::same_as<const std::array<double, T::dim>&>;
+      { cpoint.data()               } -> std::same_as<const double*>;
+      { point.data()                } -> std::convertible_to<const double*>;
+  };
+
+  // ---------------------------------------------------------------------------
+  // PointT concept — mutable point-like object.
+  // Refines PointViewT with coordinate mutation.
+  // ---------------------------------------------------------------------------
+  template <typename T>
+  concept PointT = PointViewT<T> && requires(T point) {
       { point.set_coord(std::size_t{}, double{}) } -> std::same_as<void>;
       { point.set_coord(std::array<double, T::dim>{}) } -> std::same_as<void>;
   };
 
   // Verify that Point itself satisfies the concept.
+  static_assert(PointViewT<Point<1>>);
+  static_assert(PointViewT<Point<2>>);
+  static_assert(PointViewT<Point<3>>);
   static_assert(PointT<Point<1>>);
   static_assert(PointT<Point<2>>);
   static_assert(PointT<Point<3>>);
@@ -72,6 +91,7 @@ namespace geometry {
 } // namespace geometry
 
 // Re-export into global scope for backward compatibility.
+using geometry::PointViewT;
 using geometry::PointT;
 
 #endif

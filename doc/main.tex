@@ -112,6 +112,9 @@ Key topics include:
         projections on quadratic tetrahedra;
   \item Volume-weighted (SPR-type) nodal averaging as a robust projection
         method;
+  \item An adaptive material-field projection strategy that distinguishes
+        between element families with strictly positive local lumping and
+        those that require robust averaging;
   \item The refactor of \texttt{ElementGeometry}: corrected value semantics,
         explicit quadrature strategy contracts, compile-time invariant
         enforcement, and preservation of runtime performance in the hot path;
@@ -131,6 +134,15 @@ Key topics include:
         optional analysis-node binding, vertex-driven boundary extraction, and
         preservation of the compile-time/HPC characteristics of the element
         kernels;
+  \item A low-level performance pass on point, vertex, node, and element
+        geometry access paths: contiguous coordinate access, direct DoF pointer
+        access, cached coordinate pointers inside geometric elements, and
+        removal of residual geometry-via-node usage in beam frame
+        construction;
+  \item A spatial-site and \texttt{Domain} laziness pass: a read-only
+        geometry-site concept for point-like entities, explicit forwarding for
+        constitutive and section decorators, and geometry-first boundary
+        extraction without eager node-cache materialisation;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -159,6 +171,9 @@ discussion of the design rationale.
 \input{ch11_domain_ontology}
 \input{ch12_domain_vertex_transition}
 \input{ch13_element_geometry_binding}
+\input{ch14_low_level_access}
+\input{ch15_spatial_sites_and_lazy_domain}
+\input{ch16_adaptive_projection}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

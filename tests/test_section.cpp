@@ -195,6 +195,7 @@ void test_node_section_delegates_dofs() {
     ASSERT_TRUE(dofs.size() == 6);
     ASSERT_TRUE(dofs[0] == 10);
     ASSERT_TRUE(dofs[1] == 11);
+    ASSERT_TRUE(ns.dof_data() == node.dof_data());
 }
 
 void test_node_section_modifies_through_reference() {
@@ -217,6 +218,7 @@ void test_node_section_2d() {
 
     ASSERT_TRUE(ns.dim == 2);
     ASSERT_NEAR(ns.area(), 0.08, 1e-12);
+    ASSERT_TRUE(ns.data() == node.data());
 }
 
 // ============================================================================
@@ -256,6 +258,8 @@ void test_material_section_bind_integration_point() {
 
     auto c = ms.coord();
     ASSERT_NEAR(c[0], 0.5, 1e-15);
+    ASSERT_TRUE(ms.data() == gp.data());
+    ASSERT_NEAR(ms.weight(), 0.0, 1e-15);
 }
 
 // ============================================================================

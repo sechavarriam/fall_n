@@ -49,14 +49,21 @@ public:
 
     static inline constexpr ReferenceCell reference_element_{};
 
-    using pPointArray = std::optional<std::array<const geometry::Point<dim>*, num_nodes>>;
-    using pNodeArray = std::optional<std::array<Node<dim>*, num_nodes>>;
+    using PointArray    = std::array<const geometry::Point<dim>*, num_nodes>;
+    using CoordPtrArray = std::array<const double*, num_nodes>;
+    using NodeArray     = std::array<Node<dim>*, num_nodes>;
+    using pPointArray   = std::optional<PointArray>;
+    using pNodeArray    = std::optional<NodeArray>;
 
     std::size_t tag_{0};
     // Geometry-only binding used by interpolation and Jacobian evaluation.
-    pPointArray points_p{};
+    PointArray points_{};
+    // Cache raw coordinate pointers to avoid repeated coord()/coord_ref() calls
+    // inside map_local_point() and evaluate_jacobian().
+    CoordPtrArray coord_data_{};
     // Analysis-layer binding used for DoFs, constraints, and PETSc layout.
-    pNodeArray  nodes_p{};
+    NodeArray nodes_p_{};
+    bool has_nodes_{false};
     std::array<PetscInt, num_nodes> nodes_{};
 
 private:
@@ -72,22 +79,18 @@ public:
 
     PetscInt node(std::size_t i) const noexcept { return nodes_[i]; }
     std::span<const PetscInt> nodes() const noexcept { return std::span<const PetscInt>(nodes_); }
-    const geometry::Point<dim>& point_p(std::size_t i) const noexcept { return *points_p.value()[i]; }
-    Node<dim>& node_p(std::size_t i) const noexcept { return *nodes_p.value()[i]; }
+    const geometry::Point<dim>& point_p(std::size_t i) const noexcept { return *points_[i]; }
+    Node<dim>& node_p(std::size_t i) const noexcept { return *nodes_p_[i]; }
 
     void bind_point(std::size_t i, const geometry::Point<dim>* point) noexcept {
-        if (!points_p.has_value()) {
-            points_p = std::array<const geometry::Point<dim>*, num_nodes>{};
-        }
-        points_p.value()[i] = point;
+        points_[i] = point;
+        coord_data_[i] = point->data();
     }
 
     void bind_node(std::size_t i, Node<dim>* node) noexcept {
         bind_point(i, node);
-        if (!nodes_p.has_value()) {
-            nodes_p = std::array<Node<dim>*, num_nodes>{};
-        }
-        nodes_p.value()[i] = node;
+        nodes_p_[i] = node;
+        has_nodes_ = true;
     }
 
     constexpr double H(std::size_t i, const NaturalArray& X) const noexcept {
@@ -104,7 +107,7 @@ public:
         CoordArray coords{};
         for (std::size_t i = 0; i < dim; ++i) {
             for (std::size_t j = 0; j < num_nodes; ++j) {
-                coords[i][j] = points_p.value()[j]->coord(i);
+                coords[i][j] = coord_data_[j][i];
             }
         }
         return coords;
@@ -123,9 +126,8 @@ public:
         Eigen::Matrix<double, dim, topological_dim> J =
             Eigen::Matrix<double, dim, topological_dim>::Zero();
 
-        SpatialArray x{};
         for (std::size_t k = 0; k < num_nodes; ++k) {
-            x = points_p.value()[k]->coord();
+            const auto* x = coord_data_[k];
             for (std::size_t i = 0; i < dim; ++i) {
                 for (std::size_t j = 0; j < topological_dim; ++j) {
                     J(i, j) += x[i] * dH_dx(k, j, X);
@@ -141,13 +143,19 @@ public:
     }
 
     constexpr SerendipityElement() = default;
-    constexpr SerendipityElement(pNodeArray nodes)
-        : nodes_p{std::forward<pNodeArray>(nodes)}
-    {
-        if (nodes_p.has_value()) {
-            points_p = std::array<const geometry::Point<dim>*, num_nodes>{};
+
+    constexpr SerendipityElement(pPointArray points) {
+        if (points.has_value()) {
             for (std::size_t i = 0; i < num_nodes; ++i) {
-                points_p.value()[i] = nodes_p.value()[i];
+                bind_point(i, points.value()[i]);
+            }
+        }
+    }
+
+    constexpr SerendipityElement(pNodeArray nodes) {
+        if (nodes.has_value()) {
+            for (std::size_t i = 0; i < num_nodes; ++i) {
+                bind_node(i, nodes.value()[i]);
             }
         }
     }
