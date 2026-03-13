@@ -67,8 +67,8 @@ void test_material_section_forwards_integration_point_view() {
     Material<TimoshenkoBeam3D> material{mat_instance, ElasticUpdate{}};
     MaterialSection<TimoshenkoBeam3D> ms(std::move(material));
 
-    IntegrationPoint<1> gp;
-    gp.set_coord(std::array<double, 1>{0.75});
+    IntegrationPoint<3> gp;
+    gp.set_coord(std::array<double, 3>{0.75, 0.0, 0.0});
     gp.set_weight(1.5);
     ms.bind_integration_point(gp);
 

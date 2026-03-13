@@ -73,6 +73,14 @@ static constexpr double J_tor   = (b_min*b_min*b_min * h_max / 3.0)
 static constexpr double Fy_tip = TY * A_sec;   // 0.016
 static constexpr double Fz_tip = TZ * A_sec;   // -0.016
 
+// ── Structural shell example geometry ───────────────────────────────────────
+static constexpr double L_SHELL = 4.0;
+static constexpr double W_SHELL = 1.0;
+static constexpr double T_SHELL = 0.08;
+static constexpr int    NX_SHELL = 8;
+static constexpr int    NY_SHELL = 2;
+static constexpr double FZ_SHELL_TOTAL = -2.0e-4;
+
 // ── Analytical Timoshenko deflections (tip point load) ────────────────────────
 //  δ_y (from Fy→ bending about z → I_z):  PL³/(3EI_z) + PL/(κGA)
 //  δ_z (from Fz→ bending about y → I_y):  PL³/(3EI_y) + PL/(κGA)
@@ -158,6 +166,21 @@ static void export_vtk(ModelT& M, const std::string& tag) {
     std::cout << "       VTU : " << tag
               << "_mesh.vtu, " << tag
               << "_gauss.vtu  [split mesh + gauss cloud]\n";
+}
+
+template <typename ModelT, typename BeamProfileT, typename ThicknessProfileT>
+static void export_structural_vtm(
+    ModelT& M,
+    const std::string& filename,
+    BeamProfileT beam_profile,
+    ThicknessProfileT thickness_profile)
+{
+    fall_n::vtk::StructuralVTMExporter exporter(
+        M,
+        std::move(beam_profile),
+        std::move(thickness_profile));
+    exporter.write(filename);
+    std::cout << "       VTM : " << filename << "\n";
 }
 
 // =============================================================================
@@ -259,8 +282,97 @@ static Result run_timoshenko_reference()
               << "       Analytical δ_y = " << delta_y_analytical()
               << "   δ_z = " << delta_z_analytical() << "\n";
 
+    export_structural_vtm(
+        M,
+        OUT + "timoshenko_ref_structural.vtm",
+        fall_n::reconstruction::RectangularSectionProfile<2>{B_BEAM, H_BEAM},
+        fall_n::reconstruction::ShellThicknessProfile<3>{});
+
     return { "Timoshenko N=3  (ref)", static_cast<std::size_t>(NNOD),
              static_cast<std::size_t>(NEL), mx, uy, uz };
+}
+
+// =============================================================================
+//  MITC4 shell cantilever example (structural VTM export)
+// =============================================================================
+static void run_shell_reference()
+{
+    using ShellElemPolicy =
+        SingleElementPolicy<ShellElement<MindlinReissnerShell3D>>;
+    using ShellModel =
+        Model<MindlinReissnerShell3D, continuum::SmallStrain, 6, ShellElemPolicy>;
+
+    std::cout << "\n  >> MITC4 Shell Cantilever (structural VTM export)\n";
+
+    Domain<DIM> D;
+    D.preallocate_node_capacity((NX_SHELL + 1) * (NY_SHELL + 1));
+
+    const double dx = L_SHELL / static_cast<double>(NX_SHELL);
+    const double dy = W_SHELL / static_cast<double>(NY_SHELL);
+
+    auto node_id = [&](int i, int j) {
+        return static_cast<PetscInt>(j * (NX_SHELL + 1) + i);
+    };
+
+    for (int j = 0; j <= NY_SHELL; ++j) {
+        const double y = -0.5 * W_SHELL + static_cast<double>(j) * dy;
+        for (int i = 0; i <= NX_SHELL; ++i) {
+            D.add_node(node_id(i, j), static_cast<double>(i) * dx, y, 0.0);
+        }
+    }
+
+    std::size_t elem_id = 0;
+    for (int j = 0; j < NY_SHELL; ++j) {
+        for (int i = 0; i < NX_SHELL; ++i) {
+            PetscInt conn[4] = {
+                node_id(i,     j),
+                node_id(i + 1, j),
+                node_id(i,     j + 1),
+                node_id(i + 1, j + 1)
+            };
+            D.template make_element<LagrangeElement3D<2, 2>>(
+                GaussLegendreCellIntegrator<2, 2>{}, elem_id++, conn);
+        }
+    }
+    D.assemble_sieve();
+
+    MindlinShellMaterial mat_inst{E_mod, nu, T_SHELL};
+    Material<MindlinReissnerShell3D> mat{mat_inst, ElasticUpdate{}};
+
+    ShellModel M{D, mat};
+    M.fix_x(0.0);
+    M.setup();
+
+    std::vector<std::size_t> tip_nodes;
+    tip_nodes.reserve(NY_SHELL + 1);
+    for (const auto& node : D.nodes()) {
+        if (std::abs(node.coord_ref()[0] - L_SHELL) < 1.0e-12) {
+            tip_nodes.push_back(node.id());
+        }
+    }
+
+    const double nodal_load = FZ_SHELL_TOTAL / static_cast<double>(tip_nodes.size());
+    for (const auto id : tip_nodes) {
+        M.apply_node_force(id, 0.0, 0.0, nodal_load, 0.0, 0.0, 0.0);
+    }
+
+    LinearAnalysis<MindlinReissnerShell3D, continuum::SmallStrain,
+                   6, ShellElemPolicy> solver{&M};
+    solver.solve();
+
+    const double mx = max_abs_disp(M);
+    const double uz = max_uz_disp(M, 6);
+
+    std::cout << "       Nodes: " << D.num_nodes()
+              << " | Elements: " << D.num_elements() << "\n"
+              << "       Max |u| = " << mx
+              << "   |uz| = " << uz << "\n";
+
+    export_structural_vtm(
+        M,
+        OUT + "shell_cantilever_structural.vtm",
+        fall_n::reconstruction::RectangularSectionProfile<1>{1.0, 1.0},
+        fall_n::reconstruction::ShellThicknessProfile<5>{});
 }
 
 // =============================================================================
@@ -360,6 +472,7 @@ int main(int argc, char** args)
             "tet10_beam"));
 
         print_comparison(R);
+        run_shell_reference();
     }
 
     PetscFinalize();

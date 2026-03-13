@@ -298,6 +298,27 @@ Every geometric carrier that is meant to deform in ParaView carries a
 \texttt{Warp By Vector} filter works directly, without any native VTK
 quadrature metadata.
 
+\subsection{Executable Examples}
+
+The main executable now writes two structural demonstration outputs alongside
+the existing continuum comparison:
+\begin{itemize}
+  \item \texttt{timoshenko\_ref\_structural.vtm}: the quadratic
+        \texttt{TimoshenkoBeamN<3>} reference beam used in the cantilever
+        comparison.  The file exposes the beam axis, swept surface, section
+        rings, and constitutive sites through the same reduced state that is
+        used by the solver.
+  \item \texttt{shell\_cantilever\_structural.vtm}: a small MITC4 cantilever
+        shell patch clamped on one edge and loaded by a distributed nodal tip
+        force.  This serves as the first end-to-end example of shell
+        reconstruction and ParaView deformation through \texttt{Warp By
+        Vector}.
+\end{itemize}
+
+These examples are intentionally modest.  Their role is not to replace a full
+benchmark suite, but to keep the structural reconstruction path wired into the
+production executable so regressions become visible immediately.
+
 \subsection{A Note on Empty Trailing Blocks}
 
 The VTK XML multiblock writer may elide a trailing empty block when the last
