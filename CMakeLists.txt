@@ -542,6 +542,19 @@ target_link_libraries(fall_n_continuum_interface_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME continuum_constitutive_interface COMMAND fall_n_continuum_interface_test)
 
+# ── Continuum local-problem tests ────────────────────────────────────────────
+add_executable(fall_n_continuum_local_problem_test
+  tests/test_continuum_local_problem.cpp
+)
+
+target_include_directories(fall_n_continuum_local_problem_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_continuum_local_problem_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_continuum_local_problem_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_continuum_local_problem_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME continuum_local_problem COMMAND fall_n_continuum_local_problem_test)
+
 # ── TotalLagrangian integration tests (Phase 4) ─────────────────────────────
 add_executable(fall_n_tl_integration_test
   tests/test_tl_integration.cpp

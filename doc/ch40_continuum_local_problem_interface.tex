@@ -1,0 +1,275 @@
+\chapter{Continuum Local Problems Driven by Constitutive Kinematics}
+\label{ch:continuum-local-problem-interface}
+
+\section{Motivation}
+
+The previous phases opened two necessary extension points:
+\begin{itemize}
+  \item the continuum constitutive carrier
+        \texttt{ConstitutiveKinematics<dim>}, which makes the active kinematic
+        and stress measures explicit;
+  \item the generic local nonlinear-problem and nonlinear-solver framework,
+        which no longer assumes a scalar consistency equation.
+\end{itemize}
+
+What was still missing was the bridge between those two abstractions.
+
+For large-displacement and finite-strain constitutive models the local update
+is not naturally written in terms of a flat engineering strain vector alone.
+The local problem typically depends on a richer set of continuum data, for
+example
+\[
+  \mathbf{F}_{n+1}, \qquad
+  J_{n+1} = \det\mathbf{F}_{n+1}, \qquad
+  \mathbf{E}_{n+1}, \qquad
+  \mathbf{e}_{n+1},
+\]
+together with the committed internal variables $\alpha_n$.
+
+The right architectural move is therefore to define a continuum-local problem
+in terms of:
+\begin{itemize}
+  \item a continuum kinematic context,
+  \item an explicit committed algorithmic state,
+  \item a vector local unknown
+        \[
+          \mathbf{x} \in \mathbb{R}^m,
+        \]
+  \item a residual
+        \[
+          \mathbf{R}(\mathbf{x}; \mathcal{K}_{n+1}, \alpha_n) = \mathbf{0},
+        \]
+  \item and a local Jacobian
+        \[
+          \mathbf{K}_{\text{loc}} =
+          \frac{\partial \mathbf{R}}{\partial \mathbf{x}}.
+        \]
+\end{itemize}
+
+\section{Context and Result Carriers}
+
+The new header
+\texttt{src/materials/local\_problem/ContinuumLocalProblem.hh}
+adds two reusable semantic carriers.
+
+\subsection{Continuum Context}
+
+The generic context
+\[
+  \texttt{continuum\_local\_problem::Context<Relation, TrialState, Auxiliary>}
+\]
+stores:
+\begin{itemize}
+  \item the continuum carrier
+        $\mathcal{K}_{n+1} = \texttt{ConstitutiveKinematics<dim>}$,
+  \item the committed internal state $\alpha_n$,
+  \item optional trial-state data,
+  \item optional auxiliary data.
+\end{itemize}
+
+This keeps the infrastructure open at compile time.  A future model may use
+the optional slots for quantities such as:
+\begin{itemize}
+  \item trial Mandel stress,
+  \item elastic left Cauchy--Green tensor,
+  \item plastic metric variables,
+  \item damage driving forces,
+  \item local fracture regularization variables.
+\end{itemize}
+
+\subsection{Continuum Update Result}
+
+The generic result carrier
+\[
+  \texttt{continuum\_local\_problem::UpdateResult<Relation>}
+\]
+stores:
+\begin{itemize}
+  \item the constitutive response,
+  \item the algorithmic tangent,
+  \item the updated algorithmic state,
+  \item an \texttt{inelastic} flag.
+\end{itemize}
+
+That carrier is intentionally small.  It is the minimal bridge needed between
+the local constitutive solve and the continuum element routine.
+
+\section{Continuum Local Problem Policy}
+
+The concept
+\texttt{ContinuumLocalProblemPolicy<Problem, Relation>}
+extends the generic
+\texttt{LocalNonlinearProblem}
+contract with continuum-specific semantics:
+\begin{itemize}
+  \item the relation must satisfy
+        \texttt{ExternallyStateDrivenContinuumRelation};
+  \item the local context must expose
+        \texttt{kinematics} and
+        \texttt{committed\_state};
+  \item the problem must provide:
+        \begin{itemize}
+          \item \texttt{make\_context(relation, kin, alpha)},
+          \item \texttt{is\_inelastic(relation, context)},
+          \item \texttt{elastic\_result(relation, context)},
+          \item \texttt{finalize(relation, context, unknown)}.
+        \end{itemize}
+\end{itemize}
+
+This split is important.  The nonlinear solver only knows how to solve
+\[
+  \mathbf{R}(\mathbf{x}) = \mathbf{0}.
+\]
+The physics of:
+\begin{itemize}
+  \item when the update is elastic,
+  \item how the continuum context is assembled,
+  \item how the solved unknown is mapped back to stress, tangent and
+        algorithmic state,
+\end{itemize}
+belongs to the local problem itself.
+
+\section{Continuum Local Integration Algorithm}
+
+The new compile-time driver
+\[
+  \texttt{ContinuumLocalIntegrationAlgorithm<LocalProblem, LocalSolver>}
+\]
+is the continuum-side analogue of the constitutive return-mapping wrappers
+introduced earlier.
+
+Its logic is intentionally small:
+\begin{enumerate}
+  \item build a context from the continuum kinematics and committed state;
+  \item check whether the update is elastic;
+  \item if not, solve the local problem with the injected solver;
+  \item reconstruct stress, tangent and updated state from the solved unknown.
+\end{enumerate}
+
+This means the algorithmic seam remains open at compile time:
+\begin{itemize}
+  \item \texttt{NewtonLocalSolver} is only one possible
+        \texttt{LocalNonlinearSolverPolicy};
+  \item other solvers can be injected without modifying the local problem or
+        the constitutive relation;
+  \item the same continuum-local problem can be tested with different solver
+        policies for robustness studies.
+\end{itemize}
+
+\section{Why This Matters for Finite Strains}
+
+Finite-strain inelasticity is often written in terms of local unknowns that are
+vector-valued even when the global element kinematics are standard.  Typical
+examples include:
+\begin{itemize}
+  \item multiplicative plasticity with unknowns such as
+        $\Delta\gamma$ and tensorial plastic-flow variables;
+  \item damage-plasticity with
+        \[
+          \mathbf{x} = [\Delta\gamma, d, \kappa]^T;
+        \]
+  \item local phase-field or gradient-enhanced constitutive updates with
+        additional driving variables.
+\end{itemize}
+
+In those settings the local constitutive solve is naturally expressed as
+\[
+  \mathbf{R}\!\left(
+    \mathbf{x};
+    \mathbf{F}_{n+1},
+    \mathbf{E}_{n+1},
+    \mathbf{e}_{n+1},
+    \alpha_n
+  \right)
+  = \mathbf{0},
+\]
+not as a scalar consistency equation in one variable.
+
+The present refactor does not yet implement a full finite-strain plastic or
+damage law.  What it does is remove the last architectural assumption that
+would have blocked such laws: the local constitutive framework is no longer
+structurally tied to scalar updates or to a flattened strain-only context.
+
+\section{Verification Strategy}
+
+The regression added in
+\texttt{tests/test\_continuum\_local\_problem.cpp}
+uses a deliberately simple finite-strain-ready toy relation:
+\begin{itemize}
+  \item the relation satisfies
+        \texttt{ExternallyStateDrivenContinuumRelation};
+  \item the local problem uses a two-component unknown vector;
+  \item the context is built from
+        \texttt{ConstitutiveKinematics<3>};
+  \item the same problem is solved with:
+        \begin{itemize}
+          \item \texttt{NewtonLocalSolver},
+          \item a one-shot direct solver injected as a different local solver
+                policy.
+        \end{itemize}
+\end{itemize}
+
+This test is intentionally architectural rather than physical.  Its purpose is
+to prove three things:
+\begin{enumerate}
+  \item the continuum carrier is sufficient as the input to a vector local
+        constitutive problem;
+  \item the nonlinear solver is genuinely injected and replaceable;
+  \item the local-problem framework already supports the shape needed by future
+        finite-strain inelastic models.
+\end{enumerate}
+
+\section{Strategic Outcome}
+
+At this point the constitutive architecture provides independent compile-time
+customization for:
+\begin{itemize}
+  \item constitutive law ingredients,
+  \item local residual and Jacobian definitions,
+  \item local nonlinear solver,
+  \item linearized local solve,
+  \item local step control,
+  \item continuum kinematic context,
+  \item continuum-local reconstruction of
+        \[
+          (\boldsymbol{\sigma}, \mathbf{c}, \alpha_{n+1}).
+        \]
+\end{itemize}
+
+This is the right base for the next stage:
+\begin{itemize}
+  \item finite-strain plasticity with multiplicative decomposition,
+  \item pressure-sensitive and damage-plasticity models,
+  \item local fracture or crack-driving internal variables at constitutive
+        level,
+  \item eventual PETSc-backed local constitutive experiments without changing
+        the relation or element interfaces.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1998continuumlocal}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{desouza2008continuumlocal}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\bibitem{bonet2008continuumlocal}
+J.~Bonet, A.~J. Gil, and R.~D. Wood,
+\emph{Nonlinear Solid Mechanics for Finite Element Analysis: Statics},
+2nd ed., Cambridge University Press, 2008.
+
+\bibitem{miehe1996continuumlocal}
+C.~Miehe,
+``Numerical computation of algorithmic (consistent) tangent moduli in
+large-strain computational inelasticity,''
+\emph{Computer Methods in Applied Mechanics and Engineering},
+134(3--4):223--240, 1996.
+
+\end{thebibliography}
