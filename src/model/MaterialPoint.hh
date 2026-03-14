@@ -63,6 +63,14 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
             return material_.internal_field_snapshot();
         }
 
+        [[nodiscard]] MaterialConstRef<MaterialPolicy> material_cref() const {
+            return material_.cref();
+        }
+
+        [[nodiscard]] MaterialRef<MaterialPolicy> material_ref() {
+            return material_.ref();
+        }
+
         void bind_integration_point(IntegrationPoint<dim>& p){
             gauss_point_ = &p;
         };

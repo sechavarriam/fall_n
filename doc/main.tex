@@ -87,7 +87,7 @@
   \textbf{\texttt{fall\_n}} --- Technical Documentation\\[1ex]
   \large Simplex Elements, Quadrature Theory,\\
   Element Architecture, and Implementation Decisions}
-\author{S. E. Chavarría-Miranda}
+\author{S. E. Echavarría-Montana}
 \date{\today}
 
 % ═════════════════════════════════════════════════════════════════════════
@@ -166,6 +166,12 @@ Key topics include:
         reinforced-concrete continuation with fiber sections in the frame,
         elastic MITC4 slabs, incremental SNES solution, and multi-block
         structural VTK export including fiber-level fields;
+  \item A dedicated architectural audit of the materials module: semantic
+        separation between physical materials, constitutive laws, integration
+        algorithms, constitutive state carriers, and structural reduction
+        policies, together with a roadmap toward nonlinear reinforced
+        concrete across scales, finite kinematics, dynamics, and
+        continuum-scale cracking/fracture;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -205,6 +211,7 @@ discussion of the design rationale.
 \input{ch23_dmplex_mixed_topology}
 \input{ch24_regular_5story_building_example}
 \input{ch25_rc_nonlinear_building_example}
+\input{ch26_material_module_analysis}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

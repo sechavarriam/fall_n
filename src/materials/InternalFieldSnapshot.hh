@@ -13,10 +13,10 @@
 //  the virtual interface, returning this struct by value (~96 bytes, fully
 //  stack-allocated).
 //
-//  WHY NOT Manual Virtual Dispatch (MVD) + Small Buffer Optimization (SBO)?
+//  WHY NOT migrate the OWNING path to Manual Virtual Dispatch (MVD) + SBO?
 //
-//  We evaluated a full MVD+SBO migration of Material<Policy>.  The concrete
-//  material types are too large for SBO to be effective:
+//  We evaluated a full MVD+SBO migration of the OWNING Material<Policy>.
+//  The concrete material types are too large for SBO to be effective:
 //
 //    - Elastic 3D (ContinuumIsotropicRelation + ElasticUpdate): ~312 bytes
 //    - Plastic 3D (PlasticityRelation<3D,VonMises,...> + InelasticUpdate): ~792 bytes
@@ -26,11 +26,11 @@
 //  the buffer.  MVD without SBO saves only 8 bytes per instance (the
 //  vtable pointer).  Both approaches have identical dispatch cost (~3 ns).
 //
-//  The External Polymorphism already in place IS manual dispatch — the
-//  compiler generates the vtable from the same information we'd hand-code.
-//  Adding one virtual method (8 bytes in the shared vtable, zero per-instance
-//  cost) is the pragmatic choice: safe, extensible, and delivers the VTK
-//  export module immediately.
+//  Therefore the owning wrapper remains heap-backed external polymorphism.
+//  The non-owning borrowed views introduced later (MaterialRef /
+//  MaterialConstRef) are different: they only store pointers to an already
+//  owned concrete material and strategy, so their erased model fits naturally
+//  in a fixed raw buffer of three pointers.
 //
 //  ── Extensibility ───────────────────────────────────────────────────────
 //

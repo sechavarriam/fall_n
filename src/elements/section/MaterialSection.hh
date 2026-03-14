@@ -109,6 +109,14 @@ public:
         return material_.section_snapshot();
     }
 
+    [[nodiscard]] MaterialConstRef<MaterialPolicy> material_cref() const {
+        return material_.cref();
+    }
+
+    [[nodiscard]] MaterialRef<MaterialPolicy> material_ref() {
+        return material_.ref();
+    }
+
     // ── Identification ──────────────────────────────────────────────────
 
     [[nodiscard]] std::size_t id() const noexcept { return id_; }

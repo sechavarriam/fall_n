@@ -1,269 +1,532 @@
 #ifndef FN_MATERIAL
 #define FN_MATERIAL
 
+#include <array>
+#include <concepts>
 #include <cstddef>
 #include <memory>
-
-#include <vector>
-#include <array>
-
-#include <functional>
-#include <concepts>
+#include <type_traits>
 #include <utility>
 
-
 #include "../numerics/Tensor.hh"
-#include "MaterialState.hh"
-#include "MaterialPolicy.hh"
 #include "InternalFieldSnapshot.hh"
+#include "MaterialPolicy.hh"
+#include "MaterialState.hh"
 #include "SectionConstitutiveSnapshot.hh"
-
 #include "update_strategy/IntegrationStrategy.hh"
 
+template<class MaterialPolicy> class Material;
+template<class MaterialPolicy> class MaterialConstRef;
+template<class MaterialPolicy> class MaterialRef;
 
-// =============================================================================
-//  Material<Policy> — type-erased material with Strategy-mediated interface
-// =============================================================================
-//
-//  The virtual interface exposes BOTH the legacy API (C, current_state,
-//  update_state) and the Strategy-mediated API (compute_response, tangent,
-//  commit).  The Strategy routes calls through the underlying concrete
-//  material (MaterialInstance<Relation, StatePolicy>).
-//
-// =============================================================================
+namespace impl {
 
-namespace impl{
-   template<class MaterialPolicy>
-   class MaterialConcept{ 
+template<class MaterialPolicy>
+class MaterialConcept;
 
-      using StateVariableT = typename MaterialPolicy::StateVariableT;
-      using StressT        = typename MaterialPolicy::StressT;
-      using MatrixT        = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+template<class MaterialPolicy>
+class MaterialConstConcept {
+   using StateVariableT = typename MaterialPolicy::StateVariableT;
+   using StressT = typename MaterialPolicy::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
-   public:
-      virtual constexpr ~MaterialConcept() = default;
-      virtual constexpr std::unique_ptr<MaterialConcept> clone() const = 0; // Prototype
+public:
+   virtual ~MaterialConstConcept() = default;
 
-   public:
-      // Legacy interface
-      virtual constexpr MatrixT               C()             const = 0;
-      virtual constexpr const StateVariableT&  current_state() const = 0;
+   virtual std::unique_ptr<MaterialConcept<MaterialPolicy>> clone_owned() const = 0;
+   virtual void clone_const_ref(MaterialConstConcept* memory) const = 0;
 
-      virtual constexpr void update_state(const StateVariableT& state) = 0;
-      virtual constexpr void update_state(StateVariableT&& state)      = 0;
+   virtual MatrixT C() const = 0;
+   virtual const StateVariableT& current_state() const = 0;
+   virtual StressT compute_response(const StateVariableT& k) const = 0;
+   virtual MatrixT tangent(const StateVariableT& k) const = 0;
+   virtual InternalFieldSnapshot internal_field_snapshot() const { return {}; }
+   virtual SectionConstitutiveSnapshot section_snapshot() const { return {}; }
+};
 
-      // Strategy-mediated interface
-      virtual StressT compute_response(const StateVariableT& k) const = 0;
-      virtual MatrixT tangent(const StateVariableT& k)          const = 0;
-      virtual void    commit(const StateVariableT& k)                 = 0;
+template<class MaterialPolicy>
+class MaterialConcept : public MaterialConstConcept<MaterialPolicy> {
+   using StateVariableT = typename MaterialPolicy::StateVariableT;
 
-      // ── Internal state export (post-processing) ───────────────────────
-      //  Returns a stack-allocated snapshot of internal variables.
-      //  Default: empty (all nullopt) — elastic materials need no override.
-      //  Inelastic materials fill the snapshot via if constexpr in OwningMaterialModel.
-      virtual InternalFieldSnapshot internal_field_snapshot() const { return {}; }
-      virtual SectionConstitutiveSnapshot section_snapshot() const { return {}; }
-   };
+public:
+   virtual void clone_ref(MaterialConcept* memory) const = 0;
+   virtual void update_state(const StateVariableT& state) = 0;
+   virtual void update_state(StateVariableT&& state) = 0;
+   virtual void commit(const StateVariableT& k) = 0;
+};
 
-   template <typename MaterialType, typename UpdateStrategy>
-   class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy>{
+template <typename MaterialType>
+InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material) {
+   InternalFieldSnapshot snap;
 
-      using MaterialPolicy = typename MaterialType::MaterialPolicy;
-      using StateVariableT = typename MaterialPolicy::StateVariableT;
-      using StressT        = typename MaterialPolicy::StressT;
-      using MatrixT        = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+   if constexpr (requires { material.internal_state().eps_p(); }) {
+      const auto& alpha = material.internal_state();
+      snap.plastic_strain = std::span<const double>(
+         alpha.eps_p().data(), alpha.eps_p().size());
+   }
 
-      MaterialType   material_        ;
-      UpdateStrategy strategy_;
+   if constexpr (requires { material.internal_state().eps_bar_p(); }) {
+      snap.equivalent_plastic_strain = material.internal_state().eps_bar_p();
+   }
 
-   public:
-      // Legacy interface
-      MatrixT C() const override {
-         // Route through strategy with zero strain to get the elastic tangent.
-         StateVariableT zero_strain{};
-         return strategy_.tangent(material_, zero_strain);
+   return snap;
+}
+
+template <typename MaterialType>
+SectionConstitutiveSnapshot make_section_snapshot(const MaterialType& material) {
+   SectionConstitutiveSnapshot snap;
+
+   const auto& relation = material.constitutive_relation();
+
+   if constexpr (requires {
+      relation.young_modulus();
+      relation.shear_modulus();
+      relation.area();
+   }) {
+      BeamSectionConstitutiveSnapshot beam;
+      beam.young_modulus = relation.young_modulus();
+      beam.shear_modulus = relation.shear_modulus();
+      beam.area = relation.area();
+
+      if constexpr (requires { relation.moment_of_inertia_y(); }) {
+         beam.moment_y = relation.moment_of_inertia_y();
+      } else if constexpr (requires { relation.moment_of_inertia(); }) {
+         beam.moment_y = relation.moment_of_inertia();
       }
 
-      const StateVariableT& current_state() const override {
-         return material_.current_state();
+      if constexpr (requires { relation.moment_of_inertia_z(); }) {
+         beam.moment_z = relation.moment_of_inertia_z();
       }
 
-      void update_state(const StateVariableT& state) override {
-         material_.update_state(state);
-      }
-      void update_state(StateVariableT&& state) override {
-         material_.update_state(std::forward<StateVariableT>(state));
+      if constexpr (requires { relation.torsional_constant(); }) {
+         beam.torsion_J = relation.torsional_constant();
       }
 
-      // Strategy-mediated interface
-      StressT compute_response(const StateVariableT& k) const override {
-         return strategy_.compute_response(material_, k);
+      if constexpr (requires { relation.shear_correction_y(); }) {
+         beam.shear_factor_y = relation.shear_correction_y();
+      } else if constexpr (requires { relation.shear_correction(); }) {
+         beam.shear_factor_y = relation.shear_correction();
       }
 
-      MatrixT tangent(const StateVariableT& k) const override {
-         return strategy_.tangent(material_, k);
+      if constexpr (requires { relation.shear_correction_z(); }) {
+         beam.shear_factor_z = relation.shear_correction_z();
+      } else if constexpr (requires { relation.shear_correction(); }) {
+         beam.shear_factor_z = relation.shear_correction();
       }
 
-      void commit(const StateVariableT& k) override {
-         strategy_.commit(material_, k);
+      snap.beam = beam;
+   }
+
+   if constexpr (requires {
+      relation.young_modulus();
+      relation.poisson_ratio();
+      relation.thickness();
+   }) {
+      ShellSectionConstitutiveSnapshot shell;
+      shell.young_modulus = relation.young_modulus();
+      shell.poisson_ratio = relation.poisson_ratio();
+      if constexpr (requires { relation.shear_modulus(); }) {
+         shell.shear_modulus = relation.shear_modulus();
       }
-
-      // ── Internal state snapshot (post-processing export) ──────────────
-      //  Uses if constexpr to detect whether the concrete material has
-      //  internal_state() (satisfies InelasticConstitutiveRelation).
-      //  This compiles away to a no-op for elastic materials.
-      InternalFieldSnapshot internal_field_snapshot() const override {
-         InternalFieldSnapshot snap;
-         if constexpr (requires { material_.internal_state().eps_p(); }) {
-             const auto& alpha = material_.internal_state();
-             snap.plastic_strain = std::span<const double>(
-                 alpha.eps_p().data(), alpha.eps_p().size());
-         }
-         if constexpr (requires { material_.internal_state().eps_bar_p(); }) {
-             snap.equivalent_plastic_strain = material_.internal_state().eps_bar_p();
-         }
-         return snap;
+      shell.thickness = relation.thickness();
+      if constexpr (requires { relation.shear_correction(); }) {
+         shell.shear_correction = relation.shear_correction();
       }
+      snap.shell = shell;
+   }
 
-      SectionConstitutiveSnapshot section_snapshot() const override {
-         SectionConstitutiveSnapshot snap;
+   if constexpr (requires { relation.fiber_field_snapshot(material.current_state()); }) {
+      snap.fibers = relation.fiber_field_snapshot(material.current_state());
+   }
 
-         const auto& relation = material_.constitutive_relation();
+   return snap;
+}
 
-         if constexpr (requires {
-              relation.young_modulus();
-              relation.shear_modulus();
-              relation.area();
-         }) {
-             BeamSectionConstitutiveSnapshot beam;
-             beam.young_modulus = relation.young_modulus();
-             beam.shear_modulus = relation.shear_modulus();
-             beam.area          = relation.area();
+template <typename MaterialType, typename UpdateStrategy>
+class NonOwningMaterialConstModel;
 
-             if constexpr (requires { relation.moment_of_inertia_y(); }) {
-                 beam.moment_y = relation.moment_of_inertia_y();
-             } else if constexpr (requires { relation.moment_of_inertia(); }) {
-                 beam.moment_y = relation.moment_of_inertia();
-             }
+template <typename MaterialType, typename UpdateStrategy>
+class NonOwningMaterialModel;
 
-             if constexpr (requires { relation.moment_of_inertia_z(); }) {
-                 beam.moment_z = relation.moment_of_inertia_z();
-             }
+template <typename MaterialType, typename UpdateStrategy>
+class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy> {
+   using MaterialPolicyT = typename MaterialType::MaterialPolicy;
+   using StateVariableT = typename MaterialPolicyT::StateVariableT;
+   using StressT = typename MaterialPolicyT::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
-             if constexpr (requires { relation.torsional_constant(); }) {
-                 beam.torsion_J = relation.torsional_constant();
-             }
+   MaterialType material_;
+   UpdateStrategy strategy_;
 
-             if constexpr (requires { relation.shear_correction_y(); }) {
-                 beam.shear_factor_y = relation.shear_correction_y();
-             } else if constexpr (requires { relation.shear_correction(); }) {
-                 beam.shear_factor_y = relation.shear_correction();
-             }
+public:
+   explicit OwningMaterialModel(MaterialType material, UpdateStrategy strategy)
+      : material_{std::move(material)}
+      , strategy_{std::move(strategy)}
+   {}
 
-             if constexpr (requires { relation.shear_correction_z(); }) {
-                 beam.shear_factor_z = relation.shear_correction_z();
-             } else if constexpr (requires { relation.shear_correction(); }) {
-                 beam.shear_factor_z = relation.shear_correction();
-             }
+   MatrixT C() const override {
+      StateVariableT zero_state{};
+      return strategy_.tangent(material_, zero_state);
+   }
 
-             snap.beam = beam;
-         }
+   const StateVariableT& current_state() const override {
+      return material_.current_state();
+   }
 
-         if constexpr (requires {
-              relation.young_modulus();
-              relation.poisson_ratio();
-              relation.thickness();
-         }) {
-             ShellSectionConstitutiveSnapshot shell;
-             shell.young_modulus    = relation.young_modulus();
-             shell.poisson_ratio    = relation.poisson_ratio();
-             if constexpr (requires { relation.shear_modulus(); }) {
-                 shell.shear_modulus = relation.shear_modulus();
-             }
-             shell.thickness        = relation.thickness();
-             if constexpr (requires { relation.shear_correction(); }) {
-                 shell.shear_correction = relation.shear_correction();
-             }
-             snap.shell = shell;
-         }
+   void update_state(const StateVariableT& state) override {
+      material_.update_state(state);
+   }
 
-         if constexpr (requires { relation.fiber_field_snapshot(material_.current_state()); }) {
-             snap.fibers = relation.fiber_field_snapshot(material_.current_state());
-         }
+   void update_state(StateVariableT&& state) override {
+      material_.update_state(std::move(state));
+   }
 
-         return snap;
-      }
+   StressT compute_response(const StateVariableT& k) const override {
+      return strategy_.compute_response(material_, k);
+   }
 
-      explicit OwningMaterialModel(MaterialType material, UpdateStrategy strategy): 
-          material_ {std::move(material)}, 
-          strategy_ {std::move(strategy)}
-      {}
+   MatrixT tangent(const StateVariableT& k) const override {
+      return strategy_.tangent(material_, k);
+   }
 
-      std::unique_ptr<MaterialConcept<MaterialPolicy>> clone() const override{
-         return std::make_unique<OwningMaterialModel>(*this);
-      }
+   void commit(const StateVariableT& k) override {
+      strategy_.commit(material_, k);
+   }
 
-   }; // OwningMaterialModel
+   InternalFieldSnapshot internal_field_snapshot() const override {
+      return make_internal_field_snapshot(material_);
+   }
+
+   SectionConstitutiveSnapshot section_snapshot() const override {
+      return make_section_snapshot(material_);
+   }
+
+   std::unique_ptr<MaterialConcept<MaterialPolicyT>> clone_owned() const override {
+      return std::make_unique<OwningMaterialModel>(*this);
+   }
+
+   void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
+      using Model = NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
+      std::construct_at(static_cast<Model*>(memory), material_, strategy_);
+   }
+
+   void clone_ref(MaterialConcept<MaterialPolicyT>* memory) const override {
+      using Model = NonOwningMaterialModel<MaterialType, UpdateStrategy>;
+      std::construct_at(
+         static_cast<Model*>(memory),
+         const_cast<MaterialType&>(material_),
+         const_cast<UpdateStrategy&>(strategy_));
+   }
+};
+
+template <typename MaterialType, typename UpdateStrategy>
+class NonOwningMaterialConstModel
+   : public MaterialConstConcept<typename std::remove_cvref_t<MaterialType>::MaterialPolicy> {
+   using RawMaterialT = std::remove_cvref_t<MaterialType>;
+   using MaterialPolicyT = typename RawMaterialT::MaterialPolicy;
+   using StateVariableT = typename MaterialPolicyT::StateVariableT;
+   using StressT = typename MaterialPolicyT::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<UpdateStrategy>>;
+
+   MaterialType* material_{nullptr};
+   UpdateStrategy* strategy_{nullptr};
+
+public:
+   NonOwningMaterialConstModel(MaterialType& material, UpdateStrategy& strategy)
+      : material_{std::addressof(material)}
+      , strategy_{std::addressof(strategy)}
+   {}
+
+   MatrixT C() const override {
+      StateVariableT zero_state{};
+      return strategy_->tangent(*material_, zero_state);
+   }
+
+   const StateVariableT& current_state() const override {
+      return material_->current_state();
+   }
+
+   StressT compute_response(const StateVariableT& k) const override {
+      return strategy_->compute_response(*material_, k);
+   }
+
+   MatrixT tangent(const StateVariableT& k) const override {
+      return strategy_->tangent(*material_, k);
+   }
+
+   InternalFieldSnapshot internal_field_snapshot() const override {
+      return make_internal_field_snapshot(*material_);
+   }
+
+   SectionConstitutiveSnapshot section_snapshot() const override {
+      return make_section_snapshot(*material_);
+   }
+
+   std::unique_ptr<MaterialConcept<MaterialPolicyT>> clone_owned() const override {
+      return std::make_unique<OwningModel>(*material_, *strategy_);
+   }
+
+   void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
+      std::construct_at(static_cast<NonOwningMaterialConstModel*>(memory), *this);
+   }
+};
+
+template <typename MaterialType, typename UpdateStrategy>
+class NonOwningMaterialModel
+   : public MaterialConcept<typename std::remove_cvref_t<MaterialType>::MaterialPolicy> {
+   using RawMaterialT = std::remove_cvref_t<MaterialType>;
+   using MaterialPolicyT = typename RawMaterialT::MaterialPolicy;
+   using StateVariableT = typename MaterialPolicyT::StateVariableT;
+   using StressT = typename MaterialPolicyT::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<UpdateStrategy>>;
+
+   MaterialType* material_{nullptr};
+   UpdateStrategy* strategy_{nullptr};
+
+public:
+   NonOwningMaterialModel(MaterialType& material, UpdateStrategy& strategy)
+      : material_{std::addressof(material)}
+      , strategy_{std::addressof(strategy)}
+   {}
+
+   MatrixT C() const override {
+      StateVariableT zero_state{};
+      return strategy_->tangent(*material_, zero_state);
+   }
+
+   const StateVariableT& current_state() const override {
+      return material_->current_state();
+   }
+
+   void update_state(const StateVariableT& state) override {
+      material_->update_state(state);
+   }
+
+   void update_state(StateVariableT&& state) override {
+      material_->update_state(std::move(state));
+   }
+
+   StressT compute_response(const StateVariableT& k) const override {
+      return strategy_->compute_response(*material_, k);
+   }
+
+   MatrixT tangent(const StateVariableT& k) const override {
+      return strategy_->tangent(*material_, k);
+   }
+
+   void commit(const StateVariableT& k) override {
+      strategy_->commit(*material_, k);
+   }
+
+   InternalFieldSnapshot internal_field_snapshot() const override {
+      return make_internal_field_snapshot(*material_);
+   }
+
+   SectionConstitutiveSnapshot section_snapshot() const override {
+      return make_section_snapshot(*material_);
+   }
+
+   std::unique_ptr<MaterialConcept<MaterialPolicyT>> clone_owned() const override {
+      return std::make_unique<OwningModel>(*material_, *strategy_);
+   }
+
+   void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
+      using ConstModel = NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
+      std::construct_at(static_cast<ConstModel*>(memory), *material_, *strategy_);
+   }
+
+   void clone_ref(MaterialConcept<MaterialPolicyT>* memory) const override {
+      std::construct_at(static_cast<NonOwningMaterialModel*>(memory), *this);
+   }
+};
 
 } // namespace impl
 
 template<class MaterialPolicy>
-class Material{
+class MaterialConstRef {
    using StateVariableT = typename MaterialPolicy::StateVariableT;
-   using StressT        = typename MaterialPolicy::StressT;
-   using MatrixT        = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+   using StressT = typename MaterialPolicy::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+
+   static constexpr std::size_t MODEL_SIZE = 3U * sizeof(void*);
+   alignas(void*) std::array<std::byte, MODEL_SIZE> raw_{};
+
+   impl::MaterialConstConcept<MaterialPolicy>* pimpl() {
+      return reinterpret_cast<impl::MaterialConstConcept<MaterialPolicy>*>(raw_.data());
+   }
+
+   const impl::MaterialConstConcept<MaterialPolicy>* pimpl() const {
+      return reinterpret_cast<const impl::MaterialConstConcept<MaterialPolicy>*>(raw_.data());
+   }
+
+public:
+   template <typename MaterialType, typename UpdateStrategy>
+   MaterialConstRef(MaterialType& material, UpdateStrategy& strategy) {
+      using Model = impl::NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
+      static_assert(sizeof(Model) == MODEL_SIZE, "Invalid non-owning material const-ref size");
+      static_assert(alignof(Model) == alignof(void*), "Invalid non-owning material const-ref alignment");
+      std::construct_at(static_cast<Model*>(pimpl()), material, strategy);
+   }
+
+   MaterialConstRef(Material<MaterialPolicy>& other);
+   MaterialConstRef(const Material<MaterialPolicy>& other);
+   MaterialConstRef(MaterialRef<MaterialPolicy>& other);
+
+   MaterialConstRef(const MaterialConstRef& other) {
+      other.pimpl()->clone_const_ref(pimpl());
+   }
+
+   MaterialConstRef& operator=(const MaterialConstRef& other) {
+      MaterialConstRef copy(other);
+      raw_.swap(copy.raw_);
+      return *this;
+   }
+
+   ~MaterialConstRef() {
+      std::destroy_at(pimpl());
+   }
+
+   [[nodiscard]] MatrixT C() const { return pimpl()->C(); }
+   [[nodiscard]] const StateVariableT& current_state() const { return pimpl()->current_state(); }
+   [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl()->compute_response(k); }
+   [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl()->tangent(k); }
+   [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
+   [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
+
+   friend class Material<MaterialPolicy>;
+   friend class MaterialRef<MaterialPolicy>;
+};
+
+template<class MaterialPolicy>
+class MaterialRef {
+   using StateVariableT = typename MaterialPolicy::StateVariableT;
+   using StressT = typename MaterialPolicy::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
+
+   static constexpr std::size_t MODEL_SIZE = 3U * sizeof(void*);
+   alignas(void*) std::array<std::byte, MODEL_SIZE> raw_{};
+
+   impl::MaterialConcept<MaterialPolicy>* pimpl() {
+      return reinterpret_cast<impl::MaterialConcept<MaterialPolicy>*>(raw_.data());
+   }
+
+   const impl::MaterialConcept<MaterialPolicy>* pimpl() const {
+      return reinterpret_cast<const impl::MaterialConcept<MaterialPolicy>*>(raw_.data());
+   }
+
+public:
+   template <typename MaterialType, typename UpdateStrategy>
+   MaterialRef(MaterialType& material, UpdateStrategy& strategy) {
+      using Model = impl::NonOwningMaterialModel<MaterialType, UpdateStrategy>;
+      static_assert(sizeof(Model) == MODEL_SIZE, "Invalid non-owning material ref size");
+      static_assert(alignof(Model) == alignof(void*), "Invalid non-owning material ref alignment");
+      std::construct_at(static_cast<Model*>(pimpl()), material, strategy);
+   }
+
+   MaterialRef(Material<MaterialPolicy>& other);
+
+   MaterialRef(const MaterialRef& other) {
+      other.pimpl()->clone_ref(pimpl());
+   }
+
+   MaterialRef& operator=(const MaterialRef& other) {
+      MaterialRef copy(other);
+      raw_.swap(copy.raw_);
+      return *this;
+   }
+
+   ~MaterialRef() {
+      std::destroy_at(pimpl());
+   }
+
+   [[nodiscard]] MatrixT C() const { return pimpl()->C(); }
+   [[nodiscard]] const StateVariableT& current_state() const { return pimpl()->current_state(); }
+   void update_state(const StateVariableT& state) { pimpl()->update_state(state); }
+   void update_state(StateVariableT&& state) { pimpl()->update_state(std::move(state)); }
+   [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl()->compute_response(k); }
+   [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl()->tangent(k); }
+   void commit(const StateVariableT& k) { pimpl()->commit(k); }
+   [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
+   [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
+   [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }
+
+   friend class Material<MaterialPolicy>;
+   friend class MaterialConstRef<MaterialPolicy>;
+};
+
+template<class MaterialPolicy>
+class Material {
+   using StateVariableT = typename MaterialPolicy::StateVariableT;
+   using StressT = typename MaterialPolicy::StressT;
+   using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
    std::unique_ptr<impl::MaterialConcept<MaterialPolicy>> pimpl_;
 
 public:
-
-   // Legacy interface
-   MatrixT C() const { return pimpl_->C(); }
-
-   const StateVariableT& current_state() const { return pimpl_->current_state(); }
-   
-   void update_state(const StateVariableT& state) { pimpl_->update_state(state);                          }
-   void update_state(StateVariableT&& state)      { pimpl_->update_state(std::forward<StateVariableT>(state)); }
-
-   // Strategy-mediated interface
-   StressT compute_response(const StateVariableT& k) const { return pimpl_->compute_response(k); }
-   MatrixT tangent(const StateVariableT& k)          const { return pimpl_->tangent(k);          }
-   void    commit(const StateVariableT& k)                 { pimpl_->commit(k);                  }
-
-   // ── Internal state export (post-processing) ──────────────────────────
-   [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
-       return pimpl_->internal_field_snapshot();
-   }
-
-   [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const {
-       return pimpl_->section_snapshot();
-   }
-
-public:
-   
    template <typename MaterialType, typename UpdateStrategy>
-   Material(MaterialType material, UpdateStrategy strategy){
+   Material(MaterialType material, UpdateStrategy strategy) {
       using Model = impl::OwningMaterialModel<MaterialType, UpdateStrategy>;
-      pimpl_ = std::make_unique<Model>(
-         std::move(material), 
-         std::move(strategy)
-         );
+      pimpl_ = std::make_unique<Model>(std::move(material), std::move(strategy));
    }
 
-   Material(Material<MaterialPolicy> const &other) : pimpl_(other.pimpl_->clone()){}
+   Material(const Material& other)
+      : pimpl_(other.pimpl_->clone_owned())
+   {}
 
-   Material &operator=(Material const &other)
-   {
+   Material(const MaterialConstRef<MaterialPolicy>& other)
+      : pimpl_(other.pimpl()->clone_owned())
+   {}
+
+   Material(const MaterialRef<MaterialPolicy>& other)
+      : pimpl_(other.pimpl()->clone_owned())
+   {}
+
+   Material& operator=(const Material& other) {
       Material copy(other);
       pimpl_.swap(copy.pimpl_);
       return *this;
    }
 
-   ~Material() = default;
-   Material(Material &&) = default;
-   Material &operator=(Material &&) = default;
+   [[nodiscard]] MatrixT C() const { return pimpl_->C(); }
+   [[nodiscard]] const StateVariableT& current_state() const { return pimpl_->current_state(); }
+   void update_state(const StateVariableT& state) { pimpl_->update_state(state); }
+   void update_state(StateVariableT&& state) { pimpl_->update_state(std::move(state)); }
+   [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl_->compute_response(k); }
+   [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl_->tangent(k); }
+   void commit(const StateVariableT& k) { pimpl_->commit(k); }
+   [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl_->internal_field_snapshot(); }
+   [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl_->section_snapshot(); }
+   [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }
+   [[nodiscard]] MaterialRef<MaterialPolicy> ref() { return MaterialRef<MaterialPolicy>(*this); }
 
+   ~Material() = default;
+   Material(Material&&) = default;
+   Material& operator=(Material&&) = default;
+
+   friend class MaterialConstRef<MaterialPolicy>;
+   friend class MaterialRef<MaterialPolicy>;
 };
 
+template<class MaterialPolicy>
+MaterialConstRef<MaterialPolicy>::MaterialConstRef(Material<MaterialPolicy>& other) {
+   other.pimpl_->clone_const_ref(pimpl());
+}
+
+template<class MaterialPolicy>
+MaterialConstRef<MaterialPolicy>::MaterialConstRef(const Material<MaterialPolicy>& other) {
+   other.pimpl_->clone_const_ref(pimpl());
+}
+
+template<class MaterialPolicy>
+MaterialConstRef<MaterialPolicy>::MaterialConstRef(MaterialRef<MaterialPolicy>& other) {
+   other.pimpl()->clone_const_ref(pimpl());
+}
+
+template<class MaterialPolicy>
+MaterialRef<MaterialPolicy>::MaterialRef(Material<MaterialPolicy>& other) {
+   other.pimpl_->clone_ref(pimpl());
+}
 
 #endif
