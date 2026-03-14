@@ -99,6 +99,7 @@
 #include "src/materials/local_problem/LocalLinearSolver.hh"
 #include "src/materials/local_problem/LocalStepControl.hh"
 #include "src/materials/local_problem/LocalNonlinearProblem.hh"
+#include "src/materials/local_problem/ContinuumLocalProblem.hh"
 #include "src/materials/local_problem/NewtonLocalSolver.hh"
 #include "src/materials/SectionConstitutiveSnapshot.hh"
 
