@@ -156,6 +156,11 @@ Key topics include:
         geometry-site concept for point-like entities, explicit forwarding for
         constitutive and section decorators, and geometry-first boundary
         extraction without eager node-cache materialisation;
+  \item A semantic hardening pass on \texttt{DMPlex}: mixed 1D/2D/3D cell
+        families can now coexist in the same non-interpolated DAG through
+        explicit point-role, topological-dimension, and physical-group labels,
+        while the algebraic layout is driven by depth-$0$ vertices rather than
+        brittle height-based assumptions;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -192,6 +197,7 @@ discussion of the design rationale.
 \input{ch20_vtk_cleanup}
 \input{ch21_structural_scale_reconstruction}
 \input{ch22_mixed_structural_table_example}
+\input{ch23_dmplex_mixed_topology}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

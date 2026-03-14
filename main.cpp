@@ -473,7 +473,11 @@ static void run_shell_reference()
 //    - Horizontal corner force at the free top corner (L, L, H)
 //
 //  Architecture:
-//    - The domain/DMPlex mesh remains purely 2D and stores only the slab.
+//    - This example still keeps the domain/DMPlex mesh purely 2D and stores
+//      only the slab. That choice is now intentional, not a hard limitation:
+//      Domain/DMPlex already labels mixed 1D/2D/3D cells correctly, but the
+//      benchmark remains slab-centric to keep the comparison with the earlier
+//      reconstruction/export pipeline stable.
 //    - Columns and perimeter beams are introduced as external line geometries
 //      bound to the same Node/Vertex storage.
 //    - The final solver container is heterogeneous:
@@ -532,9 +536,10 @@ static void run_structural_table_example()
 
     // The PETSc/DMPlex mesh is kept purely 2D here (slab only). Columns and
     // beams are built as structural geometries outside the Domain DAG but
-    // bound to the same Node/Vertex storage. This preserves the mixed
-    // structural model while avoiding mixed-dimensional DMPlex assumptions in
-    // the current Domain implementation.
+    // bound to the same Node/Vertex storage. This keeps the example aligned
+    // with the existing structural VTM benchmark while mixed-dimensional
+    // DMPlex support is hardened incrementally and validated through dedicated
+    // tests.
     std::size_t tag = 0;
     for (int j = 0; j < TABLE_NY; ++j) {
         for (int i = 0; i < TABLE_NX; ++i) {
