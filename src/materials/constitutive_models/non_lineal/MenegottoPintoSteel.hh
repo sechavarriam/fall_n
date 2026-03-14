@@ -66,6 +66,11 @@
 //      update(ε)           → commit internal variables
 //      internal_state()    → const MenegottoPintoState&
 //
+//    ExternallyStateDrivenConstitutiveRelation (Level 3):
+//      compute_response(ε, α) → σ
+//      tangent(ε, α)          → C_t
+//      commit(α, ε)           → evolve an explicit external α
+//
 //  ─── References ─────────────────────────────────────────────────────────
 //
 //  [1] Menegotto, M. and Pinto, P.E. (1973). "Method of analysis for
@@ -318,11 +323,89 @@ private:
         return fy_ * (1.0 + shift);
     }
 
+    void commit_state(MenegottoPintoState& state, double eps, double sig) const {
+        int new_dir = (eps > state.eps_committed) ? 1 : -1;
+        if (std::abs(eps - state.eps_committed) < 1e-20) {
+            new_dir = state.direction;
+        }
+
+        if (!state.yielded) {
+            double fy_eff = effective_yield_stress(state);
+            if (std::abs(sig) >= fy_eff) {
+                state.yielded   = true;
+                state.direction = (eps > 0.0) ? 1 : -1;
+                state.eps_r     = 0.0;
+                state.sig_r     = 0.0;
+                double sgn = static_cast<double>(state.direction);
+                state.eps_0 = sgn * fy_eff / E0_;
+                state.sig_0 = sgn * fy_eff;
+            }
+        }
+
+        if (state.yielded && state.direction != 0 && new_dir != state.direction) {
+            state.eps_r_prev = state.eps_r;
+            state.sig_r_prev = state.sig_r;
+
+            state.eps_r = state.eps_committed;
+            state.sig_r = state.sig_committed;
+
+            double d = static_cast<double>(new_dir);
+            double fy_eff = effective_yield_stress(state);
+            state.eps_0 = (d * (1.0 - b_) * fy_eff
+                         - state.sig_r
+                         + E0_ * state.eps_r) / (E0_ - Eh_);
+            state.sig_0 = state.sig_r
+                        + E0_ * (state.eps_0 - state.eps_r);
+
+            state.direction = new_dir;
+            state.xi = std::abs(state.eps_0 - state.eps_r);
+        }
+
+        double eps_p = eps - sig / E0_;
+        state.eps_max = std::max(state.eps_max, std::abs(eps_p));
+
+        state.eps_committed = eps;
+        state.sig_committed = sig;
+    }
+
 public:
 
     // =================================================================
     //  ConstitutiveRelation interface (Level 1) — const
     // =================================================================
+
+    [[nodiscard]] ConjugateT compute_response(
+        const KinematicT& strain,
+        const InternalVariablesT& state) const
+    {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+
+        ConjugateT stress;
+        stress.set_components(sig);
+        return stress;
+    }
+
+    [[nodiscard]] TangentT tangent(
+        const KinematicT& strain,
+        const InternalVariablesT& state) const
+    {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+
+        TangentT C;
+        C(0, 0) = Et;
+        return C;
+    }
+
+    void commit(InternalVariablesT& state, const KinematicT& strain) const {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+        commit_state(state, eps, sig);
+    }
 
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
         double eps = strain.components();  // scalar for VoigtVector<1>
@@ -366,56 +449,8 @@ public:
     void update(const KinematicT& strain) {
         double eps = strain.components();
         double sig, Et;
-
-        // Evaluate with current committed state
         evaluate(eps, sig, Et, state_);
-
-        // ── Detect reversal and update state ──────────────────────────
-        int new_dir = (eps > state_.eps_committed) ? 1 : -1;
-        if (std::abs(eps - state_.eps_committed) < 1e-20) {
-            new_dir = state_.direction;
-        }
-
-        if (!state_.yielded) {
-            double fy_eff = effective_yield_stress(state_);
-            if (std::abs(sig) >= fy_eff) {
-                state_.yielded   = true;
-                state_.direction = (eps > 0.0) ? 1 : -1;
-                state_.eps_r     = 0.0;
-                state_.sig_r     = 0.0;
-                double sgn = static_cast<double>(state_.direction);
-                state_.eps_0 = sgn * fy_eff / E0_;
-                state_.sig_0 = sgn * fy_eff;
-            }
-        }
-
-        if (state_.yielded && state_.direction != 0 && new_dir != state_.direction) {
-            state_.eps_r_prev = state_.eps_r;
-            state_.sig_r_prev = state_.sig_r;
-
-            state_.eps_r = state_.eps_committed;
-            state_.sig_r = state_.sig_committed;
-
-            double d = static_cast<double>(new_dir);
-            double fy_eff = effective_yield_stress(state_);
-            state_.eps_0 = (d * (1.0 - b_) * fy_eff
-                          - state_.sig_r
-                          + E0_ * state_.eps_r) / (E0_ - Eh_);
-            state_.sig_0 = state_.sig_r
-                         + E0_ * (state_.eps_0 - state_.eps_r);
-
-            state_.direction = new_dir;
-            state_.xi = std::abs(state_.eps_0 - state_.eps_r);
-        }
-
-        // ── Update accumulated plastic excursion ──────────────────────
-        double eps_p = eps - sig / E0_;
-        state_.eps_max = std::max(state_.eps_max, std::abs(eps_p));
-
-        // ── Commit current point ──────────────────────────────────────
-        state_.eps_committed = eps;
-        state_.sig_committed = sig;
-
+        commit_state(state_, eps, sig);
         cache_valid_ = false;
     }
 
@@ -498,6 +533,10 @@ static_assert(
 static_assert(
     InelasticConstitutiveRelation<MenegottoPintoSteel>,
     "MenegottoPintoSteel must satisfy InelasticConstitutiveRelation");
+
+static_assert(
+    ExternallyStateDrivenConstitutiveRelation<MenegottoPintoSteel>,
+    "MenegottoPintoSteel must satisfy ExternallyStateDrivenConstitutiveRelation");
 
 
 #endif // FN_MENEGOTTO_PINTO_STEEL_HH

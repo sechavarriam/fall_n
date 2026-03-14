@@ -1,0 +1,241 @@
+\chapter{A Generic Local Nonlinear Problem Framework for Constitutive Updates}
+
+\section{Motivation}
+
+The previous refactor split the classical small-strain plastic update into
+three compile-time axes:
+\begin{itemize}
+  \item the yield function,
+  \item the consistency residual and its Jacobian,
+  \item the return algorithm.
+\end{itemize}
+
+That split is already useful, but it still leaves one structural assumption in
+place: the local nonlinear problem is scalar.  In the current $J_2$ path the
+unknown is only the plastic-multiplier increment $\Delta\gamma$, and the local
+solve is
+\[
+  r(\Delta\gamma) = 0.
+\]
+
+This is too narrow for the next generation of constitutive models that the
+library aims to support:
+\begin{itemize}
+  \item finite-strain plasticity based on multiplicative decomposition,
+  \item coupled damage-plasticity,
+  \item pressure-sensitive plasticity with additional local variables,
+  \item local fracture regularization variables,
+  \item rate-dependent or mixed local constitutive updates.
+\end{itemize}
+
+In those models the local unknown is generally a vector
+\[
+  \mathbf{x} \in \mathbb{R}^m,
+\]
+and the constitutive update is written as a local nonlinear system
+\[
+  \mathbf{R}(\mathbf{x}) = \mathbf{0},
+\]
+with a consistent local Jacobian
+\[
+  \mathbf{K}(\mathbf{x}) =
+  \frac{\partial \mathbf{R}}{\partial \mathbf{x}}.
+\]
+
+The right architectural move is therefore to promote the \emph{local nonlinear
+problem itself} to a first-class compile-time abstraction.
+
+\section{Architectural Split}
+
+This phase introduces three layers.
+
+\subsection{Local Problem Contract}
+
+The new header
+\texttt{src/materials/local\_problem/LocalNonlinearProblem.hh}
+defines a generic concept:
+\begin{itemize}
+  \item \texttt{UnknownT}: the local unknown type,
+  \item \texttt{ResidualT}: the local residual type,
+  \item \texttt{JacobianT}: the local Jacobian type,
+  \item \texttt{initial\_guess(relation, context)},
+  \item \texttt{residual(relation, context, x)},
+  \item \texttt{jacobian(relation, context, x)},
+  \item \texttt{residual\_norm(r)}.
+\end{itemize}
+
+The design intentionally keeps the \texttt{context} type open.  For the current
+small-strain plasticity path it stores the trial state, the algorithmic state,
+the flow direction, and the trial overstress.  For future finite-strain models
+the same slot can carry
+\[
+  \mathbf{F}_{n+1}, \quad \mathbf{C}_{n+1}, \quad \mathbf{b}_{n+1}, \quad
+  \Delta t, \quad \alpha_n,
+\]
+or any other local constitutive data required by the update.
+
+\subsection{Generic Newton Solver}
+
+The header
+\texttt{src/materials/local\_problem/NewtonLocalSolver.hh}
+implements a reusable Newton iteration:
+\[
+  \mathbf{K}(\mathbf{x}^{(i)}) \, \Delta \mathbf{x}^{(i)}
+  = -\mathbf{R}(\mathbf{x}^{(i)}),
+\]
+\[
+  \mathbf{x}^{(i+1)} = \mathbf{x}^{(i)} + \Delta \mathbf{x}^{(i)}.
+\]
+
+The implementation is generic over the local unknown type:
+\begin{itemize}
+  \item if the unknown is scalar, the update reduces to
+        $-\!R/K$,
+  \item if the unknown is a fixed-size Eigen vector, the update is solved as a
+        small dense linear system.
+\end{itemize}
+
+This matters for HPC-oriented design because the type of the local unknown
+remains fixed at compile time, and the solver does not introduce virtual
+dispatch into the constitutive hot path.
+
+\subsection{Scalar Consistency as an Adapter}
+
+The header
+\texttt{src/materials/constitutive\_models/non\_lineal/plasticity/ScalarConsistencyProblem.hh}
+turns the current scalar consistency update into a \texttt{LocalNonlinearProblem}.
+
+Thus, the current plasticity route is reinterpreted as the special case
+\[
+  x = \Delta\gamma, \qquad
+  R(x) = r(\Delta\gamma), \qquad
+  K(x) = \frac{\mathrm{d} r}{\mathrm{d}\Delta\gamma}.
+\]
+
+This is the important architectural result: the present implementation remains
+valid, but it now lives inside a more general framework that no longer assumes
+scalar local updates.
+
+\section{Return Mapping as a Specialization of the General Framework}
+
+The new
+\texttt{LocalNonlinearReturnAlgorithm<LocalProblem, LocalSolver>}
+in
+\texttt{src/materials/constitutive\_models/non\_lineal/plasticity/ReturnAlgorithm.hh}
+acts as the generic bridge between:
+\begin{itemize}
+  \item a constitutive relation that can build a local update context,
+  \item a local problem definition,
+  \item a local nonlinear solver.
+\end{itemize}
+
+The old user-facing
+\texttt{NewtonConsistencyReturnAlgorithm<Residual, Jacobian, MaxIterations>}
+is kept as a compatibility wrapper.  Internally, it now instantiates
+\[
+  \texttt{ScalarConsistencyProblem<Residual, Jacobian>}
+\]
+and
+\[
+  \texttt{NewtonLocalSolver<MaxIterations>}.
+\]
+
+This gives two immediate benefits:
+\begin{itemize}
+  \item backward compatibility for the existing small-strain $J_2$ path,
+  \item a direct path to future vector-valued local problems.
+\end{itemize}
+
+\section{Why This Matters for Large Displacements and Finite Strains}
+
+Finite-strain inelastic constitutive updates are typically not expressible as a
+single scalar consistency correction.  In multiplicative elastoplasticity, for
+example, one often solves for combinations of:
+\begin{itemize}
+  \item a plastic multiplier increment,
+  \item an updated plastic metric or elastic left Cauchy--Green tensor,
+  \item hardening variables,
+  \item damage or fracture-driving variables.
+\end{itemize}
+
+The local problem then takes the block form
+\[
+  \mathbf{R}(\mathbf{x}) =
+  \begin{bmatrix}
+    R_1(\mathbf{x}) \\
+    R_2(\mathbf{x}) \\
+    \vdots \\
+    R_m(\mathbf{x})
+  \end{bmatrix}
+  = \mathbf{0},
+\]
+with a block Jacobian
+\[
+  \mathbf{K}(\mathbf{x}) =
+  \begin{bmatrix}
+    \partial R_1/\partial x_1 & \cdots & \partial R_1/\partial x_m \\
+    \vdots & \ddots & \vdots \\
+    \partial R_m/\partial x_1 & \cdots & \partial R_m/\partial x_m
+  \end{bmatrix}.
+\]
+
+The current refactor does not yet implement a full finite-strain plastic law,
+but it removes a key architectural obstacle: the local constitutive solver no
+longer assumes that the unknown is scalar.
+
+\section{Verification}
+
+This phase adds two important regression checks:
+\begin{itemize}
+  \item the generic
+        \texttt{LocalNonlinearReturnAlgorithm<>}
+        reproduces the current small-strain radial-return response and tangent;
+  \item the generic Newton local solver converges on a fixed-size vector
+        two-equation problem independent of plasticity.
+\end{itemize}
+
+The second test is intentionally simple.  Its value is architectural: it proves
+that the new framework already supports vector local problems without any extra
+branching in the solver.
+
+\section{Strategic Outcome}
+
+At this point the local constitutive stack is factored as:
+\begin{itemize}
+  \item \texttt{YieldFunction}: admissibility scalar,
+  \item \texttt{ConsistencyResidual / Jacobian}: local equation ingredients,
+  \item \texttt{ReturnAlgorithm}: correction strategy,
+  \item \texttt{LocalNonlinearProblem}: abstract local system definition,
+  \item \texttt{NewtonLocalSolver}: reusable nonlinear solver.
+\end{itemize}
+
+This is the right level of generality for the next stages:
+\begin{itemize}
+  \item finite-strain elastoplasticity with vector local unknowns,
+  \item damage-plasticity with coupled internal variables,
+  \item fracture-oriented local updates regularized at constitutive level,
+  \item objective-rate or multiplicative algorithms integrated through the same
+        erased \texttt{Material<>} boundary.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1998localproblem}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{desouza2008localproblem}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\bibitem{miehe1996}
+C.~Miehe,
+``Numerical computation of algorithmic (consistent) tangent moduli in large-strain computational inelasticity,''
+\emph{Computer Methods in Applied Mechanics and Engineering},
+134(3--4):223--240, 1996.
+
+\end{thebibliography}

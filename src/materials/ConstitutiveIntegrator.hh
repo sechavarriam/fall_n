@@ -3,6 +3,8 @@
 
 #include <concepts>
 
+#include "../continuum/ConstitutiveKinematics.hh"
+
 // =============================================================================
 //  ConstitutiveIntegrator — local integration algorithm at a constitutive site
 // =============================================================================
@@ -100,10 +102,68 @@ struct PassThroughIntegrator {
         }
     }
 
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    [[nodiscard]] auto compute_response(
+        const ConstitutiveSiteT& site,
+        const continuum::ConstitutiveKinematics<dim>& kin) const
+        -> typename ConstitutiveSiteT::ConjugateT
+    {
+        if constexpr (requires {
+            site.algorithmic_state();
+            site.constitutive_relation().compute_response(kin, site.algorithmic_state());
+        }) {
+            return site.constitutive_relation().compute_response(kin, site.algorithmic_state());
+        } else if constexpr (requires {
+            site.constitutive_relation().compute_response(kin);
+        }) {
+            return site.constitutive_relation().compute_response(kin);
+        } else {
+            return compute_response(
+                site,
+                continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin));
+        }
+    }
+
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    [[nodiscard]] auto tangent(
+        const ConstitutiveSiteT& site,
+        const continuum::ConstitutiveKinematics<dim>& kin) const
+        -> typename ConstitutiveSiteT::TangentT
+    {
+        if constexpr (requires {
+            site.algorithmic_state();
+            site.constitutive_relation().tangent(kin, site.algorithmic_state());
+        }) {
+            return site.constitutive_relation().tangent(kin, site.algorithmic_state());
+        } else if constexpr (requires {
+            site.constitutive_relation().tangent(kin);
+        }) {
+            return site.constitutive_relation().tangent(kin);
+        } else {
+            return tangent(
+                site,
+                continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin));
+        }
+    }
+
     template <typename ConstitutiveSiteT>
     void commit(
         ConstitutiveSiteT&,
         const typename ConstitutiveSiteT::KinematicT&) const
+    {
+        // No-op by design: preserves the legacy elastic workflow.
+    }
+
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    void commit(
+        ConstitutiveSiteT&,
+        const continuum::ConstitutiveKinematics<dim>&) const
     {
         // No-op by design: preserves the legacy elastic workflow.
     }
@@ -154,6 +214,54 @@ struct EmbeddedRelationIntegrator {
         }
     }
 
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    [[nodiscard]] auto compute_response(
+        const ConstitutiveSiteT& site,
+        const continuum::ConstitutiveKinematics<dim>& kin) const
+        -> typename ConstitutiveSiteT::ConjugateT
+    {
+        if constexpr (requires {
+            site.algorithmic_state();
+            site.constitutive_relation().compute_response(kin, site.algorithmic_state());
+        }) {
+            return site.constitutive_relation().compute_response(kin, site.algorithmic_state());
+        } else if constexpr (requires {
+            site.constitutive_relation().compute_response(kin);
+        }) {
+            return site.constitutive_relation().compute_response(kin);
+        } else {
+            return compute_response(
+                site,
+                continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin));
+        }
+    }
+
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    [[nodiscard]] auto tangent(
+        const ConstitutiveSiteT& site,
+        const continuum::ConstitutiveKinematics<dim>& kin) const
+        -> typename ConstitutiveSiteT::TangentT
+    {
+        if constexpr (requires {
+            site.algorithmic_state();
+            site.constitutive_relation().tangent(kin, site.algorithmic_state());
+        }) {
+            return site.constitutive_relation().tangent(kin, site.algorithmic_state());
+        } else if constexpr (requires {
+            site.constitutive_relation().tangent(kin);
+        }) {
+            return site.constitutive_relation().tangent(kin);
+        } else {
+            return tangent(
+                site,
+                continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin));
+        }
+    }
+
     template <typename ConstitutiveSiteT>
     void commit(
         ConstitutiveSiteT& site,
@@ -169,6 +277,31 @@ struct EmbeddedRelationIntegrator {
         }
 
         constitutive_integrators::commit_constitutive_state(site, k);
+    }
+
+    template <typename ConstitutiveSiteT, std::size_t dim>
+        requires (ConstitutiveSiteT::MaterialPolicy::is_continuum_space &&
+                  ConstitutiveSiteT::dim == dim)
+    void commit(
+        ConstitutiveSiteT& site,
+        const continuum::ConstitutiveKinematics<dim>& kin) const
+    {
+        if constexpr (requires {
+            site.algorithmic_state();
+            site.constitutive_relation().commit(site.algorithmic_state(), kin);
+        }) {
+            site.constitutive_relation().commit(site.algorithmic_state(), kin);
+        } else if constexpr (requires { site.constitutive_relation().update(kin); }) {
+            site.constitutive_relation().update(kin);
+        } else {
+            auto k = continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin);
+            commit(site, k);
+            return;
+        }
+
+        constitutive_integrators::commit_constitutive_state(
+            site,
+            continuum::make_kinematic_measure<typename ConstitutiveSiteT::KinematicT>(kin));
     }
 };
 

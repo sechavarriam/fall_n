@@ -177,9 +177,9 @@ integrator, not a state-agnostic mutable cache inside the law.
 
 \section{Current Boundary of the Refactor}
 
-At this stage, only \texttt{PlasticityRelation} has been migrated to the new
-explicit-state contract.  The following models still keep their irreversible
-memory internally:
+At the stage described in this chapter, only \texttt{PlasticityRelation} had
+been migrated to the new explicit-state contract.  The following models still
+kept their irreversible memory internally:
 
 \begin{itemize}
   \item \texttt{MenegottoPintoSteel}
@@ -190,6 +190,9 @@ memory internally:
 This is intentional.  The architectural pattern is now proven on one important
 continuum inelastic law before being propagated to uniaxial hysteretic and
 section-reduction models.
+
+That propagation is completed for the uniaxial steel and concrete laws in the
+next chapter.
 
 \section{Next Logical Step}
 

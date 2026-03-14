@@ -1,0 +1,270 @@
+\chapter{Yield Function Customization and Constitutive Curve Visualisation}
+
+\section{Why Introduce an Explicit Yield Function?}
+
+Up to this point the plasticity architecture already had three explicit
+compile-time axes:
+
+\begin{itemize}
+  \item \texttt{YieldCriterion}: geometry of the admissible surface in stress
+        space;
+  \item \texttt{HardeningLaw}: evolution of the admissible radius or position;
+  \item \texttt{FlowRule}: direction of irreversible strain increment.
+\end{itemize}
+
+That is already a good decomposition, but semantically one piece was still
+implicit: the scalar yield function value
+\[
+f(\bsigma, \alpha)
+\]
+that decides whether the trial state is admissible or not.
+
+In the original implementation, that scalar was assembled directly inside
+\texttt{PlasticityRelation} as
+\[
+f = q(\bsigma) - \sigma_y(\alpha).
+\]
+This is mathematically standard, but architecturally it hides a real
+customization point.
+
+\section{Criterion vs Function}
+
+The distinction matters:
+
+\begin{itemize}
+  \item a \emph{yield criterion} describes the shape of the surface, for
+        example von Mises or Drucker--Prager;
+  \item a \emph{yield function} is the scalar map that evaluates the current
+        trial state against that surface and the evolving hardening state.
+\end{itemize}
+
+For classical associative plasticity they are closely related, but they are
+not identical concepts.  The criterion gives the stress measure
+\(q(\bsigma)\) and its gradient; the yield function combines that measure with
+the hardening law into a scalar overstress.
+
+\section{New Compile-Time Contract}
+
+The new concept is
+\texttt{YieldFunctionPolicy<F, N, Y, H>}.  It requires
+
+\begin{lstlisting}[language=C++]
+f.value(yield, trial, hardening, state) -> double
+\end{lstlisting}
+
+where:
+
+\begin{itemize}
+  \item \texttt{yield} is the \texttt{YieldCriterion};
+  \item \texttt{trial} is the effective trial state;
+  \item \texttt{hardening} is the \texttt{HardeningLaw};
+  \item \texttt{state} is the hardening-law state.
+\end{itemize}
+
+The default implementation is \texttt{StandardYieldFunction}, which reproduces
+the previous behaviour exactly:
+\[
+f = q(\texttt{trial}) - \sigma_y(\texttt{state}).
+\]
+
+\section{How \texttt{PlasticityRelation} Uses It}
+
+\texttt{PlasticityRelation} is now parameterised as
+
+\begin{lstlisting}[language=C++]
+PlasticityRelation<Policy,
+                   YieldCriterion,
+                   HardeningLaw,
+                   FlowRule,
+                   YieldFunction>
+\end{lstlisting}
+
+with \texttt{YieldFunction = StandardYieldFunction} by default.
+
+This means the architectural axes are now:
+
+\begin{enumerate}
+  \item measure space / constitutive policy;
+  \item yield-surface geometry;
+  \item hardening evolution;
+  \item flow direction;
+  \item scalar yield-function evaluation.
+\end{enumerate}
+
+\section{Important Current Limitation}
+
+The current return-mapping algorithm is still the standard backward-Euler
+radial-return form.  Therefore the new \texttt{YieldFunction} policy is
+architecturally explicit, but algorithmically it is still expected to remain
+compatible with the same correction structure.
+
+In practice, this means the present implementation is best suited to yield
+functions that preserve the same derivative structure as the classical
+overstress map, for example shifted or scaled variants that do not change the
+underlying flow/tangent derivation qualitatively.
+
+This is not a weakness of the concept itself; it is simply an honest statement
+about the current integrator.  If later a different local algorithm is added,
+the \texttt{YieldFunction} axis is already explicit and can be reused.
+
+\section{Why This Separation Helps}
+
+The gain is mostly semantic today, but it matters for future work:
+
+\begin{itemize}
+  \item classical \(f = q - \sigma_y\);
+  \item capped or shifted overstress maps;
+  \item pressure-sensitive surfaces with the same hardening but different
+        scalar evaluation;
+  \item dynamic/viscoplastic extensions where the overstress enters a rate law.
+\end{itemize}
+
+Separating the scalar yield function early is cheap and removes one more
+implicit coupling from the plasticity kernel.
+
+\section{Constitutive Protocol Sampling}
+
+The new header \texttt{ConstitutiveProtocol.hh} introduces a tiny solver-free
+utility for material tests:
+
+\begin{lstlisting}[language=C++]
+sample_constitutive_protocol(site, history,
+                             abscissa_of, ordinate_of)
+\end{lstlisting}
+
+It applies a prescribed history of kinematic states and records:
+
+\begin{itemize}
+  \item abscissa value, typically strain or generalized strain;
+  \item ordinate value, typically stress or generalized force;
+  \item path parameter (currently the step index);
+  \item discrete step number.
+\end{itemize}
+
+The commit path is resolved at compile time:
+
+\begin{itemize}
+  \item if the object exposes \texttt{commit(k)}, it is used;
+  \item otherwise, if it exposes \texttt{update(k)}, that path is used.
+\end{itemize}
+
+This lets the same utility work for:
+
+\begin{itemize}
+  \item raw constitutive relations with embedded state;
+  \item typed constitutive sites \texttt{MaterialInstance<...>};
+  \item type-erased \texttt{Material<Policy>} handles.
+\end{itemize}
+
+\section{Why the Protocol Is Strain-Driven}
+
+The present utility is displacement/strain-controlled on purpose.  Local
+constitutive relations are naturally evaluated as
+\[
+\bvarepsilon \mapsto \bsigma.
+\]
+Force-controlled material tests would require solving a local inverse problem
+at each step, which belongs to a different abstraction level.  Nothing in the
+current design prevents that later; it is simply not mixed into the present
+utility.
+
+\section{VTK Representation of Material Curves}
+
+The new \texttt{VTKConstitutiveCurveWriter} exports each curve as a
+\texttt{vtkPolyData} polyline in the geometric plane
+\[
+(x,y,z) = (\text{strain}, \text{stress}, 0).
+\]
+
+This is intentionally simple and robust:
+
+\begin{itemize}
+  \item ParaView can render the loop directly as geometry;
+  \item the line can be coloured by stress, strain, or step;
+  \item the same file can be inspected either as a curve in space or as a
+        source for further filters.
+\end{itemize}
+
+For each point, the writer stores arrays:
+
+\begin{itemize}
+  \item \texttt{strain} (or the chosen abscissa name);
+  \item \texttt{stress} (or the chosen ordinate name);
+  \item \texttt{step};
+  \item \texttt{path\_parameter}.
+\end{itemize}
+
+Multiple curves are exported as a \texttt{.vtm} multiblock collection, with one
+block per material/protocol.
+
+\section{Curves Generated by the New Test}
+
+The regression suite now writes:
+
+\begin{itemize}
+  \item \texttt{material\_hysteresis\_curves\_menegotto\_cyclic.vtp}
+  \item \texttt{material\_hysteresis\_curves\_kent\_park\_cyclic.vtp}
+  \item \texttt{material\_hysteresis\_curves\_j2\_backbone.vtp}
+  \item \texttt{material\_hysteresis\_curves.vtm}
+\end{itemize}
+
+The first two show true hysteretic behaviour:
+
+\begin{itemize}
+  \item steel reversal with Menegotto--Pinto smooth transition and
+        Bauschinger-type response;
+  \item concrete compression/unloading/reloading with cracking and tension
+        cut-off in Kent--Park.
+\end{itemize}
+
+The J2 block is kept as a backbone-style reference for the current local
+plasticity implementation.
+
+\section{What the New Tests Actually Verify}
+
+Two kinds of behaviour are now checked:
+
+\begin{enumerate}
+  \item \textbf{Architectural composition}: a custom compile-time
+        \texttt{YieldFunction} changes stress and tangent while the rest of the
+        plasticity composition remains unchanged.
+  \item \textbf{Post-processing contract}: the VTK writer produces valid
+        polyline datasets with named arrays and block sidecars that can be read
+        back and inspected.
+\end{enumerate}
+
+This is important because it validates not only mathematics, but also the
+intended user workflow for constitutive debugging and calibration.
+
+\section{Relevance for Reinforced Concrete}
+
+For reinforced concrete across scales, graphical constitutive inspection is not
+optional.  The steel and concrete laws often look acceptable numerically while
+still behaving incorrectly under reversal, unloading, cracking, confinement, or
+stiffness recovery.  The new protocol sampler and VTK curve writer give a
+direct way to inspect that behaviour from the same codebase that later runs the
+structural analysis.
+
+This is especially useful when calibrating:
+
+\begin{itemize}
+  \item reinforcement hysteresis;
+  \item confined versus unconfined concrete;
+  \item fiber-section assembly;
+  \item future damage or fracture laws in continuum concrete.
+\end{itemize}
+
+\section{Strategic Next Step}
+
+The next logical move is to reuse this protocol infrastructure for more general
+constitutive diagnostics:
+
+\begin{itemize}
+  \item generalized force--deformation curves for beam and shell sections;
+  \item cyclic protocols for section reductions and fiber sections;
+  \item eventually, local traction--separation laws and continuum damage /
+        fracture models.
+\end{itemize}
+
+That would extend the same workflow from uniaxial laws to reduced structural
+models and later to continuum inelasticity.

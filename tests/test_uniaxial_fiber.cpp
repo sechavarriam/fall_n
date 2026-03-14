@@ -383,7 +383,89 @@ void test_concrete_confined() {
 
 
 // =============================================================================
-//  TEST 10: FiberSection3D — Elastic cross-check with TimoshenkoBeamSection
+//  TEST 10: MenegottoPintoSteel — Explicit external algorithmic state
+// =============================================================================
+
+void test_steel_external_algorithmic_state_path() {
+    double E  = 200000.0;
+    double fy = 420.0;
+    double b  = 0.01;
+
+    MenegottoPintoSteel steel(E, fy, b);
+
+    Strain<1> preload;
+    preload.set_components(5.0 * fy / E);
+
+    MenegottoPintoState alpha{};
+    steel.commit(alpha, preload);
+
+    report("Steel: external state commit yields the explicit state",
+           alpha.yielded && alpha.eps_committed > 0.0);
+
+    report("Steel: naked relation compatibility state stays virgin",
+           !steel.internal_state().yielded &&
+           approx(steel.internal_state().eps_committed, 0.0, 1e-12));
+
+    MaterialInstance<MenegottoPintoSteel, CommittedState> site{E, fy, b};
+    site.update(preload);
+
+    report("Steel site: algorithmic state is stored at the constitutive site",
+           site.internal_state().yielded &&
+           site.internal_state().eps_committed > 0.0);
+
+    report("Steel site: relation-owned compatibility state stays virgin",
+           !site.constitutive_relation().internal_state().yielded &&
+           approx(site.constitutive_relation().internal_state().eps_committed, 0.0, 1e-12));
+}
+
+
+// =============================================================================
+//  TEST 11: KentParkConcrete — Explicit external algorithmic state
+// =============================================================================
+
+void test_concrete_external_algorithmic_state_path() {
+    double fpc = 30.0;
+
+    KentParkConcrete concrete(fpc);
+
+    Strain<1> preload;
+    preload.set_components(-0.003);
+
+    KentParkState alpha{};
+    concrete.commit(alpha, preload);
+
+    report("Concrete: external state commit tracks compression envelope",
+           alpha.eps_min <= -0.003 + 1e-12 &&
+           alpha.sig_at_eps_min < 0.0);
+
+    report("Concrete: naked relation compatibility state stays virgin",
+           approx(concrete.internal_state().eps_committed, 0.0, 1e-12) &&
+           approx(concrete.internal_state().eps_min, 0.0, 1e-12) &&
+           !concrete.internal_state().cracked);
+
+    Strain<1> unload;
+    unload.set_components(-0.001);
+    const double unloaded_sig = concrete.compute_response(unload, alpha).components();
+    const double virgin_sig = concrete.compute_response(unload).components();
+
+    report("Concrete: explicit external state changes the unloading response",
+           std::abs(unloaded_sig) < std::abs(virgin_sig));
+
+    MaterialInstance<KentParkConcrete, CommittedState> site{fpc};
+    site.update(preload);
+
+    report("Concrete site: algorithmic state is stored at the constitutive site",
+           site.internal_state().eps_min <= -0.003 + 1e-12 &&
+           site.internal_state().sig_at_eps_min < 0.0);
+
+    report("Concrete site: relation-owned compatibility state stays virgin",
+           approx(site.constitutive_relation().internal_state().eps_committed, 0.0, 1e-12) &&
+           approx(site.constitutive_relation().internal_state().eps_min, 0.0, 1e-12));
+}
+
+
+// =============================================================================
+//  TEST 12: FiberSection3D — Elastic cross-check with TimoshenkoBeamSection
 // =============================================================================
 //
 //  A rectangular section (b × h) made of a single elastic material,
@@ -476,7 +558,7 @@ void test_fiber_section_elastic_crosscheck() {
 
 
 // =============================================================================
-//  TEST 11: FiberSection3D — Pure bending (elastic) gives correct M = EI·κ
+//  TEST 13: FiberSection3D — Pure bending (elastic) gives correct M = EI·κ
 // =============================================================================
 
 void test_fiber_section_pure_bending() {
@@ -534,7 +616,7 @@ void test_fiber_section_pure_bending() {
 
 
 // =============================================================================
-//  TEST 12: FiberSection3D — Yielding steel (plastic moment)
+//  TEST 14: FiberSection3D — Yielding steel (plastic moment)
 // =============================================================================
 //
 //  A steel I-section simplified as 4 fibers (flanges + web discretized).
@@ -605,7 +687,7 @@ void test_fiber_section_plastic_moment() {
 
 
 // =============================================================================
-//  TEST 13: FiberSection2D — Elastic verification
+//  TEST 15: FiberSection2D — Elastic verification
 // =============================================================================
 
 void test_fiber_section_2d_elastic() {
@@ -646,7 +728,7 @@ void test_fiber_section_2d_elastic() {
 
 
 // =============================================================================
-//  TEST 14: FiberSection3D — RC section (steel + concrete)
+//  TEST 16: FiberSection3D — RC section (steel + concrete)
 // =============================================================================
 //
 //  A reinforced concrete section with concrete cover and 4 rebar.
@@ -746,7 +828,7 @@ void test_fiber_section_rc() {
 
 
 // =============================================================================
-//  TEST 15: FiberSection — update/commit propagates to fibers
+//  TEST 17: FiberSection — update/commit propagates to fibers
 // =============================================================================
 
 void test_fiber_section_commit() {
@@ -784,7 +866,7 @@ void test_fiber_section_commit() {
 
 
 // =============================================================================
-//  TEST 16: Concept verification (compile-time)
+//  TEST 18: Concept verification (compile-time)
 // =============================================================================
 //
 //  These are really verified by static_assert in the header files, but
@@ -797,11 +879,17 @@ void test_concept_satisfaction() {
     report("MenegottoPintoSteel satisfies InelasticConstitutiveRelation",
            InelasticConstitutiveRelation<MenegottoPintoSteel>);
 
+    report("MenegottoPintoSteel satisfies ExternallyStateDrivenConstitutiveRelation",
+           ExternallyStateDrivenConstitutiveRelation<MenegottoPintoSteel>);
+
     report("KentParkConcrete satisfies ConstitutiveRelation",
            ConstitutiveRelation<KentParkConcrete>);
 
     report("KentParkConcrete satisfies InelasticConstitutiveRelation",
            InelasticConstitutiveRelation<KentParkConcrete>);
+
+    report("KentParkConcrete satisfies ExternallyStateDrivenConstitutiveRelation",
+           ExternallyStateDrivenConstitutiveRelation<KentParkConcrete>);
 
     report("FiberSection3D satisfies ConstitutiveRelation",
            ConstitutiveRelation<FiberSection3D>);
@@ -841,6 +929,8 @@ int main() {
     test_concrete_tension_cutoff();
     test_concrete_unloading();
     test_concrete_confined();
+    test_steel_external_algorithmic_state_path();
+    test_concrete_external_algorithmic_state_path();
 
     // ── Fiber Section 3D ──────────────────────────────────────────────
     std::cout << "\n─── Fiber Section 3D ───\n";

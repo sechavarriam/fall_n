@@ -1,0 +1,229 @@
+\chapter{Local Consistency Residual and Jacobian as Independent Customization Points}
+\label{ch:local-consistency-residual-and-jacobian}
+
+\section{Motivation}
+
+The previous material refactors had already separated:
+\begin{itemize}
+  \item the \emph{yield function} from the yield-surface geometry;
+  \item the \emph{return algorithm} from the constitutive ingredients;
+  \item the \emph{constitutive state} from the low-level storage backend.
+\end{itemize}
+
+However, one coupling still remained inside the local plastic solve: the
+algorithm knew too much about the specific scalar equation being solved. In the
+classical radial-return setting this is easy to hide because one often writes a
+closed-form update for the plastic multiplier increment $\Delta\gamma$. That
+shortcut does not scale well to future models.
+
+In particular, the next generations of models needed by this library:
+\begin{itemize}
+  \item pressure-sensitive plasticity,
+  \item nonlinear hardening laws,
+  \item finite-strain multiplicative plasticity,
+  \item damage-plasticity and crack-regularised constitutive updates,
+\end{itemize}
+all tend to be expressed as local nonlinear residual/Jacobian problems rather
+than as one hard-coded formula for $\Delta\gamma$.
+
+\section{Classical Local Plasticity Problem}
+
+In the present small-strain rate-independent setting, the constitutive update is
+still organised around the elastic predictor and the plastic corrector:
+\begin{align}
+  \boldsymbol{\sigma}^{\mathrm{tr}} &= \mathbb{C}_e :
+    \left(\boldsymbol{\varepsilon}_{n+1}
+          - \boldsymbol{\varepsilon}_n^p\right), \\
+  f^{\mathrm{tr}} &= q(\boldsymbol{\sigma}^{\mathrm{tr}})
+    - \sigma_y(\alpha_n).
+\end{align}
+
+If $f^{\mathrm{tr}} \le 0$, the step is elastic. Otherwise the constitutive
+site must solve a local nonlinear problem for the plastic correction. In the
+simplest radial-return case this can be written as a scalar consistency
+equation
+\[
+  r(\Delta\gamma) = 0.
+\]
+
+The important architectural observation is that this scalar equation is not the
+same concept as the nonlinear algorithm used to solve it.
+
+\section{Architectural Split}
+
+The implementation now distinguishes four independent compile-time roles:
+\begin{enumerate}
+  \item \textbf{Yield criterion}: geometry of the admissible surface.
+  \item \textbf{Yield function}: scalar overstress map.
+  \item \textbf{Consistency residual / Jacobian}: definition of the local
+        nonlinear equation and its derivative.
+  \item \textbf{Return algorithm}: the nonlinear solve strategy itself.
+\end{enumerate}
+
+This leads to the following staging:
+\[
+  \texttt{YieldCriterion}
+  \;\to\;
+  \texttt{YieldFunction}
+  \;\to\;
+  \texttt{ConsistencyResidual/Jacobian}
+  \;\to\;
+  \texttt{ReturnAlgorithm}.
+\]
+
+That separation is more than naming hygiene. It is exactly the pattern needed
+when the library later moves from scalar J2 updates to local residual/Jacobian
+systems in finite strains.
+
+\section{Default Residual}
+
+The new default residual evaluates the corrected state semantically rather than
+re-deriving the current closed-form denominator by hand. It computes:
+\begin{enumerate}
+  \item corrected stress
+    $\boldsymbol{\sigma}(\Delta\gamma)$;
+  \item evolved internal variables
+    $\alpha(\Delta\gamma)$;
+  \item corrected trial state reconstructed from
+    $\boldsymbol{\sigma}(\Delta\gamma)$;
+  \item effective state after optional backstress shift;
+  \item residual
+    \[
+      r(\Delta\gamma)
+      = f\!\left(\boldsymbol{\sigma}(\Delta\gamma), \alpha(\Delta\gamma)\right).
+    \]
+\end{enumerate}
+
+This is slower than a hand-derived one-line formula, but it is the right
+default seam because it keeps the residual faithful to the constitutive model
+rather than to one particular radial-return algebra.
+
+\section{Default Jacobians}
+
+Two Jacobian paths are now available.
+
+\subsection*{Closed-form Jacobian}
+
+The fast default for the present associated J2 family remains a closed-form
+derivative:
+\[
+  r'(\Delta\gamma)
+  = -\sqrt{\frac{2}{3}}\left(3G + H\right),
+\]
+evaluated through the current constitutive kernel.
+
+\subsection*{Finite-difference Jacobian}
+
+A generic numerical derivative is also available:
+\[
+  r'(\Delta\gamma)
+  \approx
+  \frac{r(\Delta\gamma + h) - r(\Delta\gamma - h)}{2h}.
+\]
+
+This is not the preferred production path for hot local loops, but it is
+important for development:
+\begin{itemize}
+  \item it provides a correctness baseline;
+  \item it lets a new material model become usable before its exact local
+        Jacobian has been derived;
+  \item it mirrors the type of prototyping stage often needed for complex
+        finite-strain or damage models.
+\end{itemize}
+
+\section{Newton Consistency Algorithm}
+
+With residual and Jacobian split out, the library now provides a generic Newton
+solver for the scalar consistency problem:
+\begin{align}
+  r(\Delta\gamma_k) &= 0, \\
+  \Delta\gamma_{k+1}
+    &= \Delta\gamma_k - \frac{r(\Delta\gamma_k)}{r'(\Delta\gamma_k)}.
+\end{align}
+
+The initial guess reuses the current closed-form estimate of the J2 radial
+return. This is intentional:
+\begin{itemize}
+  \item for the present model family it gives a high-quality starting point;
+  \item for future model families it still keeps the Newton solver as a clean,
+        reusable algorithmic shell.
+\end{itemize}
+
+\section{Why This Matters for Finite Strains}
+
+Finite-strain plasticity is rarely implemented as a direct analogue of the
+small-strain radial return. Even when the unknown remains scalar, the local
+problem is usually expressed in terms of a residual/Jacobian pair attached to:
+\begin{itemize}
+  \item multiplicative splits,
+  \item Kirchhoff or Mandel stresses,
+  \item logarithmic or objective rates,
+  \item internal tensorial variables.
+\end{itemize}
+
+From that perspective, the present refactor is strategically important:
+\begin{quote}
+the code now has an explicit place where the local nonlinear constitutive
+equation lives, and that place is independent from the nonlinear solver.
+\end{quote}
+
+That is the exact abstraction needed to grow from the current small-strain J2
+path into finite-strain plasticity and eventually damage/fracture regularized
+models.
+
+\section{Verification}
+
+The regression suite now checks three things:
+\begin{itemize}
+  \item a Newton-based local solve reproduces the current standard radial
+        return for the existing J2 family;
+  \item the same Newton algorithm remains usable when the Jacobian is replaced
+        by a finite-difference policy;
+  \item changing only the consistency residual changes the final constitutive
+        response, proving that the residual is now a real customization point.
+\end{itemize}
+
+\section{Architectural Outcome}
+
+After this step, the local constitutive update is no longer just:
+\[
+  \texttt{YieldFunction} + \texttt{ReturnAlgorithm}.
+\]
+
+It is now:
+\[
+  \texttt{YieldFunction}
+  + \texttt{ConsistencyResidual}
+  + \texttt{ConsistencyJacobian}
+  + \texttt{ReturnAlgorithm}.
+\]
+
+That is a much better foundation for the next stages:
+\begin{itemize}
+  \item finite-strain plasticity with explicit continuum state;
+  \item local residual/Jacobian systems of dimension larger than one;
+  \item pressure-sensitive and damage-coupled return algorithms;
+  \item fracture-oriented local solvers and regularization interfaces.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1998local}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{desouza2008}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\bibitem{crisfield1997}
+M.~A. Crisfield,
+\emph{Non-Linear Finite Element Analysis of Solids and Structures, Vol.~2:
+Advanced Topics},
+Wiley, 1997.
+
+\end{thebibliography}

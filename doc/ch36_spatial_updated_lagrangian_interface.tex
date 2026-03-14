@@ -1,0 +1,207 @@
+\chapter{Spatial Updated-Lagrangian Constitutive Interface}
+\label{ch:spatial-updated-lagrangian-interface}
+
+\section{Motivation}
+
+Chapter~\ref{ch:continuum-constitutive-interface} introduced a continuum-side
+carrier that exposed $\mathbf{F}$, $\det\mathbf{F}$ and explicit strain/stress
+measure tags at the erased \texttt{Material<>} boundary. The next missing step
+was to let the \texttt{UpdatedLagrangian} formulation use a genuinely spatial
+pair instead of silently reusing the reference pair
+$(\mathbf{E}, \mathbf{S})$.
+
+For many future models that is not optional. Current-configuration
+constitutive laws are the natural setting for:
+\begin{itemize}
+  \item large-displacement plasticity written in terms of Cauchy or Kirchhoff
+        stress;
+  \item rate-based models and objective stress rates;
+  \item contact, FSI and other couplings that consume spatial tractions and
+        current normals directly.
+\end{itemize}
+
+\section{Reference and Spatial Conjugate Pairs}
+
+For the total-Lagrangian formulation the standard conjugate pair is
+\[
+  (\mathbf{E}, \mathbf{S}),
+\]
+where
+\begin{align}
+  \mathbf{F} &= \mathbf{I} + \nabla_0 \mathbf{u}, \\
+  \mathbf{E} &= \frac{1}{2}\left(\mathbf{F}^T \mathbf{F} - \mathbf{I}\right).
+\end{align}
+
+For the updated-Lagrangian formulation the natural spatial pair is
+\[
+  (\mathbf{e}, \boldsymbol{\sigma}),
+\]
+where $\mathbf{e}$ is the Almansi strain,
+\begin{align}
+  \mathbf{b} &= \mathbf{F}\mathbf{F}^T, \\
+  \mathbf{e} &= \frac{1}{2}\left(\mathbf{I} - \mathbf{b}^{-1}\right),
+\end{align}
+and $\boldsymbol{\sigma}$ is the Cauchy stress.
+
+The two pairs are linked through Piola transformations:
+\begin{align}
+  \boldsymbol{\sigma} &= \frac{1}{J}\mathbf{F}\mathbf{S}\mathbf{F}^T, \\
+  \mathbf{S} &= J\mathbf{F}^{-1}\boldsymbol{\sigma}\mathbf{F}^{-T},
+\end{align}
+with $J = \det \mathbf{F}$.
+
+\section{Why the Spatial Carrier Matters}
+
+The previous implementation already contained the mathematics needed to build
+the spatial path, but the erased constitutive interface still compressed the
+interaction into ``some Voigt strain'' leading to two semantic problems:
+\begin{enumerate}
+  \item the constitutive law could not tell whether the incoming stress measure
+        was meant to be $\mathbf{S}$ or $\boldsymbol{\sigma}$;
+  \item the updated-Lagrangian element path still assembled with a
+        reference-style carrier at the element/material interface.
+\end{enumerate}
+
+This refactor resolves that ambiguity by making the active pair explicit at
+compile time in the kinematic policy and explicit at runtime in the continuum
+carrier tags.
+
+\section{Updated-Lagrangian Carrier}
+
+The continuum carrier now stores all of the following simultaneously:
+\begin{itemize}
+  \item engineering Voigt form of the active strain measure;
+  \item infinitesimal strain;
+  \item Green--Lagrange strain;
+  \item Almansi strain;
+  \item deformation gradient $\mathbf{F}$ and $J=\det\mathbf{F}$;
+  \item the active strain and stress measure tags.
+\end{itemize}
+
+For \texttt{UpdatedLagrangian}, the active tags are
+\[
+  \texttt{StrainMeasureKind::almansi}, \qquad
+  \texttt{StressMeasureKind::cauchy}.
+\]
+
+This means that a constitutive relation receiving the carrier can decide at the
+entry point whether it should produce:
+\begin{itemize}
+  \item the reference response $\mathbf{S}$ and $\mathbb{C}$, or
+  \item the spatial response $\boldsymbol{\sigma}$ and $\mathcal{c}$.
+\end{itemize}
+
+\section{Push-Forward of the Constitutive Tangent}
+
+If a hyperelastic model is naturally written in terms of
+$\mathbf{S} = \partial W / \partial \mathbf{E}$ and
+$\mathbb{C} = \partial^2 W / \partial \mathbf{E}^2$, then the spatial tangent
+used by the updated-Lagrangian assembly is the push-forward of
+$\mathbb{C}$:
+\[
+  \mathcal{c}_{ijkl}
+  = \frac{1}{J}
+    F_{iI}F_{jJ}\,\mathbb{C}_{IJKL}\,F_{kK}F_{lL}.
+\]
+
+In the present implementation that transformation is handled at the relation
+level for direct continuum-aware laws such as \texttt{HyperelasticRelation}.
+The same direct overload that previously returned $\mathbf{S}$ now returns
+$\boldsymbol{\sigma}$ when the carrier announces a Cauchy-conjugate path.
+
+\section{Element-Level Updated-Lagrangian Assembly}
+
+The updated-Lagrangian element route now uses:
+\begin{align}
+  \nabla_x N_I &= \nabla_X N_I \mathbf{F}^{-1}, \\
+  \mathbf{b}(\nabla_x N) &= \text{spatial small-strain } B\text{-operator}, \\
+  \delta W_{\text{int}}
+    &= \int_{\Omega_n} \boldsymbol{\sigma} : \delta\mathbf{d}\, \dd v.
+\end{align}
+
+Because the implementation still integrates over the reference quadrature
+domain attached to the original geometry, the conversion
+\[
+  \dd v = J \, \dd V
+\]
+is applied explicitly inside \texttt{ContinuumElement}. This is the reason the
+element path now multiplies the updated-Lagrangian contributions by
+$J = \det\mathbf{F}$.
+
+At the discrete level, the internal force and tangent take the form
+\begin{align}
+  \mathbf{f}_{\text{int}}
+    &= \int_{\Omega_0} J\, \mathbf{b}^T \tilde{\boldsymbol{\sigma}} \, \dd V, \\
+  \mathbf{K}_{\text{mat}}
+    &= \int_{\Omega_0} J\, \mathbf{b}^T \tilde{\mathcal{c}} \, \mathbf{b} \, \dd V, \\
+  \mathbf{K}_{\sigma}
+    &= \int_{\Omega_0} J\, \mathbf{k}_{\sigma}(\nabla_x N, \boldsymbol{\sigma}) \, \dd V.
+\end{align}
+
+\section{Architectural Consequences}
+
+This step is important because it removes the last semantic shortcut in the
+continuum large-displacement path:
+\begin{quote}
+\texttt{UpdatedLagrangian} is no longer ``TL in disguise'' at the generic
+element/material boundary for hyperelastic continuum laws.
+\end{quote}
+
+The resulting architecture has three useful properties:
+\begin{enumerate}
+  \item \textbf{Static specialization is preserved.}
+        The kinematic policy still selects the path at compile time.
+  \item \textbf{The erased material interface remains additive.}
+        Old laws keep working through the legacy \texttt{KinematicT} fallback.
+  \item \textbf{Spatial finite-strain laws now have a natural slot.}
+        Future Cauchy-based plasticity or rate-based models can consume the
+        same carrier without pretending to be reference-measure laws.
+\end{enumerate}
+
+\section{Tests Added}
+
+The new regression coverage verifies:
+\begin{itemize}
+  \item the updated-Lagrangian carrier exposes Almansi strain and Cauchy stress
+        tags correctly;
+  \item \texttt{HyperelasticRelation} returns the push-forwarded Cauchy stress
+        and spatial tangent when the carrier requests the spatial path;
+  \item the erased \texttt{Material<ThreeDimensionalMaterial>} handle forwards
+        that spatial path without losing the richer semantics;
+  \item \texttt{UpdatedLagrangian::evaluate\_from\_gradients()} now returns the
+        spatial $B$ operator and the Almansi engineering strain.
+\end{itemize}
+
+\section{Remaining Limits}
+
+The spatial route is now available for continuum hyperelasticity, but it is
+not yet the full finite-strain inelastic infrastructure. The next steps remain:
+\begin{itemize}
+  \item a finite-strain \texttt{ConstitutiveState} split for continuum plasticity
+        and damage;
+  \item local residual/Jacobian contracts for nonlinear constitutive updates in
+        the spatial setting;
+  \item objective-rate or multiplicative-decomposition models when the library
+        moves beyond hyperelastic and small-strain-inelastic ingredients.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{bonet2008}
+J.~Bonet, A.~J. Gil, and R.~D. Wood,
+\emph{Nonlinear Solid Mechanics for Finite Element Analysis: Statics},
+2nd ed., Cambridge University Press, 2008.
+
+\bibitem{belytschko2014}
+T.~Belytschko, W.~K. Liu, B.~Moran, and K.~Elkhodary,
+\emph{Nonlinear Finite Elements for Continua and Structures},
+2nd ed., Wiley, 2014.
+
+\bibitem{simo1998}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\end{thebibliography}

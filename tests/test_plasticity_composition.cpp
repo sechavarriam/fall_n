@@ -11,9 +11,12 @@
 //    4. PlasticityRelation (full return-mapping, consistent tangent)
 //    5. Backward-compat: J2PlasticityRelation alias matches old behavior
 //    6. Orthogonal composition: same yield + different hardening parameters
-//    7. PlasticInternalVariables (eps_p, eps_bar_p accessors)
-//    8. Type-erasure integration (Material<> + InelasticUpdate)
-//    9. External algorithmic-state path for PlasticityRelation
+//    7. YieldFunction as an explicit compile-time customization point
+//    8. ReturnAlgorithm as an explicit compile-time customization point
+//    9. Type-erasure integration (Material<> + InelasticUpdate)
+//   10. External algorithmic-state path for PlasticityRelation
+//   11. Consistency residual/Jacobian as explicit customization points
+//   12. Generic local nonlinear problem / solver split
 //
 //  Build: linked against Eigen, PETSc, VTK (via CMake test target).
 //  No mesh/PETSc runtime required — pure material-level tests.
@@ -42,6 +45,11 @@
 // Type-erasure + strategies
 #include "../src/materials/Material.hh"
 #include "../src/materials/update_strategy/IntegrationStrategy.hh"
+#include "../src/materials/local_problem/LocalLinearSolver.hh"
+#include "../src/materials/local_problem/LocalStepControl.hh"
+#include "../src/materials/local_problem/LocalNonlinearProblem.hh"
+#include "../src/materials/local_problem/NewtonLocalSolver.hh"
+#include "../src/materials/constitutive_models/non_lineal/plasticity/ScalarConsistencyProblem.hh"
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,6 +60,125 @@ bool approx_equal(const Eigen::MatrixBase<D1>& a,
                   double tol = 1e-10) {
     return (a - b).norm() < tol;
 }
+
+template <int OffsetMilliUnits>
+struct OffsetYieldFunction {
+    template <std::size_t N, typename YieldCriterionT, typename HardeningT>
+    [[nodiscard]] double value(const YieldCriterionT& yield,
+                               const TrialState<N>& trial,
+                               const HardeningT& hardening,
+                               const typename HardeningT::StateT& state) const {
+        return StandardYieldFunction{}.value(yield, trial, hardening, state)
+             - static_cast<double>(OffsetMilliUnits) * 1.0e-3;
+    }
+};
+
+struct HalfStepReturnAlgorithm {
+    template <typename Relation>
+    [[nodiscard]] auto integrate(
+        const Relation& relation,
+        const typename Relation::StrainVectorT& total_strain,
+        const typename Relation::InternalVariablesT& alpha) const
+        -> typename Relation::ReturnMapResultT
+    {
+        auto trial = relation.elastic_predictor(total_strain, alpha);
+        auto eff = relation.effective_trial(trial, alpha);
+        const double f_trial = relation.evaluate_yield_function(eff, alpha);
+
+        if (f_trial <= 0.0) {
+            return relation.make_elastic_result(trial, alpha);
+        }
+
+        const double H_mod = relation.hardening_modulus(alpha);
+        const double delta_gamma =
+            0.5 * relation.consistency_increment(f_trial, H_mod);
+        const auto n_hat = relation.flow_direction(eff);
+
+        typename Relation::ReturnMapResultT out{};
+        out.stress = relation.corrected_stress(trial, delta_gamma, n_hat);
+        out.tangent = relation.consistent_tangent(eff, delta_gamma, H_mod, n_hat);
+        out.alpha_new = relation.evolve_internal_variables(alpha, delta_gamma, n_hat);
+        out.plastic = true;
+        return out;
+    }
+};
+
+template <int OffsetMilliUnits>
+struct OffsetConsistencyResidual {
+    template <typename Relation>
+    [[nodiscard]] double value(
+        const Relation& relation,
+        const typename Relation::TrialStateT& trial,
+        const typename Relation::InternalVariablesT& alpha,
+        double delta_gamma,
+        const typename Relation::StrainVectorT& flow_direction) const
+    {
+        return StandardConsistencyResidual{}.value(
+                   relation, trial, alpha, delta_gamma, flow_direction)
+             - static_cast<double>(OffsetMilliUnits) * 1.0e-3;
+    }
+};
+
+struct DummyLocalRelation {};
+
+struct HalfStepControl {
+    template <typename Problem, typename Relation, typename ContextT>
+    [[nodiscard]] auto compute(
+        const Problem&,
+        const Relation&,
+        const ContextT&,
+        const typename Problem::UnknownT&,
+        const typename Problem::UnknownT& delta_unknown,
+        double) const
+        -> typename Problem::UnknownT
+    {
+        return 0.5 * delta_unknown;
+    }
+};
+
+struct AffineTwoEquationProblem {
+    using UnknownT = Eigen::Vector2d;
+    using ResidualT = Eigen::Vector2d;
+    using JacobianT = Eigen::Matrix2d;
+
+    struct ContextT {
+        Eigen::Vector2d rhs{Eigen::Vector2d::Zero()};
+    };
+
+    [[nodiscard]] UnknownT initial_guess(
+        const DummyLocalRelation&,
+        const ContextT&) const
+    {
+        return UnknownT::Zero();
+    }
+
+    [[nodiscard]] ResidualT residual(
+        const DummyLocalRelation&,
+        const ContextT& context,
+        const UnknownT& x) const
+    {
+        ResidualT r;
+        r[0] = x[0] + x[1] - context.rhs[0];
+        r[1] = x[0] - x[1] - context.rhs[1];
+        return r;
+    }
+
+    [[nodiscard]] JacobianT jacobian(
+        const DummyLocalRelation&,
+        const ContextT&,
+        const UnknownT&) const
+    {
+        JacobianT J;
+        J << 1.0, 1.0,
+             1.0, -1.0;
+        return J;
+    }
+
+    [[nodiscard]] double residual_norm(const ResidualT& r) const
+    {
+        return r.norm();
+    }
+};
 
 
 // ─── Test 1: VonMises yield criterion ────────────────────────────────────────
@@ -328,10 +455,103 @@ void test_orthogonal_composition() {
 }
 
 
-// ─── Test 7: Type-erasure integration ────────────────────────────────────────
+// ─── Test 7: YieldFunction customization point ──────────────────────────────
+
+void test_yield_function_customization() {
+    std::cout << "Test 7: YieldFunction customization point\n";
+
+    using StandardRel = PlasticityRelation<
+        ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
+    using ShiftedRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        OffsetYieldFunction<50>>;
+
+    static_assert(YieldFunctionPolicy<StandardYieldFunction, 6, VonMises, LinearIsotropicHardening>);
+    static_assert(YieldFunctionPolicy<OffsetYieldFunction<50>, 6, VonMises, LinearIsotropicHardening>);
+
+    StandardRel standard{200.0, 0.3, 0.250, 10.0};
+    ShiftedRel shifted{200.0, 0.3, 0.250, 10.0};
+
+    Strain<6> eps;
+    eps.set_strain(
+        (Eigen::Vector<double, 6>() << 0.0013, -0.00039, -0.00039, 0, 0, 0).finished());
+
+    auto sigma_standard = standard.compute_response(eps);
+    auto sigma_shifted = shifted.compute_response(eps);
+    auto C_standard = standard.tangent(eps);
+    auto C_shifted = shifted.tangent(eps);
+
+    const double stress_diff =
+        (sigma_standard.components() - sigma_shifted.components()).norm();
+    const double tangent_diff = (C_standard - C_shifted).norm();
+
+    std::cout << "  ||σ_standard - σ_shifted|| = " << stress_diff << "\n";
+    std::cout << "  ||C_standard - C_shifted|| = " << tangent_diff << "\n";
+
+    assert(stress_diff > 1e-6 &&
+           "a custom YieldFunction must alter the constitutive response when it changes overstress");
+    assert(tangent_diff > 1e-6 &&
+           "a custom YieldFunction must alter the algorithmic tangent when it changes yielding");
+
+    [[maybe_unused]] const auto& yf = shifted.yield_function();
+    std::cout << "  PASSED\n\n";
+}
+
+
+// ─── Test 8: ReturnAlgorithm customization point ────────────────────────────
+
+void test_return_algorithm_customization() {
+    std::cout << "Test 8: ReturnAlgorithm customization point\n";
+
+    using StandardRel = PlasticityRelation<
+        ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
+    using HalfStepRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        HalfStepReturnAlgorithm>;
+
+    static_assert(ReturnAlgorithmPolicy<StandardRadialReturnAlgorithm, StandardRel>);
+    static_assert(ReturnAlgorithmPolicy<HalfStepReturnAlgorithm, HalfStepRel>);
+
+    StandardRel standard{200.0, 0.3, 0.250, 10.0};
+    HalfStepRel half_step{200.0, 0.3, 0.250, 10.0};
+
+    Strain<6> eps;
+    eps.set_strain(
+        (Eigen::Vector<double, 6>() << 0.01, -0.003, -0.003, 0, 0, 0).finished());
+
+    auto sigma_standard = standard.compute_response(eps);
+    auto sigma_half_step = half_step.compute_response(eps);
+    auto C_standard = standard.tangent(eps);
+    auto C_half_step = half_step.tangent(eps);
+
+    const double stress_diff =
+        (sigma_standard.components() - sigma_half_step.components()).norm();
+    const double tangent_diff = (C_standard - C_half_step).norm();
+
+    std::cout << "  ||σ_standard - σ_half_step|| = " << stress_diff << "\n";
+    std::cout << "  ||C_standard - C_half_step|| = " << tangent_diff << "\n";
+
+    assert(stress_diff > 1e-6 &&
+           "a custom ReturnAlgorithm must alter the constitutive response when it changes the correction strategy");
+    assert(tangent_diff > 1e-6 &&
+           "a custom ReturnAlgorithm must alter the algorithmic tangent when it changes the local solve");
+
+    [[maybe_unused]] const auto& ra = half_step.return_algorithm();
+    std::cout << "  PASSED\n\n";
+}
+
+
+// ─── Test 9: Type-erasure integration ────────────────────────────────────────
 
 void test_type_erasure_integration() {
-    std::cout << "Test 7: Type-erasure (Material<> + InelasticUpdate)\n";
+    std::cout << "Test 9: Type-erasure (Material<> + InelasticUpdate)\n";
 
     // Construct via new explicit PlasticityRelation spelling
     using PlRel = PlasticityRelation<
@@ -421,10 +641,10 @@ void test_type_erasure_integration() {
 }
 
 
-// ─── Test 8: External algorithmic-state path ────────────────────────────────
+// ─── Test 10: External algorithmic-state path ───────────────────────────────
 
 void test_external_algorithmic_state_path() {
-    std::cout << "Test 8: External algorithmic-state path\n";
+    std::cout << "Test 10: External algorithmic-state path\n";
 
     using PlRel = PlasticityRelation<
         ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
@@ -474,15 +694,16 @@ void test_external_algorithmic_state_path() {
 }
 
 
-// ─── Test 9: Concept verification at compile time ────────────────────────────
+// ─── Test 11: Concept verification at compile time ───────────────────────────
 
 void test_concept_verification() {
-    std::cout << "Test 8: Static concept verification\n";
+    std::cout << "Test 11: Static concept verification\n";
 
     // These are compile-time checks — if we get here, they passed.
     static_assert(YieldCriterion<VonMises, 6>);
     static_assert(YieldCriterion<VonMises, 3>);
     static_assert(YieldCriterion<VonMises, 1>);
+    static_assert(YieldFunctionPolicy<StandardYieldFunction, 6, VonMises, LinearIsotropicHardening>);
 
     static_assert(HardeningLaw<LinearIsotropicHardening>);
 
@@ -494,6 +715,45 @@ void test_concept_verification() {
         ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
     static_assert(ConstitutiveRelation<J2_3D>);
     static_assert(InelasticConstitutiveRelation<J2_3D>);
+    static_assert(ReturnAlgorithmPolicy<StandardRadialReturnAlgorithm, J2_3D>);
+    static_assert(ConsistencyResidualPolicy<StandardConsistencyResidual, J2_3D>);
+    static_assert(ConsistencyJacobianPolicy<
+        StandardConsistencyJacobian, StandardConsistencyResidual, J2_3D>);
+    static_assert(ConsistencyJacobianPolicy<
+        FiniteDifferenceConsistencyJacobian<>, StandardConsistencyResidual, J2_3D>);
+    static_assert(LocalNonlinearProblem<
+        ScalarConsistencyProblem<>,
+        J2_3D,
+        ScalarConsistencyProblem<>::ContextT<J2_3D>>);
+    static_assert(LocalNonlinearProblem<
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
+    static_assert(LocalNonlinearSolverPolicy<
+        NewtonLocalSolver<>,
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
+    static_assert(LocalLinearSolvePolicy<
+        DefaultLocalLinearSolver,
+        Eigen::Vector2d,
+        Eigen::Matrix2d,
+        Eigen::Vector2d>);
+    static_assert(LocalStepControlPolicy<
+        FullStepControl,
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
+    static_assert(LocalStepControlPolicy<
+        BacktrackingResidualStepControl<>,
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
+    static_assert(LocalStepControlPolicy<
+        HalfStepControl,
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
 
     using J2_2D = PlasticityRelation<
         PlaneMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
@@ -506,6 +766,203 @@ void test_concept_verification() {
     static_assert(InelasticConstitutiveRelation<J2_1D>);
 
     std::cout << "  All static_assert passed (3D, 2D, 1D)\n";
+    std::cout << "  PASSED\n\n";
+}
+
+void test_newton_return_algorithm_matches_standard_radial() {
+    std::cout << "Test 12: Newton consistency algorithm matches standard radial return\n";
+
+    using StandardRel = PlasticityRelation<
+        ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
+    using NewtonRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        NewtonConsistencyReturnAlgorithm<>>;
+    using NewtonFDRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        NewtonConsistencyReturnAlgorithm<
+            StandardConsistencyResidual,
+            FiniteDifferenceConsistencyJacobian<>>>;
+    using GenericLocalRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        LocalNonlinearReturnAlgorithm<>>;
+
+    static_assert(ReturnAlgorithmPolicy<NewtonConsistencyReturnAlgorithm<>, NewtonRel>);
+    static_assert(ReturnAlgorithmPolicy<
+        NewtonConsistencyReturnAlgorithm<
+            StandardConsistencyResidual,
+            FiniteDifferenceConsistencyJacobian<>>,
+        NewtonFDRel>);
+    static_assert(ReturnAlgorithmPolicy<LocalNonlinearReturnAlgorithm<>, GenericLocalRel>);
+
+    StandardRel standard{200.0, 0.3, 0.250, 10.0};
+    NewtonRel newton{200.0, 0.3, 0.250, 10.0};
+    NewtonFDRel newton_fd{200.0, 0.3, 0.250, 10.0};
+    GenericLocalRel generic_local{200.0, 0.3, 0.250, 10.0};
+
+    Strain<6> eps;
+    eps.set_strain(
+        (Eigen::Vector<double, 6>() << 0.01, -0.003, -0.003, 0, 0, 0).finished());
+
+    auto sigma_standard = standard.compute_response(eps);
+    auto sigma_newton = newton.compute_response(eps);
+    auto sigma_newton_fd = newton_fd.compute_response(eps);
+    auto sigma_generic_local = generic_local.compute_response(eps);
+
+    auto C_standard = standard.tangent(eps);
+    auto C_newton = newton.tangent(eps);
+    auto C_newton_fd = newton_fd.tangent(eps);
+    auto C_generic_local = generic_local.tangent(eps);
+
+    const double stress_err =
+        (sigma_standard.components() - sigma_newton.components()).norm();
+    const double stress_fd_err =
+        (sigma_standard.components() - sigma_newton_fd.components()).norm();
+    const double stress_generic_err =
+        (sigma_standard.components() - sigma_generic_local.components()).norm();
+    const double tangent_err = (C_standard - C_newton).norm();
+    const double tangent_fd_err = (C_standard - C_newton_fd).norm();
+    const double tangent_generic_err = (C_standard - C_generic_local).norm();
+
+    std::cout << "  ||σ_standard - σ_newton||    = " << stress_err << "\n";
+    std::cout << "  ||σ_standard - σ_newton_fd|| = " << stress_fd_err << "\n";
+    std::cout << "  ||σ_standard - σ_generic||   = " << stress_generic_err << "\n";
+    std::cout << "  ||C_standard - C_newton||    = " << tangent_err << "\n";
+    std::cout << "  ||C_standard - C_newton_fd|| = " << tangent_fd_err << "\n";
+    std::cout << "  ||C_standard - C_generic||   = " << tangent_generic_err << "\n";
+
+    assert(stress_err < 1e-9 &&
+           "Newton consistency solve must reproduce the current radial-return stress");
+    assert(stress_fd_err < 1e-8 &&
+           "finite-difference Jacobian must remain a viable local solve for the current model");
+    assert(stress_generic_err < 1e-9 &&
+           "the generic local-problem return algorithm must reproduce the current radial-return stress");
+    assert(tangent_err < 1e-8 &&
+           "Newton consistency solve must reproduce the current algorithmic tangent");
+    assert(tangent_fd_err < 1e-6 &&
+           "finite-difference Jacobian must produce a compatible tangent");
+    assert(tangent_generic_err < 1e-8 &&
+           "the generic local-problem return algorithm must reproduce the current algorithmic tangent");
+
+    std::cout << "  PASSED\n\n";
+}
+
+void test_consistency_residual_customization() {
+    std::cout << "Test 13: Consistency residual customization point\n";
+
+    using NewtonRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        NewtonConsistencyReturnAlgorithm<>>;
+
+    using ShiftedResidualRel = PlasticityRelation<
+        ThreeDimensionalMaterial,
+        VonMises,
+        LinearIsotropicHardening,
+        AssociatedFlow,
+        StandardYieldFunction,
+        NewtonConsistencyReturnAlgorithm<
+            OffsetConsistencyResidual<5>,
+            FiniteDifferenceConsistencyJacobian<>>>;
+
+    static_assert(ConsistencyResidualPolicy<OffsetConsistencyResidual<5>, ShiftedResidualRel>);
+
+    NewtonRel standard{200.0, 0.3, 0.250, 10.0};
+    ShiftedResidualRel shifted{200.0, 0.3, 0.250, 10.0};
+
+    Strain<6> eps;
+    eps.set_strain(
+        (Eigen::Vector<double, 6>() << 0.01, -0.003, -0.003, 0, 0, 0).finished());
+
+    auto sigma_standard = standard.compute_response(eps);
+    auto sigma_shifted = shifted.compute_response(eps);
+    auto C_standard = standard.tangent(eps);
+    auto C_shifted = shifted.tangent(eps);
+
+    const double stress_diff =
+        (sigma_standard.components() - sigma_shifted.components()).norm();
+    const double tangent_diff = (C_standard - C_shifted).norm();
+
+    std::cout << "  ||σ_standard - σ_shiftedResidual|| = " << stress_diff << "\n";
+    std::cout << "  ||C_standard - C_shiftedResidual|| = " << tangent_diff << "\n";
+
+    assert(stress_diff > 1e-6 &&
+           "changing the consistency residual must alter the local constitutive response");
+    assert(tangent_diff > 1e-6 &&
+           "changing the consistency residual must alter the algorithmic tangent");
+
+    std::cout << "  PASSED\n\n";
+}
+
+void test_generic_local_nonlinear_solver_vector_problem() {
+    std::cout << "Test 14: Generic local nonlinear solver solves a fixed-size vector problem\n";
+
+    static_assert(LocalNonlinearProblem<
+        AffineTwoEquationProblem,
+        DummyLocalRelation,
+        AffineTwoEquationProblem::ContextT>);
+
+    DummyLocalRelation relation{};
+    AffineTwoEquationProblem problem{};
+    NewtonLocalSolver<4> solver{};
+    AffineTwoEquationProblem::ContextT context;
+    context.rhs << 3.0, 1.0;
+
+    const auto result = solver.solve(problem, relation, context);
+
+    std::cout << "  converged      = " << result.converged << "\n";
+    std::cout << "  iterations     = " << result.iterations << "\n";
+    std::cout << "  residual_norm  = " << result.residual_norm << "\n";
+    std::cout << "  solution       = [" << result.solution[0]
+              << ", " << result.solution[1] << "]\n";
+
+    assert(result.converged &&
+           "the generic Newton local solver must converge on a well-posed 2x2 affine problem");
+    assert(std::abs(result.solution[0] - 2.0) < 1e-12);
+    assert(std::abs(result.solution[1] - 1.0) < 1e-12);
+
+    std::cout << "  PASSED\n\n";
+}
+
+void test_newton_subpolicies_are_injectable() {
+    std::cout << "Test 15: Newton sub-policies are injectable\n";
+
+    DummyLocalRelation relation{};
+    AffineTwoEquationProblem problem{};
+    AffineTwoEquationProblem::ContextT context;
+    context.rhs << 3.0, 1.0;
+
+    NewtonLocalSolver<32, DefaultLocalLinearSolver, HalfStepControl> half_step_solver{};
+    half_step_solver.tolerance_ = 1e-8;
+    const auto half_step_result = half_step_solver.solve(problem, relation, context);
+
+    std::cout << "  converged      = " << half_step_result.converged << "\n";
+    std::cout << "  iterations     = " << half_step_result.iterations << "\n";
+    std::cout << "  residual_norm  = " << half_step_result.residual_norm << "\n";
+    std::cout << "  solution       = [" << half_step_result.solution[0]
+              << ", " << half_step_result.solution[1] << "]\n";
+
+    assert(half_step_result.converged &&
+           "a custom step-control policy must remain a valid local solver configuration");
+    assert(std::abs(half_step_result.solution[0] - 2.0) < 1e-6);
+    assert(std::abs(half_step_result.solution[1] - 1.0) < 1e-6);
+    assert(half_step_result.iterations > 0 &&
+           "the damped path should require more than the immediate exact update of the affine problem");
+
     std::cout << "  PASSED\n\n";
 }
 
@@ -523,9 +980,15 @@ int main() {
     test_plasticity_relation();
     test_backward_compat();
     test_orthogonal_composition();
+    test_yield_function_customization();
+    test_return_algorithm_customization();
     test_type_erasure_integration();
     test_external_algorithmic_state_path();
     test_concept_verification();
+    test_newton_return_algorithm_matches_standard_radial();
+    test_consistency_residual_customization();
+    test_generic_local_nonlinear_solver_vector_problem();
+    test_newton_subpolicies_are_injectable();
 
     std::cout << "============================================\n";
     std::cout << "  All tests PASSED\n";

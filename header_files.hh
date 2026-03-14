@@ -95,6 +95,11 @@
 #include "src/materials/MaterialState.hh"
 #include "src/materials/ConstitutiveState.hh"
 #include "src/materials/ConstitutiveIntegrator.hh"
+#include "src/materials/ConstitutiveProtocol.hh"
+#include "src/materials/local_problem/LocalLinearSolver.hh"
+#include "src/materials/local_problem/LocalStepControl.hh"
+#include "src/materials/local_problem/LocalNonlinearProblem.hh"
+#include "src/materials/local_problem/NewtonLocalSolver.hh"
 #include "src/materials/SectionConstitutiveSnapshot.hh"
 
 // --- Concept hierarchy ---
@@ -111,6 +116,10 @@
 #include "src/materials/constitutive_models/non_lineal/plasticity/VonMises.hh"
 #include "src/materials/constitutive_models/non_lineal/plasticity/IsotropicHardening.hh"
 #include "src/materials/constitutive_models/non_lineal/plasticity/AssociatedFlow.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/YieldFunction.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/ConsistencyFunction.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/ScalarConsistencyProblem.hh"
+#include "src/materials/constitutive_models/non_lineal/plasticity/ReturnAlgorithm.hh"
 
 // --- Composed plasticity relation + backward-compat aliases ---
 #include "src/materials/constitutive_models/non_lineal/PlasticityRelation.hh"
@@ -180,5 +189,6 @@
 // =================================================================================
 
 #include "src/post-processing/VTK/VTKModelExporter.hh"
+#include "src/post-processing/VTK/VTKConstitutiveCurveWriter.hh"
 #include "src/post-processing/VTK/StructuralVTMExporter.hh"
 #include "src/post-processing/VTK/PVDWriter.hh"
