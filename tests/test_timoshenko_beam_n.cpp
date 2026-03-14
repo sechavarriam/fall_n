@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <numbers>
+#include <stdexcept>
 
 #include <Eigen/Dense>
 
@@ -473,6 +474,40 @@ void test_topology_queries_N4() {
     ASSERT_TRUE(beam.num_integration_points() == 3);
 }
 
+void test_topology_queries_N2() {
+    BeamN2Fixture f(0.0, 0.0, 0.0, 5.0, 0.0, 0.0);
+    auto beam = f.make_beam();
+
+    ASSERT_TRUE(beam.num_nodes() == 2);
+    ASSERT_TRUE(beam.num_integration_points() == 1);
+    ASSERT_TRUE(beam.sieve_id() == 0);
+}
+
+void test_quadrature_contract_N2() {
+    Node<3> n0{0, 0.0, 0.0, 0.0};
+    Node<3> n1{1, 5.0, 0.0, 0.0};
+    LagrangeElement3D<2> element{
+        std::optional<std::array<Node<3>*, 2>>{
+            std::array<Node<3>*, 2>{&n0, &n1}
+        }
+    };
+    GaussLegendreCellIntegrator<2> integrator;
+    ElementGeometry<3> geom{element, integrator};
+
+    TimoshenkoBeamMaterial3D mat_instance{
+        200.0, 80.0, 0.01, 8.33e-6, 8.33e-6, 1.41e-5, 5.0 / 6.0, 5.0 / 6.0
+    };
+    Material<TimoshenkoBeam3D> mat{mat_instance, ElasticUpdate{}};
+
+    bool threw = false;
+    try {
+        [[maybe_unused]] auto beam = TimoshenkoBeamN<2>{&geom, mat};
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+}
+
 // ============================================================================
 //  Test: Rank check — K should have rank (6N - 6)
 // ============================================================================
@@ -642,8 +677,10 @@ int main() {
     RUN_TEST(test_shear_basis_N3);
 
     // Topology
+    RUN_TEST(test_topology_queries_N2);
     RUN_TEST(test_topology_queries_N3);
     RUN_TEST(test_topology_queries_N4);
+    RUN_TEST(test_quadrature_contract_N2);
 
     // Rank
     RUN_TEST(test_K_rank_N3);

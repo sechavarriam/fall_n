@@ -49,6 +49,7 @@
 #include <array>
 #include <cstddef>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -264,7 +265,7 @@ public:
     // ── Topology queries (FiniteElement interface) ───────────────────────
 
     constexpr auto num_nodes()              const noexcept { return geometry_->num_nodes(); }
-    constexpr auto num_integration_points() const noexcept -> std::size_t { return geometry_->num_integration_points(); }
+    constexpr auto num_integration_points() const noexcept -> std::size_t { return n_gp; }
     constexpr auto sieve_id()               const noexcept { return geometry_->sieve_id(); }
 
     constexpr void set_num_dof_in_nodes() noexcept {
@@ -461,6 +462,11 @@ public:
     TimoshenkoBeamN(ElementGeometry<dim>* geometry, MaterialT section_material)
         : geometry_{geometry}
     {
+        if (geometry_->num_integration_points() != n_gp) {
+            throw std::invalid_argument(
+                "TimoshenkoBeamN: geometry quadrature must use exactly N-1 integration points.");
+        }
+
         // Build reduced basis from Gauss point positions
         std::array<double, n_gp> gp_coords;
         for (std::size_t j = 0; j < n_gp; ++j)

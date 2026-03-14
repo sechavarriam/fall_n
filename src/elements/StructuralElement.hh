@@ -32,6 +32,7 @@
 #include <memory>
 #include <cstddef>
 #include <type_traits>
+#include <typeinfo>
 
 #include <petsc.h>
 
@@ -57,6 +58,13 @@ class StructuralElement {
         virtual std::size_t num_nodes()              const  = 0;
         virtual std::size_t num_integration_points() const  = 0;
         virtual PetscInt    sieve_id()               const  = 0;
+
+        // Introspection for structural-only post-processing/reconstruction.
+        // This stays out of the FiniteElement concept and therefore out of
+        // the solver hot path.
+        virtual const std::type_info& concrete_type() const noexcept = 0;
+        virtual const void* raw_ptr() const noexcept = 0;
+        virtual void* raw_ptr() noexcept = 0;
     };
 
     // ── Inner model (type-specific bridge) ────────────────────────
@@ -80,6 +88,10 @@ class StructuralElement {
         std::size_t num_nodes()              const  override { return element_.num_nodes(); }
         std::size_t num_integration_points() const  override { return element_.num_integration_points(); }
         PetscInt    sieve_id()               const  override { return element_.sieve_id(); }
+
+        const std::type_info& concrete_type() const noexcept override { return typeid(T); }
+        const void* raw_ptr() const noexcept override { return &element_; }
+        void* raw_ptr() noexcept override { return &element_; }
     };
 
     // ── Pimpl ─────────────────────────────────────────────────────
@@ -122,6 +134,20 @@ public:
     auto num_nodes()              const -> std::size_t { return pimpl_->num_nodes(); }
     auto num_integration_points() const -> std::size_t { return pimpl_->num_integration_points(); }
     auto sieve_id()               const -> PetscInt    { return pimpl_->sieve_id(); }
+
+    const std::type_info& concrete_type() const noexcept { return pimpl_->concrete_type(); }
+
+    template <typename T>
+    [[nodiscard]] const T* as() const noexcept {
+        if (pimpl_->concrete_type() != typeid(T)) return nullptr;
+        return static_cast<const T*>(pimpl_->raw_ptr());
+    }
+
+    template <typename T>
+    [[nodiscard]] T* as() noexcept {
+        if (pimpl_->concrete_type() != typeid(T)) return nullptr;
+        return static_cast<T*>(pimpl_->raw_ptr());
+    }
 };
 
 
