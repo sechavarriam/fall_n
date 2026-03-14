@@ -15,10 +15,13 @@
 #include "plasticity/VonMises.hh"
 #include "plasticity/IsotropicHardening.hh"
 #include "plasticity/AssociatedFlow.hh"
+#include "plasticity/YieldFunction.hh"
+#include "plasticity/ConsistencyFunction.hh"
+#include "plasticity/ReturnAlgorithm.hh"
 
 
 // =============================================================================
-//  PlasticityRelation<Policy, YieldF, Hardening, Flow>
+//  PlasticityRelation<Policy, YieldF, Hardening, Flow, YieldFn, ReturnAlg>
 // =============================================================================
 //
 //  Generic rate-independent plasticity model composed from four orthogonal
@@ -28,6 +31,11 @@
 //    YieldF     — Yield criterion (VonMises, DruckerPrager, ...)
 //    Hardening  — Hardening law (LinearIsotropicHardening, Voce, ...)
 //    Flow       — Flow rule (AssociatedFlow, NonAssociatedFlow<G>, ...)
+//    YieldFn    — Scalar yield-function evaluator
+//    ConsistencyResidual / ConsistencyJacobian — local nonlinear equation and
+//                 its derivative (through ReturnAlgorithm when needed)
+//    ReturnAlg  — Local return / integration algorithm (default:
+//                 StandardRadialReturnAlgorithm)
 //
 //  ─── Composability ──────────────────────────────────────────────────────
 //
@@ -39,6 +47,8 @@
 //    PlasticityRelation<3D, VonMises,      LinearIsoHard,   AssociatedFlow>
 //    PlasticityRelation<3D, DruckerPrager, VoceHardening,   NonAssociated<DP>>
 //    PlasticityRelation<3D, VonMises,      ArmstrongFreder, AssociatedFlow>
+//    PlasticityRelation<3D, VonMises,      LinearIsoHard,   AssociatedFlow,
+//                      StandardYieldFunction, StandardRadialReturnAlgorithm>
 //
 //  ─── Backward compatibility ─────────────────────────────────────────────
 //
@@ -92,11 +102,17 @@ template <
     class    MaterialPolicy,
     typename YieldF,
     typename Hardening,
-    typename Flow = AssociatedFlow
+    typename Flow = AssociatedFlow,
+    typename YieldFn = StandardYieldFunction,
+    typename ReturnAlg = StandardRadialReturnAlgorithm
 >
     requires YieldCriterion<YieldF, MaterialPolicy::StrainT::num_components>
           && HardeningLaw<Hardening>
           && FlowRule<Flow, MaterialPolicy::StrainT::num_components, YieldF>
+          && YieldFunctionPolicy<YieldFn,
+                                 MaterialPolicy::StrainT::num_components,
+                                 YieldF,
+                                 Hardening>
 class PlasticityRelation {
 
     static_assert(MaterialPolicy::StrainT::num_components == 6 ||
@@ -122,6 +138,18 @@ public:
     static constexpr std::size_t N   = KinematicT::num_components;
     static constexpr std::size_t dim = KinematicT::dim;
 
+    using TrialStateT = TrialState<N>;
+    using StrainVectorT = Eigen::Vector<double, N>;
+
+    struct ReturnMapResult {
+        StrainVectorT           stress = StrainVectorT::Zero();
+        TangentT                tangent = TangentT::Zero();
+        InternalVariablesT      alpha_new{};
+        bool                    plastic{false};
+    };
+
+    using ReturnMapResultT = ReturnMapResult;
+
 private:
     // ─── Elastic parameters ──────────────────────────────────────────────
     double E_{0.0};
@@ -137,6 +165,8 @@ private:
     [[no_unique_address]] YieldF    yield_{};
                           Hardening hardening_{};
     [[no_unique_address]] Flow      flow_{};
+    [[no_unique_address]] YieldFn   yield_function_{};
+    [[no_unique_address]] ReturnAlg return_algorithm_{};
 
     // ─── Internal state (owned per-instance) ─────────────────────────────
     InternalVariablesT alpha_{};
@@ -145,8 +175,7 @@ private:
     mutable ConjugateT              last_stress_{};
     mutable TangentT                last_tangent_{};
     mutable bool                    cache_valid_{false};
-    mutable Eigen::Vector<double,N> last_strain_cache_{
-                                        Eigen::Vector<double,N>::Zero()};
+    mutable StrainVectorT           last_strain_cache_{StrainVectorT::Zero()};
 
 
     // =====================================================================
@@ -190,6 +219,28 @@ private:
 
     void build_elastic_tangent() {
         Ce_ = 2.0 * G_ * I_sym() + lambda_ * I_otimes_I();
+    }
+
+    [[nodiscard]] static Eigen::Vector<double, N> kinematic_components(
+        const KinematicT& strain)
+    {
+        if constexpr (N == 1) {
+            Eigen::Vector<double, 1> out;
+            out[0] = strain.components();
+            return out;
+        } else {
+            return strain.components();
+        }
+    }
+
+    static void assign_conjugate(ConjugateT& stress,
+                                 const Eigen::Vector<double, N>& components)
+    {
+        if constexpr (N == 1) {
+            stress.set_components(components[0]);
+        } else {
+            stress.set_components(components);
+        }
     }
 
 
@@ -244,17 +295,45 @@ private:
     //  Elastic predictor → TrialState
     // =====================================================================
 
-    [[nodiscard]] TrialState<N> elastic_predictor(
-        const Eigen::Vector<double, N>& total_strain,
+public:
+
+    [[nodiscard]] TrialStateT elastic_predictor(
+        const StrainVectorT& total_strain,
         const InternalVariablesT& alpha) const
     {
-        TrialState<N> trial;
-        Eigen::Vector<double, N> elastic_strain =
+        TrialStateT trial;
+        StrainVectorT elastic_strain =
             total_strain - alpha.plastic_strain;
         trial.stress          = Ce_ * elastic_strain;
         trial.deviatoric      = deviatoric(trial.stress);
         trial.deviatoric_norm = voigt_deviatoric_norm(trial.deviatoric);
         trial.hydrostatic     = hydrostatic(trial.stress);
+        return trial;
+    }
+
+    // =====================================================================
+    //  Stress vector → TrialState
+    // =====================================================================
+    //
+    //  Rebuild the minimal trial-state bundle from a stress vector alone.
+    //  This is used by consistency-residual policies that want to evaluate the
+    //  yield function on a corrected stress/state pair without duplicating the
+    //  constitutive geometry that already lives in the relation.
+    //
+    //  The result is the "raw" trial state before any optional backstress
+    //  shift.  The caller can still pass it through effective_trial(...)
+    //  together with the corresponding algorithmic state.
+    //
+    // =====================================================================
+
+    [[nodiscard]] TrialStateT trial_state_from_stress(
+        const StrainVectorT& stress) const
+    {
+        TrialStateT trial;
+        trial.stress = stress;
+        trial.deviatoric = deviatoric(stress);
+        trial.deviatoric_norm = voigt_deviatoric_norm(trial.deviatoric);
+        trial.hydrostatic = hydrostatic(stress);
         return trial;
     }
 
@@ -270,12 +349,12 @@ private:
     //  evaluation and flow direction computation.  This enables the
     //  Bauschinger effect without modifying the YieldCriterion.
 
-    [[nodiscard]] TrialState<N> effective_trial(
-        const TrialState<N>& trial,
+    [[nodiscard]] TrialStateT effective_trial(
+        const TrialStateT& trial,
         const InternalVariablesT& alpha) const
     {
         if constexpr (HasBackstress<HardeningStateT>) {
-            TrialState<N> eff = trial;
+            TrialStateT eff = trial;
             eff.deviatoric -= alpha.hardening_state.backstress;
             eff.deviatoric_norm = voigt_deviatoric_norm(eff.deviatoric);
             return eff;
@@ -284,104 +363,102 @@ private:
         }
     }
 
+public:
 
     // =====================================================================
-    //  Return-mapping result
+    //  Algorithm-support kernel
+    // =====================================================================
+    //
+    //  These methods expose the minimum constitutive kernel required by a local
+    //  return algorithm.  They intentionally keep the physics in the relation
+    //  while allowing the nonlinear solve / correction strategy to live in an
+    //  independent compile-time policy.
+    //
     // =====================================================================
 
-    struct ReturnMapResult {
-        Eigen::Vector<double, N> stress;
-        TangentT                 tangent;
-        InternalVariablesT       alpha_new;
-        bool                     plastic;
-    };
-
-
-    // =====================================================================
-    //  Core: backward-Euler return-mapping algorithm
-    // =====================================================================
-
-    [[nodiscard]] ReturnMapResult return_mapping(
-        const Eigen::Vector<double, N>& total_strain,
+    [[nodiscard]] double evaluate_yield_function(
+        const TrialStateT& trial,
         const InternalVariablesT& alpha) const
     {
-        ReturnMapResult res;
-
-        // 1. Elastic predictor
-        TrialState<N> trial = elastic_predictor(total_strain, alpha);
-
-        // 2. Effective trial (accounts for backstress if kinematic hardening)
-        TrialState<N> eff = effective_trial(trial, alpha);
-
-        // 3. Yield function:  f = q(s_eff) − σ_y(α)
-        double q       = yield_.equivalent_stress(eff);
-        double sigma_y = hardening_.yield_stress(alpha.hardening_state);
-        double f_trial = q - sigma_y;
-
-        if (f_trial <= 0.0) {
-            // ── Elastic step ─────────────────────────────────────────
-            res.stress    = trial.stress;
-            res.tangent   = Ce_;
-            res.alpha_new = alpha;  // no change
-            res.plastic   = false;
-            return res;
-        }
-
-        // ── Plastic correction ───────────────────────────────────────
-        //
-        //  Convention (Simo norm-space):
-        //    flow direction  n̂ = s / ‖s‖
-        //    plastic strain  Δε^p = Δγ · n̂
-        //    equiv.pl.strain Δε̄ᵖ = √(2/3) · Δγ
-        //
-        //  Consistency condition  q_{n+1} = σ_y(ε̄ᵖ_{n+1})   gives:
-        //    √(3/2)·(r − 2G·Δγ) = σ_y + H·√(2/3)·Δγ
-        //    ⟹  Δγ = f / [√(2/3)·(3G + H)]
-        //
-
-        // Consistency parameter
-        double H_mod      = hardening_.modulus(alpha_.hardening_state);
-        double denom_gamma = std::sqrt(2.0 / 3.0) * (3.0 * G_ + H_mod);
-        double delta_gamma = f_trial / denom_gamma;
-
-        // Flow direction (via flow rule → yield gradient for associated)
-        Eigen::Vector<double, N> n_hat = flow_.direction(yield_, eff);
-
-        // Corrected stress:  σ = σ_trial − 2G · Δγ · n̂
-        res.stress = trial.stress - (2.0 * G_ * delta_gamma) * n_hat;
-
-        // Updated internal variables
-        res.alpha_new.plastic_strain  = alpha.plastic_strain
-                                      + delta_gamma * n_hat;
-        res.alpha_new.hardening_state = hardening_.evolve(
-                                            alpha.hardening_state,
-                                            delta_gamma);
-        res.plastic = true;
-
-        // ── Algorithmic consistent tangent ────────────────────────────
-        //
-        //  C_ep = C_e
-        //       − 4G² · (Δγ/r) · P_dev
-        //       + 4G² · (Δγ/r − 3/(2(3G+H))) · (n̂ ⊗ n̂)
-        //
-        //  The n̂⊗n̂ coefficient derives from ∂Δγ/∂r = (3/2)/(3G+H),
-        //  which differs from 1/denom_gamma.  Equivalently:
-        //    coeff = Δγ/r − 1/(2G + 2H/3)
-        //
-        double two_G        = 2.0 * G_;
-        double s_norm       = eff.deviatoric_norm;
-        double ratio        = (s_norm > 1e-30) ? (delta_gamma / s_norm) : 0.0;
-        double factor_Pdev  = two_G * two_G * ratio;
-        double denom_tangent = 2.0 * G_ + (2.0 / 3.0) * H_mod;
-        double factor_nn    = two_G * two_G * (ratio - 1.0 / denom_tangent);
-
-        TangentT nn = n_hat * n_hat.transpose();
-
-        res.tangent = Ce_ - factor_Pdev * P_dev() + factor_nn * nn;
-
-        return res;
+        return yield_function_.value(yield_, trial, hardening_, alpha.hardening_state);
     }
 
+    [[nodiscard]] double hardening_modulus(
+        const InternalVariablesT& alpha) const noexcept
+    {
+        return hardening_.modulus(alpha.hardening_state);
+    }
+
+    [[nodiscard]] StrainVectorT flow_direction(const TrialStateT& trial) const {
+        return flow_.direction(yield_, trial);
+    }
+
+    [[nodiscard]] double consistency_increment(
+        double yield_overstress,
+        double hardening_modulus) const noexcept
+    {
+        const double denom_gamma =
+            std::sqrt(2.0 / 3.0) * (3.0 * G_ + hardening_modulus);
+        return yield_overstress / denom_gamma;
+    }
+
+    [[nodiscard]] StrainVectorT corrected_stress(
+        const TrialStateT& trial,
+        double delta_gamma,
+        const StrainVectorT& flow_direction) const
+    {
+        return trial.stress - (2.0 * G_ * delta_gamma) * flow_direction;
+    }
+
+    [[nodiscard]] InternalVariablesT evolve_internal_variables(
+        const InternalVariablesT& alpha,
+        double delta_gamma,
+        const StrainVectorT& flow_direction) const
+    {
+        InternalVariablesT alpha_new = alpha;
+        alpha_new.plastic_strain = alpha.plastic_strain + delta_gamma * flow_direction;
+        alpha_new.hardening_state =
+            hardening_.evolve(alpha.hardening_state, delta_gamma);
+        return alpha_new;
+    }
+
+    [[nodiscard]] TangentT consistent_tangent(
+        const TrialStateT& effective_trial_state,
+        double delta_gamma,
+        double hardening_modulus,
+        const StrainVectorT& flow_direction) const
+    {
+        const double two_G = 2.0 * G_;
+        const double s_norm = effective_trial_state.deviatoric_norm;
+        const double ratio = (s_norm > 1e-30) ? (delta_gamma / s_norm) : 0.0;
+        const double factor_Pdev = two_G * two_G * ratio;
+        const double denom_tangent = 2.0 * G_ + (2.0 / 3.0) * hardening_modulus;
+        const double factor_nn = two_G * two_G * (ratio - 1.0 / denom_tangent);
+
+        TangentT nn = flow_direction * flow_direction.transpose();
+        return Ce_ - factor_Pdev * P_dev() + factor_nn * nn;
+    }
+
+    [[nodiscard]] ReturnMapResultT make_elastic_result(
+        const TrialStateT& trial,
+        const InternalVariablesT& alpha) const
+    {
+        ReturnMapResultT out{};
+        out.stress = trial.stress;
+        out.tangent = Ce_;
+        out.alpha_new = alpha;
+        out.plastic = false;
+        return out;
+    }
+
+private:
+
+    [[nodiscard]] ReturnMapResultT integrate_local_response(
+        const StrainVectorT& total_strain,
+        const InternalVariablesT& alpha) const
+    {
+        return return_algorithm_.integrate(*this, total_strain, alpha);
+    }
 
 public:
 
@@ -394,7 +471,7 @@ public:
         const InternalVariablesT& alpha) const
     {
         ConjugateT stress;
-        stress.set_components(return_mapping(strain.components(), alpha).stress);
+        assign_conjugate(stress, integrate_local_response(kinematic_components(strain), alpha).stress);
         return stress;
     }
 
@@ -402,35 +479,37 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& alpha) const
     {
-        return return_mapping(strain.components(), alpha).tangent;
+        return integrate_local_response(kinematic_components(strain), alpha).tangent;
     }
 
     void commit(InternalVariablesT& alpha, const KinematicT& strain) const {
-        alpha = return_mapping(strain.components(), alpha).alpha_new;
+        alpha = integrate_local_response(kinematic_components(strain), alpha).alpha_new;
     }
 
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
-        auto result = return_mapping(strain.components(), alpha_);
+        const auto strain_vec = kinematic_components(strain);
+        auto result = integrate_local_response(strain_vec, alpha_);
 
         // Cache for subsequent tangent(k) call
         last_stress_ = ConjugateT{};
-        last_stress_.set_components(result.stress);
+        assign_conjugate(last_stress_, result.stress);
         last_tangent_      = result.tangent;
-        last_strain_cache_ = strain.components();
+        last_strain_cache_ = strain_vec;
         cache_valid_       = true;
 
         return last_stress_;
     }
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
+        const auto strain_vec = kinematic_components(strain);
         if (cache_valid_ &&
-            strain.components().isApprox(last_strain_cache_, 1e-15))
+            strain_vec.isApprox(last_strain_cache_, 1e-15))
         {
             return last_tangent_;
         }
-        auto result = return_mapping(strain.components(), alpha_);
+        auto result = integrate_local_response(strain_vec, alpha_);
         last_tangent_      = result.tangent;
-        last_strain_cache_ = strain.components();
+        last_strain_cache_ = strain_vec;
         cache_valid_       = true;
         return last_tangent_;
     }
@@ -456,6 +535,8 @@ public:
     [[nodiscard]] const YieldF&    yield_criterion()  const noexcept { return yield_; }
     [[nodiscard]] const Hardening& hardening_law()    const noexcept { return hardening_; }
     [[nodiscard]] const Flow&      flow_rule()        const noexcept { return flow_; }
+    [[nodiscard]] const YieldFn&   yield_function()   const noexcept { return yield_function_; }
+    [[nodiscard]] const ReturnAlg& return_algorithm() const noexcept { return return_algorithm_; }
 
 
     // =====================================================================
@@ -497,14 +578,18 @@ public:
         double E, double nu,
         Hardening hardening,
         YieldF yield = YieldF{},
-        Flow   flow  = Flow{})
+        Flow   flow  = Flow{},
+        YieldFn yield_function = YieldFn{},
+        ReturnAlg return_algorithm = ReturnAlg{})
         : E_{E}, nu_{nu},
           G_{E / (2.0 * (1.0 + nu))},
           K_bulk_{E / (3.0 * (1.0 - 2.0 * nu))},
           lambda_{nu * E / ((1.0 + nu) * (1.0 - 2.0 * nu))},
           yield_{std::move(yield)},
           hardening_{std::move(hardening)},
-          flow_{std::move(flow)}
+          flow_{std::move(flow)},
+          yield_function_{std::move(yield_function)},
+          return_algorithm_{std::move(return_algorithm)}
     {
         build_elastic_tangent();
     }
@@ -560,6 +645,10 @@ static_assert(
 // Full PlasticityRelation concept conformance
 using J2_3D_Check_ = PlasticityRelation<
     ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
+
+static_assert(
+    ReturnAlgorithmPolicy<StandardRadialReturnAlgorithm, J2_3D_Check_>,
+    "StandardRadialReturnAlgorithm must satisfy ReturnAlgorithmPolicy for J2");
 
 static_assert(
     ConstitutiveRelation<J2_3D_Check_>,

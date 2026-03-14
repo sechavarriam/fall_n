@@ -1,0 +1,237 @@
+\chapter{Continuum Module Cleanup and the Finite-Strain Constitutive Interface}
+\label{ch:continuum-constitutive-interface}
+
+\section{Motivation}
+
+The continuum module already contained the essential tensor infrastructure for
+large displacements and finite strains:
+\begin{itemize}
+  \item deformation and stress tensors in \texttt{Tensor2}, \texttt{SymmetricTensor2},
+        and \texttt{Tensor4};
+  \item kinematic formulations in \texttt{SmallStrain},
+        \texttt{TotalLagrangian}, and \texttt{UpdatedLagrangian};
+  \item hyperelastic models written directly in tensor form.
+\end{itemize}
+
+However, at the \texttt{ContinuumElement} /\texttt{Material<>} boundary, the
+contract was still essentially
+\[
+  \texttt{engineering Voigt strain} \;\longrightarrow\; \texttt{stress/tangent}.
+\]
+This was acceptable for infinitesimal strain and also acceptable as an adapter
+for Green--Lagrange hyperelasticity, but semantically it was still too narrow:
+the constitutive side could not explicitly see the deformation gradient
+$\mathbf{F}$, the active stress measure, or the distinction between
+infinitesimal and Green--Lagrange strain.
+
+That is the exact point where future finite-strain plasticity, large
+displacement RC continuum models, and eventually crack/fracture models will
+need a cleaner interface.
+
+\section{Problem Statement}
+
+Before this refactor, the continuum path looked like:
+\[
+  \texttt{KinematicPolicy::evaluate()}
+  \;\Rightarrow\;
+  \texttt{gp.strain\_voigt}
+  \;\Rightarrow\;
+  \texttt{StateVariableT}
+  \;\Rightarrow\;
+  \texttt{MaterialPoint::compute\_response(StateVariableT)}.
+\]
+
+This had three architectural drawbacks:
+\begin{enumerate}
+  \item The element knew only a flat constitutive input, not the richer
+        continuum kinematics from which it came.
+  \item Finite-strain relations were forced to masquerade as small-strain
+        \texttt{Strain<N>} relations even when the real primitive was
+        $\mathbf{F}$ or $\mathbf{E}$.
+  \item The interface did not clearly document which work-conjugate pair was
+        active for each formulation.
+\end{enumerate}
+
+\section{New Carrier: \texttt{ConstitutiveKinematics}}
+
+To fix that semantic compression, the continuum module now provides
+\texttt{ConstitutiveKinematics<dim>}. It is a continuum-only carrier that
+contains:
+\begin{itemize}
+  \item the active engineering strain vector used by the current formulation;
+  \item the infinitesimal strain tensor;
+  \item the Green--Lagrange strain tensor;
+  \item the deformation gradient $\mathbf{F}$;
+  \item $\det \mathbf{F}$;
+  \item explicit measure tags:
+        \texttt{StrainMeasureKind} and \texttt{StressMeasureKind}.
+\end{itemize}
+
+This carrier is not a replacement for \texttt{Strain<N>}. It is the
+continuum-side bridge that preserves the old interface as a fallback while
+opening a better path for finite kinematics.
+
+\section{Mapping from Kinematic Policies}
+
+The helper
+\[
+  \texttt{make\_constitutive\_kinematics<KinematicPolicy>(gp)}
+\]
+maps the Gauss-point bundle returned by \texttt{KinematicPolicy::evaluate()}
+into the richer constitutive carrier.
+
+\subsection*{Small strain}
+
+For \texttt{SmallStrain}, the carrier is interpreted as:
+\begin{align}
+  \boldsymbol{\varepsilon} &= \nabla^s \mathbf{u}, \\
+  \mathbf{F} &= \mathbf{I}, \\
+  \det \mathbf{F} &= 1,
+\end{align}
+with active measure
+\[
+  (\text{infinitesimal strain},\; \text{Cauchy stress}).
+\]
+
+\subsection*{Total Lagrangian}
+
+For \texttt{TotalLagrangian}, the carrier is interpreted as:
+\begin{align}
+  \mathbf{F} &= \mathbf{I} + \nabla_0 \mathbf{u}, \\
+  \mathbf{E} &= \frac{1}{2}(\mathbf{F}^T\mathbf{F} - \mathbf{I}),
+\end{align}
+with active measure
+\[
+  (\text{Green--Lagrange strain},\; \text{2nd Piola--Kirchhoff stress}).
+\]
+
+\subsection*{Updated Lagrangian}
+
+For \texttt{UpdatedLagrangian}, the constitutive carrier is now interpreted as:
+\begin{align}
+  \mathbf{e} &= \frac{1}{2}\left(\mathbf{I} - \mathbf{b}^{-1}\right), \\
+  \mathbf{b} &= \mathbf{F}\mathbf{F}^T,
+\end{align}
+with active measure
+\[
+  (\text{Almansi strain},\; \text{Cauchy stress}).
+\]
+
+This is the spatial counterpart of the total-Lagrangian pair
+$(\mathbf{E},\mathbf{S})$ and it is the natural route for current-configuration
+constitutive laws.
+
+\section{Optional Direct Continuum Interface}
+
+The constitutive side now has an optional refinement:
+\begin{quote}
+\texttt{ContinuumKinematicsAwareConstitutiveRelation}
+\end{quote}
+
+If a constitutive relation implements
+\begin{align}
+  \texttt{compute\_response(ConstitutiveKinematics<dim>)} \\
+  \texttt{tangent(ConstitutiveKinematics<dim>)}
+\end{align}
+then the erased \texttt{Material<>} handle will forward the richer carrier
+directly. Otherwise it falls back to the legacy conversion
+\[
+  \texttt{ConstitutiveKinematics} \;\to\; \texttt{StateVariableT}.
+\]
+
+This keeps the existing code working while making the finite-strain interface
+available immediately.
+
+\section{Hyperelastic Relations}
+
+\texttt{HyperelasticRelation<Model>} now implements the direct continuum
+carrier overload. Internally it consumes the Green--Lagrange strain tensor
+stored in the carrier:
+\[
+  \mathbf{S} = \frac{\partial W}{\partial \mathbf{E}}, \qquad
+  \mathbb{C} = \frac{\partial^2 W}{\partial \mathbf{E}^2}.
+\]
+
+This change is architecturally important because it removes the need for a
+finite-strain law to pretend that its natural interface is only a Voigt vector.
+The old \texttt{Strain<N>} adapter is preserved, but it is no longer the only
+semantic entry point.
+
+\section{Changes in \texttt{ContinuumElement}}
+
+\texttt{ContinuumElement} now evaluates kinematics as before, but it no longer
+immediately collapses them into a flat constitutive input. The local assembly
+loop now does:
+\begin{enumerate}
+  \item evaluate the Gauss-point kinematics through the selected
+        \texttt{KinematicPolicy};
+  \item build a \texttt{ConstitutiveKinematics<dim>} carrier;
+  \item ask the type-erased material point for stress and tangent through that
+        carrier;
+  \item fall back automatically to \texttt{StateVariableT} if the constitutive
+        law does not provide a richer overload.
+\end{enumerate}
+
+This is the correct direction for large-displacement and finite-strain
+continuum modelling because the element is no longer hardwired to the idea that
+``constitutive input = one Voigt vector''.
+
+\section{Compile-Time and Performance Considerations}
+
+The refactor was designed so that:
+\begin{itemize}
+  \item the hot path inside a concrete constitutive law remains statically
+        dispatched;
+  \item the erased boundary still pays the same category of cost as before
+        (virtual call through \texttt{Material<>});
+  \item legacy integrators that only know \texttt{KinematicT} remain valid;
+  \item direct continuum overloads are purely additive.
+\end{itemize}
+
+In other words, the new interface broadens the semantic contract without
+forcing a runtime penalty inside the concrete law implementation.
+
+\section{Limitations After This Step}
+
+This cleanup does \emph{not} mean the full finite-strain continuum stack is
+finished.
+
+The main remaining limitations are:
+\begin{itemize}
+  \item the spatial route is now explicit for continuum hyperelastic laws, but
+        finite-strain inelastic spatial laws still need their own local-state
+        and return-algorithm infrastructure;
+  \item there is not yet an explicit continuum-specific
+        \texttt{ConstitutiveState} split for finite-strain plasticity or damage;
+  \item finite-strain internal-variable evolution still needs a more general
+        residual/Jacobian-based local integration contract beyond the current
+        small-strain J2-oriented path.
+\end{itemize}
+
+\section{Tests Added}
+
+The new test suite verifies:
+\begin{itemize}
+  \item correct construction of \texttt{ConstitutiveKinematics} from
+        \texttt{SmallStrain} and \texttt{TotalLagrangian};
+  \item direct continuum-carrier consistency for
+        \texttt{SVKRelation<3>} and \texttt{NeoHookeanRelation<3>};
+  \item correct propagation of the new interface through the erased
+        \texttt{Material<ThreeDimensionalMaterial>} handle.
+\end{itemize}
+
+\section{Architectural Outcome}
+
+This step completes an important semantic cleanup of the continuum module:
+\begin{quote}
+kinematics, constitutive driving variables, and constitutive law entry points
+are no longer implicitly collapsed into the same object.
+\end{quote}
+
+That is a necessary precondition for the next stages:
+\begin{itemize}
+  \item finite-strain plasticity with explicit internal state;
+  \item large-displacement RC continuum models;
+  \item damage/plasticity couplings;
+  \item crack-band or other regularised fracture models for continuum RC.
+\end{itemize}

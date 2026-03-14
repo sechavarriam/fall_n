@@ -162,6 +162,7 @@ struct SmallStrain {
 
     static constexpr bool is_geometrically_linear    = true;
     static constexpr bool needs_geometric_stiffness  = false;
+    static constexpr bool needs_current_volume_factor = false;
 
     // ── Gradient-based B matrix (testable without ElementGeometry) ───────────
     //
@@ -307,6 +308,7 @@ struct TotalLagrangian {
 
     static constexpr bool is_geometrically_linear    = false;
     static constexpr bool needs_geometric_stiffness  = true;
+    static constexpr bool needs_current_volume_factor = false;
 
     // ── Deformation gradient from gradient data (testable) ──────────────────
     //
@@ -575,6 +577,7 @@ static_assert(KinematicPolicyConcept<TotalLagrangian>);
 struct UpdatedLagrangian {
     static constexpr bool is_geometrically_linear    = false;
     static constexpr bool needs_geometric_stiffness  = true;
+    static constexpr bool needs_current_volume_factor = true;
 
     // ── Spatial gradients: ∂N_I/∂x_j = (∂N_I/∂X) · F⁻¹ ────────────────────
     //
@@ -716,7 +719,14 @@ struct UpdatedLagrangian {
         std::size_t ndof,
         const Eigen::VectorXd& u_e)
     {
-        return TotalLagrangian::evaluate_from_gradients<dim>(grad, ndof, u_e);
+        GPKinematics<dim> gp;
+        gp.F = TotalLagrangian::compute_F_from_gradients<dim>(grad, u_e);
+        gp.detF = gp.F.determinant();
+        auto e = strain::almansi(gp.F);
+        auto grad_x = compute_spatial_gradients<dim>(grad, gp.F);
+        gp.strain_voigt = e.voigt_engineering();
+        gp.B = compute_spatial_B_from_gradients<dim>(grad_x, ndof);
+        return gp;
     }
 
     // ── Evaluate kinematics at a Gauss point (ElementGeometry variant) ──────
@@ -728,7 +738,8 @@ struct UpdatedLagrangian {
         const std::array<double, dim>& Xi,
         const Eigen::VectorXd& u_e)
     {
-        return TotalLagrangian::evaluate<dim>(geo, num_nodes, ndof, Xi, u_e);
+        auto grad_X = detail::physical_gradients<dim>(geo, num_nodes, Xi);
+        return evaluate_from_gradients<dim>(grad_X, ndof, u_e);
     }
 };
 
@@ -750,6 +761,7 @@ static_assert(KinematicPolicyConcept<UpdatedLagrangian>);
 struct Corotational {
     static constexpr bool is_geometrically_linear    = false;
     static constexpr bool needs_geometric_stiffness  = true;
+    static constexpr bool needs_current_volume_factor = false;
 
     // TODO: Phase 7+ — implement evaluate(), extract_rotation(), etc.
 };

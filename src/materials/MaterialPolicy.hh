@@ -37,6 +37,8 @@ public:
     using StateVariableT = StrainT;
 
     static constexpr std::size_t dim = StrainT::dim;
+    static constexpr bool is_continuum_space = true;
+    static constexpr bool is_structural_space = false;
 
 private:
     constexpr SolidMaterial()  = default;
@@ -80,6 +82,8 @@ public:
     using StateVariableT = StrainT;
 
     static constexpr std::size_t dim = Dim;
+    static constexpr bool is_continuum_space = false;
+    static constexpr bool is_structural_space = true;
 
 private:
     constexpr BeamMaterial()  = default;
@@ -127,6 +131,8 @@ public:
     using StateVariableT = StrainT;
 
     static constexpr std::size_t dim = Dim;
+    static constexpr bool is_continuum_space = false;
+    static constexpr bool is_structural_space = true;
 
 private:
     constexpr ShellMaterial()  = default;

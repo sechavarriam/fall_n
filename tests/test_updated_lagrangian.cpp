@@ -26,6 +26,7 @@
 //   15–16. Spatial patch test (2D, 3D)
 //   17.    Push-forward/pull-back round-trip
 //   18.    Almansi ↔ Green-Lagrange consistency
+//   19.    UpdatedLagrangian::evaluate returns Almansi + spatial B
 //
 // =============================================================================
 
@@ -664,6 +665,27 @@ void test_almansi_green_lagrange() {
     report("almansi_GL_push_forward", err < 1e-13);
 }
 
+void test_updated_lagrangian_evaluate_spatial_carrier() {
+    auto grad = grad_cst_2d();
+    Eigen::VectorXd u(6);
+    u << 0.08, -0.02,
+         0.04,  0.01,
+        -0.01,  0.06;
+
+    auto kin = UpdatedLagrangian::evaluate_from_gradients<2>(grad, 2, u);
+    auto F = TotalLagrangian::compute_F_from_gradients<2>(grad, u);
+    auto e = strain::almansi(F);
+    auto grad_x = UpdatedLagrangian::compute_spatial_gradients<2>(grad, F);
+    auto b = UpdatedLagrangian::compute_spatial_B_from_gradients<2>(grad_x, 2);
+
+    double strain_err =
+        (kin.strain_voigt - e.voigt_engineering()).cwiseAbs().maxCoeff();
+    double b_err = (kin.B - b).cwiseAbs().maxCoeff();
+
+    report("updated_lagrangian_eval_almansi", strain_err < 1e-13);
+    report("updated_lagrangian_eval_spatial_B", b_err < 1e-13);
+}
+
 
 // =============================================================================
 //  Extra: UL ≡ TL at zero displacement (both give zero)
@@ -742,6 +764,8 @@ int main() {
 
     std::cout << "\n── Almansi ↔ Green-Lagrange ──\n";
     test_almansi_green_lagrange();
+    std::cout << "\n── Updated Lagrangian evaluate() spatial path ──\n";
+    test_updated_lagrangian_evaluate_spatial_carrier();
 
     std::cout << "\n── UL ≡ TL at zero ──\n";
     test_UL_TL_at_zero();

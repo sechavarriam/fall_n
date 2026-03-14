@@ -24,6 +24,7 @@
 // ============================================================================
 
 #include "../numerics/Tensor.hh"
+#include "../continuum/ConstitutiveKinematics.hh"
 #include "ConstitutiveIntegrator.hh"
 #include "InternalFieldSnapshot.hh"
 #include "MaterialPolicy.hh"
@@ -53,7 +54,11 @@ public:
    virtual MatrixT C() const = 0;
    virtual const StateVariableT& current_state() const = 0;
    virtual StressT compute_response(const StateVariableT& k) const = 0;
+   virtual StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const = 0;
    virtual MatrixT tangent(const StateVariableT& k) const = 0;
+    virtual MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const = 0;
    virtual InternalFieldSnapshot internal_field_snapshot() const { return {}; }
    virtual SectionConstitutiveSnapshot section_snapshot() const { return {}; }
 };
@@ -67,6 +72,8 @@ public:
    virtual void update_state(const StateVariableT& state) = 0;
    virtual void update_state(StateVariableT&& state) = 0;
    virtual void commit(const StateVariableT& k) = 0;
+   virtual void commit(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) = 0;
 };
 
 template <typename MaterialType>
@@ -199,12 +206,51 @@ public:
       return integrator_.compute_response(material_, k);
    }
 
+   StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_.compute_response(material_, kin);
+      }) {
+         return integrator_.compute_response(material_, kin);
+      } else {
+         return integrator_.compute_response(
+            material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
+   }
+
    MatrixT tangent(const StateVariableT& k) const override {
       return integrator_.tangent(material_, k);
    }
 
+   MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_.tangent(material_, kin);
+      }) {
+         return integrator_.tangent(material_, kin);
+      } else {
+         return integrator_.tangent(
+            material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
+   }
+
    void commit(const StateVariableT& k) override {
       integrator_.commit(material_, k);
+   }
+
+   void commit(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) override {
+      if constexpr (requires {
+         integrator_.commit(material_, kin);
+      }) {
+         integrator_.commit(material_, kin);
+      } else {
+         integrator_.commit(
+            material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -265,8 +311,34 @@ public:
       return integrator_->compute_response(*material_, k);
    }
 
+   StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_->compute_response(*material_, kin);
+      }) {
+         return integrator_->compute_response(*material_, kin);
+      } else {
+         return integrator_->compute_response(
+            *material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
+   }
+
    MatrixT tangent(const StateVariableT& k) const override {
       return integrator_->tangent(*material_, k);
+   }
+
+   MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_->tangent(*material_, kin);
+      }) {
+         return integrator_->tangent(*material_, kin);
+      } else {
+         return integrator_->tangent(
+            *material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -326,12 +398,51 @@ public:
       return integrator_->compute_response(*material_, k);
    }
 
+   StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_->compute_response(*material_, kin);
+      }) {
+         return integrator_->compute_response(*material_, kin);
+      } else {
+         return integrator_->compute_response(
+            *material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
+   }
+
    MatrixT tangent(const StateVariableT& k) const override {
       return integrator_->tangent(*material_, k);
    }
 
+   MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      if constexpr (requires {
+         integrator_->tangent(*material_, kin);
+      }) {
+         return integrator_->tangent(*material_, kin);
+      } else {
+         return integrator_->tangent(
+            *material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
+   }
+
    void commit(const StateVariableT& k) override {
       integrator_->commit(*material_, k);
+   }
+
+   void commit(
+      const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) override {
+      if constexpr (requires {
+         integrator_->commit(*material_, kin);
+      }) {
+         integrator_->commit(*material_, kin);
+      } else {
+         integrator_->commit(
+            *material_,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+      }
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -407,7 +518,15 @@ public:
    [[nodiscard]] MatrixT C() const { return pimpl()->C(); }
    [[nodiscard]] const StateVariableT& current_state() const { return pimpl()->current_state(); }
    [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl()->compute_response(k); }
+   [[nodiscard]] StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl()->compute_response(kin);
+   }
    [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl()->tangent(k); }
+   [[nodiscard]] MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl()->tangent(kin);
+   }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
 
@@ -464,8 +583,19 @@ public:
    void update_state(const StateVariableT& state) { pimpl()->update_state(state); }
    void update_state(StateVariableT&& state) { pimpl()->update_state(std::move(state)); }
    [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl()->compute_response(k); }
+   [[nodiscard]] StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl()->compute_response(kin);
+   }
    [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl()->tangent(k); }
+   [[nodiscard]] MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl()->tangent(kin);
+   }
    void commit(const StateVariableT& k) { pimpl()->commit(k); }
+   void commit(const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) {
+      pimpl()->commit(kin);
+   }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }
@@ -514,8 +644,19 @@ public:
    void update_state(const StateVariableT& state) { pimpl_->update_state(state); }
    void update_state(StateVariableT&& state) { pimpl_->update_state(std::move(state)); }
    [[nodiscard]] StressT compute_response(const StateVariableT& k) const { return pimpl_->compute_response(k); }
+   [[nodiscard]] StressT compute_response(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl_->compute_response(kin);
+   }
    [[nodiscard]] MatrixT tangent(const StateVariableT& k) const { return pimpl_->tangent(k); }
+   [[nodiscard]] MatrixT tangent(
+      const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) const {
+      return pimpl_->tangent(kin);
+   }
    void commit(const StateVariableT& k) { pimpl_->commit(k); }
+   void commit(const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) {
+      pimpl_->commit(kin);
+   }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl_->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl_->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }

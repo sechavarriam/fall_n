@@ -73,6 +73,7 @@
 //
 //    ConstitutiveRelation (Level 1)
 //    InelasticConstitutiveRelation (Level 2b)
+//    ExternallyStateDrivenConstitutiveRelation (Level 3)
 //
 //  ─── References ─────────────────────────────────────────────────────────
 //
@@ -267,12 +268,69 @@ private:
         Et  = local_state.sig_at_eps_min / denom;
     }
 
+    void commit_state(KentParkState& state, double eps, double sig) const {
+        if (eps < state.eps_min) {
+            double Et_env;
+            state.eps_min = eps;
+            compression_envelope(eps, state.sig_at_eps_min, Et_env);
+            state.eps_pl = eps - state.sig_at_eps_min / Ec_;
+            state.state = 1;
+        } else if (eps <= 0.0) {
+            state.state = 2;
+        }
+
+        if (eps > 0.0) {
+            if (!state.cracked && Ec_ * eps > ft_) {
+                state.cracked = true;
+            }
+            state.state = 4;
+        }
+
+        state.eps_unload = state.eps_committed;
+        state.sig_unload = state.sig_committed;
+        state.eps_committed = eps;
+        state.sig_committed = sig;
+    }
+
 
 public:
 
     // =================================================================
     //  ConstitutiveRelation interface (Level 1) — const
     // =================================================================
+
+    [[nodiscard]] ConjugateT compute_response(
+        const KinematicT& strain,
+        const InternalVariablesT& state) const
+    {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+
+        ConjugateT stress;
+        stress.set_components(sig);
+        return stress;
+    }
+
+    [[nodiscard]] TangentT tangent(
+        const KinematicT& strain,
+        const InternalVariablesT& state) const
+    {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+
+        TangentT C;
+        C(0, 0) = Et;
+        return C;
+    }
+
+    void commit(InternalVariablesT& state, const KinematicT& strain) const {
+        double eps = strain.components();
+        double sig, Et;
+        evaluate(eps, sig, Et, state);
+        commit_state(state, eps, sig);
+    }
 
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
         double eps = strain.components();
@@ -316,30 +374,7 @@ public:
         double eps = strain.components();
         double sig, Et;
         evaluate(eps, sig, Et, state_);
-
-        // ── Update envelope tracking ──────────────────────────────────
-        if (eps < state_.eps_min) {
-            state_.eps_min       = eps;
-            compression_envelope(eps, state_.sig_at_eps_min, Et);
-            // Compute plastic strain for unloading
-            state_.eps_pl = eps - state_.sig_at_eps_min / Ec_;
-            state_.state  = 1;  // on envelope
-        } else if (eps <= 0.0) {
-            // Unloading or reloading in compression
-            state_.state = 2;
-        }
-
-        // ── Check tension cracking ────────────────────────────────────
-        if (eps > 0.0 && !state_.cracked) {
-            if (Ec_ * eps > ft_) {
-                state_.cracked = true;
-            }
-            state_.state = 4;
-        }
-
-        // ── Commit ────────────────────────────────────────────────────
-        state_.eps_committed = eps;
-        state_.sig_committed = sig;
+        commit_state(state_, eps, sig);
         cache_valid_ = false;
     }
 
@@ -459,6 +494,10 @@ static_assert(
 static_assert(
     InelasticConstitutiveRelation<KentParkConcrete>,
     "KentParkConcrete must satisfy InelasticConstitutiveRelation");
+
+static_assert(
+    ExternallyStateDrivenConstitutiveRelation<KentParkConcrete>,
+    "KentParkConcrete must satisfy ExternallyStateDrivenConstitutiveRelation");
 
 
 #endif // FN_KENT_PARK_CONCRETE_HH

@@ -1,0 +1,194 @@
+\chapter{Explicit Algorithmic State in Uniaxial Steel and Concrete Laws}
+
+\section{Why This Step Follows Naturally}
+
+Chapter~31 proved that the constitutive-site state can be externalised for a
+continuum inelastic law without breaking the legacy API.  The next
+architecturally meaningful target is the pair of uniaxial nonlinear laws that
+support reinforced-concrete fiber sections:
+\texttt{MenegottoPintoSteel} and \texttt{KentParkConcrete}.
+
+That propagation matters for two reasons:
+
+\begin{itemize}
+  \item reinforced concrete in \texttt{fall\_n} is already assembled from many
+        uniaxial constitutive sites embedded in a section reduction;
+  \item once those sites own their irreversible variables explicitly, the same
+        architectural pattern scales from continuum plasticity to structural
+        reduction and eventually to multi-scale transfer.
+\end{itemize}
+
+\section{Semantic Improvement}
+
+Before this step, both uniaxial laws still mixed two different roles inside a
+single object:
+
+\begin{enumerate}
+  \item the constitutive map itself, that is, the stress--strain law;
+  \item the site memory needed to follow hysteresis, unloading branches,
+        cracking, yielding, reversal points, and so on.
+\end{enumerate}
+
+That coupling was acceptable for a local prototype, but it was semantically
+inconsistent with the direction already established for
+\texttt{PlasticityRelation}.  A constitutive law should define the local map,
+while the constitutive site should own the algorithmic state.
+
+\section{New Contract}
+
+Both \texttt{MenegottoPintoSteel} and \texttt{KentParkConcrete} now satisfy
+\texttt{ExternallyStateDrivenConstitutiveRelation}.  Concretely, they support
+the explicit-state interface
+
+\begin{lstlisting}[language=C++]
+ConjugateT compute_response(const KinematicT& eps,
+                            const InternalVariablesT& alpha) const;
+
+TangentT tangent(const KinematicT& eps,
+                 const InternalVariablesT& alpha) const;
+
+void commit(InternalVariablesT& alpha,
+            const KinematicT& eps) const;
+\end{lstlisting}
+
+This means that the constitutive law can now be used as the pure local map
+\[
+(\varepsilon_{n+1}, \alpha_n)
+\mapsto
+(\sigma_{n+1}, C_{n+1}^{\text{alg}}, \alpha_{n+1})
+\]
+without requiring \(\alpha_n\) to live inside the relation object itself.
+
+\section{Menegotto--Pinto Steel}
+
+For \texttt{MenegottoPintoSteel}, the explicit state object stores:
+
+\begin{itemize}
+  \item the last reversal point;
+  \item the current asymptote-intersection point;
+  \item accumulated plastic excursion;
+  \item loading direction and committed strain/stress.
+\end{itemize}
+
+The key refactor was to isolate the state update into a dedicated
+\texttt{commit\_state()} kernel.  The explicit-state path now:
+
+\begin{enumerate}
+  \item evaluates the current branch using the supplied
+        \texttt{MenegottoPintoState};
+  \item commits the new reversal/branch information into that explicit state;
+  \item leaves the embedded compatibility state untouched.
+\end{enumerate}
+
+The old API still exists:
+\texttt{compute\_response(eps)}, \texttt{tangent(eps)}, \texttt{update(eps)},
+and \texttt{internal\_state()} remain available as a compatibility layer.
+
+\section{Kent--Park Concrete}
+
+For \texttt{KentParkConcrete}, the explicit state object stores:
+
+\begin{itemize}
+  \item the most compressive strain reached on the envelope;
+  \item the stress at that point;
+  \item the unloading plastic strain;
+  \item cracking status in tension;
+  \item the last committed pair \((\varepsilon,\sigma)\).
+\end{itemize}
+
+Here the refactor isolated the old \texttt{update()} behaviour into a
+\texttt{commit\_state()} function that operates on an explicit
+\texttt{KentParkState}.  This makes the simplified compression-envelope /
+unloading logic reusable by both:
+
+\begin{itemize}
+  \item the legacy embedded-state path;
+  \item the new explicit-state path used by constitutive sites.
+\end{itemize}
+
+\section{Why \texttt{FiberSection} Did Not Need a New API}
+
+This point is important architecturally.  \texttt{FiberSection} already stores
+each fiber as
+
+\begin{center}
+\texttt{Material<UniaxialMaterial>}
+\end{center}
+
+which in turn delegates to a typed constitutive site
+\texttt{MaterialInstance<Relation, StatePolicy>}.  Since
+\texttt{MaterialInstance} now prefers the explicit-state path whenever the
+relation satisfies \texttt{ExternallyStateDrivenConstitutiveRelation}, the
+benefit propagates automatically to fibers.
+
+Therefore no new visualization path, no new section API, and no new type
+erasure was needed.  The existing architecture was already good enough; it
+only needed the constitutive laws to satisfy the stronger contract.
+
+\section{What the New Tests Prove}
+
+The new uniaxial regressions verify the following facts:
+
+\begin{enumerate}
+  \item an external \texttt{MenegottoPintoState} evolves when committed
+        explicitly, while the naked relation keeps its compatibility state
+        untouched;
+  \item an external \texttt{KentParkState} evolves when committed explicitly,
+        and unloading from that state differs from the virgin-envelope
+        response;
+  \item a typed constitutive site
+        \texttt{MaterialInstance<MenegottoPintoSteel, CommittedState>} stores
+        the steel hysteretic state at the site level;
+  \item a typed constitutive site
+        \texttt{MaterialInstance<KentParkConcrete, CommittedState>} stores the
+        concrete envelope/unloading state at the site level;
+  \item existing fiber-section tests still pass, confirming that the new
+        constitutive-site ownership model does not break the section reduction.
+\end{enumerate}
+
+\section{Architectural Consequences}
+
+After this step the semantic picture is more coherent:
+
+\begin{itemize}
+  \item \texttt{MenegottoPintoSteel} and \texttt{KentParkConcrete} are
+        constitutive laws with an optional embedded compatibility state;
+  \item \texttt{MaterialInstance} is the real constitutive site;
+  \item \texttt{EmbeddedRelationIntegrator} can now drive steel, concrete, and
+        plasticity through the same explicit-state protocol;
+  \item \texttt{FiberSection} remains a reduction policy over many constitutive
+        sites instead of becoming yet another owner of hidden irreversible
+        memory.
+\end{itemize}
+
+\section{What Still Remains to Be Done}
+
+This chapter does \emph{not} complete the materials refactor.  The following
+steps are still pending:
+
+\begin{itemize}
+  \item move the same pattern into section-level inelastic reductions where it
+        is still mixed with law logic;
+  \item let specialized constitutive integrators replace the currently embedded
+        update rules when substepping or more elaborate algorithms are needed;
+  \item introduce regularized damage / fracture models for continuum concrete
+        so that cracking can be represented objectively with respect to the
+        mesh.
+\end{itemize}
+
+\section{Strategic Importance for Reinforced Concrete Across Scales}
+
+This propagation is small in terms of code size, but large in architectural
+value.  Reinforced concrete across scales requires:
+
+\begin{itemize}
+  \item uniaxial steel and concrete at the fiber level;
+  \item section reductions for beams, columns, and shells;
+  \item continuum models with explicit kinematics, inertia, and possibly
+        damage or fracture;
+  \item future transfer of reconstructed fields across scales.
+\end{itemize}
+
+Externalising the algorithmic state at the uniaxial level is the first place
+where these scales start to line up under the same constitutive-site
+abstraction.  That is the real reason this step matters.

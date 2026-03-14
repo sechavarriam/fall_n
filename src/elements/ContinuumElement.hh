@@ -17,6 +17,7 @@
 
 #include "../model/MaterialPoint.hh"
 #include "../materials/Material.hh"
+#include "../continuum/ConstitutiveKinematics.hh"
 #include "../continuum/KinematicPolicy.hh"
 
 template <typename MaterialPolicy, std::size_t ndof,
@@ -207,12 +208,12 @@ public:
 
           auto kin = KinematicPolicy::template evaluate<dim>(
               geometry_, num_nodes(), ndof, Xi, u_e);
-
-          StateVariableT strain;
-          strain.set_strain(kin.strain_voigt);
-
-          auto sigma = material_points_[gp].compute_response(strain);
-          f_e += w * Jdet * (kin.B.transpose() * sigma.components());
+          auto constitutive_kin =
+              continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
+          auto sigma = material_points_[gp].compute_response(constitutive_kin);
+          const double volume_factor =
+              KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
+          f_e += w * Jdet * volume_factor * (kin.B.transpose() * sigma.components());
       }
       return f_e;
   }
@@ -233,29 +234,44 @@ public:
 
           auto kin = KinematicPolicy::template evaluate<dim>(
               geometry_, num_nodes(), ndof, Xi, u_e);
-
-          StateVariableT strain;
-          strain.set_strain(kin.strain_voigt);
-
-          auto C_t = material_points_[gp].tangent(strain);
+          auto constitutive_kin =
+              continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
+          auto C_t = material_points_[gp].tangent(constitutive_kin);
+          const double volume_factor =
+              KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
 
           // Material stiffness: K_mat = ∫ Bᵀ C B dV
-          K_e += w * Jdet * (kin.B.transpose() * C_t * kin.B);
+          K_e += w * Jdet * volume_factor * (kin.B.transpose() * C_t * kin.B);
 
           // Geometric stiffness K_σ (only for nonlinear formulations)
           if constexpr (KinematicPolicy::needs_geometric_stiffness) {
-              auto sigma = material_points_[gp].compute_response(strain);
+              auto sigma = material_points_[gp].compute_response(constitutive_kin);
 
               constexpr auto NV = continuum::voigt_size<dim>();
               Eigen::Vector<double, static_cast<int>(NV)> S_voigt;
               for (std::size_t i = 0; i < NV; ++i)
                   S_voigt(static_cast<Eigen::Index>(i)) = sigma[i];
 
-              auto S_mat = continuum::TotalLagrangian::stress_voigt_to_matrix<dim>(S_voigt);
-              auto K_sigma = KinematicPolicy::template compute_geometric_stiffness<dim>(
-                  geometry_, num_nodes(), ndof, Xi, S_mat);
+              Eigen::MatrixXd K_sigma;
+              if constexpr (std::same_as<KinematicPolicy, continuum::UpdatedLagrangian>) {
+                  auto sigma_mat =
+                      continuum::TotalLagrangian::stress_voigt_to_matrix<dim>(S_voigt);
+                  auto grad_X =
+                      continuum::detail::physical_gradients<dim>(geometry_, num_nodes(), Xi);
+                  auto grad_x =
+                      continuum::UpdatedLagrangian::compute_spatial_gradients<dim>(grad_X, kin.F);
+                  K_sigma =
+                      continuum::UpdatedLagrangian::compute_spatial_geometric_stiffness<dim>(
+                          grad_x, ndof, sigma_mat);
+              }
+              else {
+                  auto S_mat =
+                      continuum::TotalLagrangian::stress_voigt_to_matrix<dim>(S_voigt);
+                  K_sigma = KinematicPolicy::template compute_geometric_stiffness<dim>(
+                      geometry_, num_nodes(), ndof, Xi, S_mat);
+              }
 
-              K_e += w * Jdet * K_sigma;
+              K_e += w * Jdet * volume_factor * K_sigma;
           }
       }
       return K_e;
@@ -366,12 +382,12 @@ public:
           // Evaluate kinematics through the policy
           auto kin = KinematicPolicy::template evaluate<dim>(
               geometry_, num_nodes(), ndof, Xi, u_e);
-
-          StateVariableT strain;
-          strain.set_strain(kin.strain_voigt);
-
-          material_points_[gp].commit(strain);
-          material_points_[gp].update_state(strain);
+          auto constitutive_kin =
+              continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
+          material_points_[gp].commit(constitutive_kin);
+          auto strain =
+              continuum::make_kinematic_measure<StateVariableT>(constitutive_kin);
+          material_points_[gp].update_state(std::move(strain));
       }
   }
 
@@ -397,7 +413,9 @@ public:
     // Delegate to KinematicPolicy — handles both linear and nonlinear strain
     auto kin = KinematicPolicy::template evaluate<dim>(
         geometry_, num_nodes(), ndof, X, u_h);
-    e_h.set_strain(kin.strain_voigt);
+    auto constitutive_kin =
+        continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
+    e_h = continuum::make_kinematic_measure<StateVariableT>(constitutive_kin);
 
     return e_h; 
   };
@@ -413,10 +431,11 @@ public:
 
         auto kin = KinematicPolicy::template evaluate<dim>(
             geometry_, num_nodes(), ndof, Xi, u_e);
-
-        StateVariableT strain;
-        strain.set_strain(kin.strain_voigt);
-        material_points_[gp].update_state(strain);
+        auto constitutive_kin =
+            continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
+        auto strain =
+            continuum::make_kinematic_measure<StateVariableT>(constitutive_kin);
+        material_points_[gp].update_state(std::move(strain));
     }
   };
 

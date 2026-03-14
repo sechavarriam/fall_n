@@ -1,0 +1,183 @@
+\chapter{Splitting Newton into Linear-Solve and Step-Control Policies}
+
+\section{Motivation}
+
+Once local constitutive updates are written as nonlinear problems
+\[
+  \mathbf{R}(\mathbf{x}) = \mathbf{0},
+\]
+it is tempting to treat Newton as a single algorithmic block.  That is still
+too coarse for an extensible constitutive framework.
+
+In practice, a Newton-like local solve contains at least two secondary
+algorithmic choices:
+\begin{itemize}
+  \item how the linearized correction
+        \[
+          \mathbf{K}(\mathbf{x}^{(i)}) \Delta \mathbf{x}^{(i)}
+          = -\mathbf{R}(\mathbf{x}^{(i)})
+        \]
+        is solved;
+  \item how the candidate step $\Delta\mathbf{x}^{(i)}$ is accepted, damped,
+        or line-searched.
+\end{itemize}
+
+Those are not merely implementation details.  They are real extension points:
+\begin{itemize}
+  \item scalar division versus dense LU versus custom direct solvers,
+  \item full Newton versus fixed damping versus backtracking,
+  \item future PETSc/KSP or PETSc/SNES-based local experiments.
+\end{itemize}
+
+Therefore, even when the outer algorithm is ``Newton'', the library should not
+hard-code its internal sub-policies.
+
+\section{Architectural Split}
+
+This phase introduces two new compile-time seams in
+\texttt{src/materials/local\_problem}.
+
+\subsection{Local Linear Solve Policy}
+
+\texttt{LocalLinearSolver.hh} defines the policy
+\[
+  \Delta\mathbf{x} = \mathcal{L}(\mathbf{K}, \mathbf{R}),
+\]
+through the concept \texttt{LocalLinearSolvePolicy}.
+
+The default implementation is:
+\begin{itemize}
+  \item scalar division for one-dimensional local problems,
+  \item dense LU for fixed-size vector problems.
+\end{itemize}
+
+This is intentionally simple, but it places the dependency in the right place.
+If a future constitutive model wants a custom block elimination or a PETSc/KSP
+adapter, the change belongs to this policy layer, not to the constitutive law.
+
+\subsection{Local Step-Control Policy}
+
+\texttt{LocalStepControl.hh} defines the update acceptance layer:
+\[
+  \Delta\mathbf{x}_{\text{accepted}}
+  = \mathcal{S}\bigl(\mathbf{x}, \Delta\mathbf{x}, \|\mathbf{R}\|\bigr).
+\]
+
+Two policies are provided:
+\begin{itemize}
+  \item \texttt{FullStepControl}, which accepts the full Newton correction;
+  \item \texttt{BacktrackingResidualStepControl}, which searches for a reduced
+        step that decreases the residual norm.
+\end{itemize}
+
+The key point is again architectural: line search is not fused into Newton, but
+appears as a compile-time policy.
+
+\section{Newton as an Assembler of Policies}
+
+After this change,
+\texttt{NewtonLocalSolver<MaxIterations, LinearSolvePolicy, StepControlPolicy>}
+is no longer a monolithic Newton implementation.  It is a small orchestrator:
+\begin{enumerate}
+  \item evaluate residual and Jacobian,
+  \item call the injected linear solve policy,
+  \item call the injected step-control policy,
+  \item update the local unknown.
+\end{enumerate}
+
+This is a better match to the long-term goals of the library.  It preserves
+static polymorphism in the hot loop while exposing each real algorithmic choice
+as a separately replaceable type.
+
+\section{Why This Matters for Continuum Inelasticity at Finite Strains}
+
+Finite-strain constitutive updates are often more fragile than the current
+small-strain $J_2$ scalar return:
+\begin{itemize}
+  \item the local unknown may be vector-valued,
+  \item the Jacobian may be poorly conditioned,
+  \item unrestricted Newton steps may violate admissibility or internal
+        constraints,
+  \item different models may benefit from different line-search or trust-region
+        strategies.
+\end{itemize}
+
+For that reason, treating Newton as an injectable outer policy but hard-coding
+its substeps would still be too rigid.  The present split is what keeps the
+continuum route genuinely open.
+
+\section{PETSc Compatibility Path}
+
+The local-problem architecture is intentionally broad enough that a future
+PETSc-based local solver can fit without changing the constitutive law
+interface.  A PETSc adapter would only need to satisfy the same generic solver
+contract:
+\begin{itemize}
+  \item accept a local problem,
+  \item evaluate residual/Jacobian through callbacks,
+  \item return a solved local state \texttt{solution}.
+\end{itemize}
+
+Whether that adapter uses:
+\begin{itemize}
+  \item a direct dense local solve,
+  \item a PETSc \texttt{KSP},
+  \item or a PETSc \texttt{SNES} line-search method,
+\end{itemize}
+is then an algorithmic choice at the solver layer, not a change in
+\texttt{PlasticityRelation}, \texttt{Material<>}, or \texttt{ContinuumElement}.
+
+\section{Verification}
+
+The regression suite now checks:
+\begin{itemize}
+  \item concept conformance for the linear-solve and step-control policies;
+  \item convergence of the generic vector local problem under the default
+        Newton sub-policies;
+  \item convergence of the same local problem under a custom damped step
+        control.
+\end{itemize}
+
+The last point is important.  It proves that the Newton implementation is not
+architecturally special: it already works as a host for interchangeable
+sub-policies.
+
+\section{Strategic Outcome}
+
+The constitutive local-solver stack is now factored as:
+\begin{itemize}
+  \item \texttt{LocalNonlinearProblem}: physics-level local system,
+  \item \texttt{LocalLinearSolvePolicy}: linearized correction,
+  \item \texttt{LocalStepControlPolicy}: step acceptance,
+  \item \texttt{LocalNonlinearSolverPolicy}: outer nonlinear algorithm,
+  \item \texttt{ReturnAlgorithm}: constitutive update driver.
+\end{itemize}
+
+This is the right level of openness for the next step:
+\begin{itemize}
+  \item finite-strain local vector problems driven by
+        \texttt{ConstitutiveKinematics},
+  \item damage/fracture-oriented local updates,
+  \item alternative nonlinear solvers and PETSc-based experiments.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1998localsolver}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{desouza2008localsolver}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\bibitem{kelley1995}
+C.~T. Kelley,
+\emph{Iterative Methods for Linear and Nonlinear Equations},
+SIAM, 1995.
+
+\end{thebibliography}

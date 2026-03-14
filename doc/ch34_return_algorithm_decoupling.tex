@@ -1,0 +1,181 @@
+\chapter{Decoupling the Yield Function from the Return Algorithm}
+
+\section{Motivation}
+
+Making the \texttt{YieldFunction} explicit was an important semantic step, but
+it did not yet remove the deepest coupling in the local plasticity kernel:
+\texttt{PlasticityRelation} still contained a hard-coded radial-return
+algorithm.  That coupling is acceptable for classical small-strain \(J_2\)
+plasticity, but it becomes a real architectural limitation as soon as the
+library needs to support:
+
+\begin{itemize}
+  \item cutting-plane or closest-point schemes;
+  \item viscoplastic overstress integration;
+  \item substepping or adaptive local solves;
+  \item pressure-sensitive surfaces with different local correction logic;
+  \item damage-plasticity or capped plasticity where the local admissibility
+        problem is no longer the same scalar radial-return update.
+\end{itemize}
+
+If the return algorithm stays embedded in the constitutive law, then every new
+local scheme forces a new constitutive class.  That is exactly the kind of
+semantic drift that the previous chapters were trying to remove.
+
+\section{New Separation}
+
+The plasticity architecture now exposes six independent compile-time axes:
+
+\begin{enumerate}
+  \item constitutive space / measure policy;
+  \item yield criterion;
+  \item hardening law;
+  \item flow rule;
+  \item yield function;
+  \item return algorithm.
+\end{enumerate}
+
+The new policy lives in \texttt{ReturnAlgorithm.hh} under the concept
+\texttt{ReturnAlgorithmPolicy<A, Relation>}.  The contract is intentionally
+narrow:
+
+\begin{lstlisting}[language=C++]
+algorithm.integrate(relation, total_strain, alpha)
+    -> Relation::ReturnMapResultT
+\end{lstlisting}
+
+This means the algorithm works on:
+
+\begin{itemize}
+  \item a concrete constitutive relation that exposes a typed plasticity
+        kernel;
+  \item a total kinematic state;
+  \item an explicit algorithmic state \(\alpha\).
+\end{itemize}
+
+\section{What Remains Inside \texttt{PlasticityRelation}}
+
+\texttt{PlasticityRelation} is still the owner of the constitutive physics:
+
+\begin{itemize}
+  \item elastic predictor;
+  \item effective trial state for kinematic hardening;
+  \item scalar yield-function evaluation;
+  \item flow direction;
+  \item hardening modulus;
+  \item plastic internal-variable evolution;
+  \item consistent tangent formula.
+\end{itemize}
+
+What moved out is the \emph{algorithmic orchestration} of those pieces.
+
+That is the right cut.  The law keeps the constitutive mathematics; the return
+algorithm decides how the local admissibility problem is solved.
+
+\section{Kernel API for Algorithms}
+
+To avoid friend-based hacks or dynamic polymorphism, the relation now exposes a
+small public kernel API:
+
+\begin{itemize}
+  \item \texttt{elastic\_predictor(...)}
+  \item \texttt{effective\_trial(...)}
+  \item \texttt{evaluate\_yield\_function(...)}
+  \item \texttt{hardening\_modulus(...)}
+  \item \texttt{flow\_direction(...)}
+  \item \texttt{consistency\_increment(...)}
+  \item \texttt{corrected\_stress(...)}
+  \item \texttt{evolve\_internal\_variables(...)}
+  \item \texttt{consistent\_tangent(...)}
+  \item \texttt{make\_elastic\_result(...)}
+\end{itemize}
+
+This interface is not intended as user-facing high-level API.  It is an
+algorithm-support surface that allows compile-time return algorithms to be
+implemented outside the constitutive law without paying runtime dispatch.
+
+\section{Default Algorithm}
+
+The legacy behaviour is preserved by
+\texttt{StandardRadialReturnAlgorithm}.  It implements the same backward-Euler
+radial-return correction that used to live inside
+\texttt{PlasticityRelation}.  Therefore the existing \(J_2\) path remains
+backward compatible.
+
+The important architectural change is not a different numerical answer, but the
+fact that the local solve is no longer hard-wired to the law itself.
+
+\section{What the New Test Demonstrates}
+
+The regression suite adds a deliberately simple alternative algorithm:
+\texttt{HalfStepReturnAlgorithm}.  It reuses the same constitutive kernel but
+applies only half of the classical correction increment.  This is not a
+production algorithm; it is a proof of separation.
+
+The test checks that:
+
+\begin{itemize}
+  \item the custom algorithm satisfies \texttt{ReturnAlgorithmPolicy};
+  \item the stress response changes;
+  \item the algorithmic tangent changes;
+  \item the rest of the constitutive composition remains the same.
+\end{itemize}
+
+This is the right kind of regression: it proves that changing the local
+algorithm does not require redefining the yield criterion, hardening, flow, or
+yield function.
+
+\section{Why This Matters for Future Material Models}
+
+This split is strategically important for the material roadmap discussed in the
+material-module analysis chapter.  Reinforced concrete across scales will
+eventually need models such as:
+
+\begin{itemize}
+  \item concrete damage-plasticity;
+  \item fracture-regularized softening;
+  \item cyclic degradation with nested loading surfaces;
+  \item rate effects and dynamic overstress;
+  \item large-strain constitutive updates.
+\end{itemize}
+
+Those models are not only ``different yield functions''.  They often require
+different \emph{local integration algorithms}.  By making that axis explicit
+now, the architecture stops conflating:
+
+\begin{itemize}
+  \item the surface being checked;
+  \item the scalar admissibility map;
+  \item the nonlinear method used to restore admissibility.
+\end{itemize}
+
+\section{Immediate Boundary}
+
+The current split is honest but still partial:
+
+\begin{itemize}
+  \item the default tangent formula remains the standard small-strain
+        rate-independent \(J_2\) formula;
+  \item the kernel methods exposed by \texttt{PlasticityRelation} still encode
+        assumptions specific to that family;
+  \item more general return algorithms may need richer kernel contracts or even
+        different state objects.
+\end{itemize}
+
+That is acceptable.  The present goal is not to solve every future material
+model today; it is to stop blocking them with a hard-coded radial return.
+
+\section{Recommended Next Step}
+
+The next correct move is to apply the same discipline to richer local models:
+
+\begin{itemize}
+  \item introduce a non-associative or pressure-sensitive return algorithm;
+  \item let the local algorithm request its own residual/Jacobian assembly if
+        the scalar closed form is not available;
+  \item eventually separate \texttt{ConstitutiveKernel} from
+        \texttt{ConstitutiveIntegrator} for continuum damage/fracture models.
+\end{itemize}
+
+At that point the library will have a genuinely extensible foundation for
+developing nonlinear concrete models beyond classical metal plasticity.

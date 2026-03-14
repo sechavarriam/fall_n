@@ -140,6 +140,25 @@ vtk_module_autoinit(
 
 add_test(NAME vtk_gauss_cloud_contract COMMAND fall_n_vtk_gauss_cloud_test)
 
+# --- Material constitutive curves VTK test ---
+add_executable(fall_n_material_curves_test
+  tests/test_material_curves_vtk.cpp
+)
+
+target_include_directories(fall_n_material_curves_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_material_curves_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_material_curves_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_material_curves_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_material_curves_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_material_curves_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME material_curves_vtk COMMAND fall_n_material_curves_test)
+
 # --- Structural reconstruction test ---
 add_executable(fall_n_structural_reconstruction_test
   tests/test_structural_reconstruction.cpp
@@ -509,6 +528,19 @@ target_include_directories(fall_n_hyperelastic_test PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(fall_n_hyperelastic_test PRIVATE Eigen3::Eigen)
 
 add_test(NAME hyperelastic COMMAND fall_n_hyperelastic_test)
+
+# ── Continuum constitutive-interface tests ───────────────────────────────────
+add_executable(fall_n_continuum_interface_test
+  tests/test_continuum_constitutive_interface.cpp
+)
+
+target_include_directories(fall_n_continuum_interface_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_continuum_interface_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_continuum_interface_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_continuum_interface_test PRIVATE Eigen3::Eigen)
+
+add_test(NAME continuum_constitutive_interface COMMAND fall_n_continuum_interface_test)
 
 # ── TotalLagrangian integration tests (Phase 4) ─────────────────────────────
 add_executable(fall_n_tl_integration_test

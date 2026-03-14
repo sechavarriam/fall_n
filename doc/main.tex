@@ -189,6 +189,43 @@ Key topics include:
         algorithmic-state path, and \texttt{MaterialInstance} stores that state
         at the constitutive-site level while preserving the legacy embedded
         API for compatibility;
+  \item The propagation of that explicit algorithmic-state contract to
+        hysteretic uniaxial steel and concrete laws: \texttt{MenegottoPintoSteel}
+        and \texttt{KentParkConcrete} now support external state objects, and
+        fiber sections inherit the new behaviour automatically through the
+        existing type-erased uniaxial-material layer;
+  \item An explicit compile-time \texttt{YieldFunction} customization point in
+        plasticity, separated from yield-surface geometry and hardening, plus
+        a constitutive protocol sampler and VTK curve writer to generate
+        strain--stress hysteresis loops for direct visual inspection of
+        nonlinear materials;
+  \item A further split between constitutive ingredients and the local
+        nonlinear solve: \texttt{PlasticityRelation} now exposes a
+        compile-time \texttt{ReturnAlgorithm} axis, so the scalar yield
+        function and the return-mapping strategy can evolve independently;
+  \item A further split inside the local plastic solve itself: the scalar
+        consistency residual and its Jacobian are now independent compile-time
+        customization points, so future constitutive models can keep a Newton
+        solver while changing the local equation, or keep the local equation
+        while changing the nonlinear solver;
+  \item A general local constitutive-problem framework above that scalar path:
+        local updates are now expressible as compile-time problems
+        $R(x)=0$ with reusable Newton solvers, making the current scalar
+        consistency equation only a special case and preparing the route to
+        finite-strain plasticity, damage, and other vector-valued local
+        updates;
+  \item A further internal split of Newton itself: the local linear solve and
+        the step-control policy are now independent compile-time injection
+        points, so Newton is no longer treated as a monolithic algorithm and
+        future PETSc-based or research-oriented local solvers can attach to the
+        same constitutive local-problem contract;
+  \item A continuum-side constitutive carrier for large displacements and
+        finite strains: the \texttt{ContinuumElement} /\texttt{Material<>}
+        boundary no longer assumes that every continuum law sees only a flat
+        Voigt strain vector, while remaining backward-compatible with the
+        existing constitutive API, and a spatial updated-Lagrangian route now
+        exposes Almansi strain and Cauchy stress consistently through the same
+        erased constitutive boundary;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -234,6 +271,14 @@ discussion of the design rationale.
 \input{ch29_constitutive_state_object}
 \input{ch30_constitutive_integrator_split}
 \input{ch31_explicit_algorithmic_state_for_plasticity}
+\input{ch32_explicit_algorithmic_state_for_uniaxial_laws}
+\input{ch33_yield_function_and_constitutive_curves}
+\input{ch34_return_algorithm_decoupling}
+\input{ch35_continuum_constitutive_interface}
+\input{ch36_spatial_updated_lagrangian_interface}
+\input{ch37_local_consistency_residual_and_jacobian}
+\input{ch38_local_nonlinear_problem_framework}
+\input{ch39_local_solver_policy_split}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

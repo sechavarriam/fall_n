@@ -55,7 +55,9 @@
 #include "../materials/Stress.hh"
 #include "../materials/ConstitutiveRelation.hh"
 
+#include "ConstitutiveKinematics.hh"
 #include "HyperelasticModel.hh"
+#include "StressMeasures.hh"
 
 namespace continuum {
 
@@ -148,6 +150,32 @@ public:
         return model_.material_tangent(E).voigt_matrix();
     }
 
+    /// Direct continuum carrier overload for finite-strain continuum elements.
+    ///
+    /// This overload keeps the relation usable behind the generic
+    /// Material<> erasure while allowing the constitutive driver to pass a
+    /// richer continuum bundle containing F, detF and explicit strain tensors.
+    /// Hyperelastic models consume the Green-Lagrange strain directly.
+    [[nodiscard]] ConjugateT
+    compute_response(const ConstitutiveKinematics<dim>& kin) const {
+        auto S = model_.second_piola_kirchhoff(kin.green_lagrange_strain);
+        if (kin.conjugate_stress_measure == StressMeasureKind::second_piola_kirchhoff) {
+            return tensor_to_stress<dim>(S);
+        }
+        auto sigma = stress::cauchy_from_2pk(S, kin.F);
+        return tensor_to_stress<dim>(sigma);
+    }
+
+    /// Tangent evaluated from the continuum carrier.
+    [[nodiscard]] TangentT
+    tangent(const ConstitutiveKinematics<dim>& kin) const {
+        auto C = model_.material_tangent(kin.green_lagrange_strain);
+        if (kin.conjugate_stress_measure == StressMeasureKind::second_piola_kirchhoff) {
+            return C.voigt_matrix();
+        }
+        return ops::push_forward_tangent(C, kin.F).voigt_matrix();
+    }
+
     // ── ElasticConstitutiveRelation interface (Level 2a) ─────────────────────
     //
     //  Available only when the model has a constant tangent (e.g. SVK).
@@ -165,6 +193,11 @@ public:
     [[nodiscard]] double energy(const KinematicT& strain) const {
         auto E = strain_eng_to_tensor<dim>(strain);
         return model_.energy(E);
+    }
+
+    /// Stored-energy density from the continuum carrier.
+    [[nodiscard]] double energy(const ConstitutiveKinematics<dim>& kin) const {
+        return model_.energy(kin.green_lagrange_strain);
     }
 
     // ── Model access ─────────────────────────────────────────────────────────

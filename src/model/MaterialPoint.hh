@@ -6,6 +6,7 @@
 
 #include "../materials/Material.hh"
 #include "../geometry/IntegrationPoint.hh"
+#include "../continuum/ConstitutiveKinematics.hh"
 
 template<class MaterialPolicy> 
 class MaterialPoint{// Legacy name for a continuum constitutive site.
@@ -52,12 +53,26 @@ class MaterialPoint{// Legacy name for a continuum constitutive site.
             return material_.compute_response(k);
         }
 
+        [[nodiscard]] auto compute_response(
+            const continuum::ConstitutiveKinematics<dim>& kin) const {
+            return material_.compute_response(kin);
+        }
+
         [[nodiscard]] auto tangent(const StateVariableT& k) const {
             return material_.tangent(k);
         }
 
+        [[nodiscard]] auto tangent(
+            const continuum::ConstitutiveKinematics<dim>& kin) const {
+            return material_.tangent(kin);
+        }
+
         void commit(const StateVariableT& k) {
             material_.commit(k);
+        }
+
+        void commit(const continuum::ConstitutiveKinematics<dim>& kin) {
+            material_.commit(kin);
         }
 
         // ─── Internal state export (post-processing) ────────────
