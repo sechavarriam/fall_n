@@ -1,0 +1,394 @@
+\chapter{Regular 5-Story Building Example}
+\label{ch:regular-5story-building}
+
+\section{Purpose}
+
+This chapter documents the \emph{elastic baseline} mixed-building example that
+preceded the materially nonlinear reinforced-concrete continuation developed in
+Chapter~\ref{ch:regular-5story-rc-nonlinear-building}.  It remains useful as
+the simplest reference configuration for understanding the shared
+\texttt{Domain}, mixed 1D/2D topology, and polymorphic structural wrapping
+without the additional complexity of path-dependent constitutive response.
+
+The example is a regular reinforced-concrete-like building with:
+\begin{itemize}
+  \item five stories,
+  \item four grid axes in the \(x\)-direction,
+  \item three grid axes in the \(y\)-direction,
+  \item frame members modelled with 3D Timoshenko beams,
+  \item slabs modelled with MITC4 / Mindlin--Reissner shells.
+\end{itemize}
+
+The objective is not a code-check design, but a pedagogical and architectural
+integration example:
+\begin{itemize}
+  \item shared geometry and topology in one \texttt{Domain},
+  \item mixed 1D/2D structural families,
+  \item one polymorphic structural solver container,
+  \item one structural \texttt{.vtm} export for ParaView.
+\end{itemize}
+
+\section{Unit System}
+
+The example is written consistently in:
+\[
+\text{force} = \mathrm{kN},
+\qquad
+\text{length} = \mathrm{m},
+\qquad
+\text{stress} = \mathrm{kN/m^2}.
+\]
+
+Therefore:
+\begin{itemize}
+  \item Young's moduli are entered in \(\mathrm{kN/m^2}\),
+  \item slab loads are entered in \(\mathrm{kN/m^2}\),
+  \item nodal lateral forces are entered in \(\mathrm{kN}\),
+  \item computed displacements are reported in \(\mathrm{m}\).
+\end{itemize}
+
+\section{Geometry}
+
+\subsection{Plan and height}
+
+The plan grid is:
+\[
+x = \{0,\; 6,\; 12,\; 18\}\ \mathrm{m},
+\qquad
+y = \{0,\; 5,\; 10\}\ \mathrm{m}.
+\]
+
+This gives:
+\begin{itemize}
+  \item \(3\) bays of \(6\,\mathrm{m}\) in the \(x\)-direction,
+  \item \(2\) bays of \(5\,\mathrm{m}\) in the \(y\)-direction.
+\end{itemize}
+
+The storey height is:
+\[
+h = 3.20\ \mathrm{m},
+\]
+so the floor elevations are:
+\[
+z_k = 3.20\,k, \qquad k = 0,\dots,5.
+\]
+
+The total structural height is:
+\[
+H = 16.0\ \mathrm{m}.
+\]
+
+\subsection{Discretisation}
+
+All members share the same building nodes:
+\begin{itemize}
+  \item \(4 \times 3 = 12\) plan nodes per level,
+  \item \(6\) levels including the base,
+  \item total node count:
+        \[
+        n_\mathrm{nodes} = 12 \times 6 = 72.
+        \]
+\end{itemize}
+
+The element counts are:
+\begin{itemize}
+  \item columns:
+        \[
+        n_c = 5 \times 4 \times 3 = 60,
+        \]
+  \item beams:
+        \[
+        n_b = 5 \left[(4-1) \times 3 + (3-1) \times 4\right] = 85,
+        \]
+  \item slab panels:
+        \[
+        n_s = 5 \times (4-1) \times (3-1) = 30.
+        \]
+\end{itemize}
+
+Hence the total number of structural geometric elements is:
+\[
+n_\mathrm{elem} = 60 + 85 + 30 = 175.
+\]
+
+\section{Sections and Materials}
+
+\subsection{Columns}
+
+Columns are modelled as 3D Timoshenko beams with rectangular section:
+\[
+b_c = 0.45\ \mathrm{m},
+\qquad
+h_c = 0.45\ \mathrm{m}.
+\]
+
+The frame material is idealised as linear elastic with:
+\[
+E_f = 28.0 \times 10^6\ \mathrm{kN/m^2},
+\qquad
+\nu = 0.20.
+\]
+
+The shear modulus is reconstructed as:
+\[
+G_f = \frac{E_f}{2(1+\nu)}.
+\]
+
+\subsection{Beams}
+
+Beams are also modelled as 3D Timoshenko beams, with section:
+\[
+b_b = 0.30\ \mathrm{m},
+\qquad
+h_b = 0.60\ \mathrm{m}.
+\]
+
+The same frame elastic modulus is used:
+\[
+E_b = E_f = 28.0 \times 10^6\ \mathrm{kN/m^2}.
+\]
+
+For both columns and beams the section properties are computed directly from
+the rectangular dimensions:
+\[
+A = b h,
+\qquad
+I_y = \frac{b h^3}{12},
+\qquad
+I_z = \frac{h b^3}{12}.
+\]
+
+The torsional constant is approximated with the standard rectangular
+Saint-Venant estimate:
+\[
+J \approx \frac{b_\text{min}^3 h_\text{max}}{3}
+\left(1 - 0.63 \frac{b_\text{min}}{h_\text{max}}\right).
+\]
+
+The Timoshenko shear factors are taken as:
+\[
+\kappa_y = \kappa_z = \frac{5}{6}.
+\]
+
+\subsection{Slabs}
+
+Each floor slab panel is modelled by a MITC4 / Mindlin--Reissner shell with
+thickness:
+\[
+t = 0.15\ \mathrm{m}.
+\]
+
+The slab elastic modulus is slightly reduced with respect to the frame:
+\[
+E_s = 25.0 \times 10^6\ \mathrm{kN/m^2},
+\qquad
+\nu_s = 0.20.
+\]
+
+\section{Loads and Boundary Conditions}
+
+\subsection{Boundary conditions}
+
+All base nodes, that is all nodes on the plane \(z=0\), are fully fixed.
+This is implemented at the model level through:
+\begin{verbatim}
+model.fix_z(0.0);
+\end{verbatim}
+which, in the current API, constrains all DOFs of every node lying on that
+plane.
+
+\subsection{Gravity loading}
+
+Each slab receives a uniform downward pressure:
+\[
+q_g = -7.50\ \mathrm{kN/m^2}.
+\]
+
+This pressure represents a simplified vertical service load
+(self-weight + superimposed permanent load + a modest live-load component).
+
+The load is assembled consistently from the shell interpolation:
+\[
+\mathbf{f}_I = \int_{\Omega_e} N_I\,\mathbf{t}\,dA,
+\qquad
+\mathbf{t} = (0,0,q_g)^T.
+\]
+
+\subsection{Horizontal loading}
+
+To make frame bending visually more evident, one corner node of every floor
+receives a horizontal force in the global \(x\)-direction. The loaded node at
+storey \(k\) is:
+\[
+(x,y,z) = (18,\; 10,\; z_k).
+\]
+
+The storey force pattern is triangular:
+\[
+F_x^{(k)} = 400\,k \quad \mathrm{kN},
+\qquad
+k = 1,\dots,5.
+\]
+
+Thus the applied forces are:
+\[
+400,\ 800,\ 1200,\ 1600,\ 2000\ \mathrm{kN}.
+\]
+
+This is intentionally not a perfectly symmetric wind model. The asymmetry is
+useful here because it activates:
+\begin{itemize}
+  \item global building sway,
+  \item perimeter beam bending,
+  \item slab diaphragm action,
+  \item a modest torsional component.
+\end{itemize}
+
+\section{Architectural Realisation in Code}
+
+\subsection{One shared \texttt{Domain}}
+
+The first important architectural point is that the example inserts
+\emph{all} structural geometry into the same \texttt{Domain<3>}:
+\begin{itemize}
+  \item columns are stored as 1D line geometries,
+  \item beams are stored as 1D line geometries,
+  \item slabs are stored as 2D quadrilateral geometries.
+\end{itemize}
+
+This is exactly the kind of mixed topology that motivated the recent
+\texttt{DMPlex} hardening described in Chapter~\ref{ch:dmplex-mixed-topology}.
+The resulting \texttt{DMPlex} remains non-interpolated, but it is now
+semantically correct for mixed 1D/2D structural families.
+
+For this model the reported \texttt{DMPlex} dimension is:
+\[
+\dim(\texttt{DM}) = 2,
+\]
+because the maximum topological dimension in the domain is the slab topology.
+
+\subsection{Polymorphic structural container}
+
+The solver model is assembled as:
+\[
+\texttt{Model<TimoshenkoBeam3D,\ SmallStrain,\ 6,\ SingleElementPolicy<StructuralElement>>}.
+\]
+
+This means:
+\begin{itemize}
+  \item the element container is
+        \[
+        \texttt{std::vector<StructuralElement>},
+        \]
+  \item each concrete geometry is wrapped into the appropriate concrete
+        element type:
+        \begin{itemize}
+          \item \texttt{BeamElement<TimoshenkoBeam3D,3>} for columns,
+          \item \texttt{BeamElement<TimoshenkoBeam3D,3>} for beams,
+          \item \texttt{ShellElement<MindlinReissnerShell3D>} for slabs;
+        \end{itemize}
+  \item the global assembly sees a homogeneous interface, while the structural
+        VTK exporter can still dispatch back to the concrete formulation
+        through \texttt{StructuralReductionPolicy<ElementT>}.
+\end{itemize}
+
+\subsection{Why this example is a good architectural integrator}
+
+This one example exercises, simultaneously:
+\begin{itemize}
+  \item geometric ownership in \texttt{Domain},
+  \item mixed-topology \texttt{DMPlex} assembly,
+  \item analysis-node DOF assignment on shared vertices,
+  \item heterogeneous structural element wrapping,
+  \item shell consistent-load assembly,
+  \item formulation-aware structural reconstruction,
+  \item multi-block VTK output.
+\end{itemize}
+
+In that sense it is a better ``main example'' than the previous collection of
+independent benchmarks: it shows how the pieces work together.
+
+\section{Execution Results}
+
+The executed example stored in the repository reported:
+\[
+\max |u| = 9.248 \times 10^{-3}\ \mathrm{m},
+\]
+\[
+\max |u_x| = 8.292 \times 10^{-3}\ \mathrm{m},
+\qquad
+\max |u_z| = 2.523 \times 10^{-3}\ \mathrm{m}.
+\]
+
+At the loaded roof corner node, the displacement vector was:
+\[
+u_\mathrm{roof} =
+\begin{bmatrix}
+  8.292 \times 10^{-3} \\
+ -3.598 \times 10^{-3} \\
+ -1.955 \times 10^{-3}
+\end{bmatrix}
+\mathrm{m}.
+\]
+
+The roof drift ratio in the \(x\)-direction is therefore:
+\[
+\frac{u_x^\mathrm{roof}}{H}
+=
+\frac{8.292 \times 10^{-3}}{16.0}
+= 5.18 \times 10^{-4}.
+\]
+
+These values are small enough to remain in the linear range, but large enough
+to make the deformed shape and beam flexure visible in ParaView when a moderate
+\texttt{Warp By Vector} scale factor is used.
+
+\section{VTK Output}
+
+The example writes the following VTK files:
+\begin{itemize}
+  \item \texttt{regular\_5story\_building\_structural.vtm},
+  \item \texttt{regular\_5story\_building\_structural\_axis.vtp},
+  \item \texttt{regular\_5story\_building\_structural\_surface.vtp},
+  \item \texttt{regular\_5story\_building\_structural\_sections.vtp},
+  \item \texttt{regular\_5story\_building\_structural\_material\_sites.vtp},
+  \item \texttt{regular\_5story\_building\_structural\_fibers.vtp}.
+\end{itemize}
+
+The semantic meaning of the blocks remains the same as in the previous
+structural exporter chapters:
+\begin{description}
+  \item[\texttt{axis}] line carriers for beam centre-lines and shell edges;
+  \item[\texttt{surface}] reconstructed beam skins and shell faces;
+  \item[\texttt{sections}] section stations and through-thickness carriers;
+  \item[\texttt{material\_sites}] constitutive sampling sites;
+  \item[\texttt{fibers}] fiber-section carriers (empty in this example).
+\end{description}
+
+In ParaView, the intended workflow is:
+\begin{enumerate}
+  \item open the \texttt{.vtm} file,
+  \item display the \texttt{surface} block,
+  \item apply \texttt{Warp By Vector} using \texttt{displacement},
+  \item colour by reconstructed resultants or stresses,
+  \item inspect \texttt{sections} and \texttt{material\_sites} for the
+        formulation-specific internal fields.
+\end{enumerate}
+
+\section{Why the Example Matters}
+
+From a software-architecture perspective, this example confirms that the
+current direction is viable:
+\begin{itemize}
+  \item mixed structural families can share one geometric and topological
+        domain,
+  \item \texttt{StructuralElement} is sufficient as the polymorphic solver
+        boundary,
+  \item reconstruction remains formulation-specific and therefore reusable for
+        later scale-transfer work,
+  \item the new \texttt{main.cpp} now acts as a readable cookbook for building
+        a realistic mixed frame--shell model.
+\end{itemize}
+
+That is exactly the kind of example needed before moving on to the next layer
+of abstraction, namely a dedicated \texttt{DMPlex} policy or builder strategy.

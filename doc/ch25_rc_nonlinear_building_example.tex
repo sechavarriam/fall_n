@@ -1,0 +1,414 @@
+\chapter{Nonlinear Reinforced-Concrete 5-Story Building Example}
+\label{ch:regular-5story-rc-nonlinear-building}
+
+\section{Purpose and Scope}
+
+This chapter documents the current \texttt{main.cpp} entry point, which now
+hosts a materially nonlinear reinforced-concrete building example.  The model
+is the direct continuation of the elastic mixed-building benchmark of
+Chapter~\ref{ch:regular-5story-building}, but the frame members are now
+represented by nonlinear fiber sections while the floor slabs remain elastic
+MITC4 shells.
+
+The example is intended to validate three architectural goals simultaneously:
+\begin{itemize}
+  \item one shared \texttt{Domain<3>} and one shared \texttt{DMPlex} for
+        columns, beams, and slabs;
+  \item one polymorphic structural element container, mixing beam and shell
+        formulations in the same global solve;
+  \item one constitutive upgrade path in which the frame material law is
+        replaced by a nonlinear fiber discretisation without changing the
+        geometric or topological assembly pipeline.
+\end{itemize}
+
+Equally important, the example is \emph{not} yet a fully nonlinear RC building
+solver in the broadest sense.  The current scope is:
+\begin{itemize}
+  \item small-strain structural kinematics;
+  \item nonlinear beam sections through fibers;
+  \item elastic shell sections for slabs;
+  \item static incremental equilibrium with PETSc SNES.
+\end{itemize}
+
+\section{Unit System}
+
+The example switches deliberately to:
+\[
+\text{force} = \mathrm{MN},
+\qquad
+\text{length} = \mathrm{m},
+\qquad
+\text{stress} = \mathrm{MPa} = \mathrm{MN/m^2}.
+\]
+
+This choice is not cosmetic.  The uniaxial constitutive laws currently used in
+the fiber sections, especially Kent--Park concrete, are calibrated and written
+numerically in MPa.  Using \(\mathrm{MN}\)--\(\mathrm{m}\)--\(\mathrm{MPa}\)
+preserves unit consistency while avoiding ad hoc rescalings inside the
+constitutive model.  In this system:
+\begin{itemize}
+  \item \(30\ \mathrm{MPa}\) is entered numerically as \(30\),
+  \item \(200\ \mathrm{kN}\) is entered as \(0.20\ \mathrm{MN}\),
+  \item \(7.5\ \mathrm{kN/m^2}\) is entered as \(0.0075\ \mathrm{MN/m^2}\).
+\end{itemize}
+
+\section{Geometry and Topology}
+
+\subsection{Plan and elevations}
+
+The plan grid is unchanged from the elastic reference:
+\[
+x = \{0,\; 6,\; 12,\; 18\}\ \mathrm{m},
+\qquad
+y = \{0,\; 5,\; 10\}\ \mathrm{m},
+\]
+with storey height
+\[
+h = 3.20\ \mathrm{m},
+\qquad
+z_k = 3.20\,k,\quad k=0,\dots,5.
+\]
+
+This yields:
+\begin{itemize}
+  \item \(72\) shared building nodes,
+  \item \(60\) columns,
+  \item \(85\) beams,
+  \item \(30\) shell panels,
+  \item \(175\) geometric elements in total.
+\end{itemize}
+
+\subsection{Mixed structural topology}
+
+All structural members are inserted into the same \texttt{Domain<3>}:
+\begin{itemize}
+  \item columns and beams as 1D line geometries,
+  \item slabs as 2D quadrilateral geometries.
+\end{itemize}
+
+The resulting \texttt{DMPlex} remains non-interpolated, but its highest
+topological dimension is now \(2\) because shell cells are present.  The
+recent \texttt{DMPlex} hardening from Chapter~\ref{ch:dmplex-mixed-topology}
+is what makes this mixed 1D/2D configuration natural rather than exceptional.
+
+\section{Constitutive Design}
+
+\subsection{Columns}
+
+Columns are modelled as 3D Timoshenko beam elements with section:
+\[
+b_c = h_c = 0.45\ \mathrm{m}.
+\]
+
+The nonlinear section is built from:
+\begin{itemize}
+  \item unconfined cover concrete, modelled with Kent--Park;
+  \item confined core concrete, also modelled with Kent--Park but with a
+        confinement enhancement factor derived from an assumed volumetric tie
+        ratio;
+  \item eight longitudinal reinforcing bars of diameter
+        \(\phi = 25\ \mathrm{mm}\), modelled with Menegotto--Pinto steel.
+\end{itemize}
+
+The material parameters are:
+\[
+f'_c = 35\ \mathrm{MPa},
+\qquad
+E_c = 1000\,f'_c = 35000\ \mathrm{MPa},
+\qquad
+\nu = 0.20,
+\]
+\[
+E_s = 200000\ \mathrm{MPa},
+\qquad
+f_y = 420\ \mathrm{MPa},
+\qquad
+b_s = 0.01.
+\]
+
+The cover thickness to fiber centroid is taken as:
+\[
+c_c = 0.05\ \mathrm{m}.
+\]
+
+The column section is discretised into:
+\begin{itemize}
+  \item \(84\) concrete fibers,
+  \item \(8\) steel fibers,
+  \item total: \(92\) fibers per column integration point.
+\end{itemize}
+
+\subsection{Beams}
+
+Beams are also 3D Timoshenko elements, with section:
+\[
+b_b = 0.30\ \mathrm{m},
+\qquad
+h_b = 0.60\ \mathrm{m}.
+\]
+
+The beam fiber section uses:
+\begin{itemize}
+  \item unconfined Kent--Park concrete over the full section;
+  \item six longitudinal reinforcing bars of diameter
+        \(\phi = 20\ \mathrm{mm}\), arranged as three top and three bottom
+        bars;
+  \item the same Menegotto--Pinto steel law as in the columns.
+\end{itemize}
+
+The beam concrete parameters are:
+\[
+f'_c = 30\ \mathrm{MPa},
+\qquad
+E_c = 30000\ \mathrm{MPa}.
+\]
+
+The beam section discretisation contains:
+\begin{itemize}
+  \item \(72\) concrete fibers,
+  \item \(6\) steel fibers,
+  \item total: \(78\) fibers per beam integration point.
+\end{itemize}
+
+\subsection{Slabs}
+
+The slabs remain elastic MITC4 / Mindlin--Reissner shells with thickness:
+\[
+t = 0.15\ \mathrm{m}.
+\]
+
+The elastic shell properties are:
+\[
+E_s = 28000\ \mathrm{MPa},
+\qquad
+\nu_s = 0.20.
+\]
+
+This is a deliberate modelling boundary.  The current example is a nonlinear
+\emph{frame} with an elastic slab diaphragm, not yet a fully fiberised RC
+shell--frame interaction problem.
+
+\section{Why Fibers Belong in the Constitutive Layer}
+
+The crucial architectural decision is that the fiber discretisation is not a
+visualisation gadget.  It is the constitutive relation itself:
+\[
+\texttt{FiberSection3D}
+\;\rightarrow\;
+\texttt{Material<TimoshenkoBeam3D>}
+\;\rightarrow\;
+\texttt{BeamElement}.
+\]
+
+That means the same reduction policy that maps generalized beam strain
+\((\varepsilon_0,\kappa_y,\kappa_z,\gamma_y,\gamma_z,\theta')\) to section
+response is already the one that will later be reusable for:
+\begin{itemize}
+  \item post-processing,
+  \item section-force recovery,
+  \item multiscale or scale-bridging initialisation,
+  \item transfer of structural states to continuum models.
+\end{itemize}
+
+The visualisation layer only reads committed constitutive snapshots; it does
+not define the physics.
+
+\section{Section Kinematics and Fiber Stress Recovery}
+
+For each beam material point, the generalized strain vector is:
+\[
+\mathbf{e} =
+\begin{bmatrix}
+\varepsilon_0 &
+\kappa_y &
+\kappa_z &
+\gamma_y &
+\gamma_z &
+\theta'
+\end{bmatrix}^{T}.
+\]
+
+The axial strain at a fiber located at local section coordinates \((y,z)\) is
+reconstructed as:
+\[
+\varepsilon_f(y,z) = \varepsilon_0 - z\,\kappa_y + y\,\kappa_z.
+\]
+
+The section resultants then follow from numerical integration over the fibers:
+\[
+N   = \sum_i \sigma_i A_i,
+\qquad
+M_y = \sum_i \sigma_i(-z_i)A_i,
+\qquad
+M_z = \sum_i \sigma_i y_i A_i.
+\]
+
+The shear and torsional terms remain elastic:
+\[
+V_y = \kappa_y G A\,\gamma_y,
+\qquad
+V_z = \kappa_z G A\,\gamma_z,
+\qquad
+T   = GJ\,\theta'.
+\]
+
+This is why the current example is materially nonlinear but still efficient:
+only the axial/flexural part of the section is fiber-integrated, while the
+shear/torsion part remains compact and closed form.
+
+\section{Global Solution Strategy}
+
+The mixed model is solved with
+\texttt{NonlinearAnalysis<..., StructuralPolicy>}, i.e. PETSc SNES on the same
+polymorphic structural container already used by the linear example.  The load
+vector is applied incrementally:
+\[
+\lambda_k = \frac{k}{12},
+\qquad
+k = 1,\dots,12,
+\]
+with automatic step bisection enabled up to depth \(6\), although the final
+run converged without exhausting that budget.
+
+The PETSc options used in the executable are:
+\begin{itemize}
+  \item \texttt{-snes\_type newtonls},
+  \item \texttt{-snes\_linesearch\_type bt},
+  \item \texttt{-snes\_rtol 1e-8},
+  \item \texttt{-snes\_atol 1e-9},
+  \item \texttt{-snes\_max\_it 40},
+  \item \texttt{-ksp\_type preonly},
+  \item \texttt{-pc\_type lu}.
+\end{itemize}
+
+\subsection{Analysis-layer hardening}
+
+In order for this example to compile and solve through the structural
+type-erased path, \texttt{NLAnalysis} was generalised.  The solver now uses two
+assembly routes:
+\begin{itemize}
+  \item a fast local-vector route for continuum elements exposing explicit
+        element DOF extraction and local tangent routines;
+  \item a generic \texttt{FiniteElement} route for structural type-erased
+        elements, assembling through \texttt{compute\_internal\_forces()} and
+        \texttt{inject\_tangent\_stiffness()}.
+\end{itemize}
+
+This keeps the continuum hot path intact while making the nonlinear solver
+architecturally consistent with the structural abstraction already present in
+the codebase.
+
+\section{Loads and Boundary Conditions}
+
+The support conditions are unchanged from the baseline model:
+all nodes on \(z=0\) are fully fixed.
+
+The slabs carry a uniform gravity pressure:
+\[
+q_g = -0.0075\ \mathrm{MN/m^2}.
+\]
+
+The lateral load pattern is triangular and applied at the corner
+\((18,10,z_k)\):
+\[
+F_x^{(k)} = 0.20\,k \quad \mathrm{MN},
+\qquad
+k = 1,\dots,5.
+\]
+
+This choice keeps the model response moderate while making sway and beam
+flexure clearly visible.
+
+\section{Results of the Executed Example}
+
+The example was executed successfully in the current workspace.  The final
+incremental solve converged at \(\lambda=1.0\) with \(4\) SNES iterations in
+the last step.
+
+The reported response values are:
+\[
+\max \|\mathbf{u}\| = 0.003767\ \mathrm{m},
+\qquad
+\max |u_x| = 0.003314\ \mathrm{m},
+\qquad
+\max |u_z| = 0.001244\ \mathrm{m},
+\]
+and at the roof corner:
+\[
+u_x = 0.003314\ \mathrm{m},
+\qquad
+u_y = -0.001473\ \mathrm{m},
+\qquad
+u_z = -0.001019\ \mathrm{m}.
+\]
+
+The roof drift ratio is:
+\[
+\frac{u_x^\text{roof}}{H} = 2.07\times 10^{-4}.
+\]
+
+This is intentionally a mild nonlinear response, not a collapse or pushover
+limit-state study.  The objective here is robustness and architectural
+traceability, not maximum inelastic excursion.
+
+\section{VTK Output}
+
+The example writes:
+\begin{verbatim}
+regular_5story_rc_nonlinear_building_structural.vtm
+\end{verbatim}
+plus the corresponding block sidecars:
+\begin{itemize}
+  \item \texttt{\_axis.vtp}
+  \item \texttt{\_surface.vtp}
+  \item \texttt{\_sections.vtp}
+  \item \texttt{\_material\_sites.vtp}
+  \item \texttt{\_fibers.vtp}
+\end{itemize}
+
+For nonlinear RC interpretation, the most important block is:
+\begin{itemize}
+  \item \texttt{fibers}: it contains the actual fiber-level
+        \texttt{fiber\_strain\_xx} and \texttt{fiber\_stress\_xx} values
+        reconstructed from the committed constitutive state.
+\end{itemize}
+
+The surface block remains useful for displacement visualisation and geometric
+context, but the truly nonlinear stress information lives at the fiber level.
+
+\section{Regression and Verification}
+
+Alongside the full building example, a dedicated regression test was added:
+\begin{verbatim}
+tests/test_rc_fiber_frame_nonlinear.cpp
+\end{verbatim}
+
+It solves a small RC fiber cantilever with the same
+\texttt{BeamElement + FiberSection + NonlinearAnalysis} stack and checks:
+\begin{itemize}
+  \item convergence of the incremental SNES solve,
+  \item finite tip displacement,
+  \item physically correct sign of the vertical response.
+\end{itemize}
+
+During that work a real lifecycle bug was found and fixed in the test harness:
+PETSc-owning objects must be destroyed before \texttt{PetscFinalize()}.
+
+\section{Current Limits and Next Steps}
+
+The example is already useful as a production-quality integration case, but
+some limits remain explicit:
+\begin{itemize}
+  \item the slab is still elastic;
+  \item the structural kinematics are still small-strain;
+  \item beam surface stresses in the generic surface carrier are only a
+        kinematic proxy when no closed-form beam snapshot exists, whereas the
+        fiber block contains the actual nonlinear stress information;
+  \item confined/unconfined concrete zoning is still schematic rather than
+        design-code calibrated.
+\end{itemize}
+
+The next natural architectural step is not in visualisation, but in
+reconstruction: extend the same reduction-policy logic toward consistent
+scale-bridging and, eventually, transfer of committed structural states to a
+continuum discretisation.

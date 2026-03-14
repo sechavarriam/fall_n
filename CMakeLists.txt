@@ -435,6 +435,25 @@ vtk_module_autoinit(
 
 add_test(NAME beam_n_element COMMAND fall_n_beam_n_test)
 
+# ── Nonlinear RC fiber-frame regression ────────────────────────────────────
+add_executable(fall_n_rc_fiber_frame_test
+  tests/test_rc_fiber_frame_nonlinear.cpp
+)
+
+target_include_directories(fall_n_rc_fiber_frame_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_rc_fiber_frame_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME rc_fiber_frame_nonlinear COMMAND fall_n_rc_fiber_frame_test)
+
 # ── Timoshenko cantilever benchmark (continuum vs beam vs analytical) ─────────
 add_executable(fall_n_cantilever_benchmark
   tests/test_timoshenko_cantilever_benchmark.cpp

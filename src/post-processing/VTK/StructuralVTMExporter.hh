@@ -98,6 +98,28 @@ BeamProfileT profile_from_snapshot(const SectionConstitutiveSnapshot& snapshot,
                 }
             }
         }
+
+        if (snapshot.has_fibers()) {
+            double y_min = snapshot.fibers.front().y;
+            double y_max = snapshot.fibers.front().y;
+            double z_min = snapshot.fibers.front().z;
+            double z_max = snapshot.fibers.front().z;
+
+            for (const auto& fiber : snapshot.fibers) {
+                y_min = std::min(y_min, fiber.y);
+                y_max = std::max(y_max, fiber.y);
+                z_min = std::min(z_min, fiber.z);
+                z_max = std::max(z_max, fiber.z);
+            }
+
+            const double width  = y_max - y_min;
+            const double height = z_max - z_min;
+
+            if (std::isfinite(width) && std::isfinite(height)
+                && width > 0.0 && height > 0.0) {
+                return BeamProfileT{width, height};
+            }
+        }
     }
     return fallback;
 }
