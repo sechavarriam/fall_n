@@ -51,7 +51,16 @@ template <typename MaterialPolicy,
           typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class NonlinearAnalysis {
     using ModelT = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
+    using ElementT = typename ModelT::element_type;
     static constexpr auto dim = MaterialPolicy::dim;
+
+    static constexpr bool has_explicit_local_nonlinear_api =
+        requires (ElementT& elem, Vec u_local, const Eigen::VectorXd& u_e) {
+            { elem.extract_element_dofs(u_local) } -> std::same_as<Eigen::VectorXd>;
+            { elem.compute_internal_force_vector(u_e) } -> std::same_as<Eigen::VectorXd>;
+            { elem.compute_tangent_stiffness_matrix(u_e) } -> std::same_as<Eigen::MatrixXd>;
+            elem.get_dof_indices();
+        };
 
     ModelT* model_{nullptr};
     SNES    snes_{nullptr};
@@ -99,34 +108,40 @@ class NonlinearAnalysis {
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
         VecAXPY(u_local, 1.0, model->imposed_solution());
 
-        const auto num_elems = model->elements().size();
-
-        // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
-        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
-        }
-
-        // Phase 2: Compute element internal forces (PARALLEL)
-        //   Each element reads only its own geometry + material state.
-        std::vector<Eigen::VectorXd> elem_f(num_elems);
-
-        #ifdef _OPENMP
-        #pragma omp parallel for schedule(static)
-        #endif
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_f[e] = model->elements()[e].compute_internal_force_vector(elem_dofs[e]);
-        }
-
-        // Phase 3: Inject into PETSc local vector (sequential — not thread-safe)
         Vec f_int_local;
         DMGetLocalVector(dm, &f_int_local);
         VecSet(f_int_local, 0.0);
 
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            const auto& dofs = model->elements()[e].get_dof_indices();
-            VecSetValues(f_int_local, static_cast<PetscInt>(dofs.size()),
-                         dofs.data(), elem_f[e].data(), ADD_VALUES);
+        if constexpr (has_explicit_local_nonlinear_api) {
+            const auto num_elems = model->elements().size();
+
+            // Fast path for elements exposing local-vector assembly kernels.
+            std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
+            }
+
+            std::vector<Eigen::VectorXd> elem_f(num_elems);
+
+            #ifdef _OPENMP
+            #pragma omp parallel for schedule(static)
+            #endif
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                elem_f[e] = model->elements()[e].compute_internal_force_vector(elem_dofs[e]);
+            }
+
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                const auto& dofs = model->elements()[e].get_dof_indices();
+                VecSetValues(f_int_local, static_cast<PetscInt>(dofs.size()),
+                             dofs.data(), elem_f[e].data(), ADD_VALUES);
+            }
+        } else {
+            // Generic path for structural type-erased elements: assemble through
+            // the FiniteElement interface without assuming access to local DOF
+            // extraction or explicit local stiffness vectors.
+            for (auto& element : model->elements()) {
+                element.compute_internal_forces(u_local, f_int_local);
+            }
         }
 
         // Scatter local f_int → global residual
@@ -171,32 +186,33 @@ class NonlinearAnalysis {
         DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
         VecAXPY(u_local, 1.0, model->imposed_solution());
 
-        const auto num_elems = model->elements().size();
+        if constexpr (has_explicit_local_nonlinear_api) {
+            const auto num_elems = model->elements().size();
 
-        // Phase 1: Extract element DOFs (sequential — shared PETSc Vec read)
-        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
-        }
+            std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
+            }
 
-        // Phase 2: Compute element stiffness matrices (PARALLEL)
-        //   Each element reads only its own geometry + material state.
-        //   K_e = Σ_gp  w·|J|·(Bᵀ·C_t·B + K_σ)
-        std::vector<Eigen::MatrixXd> elem_K(num_elems);
+            std::vector<Eigen::MatrixXd> elem_K(num_elems);
 
-        #ifdef _OPENMP
-        #pragma omp parallel for schedule(static)
-        #endif
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            elem_K[e] = model->elements()[e].compute_tangent_stiffness_matrix(elem_dofs[e]);
-        }
+            #ifdef _OPENMP
+            #pragma omp parallel for schedule(static)
+            #endif
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                elem_K[e] = model->elements()[e].compute_tangent_stiffness_matrix(elem_dofs[e]);
+            }
 
-        // Phase 3: Inject into global matrix (sequential — PETSc not thread-safe)
-        for (std::size_t e = 0; e < num_elems; ++e) {
-            const auto& dofs = model->elements()[e].get_dof_indices();
-            const auto n = static_cast<PetscInt>(dofs.size());
-            MatSetValuesLocal(J_mat, n, dofs.data(), n, dofs.data(),
-                              elem_K[e].data(), ADD_VALUES);
+            for (std::size_t e = 0; e < num_elems; ++e) {
+                const auto& dofs = model->elements()[e].get_dof_indices();
+                const auto n = static_cast<PetscInt>(dofs.size());
+                MatSetValuesLocal(J_mat, n, dofs.data(), n, dofs.data(),
+                                  elem_K[e].data(), ADD_VALUES);
+            }
+        } else {
+            for (auto& element : model->elements()) {
+                element.inject_tangent_stiffness(u_local, J_mat);
+            }
         }
 
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);

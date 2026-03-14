@@ -161,6 +161,11 @@ Key topics include:
         explicit point-role, topological-dimension, and physical-group labels,
         while the algebraic layout is driven by depth-$0$ vertices rather than
         brittle height-based assumptions;
+  \item A full mixed-building demonstration in the executable entry point:
+        first an elastic baseline, and then a materially nonlinear
+        reinforced-concrete continuation with fiber sections in the frame,
+        elastic MITC4 slabs, incremental SNES solution, and multi-block
+        structural VTK export including fiber-level fields;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -198,6 +203,8 @@ discussion of the design rationale.
 \input{ch21_structural_scale_reconstruction}
 \input{ch22_mixed_structural_table_example}
 \input{ch23_dmplex_mixed_topology}
+\input{ch24_regular_5story_building_example}
+\input{ch25_rc_nonlinear_building_example}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}
