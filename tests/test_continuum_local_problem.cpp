@@ -6,12 +6,16 @@
 
 #include "src/continuum/Continuum.hh"
 #include "src/materials/ConstitutiveRelation.hh"
+#include "src/materials/ConstitutiveIntegrator.hh"
+#include "src/materials/LinealElasticMaterial.hh"
+#include "src/materials/Material.hh"
 #include "src/materials/MaterialPolicy.hh"
 #include "src/materials/Strain.hh"
 #include "src/materials/Stress.hh"
 #include "src/materials/local_problem/ContinuumLocalProblem.hh"
 #include "src/materials/local_problem/LocalLinearSolver.hh"
 #include "src/materials/local_problem/NewtonLocalSolver.hh"
+#include "src/model/MaterialPoint.hh"
 
 using namespace continuum;
 
@@ -332,6 +336,10 @@ struct TrackingSolver {
     }
 };
 
+using ToyNewtonIntegrator = ContinuumLocalProblemIntegrator<
+    FiniteStrainToyLocalProblem,
+    NewtonLocalSolver<12>>;
+
 [[nodiscard]] ConstitutiveKinematics<3> make_finite_strain_kinematics() {
     Tensor2<3> F;
     F(0,0) = 1.08;  F(0,1) = 0.03;  F(0,2) = -0.01;
@@ -423,6 +431,64 @@ void test_continuum_local_problem_elastic_short_circuit() {
         max_abs_diff(result.algorithmic_state.q, alpha.q) < 1e-14);
 }
 
+void test_continuum_local_problem_integrates_through_material_handle() {
+    MaterialInstance<FiniteStrainToyRelation> site{FiniteStrainToyRelation{}};
+    Material<ThreeDimensionalMaterial> material{site, ToyNewtonIntegrator{}};
+
+    const auto kin = make_finite_strain_kinematics();
+    const auto state_before = material.current_state().components();
+
+    const auto stress_before = material.compute_response(kin);
+    const auto state_after_prediction = material.current_state().components();
+    material.commit(kin);
+    const auto stress_after = material.compute_response(kin);
+
+    const Eigen::Vector2d expected_state{
+        0.5 * kin.green_lagrange_strain.voigt_engineering()(0),
+        0.25 * (kin.detF - 1.0)
+    };
+
+    report("continuum_local_material_handle_preserves_tangent_shape",
+        material.tangent(kin).rows() == 6 && material.tangent(kin).cols() == 6);
+    report("continuum_local_material_handle_prediction_is_side_effect_free",
+        max_abs_diff(state_before, state_after_prediction) < 1e-14);
+    report("continuum_local_material_handle_commits_state",
+        max_abs_diff(material.current_state().components(), kin.active_strain_voigt()) < 1e-12);
+
+    MaterialInstance<FiniteStrainToyRelation> committed_site{FiniteStrainToyRelation{}};
+    committed_site.algorithmic_state().q = expected_state;
+    const auto expected_stress =
+        committed_site.constitutive_relation().compute_response(
+            kin, committed_site.algorithmic_state());
+    report("continuum_local_material_handle_prediction_matches_committed_response",
+        max_abs_diff(stress_before.components(), expected_stress.components()) < 1e-12);
+    report("continuum_local_material_handle_response_matches_committed_site",
+        max_abs_diff(stress_after.components(), expected_stress.components()) < 1e-12);
+}
+
+void test_continuum_local_problem_integrates_through_material_point() {
+    MaterialInstance<FiniteStrainToyRelation> site{FiniteStrainToyRelation{}};
+    Material<ThreeDimensionalMaterial> material{site, ToyNewtonIntegrator{}};
+    MaterialPoint<ThreeDimensionalMaterial> point{material};
+
+    IntegrationPoint<3> gp;
+    gp.set_coord(std::array<double, 3>{0.25, 0.5, 0.75});
+    gp.set_weight(2.0);
+    point.bind_integration_point(gp);
+
+    const auto kin = make_finite_strain_kinematics();
+    point.commit(kin);
+    const auto stress = point.compute_response(kin);
+
+    report("continuum_local_material_point_binds_gauss_site",
+        point.integration_point() != nullptr &&
+        point.integration_point()->weight() == 2.0);
+    report("continuum_local_material_point_updates_current_state",
+        max_abs_diff(point.current_state().components(), kin.active_strain_voigt()) < 1e-12);
+    report("continuum_local_material_point_returns_nonzero_stress",
+        stress.components().norm() > 1e-12);
+}
+
 } // namespace
 
 int main() {
@@ -431,6 +497,8 @@ int main() {
     test_continuum_local_problem_with_newton();
     test_continuum_local_problem_with_direct_solver();
     test_continuum_local_problem_elastic_short_circuit();
+    test_continuum_local_problem_integrates_through_material_handle();
+    test_continuum_local_problem_integrates_through_material_point();
 
     std::cout << "\nPassed: " << passed << "  Failed: " << failed << "\n";
     return failed == 0 ? 0 : 1;

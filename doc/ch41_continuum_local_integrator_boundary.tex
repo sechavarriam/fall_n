@@ -1,0 +1,198 @@
+\chapter{Integrating Continuum Local Problems at the Material Boundary}
+\label{ch:continuum-local-integrator-boundary}
+
+\section{Motivation}
+
+Chapter~\ref{ch:continuum-local-problem-interface} introduced a generic local
+nonlinear problem driven by \texttt{ConstitutiveKinematics<dim>}. That was the
+necessary abstraction step, but it was not yet sufficient for real use in the
+library. A constitutive framework is only operational when the local problem
+can be consumed through the same public boundary used by elements and material
+sites:
+\begin{itemize}
+  \item \texttt{Material<Policy>},
+  \item \texttt{MaterialPoint<Policy>},
+  \item and, later, section-level constitutive sites built on the same handle.
+\end{itemize}
+
+The present phase performs that actual integration. The new
+\texttt{ContinuumLocalProblemIntegrator<LocalProblem, LocalSolver>} is a
+constitutive-integrator policy injected at the \texttt{Material<>} boundary.
+This keeps the public constitutive API stable while opening a finite-strain
+path that is still fully customizable at compile time.
+
+\section{Architectural Position}
+
+After this step, the continuum constitutive stack is:
+\begin{enumerate}
+  \item a constitutive relation
+        \[
+          \mathcal{R},
+        \]
+  \item an explicit algorithmic state
+        \[
+          \alpha_n,
+        \]
+  \item an injected local problem
+        \[
+          \mathbf{R}(\mathbf{x}; \mathcal{K}_{n+1}, \alpha_n) = \mathbf{0},
+        \]
+  \item an injected local nonlinear solver,
+  \item an injected constitutive integrator at the erased
+        \texttt{Material<>} boundary.
+\end{enumerate}
+
+In code, that last point matters. \texttt{Material<>} remains the uniform
+polymorphic handle seen by the rest of the library, but it is no longer tied
+to:
+\begin{itemize}
+  \item direct constitutive evaluation only,
+  \item embedded return-mapping only,
+  \item or small-strain kinematic carriers only.
+\end{itemize}
+
+The continuum-local path is therefore not a parallel API. It is a first-class
+integration path through the existing constitutive boundary.
+
+\section{Prediction and Commit Semantics}
+
+This integration step also fixes an important semantic point.
+
+For a rate-independent local constitutive update, evaluating the local problem
+at a given kinematic state should generally be side-effect free:
+\[
+  \sigma_{n+1}^{\text{alg}}
+  =
+  \mathcal{G}\bigl(\mathcal{K}_{n+1}, \alpha_n\bigr),
+\]
+where $\mathcal{G}$ denotes the local constitutive solve.
+
+That means:
+\begin{itemize}
+  \item \texttt{compute\_response(kin)} predicts the algorithmic response,
+  \item \texttt{tangent(kin)} predicts the associated algorithmic tangent,
+  \item \texttt{commit(kin)} persists the updated internal state and updates
+        the site kinematic state.
+\end{itemize}
+
+This is a better contract than using \texttt{compute\_response()} as a hidden
+mutation step. The distinction is especially important for:
+\begin{itemize}
+  \item repeated tangent evaluations inside a global Newton iteration,
+  \item material-curve drivers,
+  \item rollback/restart logic,
+  \item future PETSc-based local solvers,
+  \item and transfer to scale-reconstruction workflows.
+\end{itemize}
+
+In other words, the local constitutive solve is \emph{algorithmic}, but its
+state persistence is still explicit.
+
+\section{Mathematical Role of the Boundary Integrator}
+
+Given:
+\begin{itemize}
+  \item a continuum carrier $\mathcal{K}_{n+1}$,
+  \item a committed algorithmic state $\alpha_n$,
+  \item a local problem with unknown $\mathbf{x}$,
+\end{itemize}
+the boundary integrator performs:
+\begin{enumerate}
+  \item build the local context
+        \[
+          \mathcal{C}_{n+1}
+          =
+          \mathcal{C}(\mathcal{K}_{n+1}, \alpha_n),
+        \]
+  \item solve the local nonlinear system
+        \[
+          \mathbf{R}(\mathbf{x}; \mathcal{C}_{n+1}) = \mathbf{0},
+        \]
+  \item reconstruct the constitutive result
+        \[
+          \bigl(
+            \sigma_{n+1},
+            \mathbb{C}_{n+1}^{\text{alg}},
+            \alpha_{n+1}
+          \bigr)
+          =
+          \mathcal{F}(\mathbf{x}, \mathcal{C}_{n+1}),
+        \]
+  \item on commit, store $\alpha_{n+1}$ and the corresponding kinematic state.
+\end{enumerate}
+
+The essential architectural point is that none of those steps are hard-coded
+inside \texttt{Material<>}. The erased handle delegates them to the injected
+integrator, which itself delegates to the injected local problem and local
+solver.
+
+\section{Compile-Time Extension Points Preserved}
+
+The new path remains open at compile time in every important direction:
+\begin{itemize}
+  \item \textbf{Local problem}: different finite-strain models may define
+        their own context, unknown vector, residual and reconstruction logic.
+  \item \textbf{Local solver}: Newton is only one
+        \texttt{LocalNonlinearSolverPolicy}; it can be replaced by damped,
+        quasi-Newton, line-search or PETSc-backed solvers.
+  \item \textbf{Constitutive integrator}: \texttt{Material<>} only depends on
+        the integrator contract, not on the particular local-problem type.
+  \item \textbf{Constitutive site}: the same integration path is available
+        through \texttt{MaterialPoint<>}, which is the actual consumer at
+        continuum Gauss points.
+\end{itemize}
+
+This keeps the direction aligned with the long-term goals:
+\begin{itemize}
+  \item finite-strain plasticity,
+  \item damage-plasticity,
+  \item fracture-oriented local updates,
+  \item and multiscale transfer from structural to continuum models.
+\end{itemize}
+
+\section{Verification}
+
+The regression in
+\texttt{tests/test\_continuum\_local\_problem.cpp}
+now checks the complete path:
+\begin{itemize}
+  \item direct use of
+        \texttt{ContinuumLocalIntegrationAlgorithm<LocalProblem, Solver>},
+  \item integration through
+        \texttt{Material<ThreeDimensionalMaterial>},
+  \item integration through
+        \texttt{MaterialPoint<ThreeDimensionalMaterial>}.
+\end{itemize}
+
+The material-handle test is intentionally semantic:
+\begin{itemize}
+  \item prediction is verified to be side-effect free,
+  \item commit is verified to persist the site kinematics,
+  \item the committed response is checked against a reference constitutive site
+        with the same explicit algorithmic state.
+\end{itemize}
+
+This is the right contract for the next step. The infrastructure is no longer
+limited to an isolated continuum-local helper; it now participates in the real
+constitutive boundary used by the rest of the codebase.
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1998materialboundary}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{bonet2008materialboundary}
+J.~Bonet and R.~D. Wood,
+\emph{Nonlinear Continuum Mechanics for Finite Element Analysis},
+2nd ed., Cambridge University Press, 2008.
+
+\bibitem{desouza2008materialboundary}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\end{thebibliography}
