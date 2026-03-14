@@ -8,13 +8,14 @@
 #include "../geometry/IntegrationPoint.hh"
 
 template<class MaterialPolicy> 
-class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
+class MaterialPoint{// Legacy name for a continuum constitutive site.
         static constexpr std::size_t counter{0};
 
     private:
-        using MaterialT      = Material<MaterialPolicy>;
-        using StateVariableT = MaterialPolicy::StateVariableT;
-        using StressT        = MaterialPolicy::StressT;
+        using ConstitutiveHandleT = Material<MaterialPolicy>;
+        using MaterialT           = ConstitutiveHandleT; // legacy local alias
+        using StateVariableT      = MaterialPolicy::StateVariableT;
+        using StressT             = MaterialPolicy::StressT;
 
         std::size_t id_; // Unique identifier for the material point.
 
@@ -23,12 +24,13 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         // constitutive role layered on top of an integration site, not a
         // geometric/topological entity of the mesh.
 
-        MaterialT material_; // material instance. 
-                            // It encapsulates the constitutive relation, the state variable and the update strategy.
+        MaterialT material_;
+        // Owning erased constitutive handle attached to this continuum site.
 
     public:
 
         static constexpr std::size_t dim = MaterialPolicy::dim;
+        using ConstitutiveSpace = MaterialPolicy;
 
         [[nodiscard]] const std::array<double, dim>& coord() const noexcept { return gauss_point_->coord(); }
         [[nodiscard]] double coord(std::size_t i) const noexcept { return gauss_point_->coord(i); }
@@ -64,10 +66,18 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         }
 
         [[nodiscard]] MaterialConstRef<MaterialPolicy> material_cref() const {
-            return material_.cref();
+            return constitutive_cref();
         }
 
         [[nodiscard]] MaterialRef<MaterialPolicy> material_ref() {
+            return constitutive_ref();
+        }
+
+        [[nodiscard]] MaterialConstRef<MaterialPolicy> constitutive_cref() const {
+            return material_.cref();
+        }
+
+        [[nodiscard]] MaterialRef<MaterialPolicy> constitutive_ref() {
             return material_.ref();
         }
 
@@ -89,5 +99,8 @@ class MaterialPoint{// : public IntegrationPoint<dim>{ or Point
         ~MaterialPoint() = default;
         
 };
+
+template<class ConstitutiveSpace>
+using ContinuumConstitutiveSite = MaterialPoint<ConstitutiveSpace>;
 
 #endif // FALL_N_MATERIAL_POINT_HH

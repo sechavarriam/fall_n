@@ -36,9 +36,10 @@
 template <class MaterialPolicy, std::size_t PointDim = MaterialPolicy::dim>
 class MaterialSection {
 
-    using MaterialT      = Material<MaterialPolicy>;
-    using StateVariableT = typename MaterialPolicy::StateVariableT;
-    using StressT        = typename MaterialPolicy::StressT;
+    using ConstitutiveHandleT = Material<MaterialPolicy>;
+    using MaterialT           = ConstitutiveHandleT; // legacy local alias
+    using StateVariableT      = typename MaterialPolicy::StateVariableT;
+    using StressT             = typename MaterialPolicy::StressT;
 
     static constexpr std::size_t material_dim = MaterialPolicy::dim;
 
@@ -53,6 +54,7 @@ class MaterialSection {
 public:
 
     static constexpr std::size_t dim = PointDim;
+    using ConstitutiveSpace = MaterialPolicy;
 
     // ── Coordinate access (from the integration point) ──────────────────
 
@@ -110,10 +112,18 @@ public:
     }
 
     [[nodiscard]] MaterialConstRef<MaterialPolicy> material_cref() const {
-        return material_.cref();
+        return constitutive_cref();
     }
 
     [[nodiscard]] MaterialRef<MaterialPolicy> material_ref() {
+        return constitutive_ref();
+    }
+
+    [[nodiscard]] MaterialConstRef<MaterialPolicy> constitutive_cref() const {
+        return material_.cref();
+    }
+
+    [[nodiscard]] MaterialRef<MaterialPolicy> constitutive_ref() {
         return material_.ref();
     }
 
@@ -129,5 +139,8 @@ public:
     MaterialSection() = default;
     ~MaterialSection() = default;
 };
+
+template <class ConstitutiveSpace, std::size_t PointDim = ConstitutiveSpace::dim>
+using SectionConstitutiveSite = MaterialSection<ConstitutiveSpace, PointDim>;
 
 #endif // FALL_N_MATERIAL_SECTION_HH

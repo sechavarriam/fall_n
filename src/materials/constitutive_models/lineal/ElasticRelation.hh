@@ -8,7 +8,7 @@
 #include <concepts>
 
 #include "../../MaterialPolicy.hh"
-#include "../../MaterialState.hh"
+#include "../../ConstitutiveState.hh"
 #include "../../ConstitutiveRelation.hh"
 
 #include "../../../numerics/linear_algebra/Matrix.hh"
@@ -48,8 +48,9 @@ public:
     using StrainT        = KinematicT;
     using StressT        = ConjugateT;
     using MatrixT        = TangentT;
-    using MaterialStateT = MaterialState<ElasticState, StrainT>;
-    using StateVariableT = typename MaterialStateT::StateVariableT;
+    using ConstitutiveStateT = CommittedConstitutiveState<StrainT>;
+    using MaterialStateT = ConstitutiveStateT; // legacy alias
+    using StateVariableT = typename ConstitutiveStateT::StateVariableT;
 
     static constexpr std::size_t dim           = KinematicT::dim;
     static constexpr std::size_t num_strains_  = KinematicT::num_components;
@@ -137,7 +138,8 @@ public:
     using StrainT        = KinematicT;
     using StressT        = ConjugateT;
     using MatrixT        = TangentT;
-    using MaterialStateT = MaterialState<ElasticState, StrainT>;
+    using ConstitutiveStateT = CommittedConstitutiveState<StrainT>;
+    using MaterialStateT = ConstitutiveStateT; // legacy alias
     using StateVariableT = StrainT;
 
     static constexpr std::size_t dim           = KinematicT::dim;

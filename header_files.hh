@@ -93,6 +93,8 @@
 #include "src/materials/MaterialPolicy.hh"
 #include "src/materials/MaterialStatePolicy.hh"
 #include "src/materials/MaterialState.hh"
+#include "src/materials/ConstitutiveState.hh"
+#include "src/materials/ConstitutiveIntegrator.hh"
 #include "src/materials/SectionConstitutiveSnapshot.hh"
 
 // --- Concept hierarchy ---

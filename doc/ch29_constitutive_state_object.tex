@@ -1,0 +1,157 @@
+\chapter{ConstitutiveState as a Semantic Layer}
+
+\section{Why Another Layer Was Needed}
+
+After the storage cleanup of the previous chapter, the code still had an
+architectural ambiguity: \texttt{MaterialState} was doing two jobs at once.
+
+\begin{itemize}
+  \item At the low level, it was a generic adapter over a storage policy.
+  \item At the constitutive-site level, it was implicitly standing in for the
+        local state of a material point or section point.
+\end{itemize}
+
+Those roles are related, but they are not identical.  A storage adapter is an
+implementation device.  A constitutive state is a modelling concept.
+
+To make that distinction explicit without breaking the existing kernels, this
+phase introduces \texttt{ConstitutiveState<StateStoragePolicy, ...>} as a thin,
+fully inline semantic wrapper over \texttt{MaterialState}.
+
+\section{Layered View}
+
+The state path is now:
+
+\begin{center}
+\texttt{HistoryStorage / CircularHistoryStorage / ElasticState / TrialCommittedState}
+$\rightarrow$
+\texttt{MaterialState}
+$\rightarrow$
+\texttt{ConstitutiveState}
+$\rightarrow$
+\texttt{MaterialInstance}
+\end{center}
+
+The meaning of each layer is now cleaner:
+
+\begin{itemize}
+  \item \texttt{HistoryStorage} and its variants define how samples are
+        physically stored;
+  \item \texttt{MaterialState} adapts that storage to a uniform compile-time
+        contract;
+  \item \texttt{ConstitutiveState} says that the stored quantity is the local
+        state of a constitutive site;
+  \item \texttt{MaterialInstance} binds that local state to a constitutive law.
+\end{itemize}
+
+\section{What ConstitutiveState Adds}
+
+\texttt{ConstitutiveState} does not add runtime overhead or dynamic dispatch.
+Its value is semantic and architectural:
+
+\begin{itemize}
+  \item it gives \texttt{MaterialInstance} an explicit
+        \texttt{ConstitutiveStateT} alias;
+  \item it exposes \texttt{constitutive\_state()} as a first-class accessor;
+  \item it lets the code and the documentation talk about ``the constitutive
+        state of the site'' instead of ``the storage policy wrapper'';
+  \item it prepares the next step, where the constitutive law should stop
+        owning all irreversible memory internally.
+\end{itemize}
+
+In other words, the wrapper is intentionally thin, but its name matters.
+Architecturally, names are part of the model.
+
+\section{Effect on MaterialInstance}
+
+\texttt{MaterialInstance<Relation, StatePolicy>} no longer stores
+\texttt{MaterialState<StatePolicy, KinematicT>} directly.  It now stores
+
+\begin{center}
+\texttt{ConstitutiveState<StatePolicy, KinematicT>}
+\end{center}
+
+and exposes it through:
+
+\begin{itemize}
+  \item \texttt{current\_state()} as the legacy direct view;
+  \item \texttt{constitutive\_state()} as the new semantic accessor.
+\end{itemize}
+
+This means user code and future algorithms can progressively move from
+``give me the current strain-like value'' toward
+``give me the constitutive-state object attached to this site''.
+
+\section{Why This Matters for Future Nonlinear Algorithms}
+
+The next architectural step should separate:
+
+\begin{enumerate}
+  \item the constitutive law;
+  \item the constitutive state;
+  \item the integration algorithm.
+\end{enumerate}
+
+That separation is difficult if the local state has no identity of its own.
+By introducing \texttt{ConstitutiveState}, the code now has a clear place where
+future information can migrate:
+
+\begin{itemize}
+  \item committed kinematic state;
+  \item trial state;
+  \item algorithmic internal variables;
+  \item nonlocal history variables;
+  \item fracture or damage regularisation data;
+  \item time-integration metadata for dynamic constitutive updates.
+\end{itemize}
+
+This does not mean all of that should be stored in one monolithic object.  It
+means the architecture now has a semantically correct anchor for those future
+choices.
+
+\section{Static Polymorphism Is Preserved}
+
+The introduction of \texttt{ConstitutiveState} preserves the compile-time
+character of the constitutive hot path:
+
+\begin{itemize}
+  \item all storage-policy choices remain template parameters;
+  \item no additional virtual calls are introduced;
+  \item circular-history windows still use fixed-size arrays and
+        compile-time capacity;
+  \item the relation type remains statically known inside homogeneous loops.
+\end{itemize}
+
+This is important for fiber sections and any future continuum crack/fracture
+model where thousands or millions of local constitutive sites may be updated.
+
+\section{What This Refactor Still Does Not Do}
+
+Even with \texttt{ConstitutiveState} in place, the local nonlinear laws in the
+current code still keep their irreversible memory internally.  Therefore:
+
+\begin{itemize}
+  \item \texttt{ConstitutiveState} is not yet the sole owner of local history;
+  \item \texttt{ConstitutiveIntegrator} still does not evolve an explicit state
+        object passed by argument;
+  \item the design is cleaner, but not yet fully factored.
+\end{itemize}
+
+This is acceptable at this stage.  The refactor is intentionally incremental:
+first make the ontology correct, then move behaviour.
+
+\section{Immediate Consequence}
+
+From this point onward, the recommended interpretation is:
+
+\begin{itemize}
+  \item \texttt{MaterialState}: low-level storage adapter;
+  \item \texttt{ConstitutiveState}: local state object of a constitutive site;
+  \item \texttt{MaterialInstance}: site-level binding of relation + state;
+  \item \texttt{Material<Policy>}: erased owning constitutive handle;
+  \item \texttt{MaterialPoint} / \texttt{MaterialSection}: continuum and
+        structural constitutive sites bound to geometric integration sites.
+\end{itemize}
+
+This vocabulary is much closer to the real mathematical model and therefore a
+better base for the next refactor stage.

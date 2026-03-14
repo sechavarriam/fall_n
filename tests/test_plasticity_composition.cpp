@@ -13,6 +13,7 @@
 //    6. Orthogonal composition: same yield + different hardening parameters
 //    7. PlasticInternalVariables (eps_p, eps_bar_p accessors)
 //    8. Type-erasure integration (Material<> + InelasticUpdate)
+//    9. External algorithmic-state path for PlasticityRelation
 //
 //  Build: linked against Eigen, PETSc, VTK (via CMake test target).
 //  No mesh/PETSc runtime required — pure material-level tests.
@@ -420,7 +421,60 @@ void test_type_erasure_integration() {
 }
 
 
-// ─── Test 8: Concept verification at compile time ────────────────────────────
+// ─── Test 8: External algorithmic-state path ────────────────────────────────
+
+void test_external_algorithmic_state_path() {
+    std::cout << "Test 8: External algorithmic-state path\n";
+
+    using PlRel = PlasticityRelation<
+        ThreeDimensionalMaterial, VonMises, LinearIsotropicHardening, AssociatedFlow>;
+
+    static_assert(ExternallyStateDrivenConstitutiveRelation<PlRel>);
+
+    PlRel rel{200.0, 0.3, 0.250, 10.0};
+    typename PlRel::InternalVariablesT alpha{};
+
+    Strain<6> eps_large;
+    eps_large.set_strain(
+        (Eigen::Vector<double, 6>() << 0.01, -0.003, -0.003, 0, 0, 0).finished());
+
+    // Commit through the external-state path only.
+    rel.commit(alpha, eps_large);
+
+    assert(alpha.eps_bar_p() > 1e-6 &&
+           "external algorithmic state must evolve under commit(alpha, eps)");
+    assert(rel.internal_state().eps_bar_p() < 1e-30 &&
+           "explicit-state commit must not mutate the relation-owned compatibility state");
+
+    // A typed constitutive site should now store the algorithmic state at the
+    // site level, not inside the relation.
+    using MatInst = MaterialInstance<PlRel, CommittedState>;
+    MatInst site{200.0, 0.3, 0.250, 10.0};
+    site.update(eps_large);
+
+    assert(site.internal_state().eps_bar_p() > 1e-6 &&
+           "MaterialInstance must expose the externally stored algorithmic state");
+    assert(site.constitutive_relation().internal_state().eps_bar_p() < 1e-30 &&
+           "site update must leave the embedded compatibility state in the relation untouched");
+
+    Strain<6> eps_np;
+    eps_np.set_strain(
+        (Eigen::Vector<double, 6>() << 0.005, 0.005, -0.010, 0, 0, 0).finished());
+
+    auto sigma_site = site.compute_response(eps_np);
+    MatInst fresh_site{200.0, 0.3, 0.250, 10.0};
+    auto sigma_fresh = fresh_site.compute_response(eps_np);
+
+    double diff = (sigma_site.components() - sigma_fresh.components()).norm();
+    std::cout << "  ||σ_site - σ_fresh|| after explicit-state commit = " << diff << "\n";
+    assert(diff > 1e-10 &&
+           "site-level explicit algorithmic state must affect subsequent constitutive response");
+
+    std::cout << "  PASSED\n\n";
+}
+
+
+// ─── Test 9: Concept verification at compile time ────────────────────────────
 
 void test_concept_verification() {
     std::cout << "Test 8: Static concept verification\n";
@@ -470,6 +524,7 @@ int main() {
     test_backward_compat();
     test_orthogonal_composition();
     test_type_erasure_integration();
+    test_external_algorithmic_state_path();
     test_concept_verification();
 
     std::cout << "============================================\n";

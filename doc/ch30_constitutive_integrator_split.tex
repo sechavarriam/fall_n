@@ -1,0 +1,156 @@
+\chapter{ConstitutiveIntegrator as the Algorithmic Injection Point}
+
+\section{Motivation}
+
+After introducing \texttt{ConstitutiveState}, the constitutive subsystem still
+had one important ambiguity: the algorithmic step used to evaluate and commit a
+constitutive site was semantically present, but it was still described under
+the generic name \texttt{IntegrationStrategy}.  That name was operationally
+useful, but it was too broad.  The relevant object at this level is not any
+numerical integration procedure; it is the \emph{local constitutive
+integrator}.
+
+This chapter makes that distinction explicit by introducing
+\texttt{ConstitutiveIntegrator}.
+
+\section{Local Architectural Split}
+
+The constitutive subsystem is now described by four roles:
+
+\begin{enumerate}
+  \item \texttt{ConstitutiveRelation}: the physical local law;
+  \item \texttt{ConstitutiveState}: the state attached to the site;
+  \item \texttt{ConstitutiveIntegrator}: the algorithm that queries and commits
+        the site;
+  \item \texttt{Material<Policy>}: the erased runtime handle that injects the
+        chosen integrator into heterogeneous containers.
+\end{enumerate}
+
+This is not yet the final fully factored architecture, because many current
+nonlinear laws still keep irreversible variables internally.  However, the
+public and internal semantics now reflect the intended long-term split:
+
+\begin{center}
+\texttt{ConstitutiveLaw + ConstitutiveState + ConstitutiveIntegrator}
+\end{center}
+
+\section{Why the Injection Point Stays in \texttt{Material<Policy>}}
+
+The local algorithm is injected at the \texttt{Material<Policy>} boundary on
+purpose.
+
+\begin{itemize}
+  \item It preserves the existing type-erased heterogeneous storage model.
+  \item It avoids contaminating each constitutive relation with multiple
+        algorithmic variants prematurely.
+  \item It keeps the hot path statically typed inside each homogeneous material
+        model, while the runtime polymorphism remains confined to the already
+        existing erased handle.
+  \item It naturally matches the user-facing syntax:
+\begin{lstlisting}[language=C++]
+Material<ThreeDimensionalMaterial>{
+    J2PlasticMaterial3D{E, nu, sigma_y, H},
+    EmbeddedInelasticConstitutiveIntegrator{}
+};
+\end{lstlisting}
+  \item It opens the door to future variants such as substepping, line-search
+        local updates, operator splits, or explicit/implicit constitutive
+        drivers without changing element kernels.
+\end{itemize}
+
+\section{Current Concrete Integrators}
+
+Two semantic integrators are now made explicit:
+
+\begin{itemize}
+  \item \texttt{PassThroughIntegrator}: path-independent evaluation.  It reads
+        stress and tangent directly from the constitutive relation and keeps
+        \texttt{commit()} as a no-op for backward-compatible elastic behaviour.
+  \item \texttt{EmbeddedRelationIntegrator}: compatibility bridge for current
+        nonlinear laws.  It evaluates response and tangent from the relation,
+        and during \texttt{commit()} it advances the relation through its own
+        \texttt{update()} method while also updating the external
+        \texttt{ConstitutiveState}.
+\end{itemize}
+
+The legacy names remain as aliases:
+
+\begin{itemize}
+  \item \texttt{ElasticUpdate} $\equiv$ \texttt{PassThroughIntegrator}
+  \item \texttt{InelasticUpdate} $\equiv$ \texttt{EmbeddedRelationIntegrator}
+\end{itemize}
+
+This keeps the codebase source-compatible while allowing the semantic cleanup
+to proceed.
+
+\section{Why This Matters}
+
+The key architectural benefit is that the current code can now express the
+following distinction:
+
+\begin{itemize}
+  \item the constitutive \emph{law} is responsible for the physics;
+  \item the constitutive \emph{integrator} is responsible for the local
+        algorithmic realization of that physics inside a time/load step.
+\end{itemize}
+
+That distinction is essential for future nonlinear concrete and fracture work.
+For example, the same inelastic law may later be integrated by:
+
+\begin{itemize}
+  \item an embedded monolithic return-mapping;
+  \item a generic backward-Euler driver;
+  \item a substepping wrapper;
+  \item a viscoplastic regularized driver;
+  \item a dynamic operator split coupled to finite-kinematics update rules.
+\end{itemize}
+
+\section{Custom Integrators}
+
+The refactor also validates a more important property than the naming itself:
+\texttt{Material<Policy>} is now an actual injection point for custom local
+algorithms.
+
+The new regression test introduces a custom integrator that intentionally
+updates only the external constitutive-state carrier but does not evolve the
+relation's internal irreversible variables.  The result is a predictable change
+in post-commit behaviour, which proves that the algorithmic policy is not
+hard-wired to the constitutive relation.
+
+This is exactly the kind of freedom required for future scale-reconstruction
+pipelines and multi-algorithm benchmarking.
+
+\section{What Has Not Been Completed Yet}
+
+This step is a semantic and architectural split, not a full behavioural one.
+The following limitations remain:
+
+\begin{itemize}
+  \item many inelastic relations still own their irreversible state internally;
+  \item the integrator does not yet receive an explicit algorithmic state
+        object distinct from the constitutive relation;
+  \item the current bridge integrator still relies on
+        \texttt{relation.update(k)} for nonlinear constitutive evolution.
+\end{itemize}
+
+Therefore, the next meaningful refactor should move the local evolution data
+out of the constitutive relation and into explicit state objects wherever that
+is mathematically coherent.
+
+\section{Immediate Architectural Interpretation}
+
+After this step, the recommended reading of the subsystem is:
+
+\begin{itemize}
+  \item \texttt{ConstitutiveRelation}: local physical constitutive model;
+  \item \texttt{ConstitutiveState}: state attached to the site;
+  \item \texttt{ConstitutiveIntegrator}: local algorithmic driver;
+  \item \texttt{MaterialInstance}: typed constitutive site;
+  \item \texttt{Material<Policy>}: erased constitutive handle with injected
+        local integrator.
+\end{itemize}
+
+This is a materially more precise ontology than the previous generic
+``strategy'' language, and it is better aligned with the future goals of
+inelastic reinforced concrete, dynamics, large displacements, and
+continuum-scale damage or fracture.

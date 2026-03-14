@@ -172,6 +172,23 @@ Key topics include:
         policies, together with a roadmap toward nonlinear reinforced
         concrete across scales, finite kinematics, dynamics, and
         continuum-scale cracking/fracture;
+  \item A constitutive-state storage cleanup: explicit committed-only,
+        history-tracking, and trial/committed storage policies, with the
+        default inelastic path moved away from implicit full kinematic
+        history and toward semantically correct committed-state storage;
+  \item A new semantic \texttt{ConstitutiveState} layer above the storage
+        adapter: the local state of a constitutive site is now explicit in the
+        API, while static polymorphism and configurable storage backends are
+        preserved;
+  \item An explicit \texttt{ConstitutiveIntegrator} layer at the erased
+        \texttt{Material<Policy>} boundary: the local constitutive algorithm is
+        now a first-class injection point, with legacy \texttt{ElasticUpdate}
+        and \texttt{InelasticUpdate} retained as compatibility aliases;
+  \item A first behavioural extraction of irreversible memory out of the law:
+        \texttt{PlasticityRelation} now supports an explicit external
+        algorithmic-state path, and \texttt{MaterialInstance} stores that state
+        at the constitutive-site level while preserving the legacy embedded
+        API for compatibility;
   \item A bug fix in PETSc~3.24.5 \texttt{section.c} and application-level
         workarounds for PETSc indexing and preallocation issues;
   \item The element architecture design: External Polymorphism at the geometry
@@ -212,6 +229,11 @@ discussion of the design rationale.
 \input{ch24_regular_5story_building_example}
 \input{ch25_rc_nonlinear_building_example}
 \input{ch26_material_module_analysis}
+\input{ch27_material_semantic_cleanup}
+\input{ch28_constitutive_state_storage}
+\input{ch29_constitutive_state_object}
+\input{ch30_constitutive_integrator_split}
+\input{ch31_explicit_algorithmic_state_for_plasticity}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

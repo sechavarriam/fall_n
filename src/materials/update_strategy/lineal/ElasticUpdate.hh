@@ -1,7 +1,7 @@
 #ifndef ELASTIC_UPDATE_HH
 #define ELASTIC_UPDATE_HH
 
-// ElasticUpdate is now defined in IntegrationStrategy.hh
+// ElasticUpdate is now defined in ConstitutiveIntegrator.hh
 // This header is kept for backward compatibility.
 #include "../IntegrationStrategy.hh"
 
