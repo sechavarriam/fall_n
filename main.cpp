@@ -3,6 +3,7 @@
 #include "src/geometry/Point.hh"
 #include "src/elements/TimoshenkoBeamN.hh"
 #include "src/elements/BeamElement.hh"
+#include "src/elements/StructuralElement.hh"
 
 #include <Eigen/Dense>
 
@@ -81,6 +82,28 @@ static constexpr int    NX_SHELL = 8;
 static constexpr int    NY_SHELL = 2;
 static constexpr double FZ_SHELL_TOTAL = -2.0e-4;
 
+// ── Mixed structural example: 4-column table frame + slab ──────────────────
+static constexpr double TABLE_SPAN = 5.0;
+static constexpr double TABLE_HEIGHT = 3.0;
+static constexpr int    TABLE_NX = 4;
+static constexpr int    TABLE_NY = 4;
+
+static constexpr double E_COLUMN = 21000.0;
+static constexpr double E_BEAM_STRUCT = 24000.0;
+static constexpr double E_SLAB = 26000.0;
+static constexpr double NU_STRUCT = 0.20;
+static constexpr double NU_SLAB = 0.20;
+
+static constexpr double COL_B = 0.40;
+static constexpr double COL_H = 0.40;
+static constexpr double BEAM_B = 0.40;
+static constexpr double BEAM_H = 0.60;
+static constexpr double SLAB_T = 0.18;
+static constexpr double KAPPA_STRUCT = 5.0 / 6.0;
+
+static constexpr double SLAB_PRESSURE_Z = -0.12;
+static constexpr double CORNER_FORCE_X = 0.20;
+
 // ── Analytical Timoshenko deflections (tip point load) ────────────────────────
 //  δ_y (from Fy→ bending about z → I_z):  PL³/(3EI_z) + PL/(κGA)
 //  δ_z (from Fz→ bending about y → I_y):  PL³/(3EI_y) + PL/(κGA)
@@ -93,6 +116,25 @@ static constexpr double delta_z_analytical() {
     double P = std::abs(Fz_tip);
     return P * L_BEAM*L_BEAM*L_BEAM / (3.0 * E_mod * Iy_sec)
          + P * L_BEAM / (kappa * G_mod * A_sec);
+}
+
+static constexpr double rectangular_torsion_constant(double width, double height) {
+    const double b_min = std::min(width, height);
+    const double h_max = std::max(width, height);
+    return (b_min * b_min * b_min * h_max / 3.0)
+         * (1.0 - 0.63 * b_min / h_max);
+}
+
+static constexpr double rectangular_area(double width, double height) {
+    return width * height;
+}
+
+static constexpr double rectangular_Iy(double width, double height) {
+    return width * height * height * height / 12.0;
+}
+
+static constexpr double rectangular_Iz(double width, double height) {
+    return height * width * width * width / 12.0;
 }
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
@@ -181,6 +223,43 @@ static void export_structural_vtm(
         std::move(thickness_profile));
     exporter.write(filename);
     std::cout << "       VTM : " << filename << "\n";
+}
+
+// For structural shells we do not yet have a dedicated Neumann-load element.
+// The helper below assembles the consistent nodal equivalent of a uniform
+// surface traction directly from the shell geometry:
+//
+//   f_I = ∫_Ω N_I t dA
+//
+// The traction is global and only translational DOFs receive load. This keeps
+// the example independent of the shell formulation internals while remaining
+// consistent with the shell interpolation.
+template <typename ModelT>
+static void apply_uniform_shell_surface_load(
+    ModelT& M,
+    const std::vector<const ElementGeometry<3>*>& shell_geometries,
+    const Eigen::Vector3d& traction)
+{
+    for (const auto* geom : shell_geometries) {
+        std::vector<Eigen::Vector3d> nodal_forces(geom->num_nodes(), Eigen::Vector3d::Zero());
+
+        for (std::size_t gp = 0; gp < geom->num_integration_points(); ++gp) {
+            const auto xi = geom->reference_integration_point(gp);
+            const double wdA = geom->weight(gp) * geom->differential_measure(xi);
+
+            for (std::size_t a = 0; a < geom->num_nodes(); ++a) {
+                nodal_forces[a] += geom->H(a, xi) * traction * wdA;
+            }
+        }
+
+        for (std::size_t a = 0; a < geom->num_nodes(); ++a) {
+            M.apply_node_force(geom->node(a),
+                               nodal_forces[a][0],
+                               nodal_forces[a][1],
+                               nodal_forces[a][2],
+                               0.0, 0.0, 0.0);
+        }
+    }
 }
 
 // =============================================================================
@@ -376,6 +455,249 @@ static void run_shell_reference()
 }
 
 // =============================================================================
+//  Mixed structural example: 4-column table frame + MITC4 slab
+// =============================================================================
+//
+//  Geometry:
+//    - Square plan: L × L with L = 5.0
+//    - Column height: H = 3.0
+//    - Slab mesh: 4 × 4 MITC4 shell cells over the top surface
+//
+//  Structural members:
+//    - 4 corner columns: rectangular 0.40 × 0.40, E = 21000
+//    - 4 perimeter beams: rectangular 0.60 × 0.40, E = 24000
+//    - Slab: Mindlin-Reissner shell, thickness 0.18, E = 26000
+//
+//  Loading:
+//    - Uniform transverse pressure on the slab
+//    - Horizontal corner force at the free top corner (L, L, H)
+//
+//  Architecture:
+//    - The domain/DMPlex mesh remains purely 2D and stores only the slab.
+//    - Columns and perimeter beams are introduced as external line geometries
+//      bound to the same Node/Vertex storage.
+//    - The final solver container is heterogeneous:
+//
+//          Model<..., SingleElementPolicy<StructuralElement>>
+//
+//      so the analysis runs over one polymorphic structural element family,
+//      while reconstruction/VTK dispatches back to the concrete beam/shell
+//      formulation through StructuralReductionPolicy<ElementT>.
+//
+//  Quadrature note:
+//    - BeamElement<TimoshenkoBeam3D,3> columns use 2 Gauss points.
+//    - TimoshenkoBeamN<2> perimeter beams use the reduced contract N-1 = 1
+//      Gauss point. This is intentional and now enforced by the element.
+//
+static void run_structural_table_example()
+{
+    using ColumnElement = BeamElement<TimoshenkoBeam3D, 3>;
+    using BeamEdgeElement = TimoshenkoBeamN<2>;
+    using ShellElementT = ShellElement<MindlinReissnerShell3D>;
+    using LineGeometry = ElementGeometry<3>;
+    using StructuralPolicy = SingleElementPolicy<StructuralElement>;
+    using StructuralModel =
+        Model<TimoshenkoBeam3D, continuum::SmallStrain, 6, StructuralPolicy>;
+
+    std::cout << "\n  >> Mixed Structural Table (4 columns + 4 beams + slab shell)\n";
+
+    Domain<DIM> D;
+
+    const auto top_node_id = [](int i, int j) {
+        return static_cast<PetscInt>(j * (TABLE_NX + 1) + i);
+    };
+    const auto base_node_id = [](int c) {
+        return static_cast<PetscInt>((TABLE_NX + 1) * (TABLE_NY + 1) + c);
+    };
+
+    D.preallocate_node_capacity(
+        static_cast<std::size_t>((TABLE_NX + 1) * (TABLE_NY + 1) + 4));
+
+    const double dx = TABLE_SPAN / static_cast<double>(TABLE_NX);
+    const double dy = TABLE_SPAN / static_cast<double>(TABLE_NY);
+
+    for (int j = 0; j <= TABLE_NY; ++j) {
+        for (int i = 0; i <= TABLE_NX; ++i) {
+            D.add_node(top_node_id(i, j),
+                       static_cast<double>(i) * dx,
+                       static_cast<double>(j) * dy,
+                       TABLE_HEIGHT);
+        }
+    }
+
+    D.add_node(base_node_id(0), 0.0,         0.0,         0.0);
+    D.add_node(base_node_id(1), TABLE_SPAN,   0.0,         0.0);
+    D.add_node(base_node_id(2), TABLE_SPAN,   TABLE_SPAN,  0.0);
+    D.add_node(base_node_id(3), 0.0,         TABLE_SPAN,  0.0);
+
+    // The PETSc/DMPlex mesh is kept purely 2D here (slab only). Columns and
+    // beams are built as structural geometries outside the Domain DAG but
+    // bound to the same Node/Vertex storage. This preserves the mixed
+    // structural model while avoiding mixed-dimensional DMPlex assumptions in
+    // the current Domain implementation.
+    std::size_t tag = 0;
+    for (int j = 0; j < TABLE_NY; ++j) {
+        for (int i = 0; i < TABLE_NX; ++i) {
+            PetscInt conn[4] = {
+                top_node_id(i,     j),
+                top_node_id(i + 1, j),
+                top_node_id(i,     j + 1),
+                top_node_id(i + 1, j + 1)
+            };
+            auto& geom = D.template make_element<LagrangeElement3D<2, 2>>(
+                GaussLegendreCellIntegrator<2, 2>{}, tag++, conn);
+            geom.set_physical_group("Slab");
+        }
+    }
+
+    D.assemble_sieve();
+
+    std::vector<LineGeometry> line_geometries;
+    line_geometries.reserve(static_cast<std::size_t>(4 + 2 * (TABLE_NX + TABLE_NY)));
+
+    auto add_line_geometry =
+        [&](PetscInt a, PetscInt b, PetscInt sieve_id, const char* group, auto integrator) {
+        PetscInt conn[2] = {a, b};
+        line_geometries.emplace_back(
+            LineGeometry{
+                LagrangeElement3D<2>(sieve_id, std::span<PetscInt>(conn, 2)),
+                integrator
+            });
+        auto& geom = line_geometries.back();
+        geom.set_sieve_id(sieve_id);
+        geom.set_physical_group(group);
+        for (std::size_t i = 0; i < geom.num_nodes(); ++i) {
+            geom.bind_point(i, D.vertex_p(geom.node(i)));
+            geom.bind_node(i, D.node_p(geom.node(i)));
+        }
+    };
+
+    PetscInt structural_geom_id = 100000;
+
+    add_line_geometry(
+        base_node_id(0), top_node_id(0, 0), structural_geom_id++, "Columns",
+        GaussLegendreCellIntegrator<2>{});
+    add_line_geometry(
+        base_node_id(1), top_node_id(TABLE_NX, 0), structural_geom_id++, "Columns",
+        GaussLegendreCellIntegrator<2>{});
+    add_line_geometry(
+        base_node_id(2), top_node_id(TABLE_NX, TABLE_NY), structural_geom_id++, "Columns",
+        GaussLegendreCellIntegrator<2>{});
+    add_line_geometry(
+        base_node_id(3), top_node_id(0, TABLE_NY), structural_geom_id++, "Columns",
+        GaussLegendreCellIntegrator<2>{});
+
+    for (int i = 0; i < TABLE_NX; ++i)
+        add_line_geometry(
+            top_node_id(i, 0), top_node_id(i + 1, 0), structural_geom_id++, "Beams",
+            GaussLegendreCellIntegrator<1>{});
+    for (int j = 0; j < TABLE_NY; ++j)
+        add_line_geometry(
+            top_node_id(TABLE_NX, j), top_node_id(TABLE_NX, j + 1), structural_geom_id++,
+            "Beams", GaussLegendreCellIntegrator<1>{});
+    for (int i = 0; i < TABLE_NX; ++i)
+        add_line_geometry(
+            top_node_id(i, TABLE_NY), top_node_id(i + 1, TABLE_NY), structural_geom_id++,
+            "Beams", GaussLegendreCellIntegrator<1>{});
+    for (int j = 0; j < TABLE_NY; ++j)
+        add_line_geometry(
+            top_node_id(0, j), top_node_id(0, j + 1), structural_geom_id++, "Beams",
+            GaussLegendreCellIntegrator<1>{});
+
+    const double G_column = E_COLUMN / (2.0 * (1.0 + NU_STRUCT));
+    const double G_beam = E_BEAM_STRUCT / (2.0 * (1.0 + NU_STRUCT));
+
+    TimoshenkoBeamMaterial3D column_relation{
+        E_COLUMN,
+        G_column,
+        rectangular_area(COL_B, COL_H),
+        rectangular_Iy(COL_B, COL_H),
+        rectangular_Iz(COL_B, COL_H),
+        rectangular_torsion_constant(COL_B, COL_H),
+        KAPPA_STRUCT,
+        KAPPA_STRUCT
+    };
+
+    TimoshenkoBeamMaterial3D beam_relation{
+        E_BEAM_STRUCT,
+        G_beam,
+        rectangular_area(BEAM_B, BEAM_H),
+        rectangular_Iy(BEAM_B, BEAM_H),
+        rectangular_Iz(BEAM_B, BEAM_H),
+        rectangular_torsion_constant(BEAM_B, BEAM_H),
+        KAPPA_STRUCT,
+        KAPPA_STRUCT
+    };
+
+    MindlinShellMaterial slab_relation{E_SLAB, NU_SLAB, SLAB_T};
+
+    Material<TimoshenkoBeam3D> column_material{column_relation, ElasticUpdate{}};
+    Material<TimoshenkoBeam3D> beam_material{beam_relation, ElasticUpdate{}};
+    Material<MindlinReissnerShell3D> slab_material{slab_relation, ElasticUpdate{}};
+
+    StructuralPolicy::container_type elements;
+    elements.reserve(line_geometries.size() + D.num_elements());
+
+    std::vector<const ElementGeometry<3>*> slab_geometries;
+    slab_geometries.reserve(TABLE_NX * TABLE_NY);
+
+    for (std::size_t i = 0; i < 4; ++i) {
+        elements.emplace_back(ColumnElement{&line_geometries[i], column_material});
+    }
+    for (std::size_t i = 4; i < line_geometries.size(); ++i) {
+        elements.emplace_back(BeamEdgeElement{&line_geometries[i], beam_material});
+    }
+    for (std::size_t e = 0; e < D.num_elements(); ++e) {
+        auto& geom = D.element(e);
+        elements.emplace_back(ShellElementT{&geom, slab_material});
+        slab_geometries.push_back(&geom);
+    }
+
+    StructuralModel M{D, std::move(elements)};
+    M.fix_z(0.0);
+    M.setup();
+
+    apply_uniform_shell_surface_load(
+        M,
+        slab_geometries,
+        Eigen::Vector3d{0.0, 0.0, SLAB_PRESSURE_Z});
+
+    M.apply_node_force(
+        top_node_id(TABLE_NX, TABLE_NY),
+        CORNER_FORCE_X, 0.0, 0.0,
+        0.0, 0.0, 0.0);
+
+    LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, 6, StructuralPolicy> solver{&M};
+    solver.solve();
+    const double max_u = max_abs_disp(M);
+    const double max_ux = [&]() {
+        const PetscScalar* arr = nullptr;
+        PetscInt n = 0;
+        VecGetLocalSize(M.state_vector(), &n);
+        VecGetArrayRead(M.state_vector(), &arr);
+        double mx = 0.0;
+        for (PetscInt i = 0; i < n; i += 6) mx = std::max(mx, std::abs(arr[i]));
+        VecRestoreArrayRead(M.state_vector(), &arr);
+        return mx;
+    }();
+    const double max_uz = max_uz_disp(M, 6);
+
+    std::cout << "       Nodes: " << D.num_nodes()
+              << " | Elements: " << D.num_elements() << "\n"
+              << "       Max |u| = " << max_u
+              << "   |ux| = " << max_ux
+              << "   |uz| = " << max_uz << "\n"
+              << "       Slab pressure = " << SLAB_PRESSURE_Z
+              << "   Corner force Fx = " << CORNER_FORCE_X << "\n";
+
+    export_structural_vtm(
+        M,
+        OUT + "table_frame_structural.vtm",
+        fall_n::reconstruction::RectangularSectionProfile<2>{BEAM_B, BEAM_H},
+        fall_n::reconstruction::ShellThicknessProfile<5>{});
+}
+
+// =============================================================================
 //  Comparison table
 // =============================================================================
 static void print_comparison(const std::vector<Result>& R) {
@@ -433,13 +755,42 @@ static void print_comparison(const std::vector<Result>& R) {
 // =============================================================================
 int main(int argc, char** args)
 {
-    PetscInitialize(&argc, &args, nullptr, nullptr);
+    const auto args_view = std::span<char*>(args, static_cast<std::size_t>(argc));
+    const bool table_only =
+        std::ranges::find_if(
+            args_view,
+            [](const char* arg) { return std::string_view(arg) == "--table-only"; })
+        != args_view.end();
+
+    std::vector<char*> petsc_args;
+    petsc_args.reserve(static_cast<std::size_t>(argc));
+    for (char* arg : args_view) {
+        if (std::string_view(arg) == "--table-only") continue;
+        petsc_args.push_back(arg);
+    }
+
+    int petsc_argc = static_cast<int>(petsc_args.size());
+    char** petsc_argv = petsc_args.data();
+    PetscInitialize(&petsc_argc, &petsc_argv, nullptr, nullptr);
+    if (table_only) {
+        PetscOptionsClearValue(nullptr, "-table-only");
+    }
 
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type",  "lu");
 
     {
         std::cout << std::fixed << std::setprecision(6);
+
+        if (table_only) {
+            std::cout << "===============================================================\n"
+                      << "  fall_n — Mixed Structural Table Example\n"
+                      << "===============================================================\n";
+            run_structural_table_example();
+            PetscFinalize();
+            return 0;
+        }
+
         std::cout << "================================================================\n"
                   << "  fall_n — Cantilever Beam Study (linear elastic)\n"
                   << "  4 continuum meshes + Timoshenko beam reference\n"
@@ -473,6 +824,7 @@ int main(int argc, char** args)
 
         print_comparison(R);
         run_shell_reference();
+        run_structural_table_example();
     }
 
     PetscFinalize();

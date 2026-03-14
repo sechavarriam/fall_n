@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <numbers>
+#include <type_traits>
 
 namespace fall_n::reconstruction {
 
@@ -75,6 +76,17 @@ public:
         return {p[0] * width_, p[1] * height_};
     }
 };
+
+template <typename T>
+struct is_rectangular_section_profile : std::false_type {};
+
+template <std::size_t SamplesPerEdge>
+struct is_rectangular_section_profile<RectangularSectionProfile<SamplesPerEdge>>
+    : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_rectangular_section_profile_v =
+    is_rectangular_section_profile<T>::value;
 
 template <std::size_t Segments = 24>
 class CircularSectionProfile {

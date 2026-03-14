@@ -1,0 +1,247 @@
+\chapter{Mixed Structural Table Example}
+
+\section{Purpose}
+
+This chapter documents a compact structural example that exercises the main
+architectural decisions developed in the preceding chapters:
+\begin{itemize}
+  \item a heterogeneous structural model stored through
+        \texttt{StructuralElement},
+  \item formulation-specific reconstruction through
+        \texttt{StructuralReductionPolicy<ElementT>},
+  \item multi-block VTK export through \texttt{StructuralVTMExporter},
+  \item coexistence of beam and shell elements on a shared geometric support.
+\end{itemize}
+
+The example is intentionally simple enough to inspect by hand, but rich enough
+to validate the polymorphic structural pipeline end to end.
+
+\section{Physical Model}
+
+The structure resembles a table:
+\begin{itemize}
+  \item four corner columns,
+  \item four perimeter beams on the top frame,
+  \item one shell slab spanning the frame.
+\end{itemize}
+
+\subsection{Geometry}
+
+The adopted dimensions are:
+\[
+L = 5.0, \qquad H = 3.0, \qquad t_\mathrm{slab} = 0.18.
+\]
+
+The four column bases are placed at:
+\[
+(0,0,0),\; (L,0,0),\; (L,L,0),\; (0,L,0),
+\]
+and the top frame lies in the plane:
+\[
+z = H.
+\]
+
+The slab is discretised as a structured \(4\times 4\) MITC4 mesh over the
+square domain \([0,L]\times[0,L]\).
+
+\subsection{Sections and Materials}
+
+The example uses two distinct beam formulations and one shell formulation:
+\begin{itemize}
+  \item \textbf{Columns}: \texttt{BeamElement<TimoshenkoBeam3D,3>} with
+        rectangular section \(0.40\times 0.40\), Young's modulus
+        \(E_c = 21000\), Poisson ratio \(\nu = 0.20\).
+  \item \textbf{Perimeter beams}: \texttt{TimoshenkoBeamN<2>} with
+        rectangular section \(0.60\times 0.40\), Young's modulus
+        \(E_b = 24000\), Poisson ratio \(\nu = 0.20\).
+  \item \textbf{Slab}: \texttt{ShellElement<MindlinReissnerShell3D>} with
+        thickness \(t = 0.18\), Young's modulus \(E_s = 26000\), Poisson ratio
+        \(\nu = 0.20\).
+\end{itemize}
+
+The shear modulus is reconstructed from isotropic elasticity:
+\[
+G = \frac{E}{2(1+\nu)}.
+\]
+
+For rectangular beams the section properties are computed directly from the
+section dimensions:
+\[
+A = b h,
+\qquad
+I_y = \frac{b h^3}{12},
+\qquad
+I_z = \frac{h b^3}{12},
+\]
+and the Saint-Venant torsional constant is approximated by
+\[
+J \approx \frac{b_\mathrm{min}^3 h_\mathrm{max}}{3}
+\left(1 - 0.63 \frac{b_\mathrm{min}}{h_\mathrm{max}}\right).
+\]
+
+\section{Loads and Boundary Conditions}
+
+All nodes with \(z=0\) are fully clamped through the structural model
+interface.
+
+Two load cases are superposed:
+\begin{enumerate}
+  \item a uniform slab pressure
+        \[
+        p_z = -0.12,
+        \]
+        converted to consistent nodal forces by direct integration of the shell
+        interpolation,
+        \[
+        \mathbf{f}_I = \int_{\Omega_e} N_I \mathbf{t}\, dA,
+        \qquad
+        \mathbf{t} = (0,0,p_z)^T;
+        \]
+  \item a lateral point force applied at the corner node \((L,L,H)\),
+        \[
+        F_x = 0.20.
+        \]
+\end{enumerate}
+
+This combination is deliberately chosen to excite:
+\begin{itemize}
+  \item vertical flexure of the slab,
+  \item frame action in the perimeter beams,
+  \item bending plus sway of the full table.
+\end{itemize}
+
+\section{Architectural Realisation}
+
+\subsection{Why the Domain Contains Only the Slab}
+
+The current \texttt{Domain} layer is intentionally aligned with a pure
+\texttt{DMPlex} surface/volume topology.  The slab therefore lives inside the
+PETSc mesh, whereas the columns and beams are introduced as external line
+geometries bound to the same \texttt{Node}/\texttt{Vertex} storage.  This
+keeps the domain ontologically clean:
+\begin{itemize}
+  \item the 2D topological mesh remains a shell/slab mesh,
+  \item the line members remain structural geometries rather than fake 2D
+        entities,
+  \item the mixed structural model is assembled one layer above the domain.
+\end{itemize}
+
+\subsection{Polymorphic Structural Container}
+
+The final element container is
+\[
+\texttt{std::vector<StructuralElement>},
+\]
+owned by
+\[
+\texttt{Model<TimoshenkoBeam3D,\; SmallStrain,\; 6,\; SingleElementPolicy<StructuralElement>>}.
+\]
+
+This means that the analysis sees one structural family with a common
+finite-element interface, while post-processing can still recover the concrete
+type through the structural type-erasure layer:
+\begin{itemize}
+  \item \texttt{BeamElement<TimoshenkoBeam3D,3>} for columns,
+  \item \texttt{TimoshenkoBeamN<2>} for edge beams,
+  \item \texttt{ShellElement<MindlinReissnerShell3D>} for slab cells.
+\end{itemize}
+
+The example therefore validates the intended design point: runtime
+heterogeneity at the model boundary, formulation-specific compile-time
+reconstruction inside each policy.
+
+\section{Quadrature Contract for \texttt{TimoshenkoBeamN}}
+
+The example uncovered an architectural inconsistency in
+\texttt{TimoshenkoBeamN<N>}.  The element uses a reduced constitutive
+integration with
+\[
+n_\mathrm{gp} = N - 1,
+\]
+but its public topology query originally forwarded
+\texttt{geometry\_->num\_integration\_points()}, which depends on the
+underlying geometry integrator.  For \texttt{TimoshenkoBeamN<2>} this created
+an inconsistent state:
+\begin{itemize}
+  \item the element stored one constitutive section,
+  \item the exporter believed that the element had two Gauss points when the
+        geometry used \texttt{GaussLegendreCellIntegrator<2>}.
+\end{itemize}
+
+The fix adopted here is structural, not cosmetic:
+\begin{enumerate}
+  \item \texttt{TimoshenkoBeamN<N>::num\_integration\_points()} now returns
+        the reduced value \(N-1\).
+  \item The constructor now enforces the quadrature contract:
+        the attached geometry must also expose exactly \(N-1\) integration
+        points.
+  \item The table example therefore assigns
+        \texttt{GaussLegendreCellIntegrator<1>} to the perimeter beams and
+        \texttt{GaussLegendreCellIntegrator<2>} to the columns.
+\end{enumerate}
+
+This is important beyond visualisation.  The reconstruction layer and any
+future scale-transfer operator must reason about the actual constitutive sites
+of the formulation, not about an unrelated geometric quadrature.
+
+\section{VTK Output}
+
+The structural exporter writes a \texttt{.vtm} index together with one
+\texttt{.vtp} sidecar per semantic block:
+\begin{itemize}
+  \item \texttt{table\_frame\_structural.vtm},
+  \item \texttt{table\_frame\_structural\_axis.vtp},
+  \item \texttt{table\_frame\_structural\_surface.vtp},
+  \item \texttt{table\_frame\_structural\_sections.vtp},
+  \item \texttt{table\_frame\_structural\_material\_sites.vtp},
+  \item \texttt{table\_frame\_structural\_fibers.vtp}.
+\end{itemize}
+
+These blocks have a fixed semantic meaning:
+\begin{description}
+  \item[\texttt{axis}] beam centre-lines and shell boundary carriers;
+  \item[\texttt{surface}] reconstructed beam skins and shell top/bottom faces;
+  \item[\texttt{sections}] section stations and shell through-thickness lines;
+  \item[\texttt{material\_sites}] constitutive sampling sites;
+  \item[\texttt{fibers}] fiber carriers when a fiber section is present.
+\end{description}
+
+The split into \texttt{.vtp} sidecars is intentional.  It avoids the fragile
+writer path observed with the monolithic multi-block writer while preserving a
+semantically clean \texttt{.vtm} interface for ParaView.
+
+\section{Observed Structural Response}
+
+For the current parameter set, the example run stored in the repository
+reported:
+\[
+\max |u| = 1.3651\times 10^{-2}, \qquad
+\max |u_x| = 5.30\times 10^{-4}, \qquad
+\max |u_z| = 1.3651\times 10^{-2}.
+\]
+
+These values are not presented as a benchmark target.  Their role here is to
+confirm that:
+\begin{itemize}
+  \item the mixed structural solve completes,
+  \item the reconstructed carriers can be exported without crashing,
+  \item the example exercises both vertical slab deformation and lateral frame
+        sway.
+\end{itemize}
+
+\section{Code Path}
+
+The complete example is implemented in \texttt{main.cpp} as
+\texttt{run\_structural\_table\_example()}.  The relevant pieces are:
+\begin{itemize}
+  \item geometric construction of slab, columns, and beams;
+  \item consistent shell pressure assembly through
+        \texttt{apply\_uniform\_shell\_surface\_load()};
+  \item polymorphic structural model assembly through
+        \texttt{StructuralElement};
+  \item multi-block structural export through
+        \texttt{export\_structural\_vtm()}.
+\end{itemize}
+
+This example now serves as the reference mixed structural demonstration for the
+current architecture.
