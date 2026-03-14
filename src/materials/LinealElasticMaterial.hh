@@ -123,6 +123,7 @@ public:
     //
 
     using ConstitutiveSpace = typename Relation::MaterialPolicyT;
+    using RelationT         = Relation;
     using MaterialPolicy    = ConstitutiveSpace;
     using KinematicT        = typename Relation::KinematicT;
     using ConjugateT        = typename Relation::ConjugateT;

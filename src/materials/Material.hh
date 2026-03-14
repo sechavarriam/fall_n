@@ -208,6 +208,10 @@ public:
 
    StressT compute_response(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      // Continuum-aware constitutive integrators may consume the full carrier
+      // directly (F, detF, Green-Lagrange, Almansi, active stress measure).
+      // Legacy/small-strain integrators fall back to the active reduced
+      // kinematic measure so that the erased boundary stays backward compatible.
       if constexpr (requires {
          integrator_.compute_response(material_, kin);
       }) {
@@ -225,6 +229,9 @@ public:
 
    MatrixT tangent(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
+      // Same dispatch rule as compute_response(): prefer a continuum-local
+      // algorithmic tangent when available, otherwise collapse to the active
+      // reduced kinematic measure.
       if constexpr (requires {
          integrator_.tangent(material_, kin);
       }) {
@@ -242,6 +249,9 @@ public:
 
    void commit(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) override {
+      // Prediction through compute_response()/tangent() is intentionally
+      // side-effect free. Persisting algorithmic and kinematic state remains an
+      // explicit commit operation at the constitutive-site boundary.
       if constexpr (requires {
          integrator_.commit(material_, kin);
       }) {
