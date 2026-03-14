@@ -1,0 +1,768 @@
+\chapter{Material Module Architecture Analysis}
+\label{ch:material-module-analysis}
+
+\section{Purpose}
+
+This chapter provides a focused architectural analysis of the current
+\texttt{materials} module.  The goal is not merely to rename classes or to
+standardise terminology, but to identify the semantic boundaries that must be
+made explicit if \texttt{fall\_n} is to evolve toward:
+\begin{itemize}
+  \item reinforced concrete modelling at several scales;
+  \item materially nonlinear and dynamic analysis;
+  \item finite-kinematics structural and continuum formulations;
+  \item continuum-scale cracking, damage, localisation, and fracture.
+\end{itemize}
+
+The analysis is guided by three constraints already visible across the code
+base:
+\begin{itemize}
+  \item the local element kernels must remain inexpensive and friendly to
+        compile-time optimisation;
+  \item the library must preserve the current genericity across continuum,
+        beam, and shell formulations;
+  \item the constitutive layer must remain reusable beyond post-processing,
+        because the same reconstruction policies will later be needed for
+        scale transfer and multiscale initialisation.
+\end{itemize}
+
+\section{Current Architectural Layers}
+
+\subsection{Measure spaces}
+
+At the lowest level, the module already contains a useful abstraction:
+\begin{itemize}
+  \item \texttt{Strain<N>} and \texttt{Stress<N>} for continuum Voigt spaces;
+  \item \texttt{BeamGeneralizedStrain<N,Dim>} and \texttt{BeamSectionForces<N>};
+  \item \texttt{ShellGeneralizedStrain<N,Dim>} and \texttt{ShellResultants<N>}.
+\end{itemize}
+
+The concepts in \texttt{ConstitutiveRelation.hh} correctly recognise that a
+constitutive relation should fundamentally operate on a pair
+\[
+(\text{kinematic measure},\ \text{tensional conjugate}),
+\]
+independently of whether that pair belongs to a solid, a beam section, or a
+shell section.  This is one of the strongest parts of the current design and
+should be preserved.
+
+\subsection{Relation classes}
+
+The code currently places under the same umbrella:
+\begin{itemize}
+  \item continuum elastic relations such as
+        \texttt{ContinuumIsotropicRelation};
+  \item reduced section relations such as
+        \texttt{TimoshenkoBeamSection3D} and \texttt{MindlinShellSection};
+  \item inelastic local models such as
+        \texttt{PlasticityRelation}, \texttt{KentParkConcrete}, and
+        \texttt{MenegottoPintoSteel};
+  \item reduction-based section models such as \texttt{FiberSection3D}.
+\end{itemize}
+
+All of them satisfy the same compile-time concept:
+\[
+\texttt{compute\_response}(k), \qquad
+\texttt{tangent}(k),
+\]
+with optional inelastic extensions through
+\[
+\texttt{update}(k), \qquad
+\texttt{internal\_state()}.
+\]
+
+This common contract is practical, but it already reveals a semantic
+overloading: some of these types are truly \emph{material laws}, while others
+are \emph{section laws} or even \emph{constitutive reductions}.
+
+\subsection{Material instance and type erasure}
+
+The next layer is \texttt{MaterialInstance<Relation,StatePolicy>}, which wraps:
+\begin{itemize}
+  \item a constitutive relation object;
+  \item a per-point kinematic state container;
+  \item access to the underlying relation through
+        \texttt{constitutive\_relation()}.
+\end{itemize}
+
+This is then lifted to the type-erased \texttt{Material<Policy>} wrapper,
+which stores:
+\begin{itemize}
+  \item the concrete \texttt{MaterialInstance};
+  \item an update strategy (\texttt{ElasticUpdate} or
+        \texttt{InelasticUpdate});
+  \item export helpers such as \texttt{internal\_field\_snapshot()} and
+        \texttt{section\_snapshot()}.
+\end{itemize}
+
+\subsection{Constitutive sites}
+
+Finally, the constitutive object is attached to geometry through:
+\begin{itemize}
+  \item \texttt{MaterialPoint<Policy>} in continuum elements;
+  \item \texttt{MaterialSection<Policy>} in beams and shells.
+\end{itemize}
+
+This layering already captures a valuable idea:
+\begin{center}
+\emph{geometry and topology are not constitutive objects;}\\
+\emph{a constitutive object is bound to a sampling site.}
+\end{center}
+
+\section{What is Good and Should Be Preserved}
+
+\subsection{The measure-based generic contract}
+
+The most important success of the current module is that the constitutive
+interface is not hard-wired to Cauchy stress or to infinitesimal continuum
+strain.  Instead, it works on generic conjugate pairs.  This is exactly what a
+library needs if it aims to support:
+\begin{itemize}
+  \item continuum solids;
+  \item structural sections;
+  \item future higher-order or enriched formulations;
+  \item multiscale reductions and reconstructions.
+\end{itemize}
+
+\subsection{Static polymorphism at the relation level}
+
+Concrete constitutive classes are template-friendly and concept-constrained.
+This gives:
+\begin{itemize}
+  \item strong compile-time checking;
+  \item direct inlining opportunities inside element kernels;
+  \item no virtual dispatch when the full type is known.
+\end{itemize}
+
+This direction is correct and should remain the default in the hot path.
+
+\subsection{Separation between geometry and constitutive sites}
+
+The distinction between \texttt{IntegrationPoint} and
+\texttt{MaterialPoint} / \texttt{MaterialSection} is also correct in spirit.
+It is consistent with the earlier ontology work in the \texttt{Domain}
+refactor:
+\begin{itemize}
+  \item the integration point is a numerical sampling site;
+  \item the constitutive point is a physical role attached to that site.
+\end{itemize}
+
+\subsection{The reduction-based path for structural elements}
+
+The existence of \texttt{FiberSection3D} is strategically important.  It proves
+that the same element pipeline can host:
+\begin{itemize}
+  \item a linear reduced section law;
+  \item a nonlinear reduced section law reconstructed from uniaxial
+        constituents.
+\end{itemize}
+
+This is exactly the kind of reduction/reconstruction mechanism that will later
+be needed for layered shells, smeared reinforcement, and scale-bridging
+between frame and continuum descriptions.
+
+\section{Observed Semantic Inconsistencies}
+
+\subsection{The word \texttt{Material} currently means too many things}
+
+Today the code uses the word \emph{material} for at least four different
+concepts:
+\begin{enumerate}
+  \item a physical substance or phase
+        (concrete, steel, confined concrete);
+  \item a constitutive law
+        (\texttt{KentParkConcrete}, \texttt{MenegottoPintoSteel});
+  \item a reduced section law
+        (\texttt{TimoshenkoBeamSection3D}, \texttt{FiberSection3D});
+  \item a type-erased operational wrapper
+        (\texttt{Material<Policy>}).
+\end{enumerate}
+
+This is the single most important semantic problem in the current module.
+Architecturally, these should not be collapsed into one noun.
+
+\subsection{\texttt{MaterialPolicy} is not a material}
+
+\texttt{SolidMaterial<6>}, \texttt{BeamMaterial<6,3>}, and
+\texttt{ShellMaterial<8,3>} do not describe a physical material.  They define
+a \emph{constitutive space}:
+\[
+\mathcal{S} =
+(\text{kinematic type},\ \text{conjugate type},\ \text{dimension}).
+\]
+
+So the name \texttt{MaterialPolicy} is semantically misleading.  The type is
+really a \emph{measure-space policy} or a \emph{constitutive space descriptor}.
+The current name propagates confusion upward into \texttt{Material},
+\texttt{MaterialPoint}, and \texttt{MaterialSection}.
+
+\subsection{\texttt{MaterialInstance} is not just a material instance}
+
+\texttt{MaterialInstance<Relation,StatePolicy>} currently bundles:
+\begin{itemize}
+  \item a constitutive relation;
+  \item kinematic state storage;
+  \item direct access to the relation;
+  \item optional internal-state access for inelastic models.
+\end{itemize}
+
+Semantically, this object is much closer to a
+\emph{stateful constitutive point model} than to a material instance in the
+physical sense.  In other words, it already lives at the Gauss-point level,
+not at the material-definition level.
+
+\subsection{Inelastic relations already contain the integration algorithm}
+
+The intended design suggests a clean split:
+\[
+\text{constitutive law} \quad + \quad \text{integration strategy}.
+\]
+
+However, for nonlinear materials this separation is only nominal at present.
+The current \texttt{InelasticUpdate} strategy simply delegates back to the
+material relation, while the actual algorithm lives inside:
+\begin{itemize}
+  \item \texttt{PlasticityRelation};
+  \item \texttt{KentParkConcrete};
+  \item \texttt{MenegottoPintoSteel};
+  \item \texttt{FiberSection}.
+\end{itemize}
+
+Therefore the current strategy layer is semantically strong for elastic
+materials, but weak for inelastic ones.  The empty
+\texttt{FullImplicitBackwardEuler.hh} placeholder makes this explicit.
+
+\subsection{The constitutive relation and its committed state are fused}
+
+For inelastic models, the relation object itself stores internal variables.
+This means that:
+\begin{itemize}
+  \item the constitutive law is not purely a law;
+  \item the law is not shareable as an immutable flyweight;
+  \item the same class simultaneously represents parameters, algorithmic cache,
+        and committed history.
+\end{itemize}
+
+This fusion is convenient for a first implementation, but it becomes a real
+limitation for:
+\begin{itemize}
+  \item thread safety;
+  \item state-block vectorisation;
+  \item fine-grained checkpointing;
+  \item large-scale nonlinear dynamics;
+  \item constitutive substepping and rollback.
+\end{itemize}
+
+\subsection{The kinematic state is duplicated and over-recorded}
+
+\texttt{MaterialState} stores the current kinematic measure, and for inelastic
+materials \texttt{MemoryState} stores the \emph{entire history} of that measure.
+At the same time, the inelastic relations store their own internal variables.
+
+This produces two problems:
+\begin{itemize}
+  \item semantic duplication: committed constitutive history already exists in
+        the relation state;
+  \item memory amplification: the default inelastic path records every past
+        strain state whether or not the algorithm requires it.
+\end{itemize}
+
+For nonlinear dynamics or long static load histories this is not sustainable.
+The default site state should be:
+\begin{itemize}
+  \item current trial state,
+  \item committed state,
+  \item optionally converged last-step state,
+\end{itemize}
+not an ever-growing vector of all past strains.
+
+\subsection{The flyweight story is currently contradictory}
+
+The comments in \texttt{MaterialInstance} describe the relation as a shared
+flyweight.  However, the copy constructor performs a deep copy of the relation.
+Because elements and Gauss-point carriers are usually created by copying a
+\texttt{Material<Policy>}, the practical behaviour is:
+\begin{itemize}
+  \item elastic relations are often duplicated per point;
+  \item inelastic relations are also duplicated per point;
+  \item the claimed flyweight benefit is therefore much weaker than it first
+        appears.
+\end{itemize}
+
+This is not just a micro-optimisation issue.  It means the current naming and
+commentary no longer match the real ownership semantics.
+
+\subsection{Section laws are currently mixed with material laws}
+
+\texttt{TimoshenkoBeamSection3D}, \texttt{MindlinShellSection}, and
+\texttt{FiberSection3D} live inside the materials module and satisfy the same
+top-level concepts as bulk material laws.  That is convenient, but it masks an
+important distinction:
+\begin{itemize}
+  \item a bulk constitutive law maps local continuum measures to continuum
+        stresses;
+  \item a section constitutive law maps reduced section measures to section
+        resultants;
+  \item a fiber section is in fact a \emph{reduction policy plus numerical
+        integration over constituents}.
+\end{itemize}
+
+This distinction matters if the same section reconstruction is later reused for
+scale transfer to a continuum model.
+
+\subsection{Post-processing adapters are embedded in the core wrapper}
+
+\texttt{Material<Policy>} currently knows how to export:
+\begin{itemize}
+  \item \texttt{InternalFieldSnapshot};
+  \item \texttt{SectionConstitutiveSnapshot};
+  \item fiber field snapshots.
+\end{itemize}
+
+This makes the wrapper convenient for VTK export, but it also means the
+central constitutive wrapper now depends on post-processing concerns.  The
+core constitutive path should not grow indefinitely through
+\texttt{if constexpr}-based export detection.
+
+\subsection{Finite-strain constitutive models live outside the material module}
+
+Hyperelastic relations currently live in \texttt{src/continuum}.  This is
+architecturally understandable, because finite-strain kinematics and tensor
+operations are housed there, but it also fragments the constitutive story:
+\begin{itemize}
+  \item small-strain and section laws are described in \texttt{materials};
+  \item finite-strain laws are described in \texttt{continuum}.
+\end{itemize}
+
+This split becomes problematic when the target is large-displacement,
+inelastic, reinforced-concrete analysis.  At that point the constitutive
+module and the kinematic module must meet through a cleaner interface.
+
+\section{Performance Implications}
+
+\subsection{Per-fiber type erasure is expensive}
+
+The current \texttt{Fiber} type stores:
+\[
+\texttt{Material<UniaxialMaterial>}
+\]
+per fiber.  This gives maximal heterogeneity and a pleasant API, but it is a
+poor default for large reinforced-concrete simulations because:
+\begin{itemize}
+  \item each fiber carries a heap-owning type-erased wrapper;
+  \item copies of fiber sections duplicate that structure repeatedly;
+  \item the hottest loop in \texttt{FiberSection::integrate\_fibers()} pays
+        dynamic-dispatch and scattered-memory costs.
+\end{itemize}
+
+For a few dozen fibers this is fine.  For layered shells, detailed RC walls,
+or multiscale transfer problems it will quickly become one of the dominant
+costs.
+
+\subsection{The default inelastic storage is not HPC-friendly}
+
+\texttt{MemoryState<std::vector<S>>} as the default carrier for inelastic
+materials is not suitable as the long-term production layout.  It implies:
+\begin{itemize}
+  \item heap growth per point;
+  \item no fixed-size state block;
+  \item poor cache locality;
+  \item no easy vectorisation across sites.
+\end{itemize}
+
+For HPC-oriented nonlinear analysis the natural constitutive storage unit is a
+small fixed record:
+\[
+\text{trial state} \oplus \text{committed state} \oplus \text{internal variables}.
+\]
+
+\subsection{The hot path should remain statically typed}
+
+The present design already suggests the right rule:
+\begin{center}
+\emph{runtime polymorphism should live at heterogeneous container boundaries,}\\
+\emph{not inside the innermost constitutive loops.}
+\end{center}
+
+Therefore:
+\begin{itemize}
+  \item element-level heterogeneous containers may continue to use type
+        erasure;
+  \item Gauss-point kernels, return mapping, and fiber loops should preferably
+        operate on fully typed laws and fully typed state blocks.
+\end{itemize}
+
+\section{A Cleaner Separation: Material vs Constitutive Relation}
+
+\subsection{Recommended ontology}
+
+The recommended semantic split is:
+\begin{enumerate}
+  \item \textbf{Material data}: immutable physical parameters of a phase,
+        mixture, or section family.
+  \item \textbf{Constitutive law}: the mathematical law that defines stress,
+        tangent, and evolution equations for a given measure space.
+  \item \textbf{Integration algorithm}: the numerical procedure that advances
+        the law in time or load.
+  \item \textbf{Constitutive state}: committed and trial internal variables at
+        one site.
+  \item \textbf{Constitutive site}: the object bound to an integration point
+        or section point, owning its state.
+  \item \textbf{Reduction policy}: the map from lower-scale fields to reduced
+        section measures, and conversely the reconstruction back to a richer
+        field when needed.
+\end{enumerate}
+
+\subsection{What should be called ``material''}
+
+In this ontology, \emph{material} should denote the physical object or
+parameter block, not the entire runtime wrapper.  Examples:
+\begin{itemize}
+  \item \texttt{ConcreteMaterialData};
+  \item \texttt{SteelMaterialData};
+  \item \texttt{IsotropicElasticData};
+  \item \texttt{RCSectionData}.
+\end{itemize}
+
+\subsection{What should be called ``constitutive law''}
+
+A constitutive law should be a purely local mathematical object:
+\[
+(\text{state},\ \text{kinematics},\ \text{context})
+\;\mapsto\;
+(\text{response},\ \text{algorithmic tangent},\ \text{new state}).
+\]
+
+Its contract should not imply geometry, meshing, or ownership of an
+integration point.
+
+\subsection{What should be called ``reduction policy''}
+
+Structural section models are not materials in the same sense as steel or
+concrete.  They are reductions of a lower-scale description.  Therefore
+\texttt{FiberSection3D} is better understood as:
+\begin{center}
+\emph{a beam-section reduction policy together with a constitutive quadrature
+over constituent fibers.}
+\end{center}
+
+The same idea generalises naturally to:
+\begin{itemize}
+  \item layered shells;
+  \item smeared reinforcement layers;
+  \item shell-through-thickness integration of concrete damage/plasticity;
+  \item scale transfer from beam/shell models to continuum initial fields.
+\end{itemize}
+
+\section{A More Scalable Constitutive Contract}
+
+\subsection{Constitutive context}
+
+The current strategy interface only sees the kinematic measure \(k\).  For the
+next generation of constitutive models, the local update will need a richer
+context:
+\[
+\mathcal{C}_{n+1}
+=
+\{\Delta t,\ t_{n+1},\ \text{load increment},\ \text{temperature},
+\ \text{kinematic frame},\ \ell_\text{int},\ \text{regularization data}\}.
+\]
+
+This is essential for:
+\begin{itemize}
+  \item rate dependence and viscoplasticity;
+  \item nonlinear dynamics;
+  \item finite-strain constitutive updates;
+  \item nonlocal damage or gradient regularisation;
+  \item fracture-energy based softening.
+\end{itemize}
+
+\subsection{Suggested compile-time split}
+
+An architecture compatible with the current design philosophy would be:
+\begin{align*}
+\texttt{ConstitutiveSpace}
+&\quad \text{measure types only},\\
+\texttt{ConstitutiveLaw}
+&\quad \text{physics only},\\
+\texttt{IntegrationAlgorithm}
+&\quad \text{numerical update only},\\
+\texttt{ConstitutiveState}
+&\quad \text{small fixed state blocks},\\
+\texttt{ConstitutiveSite<Law,Algorithm,Storage>}
+&\quad \text{site-level wrapper}.
+\end{align*}
+
+This preserves static polymorphism because all of these remain templates or
+concept-constrained value types.
+
+\section{Implications for Reinforced Concrete Across Scales}
+
+\subsection{Uniaxial constituent scale}
+
+At the constituent scale the current library already has a credible basis:
+\begin{itemize}
+  \item \texttt{KentParkConcrete} for confined and unconfined concrete;
+  \item \texttt{MenegottoPintoSteel} for reinforcing steel;
+  \item \texttt{FiberSection3D} for reduced beam sections.
+\end{itemize}
+
+This scale is the correct place for:
+\begin{itemize}
+  \item section-level hysteresis;
+  \item bar yielding and cyclic effects;
+  \item confined versus cover concrete distinction;
+  \item section-force reconstruction.
+\end{itemize}
+
+\subsection{Layered shells}
+
+The next natural scale extension is not yet 3D fracture, but layered shell
+constitutive models:
+\begin{itemize}
+  \item concrete layers through thickness;
+  \item membrane reinforcement layers;
+  \item optional shear layers;
+  \item section resultants obtained by through-thickness integration.
+\end{itemize}
+
+Architecturally this should reuse the same ideas as \texttt{FiberSection3D},
+but on a shell reduction space rather than a beam section space.
+
+\subsection{Continuum RC with cracking and fracture}
+
+At the continuum scale, merely adding local softening to a stress-strain law is
+not enough.  Once cracking localises, the formulation becomes mesh-sensitive
+unless an objective regularisation is introduced.  The material architecture
+must therefore distinguish:
+\begin{itemize}
+  \item \textbf{local constitutive law}: plasticity, damage, plastic-damage,
+        orthotropic cracking, cohesive traction-separation;
+  \item \textbf{regularisation policy}: crack-band scaling, nonlocal averaging,
+        gradient enhancement, phase-field, or interface insertion.
+\end{itemize}
+
+This distinction is crucial.  Fracture is not only a constitutive issue; it is
+also a localisation-regularisation issue.
+
+\subsection{Large displacements and dynamics}
+
+For large-displacement RC, the constitutive layer should not be tied to one
+specific small-strain measure.  Instead, the local law should operate on the
+appropriate conjugate space supplied by the kinematic formulation:
+\begin{itemize}
+  \item infinitesimal strain / Cauchy-like stress for small-strain models;
+  \item Green--Lagrange / second Piola--Kirchhoff for total Lagrangian models;
+  \item current-frame measures for updated-Lagrangian or corotational models.
+\end{itemize}
+
+The constitutive law and the kinematic policy must meet through an explicit
+measure-space contract, not through ad hoc branches.
+
+\section{Suggested Refactor Path}
+
+\subsection{Stage 1: semantic cleanup}
+
+The first stage should be almost entirely architectural and low-risk:
+\begin{itemize}
+  \item rename \texttt{MaterialPolicy} toward
+        \texttt{ConstitutiveSpacePolicy} or similar;
+  \item document that \texttt{Material<Policy>} is an operational wrapper, not
+        a physical material;
+  \item split bulk laws, section laws, and reduction policies into clearly
+        named submodules.
+\end{itemize}
+
+\subsection{Stage 2: state redesign}
+
+The second stage should replace \texttt{MemoryState} as the default inelastic
+carrier.  The target storage is:
+\begin{itemize}
+  \item fixed-size committed state;
+  \item fixed-size trial state;
+  \item optional recorder or history logger outside the hot path.
+\end{itemize}
+
+\subsection{Stage 3: genuine algorithm-law separation}
+
+The third stage should make the integration strategy real for nonlinear laws:
+\begin{itemize}
+  \item \texttt{BackwardEuler};
+  \item substepping decorators;
+  \item line-search or local damping wrappers;
+  \item possibly explicit and operator-split strategies for specific models.
+\end{itemize}
+
+At that point the nonlinear relation becomes a law again, not a law plus its
+only admissible update algorithm.
+
+\subsection{Stage 4: typed hot path, erased boundary}
+
+The fourth stage should move the runtime-erased wrapper outward:
+\begin{itemize}
+  \item typed laws and typed states inside Gauss-point loops;
+  \item erased wrappers only where heterogeneous containers are genuinely
+        required.
+\end{itemize}
+
+For fiber sections, the natural next optimisation is:
+\begin{itemize}
+  \item homogeneous fiber blocks for concrete patches and bar groups;
+  \item structure-of-arrays storage for fiber coordinates, areas, and state
+        blocks;
+  \item optional erased fallback only for rare heterogeneous mixtures.
+\end{itemize}
+
+\subsection{Stage 5: RC multiscale and fracture}
+
+Only after the semantic and state cleanup is stable does it make sense to add:
+\begin{itemize}
+  \item layered RC shell sections;
+  \item continuum plastic-damage or smeared cracking models;
+  \item fracture-energy regularisation;
+  \item cohesive interfaces or phase-field fracture.
+\end{itemize}
+
+Without the earlier cleanup, those features would be forced into already
+overloaded types and the module would become harder to maintain, not easier.
+
+\section{Non-owning Type Erasure in \texttt{Material.hh}}
+
+\subsection{Viability assessment}
+
+The non-owning type-erasure pattern is viable in the materials module, but not
+as a wholesale replacement of the current owning wrapper.  It is viable
+precisely because the borrowed erased model stores only:
+\begin{itemize}
+  \item a pointer to the concrete constitutive object;
+  \item a pointer to the integration strategy;
+  \item one virtual-table pointer.
+\end{itemize}
+
+Therefore the non-owning erased model has a stable footprint of three machine
+pointers and fits naturally into a fixed local buffer.  This is fundamentally
+different from the owning case, where the concrete constitutive objects are
+often too large and too heterogeneous for small-buffer optimisation to pay
+off.
+
+\subsection{What problem it solves}
+
+The borrowed view solves a specific architectural problem:
+\begin{center}
+\emph{how to pass constitutive objects through generic code without cloning or
+re-owning them.}
+\end{center}
+
+That is useful for:
+\begin{itemize}
+  \item algorithms that only need a temporary constitutive handle;
+  \item post-processing and reconstruction utilities;
+  \item adapters layered on top of \texttt{MaterialPoint} and
+        \texttt{MaterialSection};
+  \item future heterogeneous orchestration code that should not trigger deep
+        copies accidentally.
+\end{itemize}
+
+\subsection{What problem it does not solve}
+
+The borrowed view does \emph{not} solve constitutive storage by itself.  In
+particular, it should not be misused to pretend that the following problem has
+disappeared:
+\begin{center}
+\emph{each constitutive site still needs well-defined ownership of its state.}
+\end{center}
+
+This matters especially for reinforced-concrete fiber sections.  Each fiber is
+not merely a material label; it is a constitutive site with its own history.
+Replacing per-fiber owning storage with a trivial shared borrowed view would
+collapse independent histories and would therefore be semantically wrong.
+
+\subsection{Why the strategy belongs in \texttt{Material.hh}}
+
+The strategy object is the correct injection point for the constitutive
+integration algorithm because it sits exactly at the operational boundary
+between:
+\begin{itemize}
+  \item the constitutive relation as a law;
+  \item the constitutive site as a stateful runtime object.
+\end{itemize}
+
+This is the right location to host future algorithms such as:
+\begin{itemize}
+  \item backward-Euler return mapping;
+  \item substepping;
+  \item line-search or local damping decorators;
+  \item explicit or operator-split updates for dynamics.
+\end{itemize}
+
+By contrast, embedding all integration logic directly inside the relation class
+fuses law and algorithm and makes it much harder to reuse the same physical law
+with different numerical update procedures.
+
+\subsection{Refactor adopted in the current code}
+
+The present refactor therefore adopts a hybrid design:
+\begin{itemize}
+  \item \texttt{Material<Policy>} remains the owning, heap-backed erased
+        wrapper;
+  \item \texttt{MaterialConstRef<Policy>} is a borrowed read-only erased view;
+  \item \texttt{MaterialRef<Policy>} is a borrowed mutable erased view.
+\end{itemize}
+
+This preserves the current ownership semantics of \texttt{MaterialPoint},
+\texttt{MaterialSection}, and \texttt{FiberSection}, while enabling generic
+algorithms to work with borrowed constitutive handles when ownership transfer
+is not intended.
+
+\subsection{Architectural consequence}
+
+The key consequence is that the module now has a clearer boundary:
+\begin{itemize}
+  \item ownership and lifetime remain explicit;
+  \item the hot constitutive storage is not forced into an unsuitable
+        small-buffer abstraction;
+  \item the library gains a lightweight non-owning polymorphic layer exactly
+        where it is semantically valid.
+\end{itemize}
+
+\section{Final Opinion}
+
+The current materials module is already much better than a monolithic
+``stress-strain class'' design.  It has:
+\begin{itemize}
+  \item strong measure-based abstractions;
+  \item useful concept constraints;
+  \item a credible path for structural nonlinear RC through fibers;
+  \item a polymorphic envelope that works across solids, beams, and shells.
+\end{itemize}
+
+But the module is now at the point where its first successful generalisation is
+becoming its main semantic limitation.  The primary issue is no longer whether
+the constitutive code works.  It does.  The primary issue is that the present
+API still uses the word ``material'' for too many different ontological
+objects.
+
+The recommended direction is therefore not a rewrite, but a disciplined
+separation:
+\begin{center}
+\textbf{material data}
+\(\rightarrow\)
+\textbf{constitutive law}
+\(\rightarrow\)
+\textbf{integration algorithm}
+\(\rightarrow\)
+\textbf{stateful constitutive site}
+\(\rightarrow\)
+\textbf{reduction / reconstruction policy}.
+\end{center}
+
+If this separation is carried through while preserving the existing
+compile-time contracts, \texttt{fall\_n} will have a robust basis for:
+\begin{itemize}
+  \item nonlinear reinforced concrete frame analysis;
+  \item layered and reduced-order structural models;
+  \item finite-strain and dynamic constitutive updates;
+  \item objective continuum cracking and fracture formulations.
+\end{itemize}
+
+That is the right architectural target.

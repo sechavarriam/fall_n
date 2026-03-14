@@ -274,6 +274,59 @@ void test_strategy_type_safety() {
     std::cout << "  PASSED\n\n";
 }
 
+// ─── Test 5: Borrowed non-owning type-erasure views ─────────────────────────
+
+void test_non_owning_material_views() {
+    std::cout << "Test 5: Non-owning MaterialRef / MaterialConstRef\n";
+
+    Material<ThreeDimensionalMaterial> owner{
+        J2PlasticMaterial3D{200.0, 0.3, 0.250, 10.0}, InelasticUpdate{}};
+
+    Strain<6> eps;
+    eps.set_strain(
+        (Eigen::Vector<double, 6>() << 0.01, -0.003, -0.003, 0.0, 0.0, 0.0)
+            .finished());
+
+    auto owner_sigma = owner.compute_response(eps);
+
+    MaterialConstRef<ThreeDimensionalMaterial> cref{owner};
+    auto cref_sigma = cref.compute_response(eps);
+    assert(approx_equal(owner_sigma.components(), cref_sigma.components()) &&
+           "MaterialConstRef must observe the same constitutive response");
+
+    MaterialRef<ThreeDimensionalMaterial> ref{owner};
+    ref.commit(eps);
+
+    Strain<6> eps_np;
+    eps_np.set_strain(
+        (Eigen::Vector<double, 6>() << 0.005, 0.005, -0.010, 0.0, 0.0, 0.0)
+            .finished());
+
+    auto sigma_after_ref_commit = owner.compute_response(eps_np);
+    Material<ThreeDimensionalMaterial> fresh{
+        J2PlasticMaterial3D{200.0, 0.3, 0.250, 10.0}, InelasticUpdate{}};
+    auto sigma_fresh = fresh.compute_response(eps_np);
+    assert((sigma_after_ref_commit.components() - sigma_fresh.components()).norm() > 1e-10 &&
+           "MaterialRef must mutate the borrowed owner state");
+
+    Material<ThreeDimensionalMaterial> clone_from_view{cref};
+    clone_from_view.update_state(eps_np);
+    assert((clone_from_view.current_state().components() - owner.current_state().components()).norm() > 1e-10 &&
+           "Cloning from MaterialConstRef must produce independent owning state");
+
+    // Direct borrowed view over a concrete material + strategy without
+    // first materializing a heap-owning Material<> wrapper.
+    ContinuumIsotropicElasticMaterial typed_material{200.0, 0.3};
+    ElasticUpdate typed_strategy{};
+    MaterialConstRef<ThreeDimensionalMaterial> typed_cref{typed_material, typed_strategy};
+    auto typed_sigma = typed_cref.compute_response(eps);
+    auto typed_expected = typed_material.compute_response(eps);
+    assert(approx_equal(typed_sigma.components(), typed_expected.components()) &&
+           "Borrowed view over concrete material + strategy must be valid");
+
+    std::cout << "  PASSED\n\n";
+}
+
 // =============================================================================
 
 int main() {
@@ -285,6 +338,7 @@ int main() {
     test_inelastic_strategy();
     test_copy_semantics();
     test_strategy_type_safety();
+    test_non_owning_material_views();
 
     std::cout << "============================================\n";
     std::cout << "  All tests PASSED\n";
