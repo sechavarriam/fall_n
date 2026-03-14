@@ -11,6 +11,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <string_view>
 #include <set>
 #include <span>
 #include <unordered_set>
@@ -41,6 +42,9 @@ class Domain
   // while the rest of the codebase is migrated.
 
     static constexpr std::size_t dim_ = dim;
+    static constexpr std::string_view point_role_label_name_{"fall_n.point_role"};
+    static constexpr std::string_view topological_dim_label_name_{"fall_n.topological_dim"};
+    static constexpr std::string_view physical_group_label_name_{"fall_n.physical_group_id"};
 
     std::vector<geometry::Vertex<dim>> vertices_;
     std::vector<Node<dim>>            nodes_cache_;
@@ -63,7 +67,13 @@ class Domain
     bool node_cache_valid_ = false;
     bool node_index_built_ = false;
 
+    std::map<std::string, PetscInt, std::less<>> physical_group_ids_;
     std::optional<std::size_t>        num_integration_points_;
+
+    enum class PlexPointRole : PetscInt {
+        vertex = 0,
+        cell   = 1
+    };
 
 public:
 
@@ -72,6 +82,24 @@ public:
     inline std::size_t num_vertices() const { return vertices_.size(); };
     inline std::size_t num_nodes()    const { return vertices_.size(); };
     inline std::size_t num_elements() const { return elements_.size(); };
+    inline std::size_t plex_dimension() const {
+        std::size_t max_dim = 0;
+        for (const auto& element : elements_) {
+            max_dim = std::max(max_dim, element.topological_dimension());
+        }
+        return max_dim;
+    }
+
+    static constexpr std::string_view point_role_label_name() noexcept { return point_role_label_name_; }
+    static constexpr std::string_view topological_dimension_label_name() noexcept { return topological_dim_label_name_; }
+    static constexpr std::string_view physical_group_label_name() noexcept { return physical_group_label_name_; }
+
+    std::optional<PetscInt> physical_group_id(std::string_view group) const {
+        if (auto it = physical_group_ids_.find(group); it != physical_group_ids_.end()) {
+            return it->second;
+        }
+        return std::nullopt;
+    }
     
     std::size_t num_integration_points(){
         if (!num_integration_points_.has_value()){
@@ -102,6 +130,44 @@ private:
         node_cache_valid_ = false;
         node_index_built_ = false;
         num_integration_points_.reset();
+    }
+
+    void rebuild_physical_group_ids() {
+        physical_group_ids_.clear();
+        PetscInt next_id = 1;
+        for (const auto& element : elements_) {
+            if (!element.has_physical_group()) continue;
+            const auto& group = element.physical_group();
+            if (!physical_group_ids_.contains(group)) {
+                physical_group_ids_.emplace(group, next_id++);
+            }
+        }
+    }
+
+    void label_mesh_points() {
+        rebuild_physical_group_ids();
+
+        for (const auto& element : elements_) {
+            const auto sieve_id = element.sieve_id();
+            mesh.set_label_value(point_role_label_name_, sieve_id,
+                                 static_cast<PetscInt>(PlexPointRole::cell));
+            mesh.set_label_value(topological_dim_label_name_, sieve_id,
+                                 static_cast<PetscInt>(element.topological_dimension()));
+
+            if (element.has_physical_group()) {
+                if (const auto group_id = physical_group_ids_.find(element.physical_group());
+                    group_id != physical_group_ids_.end()) {
+                    mesh.set_label_value(physical_group_label_name_, sieve_id, group_id->second);
+                }
+            }
+        }
+
+        for (const auto& node : nodes_cache_) {
+            const auto sieve_id = node.sieve_id.value();
+            mesh.set_label_value(point_role_label_name_, sieve_id,
+                                 static_cast<PetscInt>(PlexPointRole::vertex));
+            mesh.set_label_value(topological_dim_label_name_, sieve_id, 0);
+        }
     }
 
     void ensure_node_cache() {
@@ -332,9 +398,6 @@ public:
         for (std::size_t i = 0; i < ne; ++i) {
             elements_[i].setup_integration_points(offsets[i]);
         }
-
-        std::cout << "Number of integration points: " << num_integration_points() << std::endl;
-        std::cout << "offset: " << total << std::endl;
     }
 
     // Bind the purely geometric view first so mapping/Jacobians do not depend
@@ -391,7 +454,10 @@ public:
         link_nodes_to_elements();
         setup_integration_points();
 
-        // Uninterpoleated topology by now (no edges or faces).
+        // Non-interpolated DMPlex by design for now: cells connect directly to
+        // vertices. Mixed cell families are distinguished by labels rather
+        // than by inserting explicit edges/faces into the DAG.
+        mesh.set_dimension(static_cast<PetscInt>(plex_dimension()));
         mesh.set_size(PetscInt(num_nodes() + num_elements())); // Number of DAG points = nodes + edges + faces + cells
         
         PetscInt sieve_point_idx = 0;
@@ -422,6 +488,7 @@ public:
             mesh.set_sieve_cone(e.sieve_id(), cone);
         }
         mesh.symmetrize_sieve();
+        label_mesh_points();
     }
 
     template <typename ElementType, typename IntegrationStrategy>

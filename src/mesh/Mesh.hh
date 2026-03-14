@@ -2,6 +2,7 @@
 #define FALL_N_MESH_INTERFACE
 
 #include <cstddef>
+#include <string_view>
 #include <petsc.h>
 
 //template <std::size_t dim>
@@ -26,6 +27,11 @@ public:
         DMPlexSetChart(dm, 0, N); // Set the interval for all mesh points [pStart, pEnd) {0, 1, 2, ..., N-1}
     }
 
+    void set_dimension(PetscInt dim) {
+        ensure_created();
+        DMSetDimension(dm, dim);
+    }
+
     void setup(PetscInt n){
         ensure_created();
         sieve_size = n;
@@ -46,6 +52,23 @@ public:
         ensure_created();
         DMPlexSymmetrize(dm); // Symmetrize the sieve
         DMPlexStratify(dm); // Stratify the mesh
+    }
+
+    DMLabel ensure_label(std::string_view name) {
+        ensure_created();
+
+        DMLabel label{nullptr};
+        DMGetLabel(dm, name.data(), &label);
+        if (label == nullptr) {
+            DMCreateLabel(dm, name.data());
+            DMGetLabel(dm, name.data(), &label);
+        }
+        return label;
+    }
+
+    void set_label_value(std::string_view label_name, PetscInt point, PetscInt value) {
+        auto label = ensure_label(label_name);
+        DMLabelSetValue(label, point, value);
     }
 
     Mesh() = default;

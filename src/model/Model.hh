@@ -103,18 +103,15 @@ private:
 
 public:
 
-    void set_sieve_layout (){ // ONLY CELL-VERTEX MESHES SUPPORTED BY NOW! 
+    void set_sieve_layout (){ // Current contract: non-interpolated cell-vertex DMPlex.
+                              // Mixed 1D/2D/3D cells are allowed; analysis DOFs
+                              // still live only on depth-0 vertices.
 
-        PetscInt pStart, pEnd, cStart, cEnd, vStart, vEnd;
+        PetscInt pStart, pEnd;
 
         PetscSectionCreate(PETSC_COMM_WORLD, &dof_section); // Create the section (PetscSection)
 
-        DMPlexGetChart        (domain_->mesh.dm,    &pStart, &pEnd);
-        DMPlexGetHeightStratum(domain_->mesh.dm, 0, &cStart, &cEnd);   // cells
-        DMPlexGetHeightStratum(domain_->mesh.dm, 1, &vStart, &vEnd);   // vertices, equivalent to DMPlexGetDepthStratum(dm, 0, &vStart, &vEnd);
-                                                                       // https://petsc.org/release/manualpages/DMPlex/DMPlexStratify/
-        // For cell-vertex meshes, vertices are depth 0 and cells are depth 1. For fully interpolated meshes, depth 0 for vertices, 
-        // 1 for edges, and so on  until cells have depth equal to the dimension of the mesh.
+        DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd);
 
         // Use the full DM chart [pStart, pEnd) instead of [vStart, vEnd).
         // Workaround: PETSc ≤3.24 PetscSectionSetConstraintIndices()
@@ -670,7 +667,7 @@ public:
 
         // PETSC SETUP
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
-        DMSetDimension(domain_->mesh.dm, dim); // Set the dimension of the mesh
+        DMSetDimension(domain_->mesh.dm, static_cast<PetscInt>(domain_->plex_dimension()));
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE); // Set the adjacency information for the FEM mesh.
 
         set_num_dofs_in_elements(); // 1. Set the number of dofs per node in the elements (FEM_Elements) // TODO: AVOID THIS!.
@@ -686,7 +683,7 @@ public:
     {
         // PETSC SETUP
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);        
-        DMSetDimension(domain_->mesh.dm, dim);
+        DMSetDimension(domain_->mesh.dm, static_cast<PetscInt>(domain_->plex_dimension()));
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
 
         set_num_dofs_in_elements();
@@ -730,7 +727,7 @@ public:
 
         // PETSC SETUP
         DMSetVecType(domain_->mesh.dm, VECSTANDARD);
-        DMSetDimension(domain_->mesh.dm, dim);
+        DMSetDimension(domain_->mesh.dm, static_cast<PetscInt>(domain_->plex_dimension()));
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
 
         set_num_dofs_in_elements();
