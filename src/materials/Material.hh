@@ -8,12 +8,26 @@
 #include <type_traits>
 #include <utility>
 
+// ============================================================================
+//  Material<ConstitutiveSpace> — owning erased constitutive handle
+// ============================================================================
+//
+//  Semantically, this wrapper is not a physical material.  It is an owning
+//  runtime handle that binds:
+//    1. a concrete stateful constitutive site (MaterialInstance / ConstitutiveSite),
+//    2. a constitutive integrator,
+//    3. a uniform erased interface for heterogeneous containers.
+//
+//  The borrowed companions MaterialConstRef / MaterialRef provide the
+//  corresponding non-owning erased views.
+//
+// ============================================================================
+
 #include "../numerics/Tensor.hh"
+#include "ConstitutiveIntegrator.hh"
 #include "InternalFieldSnapshot.hh"
 #include "MaterialPolicy.hh"
-#include "MaterialState.hh"
 #include "SectionConstitutiveSnapshot.hh"
-#include "update_strategy/IntegrationStrategy.hh"
 
 template<class MaterialPolicy> class Material;
 template<class MaterialPolicy> class MaterialConstRef;
@@ -142,13 +156,13 @@ SectionConstitutiveSnapshot make_section_snapshot(const MaterialType& material) 
    return snap;
 }
 
-template <typename MaterialType, typename UpdateStrategy>
+template <typename MaterialType, typename ConstitutiveIntegratorT>
 class NonOwningMaterialConstModel;
 
-template <typename MaterialType, typename UpdateStrategy>
+template <typename MaterialType, typename ConstitutiveIntegratorT>
 class NonOwningMaterialModel;
 
-template <typename MaterialType, typename UpdateStrategy>
+template <typename MaterialType, typename ConstitutiveIntegratorT>
 class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy> {
    using MaterialPolicyT = typename MaterialType::MaterialPolicy;
    using StateVariableT = typename MaterialPolicyT::StateVariableT;
@@ -156,17 +170,17 @@ class OwningMaterialModel : public MaterialConcept<typename MaterialType::Materi
    using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
 
    MaterialType material_;
-   UpdateStrategy strategy_;
+   ConstitutiveIntegratorT integrator_;
 
 public:
-   explicit OwningMaterialModel(MaterialType material, UpdateStrategy strategy)
+   explicit OwningMaterialModel(MaterialType material, ConstitutiveIntegratorT integrator)
       : material_{std::move(material)}
-      , strategy_{std::move(strategy)}
+      , integrator_{std::move(integrator)}
    {}
 
    MatrixT C() const override {
       StateVariableT zero_state{};
-      return strategy_.tangent(material_, zero_state);
+      return integrator_.tangent(material_, zero_state);
    }
 
    const StateVariableT& current_state() const override {
@@ -182,15 +196,15 @@ public:
    }
 
    StressT compute_response(const StateVariableT& k) const override {
-      return strategy_.compute_response(material_, k);
+      return integrator_.compute_response(material_, k);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
-      return strategy_.tangent(material_, k);
+      return integrator_.tangent(material_, k);
    }
 
    void commit(const StateVariableT& k) override {
-      strategy_.commit(material_, k);
+      integrator_.commit(material_, k);
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -206,20 +220,20 @@ public:
    }
 
    void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
-      using Model = NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
-      std::construct_at(static_cast<Model*>(memory), material_, strategy_);
+      using Model = NonOwningMaterialConstModel<const MaterialType, const ConstitutiveIntegratorT>;
+      std::construct_at(static_cast<Model*>(memory), material_, integrator_);
    }
 
    void clone_ref(MaterialConcept<MaterialPolicyT>* memory) const override {
-      using Model = NonOwningMaterialModel<MaterialType, UpdateStrategy>;
+      using Model = NonOwningMaterialModel<MaterialType, ConstitutiveIntegratorT>;
       std::construct_at(
          static_cast<Model*>(memory),
          const_cast<MaterialType&>(material_),
-         const_cast<UpdateStrategy&>(strategy_));
+         const_cast<ConstitutiveIntegratorT&>(integrator_));
    }
 };
 
-template <typename MaterialType, typename UpdateStrategy>
+template <typename MaterialType, typename ConstitutiveIntegratorT>
 class NonOwningMaterialConstModel
    : public MaterialConstConcept<typename std::remove_cvref_t<MaterialType>::MaterialPolicy> {
    using RawMaterialT = std::remove_cvref_t<MaterialType>;
@@ -227,20 +241,20 @@ class NonOwningMaterialConstModel
    using StateVariableT = typename MaterialPolicyT::StateVariableT;
    using StressT = typename MaterialPolicyT::StressT;
    using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
-   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<UpdateStrategy>>;
+   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<ConstitutiveIntegratorT>>;
 
    MaterialType* material_{nullptr};
-   UpdateStrategy* strategy_{nullptr};
+   ConstitutiveIntegratorT* integrator_{nullptr};
 
 public:
-   NonOwningMaterialConstModel(MaterialType& material, UpdateStrategy& strategy)
+   NonOwningMaterialConstModel(MaterialType& material, ConstitutiveIntegratorT& integrator)
       : material_{std::addressof(material)}
-      , strategy_{std::addressof(strategy)}
+      , integrator_{std::addressof(integrator)}
    {}
 
    MatrixT C() const override {
       StateVariableT zero_state{};
-      return strategy_->tangent(*material_, zero_state);
+      return integrator_->tangent(*material_, zero_state);
    }
 
    const StateVariableT& current_state() const override {
@@ -248,11 +262,11 @@ public:
    }
 
    StressT compute_response(const StateVariableT& k) const override {
-      return strategy_->compute_response(*material_, k);
+      return integrator_->compute_response(*material_, k);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
-      return strategy_->tangent(*material_, k);
+      return integrator_->tangent(*material_, k);
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -264,7 +278,7 @@ public:
    }
 
    std::unique_ptr<MaterialConcept<MaterialPolicyT>> clone_owned() const override {
-      return std::make_unique<OwningModel>(*material_, *strategy_);
+      return std::make_unique<OwningModel>(*material_, *integrator_);
    }
 
    void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
@@ -272,7 +286,7 @@ public:
    }
 };
 
-template <typename MaterialType, typename UpdateStrategy>
+template <typename MaterialType, typename ConstitutiveIntegratorT>
 class NonOwningMaterialModel
    : public MaterialConcept<typename std::remove_cvref_t<MaterialType>::MaterialPolicy> {
    using RawMaterialT = std::remove_cvref_t<MaterialType>;
@@ -280,20 +294,20 @@ class NonOwningMaterialModel
    using StateVariableT = typename MaterialPolicyT::StateVariableT;
    using StressT = typename MaterialPolicyT::StressT;
    using MatrixT = Eigen::Matrix<double, StateVariableT::num_components, StateVariableT::num_components>;
-   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<UpdateStrategy>>;
+   using OwningModel = OwningMaterialModel<std::remove_cv_t<MaterialType>, std::remove_cv_t<ConstitutiveIntegratorT>>;
 
    MaterialType* material_{nullptr};
-   UpdateStrategy* strategy_{nullptr};
+   ConstitutiveIntegratorT* integrator_{nullptr};
 
 public:
-   NonOwningMaterialModel(MaterialType& material, UpdateStrategy& strategy)
+   NonOwningMaterialModel(MaterialType& material, ConstitutiveIntegratorT& integrator)
       : material_{std::addressof(material)}
-      , strategy_{std::addressof(strategy)}
+      , integrator_{std::addressof(integrator)}
    {}
 
    MatrixT C() const override {
       StateVariableT zero_state{};
-      return strategy_->tangent(*material_, zero_state);
+      return integrator_->tangent(*material_, zero_state);
    }
 
    const StateVariableT& current_state() const override {
@@ -309,15 +323,15 @@ public:
    }
 
    StressT compute_response(const StateVariableT& k) const override {
-      return strategy_->compute_response(*material_, k);
+      return integrator_->compute_response(*material_, k);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
-      return strategy_->tangent(*material_, k);
+      return integrator_->tangent(*material_, k);
    }
 
    void commit(const StateVariableT& k) override {
-      strategy_->commit(*material_, k);
+      integrator_->commit(*material_, k);
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -329,12 +343,12 @@ public:
    }
 
    std::unique_ptr<MaterialConcept<MaterialPolicyT>> clone_owned() const override {
-      return std::make_unique<OwningModel>(*material_, *strategy_);
+      return std::make_unique<OwningModel>(*material_, *integrator_);
    }
 
    void clone_const_ref(MaterialConstConcept<MaterialPolicyT>* memory) const override {
-      using ConstModel = NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
-      std::construct_at(static_cast<ConstModel*>(memory), *material_, *strategy_);
+      using ConstModel = NonOwningMaterialConstModel<const MaterialType, const ConstitutiveIntegratorT>;
+      std::construct_at(static_cast<ConstModel*>(memory), *material_, *integrator_);
    }
 
    void clone_ref(MaterialConcept<MaterialPolicyT>* memory) const override {
@@ -362,12 +376,14 @@ class MaterialConstRef {
    }
 
 public:
-   template <typename MaterialType, typename UpdateStrategy>
-   MaterialConstRef(MaterialType& material, UpdateStrategy& strategy) {
-      using Model = impl::NonOwningMaterialConstModel<const MaterialType, const UpdateStrategy>;
+   using ConstitutiveSpace = MaterialPolicy;
+
+   template <typename MaterialType, typename ConstitutiveIntegratorT>
+   MaterialConstRef(MaterialType& material, ConstitutiveIntegratorT& integrator) {
+      using Model = impl::NonOwningMaterialConstModel<const MaterialType, const ConstitutiveIntegratorT>;
       static_assert(sizeof(Model) == MODEL_SIZE, "Invalid non-owning material const-ref size");
       static_assert(alignof(Model) == alignof(void*), "Invalid non-owning material const-ref alignment");
-      std::construct_at(static_cast<Model*>(pimpl()), material, strategy);
+      std::construct_at(static_cast<Model*>(pimpl()), material, integrator);
    }
 
    MaterialConstRef(Material<MaterialPolicy>& other);
@@ -417,12 +433,14 @@ class MaterialRef {
    }
 
 public:
-   template <typename MaterialType, typename UpdateStrategy>
-   MaterialRef(MaterialType& material, UpdateStrategy& strategy) {
-      using Model = impl::NonOwningMaterialModel<MaterialType, UpdateStrategy>;
+   using ConstitutiveSpace = MaterialPolicy;
+
+   template <typename MaterialType, typename ConstitutiveIntegratorT>
+   MaterialRef(MaterialType& material, ConstitutiveIntegratorT& integrator) {
+      using Model = impl::NonOwningMaterialModel<MaterialType, ConstitutiveIntegratorT>;
       static_assert(sizeof(Model) == MODEL_SIZE, "Invalid non-owning material ref size");
       static_assert(alignof(Model) == alignof(void*), "Invalid non-owning material ref alignment");
-      std::construct_at(static_cast<Model*>(pimpl()), material, strategy);
+      std::construct_at(static_cast<Model*>(pimpl()), material, integrator);
    }
 
    MaterialRef(Material<MaterialPolicy>& other);
@@ -465,10 +483,12 @@ class Material {
    std::unique_ptr<impl::MaterialConcept<MaterialPolicy>> pimpl_;
 
 public:
-   template <typename MaterialType, typename UpdateStrategy>
-   Material(MaterialType material, UpdateStrategy strategy) {
-      using Model = impl::OwningMaterialModel<MaterialType, UpdateStrategy>;
-      pimpl_ = std::make_unique<Model>(std::move(material), std::move(strategy));
+   using ConstitutiveSpace = MaterialPolicy;
+
+   template <typename MaterialType, typename ConstitutiveIntegratorT>
+   Material(MaterialType material, ConstitutiveIntegratorT integrator) {
+      using Model = impl::OwningMaterialModel<MaterialType, ConstitutiveIntegratorT>;
+      pimpl_ = std::make_unique<Model>(std::move(material), std::move(integrator));
    }
 
    Material(const Material& other)
@@ -528,5 +548,14 @@ template<class MaterialPolicy>
 MaterialRef<MaterialPolicy>::MaterialRef(Material<MaterialPolicy>& other) {
    other.pimpl_->clone_ref(pimpl());
 }
+
+template<class ConstitutiveSpace>
+using ConstitutiveHandle = Material<ConstitutiveSpace>;
+
+template<class ConstitutiveSpace>
+using ConstitutiveConstHandleRef = MaterialConstRef<ConstitutiveSpace>;
+
+template<class ConstitutiveSpace>
+using ConstitutiveHandleRef = MaterialRef<ConstitutiveSpace>;
 
 #endif

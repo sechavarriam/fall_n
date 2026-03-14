@@ -59,6 +59,11 @@
 //      update(ε)            — commit α after global Newton convergence
 //      internal_state()     → const InternalVariablesT&
 //
+//    ExternallyStateDrivenConstitutiveRelation (Level 3):
+//      compute_response(ε, α)  → σ
+//      tangent(ε, α)           → C_ep
+//      commit(α, ε)            — evolve an explicit external α
+//
 //  ─── Future: hysteretic models ──────────────────────────────────────────
 //
 //  Kinematic hardening (Armstrong-Frederick, Chaboche) produces a
@@ -240,11 +245,12 @@ private:
     // =====================================================================
 
     [[nodiscard]] TrialState<N> elastic_predictor(
-        const Eigen::Vector<double, N>& total_strain) const
+        const Eigen::Vector<double, N>& total_strain,
+        const InternalVariablesT& alpha) const
     {
         TrialState<N> trial;
         Eigen::Vector<double, N> elastic_strain =
-            total_strain - alpha_.plastic_strain;
+            total_strain - alpha.plastic_strain;
         trial.stress          = Ce_ * elastic_strain;
         trial.deviatoric      = deviatoric(trial.stress);
         trial.deviatoric_norm = voigt_deviatoric_norm(trial.deviatoric);
@@ -265,11 +271,12 @@ private:
     //  Bauschinger effect without modifying the YieldCriterion.
 
     [[nodiscard]] TrialState<N> effective_trial(
-        const TrialState<N>& trial) const
+        const TrialState<N>& trial,
+        const InternalVariablesT& alpha) const
     {
         if constexpr (HasBackstress<HardeningStateT>) {
             TrialState<N> eff = trial;
-            eff.deviatoric -= alpha_.hardening_state.backstress;
+            eff.deviatoric -= alpha.hardening_state.backstress;
             eff.deviatoric_norm = voigt_deviatoric_norm(eff.deviatoric);
             return eff;
         } else {
@@ -295,26 +302,27 @@ private:
     // =====================================================================
 
     [[nodiscard]] ReturnMapResult return_mapping(
-        const Eigen::Vector<double, N>& total_strain) const
+        const Eigen::Vector<double, N>& total_strain,
+        const InternalVariablesT& alpha) const
     {
         ReturnMapResult res;
 
         // 1. Elastic predictor
-        TrialState<N> trial = elastic_predictor(total_strain);
+        TrialState<N> trial = elastic_predictor(total_strain, alpha);
 
         // 2. Effective trial (accounts for backstress if kinematic hardening)
-        TrialState<N> eff = effective_trial(trial);
+        TrialState<N> eff = effective_trial(trial, alpha);
 
         // 3. Yield function:  f = q(s_eff) − σ_y(α)
         double q       = yield_.equivalent_stress(eff);
-        double sigma_y = hardening_.yield_stress(alpha_.hardening_state);
+        double sigma_y = hardening_.yield_stress(alpha.hardening_state);
         double f_trial = q - sigma_y;
 
         if (f_trial <= 0.0) {
             // ── Elastic step ─────────────────────────────────────────
             res.stress    = trial.stress;
             res.tangent   = Ce_;
-            res.alpha_new = alpha_;  // no change
+            res.alpha_new = alpha;  // no change
             res.plastic   = false;
             return res;
         }
@@ -343,10 +351,10 @@ private:
         res.stress = trial.stress - (2.0 * G_ * delta_gamma) * n_hat;
 
         // Updated internal variables
-        res.alpha_new.plastic_strain  = alpha_.plastic_strain
+        res.alpha_new.plastic_strain  = alpha.plastic_strain
                                       + delta_gamma * n_hat;
         res.alpha_new.hardening_state = hardening_.evolve(
-                                            alpha_.hardening_state,
+                                            alpha.hardening_state,
                                             delta_gamma);
         res.plastic = true;
 
@@ -381,8 +389,28 @@ public:
     //  ConstitutiveRelation interface (Level 1) — const
     // =====================================================================
 
+    [[nodiscard]] ConjugateT compute_response(
+        const KinematicT& strain,
+        const InternalVariablesT& alpha) const
+    {
+        ConjugateT stress;
+        stress.set_components(return_mapping(strain.components(), alpha).stress);
+        return stress;
+    }
+
+    [[nodiscard]] TangentT tangent(
+        const KinematicT& strain,
+        const InternalVariablesT& alpha) const
+    {
+        return return_mapping(strain.components(), alpha).tangent;
+    }
+
+    void commit(InternalVariablesT& alpha, const KinematicT& strain) const {
+        alpha = return_mapping(strain.components(), alpha).alpha_new;
+    }
+
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
-        auto result = return_mapping(strain.components());
+        auto result = return_mapping(strain.components(), alpha_);
 
         // Cache for subsequent tangent(k) call
         last_stress_ = ConjugateT{};
@@ -400,7 +428,7 @@ public:
         {
             return last_tangent_;
         }
-        auto result = return_mapping(strain.components());
+        auto result = return_mapping(strain.components(), alpha_);
         last_tangent_      = result.tangent;
         last_strain_cache_ = strain.components();
         cache_valid_       = true;
@@ -412,8 +440,7 @@ public:
     // =====================================================================
 
     void update(const KinematicT& strain) {
-        auto result = return_mapping(strain.components());
-        alpha_       = result.alpha_new;
+        commit(alpha_, strain);
         cache_valid_ = false;
     }
 
@@ -441,8 +468,14 @@ public:
     [[nodiscard]] double bulk_modulus()         const noexcept { return K_bulk_; }
     [[nodiscard]] const TangentT& elastic_tangent() const noexcept { return Ce_; }
 
+    [[nodiscard]] double current_yield_stress(
+        const InternalVariablesT& alpha) const noexcept
+    {
+        return hardening_.yield_stress(alpha.hardening_state);
+    }
+
     [[nodiscard]] double current_yield_stress() const noexcept {
-        return hardening_.yield_stress(alpha_.hardening_state);
+        return current_yield_stress(alpha_);
     }
 
     [[nodiscard]] double initial_yield_stress() const noexcept {
@@ -537,6 +570,11 @@ static_assert(
     InelasticConstitutiveRelation<J2_3D_Check_>,
     "PlasticityRelation<3D, VonMises, LinearIsoHard, Assoc> "
     "must satisfy InelasticConstitutiveRelation");
+
+static_assert(
+    ExternallyStateDrivenConstitutiveRelation<J2_3D_Check_>,
+    "PlasticityRelation<3D, VonMises, LinearIsoHard, Assoc> "
+    "must satisfy ExternallyStateDrivenConstitutiveRelation");
 
 
 #endif // FN_PLASTICITY_RELATION_HH

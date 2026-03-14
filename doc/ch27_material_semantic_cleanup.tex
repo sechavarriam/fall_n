@@ -1,0 +1,154 @@
+\chapter{Material Module Semantic Cleanup}
+\label{ch:material-semantic-cleanup}
+
+\section{Purpose}
+
+This chapter documents the first low-risk semantic cleanup applied to the
+materials module after the architectural analysis of
+Chapter~\ref{ch:material-module-analysis}.  The goal of this phase is not to
+replace the existing API, but to make the ontology explicit while preserving
+the current executable code and tests.
+
+The cleanup follows three rules:
+\begin{itemize}
+  \item no behavioural change in the constitutive hot path;
+  \item no forced migration of existing code;
+  \item new names must coexist with legacy names until the next refactor stage.
+\end{itemize}
+
+\section{What Was Changed}
+
+\subsection{Constitutive-space aliases}
+
+The file \texttt{MaterialPolicy.hh} now exposes semantically explicit aliases:
+\begin{itemize}
+  \item \texttt{ContinuumConstitutiveSpace<N>};
+  \item \texttt{BeamConstitutiveSpace<N,Dim>};
+  \item \texttt{ShellConstitutiveSpace<N,Dim>}.
+\end{itemize}
+
+Alongside them, named aliases now exist for the most common spaces:
+\begin{itemize}
+  \item \texttt{ThreeDimensionalConstitutiveSpace};
+  \item \texttt{TimoshenkoBeamConstitutiveSpace3D};
+  \item \texttt{MindlinReissnerShellConstitutiveSpace3D};
+  \item and their lower-dimensional counterparts.
+\end{itemize}
+
+The legacy names \texttt{ThreeDimensionalMaterial},
+\texttt{TimoshenkoBeam3D}, etc.\ remain available as compatibility aliases.
+
+\subsection{Stateful constitutive-site aliases}
+
+The file \texttt{LinealElasticMaterial.hh} now exposes:
+\begin{itemize}
+  \item \texttt{ConstitutiveSite<Relation,StatePolicy>};
+  \item \texttt{ElasticConstitutiveSite<Relation>};
+  \item \texttt{InelasticConstitutiveSite<Relation>}.
+\end{itemize}
+
+These are semantic aliases for the existing \texttt{MaterialInstance} class.
+The old name is intentionally preserved, but the new aliases make the object's
+meaning explicit: it is already a \emph{stateful constitutive site}, not a
+mere material definition.
+
+\subsection{Erased constitutive handles}
+
+The file \texttt{Material.hh} now exposes the following semantic aliases:
+\begin{itemize}
+  \item \texttt{ConstitutiveHandle<Space>} for the owning erased wrapper;
+  \item \texttt{ConstitutiveConstHandleRef<Space>} for the borrowed const view;
+  \item \texttt{ConstitutiveHandleRef<Space>} for the borrowed mutable view.
+\end{itemize}
+
+This makes the role of \texttt{Material<Policy>} explicit without breaking the
+existing API.
+
+\subsection{Constitutive-site accessors}
+
+\texttt{MaterialPoint} and \texttt{MaterialSection} now expose both naming
+families:
+\begin{itemize}
+  \item legacy accessors: \texttt{material\_cref()}, \texttt{material\_ref()};
+  \item semantic accessors: \texttt{constitutive\_cref()},
+        \texttt{constitutive\_ref()}.
+\end{itemize}
+
+Additional site aliases were introduced:
+\begin{itemize}
+  \item \texttt{ContinuumConstitutiveSite<Space>};
+  \item \texttt{SectionConstitutiveSite<Space,PointDim>}.
+\end{itemize}
+
+\section{Ownership Semantics Clarified}
+
+One important contradiction was removed from the documentation of
+\texttt{MaterialInstance}.  The previous text suggested flyweight-style sharing
+as the default interpretation of the relation handle.  That was not true of the
+actual copy semantics.
+
+The code already behaved as follows:
+\begin{itemize}
+  \item ordinary copy construction deep-clones the relation;
+  \item explicit sharing occurs only when the user passes an external
+        \texttt{std::shared\_ptr<Relation>}.
+\end{itemize}
+
+The comments now match that behaviour.  This is important because implicit
+sharing between constitutive sites would be semantically dangerous in nonlinear
+analysis.
+
+\section{Why This Stage Matters}
+
+The cleanup may look cosmetic at first sight, but it removes a real source of
+architectural ambiguity.  Before this change, the same word ``material'' could
+refer to all of the following:
+\begin{itemize}
+  \item a constitutive space;
+  \item a physical material definition;
+  \item a stateful constitutive site;
+  \item an owning erased runtime handle.
+\end{itemize}
+
+After this stage, the code base can distinguish these meanings explicitly
+without forcing a flag day migration.
+
+\section{What Was Intentionally Not Changed}
+
+This cleanup does \emph{not} yet:
+\begin{itemize}
+  \item separate constitutive law and constitutive state into distinct runtime
+        objects;
+  \item remove \texttt{MemoryState} from the default inelastic path;
+  \item move \texttt{FiberSection} out of the materials namespace hierarchy;
+  \item change the hot-loop data layout of fiber sections or continuum points.
+\end{itemize}
+
+Those changes belong to the next refactor stage and would carry more risk.
+
+\section{Immediate Benefits}
+
+The immediate benefits of this stage are:
+\begin{itemize}
+  \item clearer architectural vocabulary in code and tests;
+  \item more honest documentation of ownership and copying;
+  \item a smoother path toward the next law/state/algorithm split;
+  \item better traceability for future reinforced-concrete, multiscale, and
+        fracture work.
+\end{itemize}
+
+\section{Next Step}
+
+The next meaningful refactor should preserve these aliases and attack the real
+state-management issue:
+\begin{center}
+\textbf{constitutive law}
+\(\oplus\)
+\textbf{integration algorithm}
+\(\oplus\)
+\textbf{constitutive state}
+\end{center}
+
+Only after that separation is explicit will it be reasonable to redesign the
+storage layout for large-scale reinforced-concrete simulations, nonlinear
+dynamics, and continuum cracking or fracture models.

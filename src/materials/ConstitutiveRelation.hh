@@ -211,6 +211,40 @@ concept InelasticConstitutiveRelation =
 
 
 // =============================================================================
+//  LEVEL 3 — ExternallyStateDrivenConstitutiveRelation
+// =============================================================================
+//
+//  Transitional concept for inelastic relations that can be evaluated and
+//  committed against an explicit external algorithmic-state object instead of
+//  mutating only an internally owned state.
+//
+//  This is the first architectural step toward a full split:
+//
+//      ConstitutiveRelation + ConstitutiveState + ConstitutiveIntegrator
+//
+//  Required interface:
+//    - compute_response(k, alpha)  -> ConjugateT
+//    - tangent(k, alpha)           -> TangentT
+//    - commit(alpha, k)            -> mutates alpha
+//
+//  The legacy embedded-state API is still retained via
+//  InelasticConstitutiveRelation.
+//
+// -----------------------------------------------------------------------------
+
+template <typename R>
+concept ExternallyStateDrivenConstitutiveRelation =
+    InelasticConstitutiveRelation<R> &&
+    requires(const R cr, typename R::InternalVariablesT& alpha,
+             const typename R::InternalVariablesT& calpha,
+             const typename R::KinematicT& k) {
+        { cr.compute_response(k, calpha) } -> std::same_as<typename R::ConjugateT>;
+        { cr.tangent(k, calpha) } -> std::same_as<typename R::TangentT>;
+        { cr.commit(alpha, k) };
+    };
+
+
+// =============================================================================
 //  Convenience alias: standard tangent matrix type for a conjugate pair
 // =============================================================================
 //

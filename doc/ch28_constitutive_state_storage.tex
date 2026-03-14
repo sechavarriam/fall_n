@@ -1,0 +1,210 @@
+\chapter{Constitutive State Storage Cleanup}
+
+\section{Motivation}
+
+The semantic cleanup of the materials module revealed a persistent mismatch:
+the constitutive-site abstraction in \texttt{fall\_n} stored kinematic history
+by default for inelastic materials, even though the vast majority of the code
+used \texttt{current\_state()} only as the \emph{last committed kinematic
+state}.  This had three undesirable consequences:
+
+\begin{itemize}
+  \item the default inelastic path allocated and grew storage that was not
+        needed by most algorithms;
+  \item the API blurred the distinction between ``current committed value'',
+        ``full history'', and ``trial state'';
+  \item the architecture was poorly prepared for generic constitutive
+        integration algorithms requiring trial/accept/reject workflows.
+\end{itemize}
+
+This chapter introduces an explicit state-storage vocabulary while preserving
+backward compatibility and the static, header-only nature of the hot path.
+
+\section{Storage Roles}
+
+The cleanup distinguishes three different storage roles.
+
+\subsection{CommittedState}
+
+\texttt{CommittedState<S>} stores a single value of type \texttt{S}.  Every
+\texttt{update()} overwrites the previously stored state.  This is the correct
+default for:
+
+\begin{itemize}
+  \item elastic materials;
+  \item inelastic constitutive sites whose irreversible memory already lives
+        inside the constitutive law;
+  \item post-processing paths that only need the last accepted strain-like
+        measure at a material site or section site.
+\end{itemize}
+
+Architecturally this is just the existing \texttt{ElasticState<S>} under a new
+semantic alias.  The implementation remains trivial and fully inlineable.
+
+\subsection{HistoryState}
+
+\texttt{HistoryState<S>} is the explicit opt-in path for storing a full
+kinematic history.  It is semantically equivalent to the legacy
+\texttt{MemoryState<S>}, but the key clarification is that the policy now owns
+a \emph{storage backend}, not merely a hard-coded \texttt{std::vector}.  Each
+\texttt{update()} appends to the supplied storage, and
+\texttt{current\_value()} returns the last entry.
+
+Two storage backends are now provided explicitly:
+
+\begin{itemize}
+  \item \texttt{DynamicHistoryStorage<S>} for unbounded growth;
+  \item \texttt{CircularHistoryStorage<S, N>} for a fixed-size sliding window
+        known at compile time.
+\end{itemize}
+
+This distinction matters because some constitutive models genuinely need
+history, but not \emph{all} of it.  For such cases, a circular buffer provides
+deterministic memory, cache-friendly locality, and zero heap growth after
+construction.
+
+This path remains useful for:
+
+\begin{itemize}
+  \item debugging and validation;
+  \item offline material diagnostics;
+  \item experimental algorithms that truly need access to all previous
+        committed kinematic states.
+\end{itemize}
+
+The important change is that \texttt{HistoryState} is no longer the
+\emph{implicit} inelastic default, but remains available with whichever
+storage backend is appropriate for the algorithm.
+
+\subsection{TrialCommittedState}
+
+\texttt{TrialCommittedState<S>} introduces a minimal two-level storage:
+
+\begin{itemize}
+  \item a committed state;
+  \item an optional staged trial state.
+\end{itemize}
+
+The policy exposes:
+
+\begin{itemize}
+  \item \texttt{update()} to stage a trial value;
+  \item \texttt{commit\_trial()} to accept it;
+  \item \texttt{revert\_trial()} to discard it;
+  \item \texttt{current\_value()} to see the trial state if present, otherwise
+        the committed one.
+\end{itemize}
+
+This policy is not yet the production default.  Its role is preparatory: it
+provides the storage semantics needed by future generic integration strategies
+without forcing those algorithms to be encoded inside each constitutive law.
+
+\section{MaterialState as a Storage Adapter}
+
+\texttt{MaterialState} now depends on the more accurate concept
+\texttt{StateStoragePolicyFor}.  The legacy name
+\texttt{MemoryPolicyFor} is preserved as an alias so existing code remains
+valid during the transition.
+
+Besides \texttt{current\_value()} and \texttt{update()}, \texttt{MaterialState}
+now conditionally forwards:
+
+\begin{itemize}
+  \item \texttt{commit\_trial()};
+  \item \texttt{revert\_trial()};
+  \item \texttt{has\_trial\_value()};
+  \item \texttt{committed\_value()};
+  \item \texttt{trial\_value()};
+  \item \texttt{size()} and indexed logical access when the storage backend
+        is history-bearing.
+\end{itemize}
+
+This conditional forwarding is implemented with \texttt{requires}-based
+introspection.  No virtual dispatch is introduced, and no overhead is paid for
+policies that do not support staged trial states.
+
+\section{Change in the Default Inelastic Path}
+
+The most important semantic change is in
+\texttt{MaterialInstance<Relation, StatePolicy>}:
+
+\begin{itemize}
+  \item \texttt{InelasticConstitutiveSite<R>} now defaults to
+        \texttt{CommittedState};
+  \item explicit history tracking remains available through
+        \texttt{HistoryTrackingConstitutiveSite<R>} and
+        \texttt{HistoryTrackedInelasticMaterial<R>};
+  \item bounded history tracking is available through
+        \texttt{CircularHistoryConstitutiveSite<R, N>}, which binds the site to
+        a fixed compile-time circular buffer;
+  \item \texttt{TrialConstitutiveSite<R>} exposes the staged-storage path for
+        future algorithmic work.
+\end{itemize}
+
+This is semantically more honest.  In the current architecture, models such as
+\texttt{J2PlasticityRelation}, \texttt{KentParkConcrete}, and
+\texttt{MenegottoPintoSteel} store their irreversible internal variables inside
+the constitutive relation itself.  The site-level kinematic state is therefore
+not the true inelastic memory; it is primarily a local snapshot of the last
+accepted measure used by post-processing and reconstruction.
+
+\section{Interaction with Constitutive Updates}
+
+The constitutive-site update path was also adjusted so that storage policies
+with staged trial semantics behave correctly under the existing API:
+
+\begin{enumerate}
+  \item the constitutive law updates its own irreversible variables;
+  \item the site storage receives the kinematic state through
+        \texttt{state\_.update(k)};
+  \item if the storage policy supports \texttt{commit\_trial()}, the staged
+        value is immediately promoted to committed state.
+\end{enumerate}
+
+This keeps current behaviour unchanged for production algorithms while making
+the storage layer ready for a later refactor in which the constitutive integrator
+controls trial and commit phases explicitly.
+
+\section{Why This Matters for Reinforced Concrete Across Scales}
+
+For reinforced concrete across continuum, sectional, and frame scales, a clean
+separation between \emph{constitutive law}, \emph{state storage}, and
+\emph{integration algorithm} is essential:
+
+\begin{itemize}
+  \item frame fiber sections require many local constitutive sites, so storage
+        waste multiplies quickly;
+  \item dynamic nonlinear analyses require robust and explicit commit/revert
+        semantics;
+  \item large-displacement and finite-strain formulations need a precise notion
+        of trial versus committed state;
+  \item continuum-scale cracking and fracture will eventually require local and
+        nonlocal internal variables, which should not be confused with merely
+        storing a history of kinematic inputs.
+\end{itemize}
+
+This cleanup does not yet solve those higher-level problems.  It does,
+however, remove a semantic obstacle: site-level storage is no longer forced to
+pretend that ``inelastic'' automatically means ``store all past kinematics''.
+
+\section{Next Refactor Stage}
+
+With storage semantics clarified, the next architectural step is now better
+defined:
+
+\begin{enumerate}
+  \item separate \texttt{ConstitutiveLaw} from \texttt{ConstitutiveState};
+  \item let the constitutive integrator evolve the state explicitly instead of
+        delegating the entire algorithm to the law;
+  \item make the future constitutive-state object choose not only its semantic
+        role (committed/history/trial) but also its storage backend
+        (dynamic, circular, small-buffer, etc.);
+  \item reserve non-owning type erasure for borrowed constitutive views rather
+        than for owned site storage;
+  \item keep the hot path statically typed for homogeneous loops such as fiber
+        integration and section reconstruction.
+\end{enumerate}
+
+That next stage is the one that will most directly enable robust nonlinear
+reinforced concrete, dynamics, and eventually objective crack/fracture
+modelling at the continuum scale.

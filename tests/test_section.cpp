@@ -226,12 +226,12 @@ void test_node_section_2d() {
 // ============================================================================
 
 void test_material_section_construction() {
-    // Build a Timoshenko beam section material using MaterialInstance alias
+    // Build a Timoshenko beam section constitutive site using the legacy alias.
     TimoshenkoBeamMaterial3D mat_instance{200.0e9, 80.0e9, 0.01, 8.33e-6, 8.33e-6, 1.41e-5};
 
-    Material<TimoshenkoBeam3D> mat{mat_instance, ElasticUpdate{}};
+    ConstitutiveHandle<TimoshenkoBeamConstitutiveSpace3D> mat{mat_instance, ElasticUpdate{}};
 
-    MaterialSection<TimoshenkoBeam3D> ms(std::move(mat));
+    SectionConstitutiveSite<TimoshenkoBeamConstitutiveSpace3D> ms(std::move(mat));
 
     // The section stiffness matrix should be 6×6
     auto C = ms.C();
@@ -246,9 +246,9 @@ void test_material_section_construction() {
 void test_material_section_bind_integration_point() {
     TimoshenkoBeamMaterial3D mat_instance{200e9, 80e9, 0.01, 8.33e-6, 8.33e-6, 1.41e-5};
 
-    Material<TimoshenkoBeam3D> mat{mat_instance, ElasticUpdate{}};
+    ConstitutiveHandle<TimoshenkoBeamConstitutiveSpace3D> mat{mat_instance, ElasticUpdate{}};
 
-    MaterialSection<TimoshenkoBeam3D> ms(std::move(mat));
+    SectionConstitutiveSite<TimoshenkoBeamConstitutiveSpace3D> ms(std::move(mat));
 
     IntegrationPoint<3> gp;
     std::array<double, 3> coord{0.5, 0.0, 0.0};

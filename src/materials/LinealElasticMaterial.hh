@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "ConstitutiveRelation.hh"
-#include "MaterialState.hh"
+#include "ConstitutiveState.hh"
 #include "MaterialStatePolicy.hh"
 
 // Specific relations — needed by convenience aliases at the bottom
@@ -13,12 +13,42 @@
 #include "constitutive_models/lineal/MindlinShellSection.hh"
 #include "constitutive_models/non_lineal/InelasticRelation.hh"
 
+namespace constitutive_site_detail {
+
+template <typename Relation, bool HasExternalAlgorithmicState =
+    ExternallyStateDrivenConstitutiveRelation<Relation>>
+struct AlgorithmicStateHolder {
+};
+
+template <typename Relation>
+struct AlgorithmicStateHolder<Relation, true> {
+    using AlgorithmicStateT = typename Relation::InternalVariablesT;
+    AlgorithmicStateT algorithmic_state_{};
+
+    [[nodiscard]] constexpr const AlgorithmicStateT& algorithmic_state() const noexcept {
+        return algorithmic_state_;
+    }
+
+    [[nodiscard]] constexpr AlgorithmicStateT& algorithmic_state() noexcept {
+        return algorithmic_state_;
+    }
+};
+
+} // namespace constitutive_site_detail
+
 // =============================================================================
-//  MaterialInstance<Relation, StatePolicy>
+//  MaterialInstance<Relation, StatePolicy> / ConstitutiveSite<...>
 // =============================================================================
 //
-//  Universal material-instance template.  Wraps a constitutive relation
-//  (shared, flyweight) together with per-point kinematic state (owned).
+//  Universal stateful constitutive-site template.  It wraps:
+//    1. a constitutive relation handle,
+//    2. per-site kinematic storage,
+//    3. optional access to internal variables for inelastic models.
+//
+//  The legacy class name `MaterialInstance` is kept because it is already used
+//  widely across the library.  Semantically, however, this object already
+//  lives at the constitutive-site level rather than at the immutable material
+//  definition level.
 //
 //  ─── Template parameters ────────────────────────────────────────────────
 //
@@ -28,8 +58,11 @@
 //                 Material<> type-erasure layer).
 //
 //    StatePolicy  Storage strategy for the kinematic state variable.
-//                 Defaults to ElasticState (current-value-only).
-//                 Use MemoryState for path-dependent materials.
+//                 Defaults to ElasticState / CommittedState
+//                 (single committed/current value).
+//                 Use HistoryState for unbounded explicit history, or
+//                 CircularHistoryPolicy<N>::Policy for a fixed compile-time
+//                 sliding window backed by a circular buffer.
 //
 //  ─── Conditional API ────────────────────────────────────────────────────
 //
@@ -63,20 +96,25 @@
 //      MaterialInstance<ContinuumIsotropicRelation>       3D isotropic solid
 //      MaterialInstance<ElasticRelation<UniaxialMaterial>> uniaxial bar
 //      MaterialInstance<TimoshenkoBeamSection3D>          3D beam section
-//      MaterialInstance<VonMisesRelation, MemoryState>    future plasticity
+//      MaterialInstance<VonMisesRelation, HistoryState> explicit unbounded history
+//      MaterialInstance<VonMisesRelation,
+//                       CircularHistoryPolicy<4>::Policy> fixed 4-step window
 //
 // =============================================================================
 
 template <ConstitutiveRelation Relation, template<typename> class StatePolicy = ElasticState>
-    requires MemoryPolicyFor<StatePolicy, typename Relation::KinematicT>
-class MaterialInstance {
+    requires StateStoragePolicyFor<StatePolicy, typename Relation::KinematicT>
+class MaterialInstance
+    : private constitutive_site_detail::AlgorithmicStateHolder<Relation> {
 
 public:
     // --- Aliases derived from concepts (not from legacy inheritance) ----------
     //
-    //  MaterialPolicy  — the trait bag (SolidMaterial<6>, BeamMaterial<6,3>, …)
-    //                    Required by Material.hh type-erasure layer, which
-    //                    accesses MaterialType::MaterialPolicy.
+    //  ConstitutiveSpace — the measure-space descriptor
+    //                     (SolidMaterial<6>, BeamMaterial<6,3>, …)
+    //                     Required by Material.hh type-erasure layer.
+    //
+    //  MaterialPolicy    — legacy alias retained for compatibility.
     //
     //  KinematicT      — kinematic measure     (Strain<6>, BeamGeneralizedStrain<6,3>, …)
     //  ConjugateT      — conjugate response    (Stress<6>, BeamSectionForces<6>, …)
@@ -84,24 +122,32 @@ public:
     //  StateVariableT  — what is stored per point (≡ KinematicT for now)
     //
 
-    using MaterialPolicy  = typename Relation::MaterialPolicyT;
-    using KinematicT      = typename Relation::KinematicT;
-    using ConjugateT      = typename Relation::ConjugateT;
-    using TangentT        = typename Relation::TangentT;
-    using StateVariableT  = KinematicT;
+    using ConstitutiveSpace = typename Relation::MaterialPolicyT;
+    using MaterialPolicy    = ConstitutiveSpace;
+    using KinematicT        = typename Relation::KinematicT;
+    using ConjugateT        = typename Relation::ConjugateT;
+    using TangentT          = typename Relation::TangentT;
+    using StateVariableT    = KinematicT;
+    using ConstitutiveStateT = ConstitutiveState<StatePolicy, KinematicT>;
+    using AlgorithmicStateHolderT =
+        constitutive_site_detail::AlgorithmicStateHolder<Relation>;
 
     static constexpr std::size_t dim            = KinematicT::dim;
     static constexpr std::size_t num_components = KinematicT::num_components;
 
 private:
-    // Per-point kinematic state.  ElasticState stores only the current value;
-    // MemoryState accumulates a full loading history.
-    MaterialState<StatePolicy, KinematicT> state_{};
+    // Per-site kinematic constitutive state.  This semantic layer sits above
+    // the low-level storage adapter and is the next staging point toward an
+    // eventual explicit separation of law/state/integration algorithm.
+    ConstitutiveStateT constitutive_state_{};
 
-    // Shared constitutive relation (flyweight pattern):
-    // all integration points in the same material zone share E, ν, section
-    // properties, etc.  Copies of MaterialInstance intentionally share
-    // this pointer — that is by design.
+    // Relation handle.
+    //
+    // The relation may be shared when the user explicitly builds the site from
+    // an external `std::shared_ptr<Relation>`.  Ordinary copy construction of
+    // MaterialInstance deep-copies the relation to preserve constitutive-site
+    // independence.  That distinction is important: explicit sharing is
+    // allowed, implicit sharing by copy is not.
     std::shared_ptr<Relation> relation_;
 
 public:
@@ -109,14 +155,22 @@ public:
 
     // Compute the conjugate response σ = f(ε) given a kinematic state.
     [[nodiscard]] ConjugateT compute_response(const KinematicT& k) const {
-        return relation_->compute_response(k);
+        if constexpr (ExternallyStateDrivenConstitutiveRelation<Relation>) {
+            return relation_->compute_response(k, this->algorithmic_state());
+        } else {
+            return relation_->compute_response(k);
+        }
     }
 
     // Tangent operator ∂σ/∂ε evaluated at a given kinematic state.
     // For linear-elastic materials the argument is ignored, but the signature
     // remains general so that nonlinear materials work transparently.
     [[nodiscard]] TangentT tangent(const KinematicT& k) const {
-        return relation_->tangent(k);
+        if constexpr (ExternallyStateDrivenConstitutiveRelation<Relation>) {
+            return relation_->tangent(k, this->algorithmic_state());
+        } else {
+            return relation_->tangent(k);
+        }
     }
 
     // ─── Elastic-only interface (Level 2a) ──────────────────────────────
@@ -144,24 +198,65 @@ public:
     void update(const KinematicT& k)
         requires InelasticConstitutiveRelation<Relation>
     {
-        relation_->update(k);
-        state_.update(k);   // record in history (MemoryState)
+        if constexpr (ExternallyStateDrivenConstitutiveRelation<Relation>) {
+            relation_->commit(this->algorithmic_state(), k);
+        } else {
+            relation_->update(k);
+        }
+        constitutive_state_.update(k);
+        if constexpr (requires { constitutive_state_.commit_trial(); }) {
+            constitutive_state_.commit_trial();
+        }
     }
 
     [[nodiscard]] const auto& internal_state() const
         requires InelasticConstitutiveRelation<Relation>
     {
-        return relation_->internal_state();
+        if constexpr (ExternallyStateDrivenConstitutiveRelation<Relation>) {
+            return this->algorithmic_state();
+        } else {
+            return relation_->internal_state();
+        }
+    }
+
+    [[nodiscard]] const auto& algorithmic_state() const noexcept
+        requires ExternallyStateDrivenConstitutiveRelation<Relation>
+    {
+        return AlgorithmicStateHolderT::algorithmic_state();
+    }
+
+    [[nodiscard]] auto& algorithmic_state() noexcept
+        requires ExternallyStateDrivenConstitutiveRelation<Relation>
+    {
+        return AlgorithmicStateHolderT::algorithmic_state();
     }
 
     // ─── Per-point state access ──────────────────────────────────────────
 
     [[nodiscard]] const KinematicT& current_state() const noexcept {
-        return state_.current_value();
+        return constitutive_state_.current_value();
     }
 
-    void update_state(const KinematicT& e) { state_.update(e); }
-    void update_state(KinematicT&& e)      { state_.update(std::move(e)); }
+    [[nodiscard]] const ConstitutiveStateT& constitutive_state() const noexcept {
+        return constitutive_state_;
+    }
+
+    [[nodiscard]] ConstitutiveStateT& constitutive_state() noexcept {
+        return constitutive_state_;
+    }
+
+    void update_state(const KinematicT& e) {
+        constitutive_state_.update(e);
+        if constexpr (requires { constitutive_state_.commit_trial(); }) {
+            constitutive_state_.commit_trial();
+        }
+    }
+    void update_state(KinematicT&& e) {
+        constitutive_state_.update(std::move(e));
+        if constexpr (requires { constitutive_state_.commit_trial(); }) {
+            constitutive_state_.commit_trial();
+        }
+    }
 
     // ─── Constitutive relation access ────────────────────────────────────
     //
@@ -182,9 +277,14 @@ public:
         return relation_;
     }
 
+    [[nodiscard]] std::shared_ptr<const Relation> shared_relation_handle() const noexcept {
+        return relation_;
+    }
+
     // ─── Constructors ────────────────────────────────────────────────────
 
-    // Perfect-forwarding constructor: builds the Relation in-place.
+    // Perfect-forwarding constructor: builds a private relation in-place for
+    // this constitutive site.
     //   e.g. MaterialInstance<ContinuumIsotropicRelation>{200.0, 0.3}
     //        MaterialInstance<TimoshenkoBeamSection3D>{E, G, A, Iy, Iz, J}
     //
@@ -196,7 +296,9 @@ public:
         : relation_{std::make_shared<Relation>(std::forward<Args>(args)...)}
     {}
 
-    // Construct from an existing shared relation (sharing across points).
+    // Construct from an existing shared relation handle.
+    // This is the explicit opt-in path for sharing a read-mostly relation
+    // object across several constitutive sites.
     //   auto rel = std::make_shared<ContinuumIsotropicRelation>(200.0, 0.3);
     //   MaterialInstance<ContinuumIsotropicRelation> m1{rel};
     //   MaterialInstance<ContinuumIsotropicRelation> m2{rel}; // shares rel
@@ -206,26 +308,33 @@ public:
 
     // ─── Special members ─────────────────────────────────────────────────
     //
-    //  The copy constructor deep-copies the Relation when it holds per-point
-    //  mutable state (InelasticConstitutiveRelation), so each Gauss point
-    //  gets its own copy of the internal variables (ε_p, α, etc.).
-    //  For elastic relations (stateless), deep copy is still correct and
-    //  the cost is negligible.
+    //  Copying deep-clones the relation so that the new constitutive site owns
+    //  an independent runtime object.  This keeps copy semantics semantically
+    //  local and avoids surprising cross-site coupling through implicit
+    //  sharing.  Shared relations remain available through the explicit
+    //  `std::shared_ptr<Relation>` constructor above.
 
     MaterialInstance()                                      = default;
     ~MaterialInstance()                                     = default;
 
     MaterialInstance(const MaterialInstance& other)
-        : state_(other.state_)
-        , relation_(std::make_shared<Relation>(*other.relation_))
+        : AlgorithmicStateHolderT(static_cast<const AlgorithmicStateHolderT&>(other))
+        , constitutive_state_(other.constitutive_state_)
+        , relation_(other.relation_
+            ? std::make_shared<Relation>(*other.relation_)
+            : nullptr)
     {}
 
     MaterialInstance(MaterialInstance&&) noexcept            = default;
 
     MaterialInstance& operator=(const MaterialInstance& other) {
         if (this != &other) {
-            state_    = other.state_;
-            relation_ = std::make_shared<Relation>(*other.relation_);
+            static_cast<AlgorithmicStateHolderT&>(*this) =
+                static_cast<const AlgorithmicStateHolderT&>(other);
+            constitutive_state_ = other.constitutive_state_;
+            relation_ = other.relation_
+                ? std::make_shared<Relation>(*other.relation_)
+                : nullptr;
         }
         return *this;
     }
@@ -238,13 +347,39 @@ public:
 //  Convenience constrained aliases
 // =============================================================================
 
-// Elastic material: ElasticState storage, ElasticConstitutiveRelation required
-template <ElasticConstitutiveRelation R>
-using ElasticMaterial = MaterialInstance<R, ElasticState>;
+template <ConstitutiveRelation R, template<typename> class StatePolicy = ElasticState>
+using ConstitutiveSite = MaterialInstance<R, StatePolicy>;
 
-// Inelastic material: MemoryState storage, InelasticConstitutiveRelation required
+template <ElasticConstitutiveRelation R>
+using ElasticConstitutiveSite = ConstitutiveSite<R, CommittedState>;
+
 template <InelasticConstitutiveRelation R>
-using InelasticMaterial = MaterialInstance<R, MemoryState>;
+using InelasticConstitutiveSite = ConstitutiveSite<R, CommittedState>;
+
+template <InelasticConstitutiveRelation R>
+using HistoryTrackingConstitutiveSite = ConstitutiveSite<R, HistoryState>;
+
+template <InelasticConstitutiveRelation R, std::size_t Capacity>
+using CircularHistoryConstitutiveSite =
+    MaterialInstance<R, CircularHistoryPolicy<Capacity>::template Policy>;
+
+template <InelasticConstitutiveRelation R>
+using TrialConstitutiveSite = ConstitutiveSite<R, TrialCommittedState>;
+
+// Legacy aliases kept for backward compatibility.
+// Elastic material: single committed/current state
+template <ElasticConstitutiveRelation R>
+using ElasticMaterial = ElasticConstitutiveSite<R>;
+
+// Inelastic material: by default only the committed/current state is stored.
+template <InelasticConstitutiveRelation R>
+using InelasticMaterial = InelasticConstitutiveSite<R>;
+
+template <InelasticConstitutiveRelation R>
+using HistoryTrackedInelasticMaterial = HistoryTrackingConstitutiveSite<R>;
+
+template <InelasticConstitutiveRelation R, std::size_t Capacity>
+using CircularHistoryInelasticMaterial = CircularHistoryConstitutiveSite<R, Capacity>;
 
 
 // =============================================================================

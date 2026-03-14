@@ -1,0 +1,204 @@
+\chapter{Explicit Algorithmic State in \texttt{PlasticityRelation}}
+
+\section{Why This Step Matters}
+
+The previous chapter introduced \texttt{ConstitutiveIntegrator} as the
+algorithmic injection point at the erased constitutive-handle boundary.  That
+was necessary, but not sufficient.  As long as the nonlinear constitutive law
+still owns its irreversible variables internally, the split remains only
+partial.
+
+This phase takes the first behavioural step beyond semantics:
+\texttt{PlasticityRelation} can now be evaluated and committed against an
+\emph{explicit external} algorithmic state.
+
+\section{Old Situation}
+
+Originally, \texttt{PlasticityRelation} stored a member
+\(\alpha_n\) internally and all core operations were implicitly tied to that
+member:
+
+\begin{align}
+\bsigma_{n+1} &= \texttt{compute\_response}(\bvarepsilon_{n+1}), \\
+\mathbf{C}_{n+1}^{ep} &= \texttt{tangent}(\bvarepsilon_{n+1}), \\
+\alpha_{n+1} &= \texttt{update}(\bvarepsilon_{n+1}).
+\end{align}
+
+That design is workable for a local prototype, but architecturally it creates
+three problems:
+
+\begin{itemize}
+  \item the constitutive law is not clearly separated from the constitutive
+        site;
+  \item the local integration algorithm cannot be cleanly redirected to other
+        state carriers;
+  \item sharing or borrowing the law becomes semantically fragile because the
+        relation still behaves as if it owned the site memory.
+\end{itemize}
+
+\section{New Explicit-State Contract}
+
+\texttt{PlasticityRelation} now supports a second, more explicit interface:
+
+\begin{lstlisting}[language=C++]
+ConjugateT compute_response(const KinematicT& eps,
+                            const InternalVariablesT& alpha) const;
+
+TangentT tangent(const KinematicT& eps,
+                 const InternalVariablesT& alpha) const;
+
+void commit(InternalVariablesT& alpha,
+            const KinematicT& eps) const;
+\end{lstlisting}
+
+Mathematically, the relation is now able to realize the return-mapping map
+
+\begin{align}
+(\bvarepsilon_{n+1}, \alpha_n)
+\;\mapsto\;
+(\bsigma_{n+1}, \mathbf{C}_{n+1}^{ep}, \alpha_{n+1})
+\end{align}
+
+without requiring \(\alpha_n\) to live inside the relation object itself.
+
+\section{Compatibility Is Preserved}
+
+The embedded-state API is still available:
+
+\begin{itemize}
+  \item \texttt{compute\_response(eps)}
+  \item \texttt{tangent(eps)}
+  \item \texttt{update(eps)}
+  \item \texttt{internal\_state()}
+\end{itemize}
+
+Those methods now act as a compatibility layer around the explicit-state core.
+Therefore:
+
+\begin{itemize}
+  \item existing tests and client code continue to work;
+  \item the new architecture can progressively migrate site storage out of the
+        relation;
+  \item naked relations can still be used in the old stateful way when
+        convenient.
+\end{itemize}
+
+\section{What Changed Internally}
+
+The central change is not the public overloads by themselves, but the internal
+factoring of the return-mapping kernel.  The predictor/corrector path now
+receives \(\alpha_n\) explicitly:
+
+\begin{itemize}
+  \item elastic predictor uses the supplied plastic strain;
+  \item effective trial stress uses the supplied hardening state;
+  \item return-mapping builds \(\alpha_{n+1}\) from the supplied
+        \(\alpha_n\), not from an implicitly owned member.
+\end{itemize}
+
+This makes the local nonlinear map much closer to its mathematical form.
+
+\section{Interaction with \texttt{MaterialInstance}}
+
+The typed constitutive site \texttt{MaterialInstance<Relation, ...>} now uses
+the explicit-state path automatically when the relation satisfies
+\texttt{ExternallyStateDrivenConstitutiveRelation}.  In that case:
+
+\begin{itemize}
+  \item the site stores the algorithmic internal variables;
+  \item \texttt{compute\_response()} and \texttt{tangent()} query the relation
+        with that explicit state;
+  \item \texttt{update()} commits the site state through
+        \texttt{relation.commit(alpha, eps)};
+  \item \texttt{internal\_state()} exposes the site-level algorithmic memory,
+        not the compatibility state embedded inside the relation.
+\end{itemize}
+
+This is the first place where the constitutive site becomes semantically more
+important than the relation object.
+
+\section{Interaction with \texttt{ConstitutiveIntegrator}}
+
+The bridge integrator \texttt{EmbeddedRelationIntegrator} now detects the new
+contract and prefers:
+
+\begin{center}
+\texttt{relation.commit(site.algorithmic\_state(), eps)}
+\end{center}
+
+over the legacy
+
+\begin{center}
+\texttt{relation.update(eps)}
+\end{center}
+
+when that explicit-state path exists.
+
+Therefore the architectural hierarchy is now more coherent:
+
+\begin{itemize}
+  \item \texttt{PlasticityRelation} provides a local nonlinear map with an
+        explicit algorithmic state argument;
+  \item \texttt{MaterialInstance} owns the state of the constitutive site;
+  \item \texttt{ConstitutiveIntegrator} drives the commit path.
+\end{itemize}
+
+\section{What the New Tests Prove}
+
+The new regression tests verify three important facts:
+
+\begin{enumerate}
+  \item committing an external plasticity state evolves that external state;
+  \item doing so does \emph{not} mutate the compatibility state owned by the
+        naked relation;
+  \item a \texttt{MaterialInstance} built from \texttt{PlasticityRelation} now
+        stores the plastic internal variables at the site level, and subsequent
+        stresses depend on that site state.
+\end{enumerate}
+
+That is the first concrete proof that behaviour is starting to move away from
+law-owned memory and toward site-owned memory.
+
+\section{Why the Cache Was Not Reused}
+
+The embedded-state implementation of \texttt{PlasticityRelation} contained a
+mutable cache keyed effectively by the strain.  That cache was valid only under
+the implicit assumption that a given relation instance corresponded to a single
+local state.
+
+Once the same relation can be evaluated with arbitrary explicit states, that
+assumption is no longer valid.  Reusing the old cache for the explicit-state
+path would have been semantically unsafe.
+
+The current explicit-state overloads therefore prioritise correctness over
+micro-optimisation and compute directly from the supplied state.  If needed
+later, the correct optimisation point is the constitutive site or the local
+integrator, not a state-agnostic mutable cache inside the law.
+
+\section{Current Boundary of the Refactor}
+
+At this stage, only \texttt{PlasticityRelation} has been migrated to the new
+explicit-state contract.  The following models still keep their irreversible
+memory internally:
+
+\begin{itemize}
+  \item \texttt{MenegottoPintoSteel}
+  \item \texttt{KentParkConcrete}
+  \item \texttt{FiberSection}
+\end{itemize}
+
+This is intentional.  The architectural pattern is now proven on one important
+continuum inelastic law before being propagated to uniaxial hysteretic and
+section-reduction models.
+
+\section{Next Logical Step}
+
+The next meaningful move is to propagate the same pattern to uniaxial
+nonlinear laws, especially those used in reinforced-concrete fiber sections.
+That will make the constitutive-site state explicit not only for continuum
+plasticity, but also for steel hysteresis, concrete crushing/softening, and
+eventually section-level nonlinear reductions.
+
+Once that is in place, the path toward dynamic constitutive updates, finite
+kinematics, nonlocal regularisation, and continuum-scale damage or fracture
+becomes much clearer.

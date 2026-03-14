@@ -3,7 +3,7 @@
 #define FALL_N_MATERIAL_POLICY_HH
 
 // =============================================================================
-//  Material Policy — Trait bags that bind kinematic / conjugate types
+//  Constitutive-space descriptors (legacy: MaterialPolicy)
 // =============================================================================
 //
 //  Each policy is a non-instantiable struct that carries type aliases used by
@@ -26,7 +26,7 @@
 
 
 // =============================================================================
-//  SolidMaterial<N> — continuum solid (Voigt-notation measures)
+//  SolidMaterial<N> — legacy name for a continuum constitutive space
 // =============================================================================
 
 template <std::size_t N>
@@ -43,14 +43,23 @@ private:
     constexpr ~SolidMaterial() = default;
 };
 
-using UniaxialMaterial          = SolidMaterial<1>;
-using PlaneMaterial             = SolidMaterial<3>; // Plane Stress or Plane Strain
-using AxisymmetricMaterial      = SolidMaterial<4>;
-using ThreeDimensionalMaterial  = SolidMaterial<6>;
+template <std::size_t N>
+using ContinuumConstitutiveSpace = SolidMaterial<N>;
+
+using UniaxialConstitutiveSpace         = ContinuumConstitutiveSpace<1>;
+using PlaneConstitutiveSpace            = ContinuumConstitutiveSpace<3>; // Plane Stress or Plane Strain
+using AxisymmetricConstitutiveSpace     = ContinuumConstitutiveSpace<4>;
+using ThreeDimensionalConstitutiveSpace = ContinuumConstitutiveSpace<6>;
+
+// Legacy aliases kept for backward compatibility.
+using UniaxialMaterial          = UniaxialConstitutiveSpace;
+using PlaneMaterial             = PlaneConstitutiveSpace;
+using AxisymmetricMaterial      = AxisymmetricConstitutiveSpace;
+using ThreeDimensionalMaterial  = ThreeDimensionalConstitutiveSpace;
 
 
 // =============================================================================
-//  BeamMaterial<N, Dim> — structural beam (generalized strains / forces)
+//  BeamMaterial<N, Dim> — legacy name for a beam constitutive space
 // =============================================================================
 //
 //  Parameters:
@@ -78,17 +87,25 @@ private:
 };
 
 // 3D Timoshenko beam: 6 generalized strains {ε, κ_y, κ_z, γ_y, γ_z, θ'}
-using TimoshenkoBeam3D       = BeamMaterial<6, 3>;
+template <std::size_t N, std::size_t Dim>
+using BeamConstitutiveSpace = BeamMaterial<N, Dim>;
+
+using TimoshenkoBeamConstitutiveSpace3D = BeamConstitutiveSpace<6, 3>;
 
 // 2D Timoshenko beam: 3 generalized strains {ε, κ, γ}
-using TimoshenkoBeam2D       = BeamMaterial<3, 2>;
+using TimoshenkoBeamConstitutiveSpace2D = BeamConstitutiveSpace<3, 2>;
 
 // 2D Euler-Bernoulli beam: 2 generalized strains {ε, κ} (no shear)
-using EulerBernoulliBeam2D   = BeamMaterial<2, 2>;
+using EulerBernoulliBeamConstitutiveSpace2D = BeamConstitutiveSpace<2, 2>;
+
+// Legacy aliases kept for backward compatibility.
+using TimoshenkoBeam3D       = TimoshenkoBeamConstitutiveSpace3D;
+using TimoshenkoBeam2D       = TimoshenkoBeamConstitutiveSpace2D;
+using EulerBernoulliBeam2D   = EulerBernoulliBeamConstitutiveSpace2D;
 
 
 // =============================================================================
-//  ShellMaterial<N, Dim> — structural shell (generalized strains / resultants)
+//  ShellMaterial<N, Dim> — legacy name for a shell constitutive space
 // =============================================================================
 //
 //  Parameters:
@@ -118,7 +135,13 @@ private:
 
 // Mindlin-Reissner shell in 3D: 8 generalized strains
 //   { ε₁₁, ε₂₂, γ₁₂, κ₁₁, κ₂₂, κ₁₂, γ₁₃, γ₂₃ }
-using MindlinReissnerShell3D = ShellMaterial<8, 3>;
+template <std::size_t N, std::size_t Dim>
+using ShellConstitutiveSpace = ShellMaterial<N, Dim>;
+
+using MindlinReissnerShellConstitutiveSpace3D = ShellConstitutiveSpace<8, 3>;
+
+// Legacy alias kept for backward compatibility.
+using MindlinReissnerShell3D = MindlinReissnerShellConstitutiveSpace3D;
 
 
 #endif // FALL_N_MATERIAL_POLICY_HH
