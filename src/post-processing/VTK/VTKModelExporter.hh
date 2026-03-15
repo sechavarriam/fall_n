@@ -1113,8 +1113,9 @@ public:
     //  Fields collected:
     //    - Total strain             (always,  from current_state())
     //    - Cauchy stress             (always,  from compute_response())
-    //    - Plastic strain           (inelastic only, via InternalFieldSnapshot)
-    //    - Equiv. plastic strain    (inelastic only, via InternalFieldSnapshot)
+    //    - Plastic strain            (inelastic only, via InternalFieldSnapshot)
+    //    - Equiv. plastic strain     (inelastic only, via InternalFieldSnapshot)
+    //    - Scalar damage             (continuum damage only, via snapshot)
     //
     //  After collecting Gauss-point buffers, all tensor/scalar fields are
     //  projected to the mesh nodes. By default the exporter resolves the
@@ -1142,12 +1143,14 @@ public:
             std::vector<double> stress_buf;
             std::vector<double> eps_p_buf;
             std::vector<double> eps_bar_p_buf;
+            std::vector<double> damage_buf;
 
             strain_buf.reserve(total_gp * nvoigt);
             stress_buf.reserve(total_gp * nvoigt);
 
             bool has_plastic_strain = false;
             bool has_eps_bar_p      = false;
+            bool has_damage         = false;
 
             // ── Iterate model elements (ContinuumElement) ────────────────
             for (const auto& element : model_->elements()) {
@@ -1183,6 +1186,11 @@ public:
                         has_eps_bar_p = true;
                         eps_bar_p_buf.push_back(
                             snap.equivalent_plastic_strain.value());
+                    }
+
+                    if (snap.has_damage()) {
+                        has_damage = true;
+                        damage_buf.push_back(snap.damage.value());
                     }
                 }
             }
@@ -1226,12 +1234,19 @@ public:
                     std::move(eps_bar_p_buf),
                     1);
             }
+            if (has_damage) {
+                push_scalar_field_buffer(
+                    gauss_fields_,
+                    "qp_damage",
+                    std::move(damage_buf));
+            }
 
             // ── Project raw Gauss-point fields to mesh nodes ─────────────
             for (const auto& gf : gauss_fields_) {
                 const bool is_raw_tensor = gf.name.ends_with("_voigt");
                 const bool is_projectable_scalar =
-                    gf.name == "qp_equivalent_plastic_strain";
+                    gf.name == "qp_equivalent_plastic_strain" ||
+                    gf.name == "qp_damage";
 
                 if (!is_raw_tensor && !is_projectable_scalar) {
                     continue;

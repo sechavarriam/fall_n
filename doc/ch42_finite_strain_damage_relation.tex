@@ -1,0 +1,251 @@
+\chapter{First Real Finite-Strain Inelastic Continuum Law}
+\label{ch:finite-strain-damage-relation}
+
+\section{Motivation}
+
+Chapter~\ref{ch:continuum-local-integrator-boundary} completed the mechanical
+integration of the continuum-local infrastructure at the real
+\texttt{Material<>} boundary, but only through a synthetic regression law.
+That was enough to validate the architecture, not enough to validate the
+continuum inelastic route itself.
+
+The next stable step is therefore to plug that infrastructure into an actual
+finite-strain inelastic constitutive law.  The goal of this chapter is modest
+and deliberate:
+\begin{itemize}
+  \item introduce a first real continuum inelastic model;
+  \item keep all nonlinear-solver pieces injectable at compile time;
+  \item preserve the existing small-strain and hyperelastic interfaces;
+  \item expose a physically meaningful internal variable through snapshots and
+        VTK export.
+\end{itemize}
+
+The chosen model is an isotropic scalar damage law built on top of a
+hyperelastic backbone.  It is not the final concrete model of the library, but
+it is a correct and useful first continuum inelastic law because it already
+needs:
+\begin{itemize}
+  \item finite-strain kinematics,
+  \item an external algorithmic state,
+  \item a local update problem,
+  \item solver injection,
+  \item post-processing of an inelastic internal variable.
+\end{itemize}
+
+\section{Constitutive Structure}
+
+Let $\mathbf{E}$ denote the Green--Lagrange strain, and let the undamaged
+hyperelastic free energy be
+\[
+  \psi_0 = \psi_0(\mathbf{E}).
+\]
+
+The damaged stored energy is taken as
+\[
+  \psi(\mathbf{E}, d) = g(d)\,\psi_0(\mathbf{E}),
+\]
+where $d \in [0,1]$ is a scalar damage variable and $g(d)$ is a degradation
+function.  In the present implementation,
+\[
+  g(d) = k_\text{res} + (1-k_\text{res})(1-d)^2,
+\]
+with a small residual stiffness $k_\text{res} > 0$ to avoid a completely
+singular material tangent.
+
+The second Piola--Kirchhoff stress is then
+\[
+  \mathbf{S} = g(d)\,\mathbf{S}_0(\mathbf{E}),
+\]
+with $\mathbf{S}_0 = \partial \psi_0 / \partial \mathbf{E}$.  Likewise, in
+this first stable version the algorithmic tangent is taken as the degraded
+undamaged tangent:
+\[
+  \mathbb{C} \approx g(d)\,\mathbb{C}_0.
+\]
+
+This is a secant-like algorithmic choice rather than a fully consistent
+linearization of the damage evolution law.  That limitation is explicit and
+acceptable for the first stable integration step.
+
+\section{Driving Variable and History Variable}
+
+The damage-driving quantity is chosen as the norm of the positive spectral part
+of $\mathbf{E}$:
+\[
+  Y(\mathbf{E}) = \left\lVert \langle \mathbf{E} \rangle_+ \right\rVert,
+\]
+where $\langle \cdot \rangle_+$ retains only positive principal strains.
+
+This choice prevents compressive strains from driving damage in the present
+model, which is a reasonable first approximation for tensile-dominated damage.
+The history variable is
+\[
+  \kappa_{n+1} = \max(\kappa_n, Y_{n+1}),
+\]
+and the scalar damage is updated as
+\[
+  d(\kappa) =
+  \begin{cases}
+    0, & \kappa \le \kappa_0, \\
+    1 - \exp\left(-\dfrac{\kappa-\kappa_0}{\kappa_f}\right),
+      & \kappa > \kappa_0.
+  \end{cases}
+\]
+
+The constitutive state used by the relation is therefore
+\[
+  \alpha = \{\kappa, d\}.
+\]
+
+\section{Local Constitutive Problem}
+
+The update is expressed as a local nonlinear problem through the generic
+continuum-local framework developed in Chapter~\ref{ch:continuum-local-problem-interface}.
+For the present rate-independent isotropic damage law the local residual is
+particularly simple:
+\[
+  R(\kappa) = \kappa - \max(\kappa_n, Y_{n+1}).
+\]
+
+Its Jacobian is
+\[
+  \frac{\partial R}{\partial \kappa} = 1.
+\]
+
+This scalar problem is intentionally simple, but architecturally important:
+the constitutive law is now expressed through the same local-problem route that
+later finite-strain plasticity, damage-plasticity, nonlocal damage, or capped
+models will use.  The nonlinear algorithm itself is not hard-coded inside the
+law.
+
+\section{Compile-Time Extension Points}
+
+The new relation is open at compile time along the same axes established in the
+previous chapters:
+\begin{itemize}
+  \item \textbf{hyperelastic backbone}: any
+        \texttt{HyperelasticModelConcept} may be used;
+  \item \textbf{damage-driving force}: the law accepts a compile-time
+        \texttt{DrivingForceT};
+  \item \textbf{damage evolution}: the scalar softening law is injected as
+        \texttt{DamageEvolutionT};
+  \item \textbf{local problem}: the local update is not hard-coded into the
+        relation, but expressed through
+        \texttt{damage::RateIndependentDamageLocalProblem};
+  \item \textbf{nonlinear algorithm}: Newton is only one admissible local
+        solver; the tests also inject a direct exact solver to verify that the
+        solver is genuinely interchangeable.
+\end{itemize}
+
+This is precisely the architectural property needed later for research work:
+the constitutive kernel does not depend on a specific Newton implementation,
+and the local-problem contract is broad enough to host other algorithms,
+including PETSc-based local solvers.
+
+\section{Reference and Spatial Paths}
+
+Because the law is continuum-aware, the same relation accepts both:
+\begin{itemize}
+  \item a reference path using $(\mathbf{E}, \mathbf{S})$;
+  \item a spatial path using $(\mathbf{e}, \boldsymbol{\sigma})$.
+\end{itemize}
+
+Given the degraded reference stress
+\[
+  \mathbf{S} = g(d)\,\mathbf{S}_0(\mathbf{E}),
+\]
+the spatial Cauchy stress is obtained by the standard push-forward
+\[
+  \boldsymbol{\sigma}
+  = \frac{1}{J}\mathbf{F}\mathbf{S}\mathbf{F}^T.
+\]
+
+The same logic is used for the spatial tangent, which is obtained by
+push-forward of the undamaged material tangent and then degraded by $g(d)$.
+
+\section{Integration at the Material Boundary}
+
+The stable boundary now works as follows:
+\begin{enumerate}
+  \item \texttt{ContinuumElement} builds a
+        \texttt{ConstitutiveKinematics<dim>} carrier.
+  \item \texttt{Material<>} forwards that carrier to an injected
+        \texttt{ContinuumLocalProblemIntegrator}.
+  \item The integrator solves the local damage problem using an injected local
+        solver.
+  \item The resulting state is committed only through
+        \texttt{Material::commit(...)}; predictive evaluation remains
+        side-effect free.
+  \item \texttt{InternalFieldSnapshot} exports the scalar damage variable for
+        post-processing, and \texttt{VTKModelExporter} now emits:
+        \texttt{qp\_damage} and \texttt{nodal\_damage}.
+\end{enumerate}
+
+\section{Tests Added}
+
+The new regression file verifies:
+\begin{itemize}
+  \item damage remains inactive below the threshold and the relation reduces to
+        the undamaged hyperelastic backbone;
+  \item damage grows under tension and does not heal upon unloading;
+  \item the spatial updated-Lagrangian path returns the degraded Cauchy stress
+        and degraded pushed-forward tangent;
+  \item the same local problem can be solved with Newton or with an exact
+        custom solver injected at compile time;
+  \item the relation integrates correctly through
+        \texttt{Material<ThreeDimensionalMaterial>} and through
+        \texttt{MaterialPoint<ThreeDimensionalMaterial>};
+  \item the internal-field snapshot now exposes the scalar damage variable.
+\end{itemize}
+
+\section{What This Enables Next}
+
+This chapter does not yet solve finite-strain concrete damage or fracture in
+their final research form.  What it does is remove another architectural
+barrier:
+\begin{quote}
+The continuum inelastic path now has a real finite-strain law with external
+state, local solver injection, spatial/reference duality, and exportable
+internal variables.
+\end{quote}
+
+That makes the next steps much more concrete:
+\begin{itemize}
+  \item finite-strain plasticity with vector-valued local unknowns;
+  \item coupled damage-plasticity for concrete;
+  \item crack-band or nonlocal regularisation of scalar damage;
+  \item fracture-oriented continuum models built on the same local-problem
+        contract.
+\end{itemize}
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1987damage}
+J.~C. Simo and J.~W. Ju,
+\emph{Strain- and stress-based continuum damage models. I. Formulation},
+International Journal of Solids and Structures, 23(7), 821--840, 1987.
+
+\bibitem{miehe1995}
+C.~Miehe,
+\emph{Discontinuous and continuous damage evolution in Ogden-type large-strain
+elastic materials},
+European Journal of Mechanics A/Solids, 14(4), 697--720, 1995.
+
+\bibitem{simo1998damage}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{bonet2008damage}
+J.~Bonet, A.~J. Gil, and R.~D. Wood,
+\emph{Nonlinear Solid Mechanics for Finite Element Analysis: Statics},
+2nd ed., Cambridge University Press, 2008.
+
+\bibitem{desouza2008damage}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\end{thebibliography}

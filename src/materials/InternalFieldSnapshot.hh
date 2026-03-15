@@ -59,12 +59,16 @@ struct InternalFieldSnapshot {
     // ── (Future) backstress tensor β — for kinematic hardening ───────────
     //  std::optional<std::span<const double>> backstress{};
 
-    // ── (Future) damage scalar d — for continuum damage models ──────────
-    //  std::optional<double> damage{};
+    // ── Damage scalar d — for continuum damage models ───────────────────
+    //  Populated when the algorithmic state exposes either `.damage` or a
+    //  convenience accessor `.d()`.  This keeps post-processing agnostic
+    //  about the exact internal-state layout chosen by the constitutive law.
+    std::optional<double> damage{};
 
     // ── Query helpers ────────────────────────────────────────────────────
     [[nodiscard]] bool has_plastic_strain()            const noexcept { return plastic_strain.has_value(); }
     [[nodiscard]] bool has_equivalent_plastic_strain()  const noexcept { return equivalent_plastic_strain.has_value(); }
+    [[nodiscard]] bool has_damage()                     const noexcept { return damage.has_value(); }
 };
 
 #endif // FALL_N_INTERNAL_FIELD_SNAPSHOT_HH

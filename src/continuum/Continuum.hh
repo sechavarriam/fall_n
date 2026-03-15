@@ -17,6 +17,7 @@
 //    • ConstitutiveKinematics  — continuum constitutive carrier for large
 //                                displacements / finite strains
 //    • HyperelasticModel       — SVK, compressible Neo-Hookean (energy-based)
+//    • FiniteStrainDamage*     — first finite-strain inelastic continuum law
 //
 // =============================================================================
 
@@ -29,5 +30,7 @@
 #include "KinematicPolicy.hh"
 #include "ConstitutiveKinematics.hh"
 #include "HyperelasticModel.hh"
+#include "FiniteStrainDamageLocalProblem.hh"
+#include "FiniteStrainDamageRelation.hh"
 
 #endif // FALL_N_CONTINUUM_HH

@@ -503,7 +503,15 @@ add_executable(fall_n_continuum_test
 
 target_include_directories(fall_n_continuum_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_continuum_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_continuum_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_continuum_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_continuum_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_continuum_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME continuum_tensors COMMAND fall_n_continuum_test)
 
@@ -560,6 +568,25 @@ vtk_module_autoinit(
 )
 
 add_test(NAME continuum_local_problem COMMAND fall_n_continuum_local_problem_test)
+
+# ── Finite-strain damage relation tests ──────────────────────────────────────
+add_executable(fall_n_finite_strain_damage_test
+  tests/test_finite_strain_damage_relation.cpp
+)
+
+target_include_directories(fall_n_finite_strain_damage_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_finite_strain_damage_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_finite_strain_damage_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_finite_strain_damage_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_finite_strain_damage_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_finite_strain_damage_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+add_test(NAME finite_strain_damage COMMAND fall_n_finite_strain_damage_test)
 
 # ── TotalLagrangian integration tests (Phase 4) ─────────────────────────────
 add_executable(fall_n_tl_integration_test

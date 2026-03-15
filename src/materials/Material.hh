@@ -90,6 +90,16 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
       snap.equivalent_plastic_strain = material.internal_state().eps_bar_p();
    }
 
+   // Continuum damage models may store the degradation variable either as a
+   // direct public member (`damage`) or through a semantic accessor (`d()`).
+   // The snapshot stays layout-agnostic and only records the scalar when the
+   // constitutive state exposes one of those compile-time signatures.
+   if constexpr (requires { material.internal_state().damage; }) {
+      snap.damage = material.internal_state().damage;
+   } else if constexpr (requires { material.internal_state().d(); }) {
+      snap.damage = material.internal_state().d();
+   }
+
    return snap;
 }
 
