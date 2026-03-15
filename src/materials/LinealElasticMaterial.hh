@@ -12,6 +12,7 @@
 #include "constitutive_models/lineal/TimoshenkoBeamSection.hh"
 #include "constitutive_models/lineal/MindlinShellSection.hh"
 #include "constitutive_models/non_lineal/InelasticRelation.hh"
+#include "../continuum/FiniteStrainDamageRelation.hh"
 
 namespace constitutive_site_detail {
 
@@ -413,6 +414,16 @@ using MindlinShellMaterial = ElasticMaterial<MindlinShellSection>;
 using J2PlasticMaterial3D  = InelasticMaterial<J2PlasticityRelation<ThreeDimensionalMaterial>>;
 using J2PlasticMaterial2D  = InelasticMaterial<J2PlasticityRelation<PlaneMaterial>>;
 using J2PlasticMaterial1D  = InelasticMaterial<J2PlasticityRelation<UniaxialMaterial>>;
+
+
+// =============================================================================
+//  Named material aliases — Inelastic (finite-strain continuum damage)
+// =============================================================================
+
+using NeoHookeanDamageMaterial3D = InelasticMaterial<continuum::NeoHookeanDamageRelation<3>>;
+using NeoHookeanDamageMaterial2D = InelasticMaterial<continuum::NeoHookeanDamageRelation<2>>;
+using SVKDamageMaterial3D        = InelasticMaterial<continuum::SVKDamageRelation<3>>;
+using SVKDamageMaterial2D        = InelasticMaterial<continuum::SVKDamageRelation<2>>;
 
 
 #endif // FALL_N_MATERIAL_INSTANCE_HH

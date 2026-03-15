@@ -1,0 +1,250 @@
+\chapter{Stabilising the Finite-Strain Damage Route}
+\label{ch:finite-strain-damage-stabilization}
+
+\section{Motivation}
+
+Chapter~\ref{ch:finite-strain-damage-relation} introduced the first real
+finite-strain inelastic continuum law in the library, but intentionally in its
+most conservative form: a scalar local problem and a degraded secant tangent.
+That was the right first cut to validate the architecture, but it still left
+two weaknesses:
+\begin{itemize}
+  \item the local problem was too special, and therefore did not exercise the
+        vector-valued local-problem framework that future continuum
+        damage-plasticity and fracture-oriented laws will need;
+  \item the tangent was only secant-like, so active loading did not expose a
+        consistent linearisation of the damage update.
+\end{itemize}
+
+This chapter documents the stabilised version of that route.  The objective is
+not to over-specialise the model, but to keep the implementation open to
+compile-time extension while removing the most obvious provisional pieces.
+
+\section{State and Local Unknown}
+
+The algorithmic state remains
+\[
+  \alpha = \{\kappa, d\},
+\]
+where $\kappa$ is the history variable and $d$ is the scalar damage variable.
+
+The stabilised local problem no longer solves only for $\kappa$.  Instead, it
+solves for the vector
+\[
+  \mathbf{x} =
+  \begin{bmatrix}
+    \kappa \\ d
+  \end{bmatrix}.
+\]
+
+This is a small change mathematically, but a large one architecturally:
+the finite-strain damage law now follows the same fixed-size vector local
+problem interface that future coupled constitutive models will need.
+
+\section{Vector Local Problem}
+
+For the present rate-independent isotropic law,
+\[
+  \kappa_{n+1} = \max(\kappa_n, Y_{n+1}),
+  \qquad
+  d_{n+1} = D(\kappa_{n+1}).
+\]
+
+The local problem is written as
+\[
+  \mathbf{R}(\mathbf{x}) =
+  \begin{bmatrix}
+    R_1(\kappa,d) \\
+    R_2(\kappa,d)
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    \kappa - \max(\kappa_n, Y_{n+1}) \\
+    d - D(\kappa)
+  \end{bmatrix}
+  = \mathbf{0}.
+\]
+
+Its Jacobian is
+\[
+  \mathbf{K} =
+  \frac{\partial \mathbf{R}}{\partial \mathbf{x}}
+  =
+  \begin{bmatrix}
+    1 & 0 \\
+    -D'(\kappa) & 1
+  \end{bmatrix}.
+\]
+
+In the current model this system is triangular, so Newton still converges in a
+trivial manner.  However, that is no longer the architectural point.  The
+important point is that the constitutive infrastructure now sees a
+\emph{vector-valued local problem} rather than a special scalar shortcut.
+
+\section{Consistent Tangent During Active Damage Loading}
+
+The constitutive law is
+\[
+  \mathbf{S}(\mathbf{E},d) = g(d)\,\mathbf{S}_0(\mathbf{E}),
+\]
+with $\mathbf{S}_0 = \partial \psi_0 / \partial \mathbf{E}$ and
+$g(d)$ the scalar degradation function.
+
+When the loading is active, i.e. when the updated state satisfies
+\[
+  \kappa_{n+1} = Y_{n+1},
+\]
+the algorithmic tangent is no longer purely secant.  Differentiating
+\[
+  \mathbf{S} = g(d(\kappa(\mathbf{E})))\,\mathbf{S}_0(\mathbf{E}),
+\]
+gives
+\[
+  \mathbb{C}_{\text{alg}}
+  =
+  g(d)\,\mathbb{C}_0
+  +
+  \mathbf{S}_0 \otimes
+  \frac{\partial g}{\partial \mathbf{E}}.
+\]
+
+Using the chain rule,
+\[
+  \frac{\partial g}{\partial \mathbf{E}}
+  =
+  \frac{\partial g}{\partial d}
+  \frac{\partial d}{\partial \kappa}
+  \frac{\partial \kappa}{\partial Y}
+  \frac{\partial Y}{\partial \mathbf{E}}.
+\]
+
+For the present rate-independent model, during active loading
+$\partial \kappa / \partial Y = 1$, so
+\[
+  \frac{\partial g}{\partial \mathbf{E}}
+  =
+  g'(d)\,D'(\kappa)\,\frac{\partial Y}{\partial \mathbf{E}}.
+\]
+
+During unloading or below threshold, the history variable is frozen and the
+additional term vanishes.  The tangent then reduces again to the degraded
+secant form
+\[
+  \mathbb{C}_{\text{alg}} = g(d)\,\mathbb{C}_0.
+\]
+
+\section{Driving-Force Gradient}
+
+The current driving variable is the norm of the positive spectral part of the
+Green--Lagrange strain,
+\[
+  Y(\mathbf{E}) = \left\lVert \langle \mathbf{E} \rangle_+ \right\rVert.
+\]
+
+Let
+\[
+  \mathbf{E}_+ = \sum_a \langle \lambda_a \rangle_+ \,\mathbf{n}_a \otimes
+  \mathbf{n}_a,
+\]
+where $\lambda_a$ and $\mathbf{n}_a$ are the principal strains and principal
+directions of $\mathbf{E}$.  For $Y > 0$,
+\[
+  \frac{\partial Y}{\partial \mathbf{E}}
+  =
+  \frac{\mathbf{E}_+}{\lVert \mathbf{E}_+ \rVert}.
+\]
+
+That is the derivative now implemented in
+\texttt{PositiveGreenLagrangeEquivalentStrain}.  In code, the derivative is
+exposed with respect to the engineering-Voigt strain vector used by the
+element formulation, which keeps the constitutive tangent directly compatible
+with the existing assembly path.
+
+\section{Compile-Time Extension Points}
+
+The stabilised implementation preserves the library's compile-time openness:
+\begin{itemize}
+  \item \textbf{Driving force policy}: any policy satisfying
+        \texttt{DamageDrivingForcePolicy} may still drive the law.
+  \item \textbf{Differentiable driving force}: if a policy additionally
+        exposes \texttt{gradient(...)} or
+        \texttt{gradient\_wrt\_engineering(...)}, the law can build a more
+        consistent tangent.  If not, it falls back cleanly.
+  \item \textbf{Damage evolution policy}: any
+        \texttt{DamageEvolutionPolicy} remains admissible.
+  \item \textbf{Differentiable evolution}: if the policy exposes
+        \texttt{damage\_derivative(...)} and
+        \texttt{degradation\_derivative(...)}, the rank-one correction is
+        activated during loading.  Otherwise the law degrades to the secant
+        tangent without breaking the interface.
+  \item \textbf{Local solver}: Newton is still only one admissible local
+        algorithm.  The tests continue to inject an exact direct solver to
+        verify that the local-problem interface remains solver-agnostic.
+\end{itemize}
+
+This is the key architectural point: the law does not become less general by
+becoming more consistent.  It becomes more faithful \emph{when the injected
+policies provide the required derivatives}, and remains conservative otherwise.
+
+\section{Verification Performed}
+
+The regression suite now verifies:
+\begin{itemize}
+  \item the vector local problem produces the same state, response, and
+        tangent under both Newton and an injected exact solver;
+  \item active loading produces an algorithmic tangent that matches finite
+        differences of the fully integrated constitutive response;
+  \item unloading reduces to the degraded secant tangent, as expected from a
+        frozen history variable;
+  \item the spatial updated-Lagrangian path remains correct for stress and
+        tangent under unloading, where the secant form is exact for the
+        present model.
+\end{itemize}
+
+\section{What Remains Open}
+
+Even after this stabilisation, the route is intentionally not closed:
+\begin{itemize}
+  \item the model remains local and scalar;
+  \item no crack-band or nonlocal regularisation is introduced yet;
+  \item the spatial tangent is still obtained through push-forward of the
+        reference tangent, which is acceptable for the present path but not yet
+        the final word for general finite-strain inelasticity;
+  \item coupled finite-strain plasticity-damage still requires a higher-rank
+        local state and a genuinely vector-valued constitutive residual.
+\end{itemize}
+
+That said, the current route is now stable enough to be a credible base layer
+for those next developments.
+
+\section{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{simo1987damage2}
+J.~C. Simo and J.~W. Ju,
+\emph{Strain- and stress-based continuum damage models. I. Formulation},
+International Journal of Solids and Structures, 23(7), 821--840, 1987.
+
+\bibitem{miehe1995damage2}
+C.~Miehe,
+\emph{Discontinuous and continuous damage evolution in Ogden-type large-strain
+elastic materials},
+European Journal of Mechanics A/Solids, 14(4), 697--720, 1995.
+
+\bibitem{simohughes1998damage2}
+J.~C. Simo and T.~J.~R. Hughes,
+\emph{Computational Inelasticity},
+Springer, 1998.
+
+\bibitem{bonetwood2008damage2}
+J.~Bonet, R.~D. Wood, and A.~J. Gil,
+\emph{Nonlinear Solid Mechanics for Finite Element Analysis: Statics},
+2nd ed., Cambridge University Press, 2008.
+
+\bibitem{desouzaneto2008damage2}
+E.~A. de Souza Neto, D.~Peri\'{c}, and D.~R.~J. Owen,
+\emph{Computational Methods for Plasticity: Theory and Applications},
+Wiley, 2008.
+
+\end{thebibliography}

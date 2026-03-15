@@ -147,6 +147,8 @@
 // Model Module
 // =================================================================================
 
+#include "src/continuum/Continuum.hh"
+
 #include "src/model/DoFStorage.hh"
 #include "src/model/DoF.hh"       // TODO: deprecate — kept for transition
 #include "src/model/NodeSelector.hh"
