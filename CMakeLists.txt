@@ -522,7 +522,15 @@ add_executable(fall_n_kinematic_test
 
 target_include_directories(fall_n_kinematic_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_kinematic_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_kinematic_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_kinematic_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_kinematic_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_kinematic_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME kinematic_policy COMMAND fall_n_kinematic_test)
 
@@ -533,7 +541,15 @@ add_executable(fall_n_hyperelastic_test
 
 target_include_directories(fall_n_hyperelastic_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_hyperelastic_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_hyperelastic_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_hyperelastic_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_hyperelastic_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_hyperelastic_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME hyperelastic COMMAND fall_n_hyperelastic_test)
 
@@ -595,7 +611,15 @@ add_executable(fall_n_tl_integration_test
 
 target_include_directories(fall_n_tl_integration_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_tl_integration_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_tl_integration_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_tl_integration_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_tl_integration_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_tl_integration_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME tl_integration COMMAND fall_n_tl_integration_test)
 
@@ -606,7 +630,15 @@ add_executable(fall_n_newton_test
 
 target_include_directories(fall_n_newton_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_newton_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_newton_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_newton_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_newton_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_newton_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME newton_element COMMAND fall_n_newton_test)
 
@@ -617,7 +649,15 @@ add_executable(fall_n_ul_test
 
 target_include_directories(fall_n_ul_test PRIVATE ${CMAKE_SOURCE_DIR})
 
+target_link_libraries(fall_n_ul_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_ul_test PRIVATE PkgConfig::PETSC)
 target_link_libraries(fall_n_ul_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_ul_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_ul_test
+  MODULES ${VTK_LIBRARIES}
+)
 
 add_test(NAME updated_lagrangian COMMAND fall_n_ul_test)
 
