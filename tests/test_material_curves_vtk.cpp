@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -133,6 +134,8 @@ void test_vtk_curve_writer_roundtrip() {
     const auto output_dir = repo_root() / "data" / "output" / "material_curves";
     const auto prefix = output_dir / "material_hysteresis_curves";
     const auto manifest_path = output_dir / "material_hysteresis_curves_manifest.csv";
+    const auto chart_script_path =
+        output_dir / "material_hysteresis_curves_paraview_chart.py";
     const auto legacy_bundle_path = output_dir / "material_hysteresis_curves.vtm";
 
     std::vector<fall_n::vtk::ConstitutiveCurveSeries> curves;
@@ -166,11 +169,13 @@ void test_vtk_curve_writer_roundtrip() {
     std::filesystem::remove(output_dir / "material_hysteresis_curves_kent_park_cyclic.vtt");
     std::filesystem::remove(output_dir / "material_hysteresis_curves_j2_backbone.vtt");
     std::filesystem::remove(manifest_path);
+    std::filesystem::remove(chart_script_path);
 
     fall_n::vtk::VTKConstitutiveCurveWriter writer;
     writer.write_table_bundle(curves, prefix.string());
 
     assert(std::filesystem::exists(manifest_path));
+    assert(std::filesystem::exists(chart_script_path));
     const auto steel_path = output_dir / "material_hysteresis_curves_menegotto_cyclic.vtt";
     const auto concrete_path = output_dir / "material_hysteresis_curves_kent_park_cyclic.vtt";
     const auto j2_path = output_dir / "material_hysteresis_curves_j2_backbone.vtt";
@@ -203,6 +208,17 @@ void test_vtk_curve_writer_roundtrip() {
                   static_cast<double>(curves[0].samples.back().step)));
     assert(approx(path_parameter->GetComponent(0, 0),
                   curves[0].samples.front().path_parameter));
+
+    std::ifstream chart_script(chart_script_path);
+    assert(chart_script);
+    const std::string script_text{
+        std::istreambuf_iterator<char>(chart_script),
+        std::istreambuf_iterator<char>()
+    };
+    assert(script_text.find("CreateView('XYChartView')") != std::string::npos);
+    assert(script_text.find("material_hysteresis_curves_menegotto_cyclic.vtt")
+           != std::string::npos);
+    assert(script_text.find("SeriesVisibility = [curve['y']]") != std::string::npos);
 }
 
 } // namespace

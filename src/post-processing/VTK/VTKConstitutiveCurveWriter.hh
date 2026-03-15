@@ -72,6 +72,22 @@ inline std::string escape_curve_xml(std::string_view value) {
     return out;
 }
 
+inline std::string escape_python_string(std::string_view value) {
+    std::string out;
+    out.reserve(value.size());
+    for (const char ch : value) {
+        switch (ch) {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
 inline vtkSmartPointer<vtkPolyData> build_curve_polydata(
     const ConstitutiveCurveSeries& series)
 {
@@ -226,6 +242,61 @@ inline void write_curve_manifest_csv(
     }
 }
 
+inline void write_paraview_chart_script(
+    std::span<const ConstitutiveCurveSeries> series,
+    const std::filesystem::path& filename,
+    std::string_view stem)
+{
+    if (!filename.parent_path().empty()) {
+        std::filesystem::create_directories(filename.parent_path());
+    }
+
+    std::ofstream out(filename);
+    if (!out) {
+        throw std::runtime_error(
+            "VTKConstitutiveCurveWriter: failed to open '" + filename.string() + "' for writing.");
+    }
+
+    out << "# Auto-generated ParaView helper for constitutive curves.\n";
+    out << "# Run from ParaView with Tools -> Python Shell -> Run Script,\n";
+    out << "# or with pvpython " << filename.filename().string() << "\n";
+    out << "from pathlib import Path\n";
+    out << "from paraview.simple import *\n\n";
+    out << "base_dir = Path(__file__).resolve().parent\n";
+    out << "curves = [\n";
+    for (const auto& entry : series) {
+        const auto sidecar =
+            std::string(stem) + "_" + sanitize_curve_series_name(entry.name) + ".vtt";
+        out << "    {\n";
+        out << "        \"name\": \"" << escape_python_string(entry.name) << "\",\n";
+        out << "        \"file\": \"" << escape_python_string(sidecar) << "\",\n";
+        out << "        \"x\": \"" << escape_python_string(entry.abscissa_name) << "\",\n";
+        out << "        \"y\": \"" << escape_python_string(entry.ordinate_name) << "\",\n";
+        out << "    },\n";
+    }
+    out << "]\n\n";
+    out << "layout = GetLayout()\n";
+    out << "if layout is None:\n";
+    out << "    layout = CreateLayout(name='Constitutive Curves')\n\n";
+    out << "view = CreateView('XYChartView')\n";
+    out << "AssignViewToLayout(view=view, layout=layout, hint=0)\n";
+    out << "SetActiveView(view)\n";
+    out << "view.ViewSize = [1200, 800]\n\n";
+    out << "for curve in curves:\n";
+    out << "    reader = OpenDataFile(str(base_dir / curve['file']))\n";
+    out << "    RenameSource(curve['name'], reader)\n";
+    out << "    display = Show(reader, view, 'XYChartRepresentation')\n";
+    out << "    if hasattr(display, 'UseIndexForXAxis'):\n";
+    out << "        display.UseIndexForXAxis = 0\n";
+    out << "    if hasattr(display, 'XArrayName'):\n";
+    out << "        display.XArrayName = curve['x']\n";
+    out << "    if hasattr(display, 'SeriesVisibility'):\n";
+    out << "        display.SeriesVisibility = [curve['y']]\n";
+    out << "    if hasattr(display, 'SeriesLabel'):\n";
+    out << "        display.SeriesLabel = [curve['y'], curve['name']]\n\n";
+    out << "RenderAllViews()\n";
+}
+
 } // namespace detail
 
 class VTKConstitutiveCurveWriter {
@@ -287,9 +358,9 @@ public:
     }
 
     // Preferred export for constitutive protocols: one vtkTable (.vtt) per
-    // series plus a lightweight CSV manifest. ParaView treats vtkTable as a
-    // chart-ready data object, which is much more natural than opening a
-    // geometric polyline when the intent is a 2D stress-strain plot.
+    // series plus a lightweight CSV manifest and a ParaView Python helper.
+    // vtkTable is the right data carrier for a 2D chart, while the companion
+    // script reconstructs an XYChartView directly inside ParaView.
     void write_table_bundle(
         const std::vector<ConstitutiveCurveSeries>& series,
         const std::string& filename_prefix) const
@@ -313,6 +384,10 @@ public:
         detail::write_curve_manifest_csv(
             series,
             directory / (stem + "_manifest.csv"));
+        detail::write_paraview_chart_script(
+            series,
+            directory / (stem + "_paraview_chart.py"),
+            stem);
     }
 };
 
