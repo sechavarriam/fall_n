@@ -196,8 +196,104 @@ After the rename:
 This chapter established a reference architecture map for the
 \texttt{Material} module, catalogued eight deficiencies, and defined
 a six-phase improvement roadmap.
-Phase~1 (semantic rename, \S\ref{sec:phase1-rename}) has been
+Phase~1 (semantic rename, \S\ref{sec:phase1-rename}) and
+Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}) have been
 implemented and verified.
-Phases~2--6 remain for future work and will follow the same
+Phases~3--6 remain for future work and will follow the same
 pattern: implement, build with \texttt{-Werror}, run full CTest
 regression, and document in an appendix to this chapter.
+
+
+%% ------------------------------------------------------------------
+\section{Phase 2 Implementation: Thread-Safe Constitutive Relations}
+\label{sec:phase2-thread-safety}
+
+\subsection{Problem Statement}
+
+Three inelastic constitutive relation classes used \texttt{mutable}
+member variables to implement a performance cache: after
+\texttt{compute\_response($\varepsilon$)} populates the stress and
+tangent, a subsequent call to \texttt{tangent($\varepsilon$)} with the
+same strain can return the cached tangent without re-running the
+integration algorithm.
+
+The affected classes were:
+\begin{itemize}
+  \item \texttt{PlasticityRelation<Policy, YieldF, Hardening, Flow, YieldFn, ReturnAlg>}
+  \item \texttt{KentParkConcrete}
+  \item \texttt{MenegottoPintoSteel}
+\end{itemize}
+
+Each declared four \texttt{mutable} cache members:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+mutable ConjugateT  last_stress_{};
+mutable TangentT    last_tangent_{};
+mutable bool        cache_valid_{false};
+mutable StrainVecT  last_strain_cache_{...};
+\end{lstlisting}
+
+This pattern causes two problems:
+\begin{enumerate}
+  \item \textbf{Thread safety:}
+        Methods marked \texttt{const} mutate shared state without
+        synchronization.  In a parallel assembly loop, two threads
+        evaluating the same relation concurrently could produce data
+        races (undefined behavior under the C++ memory model).
+
+  \item \textbf{Semantic dishonesty:}
+        A \texttt{const} method that writes to \texttt{mutable}
+        members violates the principle that \texttt{const} means
+        ``logically observable state does not change.''
+        The cache \emph{is} observable (it changes the return path
+        of \texttt{tangent()}).
+\end{enumerate}
+
+\subsection{Why the Cache Was Unnecessary}
+
+All three classes satisfy \texttt{ExternallyStateDrivenConstitutiveRelation}
+(Level~3 concept).  When used through \texttt{MaterialInstance<Relation>},
+the 2-argument overloads are selected:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+// MaterialInstance:
+if constexpr (ExternallyStateDrivenConstitutiveRelation<Relation>) {
+    return relation_->compute_response(k, this->algorithmic_state());
+    return relation_->tangent(k, this->algorithmic_state());
+}
+\end{lstlisting}
+These 2-argument overloads are purely functional---they never read or
+write the cache.  The 1-argument overloads (which do use the cache)
+are legacy fallbacks that are never exercised in production.
+
+\subsection{Scope of Changes}
+
+For each of the three classes:
+\begin{enumerate}
+  \item Removed the four \texttt{mutable} cache member declarations.
+  \item Simplified \texttt{compute\_response(const KinematicT\&)} to
+        call the integration kernel and return the result directly,
+        without writing to the cache.
+  \item Simplified \texttt{tangent(const KinematicT\&)} to always
+        recompute (no cache-hit check).
+  \item Removed \texttt{cache\_valid\_ = false} from \texttt{update()}.
+\end{enumerate}
+
+The 2-argument overloads and the \texttt{commit()} method were
+already cache-free and required no changes.
+
+\subsection{Verification}
+
+\begin{itemize}
+  \item \textbf{Build:} 8 recompiled targets, zero warnings (\texttt{-Werror}).
+  \item \textbf{CTest:} 45/47 passed (same 2 pre-existing failures).
+  \item \textbf{Grep:} zero remaining \texttt{mutable} in
+        \texttt{PlasticityRelation.hh},
+        \texttt{KentParkConcrete.hh}, and
+        \texttt{MenegottoPintoSteel.hh}.
+  \item Key plasticity tests passed:
+        \texttt{plasticity\_composition},
+        \texttt{material\_strategy},
+        \texttt{phase4\_hysteretic\_cycles},
+        \texttt{rc\_fiber\_frame\_nonlinear},
+        \texttt{vertical\_slice\_gate},
+        \texttt{nonlinear\_validation}.
+\end{itemize}

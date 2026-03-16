@@ -165,11 +165,8 @@ private:
     // ── Internal state ────────────────────────────────────────────────
     KentParkState state_{};
 
-    // ── Mutable cache ─────────────────────────────────────────────────
-    mutable double last_eps_{0.0};
-    mutable double last_sig_{0.0};
-    mutable double last_Et_{0.0};
-    mutable bool   cache_valid_{false};
+    // (Cache removed: const methods are now truly const and thread-safe.
+    //  The 2-arg overloads used through MaterialInstance never needed it.)
 
 
     // =================================================================
@@ -337,11 +334,6 @@ public:
         double sig, Et;
         evaluate(eps, sig, Et, state_);
 
-        last_eps_ = eps;
-        last_sig_ = sig;
-        last_Et_  = Et;
-        cache_valid_ = true;
-
         ConjugateT stress;
         stress.set_components(sig);
         return stress;
@@ -349,17 +341,8 @@ public:
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
         double eps = strain.components();
-        if (cache_valid_ && std::abs(eps - last_eps_) < 1e-30) {
-            TangentT C;
-            C(0, 0) = last_Et_;
-            return C;
-        }
         double sig, Et;
         evaluate(eps, sig, Et, state_);
-        last_eps_ = eps;
-        last_sig_ = sig;
-        last_Et_  = Et;
-        cache_valid_ = true;
 
         TangentT C;
         C(0, 0) = Et;
@@ -375,7 +358,6 @@ public:
         double sig, Et;
         evaluate(eps, sig, Et, state_);
         commit_state(state_, eps, sig);
-        cache_valid_ = false;
     }
 
     [[nodiscard]] const InternalVariablesT& internal_state() const {
