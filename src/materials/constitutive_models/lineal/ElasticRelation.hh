@@ -57,9 +57,9 @@ public:
     static constexpr std::size_t num_stresses_ = ConjugateT::num_components;
 
 protected:
-    // The tangent (compliance/stiffness) matrix. Protected so that derived
+    // The tangent stiffness matrix C. Protected so that derived
     // classes (e.g. ContinuumIsotropicRelation) can populate it directly.
-    TangentT compliance_matrix_ = TangentT::Zero();
+    TangentT stiffness_matrix_ = TangentT::Zero();
 
 public:
     // --- ConstitutiveRelation interface --------------------------------------
@@ -67,20 +67,20 @@ public:
     // compute_response(k): computes σ = C · ε
     ConjugateT compute_response(const KinematicT& strain) const {
         ConjugateT stress;
-        stress.set_components(compliance_matrix_ * strain.components());
+        stress.set_components(stiffness_matrix_ * strain.components());
         return stress;
     }
 
     // tangent(k): returns ∂σ/∂ε evaluated at k. For linear elasticity,
     // the tangent is constant — the argument is ignored.
     TangentT tangent([[maybe_unused]] const KinematicT& k) const {
-        return compliance_matrix_;
+        return stiffness_matrix_;
     }
 
     // --- ElasticConstitutiveRelation interface --------------------------------
 
     // tangent(): returns the constant tangent operator (no kinematic argument).
-    TangentT tangent() const { return compliance_matrix_; }
+    TangentT tangent() const { return stiffness_matrix_; }
 
     // --- Legacy interface (backward compatibility) ---------------------------
 
@@ -92,11 +92,11 @@ public:
     }
 
     void compute_stress(StressT& stress, const StrainT& strain) const {
-        stress.set_components(compliance_matrix_ * strain.components());
+        stress.set_components(stiffness_matrix_ * strain.components());
     }
 
-    // Direct read access to the matrix (for IsotropicRelation and similar).
-    const TangentT& compliance_matrix() const { return compliance_matrix_; }
+    // Direct read access to the stiffness matrix.
+    const TangentT& stiffness_matrix() const { return stiffness_matrix_; }
 
     // --- Constructors --------------------------------------------------------
     constexpr ElasticRelation() = default;
@@ -116,7 +116,7 @@ static_assert(
 //  ElasticRelation<UniaxialMaterial>  —  Specialization for 1D (scalar E)
 // =============================================================================
 //
-//  For uniaxial stress, the "compliance matrix" is just the Young's modulus E.
+//  For uniaxial stress, the stiffness "matrix" is just the Young's modulus E.
 //  This specialization avoids matrix overhead entirely.
 //
 // -----------------------------------------------------------------------------
@@ -196,7 +196,7 @@ public:
     // --- Testing -------------------------------------------------------------
 
     void print_constitutive_parameters() const {
-        std::cout << "Proportionality Compliance Parameter (Young): " << E_ << std::endl;
+        std::cout << "Young's modulus (E): " << E_ << std::endl;
     }
 };
 
