@@ -2,6 +2,7 @@
 #define FALL_N_SRC_ANALYSIS_NLANALYSIS_HH
 
 #include <cstddef>
+#include <functional>
 #include <petscsnes.h>
 
 #include "../model/Model.hh"
@@ -75,6 +76,12 @@ class NonlinearAnalysis {
 
     // ─── Performance timing ───────────────────────────────────────
     AnalysisTimer timer_;
+
+    // ─── Step callback (optional) ─────────────────────────────────
+    //  Invoked after each converged load step in solve_incremental().
+    //  Arguments: (step_number, lambda, model_ref)
+    using StepCallback = std::function<void(int, double, const ModelT&)>;
+    StepCallback step_callback_{};
 
     // ─── SNES callback context ────────────────────────────────────
 
@@ -246,9 +253,28 @@ class NonlinearAnalysis {
         VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
     }
 
+    // ─── Revert material state after diverged step ───────────────
+    //
+    //  Explicitly reverts all element material states to the last
+    //  committed values.  Called when the bisection engine detects
+    //  SNES divergence.  This is a safety measure: constitutive
+    //  evaluations during failed Newton iterations may leave
+    //  trial-state buffers in an inconsistent state; revert
+    //  guarantees a clean slate for the next attempt.
+
+    void revert_state() {
+        for (auto& element : model_->elements()) {
+            element.revert_material_state();
+        }
+    }
+
 public:
 
     auto get_model() const { return model_; }
+
+    /// Register a callback invoked after each converged load step.
+    /// Signature: void(int step, double lambda, const ModelT& model).
+    void set_step_callback(StepCallback cb) { step_callback_ = std::move(cb); }
 
     /// Query SNES convergence reason after solve (positive = converged).
     SNESConvergedReason converged_reason() const {
@@ -332,7 +358,8 @@ public:
             return true;
         }
 
-        // Diverged — do NOT commit corrupted state
+        // Diverged — revert material state and do NOT commit
+        revert_state();
         PetscPrintf(PETSC_COMM_WORLD,
             "  *** NonlinearAnalysis::solve() DIVERGED (reason=%d) ***\n",
             static_cast<int>(reason));
@@ -409,6 +436,7 @@ public:
 
             if (ok) {
                 lambda_done = lambda_target;
+                if (step_callback_) step_callback_(step, lambda_done, *model_);
             } else {
                 all_ok = false;
                 PetscPrintf(PETSC_COMM_WORLD,
@@ -486,12 +514,15 @@ private:
             return true;
         }
 
-        // ── 4. Diverged — revert u to pre-step state ────────────
+        // ── 4. Diverged — revert to pre-step state ──────────────
         //
-        //  The material state was NOT committed (commit_state() not called),
-        //  so material internal variables are still at the previous
-        //  converged values.  Only u needs to be reverted.
+        //  Revert displacements to the snapshot and explicitly revert
+        //  material state.  While commit was never called (so committed
+        //  state is safe), trial buffers may hold residuals from the
+        //  failed Newton iterates; explicit revert guarantees a clean
+        //  constitutive state for the next solve attempt.
         VecCopy(U_snap, U);
+        revert_state();
 
         PetscPrintf(PETSC_COMM_WORLD,
             "    λ=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
