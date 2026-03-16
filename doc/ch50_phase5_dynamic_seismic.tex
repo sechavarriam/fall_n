@@ -1,0 +1,300 @@
+% ==========================================================================
+%  Chapter 50 — Phase 5: Dynamic \& Seismic Analysis Verification
+% ==========================================================================
+
+\chapter{Phase 5: Dynamic and Seismic Analysis Verification}
+\label{ch:phase5-dynamic-seismic}
+
+This chapter documents Phase~5 of the master plan
+(Chapter~\ref{ch:convergence-master-plan}).
+The original scope required implementing the full time-stepping
+pipeline: mass matrix assembly, Rayleigh damping, PETSc~TS
+integration with the generalized-$\alpha$ scheme, ground-motion
+input, and per-step material state commitment.
+A thorough audit revealed that the \texttt{DynamicAnalysis} class
+was \emph{already fully implemented} (approximately 770~lines in
+\texttt{src/analysis/DynamicAnalysis.hh}), together with the
+boundary-condition infrastructure in
+\texttt{src/model/BoundaryCondition.hh} and the damping factories
+in \texttt{src/analysis/Damping.hh}.
+
+Phase~5 was therefore focused on a comprehensive \emph{verification
+campaign} exercising nine distinct aspects of the pipeline, bringing
+the number of passing dynamic-analysis assertions from 62 (existing
+\texttt{test\_dynamic\_analysis.cpp}) to $62+36=98$.
+
+
+%% ------------------------------------------------------------------
+\section{Phase~5 Scope and Audit}
+\label{sec:phase5-scope}
+
+Chapter~\ref{ch:convergence-master-plan} listed six deliverables for
+Phase~5:
+\begin{enumerate}
+  \item Mass matrix assembly (consistent, lumped, density API).
+  \item Rayleigh damping: $\mathbf{C}=\alpha_M\mathbf{M}+\beta_K\mathbf{K}$.
+  \item PETSc~TS generalized-$\alpha$ time stepper.
+  \item Ground-motion pseudo-force: $-\mathbf{M}\hat{\mathbf{g}}\,a_g(t)$.
+  \item Per-step monitor callback for state commitment.
+  \item VTK time-series output via~\texttt{PVDWriter}.
+\end{enumerate}
+
+All six were found operational.  The implementation uses PETSc's
+\texttt{I2Function}/\texttt{I2Jacobian} interface, which formulates
+the second-order ODE residual
+\begin{equation}
+  \mathbf{F}(t,\mathbf{u},\dot{\mathbf{u}},\ddot{\mathbf{u}})
+  = \mathbf{M}\ddot{\mathbf{u}}
+  + \mathbf{C}\dot{\mathbf{u}}
+  + \mathbf{f}_\mathrm{int}(\mathbf{u})
+  - \mathbf{f}_\mathrm{ext}(t)
+  = \mathbf{0},
+\end{equation}
+and the system Jacobian
+\begin{equation}
+  \mathbf{J} = a\,\mathbf{M} + v\,\mathbf{C} + \mathbf{K}_t(\mathbf{u}),
+\end{equation}
+where $a$ and~$v$ are shift parameters supplied by PETSc's
+\texttt{TSALPHA2} integrator.
+
+
+%% ------------------------------------------------------------------
+\section{DynamicAnalysis Architecture}
+\label{sec:phase5-architecture}
+
+\Cref{tab:phase5-architecture} summarises the key classes
+and their roles.
+
+\begin{table}[htbp]
+\centering
+\caption{Dynamic-analysis component inventory.}
+\label{tab:phase5-architecture}
+\begin{tabular}{lp{7.5cm}}
+\toprule
+Component & Role \\
+\midrule
+\texttt{DynamicAnalysis<Policy>}
+  & Owns PETSc \texttt{TS}, mass matrix~$\mathbf{M}$,
+    damping matrix~$\mathbf{C}$, and Jacobian work
+    matrix~$\mathbf{J}$.  Registers \texttt{I2Function}
+    and \texttt{I2Jacobian} callbacks, monitors, and
+    ground-motion pseudo-forces. \\
+\texttt{BoundaryConditionSet<dim>}
+  & Aggregates initial conditions, nodal forces
+    (time-dependent), prescribed displacements,
+    and ground-motion records. \\
+\texttt{GroundMotionBC}
+  & Uniform base acceleration in one direction via
+    $-\mathbf{M}\hat{\mathbf{g}}_\mathrm{dir}\,a_g(t)$. \\
+\texttt{NodalForceBC<dim>}
+  & Time-dependent nodal force with arbitrary
+    \texttt{TimeFunction} per component. \\
+\texttt{damping::*}
+  & Factory functions: \texttt{rayleigh},
+    \texttt{rayleigh\_from\_frequencies},
+    \texttt{rayleigh\_from\_single\_ratio},
+    \texttt{mass\_proportional},
+    \texttt{stiffness\_proportional},
+    \texttt{none}. \\
+\texttt{PVDWriter}
+  & VTK Parallel-VTU Data (.pvd) time-series writer. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The generalized-$\alpha$ method (\texttt{TSALPHA2}) offers a single
+user-facing parameter: the spectral radius at infinity
+$\rho_\infty \in [0,1]$.  Setting $\rho_\infty=1$ yields the
+trapezoidal rule (no numerical dissipation); $\rho_\infty=0$
+maximises high-frequency damping while preserving second-order
+accuracy.
+
+
+%% ------------------------------------------------------------------
+\section{Verification Campaign}
+\label{sec:phase5-tests}
+
+The verification tests reside in
+\texttt{tests/test\_phase5\_dynamic\_verification.cpp} and use a
+single-element Hex8 unit cube ($8$~nodes, $24$~DOFs) with
+$E=1000$, $\nu=0$, $\rho=1$, and $x=0$ face clamped.
+\Cref{tab:phase5-test-results} presents the nine test groups.
+
+\begin{table}[htbp]
+\centering
+\caption{Phase~5 verification results (36~assertions, all passing).}
+\label{tab:phase5-test-results}
+\begin{tabular}{clcc}
+\toprule
+\# & Test description & Assertions & Status \\
+\midrule
+1 & Free vibration period (zero-crossing + CSV)   & 4 & \checkmark \\
+2 & Undamped amplitude conservation                & 4 & \checkmark \\
+3 & Rayleigh damping amplitude decay               & 4 & \checkmark \\
+4 & Damping factory completeness (6~factories)     & 6 & \checkmark \\
+5 & Ground-motion seismic input                    & 4 & \checkmark \\
+6 & Multi-directional ground motion ($x+z$)        & 3 & \checkmark \\
+7 & Forced vibration with CSV output               & 4 & \checkmark \\
+8 & J$_2$ plasticity under dynamic loading         & 3 & \checkmark \\
+9 & Spectral-radius comparison ($\rho_\infty=1$ vs~$0$) & 4 & \checkmark \\
+\midrule
+  & \textbf{Total}                                 & \textbf{36} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Test~1: Free Vibration Period}
+\label{sec:phase5-t1}
+
+An initial axial displacement $u_0=10^{-3}$ is applied at the free
+face.  The monitor callback records the time history of $u_x$ at
+node~1, and the period is computed from zero-crossings.  For the
+1D~bar approximation:
+\begin{equation}
+  \omega_1 = \frac{\pi}{2L}\sqrt{\frac{E}{\rho}}
+  \approx 49.67\ \mathrm{rad/s},
+  \qquad
+  T_1 \approx 0.127\ \mathrm{s}.
+\end{equation}
+The measured period from the 3D~Hex8 element is $T\approx 0.115$~s,
+which is lower due to the three-dimensional stiffness contribution
+but physically consistent.  A CSV file is written for visual
+inspection.
+
+
+\subsection{Test~2: Undamped Amplitude Conservation}
+\label{sec:phase5-t2}
+
+Without Rayleigh damping ($\alpha_M=\beta_K=0$), the generalized-%
+$\alpha$ method with $\rho_\infty=1$ is non-dissipative.  The
+displacement envelope remained within $[{-1.000}\times 10^{-3},\,
+{+1.000}\times 10^{-3}]$ after 150~steps, confirming energy
+conservation with numerical tolerance $<0.1\%$.
+
+
+\subsection{Test~3: Rayleigh Damping Decay}
+\label{sec:phase5-t3}
+
+Strong Rayleigh damping ($\alpha_M=10$, $\beta_K=0.002$) produces a
+decay ratio (late-quarter peak / early-quarter peak) of~$\approx
+0.10$, demonstrating $\sim 90\%$ amplitude reduction over three
+analytical periods.  The time history is written to CSV for
+inspection.
+
+
+\subsection{Test~4: Damping Factories}
+\label{sec:phase5-t4}
+
+All five \texttt{damping::} factory functions return non-null
+callables, and \texttt{damping::none()} returns an empty callable
+(evaluates to \texttt{false}).  This validates the full Rayleigh
+damping API surface.
+
+
+\subsection{Test~5: Ground Motion Seismic Input}
+\label{sec:phase5-t5}
+
+A sinusoidal ground-acceleration pulse
+$a_g(t) = 0.5\sin(30t)$ is applied in the $x$-direction for
+$t \le 0.2$~s, followed by free vibration.  The maximum relative
+displacement exceeds $3\times 10^{-4}$, confirming that the
+pseudo-force vector $-\mathbf{M}\hat{\mathbf{g}}\,a_g(t)$ is
+correctly assembled and applied.
+
+
+\subsection{Test~6: Multi-Directional Ground Motion}
+\label{sec:phase5-t6}
+
+Two simultaneous ground motions ($x$~and~$z$) with distinct
+amplitudes ($A_x=0.3$, $A_z=0.5$) and frequencies
+($\omega_x=20$, $\omega_z=35$~rad/s) are applied.  Both
+displacement components develop non-trivial response, verifying
+that the stacking of multiple \texttt{GroundMotionBC} objects
+in the \texttt{BoundaryConditionSet} is functional.
+
+
+\subsection{Test~7: Forced Vibration with CSV Output}
+\label{sec:phase5-t7}
+
+A harmonic nodal force $F(t) = F_0 \sin(\omega_f t)$ at
+sub-resonant frequency ($\omega_f = \omega_1/2$) is distributed
+across the free-face nodes.  The test verifies convergence,
+non-trivial forced response, and that the CSV file is written
+with $\ge 20$~timestep records.
+
+
+\subsection{Test~8: J$_2$ Plasticity Dynamic}
+\label{sec:phase5-t8}
+
+A soft J$_2$ material ($E=200$, $\sigma_y=0.05$, $H=5$) is loaded
+with a large initial displacement $u_0=0.01$ to guarantee yielding.
+The monitor callback invocation count verifies per-step material
+state commitment, and the final displacement remains bounded,
+confirming that the TS solver handles nonlinear plasticity under
+dynamic loading without divergence.
+
+
+\subsection{Test~9: Spectral Radius Comparison}
+\label{sec:phase5-t9}
+
+Two otherwise-identical simulations differ only in spectral radius:
+$\rho_\infty=1.0$ (no dissipation) and $\rho_\infty=0.0$ (maximum
+high-frequency dissipation).  Both converge successfully and produce
+non-trivial amplitudes, validating the
+\texttt{TSAlpha2SetRadius} control path.
+
+
+%% ------------------------------------------------------------------
+\section{Full Regression Status}
+\label{sec:phase5-regression}
+
+After Phase~5, the complete \texttt{ctest} suite shows:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Total tests     & 46 \\
+Passing         & 44 \\
+Pre-existing failures & 2 \\
+\quad\texttt{cantilever\_benchmark} & (numerical tolerance) \\
+\quad\texttt{snes\_gmsh\_pipeline}  & (missing mesh file) \\
+New regressions & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The Phase~5 test (\texttt{phase5\_dynamic\_verification}) completes
+all 36~assertions in approximately 18~seconds.
+
+
+%% ------------------------------------------------------------------
+\section{Summary}
+\label{sec:phase5-summary}
+
+Phase~5 verified the dynamic-analysis pipeline that was already
+fully implemented in \texttt{fall\_n}:
+
+\begin{itemize}
+  \item \textbf{770-line} \texttt{DynamicAnalysis} header with
+    PETSc~TS generalized-$\alpha$, I2Function/I2Jacobian callbacks,
+    Rayleigh damping, ground-motion pseudo-forces, and per-step
+    monitor/commit.
+  \item \textbf{BoundaryConditionSet} infrastructure with composable
+    \texttt{TimeFunction} factories (constant, harmonic, ramp,
+    step, pulse, piecewise-linear, exponential decay, product,
+    sum, scale).
+  \item \textbf{6~damping factories} covering Rayleigh,
+    frequency-based, single-ratio, mass-proportional,
+    stiffness-proportional, and null.
+  \item \textbf{98~total dynamic-analysis assertions} across two
+    test files, covering free vibration, amplitude conservation,
+    damping decay, ground motion (single and multi-directional),
+    forced vibration with CSV output, nonlinear J$_2$ plasticity,
+    and spectral-radius control.
+\end{itemize}
+
+Phases~0--5 are now complete.  The remaining deliverable is
+Phase~6: MPI scalability audit.
