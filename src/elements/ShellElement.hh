@@ -64,6 +64,8 @@ class ShellElement {
 
     [[no_unique_address]] AsmPolicy assembly_;
 
+    double density_{0.0};  ///< Mass density for dynamics
+
     // Element-level local frame (computed at element center)
     Eigen::Matrix3d R_ = Eigen::Matrix3d::Identity();  // rows = e₁, e₂, e₃
 
@@ -387,6 +389,8 @@ class ShellElement {
         }
     }
 
+public:
+
     // ========================= Extract element DOFs ==========================
 
     Eigen::VectorXd extract_element_dofs(Vec u_local) const {
@@ -396,8 +400,6 @@ class ShellElement {
         VecGetValues(u_local, n, dof_indices_.data(), u_e.data());
         return u_e;
     }
-
-public:
 
     // ── Topology queries (FiniteElement interface) ───────────────────────
 
@@ -516,6 +518,66 @@ public:
                           n, dof_indices_.data(), K_e.data(), ADD_VALUES);
     }
 
+    // ── Standalone-vector interface (for DynamicAnalysis parallel assembly) ──
+
+    const std::vector<PetscInt>& get_dof_indices() {
+        ensure_dof_cache();
+        return dof_indices_;
+    }
+
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
+        auto T = transformation_matrix();
+        Eigen::Vector<double, total_dofs> u_loc = T * u_e;
+
+        Eigen::Vector<double, total_dofs> f_loc = Eigen::Vector<double, total_dofs>::Zero();
+        const auto ngp = geometry_->num_integration_points();
+
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi  = xi_view[0];
+            const double eta = xi_view[1];
+            const double w   = geometry_->weight(gp);
+            const double dm  = geometry_->differential_measure(xi_view);
+
+            auto B_gp = B_local(xi, eta);
+
+            StateVariableT strain;
+            strain.set_components(B_gp * u_loc);
+
+            auto sigma = sections_[gp].compute_response(strain);
+            f_loc += w * dm * (B_gp.transpose() * sigma.components());
+        }
+
+        return (T.transpose() * f_loc).eval();
+    }
+
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) {
+        auto T = transformation_matrix();
+        Eigen::Vector<double, total_dofs> u_loc = T * u_e;
+
+        KMatrixT K_loc = KMatrixT::Zero();
+        const auto ngp = geometry_->num_integration_points();
+
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi  = xi_view[0];
+            const double eta = xi_view[1];
+            const double w   = geometry_->weight(gp);
+            const double dm  = geometry_->differential_measure(xi_view);
+
+            auto B_gp = B_local(xi, eta);
+
+            StateVariableT strain;
+            strain.set_components(B_gp * u_loc);
+
+            auto C_t = sections_[gp].tangent(strain);
+            K_loc += w * dm * (B_gp.transpose() * C_t * B_gp);
+        }
+
+        add_drilling_penalty(K_loc);
+        return (T.transpose() * K_loc * T).eval();
+    }
+
     // ── Nonlinear element operations ─────────────────────────────────────
 
     void compute_internal_forces(Vec u_local, Vec f_local) {
@@ -630,6 +692,50 @@ public:
     }
 
     ~ShellElement() = default;
+
+    // ── Mass matrix (for dynamic analysis) ───────────────────────────
+
+    void set_density(double rho) noexcept { density_ = rho; }
+    [[nodiscard]] double density() const noexcept { return density_; }
+
+    /// Consistent mass matrix for a 4-node shell.
+    /// Translational DOFs only: M_e = ρ·t · Σ_gp (w · |J| · Nᵀ · N)
+    KMatrixT compute_consistent_mass_matrix() const {
+        KMatrixT M_e = KMatrixT::Zero();
+        if (density_ <= 0.0) return M_e;
+
+        for (std::size_t gp = 0; gp < geometry_->num_integration_points(); ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double w  = geometry_->weight(gp);
+            const double Jdet = geometry_->differential_measure(xi_view);
+
+            Eigen::Matrix<double, 3, total_dofs> N_mat =
+                Eigen::Matrix<double, 3, total_dofs>::Zero();
+
+            for (std::size_t a = 0; a < n_nodes; ++a) {
+                const double Na = geometry_->H(a, xi_view);
+                const auto off = a * dofs_per_node;
+                N_mat(0, off + 0) = Na;  // u
+                N_mat(1, off + 1) = Na;  // v
+                N_mat(2, off + 2) = Na;  // w
+            }
+
+            M_e += density_ * w * Jdet * (N_mat.transpose() * N_mat);
+        }
+
+        // Transform to global coordinates
+        auto T = transformation_matrix();
+        return T.transpose() * M_e * T;
+    }
+
+    void inject_mass(Mat M) {
+        ensure_dof_cache();
+        auto M_e = compute_consistent_mass_matrix();
+        if (M_e.isZero()) return;
+        const auto n = static_cast<PetscInt>(dof_indices_.size());
+        MatSetValuesLocal(M, n, dof_indices_.data(),
+                          n, dof_indices_.data(), M_e.data(), ADD_VALUES);
+    }
 
 }; // ShellElement
 

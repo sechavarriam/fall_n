@@ -199,12 +199,15 @@ a six-phase improvement roadmap.
 Phase~1 (semantic rename, \S\ref{sec:phase1-rename}),
 Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}),
 Phase~3 (kinematic dispatch consolidation, \S\ref{sec:phase3-dispatch}),
-Phase~4 (kinematic policy on structural elements, \S\ref{sec:phase4-kinematic-policy}), and
-Phase~5 (corotational beam formulation, \S\ref{sec:phase5-corotational})
+Phase~4 (kinematic policy on structural elements, \S\ref{sec:phase4-kinematic-policy}),
+Phase~5 (corotational beam formulation, \S\ref{sec:phase5-corotational}), and
+Phase~6 (state separation, arena allocator, and dynamic infrastructure,
+\S\ref{sec:phase6-state-arena})
 have been implemented and verified.
-Phase~6 (state separation and arena allocator) remains for future work
-and will follow the same pattern: implement, build with \texttt{-Werror},
-run full CTest regression, and document in an appendix to this chapter.
+All six phases build with \texttt{-Werror}, pass the full CTest
+regression (45/47, same two pre-existing failures), and the
+corotational dynamic RC building example (\S\ref{sec:dynamic-rc-example})
+demonstrates the complete analysis pipeline.
 
 
 %% ------------------------------------------------------------------
@@ -713,3 +716,284 @@ element.
     parametrization, drilling DOF stabilization) and is deferred to
     a future phase.
 \end{itemize}
+
+
+%% ==================================================================
+%%  Phase 6: State Separation, Arena Allocator, Dynamic Infrastructure
+%% ==================================================================
+
+\section{Phase 6 Implementation: State Separation, Arena Allocator, and Dynamic Infrastructure}
+\label{sec:phase6-state-arena}
+
+Phase~6 is the final convergence phase.  It addresses Deficiencies~4 and~6
+from the catalogue (\S\ref{sec:deficiencies}): (i)~the conflation of
+kinematic state with internal constitutive variables changes, and (ii)~the
+heap-allocation overhead of per-integration-point \texttt{Material<P>}
+objects.  Additionally, it adds the mass-matrix infrastructure necessary
+to enable \texttt{DynamicAnalysis} with structural elements.
+
+\subsection{State Separation: \texttt{InternalStateOf} Trait}
+
+The library's constitutive pipeline identifies ``state'' with the
+kinematic measure (\texttt{StateVariableT $\equiv$ KinematicT}).
+For elastic models this is sufficient, but inelastic relations carry
+persistent internal variables (plastic strain, damage) stored inside
+the relation object itself, invisible to the element layer.
+
+Phase~6 introduces a compile-time trait to decouple these roles:
+
+\begin{verbatim}
+  // Primary template: if R has no internal state, return NoInternalState.
+  template <typename R> struct InternalStateOf {
+      using type = NoInternalState;
+  };
+
+  // Specialization: R::InternalVariablesT exists → use it.
+  template <typename R>
+    requires requires { typename R::InternalVariablesT; }
+  struct InternalStateOf<R> {
+      using type = typename R::InternalVariablesT;
+  };
+
+  template <typename R>
+  using InternalStateOf_t = typename InternalStateOf<R>::type;
+
+  template <typename R>
+  concept HasSeparatedInternalState =
+      !std::same_as<InternalStateOf_t<R>, NoInternalState>;
+\end{verbatim}
+
+This is backward-compatible: existing elastic relations yield
+\texttt{NoInternalState}; existing inelastic relations that already
+define \texttt{InternalVariablesT} are detected automatically.
+
+\subsection{Arena Allocator: \texttt{MonotonicArena} and \texttt{ArenaAllocator<T>}}
+
+For large meshes with millions of integration points, each
+\texttt{Material<P>} incurs two heap allocations (one
+\texttt{shared\_ptr} for the relation, one \texttt{unique\_ptr} for the
+pimpl).  \texttt{MonotonicArena} pre-allocates a contiguous buffer
+and provides $O(1)$ bump-pointer allocation:
+
+\begin{verbatim}
+  class MonotonicArena {
+      std::unique_ptr<std::byte[]> buffer_;
+      std::size_t capacity_, offset_{0};
+  public:
+      explicit MonotonicArena(std::size_t bytes);
+      void* allocate(std::size_t size, std::size_t align);
+      template <typename T, typename... Args>
+      T* construct(Args&&... args);
+      void reset() noexcept;   // reclaim all memory in O(1)
+  };
+\end{verbatim}
+
+An STL-compatible adapter \texttt{ArenaAllocator<T>} wraps the arena
+for use with \texttt{std::vector} or any allocator-aware container.
+A convenience factory \texttt{bulk\_create\_materials()} creates
+$N$~\texttt{Material<P>} objects from a single arena allocation.
+
+\subsection{Mass Matrix Support for Structural Elements}
+
+The \texttt{DynamicAnalysis} solver requires a consistent mass matrix
+($\mathbf{M}$).  Prior to Phase~6, only \texttt{ContinuumElement} had
+mass-matrix support; \texttt{BeamElement} and \texttt{ShellElement}
+provided no such method, and the \texttt{StructuralElement} wrapper
+had no virtual slot for it.
+
+Phase~6 adds:
+
+\begin{enumerate}
+  \item A \texttt{density\_} member, \texttt{set\_density()}, and
+        \texttt{density()} on both \texttt{BeamElement} and
+        \texttt{ShellElement}.
+  \item A \texttt{compute\_consistent\_mass\_matrix()} method on each:
+        \begin{itemize}
+          \item \textbf{Beam:} $\displaystyle M_e = \rho \sum_{\text{gp}} w \cdot dm \cdot
+                              \mathbf{N}^\top \mathbf{N}$,
+                where $\mathbf{N}$ is the $3 \times 12$ translational
+                shape-function matrix (Hermite interpolation), transformed
+                to the global frame via $\mathbf{T}^\top M_{\text{loc}} \mathbf{T}$.
+          \item \textbf{Shell:} same pattern but with $3 \times 24$
+                translational $H(a)$ shape functions for 4 nodes $\times$ 6 DOFs.
+        \end{itemize}
+  \item \texttt{inject\_mass(Mat M)} on both element types:
+        assembles $M_e$ into the PETSc global mass matrix using
+        \texttt{MatSetValuesLocal}.
+  \item In \texttt{StructuralElement} (type-erased wrapper):
+        virtual slots \texttt{density()}, \texttt{set\_density()},
+        \texttt{inject\_mass()} with SFINAE bridges in the
+        \texttt{Model<T>} layer.
+\end{enumerate}
+
+\subsection{Standalone-Vector Interface for DynamicAnalysis}
+
+The \texttt{DynamicAnalysis} solver uses a three-phase parallel assembly
+pattern that operates on \texttt{Eigen::VectorXd} / \texttt{Eigen::MatrixXd}
+objects rather than PETSc vectors and matrices directly.  This requires:
+
+\begin{itemize}
+  \item \texttt{extract\_element\_dofs(Vec)} $\to$ \texttt{Eigen::VectorXd}
+  \item \texttt{compute\_internal\_force\_vector(const VectorXd\&)} $\to$ \texttt{VectorXd}
+  \item \texttt{compute\_tangent\_stiffness\_matrix(const VectorXd\&)} $\to$ \texttt{MatrixXd}
+  \item \texttt{get\_dof\_indices()} $\to$ \texttt{const vector<PetscInt>\&}
+\end{itemize}
+
+These methods were already present in \texttt{ContinuumElement} but absent
+from \texttt{BeamElement} and \texttt{ShellElement}.  Phase~6 adds them
+to both structural element types and exposes them through the
+\texttt{StructuralElement} virtual interface with SFINAE guards for
+elements that do not provide them.
+
+\subsection{Verification}
+
+\begin{itemize}
+  \item \textbf{Build:} 80 targets, zero warnings (\texttt{-Werror}).
+  \item \textbf{CTest:} 45/47 passed (same 2 pre-existing failures).
+  \item The corotational dynamic RC building example
+        (\S\ref{sec:dynamic-rc-example}) exercises all Phase~6
+        additions: density setting, mass assembly, standalone-vector
+        interface, and time integration.
+\end{itemize}
+
+
+%% ==================================================================
+%%  Dynamic Corotational RC Building Example
+%% ==================================================================
+
+\section{Corotational Dynamic RC Building Example}
+\label{sec:dynamic-rc-example}
+
+This section documents the main executable example that showcases the
+complete analysis pipeline: nonlinear fibre sections, corotational
+kinematics, consistent mass matrices, Rayleigh damping, and VTK
+time-series output.
+
+\subsection{Structural Configuration}
+
+The model is a regular 5-storey reinforced-concrete building:
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  \textbf{Parameter}             & \textbf{Value} \\
+  \midrule
+  Plan grid                      & $4 \times 3$ axes, $6\,\text{m} \times 5\,\text{m}$ bays \\
+  Stories / height               & 5 / $3.20\,\text{m}$ each ($H_{\text{tot}} = 16\,\text{m}$) \\
+  Nodes                          & 72 \\
+  Columns ($0.45 \times 0.45\,\text{m}$)  & 60 \quad (corotational) \\
+  Beams ($0.30 \times 0.60\,\text{m}$)    & 85 \quad (corotational) \\
+  Slabs ($t = 0.15\,\text{m}$)            & 30 \quad (elastic MITC4) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Materials}
+
+\begin{itemize}
+  \item \textbf{Columns:} RC fibre section. Concrete: Kent--Park confined
+        ($f'_c = 35\,\text{MPa}$, volumetric ratio $\rho_s = 0.015$,
+        $f_{yh} = 420\,\text{MPa}$, tie spacing $s_h = 0.10\,\text{m}$)
+        plus unconfined cover.  Steel: Menegotto--Pinto
+        ($E_s = 200\,\text{GPa}$, $f_y = 420\,\text{MPa}$, $b = 0.01$),
+        8 bars $\phi 25\,\text{mm}$.
+
+  \item \textbf{Beams:} RC fibre section. Unconfined Kent--Park
+        ($f'_c = 30\,\text{MPa}$) for all concrete patches.
+        Menegotto--Pinto steel, 6 bars $\phi 20\,\text{mm}$.
+
+  \item \textbf{Slabs:} Elastic isotropic Mindlin shell
+        ($E = 28\,\text{GPa}$, $\nu = 0.20$).
+\end{itemize}
+
+\subsection{Kinematic Formulation}
+
+All frame elements (columns and beams) use the \texttt{beam::Corotational}
+policy from Phase~5.  This enables large displacements and rotations at
+the global level while preserving the Timoshenko beam B-matrix in the
+co-rotated local frame:
+\begin{equation}
+  \mathbf{f}_{\text{int}}^{\text{global}}
+  = \mathbf{T}(\theta_n)^\top \,
+    \sum_{\text{gp}} w \cdot dm \cdot \mathbf{B}_{\text{loc}}^\top \,
+    \boldsymbol\sigma(\mathbf{B}_{\text{loc}} \, \mathbf{u}_{\text{loc}})
+\end{equation}
+where $\mathbf{T}(\theta_n)$ is the element rotation matrix updated at
+each Newton iteration from the current nodal positions.
+
+\subsection{Dynamic Parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  \textbf{Parameter}     & \textbf{Value} \\
+  \midrule
+  Density (RC)           & $2400\,\text{kg/m}^3 = 2.4 \times 10^{-3}\,\text{MN\,s}^2\text{/m}^4$ \\
+  Damping ratio $\xi$    & 5\% \\
+  Rayleigh $\omega_1$    & $12.57\,\text{rad/s}$ ($T_1 = 0.50\,\text{s}$) \\
+  Rayleigh $\omega_3$    & $62.83\,\text{rad/s}$ ($T_3 = 0.10\,\text{s}$) \\
+  Time integrator        & Generalised-$\alpha$ (\texttt{TSALPHA2}, $\rho_\infty = 0.9$) \\
+  Time step $\Delta t$   & $0.005\,\text{s}$ \\
+  Total time $T$         & $5.0\,\text{s}$  ($\sim\!1000$ steps) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Rayleigh damping is computed as $\mathbf{C} = \alpha_M \mathbf{M} + \beta_K \mathbf{K}_0$,
+with coefficients derived from the two target frequencies and the damping ratio:
+\begin{equation}
+  \alpha_M = \frac{2\,\xi\,\omega_1 \omega_3}{\omega_1 + \omega_3}, \qquad
+  \beta_K  = \frac{2\,\xi}{\omega_1 + \omega_3}.
+\end{equation}
+
+\subsection{Loading Protocol}
+
+\begin{enumerate}
+  \item \textbf{Gravity:} constant slab self-weight pressure
+        $p_z = -7.5\,\text{kN/m}^2$, applied as consistent nodal forces
+        from shell quadrature.
+  \item \textbf{Cyclic lateral:} sinusoidal excitation at each story level,
+        triangularly distributed:
+        \begin{equation}
+          f_x^{\text{lat}}(t) = F_0 \cdot \frac{\ell}{N_s}
+                \cdot \text{envelope}(t)
+                \cdot \sin\!\Bigl(\frac{2\pi t}{T_{\text{exc}}}\Bigr),
+        \end{equation}
+        where $F_0 = 0.10\,\text{MN}$, $T_{\text{exc}} = 0.50\,\text{s}$
+        (near $T_1$ to amplify response), $\ell$ = story level, and
+        $\text{envelope}(t) = \min(t / t_{\text{ramp}},\, 1)$ with
+        $t_{\text{ramp}} = 1\,\text{s}$.
+\end{enumerate}
+
+\subsection{Solution Strategy}
+
+The equation of motion
+\begin{equation}
+  \mathbf{M}\,\ddot{\mathbf{u}} + \mathbf{C}\,\dot{\mathbf{u}}
+  + \mathbf{f}_{\text{int}}(\mathbf{u})
+  = \mathbf{f}_{\text{ext}}(t)
+\end{equation}
+is solved via PETSc's implicit second-order time stepping with the
+$I_2$ interface.  At each time step, PETSc performs a nonlinear solve
+(Newton with line search) on the residual
+\begin{equation}
+  \mathbf{F}(t, \mathbf{u}, \dot{\mathbf{u}}, \ddot{\mathbf{u}})
+  = \mathbf{M}\ddot{\mathbf{u}} + \mathbf{C}\dot{\mathbf{u}}
+    + \mathbf{f}_{\text{int}}(\mathbf{u})
+    - \mathbf{f}_{\text{ext}}(t) = \mathbf{0},
+\end{equation}
+and the Jacobian
+\begin{equation}
+  \mathbf{J} = \mathbf{K}_t(\mathbf{u})
+             + v\,\mathbf{C}
+             + a\,\mathbf{M},
+\end{equation}
+where $v$ and $a$ are shift parameters provided by the time integrator.
+
+\subsection{VTK Time-Series Output}
+
+Every 20th converged step triggers a VTK snapshot via
+\texttt{StructuralVTMExporter}, producing multi-block \texttt{.vtm}
+files (beam axis, surface, fibre, section sub-blocks + shell surface).
+A \texttt{PVDWriter} collects all timesteps into a single \texttt{.pvd}
+collection file for ParaView animation.

@@ -4,10 +4,8 @@
 
 #include <array>
 #include <cmath>
-#include <filesystem>
 #include <iomanip>
 #include <iostream>
-#include <map>
 #include <numbers>
 #include <string>
 #include <utility>
@@ -16,32 +14,34 @@
 namespace {
 
 // =============================================================================
-//  Corotational dynamic 5-story RC building example
+//  Regular 5-story nonlinear RC building example
 // =============================================================================
 //
 //  Units:
 //    Force   : MN
 //    Length  : m
 //    Stress  : MPa = MN/m²
-//    Mass    : MN·s²/m
-//    Density : MN·s²/m⁴   (2400 kg/m³ = 2.4e-3)
 //
 //  Structural idealisation:
-//    - Columns and beams: 3D Timoshenko frame elements, **corotational**
-//    - Frame sections    : nonlinear fiber sections (Kent-Park + Menegotto-Pinto)
+//    - Columns and beams: 3D Timoshenko frame elements
+//    - Frame sections    : nonlinear fiber sections
 //    - Slabs             : MITC4 / Mindlin-Reissner shells (elastic)
 //
-//  Dynamic analysis:
-//    - PETSc TS (Generalized-α, TSALPHA2)
-//    - Consistent mass matrix from beam density + shell density
-//    - Rayleigh damping  C = αₘ·M + βₖ·K₀,  ξ = 5 %
-//    - Cyclic lateral loading at each story level
-//    - VTK time-series output via PVDWriter + StructuralVTMExporter
+//  Modeling scope:
+//    - material nonlinearity is concentrated in the RC frame members;
+//    - the slab remains elastic and acts as gravity carrier + diaphragm;
+//    - the example is small-strain, static, and solved incrementally with SNES.
 //
-//  Geometric nonlinearity:
-//    The beam::Corotational kinematic policy removes the rigid-body
-//    rotation from each element, allowing large displacements and
-//    rotations while preserving the small-strain B-matrix locally.
+//  Architectural purpose:
+//    show, in one executable path, how the current polymorphic stack supports
+//    a mixed 1D/2D structural model with:
+//
+//      1. one shared Domain / DMPlex,
+//      2. heterogeneous ElementGeometry families,
+//      3. polymorphic StructuralElement wrapping,
+//      4. nonlinear fiber-based constitutive sections in frame members,
+//      5. elastic shells in the same global model,
+//      6. structural VTK multi-block export.
 //
 // =============================================================================
 
@@ -49,7 +49,7 @@ static constexpr std::size_t NDOF = 6;
 
 // ── Output path ───────────────────────────────────────────────────────────────
 static const std::string BASE = "/home/sechavarriam/MyLibs/fall_n/";
-static const std::string OUT  = BASE + "data/output/dynamic_rc_building/";
+static const std::string OUT  = BASE + "data/output/";
 
 // ── Grid definition ───────────────────────────────────────────────────────────
 static constexpr int NUM_AXES_X = 4;
@@ -97,35 +97,19 @@ static constexpr double TIE_FY     = 420.0;     // MPa
 static constexpr double SLAB_E  = 28000.0;      // MPa
 static constexpr double KAPPA_RC = 5.0 / 6.0;
 
-// ── Mass + damping ────────────────────────────────────────────────────────────
-//  2400 kg/m³ = 2.4e-3 MN·s²/m⁴  (consistent with MN / m / MPa unit system)
-static constexpr double RC_DENSITY = 2.4e-3;
-
-//  Rayleigh damping: 5% at T₁ ≈ 0.50 s  and  T₃ ≈ 0.10 s
-static constexpr double XI_DAMP   = 0.05;
-static constexpr double OMEGA_1   = 2.0 * std::numbers::pi / 0.50;  // ≈ 12.57 rad/s
-static constexpr double OMEGA_3   = 2.0 * std::numbers::pi / 0.10;  // ≈ 62.83 rad/s
-
-// ── Dynamic loading ───────────────────────────────────────────────────────────
-//  Cyclic lateral load: sinusoidal at near-fundamental period
-//  with a slow amplitude ramp over the first second.
+// ── Loading ───────────────────────────────────────────────────────────────────
 static constexpr double SLAB_GRAVITY_PRESSURE = -0.0075;  // MN/m² = 7.5 kN/m²
-static constexpr double LATERAL_AMPLITUDE     =  0.10;    // MN = 100 kN per story corner
-static constexpr double EXCITATION_PERIOD      =  0.50;   // s (near T₁ → resonance amplification)
-static constexpr double RAMP_TIME              =  1.00;   // s
-static constexpr double T_FINAL                =  5.00;   // s
-static constexpr double DT                     =  0.005;  // s  → ~1000 steps
+static constexpr double STORY_LATERAL_BASE    =  0.20;    // MN  = 200 kN
 
-static constexpr int VTK_SNAPSHOT_INTERVAL = 20;  // write VTK every 20 steps
+static constexpr int NUM_LOAD_STEPS = 12;
+static constexpr int MAX_BISECTIONS = 6;
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
-using FrameElement   = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
-using ShellElementT  = ShellElement<MindlinReissnerShell3D>;
+using FrameElement = BeamElement<TimoshenkoBeam3D, 3>;
+using ShellElementT = ShellElement<MindlinReissnerShell3D>;
 using StructuralPolicy = SingleElementPolicy<StructuralElement>;
 using StructuralModel =
     Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
-using DynamicSolver =
-    DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 
 // ── Small geometry / section helpers ──────────────────────────────────────────
 constexpr PetscInt node_id(int ix, int iy, int level) noexcept {
@@ -140,6 +124,7 @@ constexpr double rectangular_torsion_constant(double width, double height) noexc
 }
 
 constexpr double concrete_initial_modulus(double fpc) noexcept {
+    // Kent-Park uses epsilon_0 = -0.002, so Ec = 2 f'c / |epsilon_0| = 1000 f'c.
     return 1000.0 * fpc;
 }
 
@@ -514,7 +499,7 @@ static auto build_structural_elements(
             shell_geometries.push_back(&geom);
         } else {
             throw std::runtime_error(
-                "Unknown physical group '" + group + "'.");
+                "Regular RC building example: unknown physical group '" + group + "'.");
         }
     }
 
@@ -522,28 +507,37 @@ static auto build_structural_elements(
 }
 
 // =============================================================================
-//  Step 4 — VTK export helpers
+//  Step 4 — Loads
 // =============================================================================
-static void export_structural_vtm(const StructuralModel& model,
-                                  const std::string& filename) {
+static void apply_story_corner_lateral_forces(StructuralModel& model) {
+    for (int level = 1; level <= NUM_STORIES; ++level) {
+        const double fx = STORY_LATERAL_BASE * static_cast<double>(level);
+        model.apply_node_force(
+            node_id(NUM_AXES_X - 1, NUM_AXES_Y - 1, level),
+            fx, 0.0, 0.0,
+            0.0, 0.0, 0.0);
+    }
+}
+
+static void export_structural_vtm(const StructuralModel& model) {
     fall_n::vtk::StructuralVTMExporter exporter(
         model,
         fall_n::reconstruction::RectangularSectionProfile<2>{BEAM_B, BEAM_H},
         fall_n::reconstruction::ShellThicknessProfile<5>{});
-    exporter.write(filename);
+    exporter.write(OUT + "regular_5story_rc_nonlinear_building_structural.vtm");
 }
 
 // =============================================================================
-//  Step 5 — Dynamic analysis driver
+//  Step 5 — Solve and report
 // =============================================================================
-static void run_corotational_dynamic_rc_building() {
+static void run_regular_rc_building_example() {
     std::cout << "================================================================\n";
-    std::cout << "  fall_n — Corotational Dynamic 5-Story RC Building\n";
+    std::cout << "  fall_n — Regular 5-Story Nonlinear RC Building Example\n";
     std::cout << "================================================================\n\n";
 
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     //  1. Build the shared geometric domain
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     Domain<3> domain;
     add_regular_building_nodes(domain);
     add_columns(domain);
@@ -551,16 +545,16 @@ static void run_corotational_dynamic_rc_building() {
     add_slabs(domain);
     domain.assemble_sieve();
 
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     //  2. Create formulation-specific materials
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     const auto column_material = make_column_material();
     const auto beam_material   = make_beam_material();
     const auto slab_material   = make_slab_material();
 
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     //  3. Wrap the mixed geometry into one polymorphic structural container
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
     std::vector<const ElementGeometry<3>*> shell_geometries;
     auto elements = build_structural_elements(
         domain,
@@ -571,134 +565,40 @@ static void run_corotational_dynamic_rc_building() {
 
     StructuralModel model{domain, std::move(elements)};
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  4. Boundary conditions (base fixed)
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    //  4. Boundary conditions and external loads
+    // -------------------------------------------------------------------------
+    //
+    //  Base level is fully fixed.
+    //  Slabs receive a uniform downward pressure.
+    //  One roof-plan corner per level receives an increasing +X lateral force.
+    //
     model.fix_z(0.0);
     model.setup();
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  5. Pre-assemble constant gravity load vector
-    // ─────────────────────────────────────────────────────────────────────
-    //  Slab self-weight as uniform pressure.
-    //  Applied once to the model's nodal_forces_ (local vector),
-    //  then copied to a separate global vector for the force evaluator.
     apply_uniform_shell_surface_load(
         model,
         shell_geometries,
         Eigen::Vector3d{0.0, 0.0, SLAB_GRAVITY_PRESSURE});
 
-    DM dm = model.get_plex();
+    apply_story_corner_lateral_forces(model);
 
-    petsc::OwnedVec f_gravity;
-    DMCreateGlobalVector(dm, f_gravity.ptr());
-    VecSet(f_gravity, 0.0);
-    DMLocalToGlobal(dm, model.force_vector(), ADD_VALUES, f_gravity);
+    // -------------------------------------------------------------------------
+    //  5. Incremental nonlinear static analysis
+    // -------------------------------------------------------------------------
+    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>
+        solver{&model};
 
-    // Reset model's internal force vector (gravity is now in f_gravity)
-    VecSet(model.force_vector(), 0.0);
+    const bool converged = solver.solve_incremental(NUM_LOAD_STEPS, MAX_BISECTIONS);
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  6. Pre-assemble unit lateral force pattern (triangular, +X)
-    // ─────────────────────────────────────────────────────────────────────
-    //  At each story level, apply unit force in +X at each plan node
-    //  weighted by (level / NUM_STORIES).
-    //  This is later scaled by the time-varying amplitude.
-    for (int level = 1; level <= NUM_STORIES; ++level) {
-        const double w = static_cast<double>(level) / static_cast<double>(NUM_STORIES);
-        for (int iy = 0; iy < NUM_AXES_Y; ++iy) {
-            for (int ix = 0; ix < NUM_AXES_X; ++ix) {
-                model.apply_node_force(
-                    node_id(ix, iy, level),
-                    LATERAL_AMPLITUDE * w,
-                    0.0, 0.0, 0.0, 0.0, 0.0);
-            }
-        }
-    }
-
-    petsc::OwnedVec f_lateral;
-    DMCreateGlobalVector(dm, f_lateral.ptr());
-    VecSet(f_lateral, 0.0);
-    DMLocalToGlobal(dm, model.force_vector(), ADD_VALUES, f_lateral);
-
-    VecSet(model.force_vector(), 0.0);
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  7. Configure dynamic solver
-    // ─────────────────────────────────────────────────────────────────────
-    DynamicSolver solver{&model};
-
-    // Mass: set uniform density on all elements (RC)
-    solver.set_density(RC_DENSITY);
-
-    // Damping: Rayleigh from two target frequencies and damping ratio
-    solver.set_rayleigh_damping(OMEGA_1, OMEGA_3, XI_DAMP);
-
-    // External force:  f_ext(t) = f_gravity + envelope(t)·sin(2πt/T)·f_lateral
-    solver.set_force_function(
-        [&](double t, Vec f_ext) {
-            // Constant gravity
-            VecAXPY(f_ext, 1.0, f_gravity);
-
-            // Cyclic lateral with ramp envelope
-            const double envelope = std::min(t / RAMP_TIME, 1.0);
-            const double lateral_scale =
-                envelope * std::sin(2.0 * std::numbers::pi * t / EXCITATION_PERIOD);
-            VecAXPY(f_ext, lateral_scale, f_lateral);
-        });
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  8. VTK time-series monitor
-    // ─────────────────────────────────────────────────────────────────────
-    std::filesystem::create_directories(OUT);
-    PVDWriter pvd(OUT + "building_dynamic");
-
-    solver.set_monitor(
-        [&](PetscInt step, double t, Vec /*u*/, Vec /*v*/) {
-            if (step % VTK_SNAPSHOT_INTERVAL != 0) return;
-
-            // Build snapshot filename
-            std::ostringstream oss;
-            oss << OUT << "building_dynamic_"
-                << std::setw(6) << std::setfill('0') << step
-                << ".vtm";
-            const std::string vtm_name = oss.str();
-
-            export_structural_vtm(model, vtm_name);
-            pvd.add_timestep(t, vtm_name);
-
-            // Print progress
-            const double max_ux = max_component_abs(model, 0);
-            PetscPrintf(PETSC_COMM_WORLD,
-                "  [step %4d]  t = %8.4f s   max|ux| = %10.6f m\n",
-                static_cast<int>(step), t, max_ux);
-        });
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  9. Solve
-    // ─────────────────────────────────────────────────────────────────────
-    std::cout << "Dynamic parameters\n";
-    std::cout << "  Density (RC)       : " << RC_DENSITY << " MN s^2/m^4\n";
-    std::cout << "  Damping ratio      : " << XI_DAMP * 100 << " %\n";
-    std::cout << "  Rayleigh omega_1   : " << OMEGA_1 << " rad/s (T1=" << 2*std::numbers::pi/OMEGA_1 << " s)\n";
-    std::cout << "  Rayleigh omega_3   : " << OMEGA_3 << " rad/s (T3=" << 2*std::numbers::pi/OMEGA_3 << " s)\n";
-    std::cout << "  Lateral amplitude  : " << LATERAL_AMPLITUDE << " MN per story corner\n";
-    std::cout << "  Excitation period  : " << EXCITATION_PERIOD << " s\n";
-    std::cout << "  Ramp time          : " << RAMP_TIME << " s\n";
-    std::cout << "  Total time         : " << T_FINAL << " s\n";
-    std::cout << "  Time step          : " << DT << " s\n";
-    std::cout << "  Formulation        : Corotational (large displacements)\n\n";
-
-    const bool ok = solver.solve(T_FINAL, DT);
-
-    // ─────────────────────────────────────────────────────────────────────
-    //  10. Final report
-    // ─────────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    //  6. Immediate response metrics
+    // -------------------------------------------------------------------------
     const auto roof_corner = nodal_translation(
         model,
         node_id(NUM_AXES_X - 1, NUM_AXES_Y - 1, NUM_STORIES));
 
-    const double max_u  = max_translation_norm(model);
+    const double max_u = max_translation_norm(model);
     const double max_ux = max_component_abs(model, 0);
     const double max_uz = max_component_abs(model, 2);
     const double roof_drift_ratio = roof_corner[0] / Z_LEVELS.back();
@@ -712,23 +612,34 @@ static void run_corotational_dynamic_rc_building() {
         static_cast<std::size_t>(NUM_STORIES * (NUM_AXES_X - 1) * (NUM_AXES_Y - 1));
 
     std::cout << std::fixed << std::setprecision(6);
-    std::cout << "\nGeometry / topology\n";
+    std::cout << "Geometry / topology\n";
     std::cout << "  Nodes              : " << domain.num_nodes() << "\n";
-    std::cout << "  Columns (corot.)   : " << num_columns << "\n";
-    std::cout << "  Beams   (corot.)   : " << num_beams << "\n";
-    std::cout << "  Slabs   (elastic)  : " << num_slabs << "\n";
-    std::cout << "  Total elements     : " << domain.num_elements() << "\n\n";
+    std::cout << "  Columns            : " << num_columns << "\n";
+    std::cout << "  Beams              : " << num_beams << "\n";
+    std::cout << "  Slabs              : " << num_slabs << "\n";
+    std::cout << "  Total elements     : " << domain.num_elements() << "\n";
+    std::cout << "  DMPlex dimension   : " << domain.plex_dimension() << "\n\n";
 
-    std::cout << "Materials\n";
+    std::cout << "Materials / constitutive scope\n";
     std::cout << "  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)\n";
     std::cout << "  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)\n";
     std::cout << "  Slabs              : elastic Mindlin shell\n";
+    std::cout << "  Concrete units     : MPa = MN/m^2\n";
     std::cout << "  Steel fy           : " << STEEL_FY << " MPa\n\n";
 
-    std::cout << "Solver outcome\n";
-    std::cout << "  Converged          : " << (ok ? "yes" : "no") << "\n\n";
+    std::cout << "Loads\n";
+    std::cout << "  Slab pressure      : " << SLAB_GRAVITY_PRESSURE << " MN/m^2\n";
+    std::cout << "  Lateral pattern    : Fx(level) = " << STORY_LATERAL_BASE
+              << " * level  [MN]\n";
+    std::cout << "  Load steps         : " << NUM_LOAD_STEPS
+              << "  (max bisections = " << MAX_BISECTIONS << ")\n\n";
 
-    std::cout << "Final-state response\n";
+    std::cout << "Solver\n";
+    std::cout << "  Converged          : " << (converged ? "yes" : "no") << "\n";
+    std::cout << "  Last SNES reason   : " << static_cast<int>(solver.converged_reason()) << "\n";
+    std::cout << "  Last SNES its      : " << static_cast<int>(solver.num_iterations()) << "\n\n";
+
+    std::cout << "Response summary\n";
     std::cout << "  Max |u|            : " << max_u << " m\n";
     std::cout << "  Max |ux|           : " << max_ux << " m\n";
     std::cout << "  Max |uz|           : " << max_uz << " m\n";
@@ -737,16 +648,13 @@ static void run_corotational_dynamic_rc_building() {
     std::cout << "  Roof corner uz     : " << roof_corner[2] << " m\n";
     std::cout << "  Roof drift ratio   : " << roof_drift_ratio << "\n\n";
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  11. Write PVD + final VTM snapshot
-    // ─────────────────────────────────────────────────────────────────────
-    export_structural_vtm(model, OUT + "building_dynamic_final.vtm");
-    pvd.write();
-
+    // -------------------------------------------------------------------------
+    //  7. VTK / ParaView export
+    // -------------------------------------------------------------------------
+    export_structural_vtm(model);
     std::cout << "VTK output\n";
-    std::cout << "  PVD time series    : " << OUT + "building_dynamic.pvd" << "\n";
-    std::cout << "  Final VTM snapshot : " << OUT + "building_dynamic_final.vtm" << "\n";
-    std::cout << "  VTK snapshots      : " << pvd.num_timesteps() << "\n";
+    std::cout << "  VTM                : "
+              << OUT + "regular_5story_rc_nonlinear_building_structural.vtm" << "\n";
 }
 
 } // namespace
@@ -754,19 +662,15 @@ static void run_corotational_dynamic_rc_building() {
 int main(int argc, char** argv) {
     PetscInitialize(&argc, &argv, nullptr, nullptr);
 
-    // ── PETSc TS + SNES options for structural dynamics ──────────────
-    PetscOptionsSetValue(nullptr, "-ts_type",         "alpha2");
-    PetscOptionsSetValue(nullptr, "-ts_alpha2_radius","0.9");
-    PetscOptionsSetValue(nullptr, "-ts_adapt_type",   "none");
-    PetscOptionsSetValue(nullptr, "-ksp_type",        "preonly");
-    PetscOptionsSetValue(nullptr, "-pc_type",         "lu");
-    PetscOptionsSetValue(nullptr, "-snes_type",       "newtonls");
+    PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
+    PetscOptionsSetValue(nullptr, "-pc_type", "lu");
+    PetscOptionsSetValue(nullptr, "-snes_type", "newtonls");
     PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
-    PetscOptionsSetValue(nullptr, "-snes_rtol",       "1e-8");
-    PetscOptionsSetValue(nullptr, "-snes_atol",       "1e-9");
-    PetscOptionsSetValue(nullptr, "-snes_max_it",     "40");
+    PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
+    PetscOptionsSetValue(nullptr, "-snes_atol", "1e-9");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "40");
 
-    run_corotational_dynamic_rc_building();
+    run_regular_rc_building_example();
 
     PetscFinalize();
     return 0;
