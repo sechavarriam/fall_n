@@ -92,6 +92,10 @@ public:
         material_.commit(k);
     }
 
+    void revert() {
+        material_.revert();
+    }
+
     // ── Section stiffness matrix (legacy interface) ─────────────────────
 
     auto C() { return material_.C(); }

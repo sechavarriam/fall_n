@@ -59,6 +59,14 @@ inline void commit_constitutive_state(
     }
 }
 
+template <typename ConstitutiveSiteT>
+inline void revert_constitutive_state(ConstitutiveSiteT& site)
+{
+    if constexpr (requires { site.constitutive_state().revert_trial(); }) {
+        site.constitutive_state().revert_trial();
+    }
+}
+
 } // namespace constitutive_integrators
 
 namespace constitutive_integrators {
@@ -236,6 +244,12 @@ struct PassThroughIntegrator {
     {
         // No-op by design: preserves the legacy elastic workflow.
     }
+
+    template <typename ConstitutiveSiteT>
+    void revert(ConstitutiveSiteT&) const
+    {
+        // No-op: elastic materials have no history to revert.
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +335,17 @@ struct EmbeddedRelationIntegrator {
         const continuum::ConstitutiveKinematics<dim>& kin) const
     {
         constitutive_integrators::fallback_continuum_commit(site, kin);
+    }
+
+    template <typename ConstitutiveSiteT>
+    void revert(ConstitutiveSiteT& site) const
+    {
+        if constexpr (requires {
+            site.constitutive_relation().revert(site.algorithmic_state());
+        }) {
+            site.constitutive_relation().revert(site.algorithmic_state());
+        }
+        constitutive_integrators::revert_constitutive_state(site);
     }
 };
 
@@ -461,6 +486,17 @@ struct ContinuumLocalProblemIntegrator {
         } else {
             constitutive_integrators::fallback_continuum_commit(site, kin);
         }
+    }
+
+    template <typename ConstitutiveSiteT>
+    void revert(ConstitutiveSiteT& site) const
+    {
+        if constexpr (requires {
+            site.constitutive_relation().revert(site.algorithmic_state());
+        }) {
+            site.constitutive_relation().revert(site.algorithmic_state());
+        }
+        constitutive_integrators::revert_constitutive_state(site);
     }
 };
 

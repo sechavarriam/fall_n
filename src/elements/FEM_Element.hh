@@ -46,6 +46,7 @@ class FEM_Element {
         virtual void compute_internal_forces(Vec u, Vec f)  = 0;
         virtual void inject_tangent_stiffness(Vec u, Mat K) = 0;
         virtual void commit_material_state(Vec u)           = 0;
+        virtual void revert_material_state()                = 0;
 
         // Topology
         virtual std::size_t num_nodes()              const  = 0;
@@ -75,6 +76,7 @@ class FEM_Element {
         void compute_internal_forces(Vec u, Vec f)  override { element_.compute_internal_forces(u, f); }
         void inject_tangent_stiffness(Vec u, Mat K) override { element_.inject_tangent_stiffness(u, K); }
         void commit_material_state(Vec u)           override { element_.commit_material_state(u); }
+        void revert_material_state()                override { element_.revert_material_state(); }
 
         std::size_t num_nodes()              const  override { return element_.num_nodes(); }
         std::size_t num_integration_points() const  override { return element_.num_integration_points(); }
@@ -132,6 +134,7 @@ public:
     void compute_internal_forces(Vec u, Vec f)     { pimpl_->compute_internal_forces(u, f); }
     void inject_tangent_stiffness(Vec u, Mat K)    { pimpl_->inject_tangent_stiffness(u, K); }
     void commit_material_state(Vec u)              { pimpl_->commit_material_state(u); }
+    void revert_material_state()                   { pimpl_->revert_material_state(); }
 
     auto num_nodes()              const -> std::size_t { return pimpl_->num_nodes(); }
     auto num_integration_points() const -> std::size_t { return pimpl_->num_integration_points(); }

@@ -75,6 +75,10 @@ class MaterialPoint{// Legacy name for a continuum constitutive site.
             material_.commit(kin);
         }
 
+        void revert() {
+            material_.revert();
+        }
+
         // ─── Internal state export (post-processing) ────────────
         [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
             return material_.internal_field_snapshot();

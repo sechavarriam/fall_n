@@ -37,6 +37,7 @@ struct MockContinuum {
     void compute_internal_forces(Vec, Vec)     {}
     void inject_tangent_stiffness(Vec, Mat)    {}
     void commit_material_state(Vec)            {}
+    void revert_material_state()               {}
 
     std::size_t num_nodes()              const { return static_cast<std::size_t>(nodes_); }
     std::size_t num_integration_points() const { return static_cast<std::size_t>(gps_); }
@@ -49,6 +50,7 @@ struct MockBeam {
     void compute_internal_forces(Vec, Vec)     {}
     void inject_tangent_stiffness(Vec, Mat)    {}
     void commit_material_state(Vec)            {}
+    void revert_material_state()               {}
 
     std::size_t num_nodes()              const { return 2; }
     std::size_t num_integration_points() const { return 3; }
