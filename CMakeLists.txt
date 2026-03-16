@@ -940,6 +940,29 @@ endif()
 
 add_test(NAME phase4_hysteretic_cycles COMMAND fall_n_phase4_hysteretic_test)
 
+# --- Phase 5: Dynamic & Seismic verification test ---
+add_executable(fall_n_phase5_dynamic_test
+  tests/test_phase5_dynamic_verification.cpp
+)
+
+target_include_directories(fall_n_phase5_dynamic_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_phase5_dynamic_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_phase5_dynamic_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_phase5_dynamic_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_phase5_dynamic_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_phase5_dynamic_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_phase5_dynamic_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME phase5_dynamic_verification COMMAND fall_n_phase5_dynamic_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
