@@ -894,6 +894,29 @@ endif()
 
 add_test(NAME element_heterogeneity COMMAND fall_n_heterogeneity_test)
 
+# ── Phase 3 vertical-slice gate test ──────────────────────────────────────────
+add_executable(fall_n_vertical_slice_test
+  tests/test_vertical_slice_gate.cpp
+)
+
+target_include_directories(fall_n_vertical_slice_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_vertical_slice_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_vertical_slice_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_vertical_slice_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_vertical_slice_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_vertical_slice_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_vertical_slice_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME vertical_slice_gate COMMAND fall_n_vertical_slice_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
