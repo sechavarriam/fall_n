@@ -50,6 +50,7 @@ concept FiniteElement = requires(E e, E const ce, Mat K, Vec u, Vec f) {
     e.compute_internal_forces(u, f);
     e.inject_tangent_stiffness(u, K);
     e.commit_material_state(u);
+    e.revert_material_state();
 };
 
 #endif // FALL_N_FINITE_ELEMENT_CONCEPT_HH

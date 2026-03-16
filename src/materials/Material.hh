@@ -74,6 +74,7 @@ public:
    virtual void commit(const StateVariableT& k) = 0;
    virtual void commit(
       const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) = 0;
+   virtual void revert() = 0;
 };
 
 template <typename MaterialType>
@@ -273,6 +274,10 @@ public:
       }
    }
 
+   void revert() override {
+      integrator_.revert(material_);
+   }
+
    InternalFieldSnapshot internal_field_snapshot() const override {
       return make_internal_field_snapshot(material_);
    }
@@ -465,6 +470,10 @@ public:
       }
    }
 
+   void revert() override {
+      integrator_->revert(*material_);
+   }
+
    InternalFieldSnapshot internal_field_snapshot() const override {
       return make_internal_field_snapshot(*material_);
    }
@@ -616,6 +625,7 @@ public:
    void commit(const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) {
       pimpl()->commit(kin);
    }
+   void revert() { pimpl()->revert(); }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }
@@ -677,6 +687,7 @@ public:
    void commit(const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) {
       pimpl_->commit(kin);
    }
+   void revert() { pimpl_->revert(); }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl_->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl_->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }

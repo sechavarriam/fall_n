@@ -76,6 +76,12 @@ struct KinematicOnlyCommitIntegrator {
     {
         constitutive_integrators::commit_constitutive_state(site, k);
     }
+
+    template <typename ConstitutiveSiteT>
+    void revert(ConstitutiveSiteT& site) const
+    {
+        constitutive_integrators::revert_constitutive_state(site);
+    }
 };
 
 // ─── Test 1: Elastic material through type-erasure ───────────────────────────

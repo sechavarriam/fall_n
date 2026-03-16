@@ -391,6 +391,14 @@ public:
       }
   }
 
+  // Revert material state at all Gauss points to the last committed state.
+  // Called on solver divergence / sub-step bisection.
+  void revert_material_state() {
+      for (auto& mp : material_points_) {
+          mp.revert();
+      }
+  }
+
 // =================================== Solution manipulation =====================================
 
 

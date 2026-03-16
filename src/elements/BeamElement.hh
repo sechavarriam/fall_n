@@ -471,6 +471,12 @@ public:
         }
     }
 
+    void revert_material_state() {
+        for (auto& section : sections_) {
+            section.revert();
+        }
+    }
+
     // ── Constructors ────────────────────────────────────────────────────
 
     BeamElement() = delete;

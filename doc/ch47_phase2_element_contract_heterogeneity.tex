@@ -1,0 +1,601 @@
+% ==========================================================================
+%  Chapter 47 — Phase 2: Element Contract and Heterogeneous Containers
+% ==========================================================================
+
+\chapter{Phase 2: Element Contract and Heterogeneous Containers}
+\label{ch:phase2-element-contract}
+
+This chapter documents Phase~2 of the master plan
+(Chapter~\ref{ch:convergence-master-plan}).  The original scope called
+for introducing the \texttt{FiniteElement} C++20 concept, type-erased
+element wrappers, and heterogeneous storage policies so that a single
+\texttt{Model} can hold beams, shells, and continua simultaneously.
+A deep codebase audit revealed that the element-contract and
+heterogeneous-container infrastructure was \emph{already implemented}.
+The single missing capability was the propagation of a
+\texttt{revert\_material\_state()} operation through all layers of the
+element architecture, mirroring the \texttt{commit\_material\_state()}
+path documented in Phase~1 (Chapter~\ref{ch:phase1-constitutive-state}).
+This chapter records the audit, the implementation of the revert chain,
+and the verification test.
+
+%% ------------------------------------------------------------------
+\section{Phase 2 Scope Revision}
+\label{sec:phase2-scope-revision}
+
+Chapter~\ref{ch:convergence-master-plan} defined four Phase~2
+deliverables:
+
+\begin{enumerate}
+  \item Define a C++20 concept \texttt{FiniteElement} with the
+        assembly-level contract (\texttt{inject\_K},
+        \texttt{compute\_internal\_forces},
+        \texttt{inject\_tangent\_stiffness}, \texttt{commit},
+        \texttt{revert}).
+  \item Implement type-erased wrappers (\texttt{FEM\_Element},
+        \texttt{StructuralElement}) via External Polymorphism.
+  \item Implement \texttt{ElementPolicy}: homogeneous
+        (\texttt{SingleElementPolicy<E>}) and heterogeneous
+        (\texttt{MultiElementPolicy}).
+  \item Integrate into \texttt{Model} with auto-detect, pre-built,
+        and multi-material constructors.
+\end{enumerate}
+
+After a thorough audit of \texttt{src/elements/}, \texttt{src/model/},
+and \texttt{src/analysis/}, deliverables~1--4 were found to be
+\textbf{already implemented}, with one exception: the concept and all
+wrappers enforced \texttt{commit\_material\_state(u)} but not
+\texttt{revert\_material\_state()}.  The revert path is essential for
+nonlinear solvers that require step bisection, line-search rejection,
+or adaptive time stepping.
+
+\begin{center}
+\begin{tabular}{cll}
+\toprule
+\textbf{\#} & \textbf{Deliverable} & \textbf{Status before Phase 2} \\
+\midrule
+1 & \texttt{FiniteElement} concept &
+    Implemented, missing \texttt{revert\_material\_state} \\
+2 & Type-erased wrappers &
+    Implemented, missing revert forwarding \\
+3 & \texttt{ElementPolicy} storage &
+    Fully implemented \\
+4 & \texttt{Model} constructors &
+    Fully implemented (3 constructors) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Consequently, Phase~2 was re-scoped to:
+\begin{enumerate}[label=(\alph*)]
+  \item Comprehensive audit and documentation of the existing element
+        architecture.
+  \item Implementation of the full \texttt{revert\_material\_state}
+        chain from the analysis boundary down to the constitutive
+        storage layer.
+  \item A verification test exercising every layer of the revert
+        chain, including heterogeneous containers.
+\end{enumerate}
+
+%% ------------------------------------------------------------------
+\section{The Element Contract}
+\label{sec:finite-element-concept}
+
+The assembly-level contract for every element type is expressed as a
+C++20 concept in \texttt{FiniteElementConcept.hh}:
+
+\begin{lstlisting}[caption={The \texttt{FiniteElement} concept},
+                   label={lst:finite-element-concept}]
+template <typename E>
+concept FiniteElement =
+  requires(E e, E const ce, Mat K, Vec u, Vec f) {
+    { ce.num_nodes()              } -> std::convertible_to<std::size_t>;
+    { ce.num_integration_points() } -> std::convertible_to<std::size_t>;
+    { ce.sieve_id()               } -> std::convertible_to<PetscInt>;
+    e.set_num_dof_in_nodes();
+    e.inject_K(K);
+    e.compute_internal_forces(u, f);
+    e.inject_tangent_stiffness(u, K);
+    e.commit_material_state(u);
+    e.revert_material_state();                 // Phase 2 addition
+  };
+\end{lstlisting}
+
+The key design decisions are:
+
+\begin{itemize}
+  \item \textbf{Commit takes displacement.}
+        \texttt{commit\_material\_state(u)} receives the global solution
+        vector because commit requires evaluation of the kinematic chain
+        (shape gradients, deformation gradient, strains) before updating
+        the constitutive state.
+  \item \textbf{Revert takes nothing.}
+        \texttt{revert\_material\_state()} is argument-free: it restores
+        the last successfully committed state without needing kinematics,
+        because all information resides in the committed storage.
+  \item \textbf{Compile-time enforcement.}
+        Any type that fails to provide either operation is rejected at
+        compile time, preventing silent omission.
+\end{itemize}
+
+\subsection{Formal State Semantics}
+\label{sec:commit-revert-semantics}
+
+Let $\mathcal{S} = (\bsigma, \bC^{\text{ep}}, \bm{\alpha})$ denote
+the full constitutive state at an integration point (stress, tangent,
+internal variables).  The element maintains a committed snapshot
+$\mathcal{S}^n$ and a trial state $\mathcal{S}^{\text{trial}}$ at each
+material site.  The two operations satisfy:
+
+\begin{align}
+  \texttt{commit}(\mathbf{u}_{n+1}):
+  \quad & \mathcal{S}^n \leftarrow
+          \mathcal{S}^{\text{trial}}(\mathbf{u}_{n+1}),
+  \label{eq:commit-op} \\[4pt]
+  \texttt{revert}():
+  \quad & \mathcal{S}^{\text{trial}} \leftarrow \mathcal{S}^n.
+  \label{eq:revert-op}
+\end{align}
+
+Together they form an \emph{atomic checkpoint}:
+\[
+  \texttt{revert}(\texttt{commit}(\mathbf{u})) = \mathcal{S}^n,
+  \qquad
+  \texttt{commit}(\texttt{revert}()) = \mathcal{S}^n.
+\]
+
+This invariant is relied upon by Newton line-search strategies that
+tentatively evaluate residuals without permanently altering the
+history.
+
+%% ------------------------------------------------------------------
+\section{External Polymorphism: Type-Erased Wrappers}
+\label{sec:type-erased-wrappers}
+
+To hold elements of different concrete types (beams, shells, continua)
+in a homogeneous container, the library uses the \emph{External
+Polymorphism} pattern~\cite{Iglberger2022} implemented as a
+Concept/Model/\texttt{pimpl} triple.
+
+\subsection{FEM\_Element}
+\label{sec:fem-element}
+
+\texttt{FEM\_Element} is the assembly-level type-erased wrapper:
+
+\begin{lstlisting}[caption={\texttt{FEM\_Element} type-erasure structure},
+                   label={lst:fem-element}]
+class FEM_Element {
+  // --- Inner concept (virtual interface) ---
+  struct Concept {
+    virtual ~Concept() = default;
+    virtual std::size_t num_nodes() const = 0;
+    virtual std::size_t num_integration_points() const = 0;
+    // ... inject_K, compute_internal_forces, etc.
+    virtual void commit_material_state(Vec u) = 0;
+    virtual void revert_material_state() = 0;  // Phase 2
+  };
+
+  // --- Model bridges to concrete element ---
+  template <FiniteElement T>
+  struct Model final : Concept {
+    T element_;
+    void commit_material_state(Vec u) override {
+      element_.commit_material_state(u);
+    }
+    void revert_material_state() override {
+      element_.revert_material_state();         // Phase 2
+    }
+    // ...
+  };
+
+  std::unique_ptr<Concept> pimpl_;
+
+public:
+  // --- Public API ---
+  void commit_material_state(Vec u) { pimpl_->commit_material_state(u); }
+  void revert_material_state()      { pimpl_->revert_material_state(); }
+};
+\end{lstlisting}
+
+A \texttt{static\_assert} at file scope verifies that
+\texttt{FEM\_Element} itself satisfies the \texttt{FiniteElement}
+concept, closing the recursive contract.
+
+\subsection{StructuralElement}
+\label{sec:structural-element}
+
+\texttt{StructuralElement} extends the same Concept/Model/\texttt{pimpl}
+triple with structural-engineering introspection:
+
+\begin{itemize}
+  \item \texttt{concrete\_type()} returns a
+        \texttt{std::type\_info const\&} for RTTI-based dispatch.
+  \item \texttt{as<T>()} recovers the concrete element pointer for
+        post-processing (section reconstruction, VTK export).
+  \item \texttt{raw\_ptr()} exposes the void pointer for low-level
+        operations.
+\end{itemize}
+
+The revert chain is identical to \texttt{FEM\_Element}: a virtual
+\texttt{revert\_material\_state()} on the inner concept, forwarded
+through the model to the concrete element.
+
+%% ------------------------------------------------------------------
+\section{Element Storage Policies}
+\label{sec:element-policies}
+
+\texttt{ElementPolicy.hh} defines two storage strategies constraining
+how \texttt{Model} holds its element collection:
+
+\begin{lstlisting}[caption={Element storage policies},
+                   label={lst:element-policies}]
+template <FiniteElement ElementT>
+struct SingleElementPolicy {
+  using element_type   = ElementT;
+  using container_type = std::vector<ElementT>;
+  static constexpr bool is_homogeneous = true;
+};
+
+struct MultiElementPolicy {
+  using element_type   = FEM_Element;
+  using container_type = std::vector<FEM_Element>;
+  static constexpr bool is_homogeneous = false;
+};
+\end{lstlisting}
+
+Both are constrained by the \texttt{ElementPolicyLike} concept:
+
+\begin{lstlisting}
+template <typename P>
+concept ElementPolicyLike = requires {
+  typename P::element_type;
+  typename P::container_type;
+  { P::is_homogeneous } -> std::convertible_to<bool>;
+} && FiniteElement<typename P::element_type>;
+\end{lstlisting}
+
+\begin{remark}[Zero-overhead homogeneous path]
+When the model contains a single element family (e.g.\ only
+\texttt{ContinuumElement<Hex8,...>}), the \texttt{SingleElementPolicy}
+stores concrete elements directly, avoiding virtual dispatch entirely.
+The \texttt{MultiElementPolicy} pays only one pointer indirection per
+element through the \texttt{pimpl} in \texttt{FEM\_Element}.
+\end{remark}
+
+%% ------------------------------------------------------------------
+\section{Model Constructors}
+\label{sec:model-constructors}
+
+The \texttt{Model<Policy>} class supports three construction modes:
+
+\begin{description}
+  \item[Constructor 1 --- Auto-detect]
+  Takes a \texttt{Domain} and a material--integrator pair.  Infers
+  the element family from the mesh topology, constructs all elements
+  with an identical constitutive model.
+
+  \item[Constructor 2 --- Pre-built container]
+  Takes a \texttt{Domain} and a ready-made \texttt{container\_type}.
+  Useful when elements are constructed externally (e.g.\ from a script
+  or a multi-physics coupler).
+
+  \item[Constructor 3 --- Multi-material by physical group]
+  Takes a \texttt{Domain} and a map from physical-group labels to
+  material--integrator pairs.  Constructs heterogeneous elements
+  (beam + shell + continuum) from a single mesh, with distinct
+  constitutive models per group.
+\end{description}
+
+All three constructors produce models that support uniform iteration
+over elements for assembly, commit, and revert.
+
+%% ------------------------------------------------------------------
+\section{The Revert Chain}
+\label{sec:revert-chain}
+
+\subsection{Architectural Layers}
+\label{sec:revert-layers}
+
+The revert operation propagates through six layers from the solver
+boundary down to the constitutive storage:
+
+\begin{center}
+\begin{tikzpicture}[
+  layer/.style={draw, rounded corners=3pt, minimum width=10cm,
+                minimum height=0.75cm, font=\small\ttfamily},
+  arr/.style={-{Stealth[length=5pt]}, thick},
+  node distance=0.6cm
+]
+  \node[layer, fill=blue!8]  (L1) {Analysis / SNES boundary};
+  \node[layer, fill=blue!12, below=of L1] (L2)
+    {Element::revert\_material\_state()};
+  \node[layer, fill=blue!16, below=of L2] (L3)
+    {MaterialPoint::revert()  /  MaterialSection::revert()};
+  \node[layer, fill=blue!20, below=of L3] (L4)
+    {Material<P>::revert() \textrm{(type-erased)}};
+  \node[layer, fill=blue!24, below=of L4] (L5)
+    {ConstitutiveIntegrator::revert(site)};
+  \node[layer, fill=blue!28, below=of L5] (L6)
+    {TrialCommittedState::revert\_trial()};
+
+  \draw[arr] (L1) -- (L2);
+  \draw[arr] (L2) -- (L3);
+  \draw[arr] (L3) -- (L4);
+  \draw[arr] (L4) -- (L5);
+  \draw[arr] (L5) -- (L6);
+
+  \node[right=0.3cm of L1, font=\small\itshape, text=gray] {Phase 3};
+  \node[right=0.3cm of L2, font=\small\itshape, text=gray] {Phase 2};
+  \node[right=0.3cm of L3, font=\small\itshape, text=gray] {Phase 2};
+  \node[right=0.3cm of L4, font=\small\itshape, text=gray] {Phase 2};
+  \node[right=0.3cm of L5, font=\small\itshape, text=gray] {Phase 2};
+  \node[right=0.3cm of L6, font=\small\itshape, text=gray] {Phase 1};
+\end{tikzpicture}
+\end{center}
+
+Layers~2--5 were implemented in this phase.  Layer~6 existed from
+Phase~1.  Layer~1 (the solver-level revert trigger from SNES convergence
+monitoring or arc-length step rejection) belongs to Phase~3.
+
+\subsection{Layer-by-Layer Trace}
+\label{sec:revert-trace}
+
+\paragraph{Layer 2: Element.}
+Each concrete element iterates over its constitutive sites:
+\begin{lstlisting}
+// ContinuumElement
+void revert_material_state() {
+    for (auto& mp : material_points_) mp.revert();
+}
+
+// BeamElement, TimoshenkoBeamN, ShellElement
+void revert_material_state() {
+    for (auto& section : sections_) section.revert();
+}
+\end{lstlisting}
+
+\paragraph{Layer 3: Constitutive site.}
+Both \texttt{MaterialPoint} and \texttt{MaterialSection} delegate
+directly:
+\begin{lstlisting}
+void revert() { material_.revert(); }
+\end{lstlisting}
+
+\paragraph{Layer 4: Type-erased material handle.}
+\texttt{Material<P>} forwards through its \texttt{pimpl}:
+\begin{lstlisting}
+class Material {
+  struct MaterialConcept {
+    virtual void revert() = 0;       // pure virtual
+  };
+  template <typename Mat, typename Integ>
+  struct OwningMaterialModel : MaterialConcept {
+    void revert() override {
+      integrator_.revert(material_);  // delegate to integrator
+    }
+  };
+  void revert() { pimpl_->revert(); }
+};
+\end{lstlisting}
+
+\paragraph{Layer 5: Constitutive integrator.}
+The integrator performs a two-step revert:
+\begin{enumerate}
+  \item \textbf{Relation revert}: if the constitutive relation holds
+        internal history (plasticity, damage), call
+        \texttt{relation.revert(algo\_state)} to undo the provisional
+        update.
+  \item \textbf{State revert}: call
+        \texttt{revert\_constitutive\_state(site)} which invokes
+        \texttt{site.constitutive\_state().revert\_trial()}.
+\end{enumerate}
+
+\begin{lstlisting}[caption={Revert in the three integrators},
+                   label={lst:integrator-revert}]
+// PassThroughIntegrator (elastic)
+void revert(auto& site) {
+    // No-op: elastic materials have no history to revert.
+}
+
+// EmbeddedRelationIntegrator (inelastic)
+void revert(auto& site) {
+    if constexpr (requires { ... })
+        site.constitutive_relation().revert(
+            site.algorithmic_state());
+    revert_constitutive_state(site);
+}
+
+// ContinuumLocalProblemIntegrator
+void revert(auto& site) {
+    if constexpr (requires { ... })
+        constitutive_problem_.constitutive_relation().revert(
+            site.algorithmic_state());
+    revert_constitutive_state(site);
+}
+\end{lstlisting}
+
+\paragraph{Layer 6: Storage.}
+\texttt{TrialCommittedState<S>::revert\_trial()} copies the committed
+snapshot back over the trial state, undoing any provisional update.
+This layer was already present from Phase~1.
+
+\subsection{Free Functions}
+
+The constitutive integrator layer provides the revert free function in
+the \texttt{constitutive\_integrators} namespace:
+
+\begin{lstlisting}
+template <typename ConstitutiveSiteT>
+inline void revert_constitutive_state(ConstitutiveSiteT& site) {
+    if constexpr (requires {
+        site.constitutive_state().revert_trial(); })
+        site.constitutive_state().revert_trial();
+}
+\end{lstlisting}
+
+The \texttt{if constexpr} guard ensures elastic sites (with
+committed-only storage) compile silently as no-ops.
+
+%% ------------------------------------------------------------------
+\section{Files Modified}
+\label{sec:files-modified}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8.5cm}}
+\toprule
+\textbf{File} & \textbf{Change} \\
+\midrule
+\texttt{FiniteElementConcept.hh} &
+  Added \texttt{e.revert\_material\_state()} to the concept
+  requirements. \\
+\texttt{FEM\_Element.hh} &
+  Added \texttt{virtual void revert\_material\_state() = 0} to Concept;
+  forwarding in Model; public API delegation. \\
+\texttt{StructuralElement.hh} &
+  Same pattern as \texttt{FEM\_Element}. \\
+\texttt{ContinuumElement.hh} &
+  Added \texttt{revert\_material\_state()} iterating over
+  \texttt{material\_points\_}. \\
+\texttt{BeamElement.hh} &
+  Added \texttt{revert\_material\_state()} iterating over
+  \texttt{sections\_}. \\
+\texttt{TimoshenkoBeamN.hh} &
+  Same pattern as \texttt{BeamElement}. \\
+\texttt{ShellElement.hh} &
+  Same pattern as \texttt{BeamElement}. \\
+\texttt{MaterialPoint.hh} &
+  Added \texttt{void revert()} forwarding to \texttt{Material<>}. \\
+\texttt{MaterialSection.hh} &
+  Added \texttt{void revert()} forwarding to \texttt{Material<>}. \\
+\texttt{Material.hh} &
+  Added \texttt{virtual void revert() = 0} to \texttt{MaterialConcept};
+  implemented in \texttt{OwningMaterialModel},
+  \texttt{NonOwningMaterialModel}, \texttt{MaterialRef},
+  \texttt{Material<>}. \\
+\texttt{ConstitutiveIntegrator.hh} &
+  Added \texttt{revert\_constitutive\_state()} free function;
+  added \texttt{revert()} to all three integrators. \\
+\texttt{CMakeLists.txt} &
+  Added \texttt{fall\_n\_heterogeneity\_test} target and CTest
+  registration. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% ------------------------------------------------------------------
+\section{Verification Test}
+\label{sec:verification-test}
+
+The file \texttt{tests/test\_element\_heterogeneity.cpp} contains
+22~assertions organized in eight test groups:
+
+\begin{center}
+\small
+\begin{tabular}{clp{7cm}}
+\toprule
+\textbf{Test} & \textbf{Name} & \textbf{What it validates} \\
+\midrule
+1 & Concept enforcement &
+    \texttt{static\_assert} that a mock element satisfying all
+    requirements passes \texttt{FiniteElement}; a mock missing
+    \texttt{revert\_material\_state} is rejected. \\
+2 & Wrapper forwarding &
+    \texttt{FEM\_Element} and \texttt{StructuralElement} forward
+    \texttt{revert\_material\_state()} to the wrapped concrete type. \\
+3 & Heterogeneous container &
+    \texttt{MultiElementPolicy} stores elements of different concrete
+    types; uniform commit and revert iteration succeeds. \\
+4 & Material type-erasure &
+    \texttt{Material<>} revert through the erased boundary: elastic
+    material fully restores tangent; plasticity material calls revert
+    safely (no crash). \\
+5 & Elastic safety &
+    Elastic revert is a safe no-op: the tangent remains unchanged
+    after \texttt{commit} followed by \texttt{revert}. \\
+6 & ContinuumElement chain &
+    Full commit/revert through a \texttt{ContinuumElement} with
+    a PETSc mesh, verifying that \texttt{MaterialPoint::revert()}
+    exercises the complete 6-layer chain. \\
+7 & SNES incremental solve &
+    Two-step nonlinear solve with \texttt{SNES}; after each
+    converged step, \texttt{commit} then \texttt{revert} is called
+    to verify the post-solve revert contract. \\
+8 & Policy type traits &
+    \texttt{static\_assert} coverage for
+    \texttt{SingleElementPolicy}, \texttt{MultiElementPolicy},
+    and the \texttt{ElementPolicyLike} concept. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All 22 assertions pass.  The test executable is registered as CTest
+target \texttt{element\_heterogeneity}.
+
+%% ------------------------------------------------------------------
+\section{Known Gaps}
+\label{sec:phase2-gaps}
+
+\begin{enumerate}
+  \item \textbf{PlasticityRelation internal revert.}
+        The \texttt{PlasticityRelation::revert(algo\_state)} method
+        reverts the algorithmic state (accumulated plastic strain,
+        back-stress), but the relation's \emph{own} internal members
+        (e.g.\ the Newton iteration scratch) are not part of the
+        \texttt{AlgorithmicState} object.  Completing this path is
+        delegated to Phase~3 (Analysis Loop).
+
+  \item \textbf{Analysis-level revert trigger.}
+        The solver boundary (Layer~1) does not yet call
+        \texttt{revert\_material\_state()} on convergence failure.
+        Phase~3 will close this by adding step-rejection logic in the
+        nonlinear analysis driver.
+
+  \item \textbf{Dynamic history variables.}
+        For time-integration schemes (Newmark, generalized-$\alpha$),
+        velocities and accelerations at material sites must also be
+        reverted.  This is delegated to Phase~5 (Dynamic Extension).
+\end{enumerate}
+
+%% ------------------------------------------------------------------
+\section{Build and Test Results}
+\label{sec:phase2-build-results}
+
+After implementing the revert chain and all supporting changes:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+CMake targets compiled    & 27/27 (zero errors) \\
+CTest results             & 41/43 pass \\
+Pre-existing failures     & 2 (cantilever\_benchmark, snes\_gmsh\_pipeline) \\
+New regressions           & 0 \\
+Phase~2 verification test & 22/22 assertions pass \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% ------------------------------------------------------------------
+\section{Summary}
+\label{sec:phase2-summary}
+
+Phase~2 confirmed that the \texttt{fall\_n} element architecture already
+provides a complete heterogeneous-container infrastructure: a C++20
+\texttt{FiniteElement} concept, External Polymorphism wrappers
+(\texttt{FEM\_Element}, \texttt{StructuralElement}), zero-overhead and
+type-erased storage policies (\texttt{SingleElementPolicy},
+\texttt{MultiElementPolicy}), and three \texttt{Model} construction
+modes.  The only missing piece --- the \texttt{revert\_material\_state}
+operation --- was implemented through all six architectural layers, from
+the concrete element loops down to the
+\texttt{TrialCommittedState::revert\_trial()} storage primitive.
+
+Twenty-two verification assertions confirm the contract across concept
+enforcement, type-erasure forwarding, heterogeneous iteration, and an
+end-to-end SNES incremental solve.
+
+Phase~3 will close the loop by wiring the analysis driver to call
+\texttt{revert\_material\_state()} on step rejection, enabling robust
+nonlinear continuation with bisection and adaptive time stepping.
