@@ -171,11 +171,8 @@ private:
     // ─── Internal state (owned per-instance) ─────────────────────────────
     InternalVariablesT alpha_{};
 
-    // ─── Cache (avoid redundant return-mapping in tangent after response) ─
-    mutable ConjugateT              last_stress_{};
-    mutable TangentT                last_tangent_{};
-    mutable bool                    cache_valid_{false};
-    mutable StrainVectorT           last_strain_cache_{StrainVectorT::Zero()};
+    // (Cache removed: const methods are now truly const and thread-safe.
+    //  The 2-arg overloads used through MaterialInstance never needed it.)
 
 
     // =====================================================================
@@ -489,29 +486,14 @@ public:
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
         const auto strain_vec = kinematic_components(strain);
         auto result = integrate_local_response(strain_vec, alpha_);
-
-        // Cache for subsequent tangent(k) call
-        last_stress_ = ConjugateT{};
-        assign_conjugate(last_stress_, result.stress);
-        last_tangent_      = result.tangent;
-        last_strain_cache_ = strain_vec;
-        cache_valid_       = true;
-
-        return last_stress_;
+        ConjugateT stress{};
+        assign_conjugate(stress, result.stress);
+        return stress;
     }
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
         const auto strain_vec = kinematic_components(strain);
-        if (cache_valid_ &&
-            strain_vec.isApprox(last_strain_cache_, 1e-15))
-        {
-            return last_tangent_;
-        }
-        auto result = integrate_local_response(strain_vec, alpha_);
-        last_tangent_      = result.tangent;
-        last_strain_cache_ = strain_vec;
-        cache_valid_       = true;
-        return last_tangent_;
+        return integrate_local_response(strain_vec, alpha_).tangent;
     }
 
     // =====================================================================
@@ -520,7 +502,6 @@ public:
 
     void update(const KinematicT& strain) {
         commit(alpha_, strain);
-        cache_valid_ = false;
     }
 
     [[nodiscard]] const InternalVariablesT& internal_state() const {
