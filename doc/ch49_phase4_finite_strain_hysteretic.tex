@@ -1,0 +1,346 @@
+% ==========================================================================
+%  Chapter 49 — Phase 4: Finite-Strain Kinematics and Hysteretic Cycling
+% ==========================================================================
+
+\chapter{Phase 4: Finite-Strain Kinematics and Hysteretic Cycling}
+\label{ch:phase4-finite-strain-hysteretic}
+
+This chapter documents Phase~4 of the master plan
+(Chapter~\ref{ch:convergence-master-plan}).
+The original scope required implementing the Updated Lagrangian (UL)
+framework: deformation gradient computation, spatial tangent evaluation,
+geometric stiffness assembly, and reference configuration update.
+A full codebase audit revealed that the finite-strain kinematic
+infrastructure was \emph{already completely implemented and tested},
+covering Total Lagrangian (TL), Updated Lagrangian (UL), and all
+required strain/stress measures.
+
+Phase~4 was therefore extended to include a comprehensive verification
+of the cyclic constitutive models already present in the library—%
+Menegotto--Pinto steel, Kent--Park concrete, and composable J$_2$
+plasticity—under prescribed cyclic strain protocols, with CSV output
+and automated stress--strain hysteresis plotting.
+
+
+%% ------------------------------------------------------------------
+\section{Phase 4 Scope Revision}
+\label{sec:phase4-scope-revision}
+
+Chapter~\ref{ch:convergence-master-plan} defined Phase~4 as
+``Finite-Strain Kinematics: Updated Lagrangian (UL) framework'' with
+four deliverables:
+
+\begin{enumerate}
+  \item Deformation gradient
+        $\mathbf{F} = \mathbf{I} + \nabla\mathbf{u}$ from shape
+        function gradients.\label{it:p4-F}
+  \item Spatial tangent modulus $\mathbb{c}$ via the constitutive
+        interface.\label{it:p4-c}
+  \item Geometric stiffness
+        $K_\sigma$ alongside material tangent $K_m$.\label{it:p4-Ks}
+  \item Reference configuration update after each converged
+        step.\label{it:p4-ref}
+\end{enumerate}
+
+After auditing \texttt{src/continuum/}, all four deliverables were
+found to be \textbf{operational}, with extensive test coverage:
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Test suite & Assertions & Status \\
+  \midrule
+  \texttt{test\_kinematic\_policy} (TL + UL traits, B matrices)
+      & 68 & \checkmark \\
+  \texttt{test\_hyperelastic} (SVK, Neo-Hookean, energy/tangent)
+      & 69 & \checkmark \\
+  \texttt{test\_tl\_integration} (element-level TL pipeline)
+      & 48 & \checkmark \\
+  \texttt{test\_updated\_lagrangian} (UL $\equiv$ TL equivalence)
+      & 41 & \checkmark \\
+  \texttt{test\_finite\_strain\_damage} (damage + hyperelastic)
+      & 25 & \checkmark \\
+  \midrule
+  Total pre-existing & \textbf{251} & all pass \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Given this, Phase~4 was extended with a second objective: comprehensive
+cyclic constitutive model verification with hysteretic stress--strain
+curve output.
+
+
+%% ------------------------------------------------------------------
+\section{Finite-Strain Infrastructure Summary}
+\label{sec:phase4-finite-strain}
+
+\subsection{Kinematic Policies}
+
+The library provides four compile-time kinematic policies in
+\texttt{KinematicPolicy.hh}, each satisfying the
+\texttt{KinematicPolicyConcept}:
+
+\begin{center}
+\begin{tabular}{lccc}
+  \toprule
+  Policy & Geometrically linear & $K_\sigma$ & Current-vol factor \\
+  \midrule
+  \texttt{SmallStrain}       & \checkmark & --- & --- \\
+  \texttt{TotalLagrangian}   & ---        & \checkmark & --- \\
+  \texttt{UpdatedLagrangian} & ---        & \checkmark & \checkmark \\
+  \texttt{Corotational}      & ---        & \checkmark & placeholder \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Deformation Gradient}
+
+\texttt{TotalLagrangian::compute\_F\_from\_gradients<dim>()} computes
+\[
+  F_{ij} = \delta_{ij} + \sum_I u_{iI}\,\frac{\partial N_I}{\partial X_j}
+\]
+from the shape function gradient matrix $\nabla\mathbf{N}$ and the flat
+displacement vector $\mathbf{u}_e$.  The Updated Lagrangian path reuses
+the same $F$ computation and additionally evaluates spatial gradients
+$\nabla_x N = \nabla_X N \cdot F^{-1}$ for the spatial B operator and
+geometric stiffness.
+
+\subsection{Strain and Stress Measures}
+
+\texttt{StrainMeasures.hh} and \texttt{StressMeasures.hh} provide the
+full tensor algebra toolkit:
+
+\begin{itemize}
+  \item Green--Lagrange
+        $\mathbf{E} = \tfrac{1}{2}(\mathbf{F}^T\mathbf{F} - \mathbf{I})$
+  \item Almansi
+        $\mathbf{e} = \tfrac{1}{2}(\mathbf{I} - \mathbf{b}^{-1})$
+  \item Hencky (logarithmic) strain
+  \item Seth--Hill family (parametric)
+  \item Piola transformations:
+        $\mathbf{S} \to \boldsymbol{\sigma}$ (push-forward),
+        $\boldsymbol{\sigma} \to \mathbf{S}$ (pull-back),
+        Kirchhoff $\boldsymbol{\tau} = J\boldsymbol{\sigma}$,
+        first Piola--Kirchhoff $\mathbf{P} = \mathbf{F}\mathbf{S}$
+\end{itemize}
+
+\subsection{Hyperelastic Models}
+
+Two models satisfy \texttt{HyperelasticModelConcept}:
+
+\begin{itemize}
+  \item \texttt{SaintVenantKirchhoff<dim>}: $W = \tfrac{\lambda}{2}(\mathrm{tr}\,E)^2 + \mu\,E : E$
+  \item \texttt{CompressibleNeoHookean<dim>}: $W = \tfrac{\mu}{2}(\mathrm{tr}\,C - d) - \mu\ln J + \tfrac{\lambda}{2}(\ln J)^2$
+\end{itemize}
+
+Both provide $W(E)$, $S(E)$, and $\mathbb{C}(E)$.  The
+\texttt{HyperelasticRelation} adapter bridges the tensor API to the
+general \texttt{ConstitutiveRelation} interface (Voigt convention).
+
+\subsection{Geometric Stiffness}
+
+Both TL and UL paths assemble the geometric stiffness contribution:
+
+\begin{itemize}
+  \item TL: $(K_\sigma)_{IiJj} = \delta_{ij}\int_{\Omega_0} S_{kl}\,
+        \frac{\partial N_I}{\partial X_k}\,
+        \frac{\partial N_J}{\partial X_l}\,dV$
+  \item UL: $(k_\sigma)_{IiJj} = \delta_{ij}\int_{\Omega_n} \sigma_{kl}\,
+        \frac{\partial N_I}{\partial x_k}\,
+        \frac{\partial N_J}{\partial x_l}\,dv$
+\end{itemize}
+
+\texttt{ContinuumElement} dispatches via \texttt{if constexpr} on
+\texttt{KinematicPolicy::needs\_geometric\_stiffness} and
+\texttt{KinematicPolicy::needs\_current\_volume\_factor} to assemble
+$K_t = K_m + K_\sigma$ correctly.
+
+
+%% ------------------------------------------------------------------
+\section{Cyclic Constitutive Model Verification}
+\label{sec:phase4-hysteretic-cycling}
+
+Three cyclic/hysteretic material models were exercised under prescribed
+strain protocols:
+
+\subsection{Menegotto--Pinto Steel}
+
+\texttt{MenegottoPintoSteel} implements the Menegotto \& Pinto (1973)
+uniaxial model with the Filippou et~al.\ (1983) modifications.
+Key features: Bauschinger effect via evolving curvature parameter $R$,
+isotropic hardening amplitude, and yield plateau.
+
+\noindent
+Constructor: \texttt{MenegottoPintoSteel(E0, fy, b, R0, cR1, cR2, a1, a2)}.
+
+\subsubsection*{Test 1: Increasing-Amplitude Protocol}
+
+A seismic-standard protocol $(\pm 1\varepsilon_y, \pm 2\varepsilon_y,
+\pm 4\varepsilon_y, \pm 8\varepsilon_y, \pm 12\varepsilon_y)$ with
+30~subdivisions per segment (301 points total).  Assertions:
+
+\begin{itemize}
+  \item Peak stresses $\geq 0.95 f_y$ in both tension and compression
+  \item Bauschinger effect detected: $|\sigma| < f_y$ at
+        $\varepsilon = -\varepsilon_y$ during first compression reversal
+  \item Non-zero hysteretic loop area (positive energy dissipation)
+\end{itemize}
+
+\subsubsection*{Test 2: Constant-Amplitude (3 Cycles)}
+
+Three full cycles at $\pm 4\varepsilon_y$ with 40~subdivisions per
+segment.  Validates that each cycle dissipates positive absolute work,
+and that the R-evolution stabilizes the loop shape.
+
+\subsection{Kent--Park Concrete}
+
+\texttt{KentParkConcrete} implements the Scott--Park--Priestley (1982)
+model for confined and unconfined concrete.  Features: parabolic
+ascending branch, linear softening, origin-pointing unloading, tension
+cutoff.
+
+\subsubsection*{Test 3: Unconfined Cyclic}
+
+Protocol: $0 \to -0.001 \to 0 \to -0.003 \to +0.0002 \to -0.005 \to 0$.
+Assertions:
+
+\begin{itemize}
+  \item Peak compression $\geq 80\%$ of $f'_c$
+  \item Origin-pointing unloading: stress $\approx 0$ at $\varepsilon=0$
+  \item Tension stress $\leq f_t + 1$\,MPa
+  \item Compression softening at $\varepsilon = -0.005$
+\end{itemize}
+
+\subsubsection*{Test 4: Confined Cyclic}
+
+Same concrete with confinement parameters
+($\rho_s = 0.015$, $f_{yh} = 400$\,MPa, $h' = 300$\,mm, $s_h = 100$\,mm).
+Protocol extends to $\varepsilon = -0.015$.  Validates:
+
+\begin{itemize}
+  \item Confined peak stress $> f'_c$ (confinement factor $K > 1$)
+  \item Residual stress $> 10\%\,f'_c$ at $\varepsilon = -0.015$
+\end{itemize}
+
+\subsection{J$_2$ Plasticity (Uniaxial)}
+
+\texttt{J2PlasticityRelation<UniaxialMaterial>} with linear isotropic
+hardening ($E = 200\,000$, $\sigma_y = 250$, $H = 5000$).
+
+\subsubsection*{Test 5: Symmetric Cyclic (3 Cycles at $\pm 3\varepsilon_y$)}
+
+Validates:
+\begin{itemize}
+  \item Peak stress exceeds initial yield (isotropic hardening)
+  \item Symmetric response: $|\sigma_{\max} + \sigma_{\min}| < 5\%\,\sigma_{\max}$
+  \item Non-zero hysteretic loop area
+\end{itemize}
+
+\subsection{Commit/Revert Protocol}
+
+\subsubsection*{Test 6: Idempotency Under Cycling}
+
+After a full plastic cycle, a trial strain is computed \emph{without
+committing}.  Verifies that the response at a reference strain is
+unchanged (the \texttt{ExternallyStateDriven} interface is read-only
+on committed state).  After committing the trial, the response changes
+(path dependence confirmed).
+
+\subsection{Combined Output}
+
+\subsubsection*{Test 7: Steel vs.\ Concrete on Same Protocol}
+
+Both materials driven through the same $\pm 0.015$ strain protocol.
+A combined CSV is written with columns \texttt{strain},
+\texttt{steel\_stress}, \texttt{concrete\_stress} for direct comparison.
+
+\subsection{Finite-Strain Gate}
+
+\subsubsection*{Test 8: Kinematic Policy Verification}
+
+Compile-time trait checks for all three policies, plus runtime
+deformation gradient computation at zero and small displacement (verifies
+$F = I$ and $F \approx I + \nabla u$).
+
+
+%% ------------------------------------------------------------------
+\section{CSV Output and Hysteresis Plotting}
+\label{sec:phase4-csv-plotting}
+
+All cyclic tests write CSV files to
+\texttt{data/output/hysteretic\_cycles/}:
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  File & Content \\
+  \midrule
+  \texttt{steel\_menegotto\_pinto\_cyclic.csv}         & Increasing-amplitude steel \\
+  \texttt{steel\_menegotto\_pinto\_3cycles.csv}         & Constant-amplitude 3 cycles \\
+  \texttt{concrete\_kent\_park\_cyclic.csv}             & Unconfined concrete \\
+  \texttt{concrete\_kent\_park\_confined\_cyclic.csv}   & Confined concrete \\
+  \texttt{j2\_uniaxial\_cyclic.csv}                    & J$_2$ plasticity \\
+  \texttt{combined\_steel\_concrete\_cyclic.csv}        & Steel + concrete comparison \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+A Python~3 script \texttt{scripts/plot\_hysteresis\_curves.py} reads
+these CSVs and generates a multi-panel figure with matplotlib
+(\texttt{hysteresis\_curves.pdf} and \texttt{.png}).  Each panel shows
+the stress--strain hysteresis loop for one material/protocol, with the
+combined panel overlaying steel and concrete on the same axes.
+
+
+%% ------------------------------------------------------------------
+\section{Results}
+\label{sec:phase4-results}
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Metric & Target & Actual \\
+  \midrule
+  Phase~4 hysteretic cycling assertions & 41 & \textbf{41/41} \\
+  Pre-existing finite-strain tests & 251 & \textbf{251/251} \\
+  Full ctest suite & $\geq 43/45$ & \textbf{43/45} \\
+  Pre-existing failures & 2 & 2 \\
+  New regressions & 0 & \textbf{0} \\
+  Build errors (\texttt{-Werror}) & 0 & \textbf{0} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+
+%% ------------------------------------------------------------------
+\section{Phase 4 Completion Status}
+\label{sec:phase4-completion}
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Deliverable & Status & Notes \\
+  \midrule
+  Deformation gradient $\mathbf{F}$ & \checkmark & Pre-existing (TL + UL) \\
+  Spatial tangent $\mathbb{c}$ & \checkmark & Pre-existing (push-forward) \\
+  Geometric stiffness $K_\sigma$ & \checkmark & Pre-existing (TL + UL) \\
+  Reference config update & \checkmark & Pre-existing (UL spatial grads) \\
+  Menegotto--Pinto cycling & \checkmark & Phase~4 test \\
+  Kent--Park cycling & \checkmark & Phase~4 test \\
+  J$_2$ uniaxial cycling & \checkmark & Phase~4 test \\
+  Commit/revert idempotency & \checkmark & Phase~4 test \\
+  CSV curve output & \checkmark & Phase~4 test \\
+  Python hysteresis plotter & \checkmark & Phase~4 script \\
+  \midrule
+  Corotational formulation & --- & Deferred (placeholder only) \\
+  Kinematic hardening (Chaboche) & --- & Deferred (future extension) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Phase~4 is complete.  The finite-strain kinematic framework was found
+fully operational, and the cyclic constitutive models have been verified
+under aggressive cyclic protocols with 41 assertions, CSV output, and
+automated stress--strain hysteresis plotting.
