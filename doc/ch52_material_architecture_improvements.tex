@@ -197,12 +197,14 @@ This chapter established a reference architecture map for the
 \texttt{Material} module, catalogued eight deficiencies, and defined
 a six-phase improvement roadmap.
 Phase~1 (semantic rename, \S\ref{sec:phase1-rename}),
-Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}), and
-Phase~3 (kinematic dispatch consolidation, \S\ref{sec:phase3-dispatch})
+Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}),
+Phase~3 (kinematic dispatch consolidation, \S\ref{sec:phase3-dispatch}),
+Phase~4 (kinematic policy on structural elements, \S\ref{sec:phase4-kinematic-policy}), and
+Phase~5 (corotational beam formulation, \S\ref{sec:phase5-corotational})
 have been implemented and verified.
-Phases~4--6 remain for future work and will follow the same
-pattern: implement, build with \texttt{-Werror}, run full CTest
-regression, and document in an appendix to this chapter.
+Phase~6 (state separation and arena allocator) remains for future work
+and will follow the same pattern: implement, build with \texttt{-Werror},
+run full CTest regression, and document in an appendix to this chapter.
 
 
 %% ------------------------------------------------------------------
@@ -391,4 +393,323 @@ return dispatch_response<StateVariableT>(*integrator_, *material_, kin);
         \texttt{beam\_n\_element},
         \texttt{rc\_fiber\_frame\_nonlinear},
         \texttt{nonlinear\_validation}.
+\end{itemize}
+
+
+%% ------------------------------------------------------------------
+\section{Phase 4 Implementation: Kinematic Policy on Structural Elements}
+\label{sec:phase4-kinematic-policy}
+
+\subsection{Problem Statement}
+
+The \texttt{BeamElement} class hard-coded its kinematic assumptions:
+the element frame (rotation matrix $\mathbf{R}$ and length $L$) was
+computed once from the reference configuration and never updated,
+the global-to-local transformation was a fixed block-diagonal
+rotation $\mathbf{T}=\mathrm{blockdiag}(\mathbf{R}^T,
+\mathbf{R}^T)$, and no geometric stiffness contribution was
+possible.
+
+This prevented compile-time selection of alternative formulations
+(e.g., corotational or updated-Lagrangian beams) without duplicating
+the entire element class---a gap already solved for continuum elements
+by the \texttt{KinematicPolicy} template parameter in
+\texttt{ContinuumElement<MaterialPolicy, ndof, KinematicPolicy>}.
+
+\subsection{Design: \texttt{BeamKinematicPolicyConcept}}
+
+A new header \texttt{src/elements/BeamKinematicPolicy.hh} introduces
+a minimal concept and two concrete policies:
+
+\begin{description}
+  \item[\texttt{beam::BeamKinematicPolicyConcept}.]
+    A policy type \texttt{P} must expose two \texttt{static constexpr
+    bool} traits:
+    \begin{itemize}
+      \item \texttt{P::is\_geometrically\_linear} --- controls whether
+            the element frame is fixed or updated each iteration.
+      \item \texttt{P::needs\_geometric\_stiffness} --- controls whether
+            a geometric stiffness $\mathbf{K}_\sigma$ is appended to
+            the tangent.
+    \end{itemize}
+
+  \item[\texttt{beam::FrameData<Dim>}.]
+    A lightweight result struct carrying $\mathbf{R}\in\mathbb{R}^{d
+    \times d}$ and $L\in\mathbb{R}$.
+
+  \item[\texttt{beam::SmallRotation}.]
+    Default policy; preserves the original behavior:
+    \begin{itemize}
+      \item \texttt{compute\_frame<Dim>(x$_0$, x$_1$)}: one-time
+            computation from reference node coordinates.  2D:
+            $\mathbf{e}_1=(x_1-x_0)/L$, $\mathbf{e}_2=$ 90\textdegree{}
+            rotation.  3D: Gram--Schmidt with a reference vector.
+      \item \texttt{update\_frame}: identity (returns the reference
+            frame unchanged).
+      \item \texttt{extract\_local\_dofs}: $\mathbf{u}_{\text{loc}} =
+            \mathbf{T}\,\mathbf{u}_{\text{glob}}$.
+    \end{itemize}
+
+  \item[\texttt{beam::Corotational}.]
+    Crisfield-style CR policy (Phase~5, below).
+\end{description}
+
+Both policies satisfy a \texttt{static\_assert} against the concept
+at the point of definition.
+
+\subsection{Template Signature Change}
+
+The \texttt{BeamElement} class template gains a third parameter with
+a default:
+
+\begin{verbatim}
+template <typename BeamPolicy,
+          std::size_t Dim = BeamPolicy::dim,
+          typename KinematicPolicy = beam::SmallRotation,
+          typename AsmPolicy = assembly::DirectAssembly>
+class BeamElement { ... };
+\end{verbatim}
+
+\noindent
+Because \texttt{KinematicPolicy} has a default, all existing
+instantiations compile unchanged:
+
+\begin{verbatim}
+BeamElement<TimoshenkoBeam2D, 2>   // SmallRotation, DirectAssembly
+BeamElement<TimoshenkoBeam3D, 3>   // SmallRotation, DirectAssembly
+\end{verbatim}
+
+\subsection{Internal Refactoring}
+
+The two formerly private members \texttt{R\_} and \texttt{length\_}
+were replaced by two \texttt{beam::FrameData<Dim>} structs:
+
+\begin{description}
+  \item[\texttt{frame0\_}:] Reference-configuration frame, computed
+    once in \texttt{compute\_frame()} and immutable thereafter.
+  \item[\texttt{frame\_n\_}:] Current-configuration frame.  For
+    \texttt{SmallRotation} this is always identical to
+    \texttt{frame0\_}; for \texttt{Corotational} it is recomputed
+    at each Newton iteration via \texttt{update\_current\_frame()}.
+\end{description}
+
+\noindent
+Key method changes:
+
+\begin{itemize}
+  \item \texttt{compute\_frame()} delegates to
+    \texttt{KinematicPolicy::compute\-\_frame<Dim>(x$_0$, x$_1$)}
+    and stores the result in both \texttt{frame0\_} and
+    \texttt{frame\_n\_}.
+
+  \item A new helper \texttt{update\_current\_frame(u\_e)} extracts
+    nodal coordinates and displacements, calls
+    \texttt{KinematicPolicy::update\_frame<Dim>()}, and stores the
+    result in \texttt{frame\_n\_}.
+
+  \item \texttt{compute\_internal\_forces()} now conditionally calls
+    \texttt{update\_current\_frame()} via
+    \texttt{if constexpr (!KinematicPolicy::is\_geometrically\_linear)},
+    followed by
+    \texttt{KinematicPolicy::extract\_local\_dofs()} instead of a
+    raw $\mathbf{T}\cdot\mathbf{u}$.
+
+  \item \texttt{inject\_tangent\_stiffness()} follows the same guard
+    for the frame update and appends the geometric stiffness when
+    \texttt{KinematicPolicy::needs\_geometric\_stiffness} is true.
+
+  \item \texttt{commit\_material\_state()} mirrors the same
+    conditional frame update and local-DOF extraction.
+
+  \item Shape-function derivatives \texttt{dN1\_ds()}, \texttt{dN2\_ds()}
+    use \texttt{frame\_n\_.length} so that \texttt{SmallRotation}
+    keeps the reference length and \texttt{Corotational} uses the
+    current length.
+
+  \item Accessors \texttt{element\_length()} and
+    \texttt{rotation\_matrix()} now read from \texttt{frame\_n\_}.
+    New accessors \texttt{reference\_frame()} and
+    \texttt{current\_frame()} expose the full \texttt{FrameData}
+    bundles.
+\end{itemize}
+
+\subsection{Verification}
+
+\begin{itemize}
+  \item \textbf{Build:} 44 recompiled targets, zero warnings
+        (\texttt{-Werror}, clang++-20, C++23).
+  \item \textbf{CTest:} 45/47 passed (same 2 pre-existing mesh-file
+        failures).
+  \item All beam tests passed:
+        \texttt{beam\_element},
+        \texttt{beam\_n\_element},
+        \texttt{rc\_fiber\_frame\_nonlinear},
+        \texttt{nonlinear\_validation}.
+\end{itemize}
+
+
+%% ------------------------------------------------------------------
+\section{Phase 5 Implementation: Corotational Beam Formulation}
+\label{sec:phase5-corotational}
+
+\subsection{Formulation Overview}
+
+The corotational (CR) approach decomposes element motion into a
+rigid-body component and a deformational component.  At each Newton
+iteration:
+
+\begin{enumerate}
+  \item \textbf{Current chord.}  Compute the deformed node positions
+    $\mathbf{x}_i^n = \mathbf{X}_i + \mathbf{u}_i$ and form the
+    current chord direction $\mathbf{e}_1^n = (\mathbf{x}_1^n -
+    \mathbf{x}_0^n)/l_n$, where $l_n = \|\mathbf{x}_1^n -
+    \mathbf{x}_0^n\|$ is the current length.
+
+  \item \textbf{Corotated frame.}  Build the rotation matrix
+    $\mathbf{R}^n$ from $\mathbf{e}_1^n$ and a smoothly evolved
+    transverse axis.  In 3D, the reference $\mathbf{e}_2^0$ is
+    projected onto the plane perpendicular to $\mathbf{e}_1^n$ and
+    renormalized.
+
+  \item \textbf{Deformational DOFs.}  Extract local DOFs by
+    filtering the rigid rotation of the chord:
+    \begin{description}
+      \item[2D ($6$ DOFs):] $u_1^{\text{def}} = 0$,
+        $v_1^{\text{def}} = 0$,
+        $\theta_1^{\text{def}} = \theta_1 - \alpha$ (rigid chord
+        rotation $\alpha$),
+        $u_2^{\text{def}} = l_n - l_0$,
+        $v_2^{\text{def}} = 0$,
+        $\theta_2^{\text{def}} = \theta_2 - \alpha$.
+      \item[3D ($12$ DOFs):] Translate into the corotated frame;
+        subtract the incremental rigid rotation from nodal rotations
+        via $\boldsymbol{\theta}_i^{\text{loc}} = \mathbf{R}^n
+        \boldsymbol{\theta}_i^{\text{glob}} -
+        \boldsymbol{\delta\theta}$, where $\boldsymbol{\delta\theta}$
+        is the axial vector of $\mathbf{R}^n(\mathbf{R}^0)^T$.
+    \end{description}
+
+  \item \textbf{Local response.}  Evaluate the small-rotation
+    Timoshenko formulation with the deformational DOFs and the
+    current length $l_n$ (the B matrix shape-function derivatives
+    use $l_n$ instead of $l_0$).
+
+  \item \textbf{Global forces.}  Transform back via the corotational
+    projector.
+
+  \item \textbf{Geometric stiffness.}  Append
+    $\mathbf{K}_\sigma$ from the axial force $N$:
+    \[
+        (\mathbf{K}_\sigma)_{ij} =
+        \frac{N}{l_n}\,\delta_{v_i v_j}\;,
+    \]
+    acting on the transverse DOF pairs $(v_1, v_2)$ in 2D and
+    $(u_{y_1}, u_{y_2})$, $(u_{z_1}, u_{z_2})$ in 3D.
+\end{enumerate}
+
+\noindent
+References: Crisfield, \emph{Non-Linear Finite Element Analysis of
+Solids and Structures}, Vol.~1, \S7.3; Battini \& Pacoste (2002).
+
+\subsection{Implementation in \texttt{beam::Corotational}}
+
+The policy provides four static template functions:
+
+\begin{description}
+  \item[\texttt{compute\_frame<Dim>}:]
+    Delegates to \texttt{SmallRotation::compute\_frame} for the
+    initial (reference) frame computation.
+
+  \item[\texttt{update\_frame<Dim>}:]
+    Computes $\mathbf{x}_i^n = \mathbf{X}_i + \mathbf{u}_i$ and
+    rebuilds the element chord.  In 3D, the reference $\mathbf{e}_2$
+    is projected and renormalized.  Degeneracy is handled by falling
+    back to the reference-vector algorithm.
+
+  \item[\texttt{extract\_local\_dofs<Dim, TotalDofs>}:]
+    Filters the rigid chord rotation:
+    \begin{itemize}
+      \item 2D: computes $\alpha = \arctan(\sin\alpha,\cos\alpha)$
+            from $\mathbf{e}_1^n\cdot\mathbf{e}_1^0$ and the
+            cross-product, then $\theta_i^{\text{def}} =
+            \theta_i^{\text{glob}} - \alpha$.
+      \item 3D: computes $\mathbf{R}_{\text{rigid}} =
+            (\mathbf{R}^n)^T\,\mathbf{R}^0$, extracts the axial
+            vector $\boldsymbol{\delta\theta}$ from the
+            skew-symmetric part, and subtracts it from each node's
+            rotations expressed in the corotated frame.
+    \end{itemize}
+
+  \item[\texttt{geometric\_stiffness<Dim, TotalDofs, NumStrains>}:]
+    Builds $\mathbf{K}_\sigma$ from the axial force component of the
+    section force vector.  2D: $4\times4$ sub-block on
+    $(v_1,v_2)$.  3D: two $4\times4$ sub-blocks on $(u_{y_1},
+    u_{y_2})$ and $(u_{z_1}, u_{z_2})$.
+\end{description}
+
+\subsection{Integration with \texttt{BeamElement}}
+
+The \texttt{BeamElement} methods use \texttt{if constexpr} guards
+keyed to the policy traits to enable CR-specific code paths at zero
+cost when \texttt{SmallRotation} is selected:
+
+\begin{verbatim}
+if constexpr (!KinematicPolicy::is_geometrically_linear) {
+    update_current_frame(u_e);  // recompute R_n, l_n
+}
+auto u_def = KinematicPolicy::template
+    extract_local_dofs<Dim, total_dofs>(...);
+...
+if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+    K_local += KinematicPolicy::template
+        geometric_stiffness<Dim, total_dofs, num_strains>(...);
+}
+\end{verbatim}
+
+\noindent
+For \texttt{SmallRotation}, the compiler eliminates these branches
+entirely, producing the same binary as the original hard-coded
+element.
+
+\subsection{Scope of Changes}
+
+\begin{itemize}
+  \item \textbf{New file:}
+    \texttt{src/elements/BeamKinematicPolicy.hh} ---
+    \texttt{beam::FrameData<Dim>},
+    \texttt{BeamKinematicPolicyConcept},
+    \texttt{SmallRotation} (88 lines),
+    \texttt{Corotational} (255 lines).
+
+  \item \textbf{Modified file:}
+    \texttt{src/elements/BeamElement.hh} ---
+    template signature extended, \texttt{R\_}/\texttt{length\_}
+    replaced by \texttt{frame0\_}/\texttt{frame\_n\_}, five methods
+    refactored to delegate to the policy.
+
+  \item \textbf{No test files modified:} existing instantiations
+    pick up \texttt{SmallRotation} by default.
+\end{itemize}
+
+\subsection{Verification}
+
+\begin{itemize}
+  \item \textbf{Build:} 44 recompiled targets, zero warnings
+        (\texttt{-Werror}).
+  \item \textbf{CTest:} 45/47 passed (same 2 pre-existing failures:
+        \texttt{cantilever\_benchmark} and
+        \texttt{snes\_gmsh\_pipeline}, both missing \texttt{.msh}
+        files).
+  \item All beam-path tests passed:
+        \texttt{beam\_element},
+        \texttt{beam\_n\_element},
+        \texttt{rc\_fiber\_frame\_nonlinear},
+        \texttt{nonlinear\_validation}.
+
+  \item \textbf{Note on \texttt{ShellElement}:}
+    The shell element (\texttt{MITC4} Mindlin--Reissner) was not
+    refactored in this phase.  A corotational shell formulation
+    requires additional machinery (mid-surface rotation
+    parametrization, drilling DOF stabilization) and is deferred to
+    a future phase.
 \end{itemize}

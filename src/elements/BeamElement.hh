@@ -50,12 +50,14 @@
 #include "section/NodeSection.hh"
 #include "section/SectionGeometry.hh"
 #include "assembly/AssemblyPolicy.hh"
+#include "BeamKinematicPolicy.hh"
 
 #include "../materials/Material.hh"
 
 
 template <typename BeamPolicy,
           std::size_t Dim = BeamPolicy::dim,
+          typename KinematicPolicy = beam::SmallRotation,
           typename AsmPolicy = assembly::DirectAssembly>
 class BeamElement {
 
@@ -85,8 +87,8 @@ class BeamElement {
     [[no_unique_address]] AsmPolicy assembly_;
 
     // Element frame (rotation matrix: local → global is Rᵀ)
-    Eigen::Matrix<double, Dim, Dim> R_ = Eigen::Matrix<double, Dim, Dim>::Identity();
-    double length_{0.0};
+    beam::FrameData<Dim> frame0_{};  ///< Reference-configuration frame
+    beam::FrameData<Dim> frame_n_{}; ///< Current frame (= frame0_ for SmallRotation)
 
     // ── DOF index cache ─────────────────────────────────────────────────
     mutable std::vector<PetscInt> dof_indices_;
@@ -111,8 +113,8 @@ class BeamElement {
 
     // ── Element-level computations ──────────────────────────────────────
 
-    // Compute element length and local frame from node coordinates.
-    void compute_frame() noexcept {
+    // Reference-configuration node coordinates.
+    auto node_coords() const {
         const auto& x0_ref = geometry_->point_p(0).coord_ref();
         const auto& x1_ref = geometry_->point_p(1).coord_ref();
 
@@ -121,34 +123,27 @@ class BeamElement {
             x0[i] = x0_ref[i];
             x1[i] = x1_ref[i];
         }
+        return std::make_pair(x0, x1);
+    }
 
-        Eigen::Vector<double, Dim> dx = x1 - x0;
-        length_ = dx.norm();
+    // Compute element frame from reference configuration.
+    void compute_frame() noexcept {
+        auto [x0, x1] = node_coords();
+        frame0_ = KinematicPolicy::template compute_frame<Dim>(x0, x1);
+        frame_n_ = frame0_;
+    }
 
-        // Tangent direction (local x)
-        Eigen::Vector<double, Dim> e1 = dx / length_;
+    // Update the current frame (no-op for SmallRotation, recomputes for Corotational).
+    void update_current_frame(const Eigen::VectorXd& u_e) {
+        auto [x0, x1] = node_coords();
 
-        if constexpr (Dim == 2) {
-            // Local y: rotate tangent by +90°
-            R_.row(0) = e1.transpose();
-            R_(1, 0) = -e1[1];
-            R_(1, 1) =  e1[0];
+        Eigen::Vector<double, Dim> u0, u1;
+        for (std::size_t i = 0; i < Dim; ++i) {
+            u0[i] = u_e[i];
+            u1[i] = u_e[dofs_per_node + i];
         }
-        else if constexpr (Dim == 3) {
-            // Choose a reference vector to form local y, z.
-            // Default: global Z unless beam is nearly vertical,
-            // in which case use global X.
-            Eigen::Vector3d ref_vec = Eigen::Vector3d::UnitZ();
-            if (std::abs(e1.dot(ref_vec)) > 0.99)
-                ref_vec = Eigen::Vector3d::UnitX();
 
-            Eigen::Vector3d e2 = ref_vec.cross(e1).normalized();  // local y
-            Eigen::Vector3d e3 = e1.cross(e2);                    // local z
-
-            R_.row(0) = e1.transpose();
-            R_.row(1) = e2.transpose();
-            R_.row(2) = e3.transpose();
-        }
+        frame_n_ = KinematicPolicy::template update_frame<Dim>(frame0_, x0, x1, u0, u1);
     }
 
     // Build the block-diagonal global-to-local transformation matrix T.
@@ -156,30 +151,34 @@ class BeamElement {
     //   T = blkdiag(T_node, T_node)
     // where T_node = blkdiag(R, R) for 3D (translations + rotations)
     //   or  T_node = [R  0; 0  1] for 2D (translations + scalar rotation)
-    TMatrixT transformation_matrix() const {
+    static TMatrixT build_transformation_matrix(
+        const Eigen::Matrix<double, Dim, Dim>& R)
+    {
         TMatrixT T = TMatrixT::Zero();
 
         Eigen::Matrix<double, dofs_per_node, dofs_per_node> T_node =
             Eigen::Matrix<double, dofs_per_node, dofs_per_node>::Zero();
 
         if constexpr (Dim == 2) {
-            // T_node = [R  0]  (3×3)
-            //          [0  1]
-            T_node.template topLeftCorner<2, 2>() = R_;
-            T_node(2, 2) = 1.0;  // rotation θ is already scalar
+            T_node.template topLeftCorner<2, 2>() = R;
+            T_node(2, 2) = 1.0;
         }
         else if constexpr (Dim == 3) {
-            // T_node = blkdiag(R, R)  (6×6)
-            T_node.template topLeftCorner<3, 3>()     = R_;
-            T_node.template bottomRightCorner<3, 3>() = R_;
+            T_node.template topLeftCorner<3, 3>()     = R;
+            T_node.template bottomRightCorner<3, 3>() = R;
         }
 
-        for (std::size_t nd = 0; nd < num_nodes(); ++nd) {
+        constexpr std::size_t n_nodes = 2;
+        for (std::size_t nd = 0; nd < n_nodes; ++nd) {
             const auto off = nd * dofs_per_node;
             T.block(off, off, dofs_per_node, dofs_per_node) = T_node;
         }
 
         return T;
+    }
+
+    TMatrixT transformation_matrix() const {
+        return build_transformation_matrix(frame_n_.R);
     }
 
     // 1D shape functions on [-1, 1].
@@ -192,8 +191,9 @@ class BeamElement {
     static constexpr double dN2_dxi() { return  0.5; }
 
     // dN/ds = (dN/dξ) / (ds/dξ) = (dN/dξ) · (2/L)
-    double dN1_ds() const { return dN1_dxi() * 2.0 / length_; }
-    double dN2_ds() const { return dN2_dxi() * 2.0 / length_; }
+    // Uses the current frame's length (= reference for SmallRotation).
+    double dN1_ds() const { return dN1_dxi() * 2.0 / frame_n_.length; }
+    double dN2_ds() const { return dN2_dxi() * 2.0 / frame_n_.length; }
 
 
     // ── B matrix (LOCAL coordinates) ────────────────────────────────────
@@ -280,13 +280,20 @@ public:
     const auto& sections() const noexcept { return sections_; }
     const auto& geometry() const noexcept { return *geometry_; }
 
-    double element_length() const noexcept { return length_; }
-    const auto& rotation_matrix() const noexcept { return R_; }
+    double element_length() const noexcept { return frame_n_.length; }
+    const auto& rotation_matrix() const noexcept { return frame_n_.R; }
+    const auto& reference_frame() const noexcept { return frame0_; }
+    const auto& current_frame()   const noexcept { return frame_n_; }
 
     auto local_state_vector(Vec u_local) const {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
-        auto T = transformation_matrix();
-        return (T * u_e).eval();
+        auto T_cur = transformation_matrix();
+        Eigen::Vector<double, total_dofs> u_g_fixed;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i)
+            u_g_fixed[i] = u_e[i];
+        auto u_loc = KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+            u_g_fixed, frame0_, frame_n_, T_cur);
+        return u_loc;
     }
 
     StateVariableT sample_generalized_strain_local(
@@ -391,8 +398,17 @@ public:
     void compute_internal_forces(Vec u_local, Vec f_local) {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
 
+        // Update current frame for geometrically nonlinear policies.
+        if constexpr (!KinematicPolicy::is_geometrically_linear) {
+            update_current_frame(u_e);
+        }
+
         auto T = transformation_matrix();
-        Eigen::Vector<double, total_dofs> u_loc = T * u_e;  // global → local DOFs
+        Eigen::Vector<double, total_dofs> u_g;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i) u_g[i] = u_e[i];
+        Eigen::Vector<double, total_dofs> u_loc =
+            KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+                u_g, frame0_, frame_n_, T);
 
         Eigen::Vector<double, total_dofs> f_loc = Eigen::Vector<double, total_dofs>::Zero();
         const auto ngp = geometry_->num_integration_points();
@@ -423,11 +439,23 @@ public:
     void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
 
+        // Update current frame for geometrically nonlinear policies.
+        if constexpr (!KinematicPolicy::is_geometrically_linear) {
+            update_current_frame(u_e);
+        }
+
         auto T = transformation_matrix();
-        Eigen::Vector<double, total_dofs> u_loc = T * u_e;
+        Eigen::Vector<double, total_dofs> u_g;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i) u_g[i] = u_e[i];
+        Eigen::Vector<double, total_dofs> u_loc =
+            KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+                u_g, frame0_, frame_n_, T);
 
         KMatrixT K_loc = KMatrixT::Zero();
         const auto ngp = geometry_->num_integration_points();
+
+        Eigen::Vector<double, num_strains> avg_forces =
+            Eigen::Vector<double, num_strains>::Zero();
 
         for (std::size_t gp = 0; gp < ngp; ++gp) {
             auto xi_view = geometry_->reference_integration_point(gp);
@@ -442,9 +470,21 @@ public:
 
             auto C_t = sections_[gp].tangent(strain);
             K_loc += w * dm * (B_gp.transpose() * C_t * B_gp);
+
+            if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+                auto sigma = sections_[gp].compute_response(strain);
+                avg_forces += w * dm * sigma.components();
+            }
         }
 
         KMatrixT K_glob = T.transpose() * K_loc * T;
+
+        if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+            auto K_g = KinematicPolicy::template geometric_stiffness<
+                Dim, total_dofs, num_strains>(
+                    avg_forces, frame_n_.length);
+            K_glob += T.transpose() * K_g * T;
+        }
 
         ensure_dof_cache();
         const auto n = static_cast<PetscInt>(dof_indices_.size());
@@ -454,8 +494,17 @@ public:
 
     void commit_material_state(Vec u_local) {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
+
+        if constexpr (!KinematicPolicy::is_geometrically_linear) {
+            update_current_frame(u_e);
+        }
+
         auto T = transformation_matrix();
-        Eigen::VectorXd u_loc = T * u_e;
+        Eigen::Vector<double, total_dofs> u_g;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i) u_g[i] = u_e[i];
+        Eigen::Vector<double, total_dofs> u_loc =
+            KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+                u_g, frame0_, frame_n_, T);
         const auto ngp = geometry_->num_integration_points();
 
         for (std::size_t gp = 0; gp < ngp; ++gp) {
