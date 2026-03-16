@@ -196,10 +196,11 @@ After the rename:
 This chapter established a reference architecture map for the
 \texttt{Material} module, catalogued eight deficiencies, and defined
 a six-phase improvement roadmap.
-Phase~1 (semantic rename, \S\ref{sec:phase1-rename}) and
-Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}) have been
-implemented and verified.
-Phases~3--6 remain for future work and will follow the same
+Phase~1 (semantic rename, \S\ref{sec:phase1-rename}),
+Phase~2 (thread safety, \S\ref{sec:phase2-thread-safety}), and
+Phase~3 (kinematic dispatch consolidation, \S\ref{sec:phase3-dispatch})
+have been implemented and verified.
+Phases~4--6 remain for future work and will follow the same
 pattern: implement, build with \texttt{-Werror}, run full CTest
 regression, and document in an appendix to this chapter.
 
@@ -295,5 +296,99 @@ already cache-free and required no changes.
         \texttt{phase4\_hysteretic\_cycles},
         \texttt{rc\_fiber\_frame\_nonlinear},
         \texttt{vertical\_slice\_gate},
+        \texttt{nonlinear\_validation}.
+\end{itemize}
+
+
+%% ------------------------------------------------------------------
+\section{Phase 3 Implementation: Kinematic Dispatch Consolidation}
+\label{sec:phase3-dispatch}
+
+\subsection{Problem Statement}
+
+The type-erased model classes in \texttt{Material.hh}
+(\texttt{OwningMaterialModel}, \texttt{NonOwningMaterialConstModel},
+\texttt{NonOwningMaterialModel}) each override
+\texttt{compute\_response()}, \texttt{tangent()}, and
+\texttt{commit()} for the full
+\texttt{ConstitutiveKinematics<dim>} argument.  Every override
+repeated an identical \texttt{if constexpr} block:
+
+\begin{verbatim}
+if constexpr (requires { integrator.method(material, kin); }) {
+    return integrator.method(material, kin);
+} else {
+    return integrator.method(
+        material,
+        continuum::make_kinematic_measure<StateVariableT>(kin));
+}
+\end{verbatim}
+
+\noindent
+This check prefers the continuum-aware integrator overload when
+available and falls back to the reduced kinematic measure otherwise.
+The pattern appeared \textbf{eight times} across the three model
+classes, tripling the maintenance burden and the risk of
+inconsistent modifications.
+
+\subsection{Solution: Dispatch Helper Functions}
+
+Three free-function templates were introduced inside
+\texttt{namespace impl}, immediately before the model class
+definitions:
+
+\begin{description}
+  \item[\texttt{dispatch\_response}] Dispatches
+    \texttt{integrator.compute\_response(material, kin)}.
+  \item[\texttt{dispatch\_tangent}] Dispatches
+    \texttt{integrator.tangent(material, kin)}.
+  \item[\texttt{dispatch\_commit}] Dispatches
+    \texttt{integrator.commit(material, kin)} (\texttt{void} return).
+\end{description}
+
+\noindent
+Each helper is templated on \texttt{StateVariableT},
+\texttt{IntegratorT}, \texttt{MaterialT}, and the spatial dimension
+\texttt{Dim}.  The callers pass their integrator and material by
+reference (value semantics for the owning model, dereferenced
+pointers for the non-owning models):
+
+\begin{verbatim}
+// OwningMaterialModel
+return dispatch_response<StateVariableT>(integrator_, material_, kin);
+
+// NonOwningMaterialModel
+return dispatch_response<StateVariableT>(*integrator_, *material_, kin);
+\end{verbatim}
+
+\subsection{Scope of Changes}
+
+\begin{itemize}
+  \item \textbf{File modified:} \texttt{src/materials/Material.hh}.
+  \item \textbf{Lines removed:} 8 \texttt{if constexpr} blocks
+        ($\approx$72 lines of boilerplate).
+  \item \textbf{Lines added:} 3 dispatch helpers
+        ($\approx$45 lines, single source of truth).
+  \item \textbf{Net reduction:} $\approx$27 lines.
+  \item No changes to the public API, concept hierarchy, or
+        \texttt{ConstitutiveIntegrator} implementations.
+\end{itemize}
+
+\subsection{Verification}
+
+\begin{itemize}
+  \item \textbf{Build:} 12 recompiled targets, zero warnings
+        (\texttt{-Werror}).
+  \item \textbf{CTest:} 45/47 passed (same 2 pre-existing failures).
+  \item All continuum-path tests passed:
+        \texttt{snes\_hyperelastic},
+        \texttt{tl\_integration},
+        \texttt{updated\_lagrangian},
+        \texttt{finite\_strain\_damage},
+        \texttt{continuum\_local\_problem}.
+  \item All structural-path tests passed:
+        \texttt{beam\_element},
+        \texttt{beam\_n\_element},
+        \texttt{rc\_fiber\_frame\_nonlinear},
         \texttt{nonlinear\_validation}.
 \end{itemize}

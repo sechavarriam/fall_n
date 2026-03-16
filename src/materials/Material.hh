@@ -180,6 +180,61 @@ class NonOwningMaterialConstModel;
 template <typename MaterialType, typename ConstitutiveIntegratorT>
 class NonOwningMaterialModel;
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Kinematic dispatch helpers
+// ─────────────────────────────────────────────────────────────────────────────
+//  Consolidate the recurring if-constexpr pattern used by the three
+//  type-erased model classes.  Prefer the full ConstitutiveKinematics
+//  overload when the integrator provides one; otherwise collapse to the
+//  reduced kinematic measure so that structural (non-continuum) integrators
+//  remain backward-compatible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+template <typename StateVariableT, typename IntegratorT, typename MaterialT, std::size_t Dim>
+auto dispatch_response(
+    const IntegratorT& integrator,
+    const MaterialT& material,
+    const continuum::ConstitutiveKinematics<Dim>& kin)
+{
+    if constexpr (requires { integrator.compute_response(material, kin); }) {
+        return integrator.compute_response(material, kin);
+    } else {
+        return integrator.compute_response(
+            material,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+    }
+}
+
+template <typename StateVariableT, typename IntegratorT, typename MaterialT, std::size_t Dim>
+auto dispatch_tangent(
+    const IntegratorT& integrator,
+    const MaterialT& material,
+    const continuum::ConstitutiveKinematics<Dim>& kin)
+{
+    if constexpr (requires { integrator.tangent(material, kin); }) {
+        return integrator.tangent(material, kin);
+    } else {
+        return integrator.tangent(
+            material,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+    }
+}
+
+template <typename StateVariableT, typename IntegratorT, typename MaterialT, std::size_t Dim>
+void dispatch_commit(
+    const IntegratorT& integrator,
+    MaterialT& material,
+    const continuum::ConstitutiveKinematics<Dim>& kin)
+{
+    if constexpr (requires { integrator.commit(material, kin); }) {
+        integrator.commit(material, kin);
+    } else {
+        integrator.commit(
+            material,
+            continuum::make_kinematic_measure<StateVariableT>(kin));
+    }
+}
+
 template <typename MaterialType, typename ConstitutiveIntegratorT>
 class OwningMaterialModel : public MaterialConcept<typename MaterialType::MaterialPolicy> {
    using MaterialPolicyT = typename MaterialType::MaterialPolicy;
@@ -219,19 +274,7 @@ public:
 
    StressT compute_response(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      // Continuum-aware constitutive integrators may consume the full carrier
-      // directly (F, detF, Green-Lagrange, Almansi, active stress measure).
-      // Legacy/small-strain integrators fall back to the active reduced
-      // kinematic measure so that the erased boundary stays backward compatible.
-      if constexpr (requires {
-         integrator_.compute_response(material_, kin);
-      }) {
-         return integrator_.compute_response(material_, kin);
-      } else {
-         return integrator_.compute_response(
-            material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_response<StateVariableT>(integrator_, material_, kin);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
@@ -240,18 +283,7 @@ public:
 
    MatrixT tangent(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      // Same dispatch rule as compute_response(): prefer a continuum-local
-      // algorithmic tangent when available, otherwise collapse to the active
-      // reduced kinematic measure.
-      if constexpr (requires {
-         integrator_.tangent(material_, kin);
-      }) {
-         return integrator_.tangent(material_, kin);
-      } else {
-         return integrator_.tangent(
-            material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_tangent<StateVariableT>(integrator_, material_, kin);
    }
 
    void commit(const StateVariableT& k) override {
@@ -260,18 +292,7 @@ public:
 
    void commit(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) override {
-      // Prediction through compute_response()/tangent() is intentionally
-      // side-effect free. Persisting algorithmic and kinematic state remains an
-      // explicit commit operation at the constitutive-site boundary.
-      if constexpr (requires {
-         integrator_.commit(material_, kin);
-      }) {
-         integrator_.commit(material_, kin);
-      } else {
-         integrator_.commit(
-            material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      dispatch_commit<StateVariableT>(integrator_, material_, kin);
    }
 
    void revert() override {
@@ -338,15 +359,7 @@ public:
 
    StressT compute_response(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      if constexpr (requires {
-         integrator_->compute_response(*material_, kin);
-      }) {
-         return integrator_->compute_response(*material_, kin);
-      } else {
-         return integrator_->compute_response(
-            *material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_response<StateVariableT>(*integrator_, *material_, kin);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
@@ -355,15 +368,7 @@ public:
 
    MatrixT tangent(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      if constexpr (requires {
-         integrator_->tangent(*material_, kin);
-      }) {
-         return integrator_->tangent(*material_, kin);
-      } else {
-         return integrator_->tangent(
-            *material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_tangent<StateVariableT>(*integrator_, *material_, kin);
    }
 
    InternalFieldSnapshot internal_field_snapshot() const override {
@@ -425,15 +430,7 @@ public:
 
    StressT compute_response(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      if constexpr (requires {
-         integrator_->compute_response(*material_, kin);
-      }) {
-         return integrator_->compute_response(*material_, kin);
-      } else {
-         return integrator_->compute_response(
-            *material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_response<StateVariableT>(*integrator_, *material_, kin);
    }
 
    MatrixT tangent(const StateVariableT& k) const override {
@@ -442,15 +439,7 @@ public:
 
    MatrixT tangent(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) const override {
-      if constexpr (requires {
-         integrator_->tangent(*material_, kin);
-      }) {
-         return integrator_->tangent(*material_, kin);
-      } else {
-         return integrator_->tangent(
-            *material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      return dispatch_tangent<StateVariableT>(*integrator_, *material_, kin);
    }
 
    void commit(const StateVariableT& k) override {
@@ -459,15 +448,7 @@ public:
 
    void commit(
       const continuum::ConstitutiveKinematics<MaterialPolicyT::dim>& kin) override {
-      if constexpr (requires {
-         integrator_->commit(*material_, kin);
-      }) {
-         integrator_->commit(*material_, kin);
-      } else {
-         integrator_->commit(
-            *material_,
-            continuum::make_kinematic_measure<StateVariableT>(kin));
-      }
+      dispatch_commit<StateVariableT>(*integrator_, *material_, kin);
    }
 
    void revert() override {
