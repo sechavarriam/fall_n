@@ -1,0 +1,260 @@
+% ==========================================================================
+%  Chapter 45 — Phase 0 Implementation: PETSc RAII Wrappers
+% ==========================================================================
+
+\chapter{Phase 0: PETSc RAII and Error Discipline}
+\label{ch:phase0-petsc-raii}
+
+This chapter documents the implementation of Phase~0 from the master plan
+(Chapter~\ref{ch:convergence-master-plan}): wrapping every PETSc handle in
+a move-only RAII class and replacing manual \texttt{Destroy} calls
+throughout the codebase.
+
+%% ------------------------------------------------------------------
+\section{Motivation}
+\label{sec:phase0-motivation}
+
+PETSc objects (\texttt{Vec}, \texttt{Mat}, \texttt{KSP}, \texttt{SNES},
+\texttt{TS}, \texttt{PetscSection}) follow a C-style
+\texttt{Create}/\texttt{Destroy} lifecycle.  The existing code managed
+these with explicit destructor logic:
+
+\begin{verbatim}
+~Model() {
+    if (Kt_)           MatDestroy(&Kt_);
+    if (nodal_forces_) VecDestroy(&nodal_forces_);
+    // ... 10+ more lines
+}
+\end{verbatim}
+
+This approach has three problems:
+
+\begin{enumerate}
+  \item \textbf{Leak on early return.}  If a method calls
+        \texttt{VecCreate} then exits before reaching the destructor
+        (thrown exception, early \texttt{return}, failed assertion),
+        the handle is leaked.
+  \item \textbf{Error in cleanup.}  Forgetting to add a new member to the
+        destructor is an easy mistake as classes grow.
+  \item \textbf{Unchecked errors.}  PETSc routines return
+        \texttt{PetscErrorCode}, but the codebase silently discarded it.
+        A failed allocation or invalid argument went unnoticed until
+        a mysterious crash later.
+\end{enumerate}
+
+%% ------------------------------------------------------------------
+\section{Design: Thin Wrappers with Implicit Conversion}
+\label{sec:phase0-design}
+
+Each wrapper follows the same pattern.  We illustrate with \texttt{OwnedVec};
+the others (\texttt{OwnedMat}, \texttt{OwnedKSP}, etc.) are identical up to
+the handle type and the corresponding \texttt{Destroy} function.
+
+\subsection{Invariants}
+
+\begin{itemize}
+  \item \textbf{Move-only.}  Copy construction and copy assignment are
+        deleted.  Move transfers ownership and nullifies the source.
+  \item \textbf{Implicit conversion.}  \texttt{operator Vec() const}
+        returns the raw handle, so the wrapper can be passed directly to
+        any PETSc function that takes a \texttt{Vec} by value.
+  \item \textbf{Pointer-to-member.}  \texttt{ptr()} returns
+        \texttt{Vec*}, for use with PETSc creation functions that take
+        an output pointer (\texttt{VecCreate(..., \&v)}).
+  \item \textbf{Boolean test.}  \texttt{explicit operator bool()} returns
+        \texttt{true} iff the handle is non-null (guards conditional creation).
+  \item \textbf{Destructor calls \texttt{Destroy}.}  If the handle is
+        non-null, the destructor calls the corresponding PETSc destroy
+        function.  This is the entire point of RAII.
+\end{itemize}
+
+\subsection{Interface (abridged)}
+
+\begin{verbatim}
+namespace petsc {
+
+class OwnedVec {
+    Vec v_{nullptr};
+public:
+    OwnedVec() = default;
+    explicit OwnedVec(Vec v) : v_{v} {}
+
+    ~OwnedVec() { if (v_) VecDestroy(&v_); }
+
+    OwnedVec(OwnedVec&& o) noexcept : v_{o.v_} { o.v_ = nullptr; }
+    OwnedVec& operator=(OwnedVec&& o) noexcept {
+        if (this != &o) { reset(); v_ = o.v_; o.v_ = nullptr; }
+        return *this;
+    }
+
+    OwnedVec(const OwnedVec&)            = delete;
+    OwnedVec& operator=(const OwnedVec&) = delete;
+
+    operator Vec() const { return v_; }
+    Vec  get()     const { return v_; }
+    Vec* ptr()           { reset(); return &v_; }
+
+    explicit operator bool() const { return v_ != nullptr; }
+
+    Vec release() { Vec t = v_; v_ = nullptr; return t; }
+
+    void reset() {
+        if (v_) { VecDestroy(&v_); v_ = nullptr; }
+    }
+};
+
+} // namespace petsc
+\end{verbatim}
+
+\paragraph{Key design choice: \texttt{ptr()} resets before returning.}
+This ensures that calling \texttt{DMCreateGlobalVector(dm, v.ptr())}
+does \emph{not} leak a previously held handle.  The pattern mirrors
+\texttt{std::unique\_ptr::reset()} before \texttt{release()}.
+
+\subsection{Full Wrapper Set}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Wrapper} & \textbf{PETSc type} & \textbf{Destroy function} \\
+\midrule
+\texttt{OwnedVec}     & \texttt{Vec}           & \texttt{VecDestroy} \\
+\texttt{OwnedMat}     & \texttt{Mat}           & \texttt{MatDestroy} \\
+\texttt{OwnedKSP}     & \texttt{KSP}           & \texttt{KSPDestroy} \\
+\texttt{OwnedSNES}    & \texttt{SNES}          & \texttt{SNESDestroy} \\
+\texttt{OwnedTS}      & \texttt{TS}            & \texttt{TSDestroy} \\
+\texttt{OwnedSection} & \texttt{PetscSection}  & \texttt{PetscSectionDestroy} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All are located in \texttt{src/petsc/} and collected by the convenience
+header \texttt{src/petsc/PetscRaii.hh}.
+
+%% ------------------------------------------------------------------
+\section{Error Checking Macro}
+\label{sec:phase0-check}
+
+A single macro wraps every PETSc call:
+
+\begin{verbatim}
+#define FALL_N_PETSC_CHECK(expr)                                   \
+    do {                                                            \
+        PetscErrorCode ierr_ = (expr);                              \
+        if (ierr_) throw petsc::PetscError(__FILE__, __LINE__,      \
+                                           #expr, ierr_);          \
+    } while (0)
+\end{verbatim}
+
+The exception type \texttt{petsc::PetscError} stores file, line, the
+stringified expression, and the error code.  In release mode the macro
+compiles to a no-op unless \texttt{FALL\_N\_PETSC\_CHECK\_RELEASE} is defined.
+
+Defined in \texttt{src/petsc/check.hh}.
+
+%% ------------------------------------------------------------------
+\section{Refactored Classes}
+\label{sec:phase0-refactored}
+
+\subsection{Model}
+
+Before:
+\begin{verbatim}
+Mat Kt_{nullptr};
+Vec nodal_forces_{nullptr};
+Vec current_state_{nullptr};
+Vec imposed_solution_{nullptr};
+PetscSection dof_section{nullptr};
+
+~Model() {
+    if (Kt_)              MatDestroy(&Kt_);
+    if (nodal_forces_)    VecDestroy(&nodal_forces_);
+    if (current_state_)   VecDestroy(&current_state_);
+    if (imposed_solution_) VecDestroy(&imposed_solution_);
+    /* ... 4 more lines ... */
+}
+\end{verbatim}
+
+After:
+\begin{verbatim}
+petsc::OwnedMat     Kt_{};
+petsc::OwnedVec     nodal_forces_{};
+petsc::OwnedVec     current_state_{};
+petsc::OwnedVec     imposed_solution_{};
+petsc::OwnedSection dof_section_{};
+
+~Model() = default;
+\end{verbatim}
+
+All creation calls were changed from \texttt{DMCreateLocalVector(dm, \&v)}
+to \texttt{FALL\_N\_PETSC\_CHECK(DMCreateLocalVector(dm, v.ptr()))}.
+
+Public accessors return the raw handle via implicit conversion:
+\texttt{return current\_state\_.get();} (or simply \texttt{return current\_state\_;}).
+
+\subsection{LinearAnalysis}
+
+Raw \texttt{KSP}, \texttt{Mat}, and \texttt{Vec} members replaced with
+\texttt{OwnedKSP}, \texttt{OwnedMat}, \texttt{OwnedVec}.  Manual destructor
+removed.
+
+\subsection{NonlinearAnalysis}
+
+Raw \texttt{SNES}, \texttt{Mat}, and \texttt{Vec} members replaced.
+Local temporaries (\texttt{f\_full}, \texttt{U\_snap}) in the bisection
+algorithm are now \texttt{OwnedVec} instances whose lifetime is
+scope-bounded---no explicit \texttt{VecDestroy} needed.
+
+\subsection{DynamicAnalysis}
+
+Raw \texttt{TS}, \texttt{Mat} (M\_, C\_, J\_, K0\_), and \texttt{Vec}
+(U\_, V\_, F\_work\_, f\_ext\_work\_) replaced.  The
+\texttt{GroundMotionInfo} struct's \texttt{influence} field changed from
+raw \texttt{Vec} to \texttt{petsc::OwnedVec}.  The 15-line manual
+destructor collapses to \texttt{= default}.
+
+\paragraph{Static callbacks.}  The PETSc TS callbacks
+(\texttt{I2Function}, \texttt{I2Jacobian}, \texttt{Monitor}) access
+owned members via \texttt{self->M\_}, which works transparently thanks to
+the implicit \texttt{operator Mat()} conversion---the PETSc C API
+receives the raw handle by value.
+
+%% ------------------------------------------------------------------
+\section{File Layout}
+
+\dirtree{%
+  .1 src/.
+  .2 petsc/.
+  .3 check.hh\DTcomment{FALL\_N\_PETSC\_CHECK macro + PetscError}.
+  .3 OwnedVec.hh.
+  .3 OwnedMat.hh.
+  .3 OwnedKSP.hh.
+  .3 OwnedSNES.hh.
+  .3 OwnedTS.hh.
+  .3 OwnedSection.hh.
+  .3 PetscRaii.hh\DTcomment{convenience include-all}.
+  .2 model/.
+  .3 Model.hh\DTcomment{refactored}.
+  .2 analysis/.
+  .3 LinearAnalysis.hh\DTcomment{refactored}.
+  .3 NLAnalysis.hh\DTcomment{refactored}.
+  .3 DynamicAnalysis.hh\DTcomment{refactored}.
+}
+
+%% ------------------------------------------------------------------
+\section{Validation Criteria}
+
+Phase~0 is considered complete when:
+
+\begin{enumerate}
+  \item The project compiles with no warnings related to PETSc handles.
+  \item No class contains a manual \texttt{Destroy} call for owned
+        PETSc objects.
+  \item Every PETSc creation/query call that can fail is wrapped in
+        \texttt{FALL\_N\_PETSC\_CHECK}.
+  \item Existing tests (\texttt{fall\_n\_tests},
+        \texttt{fall\_n\_continuum\_test}, \texttt{fall\_n\_dynamic\_test},
+        etc.) pass without regressions.
+  \item LeakSanitizer reports no new PETSc-related leaks
+        (existing suppressions in \texttt{lsan.supp} remain valid).
+\end{enumerate}

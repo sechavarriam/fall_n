@@ -1,0 +1,230 @@
+% ==========================================================================
+%  Chapter 44 — Convergence Master Plan:
+%  Closing the Design-Implementation Gap
+% ==========================================================================
+
+\chapter{Convergence Master Plan: Closing the Design-Implementation Gap}
+\label{ch:convergence-master-plan}
+
+Chapters 26--43 describe a sophisticated constitutive and kinematic
+framework---yield functions, return-mapping, state objects, local solvers,
+Updated Lagrangian kinematics, damage models.  However, the actual running
+code (\texttt{Model}, \texttt{Analysis}, \texttt{ContinuumElement}) does not
+yet implement most of these designs.  This chapter proposes a strict,
+sequential plan to close that gap, organised in phases that respect
+dependency order.
+
+%% ------------------------------------------------------------------
+\section{Risk Assessment}
+\label{sec:master-plan-risk}
+
+\begin{enumerate}
+  \item \textbf{Design-Implementation Gap} (\emph{critical}).
+        18 chapters of constitutive design (ch26--ch43) remain conceptual;
+        only the first few are reflected in compiled tests.
+  \item \textbf{PETSc Resource Leaks} (\emph{high}).
+        Manually matched \texttt{Create}/\texttt{Destroy} calls across
+        multiple classes; any early-return or exception loses the handle.
+  \item \textbf{Single Element Type Container} (\emph{high}).
+        \texttt{Model} stores \texttt{std::vector<ElemT>}, precluding
+        mixed continuum + frame assemblages needed for RC.
+  \item \textbf{No Material State Commit/Revert Protocol} (\emph{high}).
+        Required by every implicit nonlinear solver for trial steps.
+  \item \textbf{No Geometric Stiffness Term} (\emph{medium}).
+        Tangent is purely material; large-displacement stability
+        ($P$--$\Delta$) cannot be captured.
+  \item \textbf{No Time-Integration Infrastructure} (\emph{medium}).
+        Newmark / HHT / Generalized-$\alpha$ and mass assembly are
+        needed for the seismic target.
+  \item \textbf{MPI Scalability} (\emph{low, but architectural}).
+        Local-only vectors and sequential assembly will not scale
+        beyond single-node runs.
+\end{enumerate}
+
+%% ------------------------------------------------------------------
+\section{Phase 0 — PETSc RAII and Error Discipline}
+\label{sec:phase0-overview}
+
+\textbf{Goal:} Eliminate resource leaks and surface PETSc errors as C++
+exceptions.  This is a prerequisite for every subsequent phase, because
+correct cleanup under early-return or exception is impossible with manual
+\texttt{Destroy} calls.
+
+\begin{itemize}
+  \item Introduce move-only RAII wrappers:
+        \texttt{OwnedVec}, \texttt{OwnedMat}, \texttt{OwnedKSP},
+        \texttt{OwnedSNES}, \texttt{OwnedTS}, \texttt{OwnedSection}.
+  \item Provide a macro \texttt{FALL\_N\_PETSC\_CHECK(expr)} that
+        throws on nonzero error codes (debug mode).
+  \item Refactor \texttt{Model}, \texttt{LinearAnalysis},
+        \texttt{NonlinearAnalysis}, \texttt{DynamicAnalysis} to use
+        the wrappers; replace every manual destructor with
+        \verb|= default|.
+\end{itemize}
+
+Details and implementation are documented in Chapter~\ref{ch:phase0-petsc-raii}.
+
+%% ------------------------------------------------------------------
+\section{Phase 1 — Constitutive State Protocol}
+\label{sec:phase1-overview}
+
+\textbf{Goal:} Every material model must expose a three-operation protocol
+enabling trial evaluation, commit, and revert of internal state:
+
+\begin{enumerate}
+  \item \texttt{compute\_response($\boldsymbol\varepsilon$)}
+        --- evaluate stress and tangent at a trial strain, storing
+        the result in a \emph{tentative} state buffer.
+  \item \texttt{commit\_state()} --- promote the tentative state to
+        ``converged'' (called after Newton convergence).
+  \item \texttt{revert\_state()} --- discard the tentative state and
+        restore the last converged state (called on step failure or
+        bisection).
+\end{enumerate}
+
+This protocol is already designed in Chapters 28--31.  Phase~1 wires it
+through \texttt{ContinuumElement} so that \texttt{NonlinearAnalysis} and
+\texttt{DynamicAnalysis} can call \texttt{commit()} / \texttt{revert()}
+at the solver level.
+
+%% ------------------------------------------------------------------
+\section{Phase 2 — Element Contract and Heterogeneous Containers}
+\label{sec:phase2-overview}
+
+\textbf{Goal:} Replace the single \texttt{std::vector<ElemT>} in
+\texttt{Model} with a type-erased container that can hold continuum,
+frame, and shell elements simultaneously.
+
+\begin{itemize}
+  \item Define a \textbf{C++20 concept} \texttt{FiniteElement} with
+        required operations:
+        \texttt{inject\_K(Mat)}, \texttt{inject\_f(Vec)},
+        \texttt{extract\_element\_dofs(Vec)},
+        \texttt{commit\_state()}, \texttt{revert\_state()}.
+  \item Implement a type-erased wrapper (virtual dispatch or
+        \texttt{std::any} with visitor) so that
+        \texttt{Model} stores
+        \texttt{std::vector<std::unique\_ptr<ElementBase>>} or an
+        equivalent \texttt{AnyElement} value type.
+  \item Update \texttt{Model::setup()} to register elements from
+        multiple \texttt{PhysicalGroup}s, each with its own element
+        type.
+\end{itemize}
+
+%% ------------------------------------------------------------------
+\section{Phase 3 — Newton--Raphson Protocol in Model}
+\label{sec:phase3-overview}
+
+\textbf{Goal:} Make \texttt{NonlinearAnalysis} a proper Newton solver
+with convergence control.
+
+\begin{itemize}
+  \item \texttt{Model::assemble\_residual(Vec u\_local, Vec R\_global)}
+        --- assemble $\mathbf{R} = \mathbf{f}_{\mathrm{int}} -
+        \mathbf{f}_{\mathrm{ext}}$.
+  \item \texttt{Model::assemble\_tangent(Vec u\_local, Mat K\_t)}
+        --- assemble the consistent tangent stiffness.
+  \item These two operations form the callback pair for PETSc SNES.
+  \item Convergence norms, line-search, bisection, and arc-length
+        strategies are configured at the \texttt{Analysis} level.
+\end{itemize}
+
+\subsection*{Vertical Slice Gate}
+
+After Phase~3, a complete vertical slice must pass:
+\begin{quote}
+  \emph{A 2D plane-stress patch test with $J_2$ plasticity must converge
+  under Newton--Raphson with commit/revert, using the RAII wrappers,
+  and produce correct load-displacement output.}
+\end{quote}
+
+Until this gate passes, Phases 4--6 are not started.
+
+%% ------------------------------------------------------------------
+\section{Phase 4 — Finite-Strain Kinematics}
+\label{sec:phase4-overview}
+
+\textbf{Goal:} Implement the Updated Lagrangian (UL) framework designed
+in Chapters 36--38.
+
+\begin{itemize}
+  \item Compute the deformation gradient
+        $\mathbf{F} = \mathbf{I} + \nabla \mathbf{u}$ at each
+        integration point from the element shape function gradients.
+  \item Evaluate the spatial tangent modulus
+        $\mathbb{c}$ via the constitutive interface
+        (Chapter~35).
+  \item Assemble the geometric stiffness contribution
+        $K_{\sigma}$ alongside the material tangent $K_m$:
+        \[
+          K_t = K_m + K_\sigma, \qquad
+          (K_\sigma)_{IiJj}
+            = \delta_{ij} \int_{\Omega_n} \sigma_{kl}\,
+              \frac{\partial N_I}{\partial x_k}\,
+              \frac{\partial N_J}{\partial x_l}\,dv.
+        \]
+  \item Update element volumes and shape function gradients after each
+        converged step (reference configuration update).
+\end{itemize}
+
+%% ------------------------------------------------------------------
+\section{Phase 5 — Dynamic and Seismic Infrastructure}
+\label{sec:phase5-overview}
+
+\textbf{Goal:} Provide time-integration algorithms and seismic loading
+facilities.
+
+\begin{itemize}
+  \item Assemble a consistent or lumped mass matrix $\mathbf{M}$.
+  \item Implement Rayleigh damping
+        $\mathbf{C} = \alpha\,\mathbf{M} + \beta\,\mathbf{K}_0$.
+  \item Integrate using PETSc TS with Generalized-$\alpha$
+        (\texttt{TSALPHA2}) for second-order systems:
+        \[
+          \mathbf{M}\,\ddot{\mathbf{u}} + \mathbf{C}\,\dot{\mathbf{u}}
+            + \mathbf{f}_{\mathrm{int}}(\mathbf{u})
+            = \mathbf{f}_{\mathrm{ext}}(t).
+        \]
+  \item Support ground-motion input via influence vectors
+        $\mathbf{M}\,\hat{\mathbf{g}}$.
+\end{itemize}
+
+Note: The \texttt{DynamicAnalysis} class already implements much of this
+infrastructure.  Phase~5 integrates it with Phases~1--4 (material state
+protocol, heterogeneous elements, finite-strain tangent).
+
+%% ------------------------------------------------------------------
+\section{Phase 6 — MPI Scalability}
+\label{sec:phase6-overview}
+
+\textbf{Goal:} Remove single-process bottlenecks.
+
+\begin{itemize}
+  \item Replace local vector assembly with PETSc's
+        \texttt{DMLocalToGlobal} / \texttt{DMGlobalToLocal} scatter
+        patterns (already partially in place).
+  \item Ensure element-level operations are partition-local; use ghost
+        cells for overlap regions via \texttt{DMPlexDistribute}.
+  \item Profile with \texttt{-log\_view} and verify weak scaling
+        up to $O(10^3)$ cores.
+\end{itemize}
+
+%% ------------------------------------------------------------------
+\section{Summary and Dependency Graph}
+
+\begin{center}
+\begin{tabular}{clcl}
+\toprule
+\textbf{Phase} & \textbf{Name} & \textbf{Depends on} & \textbf{Risk addressed} \\
+\midrule
+0 & RAII + Error Discipline     & ---     & Resource leaks \\
+1 & Constitutive State Protocol & 0       & No commit/revert \\
+2 & Element Contract            & 0       & Single element type \\
+3 & NR Protocol in Model        & 1, 2    & Incomplete NR \\
+  & \emph{Vertical Slice Gate}  & 3       & Design-impl gap \\
+4 & Finite-Strain Kinematics    & 3       & No geometric stiffness \\
+5 & Dynamic / Seismic           & 4       & No time integration \\
+6 & MPI Scalability             & 5       & Single-node only \\
+\bottomrule
+\end{tabular}
+\end{center}
