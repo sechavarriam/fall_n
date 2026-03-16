@@ -142,6 +142,9 @@
 // --- Type-erased wrapper (Material<Policy>) ---
 #include "src/materials/Material.hh"
 
+// --- Arena allocator for bulk Material creation (Phase 6) ---
+#include "src/materials/ArenaAllocator.hh"
+
 
 // =================================================================================
 // Model Module

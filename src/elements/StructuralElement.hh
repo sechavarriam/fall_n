@@ -33,8 +33,10 @@
 #include <cstddef>
 #include <type_traits>
 #include <typeinfo>
+#include <vector>
 
 #include <petsc.h>
+#include <Eigen/Dense>
 
 #include "FiniteElementConcept.hh"
 
@@ -59,6 +61,26 @@ class StructuralElement {
         virtual std::size_t num_nodes()              const  = 0;
         virtual std::size_t num_integration_points() const  = 0;
         virtual PetscInt    sieve_id()               const  = 0;
+
+        // Standalone-vector interface (for DynamicAnalysis parallel assembly)
+        virtual Eigen::VectorXd extract_element_dofs(Vec /*u_local*/) const {
+            return {};
+        }
+        virtual Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& /*u_e*/) {
+            return {};
+        }
+        virtual Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& /*u_e*/) {
+            return {};
+        }
+        virtual const std::vector<PetscInt>& get_dof_indices() {
+            static const std::vector<PetscInt> empty;
+            return empty;
+        }
+
+        // Mass matrix (optional, for dynamic analysis)
+        virtual double density()                     const  { return 0.0; }
+        virtual void   set_density(double /*rho*/)          {}
+        virtual void   inject_mass(Mat /*M*/)               {}
 
         // Introspection for structural-only post-processing/reconstruction.
         // This stays out of the FiniteElement concept and therefore out of
@@ -90,6 +112,41 @@ class StructuralElement {
         std::size_t num_nodes()              const  override { return element_.num_nodes(); }
         std::size_t num_integration_points() const  override { return element_.num_integration_points(); }
         PetscInt    sieve_id()               const  override { return element_.sieve_id(); }
+
+        Eigen::VectorXd extract_element_dofs(Vec u_local) const override {
+            if constexpr (requires { element_.extract_element_dofs(u_local); })
+                return element_.extract_element_dofs(u_local);
+            else return {};
+        }
+        Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) override {
+            if constexpr (requires { element_.compute_internal_force_vector(u_e); })
+                return element_.compute_internal_force_vector(u_e);
+            else return {};
+        }
+        Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) override {
+            if constexpr (requires { element_.compute_tangent_stiffness_matrix(u_e); })
+                return element_.compute_tangent_stiffness_matrix(u_e);
+            else return {};
+        }
+        const std::vector<PetscInt>& get_dof_indices() override {
+            if constexpr (requires { element_.get_dof_indices(); })
+                return element_.get_dof_indices();
+            else { static const std::vector<PetscInt> empty; return empty; }
+        }
+
+        double density() const override {
+            if constexpr (requires { element_.density(); })
+                return element_.density();
+            else return 0.0;
+        }
+        void set_density(double rho) override {
+            if constexpr (requires { element_.set_density(rho); })
+                element_.set_density(rho);
+        }
+        void inject_mass(Mat M) override {
+            if constexpr (requires { element_.inject_mass(M); })
+                element_.inject_mass(M);
+        }
 
         const std::type_info& concrete_type() const noexcept override { return typeid(T); }
         const void* raw_ptr() const noexcept override { return &element_; }
@@ -137,6 +194,15 @@ public:
     auto num_nodes()              const -> std::size_t { return pimpl_->num_nodes(); }
     auto num_integration_points() const -> std::size_t { return pimpl_->num_integration_points(); }
     auto sieve_id()               const -> PetscInt    { return pimpl_->sieve_id(); }
+
+    Eigen::VectorXd extract_element_dofs(Vec u_local) const { return pimpl_->extract_element_dofs(u_local); }
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) { return pimpl_->compute_internal_force_vector(u_e); }
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) { return pimpl_->compute_tangent_stiffness_matrix(u_e); }
+    const std::vector<PetscInt>& get_dof_indices() { return pimpl_->get_dof_indices(); }
+
+    auto density()           const -> double   { return pimpl_->density(); }
+    void set_density(double rho)               { pimpl_->set_density(rho); }
+    void inject_mass(Mat M)                    { pimpl_->inject_mass(M); }
 
     const std::type_info& concrete_type() const noexcept { return pimpl_->concrete_type(); }
 

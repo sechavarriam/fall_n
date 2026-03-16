@@ -259,4 +259,47 @@ template <typename K, typename T> requires ConjugatePair<K, T>
 using TangentMatrix = Eigen::Matrix<double, K::num_components, T::num_components>;
 
 
+// =============================================================================
+//  State separation utility — Phase 6
+// =============================================================================
+//
+//  Deficiency #4: StateVariableT ≡ KinematicT in MaterialInstance —
+//  the constitutive "state" stored per integration point is just the last
+//  kinematic measure, not the actual internal variables (plastic strain,
+//  damage parameter, back-stress, etc.).
+//
+//  Solution: introduce a compile-time trait that extracts the separated
+//  internal-state type from a constitutive relation.  For elastic relations
+//  (which have no internal state), the trait resolves to an empty struct.
+//  For inelastic relations it resolves to R::InternalVariablesT.
+//
+//  This is backward-compatible: no existing code changes behavior.
+//
+// -----------------------------------------------------------------------------
+
+/// Empty placeholder for relations with no internal state.
+struct NoInternalState {};
+
+/// Primary template: elastic relations have no internal state.
+template <typename R, typename = void>
+struct InternalStateOf {
+    using type = NoInternalState;
+};
+
+/// Specialization: inelastic relations expose InternalVariablesT.
+template <typename R>
+struct InternalStateOf<R, std::void_t<typename R::InternalVariablesT>> {
+    using type = typename R::InternalVariablesT;
+};
+
+/// Convenience alias.
+template <typename R>
+using InternalStateOf_t = typename InternalStateOf<R>::type;
+
+/// Concept: does R carry separated internal state?
+template <typename R>
+concept HasSeparatedInternalState =
+    !std::same_as<InternalStateOf_t<R>, NoInternalState>;
+
+
 #endif // FN_CONSTITUTIVE_RELATION

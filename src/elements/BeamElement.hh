@@ -86,6 +86,8 @@ class BeamElement {
 
     [[no_unique_address]] AsmPolicy assembly_;
 
+    double density_{0.0};  ///< Mass density ρ [force·s²/length⁴] for dynamics
+
     // Element frame (rotation matrix: local → global is Rᵀ)
     beam::FrameData<Dim> frame0_{};  ///< Reference-configuration frame
     beam::FrameData<Dim> frame_n_{}; ///< Current frame (= frame0_ for SmallRotation)
@@ -251,6 +253,8 @@ class BeamElement {
         return B;
     }
 
+public:
+
     // ── Extract element DOFs from PETSc vector ──────────────────────────
 
     Eigen::VectorXd extract_element_dofs(Vec u_local) const {
@@ -260,8 +264,6 @@ class BeamElement {
         VecGetValues(u_local, n, dof_indices_.data(), u_e.data());
         return u_e;
     }
-
-public:
 
     // ── Topology queries (FiniteElement interface) ───────────────────────
 
@@ -391,6 +393,96 @@ public:
         const auto n = static_cast<PetscInt>(dof_indices_.size());
         MatSetValuesLocal(model_K, n, dof_indices_.data(),
                           n, dof_indices_.data(), K_e.data(), ADD_VALUES);
+    }
+
+    // ── Standalone-vector interface (for DynamicAnalysis parallel assembly) ──
+
+    const std::vector<PetscInt>& get_dof_indices() {
+        ensure_dof_cache();
+        return dof_indices_;
+    }
+
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
+        if constexpr (!KinematicPolicy::is_geometrically_linear) {
+            update_current_frame(u_e);
+        }
+
+        auto T = transformation_matrix();
+        Eigen::Vector<double, total_dofs> u_g;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i) u_g[i] = u_e[i];
+        Eigen::Vector<double, total_dofs> u_loc =
+            KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+                u_g, frame0_, frame_n_, T);
+
+        Eigen::Vector<double, total_dofs> f_loc = Eigen::Vector<double, total_dofs>::Zero();
+        const auto ngp = geometry_->num_integration_points();
+
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
+
+            auto B_gp = B_local(xi);
+
+            StateVariableT strain;
+            strain.set_components(B_gp * u_loc);
+
+            auto sigma = sections_[gp].compute_response(strain);
+            f_loc += w * dm * (B_gp.transpose() * sigma.components());
+        }
+
+        return (T.transpose() * f_loc).eval();
+    }
+
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) {
+        if constexpr (!KinematicPolicy::is_geometrically_linear) {
+            update_current_frame(u_e);
+        }
+
+        auto T = transformation_matrix();
+        Eigen::Vector<double, total_dofs> u_g;
+        for (int i = 0; i < static_cast<int>(total_dofs); ++i) u_g[i] = u_e[i];
+        Eigen::Vector<double, total_dofs> u_loc =
+            KinematicPolicy::template extract_local_dofs<Dim, total_dofs>(
+                u_g, frame0_, frame_n_, T);
+
+        KMatrixT K_loc = KMatrixT::Zero();
+        const auto ngp = geometry_->num_integration_points();
+
+        Eigen::Vector<double, num_strains> avg_forces =
+            Eigen::Vector<double, num_strains>::Zero();
+
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
+
+            auto B_gp = B_local(xi);
+
+            StateVariableT strain;
+            strain.set_components(B_gp * u_loc);
+
+            auto C_t = sections_[gp].tangent(strain);
+            K_loc += w * dm * (B_gp.transpose() * C_t * B_gp);
+
+            if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+                auto sigma = sections_[gp].compute_response(strain);
+                avg_forces += w * dm * sigma.components();
+            }
+        }
+
+        KMatrixT K_glob = T.transpose() * K_loc * T;
+
+        if constexpr (KinematicPolicy::needs_geometric_stiffness) {
+            auto K_g = KinematicPolicy::template geometric_stiffness<
+                Dim, total_dofs, num_strains>(
+                    avg_forces, frame_n_.length);
+            K_glob += T.transpose() * K_g * T;
+        }
+
+        return K_glob;
     }
 
     // ── Nonlinear element operations ────────────────────────────────────
@@ -524,6 +616,63 @@ public:
         for (auto& section : sections_) {
             section.revert();
         }
+    }
+
+    // ── Mass matrix (for dynamic analysis) ───────────────────────────
+
+    void set_density(double rho) noexcept { density_ = rho; }
+    [[nodiscard]] double density() const noexcept { return density_; }
+
+    /// Consistent mass matrix for a 2-node beam.
+    /// M_e = ρA·L · ∫₀¹ Nᵀ N ds  (translational DOFs)
+    ///     + ρI·L · ∫₀¹ Nᵀ N ds  (rotational DOFs, lumped as ρA·L·r²)
+    ///
+    /// Simplified: lumped translational mass (1/2 ρAL per node) with
+    /// a consistent interpolation for off-diagonal coupling.
+    KMatrixT compute_consistent_mass_matrix() const {
+        KMatrixT M_e = KMatrixT::Zero();
+        if (density_ <= 0.0) return M_e;
+
+        const auto ngp = geometry_->num_integration_points();
+
+        for (std::size_t gp = 0; gp < ngp; ++gp) {
+            auto xi_view = geometry_->reference_integration_point(gp);
+            const double xi = xi_view[0];
+            const double w  = geometry_->weight(gp);
+            const double dm = geometry_->differential_measure(xi_view);
+
+            const double n1 = N1(xi);
+            const double n2 = N2(xi);
+
+            // Build N matrix: maps nodal DOFs to translational velocities
+            // For beam mass, we consider translational inertia only.
+            Eigen::Matrix<double, Dim, total_dofs> N_mat =
+                Eigen::Matrix<double, Dim, total_dofs>::Zero();
+
+            if constexpr (Dim == 2) {
+                N_mat(0, 0) = n1;  N_mat(0, 3) = n2;  // u
+                N_mat(1, 1) = n1;  N_mat(1, 4) = n2;  // v
+            } else {
+                N_mat(0, 0) = n1;  N_mat(0, 6) = n2;  // u
+                N_mat(1, 1) = n1;  N_mat(1, 7) = n2;  // v
+                N_mat(2, 2) = n1;  N_mat(2, 8) = n2;  // w
+            }
+
+            M_e += density_ * w * dm * (N_mat.transpose() * N_mat);
+        }
+
+        // Transform to global coordinates
+        auto T = build_transformation_matrix(frame0_.R);
+        return T.transpose() * M_e * T;
+    }
+
+    void inject_mass(Mat M) {
+        ensure_dof_cache();
+        auto M_e = compute_consistent_mass_matrix();
+        if (M_e.isZero()) return;
+        const auto n = static_cast<PetscInt>(dof_indices_.size());
+        MatSetValuesLocal(M, n, dof_indices_.data(),
+                          n, dof_indices_.data(), M_e.data(), ADD_VALUES);
     }
 
     // ── Constructors ────────────────────────────────────────────────────
