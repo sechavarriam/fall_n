@@ -1,0 +1,671 @@
+% ==========================================================================
+%  Chapter 46 — Phase 1: Constitutive State Protocol — Audit and Validation
+% ==========================================================================
+
+\chapter{Phase 1: Constitutive State Protocol}
+\label{ch:phase1-constitutive-state}
+
+This chapter documents Phase~1 of the master plan
+(Chapter~\ref{ch:convergence-master-plan}).  The original scope
+called for introducing a trial/committed state protocol through the
+full constitutive chain.  A deep audit of the codebase revealed that
+this protocol \emph{already exists} across every architectural layer,
+from storage policy up to the SNES solver boundary.  This chapter
+records the audit, maps the complete commit chain with its mathematical
+foundations, and identifies the minor gaps that remain for future phases.
+
+%% ------------------------------------------------------------------
+\section{Phase 1 Scope Revision}
+\label{sec:phase1-scope-revision}
+
+Chapter~\ref{ch:convergence-master-plan} defined four Phase~1 deliverables:
+
+\begin{enumerate}
+  \item Define a C++20 concept \texttt{ConstitutivePolicy} requiring
+        \texttt{commit}, \texttt{compute\_response}, \texttt{tangent}.
+  \item Refactor \texttt{MaterialPoint} so every quadrature site stores
+        committed \emph{and} trial state.
+  \item Adapt elastic constitutive policies to satisfy the concept.
+  \item Implement one inelastic model with \texttt{commit}/\texttt{revert}
+        (Von~Mises $J_2$ plasticity).
+\end{enumerate}
+
+After a thorough audit of \texttt{src/materials/},
+\texttt{src/elements/}, and \texttt{src/analysis/}, all four
+deliverables were found to be \textbf{already implemented}:
+
+\begin{center}
+\begin{tabular}{clc}
+\toprule
+\textbf{\#} & \textbf{Deliverable} & \textbf{Status} \\
+\midrule
+1 & Constitutive concept hierarchy &
+    \texttt{ConstitutiveRelation} +
+    \texttt{ConstitutiveIntegratorConcept} \\
+2 & Trial/committed state at each site &
+    \texttt{TrialCommittedState<S>} +
+    \texttt{ConstitutiveState<\ldots>} \\
+3 & Elastic adaptation &
+    \texttt{PassThroughIntegrator} +
+    \texttt{ElasticRelation} \\
+4 & Inelastic model with commit &
+    \texttt{PlasticityRelation} +
+    \texttt{EmbeddedRelationIntegrator} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Consequently, Phase~1 was re-scoped to:
+(a)~comprehensive audit and documentation of the existing protocol,
+(b)~verification that the commit chain is complete from analysis to
+storage, and
+(c)~identification of gaps for future phases (notably the
+absence of an explicit \texttt{revert} at the type-erased boundary).
+
+%% ------------------------------------------------------------------
+\section{Mathematical Framework}
+\label{sec:phase1-mathematics}
+
+\subsection{Trial/Committed State Protocol}
+
+The incremental solution of a nonlinear boundary-value problem by
+Newton--Raphson requires a clear distinction between \emph{converged}
+(committed) and \emph{tentative} (trial) states at each constitutive
+site.  Denoting by $n$ the load step and by $k$ the Newton iteration:
+
+\begin{itemize}
+  \item \textbf{Committed state} $\boldsymbol{\alpha}_n$:
+        the internal variable set at the end of step~$n$, after global
+        convergence has been verified.  This is the \emph{reference}
+        state for step~$n+1$.
+  \item \textbf{Trial state} $\boldsymbol{\alpha}_{n+1}^{(k)}$:
+        the tentative internal variables computed during iteration~$k$
+        of step~$n+1$.  This state must \emph{never} overwrite the
+        committed state until the global solver converges.
+\end{itemize}
+
+The protocol at each constitutive site is:
+
+\begin{enumerate}
+  \item \textbf{Evaluate} (side-effect free):
+        Given the trial strain $\boldsymbol{\varepsilon}_{n+1}^{(k)}$
+        and committed internal variables $\boldsymbol{\alpha}_n$,
+        compute the stress response and algorithmic tangent:
+        \begin{align}
+          \boldsymbol{\sigma}_{n+1}^{(k)}
+            &= \hat{\boldsymbol{\sigma}}\!\left(
+                 \boldsymbol{\varepsilon}_{n+1}^{(k)},\,
+                 \boldsymbol{\alpha}_n \right), \\[3pt]
+          \mathbb{C}_{n+1}^{(k)}
+            &= \frac{\partial\hat{\boldsymbol{\sigma}}}
+                    {\partial\boldsymbol{\varepsilon}}
+               \bigg|_{
+                 \boldsymbol{\varepsilon}_{n+1}^{(k)},\,
+                 \boldsymbol{\alpha}_n}.
+        \end{align}
+        These evaluations do \emph{not} modify the internal state.
+
+  \item \textbf{Commit} (after global convergence):
+        Promote trial state to committed:
+        \[
+          \boldsymbol{\alpha}_{n+1} \leftarrow
+            \hat{\boldsymbol{\alpha}}\!\left(
+              \boldsymbol{\varepsilon}_{n+1}^{(\text{conv})},\,
+              \boldsymbol{\alpha}_n \right).
+        \]
+
+  \item \textbf{Revert} (on solver divergence):
+        Discard all trial computations; internal state remains at
+        $\boldsymbol{\alpha}_n$.  In the current SNES-driven
+        architecture, revert is implicit: if Newton does not converge,
+        \texttt{commit()} is simply never called.
+\end{enumerate}
+
+\subsection{Constitutive Tangent in the Newton System}
+
+The global Newton update at iteration $k$ solves
+\begin{equation}
+  \underbrace{
+    \mathbf{K}_t^{(k)}
+  }_{\text{tangent stiffness}}
+  \,\delta\!\mathbf{u}^{(k)}
+  = -\underbrace{
+    \left(\mathbf{f}_{\mathrm{int}}^{(k)} - \mathbf{f}_{\mathrm{ext}}\right)
+  }_{\text{residual}},
+  \label{eq:newton-update}
+\end{equation}
+where
+\[
+  \left(\mathbf{K}_t\right)_{IJ}
+    = \int_\Omega
+        \mathbf{B}_I^T \,\mathbb{C}_{n+1}^{(k)}\, \mathbf{B}_J
+      \,d\Omega
+    + \underbrace{
+        \int_\Omega
+          \nabla N_I \cdot \boldsymbol{\sigma}_{n+1}^{(k)} \cdot \nabla N_J
+        \,d\Omega
+      }_{\text{geometric stiffness } K_\sigma}
+\]
+The geometric stiffness $K_\sigma$ is assembled only under
+\texttt{TotalLagrangian} and \texttt{UpdatedLagrangian} kinematic
+policies.  For \texttt{SmallStrain}, $K_\sigma = 0$.
+
+The critical requirement is that both
+$\boldsymbol{\sigma}(\boldsymbol{\varepsilon})$ and
+$\mathbb{C}(\boldsymbol{\varepsilon})$ are evaluated as
+\textbf{pure functions} of the trial kinematics and committed
+internal state.  This guarantees that Newton iterations are
+reproducible and that a diverged step leaves no corrupted state.
+
+
+%% ------------------------------------------------------------------
+\section{The Complete Commit Chain}
+\label{sec:phase1-commit-chain}
+
+The constitutive state protocol is implemented across six architectural
+layers. This section traces the commit path from solver to storage.
+
+\subsection{Layer 1: Storage Policy}
+\label{sec:layer1-storage}
+
+File: \texttt{src/materials/MaterialStatePolicy.hh}
+
+The storage policy controls how state values are persisted:
+
+\begin{description}
+  \item[\texttt{ElasticState<S>}]
+    Single value, no history.  \texttt{commit\_trial()} is not available
+    (constrained away by SFINAE).
+
+  \item[\texttt{TrialCommittedState<S>}]
+    Stores two copies: \texttt{committed\_} and
+    \texttt{trial\_}.  Provides:
+    \begin{itemize}
+      \item \texttt{commit\_trial()} --- copies trial to committed,
+            clears the trial flag.
+      \item \texttt{revert\_trial()} --- clears the trial value,
+            restores the committed state.
+      \item \texttt{committed\_value()} / \texttt{trial\_value()} ---
+            accessors.
+      \item \texttt{has\_trial\_value()} --- boolean flag.
+    \end{itemize}
+    This is the storage policy used by all path-dependent constitutive
+    models.
+\end{description}
+
+\subsection{Layer 2: Constitutive State}
+\label{sec:layer2-constitutive-state}
+
+Files:
+\texttt{src/materials/MaterialState.hh},
+\texttt{src/materials/ConstitutiveState.hh}
+
+\texttt{ConstitutiveState<StoragePolicy, StateVariableTypes...>} adds
+semantic meaning above the raw storage.  It conditionally exposes
+\texttt{commit\_trial()} and \texttt{revert\_trial()} only when the
+underlying storage policy supports them (via C++20 \texttt{requires}
+expressions).  This is the single point where the trial/committed
+protocol is semantically anchored.
+
+\subsection{Layer 3: Constitutive Integrator}
+\label{sec:layer3-integrator}
+
+File: \texttt{src/materials/ConstitutiveIntegrator.hh}
+
+Three integrator strategies inject the algorithmic policy at the
+\texttt{Material<>} boundary:
+
+\begin{description}
+  \item[\texttt{PassThroughIntegrator}]
+    Elastic path.  \texttt{compute\_response()} and \texttt{tangent()}
+    delegate directly to the constitutive relation.
+    \texttt{commit()} is an intentional no-op.
+
+  \item[\texttt{EmbeddedRelationIntegrator}]
+    Inelastic path (compatibility bridge).  Delegates
+    \texttt{compute\_response()} and \texttt{tangent()} to the
+    relation (which may use an external algorithmic state).
+    On \texttt{commit()}, calls:
+    \begin{enumerate}
+      \item \texttt{relation.update($\boldsymbol\varepsilon$)} or
+            \texttt{relation.commit($\boldsymbol\alpha$,
+            $\boldsymbol\varepsilon$)} --- updates internal variables.
+      \item \texttt{site.constitutive\_state().commit\_trial()} ---
+            promotes trial to committed.
+    \end{enumerate}
+
+  \item[\texttt{ContinuumLocalProblemIntegrator}]
+    Advanced continuum path for finite-strain local problems.
+    Uses a \texttt{ContinuumLocalIntegrationAlgorithm} (Newton at the
+    local level).  On \texttt{commit()}, stores the converged
+    algorithmic state and calls \texttt{commit\_constitutive\_state()}.
+\end{description}
+
+The key contract is captured by the concept:
+
+\begin{verbatim}
+template <typename I, typename Site>
+concept ConstitutiveIntegratorConcept = requires(I& i, Site& s,
+    const typename Site::KinematicT& k) {
+    { i.compute_response(s, k) } -> same_as<typename Site::ConjugateT>;
+    { i.tangent(s, k) }          -> same_as<typename Site::TangentT>;
+    { i.commit(s, k) };
+};
+\end{verbatim}
+
+\subsection{Layer 4: Type-Erased Material Handle}
+\label{sec:layer4-material}
+
+File: \texttt{src/materials/Material.hh}
+
+\texttt{Material<Policy>} is an owning, value-semantic handle that
+binds a concrete constitutive site and integrator behind a virtual
+interface:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Method} & \textbf{Semantics} \\
+\midrule
+\texttt{compute\_response(k)} & Side-effect free stress evaluation \\
+\texttt{tangent(k)}           & Algorithmic tangent at trial kinematics \\
+\texttt{commit(k)}            & Promote trial $\to$ committed \\
+\texttt{update\_state(k)}     & Cache current kinematic state \\
+\texttt{clone\_owned()}       & Deep copy for heterogeneous containers \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The virtual dispatch is through \texttt{MaterialConcept<Policy>}, with
+concrete implementation in \texttt{OwningMaterialModel<MaterialType,
+IntegratorT>}.  The \texttt{commit()} virtual function delegates to
+\texttt{integrator\_.commit(material\_, k)}, which triggers the full
+Layer~3 commit chain.
+
+\paragraph{Notable absence:}
+The type-erased interface does \emph{not} expose \texttt{revert()}.
+The \texttt{revert\_trial()} method exists at Layers~1--2 but is not
+wired through the virtual table.  In the current SNES-driven
+architecture this is correct, because revert is implicit (no
+commit on divergence).  For future arc-length or substepping
+strategies that may need explicit revert at the global level,
+adding a \texttt{revert()} virtual to \texttt{MaterialConcept}
+is a Phase~3 item.
+
+\subsection{Layer 5: Finite Element}
+\label{sec:layer5-element}
+
+Files:
+\texttt{src/elements/FiniteElementConcept.hh},
+\texttt{src/elements/ContinuumElement.hh},
+\texttt{src/elements/BeamElement.hh},
+\texttt{src/elements/TimoshenkoBeamN.hh},
+\texttt{src/elements/ShellElement.hh},
+\texttt{src/elements/FEM\_Element.hh},
+\texttt{src/elements/StructuralElement.hh}
+
+The \texttt{FiniteElement} concept requires:
+
+\begin{verbatim}
+template <typename E>
+concept FiniteElement = requires(E e, Mat K, Vec u, Vec f) {
+    e.set_num_dof_in_nodes();
+    e.inject_K(K);
+    e.compute_internal_forces(u, f);
+    e.inject_tangent_stiffness(u, K);
+    e.commit_material_state(u);  // <-- the critical method
+};
+\end{verbatim}
+
+Every concrete element type implements
+\texttt{commit\_material\_state(Vec u\_local)}:
+
+\begin{description}
+  \item[\texttt{ContinuumElement}]
+    Loops over quadrature points, computes the kinematic carrier
+    (small-strain, Total Lagrangian, or Updated Lagrangian), then
+    calls \texttt{material\_point.commit(kinematics)}.
+    This propagates through \texttt{Material<>::commit(kin)}.
+
+  \item[\texttt{BeamElement}, \texttt{TimoshenkoBeamN}, \texttt{ShellElement}]
+    Same pattern: extract local DOFs, transform to local frame,
+    compute section strain at each quadrature point, then call
+    \texttt{section.commit(strain)} followed by
+    \texttt{section.update\_state(strain)}.  Structural elements
+    perform both commit \emph{and} state update inside
+    \texttt{commit\_material\_state()}.
+\end{description}
+
+The type-erased wrappers \texttt{FEM\_Element} and
+\texttt{StructuralElement} forward \texttt{commit\_material\_state()}
+through virtual dispatch, enabling heterogeneous element containers.
+
+\subsection{Layer 6: Analysis (Solver Boundary)}
+\label{sec:layer6-analysis}
+
+Files:
+\texttt{src/analysis/NLAnalysis.hh},
+\texttt{src/analysis/DynamicAnalysis.hh}
+
+\subsubsection{NonlinearAnalysis (SNES)}
+
+The SNES-driven Newton--Raphson solver provides two callbacks:
+\begin{itemize}
+  \item \texttt{FormResidual(u)} ---
+        assembles $\mathbf{R} = \mathbf{f}_{\mathrm{int}}(\mathbf{u}) -
+        \mathbf{f}_{\mathrm{ext}}$
+        via element-level \texttt{compute\_internal\_force\_vector()}.
+  \item \texttt{FormJacobian(u)} ---
+        assembles $\mathbf{K}_t(\mathbf{u})$
+        via element-level \texttt{compute\_tangent\_stiffness\_matrix()}.
+\end{itemize}
+
+Both callbacks are \textbf{side-effect free}: they evaluate stress
+and tangent at the current displacement without modifying internal
+variables.  The commit path is:
+
+\begin{verbatim}
+void commit_state() {
+    // Scatter global -> local (+ imposed BCs)
+    DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
+    VecAXPY(u_local, 1.0, model_->imposed_solution());
+
+    for (auto& element : model_->elements()) {
+        element.commit_material_state(u_local);  // -> Layer 5 -> 4 -> 3 -> 2 -> 1
+    }
+
+    // Update model state for post-processing
+    DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
+}
+\end{verbatim}
+
+This private method is called \emph{only} when the SNES converged
+reason is positive ($> 0$):
+
+\begin{verbatim}
+bool solve() {
+    SNESSolve(snes_, nullptr, U);
+    if (reason > 0) {
+        commit_state();    // safe to commit
+        return true;
+    }
+    // Diverged — do NOT commit corrupted state
+    return false;
+}
+\end{verbatim}
+
+\subsubsection{Incremental Loading with Bisection}
+
+The \texttt{solve\_incremental(N, max\_bisections)} method applies
+$N$ load steps with automatic bisection on divergence:
+
+\begin{enumerate}
+  \item Snapshot displacement $\mathbf{u}_{\text{snap}} \leftarrow \mathbf{u}$.
+  \item Apply load level $\lambda \cdot \mathbf{f}_{\mathrm{ext}}$,
+        call \texttt{SNESSolve}.
+  \item If converged: call \texttt{commit\_state()}, proceed to
+        next step.
+  \item If diverged: revert $\mathbf{u} \leftarrow \mathbf{u}_{\text{snap}}$
+        (material state unchanged because commit was never called),
+        then bisect $[\lambda_{\text{prev}}, \lambda_{\text{target}}]$
+        into two half-steps and retry recursively.
+\end{enumerate}
+
+This implements the key invariant:
+\begin{quote}
+  \emph{Material internal variables are never corrupted by a diverged
+  step, because \texttt{commit()} is only called on convergence.}
+\end{quote}
+
+\subsubsection{DynamicAnalysis (PETSc TS)}
+
+The \texttt{DynamicAnalysis} class uses PETSc TS for time integration
+(Generalized-$\alpha$ or Newmark).  Material commit occurs in the TS
+monitor callback after each converged time step, using the identical
+element-level \texttt{commit\_material\_state()} path.
+
+
+%% ------------------------------------------------------------------
+\section{Audit Summary: Existing Constitutive Models}
+\label{sec:phase1-audit-models}
+
+\subsection{Elastic Path}
+
+\begin{itemize}
+  \item \texttt{ElasticRelation<Policy>} satisfies
+        \texttt{ConstitutiveRelation}: $\boldsymbol{\sigma} =
+        \mathbb{C} : \boldsymbol{\varepsilon}$, constant tangent.
+  \item Injected via \texttt{PassThroughIntegrator} (elastic update).
+  \item \texttt{commit()} is a no-op (path-independent).
+  \item Verified by SNES tests with convergence in 1 iteration.
+\end{itemize}
+
+\subsection{$J_2$ Plasticity}
+
+\begin{itemize}
+  \item \texttt{PlasticityRelation<Policy, YieldF, Hardening, Flow,
+        YieldFn, ReturnAlg>} implements composable classical plasticity.
+  \item Components:
+    \begin{itemize}
+      \item \texttt{VonMises} yield function,
+      \item \texttt{LinearIsotropicHardening} / mixed hardening,
+      \item \texttt{AssociatedFlow} rule,
+      \item \texttt{ScalarConsistencyReturn} algorithm (radial return).
+    \end{itemize}
+  \item Full return mapping:
+        \begin{align}
+          \boldsymbol{\varepsilon}^{\text{tr}}
+            &= \boldsymbol{\varepsilon}_{n+1}
+              - \boldsymbol{\varepsilon}^p_n, \\
+          f_{\text{trial}}
+            &= \|\text{dev}(\mathbb{C}:\boldsymbol{\varepsilon}^{\text{tr}})\|
+              - \sigma_y(\alpha_n), \\
+          \text{if } f_{\text{trial}} &\le 0:
+            \quad \text{elastic step}, \\
+          \text{else}: &\quad \text{solve consistency equation for}
+            \;\Delta\gamma, \\
+          \boldsymbol{\varepsilon}^p_{n+1}
+            &= \boldsymbol{\varepsilon}^p_n
+              + \Delta\gamma \, \mathbf{n},
+            \qquad \alpha_{n+1} = \alpha_n + \Delta\gamma.
+        \end{align}
+  \item Internal variables: plastic strain
+        $\boldsymbol{\varepsilon}^p$, equivalent plastic strain
+        $\bar{\varepsilon}^p$, backstress $\boldsymbol{\beta}$
+        (kinematic hardening).
+  \item Exposes both external-state API
+        (\texttt{compute\_response($\varepsilon$, $\alpha$)}) and
+        internal-state API (\texttt{compute\_response($\varepsilon$)}).
+  \item Injected via \texttt{EmbeddedRelationIntegrator} (inelastic
+        update).
+  \item Consistent tangent $\mathbb{C}^{ep}$ computed as:
+        \[
+          \mathbb{C}^{ep} = \mathbb{C}^e
+            - \frac{2\mu\,\Delta\gamma}{\|\mathbf{s}^{\mathrm{tr}}\|}
+              \left( \mathbb{C}^e - \tfrac{1}{3}\text{tr}(\mathbb{C}^e)
+                \otimes \mathbf{I} \right)
+            - 2\mu \left(\frac{1}{1+H/(3\mu)}
+                         - \frac{\Delta\gamma}{\|\mathbf{s}^{\mathrm{tr}}\|/(2\mu)}
+                   \right)
+              \mathbf{n} \otimes \mathbf{n}.
+        \]
+  \item Tested in
+        \texttt{test\_plasticity\_composition.cpp} (10 unit tests)
+        and through SNES-level tests.
+\end{itemize}
+
+\subsection{Hyperelastic Models}
+
+\begin{itemize}
+  \item \texttt{SVKRelation}: Saint-Venant--Kirchhoff,
+        $\Psi = \tfrac{\lambda}{2}(\text{tr}\,\mathbf{E})^2
+                + \mu\,\mathbf{E}:\mathbf{E}$
+  \item \texttt{NeoHookeanRelation}: compressible Neo-Hookean,
+        $\Psi = \tfrac{\mu}{2}(I_1 - 3) - \mu\ln J
+                + \tfrac{\lambda}{2}(\ln J)^2$
+  \item Both support Total Lagrangian and Updated Lagrangian kinematic
+        policies.  Tested incrementally under large deformation through
+        SNES.
+\end{itemize}
+
+\subsection{Fiber Section Models}
+
+\begin{itemize}
+  \item \texttt{FiberSection} aggregates uniaxial fibers
+        (steel + concrete).
+  \item Uniaxial materials: \texttt{MenegottoPintoSteel},
+        \texttt{KentParkConcrete} --- both have internal
+        \texttt{commit()} that persists state.
+  \item Commit chain: \texttt{BeamElement} $\to$ \texttt{MaterialSection}
+        $\to$ \texttt{Material<BeamPolicy>} $\to$ \texttt{FiberSection}
+        $\to$ per-fiber \texttt{commit()}.
+  \item Tested in \texttt{test\_rc\_fiber\_frame\_nonlinear.cpp}
+        (SNES-level).
+\end{itemize}
+
+\subsection{Finite Strain Damage}
+
+\begin{itemize}
+  \item \texttt{FiniteStrainDamageRelation} ---
+        isotropic damage with energy-based criterion.
+  \item Uses \texttt{ContinuumLocalProblemIntegrator} with
+        Newton local solver for the internal-variable update.
+  \item Tested in \texttt{test\_finite\_strain\_damage.cpp}.
+\end{itemize}
+
+
+%% ------------------------------------------------------------------
+\section{Verification: End-to-End Commit Chain Test}
+\label{sec:phase1-verification}
+
+The existing test suite already exercises the commit chain
+through several SNES integration tests:
+
+\begin{itemize}
+  \item \texttt{test\_snes\_hyperelastic.cpp} ---
+        SmallStrain + TotalLagrangian + NeoHookean/SVK,
+        incremental loading with convergence verification.
+  \item \texttt{test\_plasticity\_composition.cpp} ---
+        Unit-level tests for the composable plasticity architecture,
+        including external-algorithmic-state path verification.
+  \item \texttt{test\_rc\_fiber\_frame\_nonlinear.cpp} ---
+        Full structural beam with fiber sections under SNES.
+  \item \texttt{test\_finite\_strain\_damage.cpp} ---
+        Continuum local-problem integrator with damage.
+\end{itemize}
+
+These tests verify that:
+\begin{enumerate}
+  \item SNES converges for elastic (1 iteration) and inelastic
+        (multiple iterations) problems.
+  \item Incremental loading with bisection correctly commits state
+        only after convergence.
+  \item The full chain from solver through type-erasure to
+        constitutive relation produces correct force-displacement
+        responses.
+\end{enumerate}
+
+
+%% ------------------------------------------------------------------
+\section{Remaining Gaps for Future Phases}
+\label{sec:phase1-gaps}
+
+While the constitutive state protocol is functionally complete for the
+SNES and PETSc~TS solvers, three gaps remain for later phases:
+
+\begin{enumerate}
+  \item \textbf{No \texttt{revert()} in type-erased interface.}
+        \texttt{Material<Policy>} exposes \texttt{commit()} but not
+        \texttt{revert()}.  The \texttt{revert\_trial()} method exists
+        at the storage and state layers but is not wired through
+        \texttt{MaterialConcept}'s virtual table.
+        This is safe for SNES (implicit revert by not committing),
+        but arc-length or substepping algorithms may need explicit
+        revert at the element level.
+        \emph{Planned for Phase~3.}
+
+  \item \textbf{No \texttt{revert\_material\_state()} in
+        \texttt{FiniteElement} concept.}
+        The concept requires \texttt{commit\_material\_state(u)} but
+        not a corresponding revert operation.  If the solver needs
+        to undo a partially committed sub-step (e.g.\ in a load-arc
+        method), this would need to be added.
+        \emph{Planned for Phase~3.}
+
+  \item \textbf{Commit logic duplicated in Analysis classes.}
+        Both \texttt{NonlinearAnalysis} and \texttt{DynamicAnalysis}
+        contain identical commit-state loops (scatter global$\to$local,
+        loop elements, commit).  Extracting this to a Model-level
+        \texttt{commit\_state(Vec u\_global)} method would reduce
+        duplication and provide a single commit entry point.
+        \emph{Planned for Phase~3.}
+\end{enumerate}
+
+
+%% ------------------------------------------------------------------
+\section{Architectural Diagram: Commit Chain}
+\label{sec:phase1-architecture-diagram}
+
+The following stack trace illustrates the commit path from solver
+to storage for a continuum element with inelastic material:
+
+\begin{verbatim}
+NonlinearAnalysis::commit_state()
+ │  DMGlobalToLocal(dm, U, INSERT_VALUES, u_local)
+ │
+ └─► for each element:
+      ContinuumElement::commit_material_state(u_local)
+       │  u_e = extract_element_dofs(u_local)
+       │  kin = KinematicPolicy::compute_kinematics(B, u_e, ...)
+       │
+       └─► MaterialPoint::commit(kin)
+            │
+            └─► Material<Policy>::commit(kin)    [virtual dispatch]
+                 │
+                 └─► OwningMaterialModel::commit(kin)
+                      │
+                      └─► EmbeddedRelationIntegrator::commit(site, k)
+                           │  relation.update(k)
+                           │    └─► PlasticityRelation: return mapping,
+                           │        update ε_p, α, backstress
+                           │
+                           └─► site.constitutive_state().commit_trial()
+                                │
+                                └─► TrialCommittedState::commit_trial()
+                                     committed_ ← trial_
+                                     has_trial_ ← false
+\end{verbatim}
+
+For elastic materials, the same path reaches
+\texttt{PassThroughIntegrator::commit()}, which is a no-op.
+
+For structural elements (beams/shells), the path goes through
+\texttt{MaterialSection::commit(strain)} instead of
+\texttt{MaterialPoint::commit(kin)}, but reaches the same
+underlying \texttt{Material<>::commit()} via the section's material.
+
+%% ------------------------------------------------------------------
+\section{Conclusions}
+\label{sec:phase1-conclusions}
+
+Phase~1 of the master plan is \textbf{complete}.  The constitutive
+state protocol---trial evaluation, commit on convergence, implicit
+revert on divergence---is implemented across all six architectural
+layers and verified by the existing test suite.  The key findings are:
+
+\begin{enumerate}
+  \item The design documented in Chapters~28--31 was already implemented
+        in code, resolving the design-implementation gap identified in
+        Chapter~\ref{ch:convergence-master-plan} for this domain.
+  \item The SNES solver correctly exploits the side-effect-free
+        evaluation property, committing state only after verified
+        convergence and automatically bisecting on divergence.
+  \item The three remaining gaps (explicit revert at type-erased
+        boundary, revert in \texttt{FiniteElement} concept, and
+        commit duplication in Analysis classes) are non-blocking
+        and are scheduled for Phase~3.
+\end{enumerate}
+
+With Phase~0 (RAII) and Phase~1 (constitutive protocol) both
+verified, the next step is Phase~2: heterogeneous element containers
+to support mixed continuum + structural assemblages.

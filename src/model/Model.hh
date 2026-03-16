@@ -23,7 +23,7 @@
 #include "NodeSelector.hh"
 #include "ModelState.hh"
 
-#include <petsc.h>
+#include "../petsc/PetscRaii.hh"
 
 
 // https://www.dealii.org/current/doxygen/deal.II/namespacePETScWrappers.html
@@ -42,7 +42,6 @@ template <
     typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>
     >
 class Model{
-    friend class Analysis; // Por ahora. Para no exponer publicamentge el dominio.
 
 public:    
     using MaterialT         = Material<MaterialPolicy>;
@@ -52,18 +51,26 @@ public:
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
 
+    // ── Explicitly non-copyable, movable ─────────────────────────────
+    Model(const Model&)            = delete;
+    Model& operator=(const Model&) = delete;
+    Model(Model&&)                 = default;
+    Model& operator=(Model&&)      = default;
+
 private:
     Domain<dim>*      domain_;
     ConstraintDofInfo constraints_; 
-    PetscSection      dof_section{nullptr}; 
+
+    // ── PETSc resources (RAII-managed) ───────────────────────────────
+    petsc::OwnedSection  dof_section_{};
 
     container_type elements_;
 
-    Vec nodal_forces_           {nullptr}; 
-    Vec global_imposed_solution_{nullptr};
-    Vec current_state_          {nullptr};
+    petsc::OwnedVec nodal_forces_{};
+    petsc::OwnedVec global_imposed_solution_{};
+    petsc::OwnedVec current_state_{};
 
-    Mat Kt_{nullptr};
+    petsc::OwnedMat Kt_{};
 
 public:
 
@@ -74,10 +81,10 @@ public:
     std::size_t num_elements() const noexcept { return elements_.size(); }
 
     // ── PETSc handle access (non-owning views) ──────────────────────
-    Vec  state_vector()        const noexcept { return current_state_; }
-    Vec  imposed_solution()    const noexcept { return global_imposed_solution_; }
-    Vec  force_vector()        const noexcept { return nodal_forces_; }
-    Mat  stiffness_matrix()    const noexcept { return Kt_; }
+    Vec  state_vector()        const noexcept { return current_state_.get(); }
+    Vec  imposed_solution()    const noexcept { return global_imposed_solution_.get(); }
+    Vec  force_vector()        const noexcept { return nodal_forces_.get(); }
+    Mat  stiffness_matrix()    const noexcept { return Kt_.get(); }
 
     auto& get_domain()       { return *domain_; }
     const auto& get_domain() const { return *domain_; }
@@ -109,9 +116,9 @@ public:
 
         PetscInt pStart, pEnd;
 
-        PetscSectionCreate(PETSC_COMM_WORLD, &dof_section); // Create the section (PetscSection)
+        FALL_N_PETSC_CHECK(PetscSectionCreate(PETSC_COMM_WORLD, dof_section_.ptr()));
 
-        DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd);
+        FALL_N_PETSC_CHECK(DMPlexGetChart(domain_->mesh.dm, &pStart, &pEnd));
 
         // Use the full DM chart [pStart, pEnd) instead of [vStart, vEnd).
         // Workaround: PETSc ≤3.24 PetscSectionSetConstraintIndices()
@@ -119,92 +126,45 @@ public:
         // causing out-of-bounds reads when pStart > 0 and pStart > (pEnd-pStart).
         // Setting pStart = 0 makes the raw index coincide with the adjusted one.
         // Elements simply keep 0 DOFs.
-        PetscSectionSetChart(dof_section, pStart, pEnd);
-        //std::cout << "  [SIEVE-DBG] section_ptr=" << (void*)dof_section
-        //          << " chart=[" << pStart << "," << pEnd << ")" << std::endl;
+        FALL_N_PETSC_CHECK(PetscSectionSetChart(dof_section_.get(), pStart, pEnd));
         for (auto &node: domain_->nodes()) {
-            PetscSectionSetDof(dof_section, node.sieve_id.value(), node.num_dof()); 
+            FALL_N_PETSC_CHECK(PetscSectionSetDof(dof_section_.get(), node.sieve_id.value(), node.num_dof())); 
             }
-
-        // ── DEBUG: verify section DOFs ───
-        //{
-        //    PetscInt sec_pStart, sec_pEnd;
-        //    PetscSectionGetChart(dof_section, &sec_pStart, &sec_pEnd);
-        //    int mismatches = 0;
-        //    for (auto &node: domain_->nodes()) {
-        //        PetscInt ndof;
-        //        PetscSectionGetDof(dof_section, node.sieve_id.value(), &ndof);
-        //        if (ndof != static_cast<PetscInt>(node.num_dof())) {
-        //            if (mismatches < 10)
-        //                std::cerr << "  [SIEVE-DBG] MISMATCH sieve=" << node.sieve_id.value()
-        //                          << " node_id=" << node.id()
-        //                          << " section_dof=" << ndof
-        //                          << " node_dof=" << node.num_dof()
-        //                          << " chart=[" << sec_pStart << "," << sec_pEnd << ")\n";
-        //            ++mismatches;
-        //        }
-        //    }
-        //    //if (mismatches > 0)
-        //    //    std::cerr << "  [SIEVE-DBG] Total mismatches: " << mismatches << "\n";
-        //    //else
-        //    //    std::cerr << "  [SIEVE-DBG] All " << domain_->nodes().size() << " section DOFs OK\n";
-        //}
     };
 
     void setup_boundary_conditions(){
         for (auto &[plex_id, idx] : constraints_){
-            PetscSectionAddConstraintDof(this->dof_section, plex_id,static_cast<PetscInt>(idx.first.size()));
+            FALL_N_PETSC_CHECK(PetscSectionAddConstraintDof(dof_section_.get(), plex_id,static_cast<PetscInt>(idx.first.size())));
             }
 
-        PetscErrorCode ierr = PetscSectionSetUp(this->dof_section);
-        
-        //if (ierr) std::cerr << "  [BC-ERR] PetscSectionSetUp returned " << ierr << std::endl;
-        // ── DEBUG: verify section DOFs before SetConstraintIndices ───
-        //{
-        //    std::cout << "  [BC-DBG] Constraints count: " << constraints_.size() << std::endl;
-        //    for (const auto &[plex_id, idx] : constraints_){
-        //        PetscInt ndof = -999;
-        //        PetscSectionGetDof(this->dof_section, plex_id, &ndof);
-        //        std::cout << "  [BC-DBG] plex_id=" << plex_id
-        //                  << " section_dof=" << ndof
-        //                  << " constraint_size=" << idx.first.size() << std::endl;
-        //    }
-        //    std::cout << std::flush;
-        //}
+        FALL_N_PETSC_CHECK(PetscSectionSetUp(dof_section_.get()));
         
         for (const auto &[plex_id, idx] : constraints_){
-            ierr = PetscSectionSetConstraintIndices(this->dof_section, plex_id, idx.first.data());
-            if (ierr) std::cerr << "  [BC-ERR] SetConstraintIndices for plex_id=" << plex_id << " returned " << ierr << std::endl;
+            FALL_N_PETSC_CHECK(PetscSectionSetConstraintIndices(dof_section_.get(), plex_id, idx.first.data()));
             }
 
-        ierr = DMSetLocalSection (domain_->mesh.dm, dof_section); // Set the local section for the mesh
-        //if (ierr) std::cerr << "  [BC-ERR] DMSetLocalSection returned " << ierr << std::endl;
-        ierr = DMSetUp(domain_->mesh.dm); // Setup the mesh
-        //if (ierr) std::cerr << "  [BC-ERR] DMSetUp returned " << ierr << std::endl;
+        FALL_N_PETSC_CHECK(DMSetLocalSection(domain_->mesh.dm, dof_section_.get()));
+        FALL_N_PETSC_CHECK(DMSetUp(domain_->mesh.dm));
 
         set_dof_index(); // Set the dof index for each node in the domain IN EACH NODE OBJECT.
     }
 
     void setup_vectors(){
-        PetscErrorCode verr;
-        verr = DMCreateLocalVector(domain_->mesh.dm, &nodal_forces_);
-        if (verr) std::cerr << "  [VEC-ERR] DMCreateLocalVector(nf) returned " << verr << std::endl;
-        verr = DMCreateLocalVector(domain_->mesh.dm, &global_imposed_solution_);
-        if (verr) std::cerr << "  [VEC-ERR] DMCreateLocalVector(gis) returned " << verr << std::endl;
-        VecDuplicate(global_imposed_solution_, &current_state_);
+        FALL_N_PETSC_CHECK(DMCreateLocalVector(domain_->mesh.dm, nodal_forces_.ptr()));
+        FALL_N_PETSC_CHECK(DMCreateLocalVector(domain_->mesh.dm, global_imposed_solution_.ptr()));
+        FALL_N_PETSC_CHECK(VecDuplicate(global_imposed_solution_.get(), current_state_.ptr()));
 
-        VecSet(nodal_forces_           , 0.0);
-        VecSet(global_imposed_solution_, 0.0);
-        VecSet(current_state_          , 0.0);
-        
+        FALL_N_PETSC_CHECK(VecSet(nodal_forces_.get()           , 0.0));
+        FALL_N_PETSC_CHECK(VecSet(global_imposed_solution_.get(), 0.0));
+        FALL_N_PETSC_CHECK(VecSet(current_state_.get()          , 0.0));
     };
 
     void setup_matrix(){
-        DMCreateMatrix(domain_->mesh.dm, &Kt_);
+        FALL_N_PETSC_CHECK(DMCreateMatrix(domain_->mesh.dm, Kt_.ptr()));
         // Allow dynamic allocation for entries missed by DMPlex preallocation
         // (unstructured simplex meshes may have adjacency underestimates).
-        MatSetOption(Kt_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-        MatZeroEntries(Kt_);
+        FALL_N_PETSC_CHECK(MatSetOption(Kt_.get(), MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+        FALL_N_PETSC_CHECK(MatZeroEntries(Kt_.get()));
     };
 
     // ── Fill imposed solution from non-zero constraint values ────────
@@ -236,7 +196,7 @@ public:
 
             for (std::size_t i = 0; i < dof_indices.size(); ++i) {
                 if (values[i] != 0.0) {
-                    VecSetValueLocal(global_imposed_solution_,
+                    VecSetValueLocal(global_imposed_solution_.get(),
                                      all_dofs[dof_indices[i]],
                                      values[i], INSERT_VALUES);
                     has_nonzero = true;
@@ -245,8 +205,8 @@ public:
         }
 
         if (has_nonzero) {
-            VecAssemblyBegin(global_imposed_solution_);
-            VecAssemblyEnd(global_imposed_solution_);
+            VecAssemblyBegin(global_imposed_solution_.get());
+            VecAssemblyEnd(global_imposed_solution_.get());
         }
     }
 
@@ -401,10 +361,10 @@ public:
             dofs[static_cast<std::size_t>(i)] = offset + i;
         }
 
-        VecSetValuesLocal(this->nodal_forces_, num_dofs, dofs.data(), force, ADD_VALUES);
+        VecSetValuesLocal(nodal_forces_.get(), num_dofs, dofs.data(), force, ADD_VALUES);
 
-        VecAssemblyBegin (this->nodal_forces_);
-        VecAssemblyEnd   (this->nodal_forces_);
+        VecAssemblyBegin (nodal_forces_.get());
+        VecAssemblyEnd   (nodal_forces_.get());
     }   
 
     // Only For Testing Purposes! This thing is not accurate.
@@ -444,7 +404,7 @@ public:
         }
 
         std::array<double, dim> traction = {static_cast<double>(traction_components)...};
-        surface_load::apply_traction<dim>(surf_elems, traction, this->nodal_forces_);
+        surface_load::apply_traction<dim>(surf_elems, traction, nodal_forces_.get());
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -465,7 +425,7 @@ public:
 
         // ── Nodal displacements ──────────────────────────────────────
         const PetscScalar* u_arr;
-        VecGetArrayRead(current_state_, &u_arr);
+        VecGetArrayRead(current_state_.get(), &u_arr);
 
         state.nodes.reserve(domain_->nodes().size());
         for (const auto& node : domain_->nodes()) {
@@ -477,7 +437,7 @@ public:
             state.nodes.push_back(nd);
         }
 
-        VecRestoreArrayRead(current_state_, &u_arr);
+        VecRestoreArrayRead(current_state_.get(), &u_arr);
 
         // ── Element Gauss-point stress/strain ────────────────────────
         if constexpr (requires { elements_.front().material_points(); }) {
@@ -530,14 +490,14 @@ public:
             auto dofs = node.dof_index();
             for (std::size_t d = 0; d < dim && d < dofs.size(); ++d) {
                 if (nd.displacement[d] != 0.0) {
-                    VecSetValueLocal(global_imposed_solution_,
+                    VecSetValueLocal(global_imposed_solution_.get(),
                                      dofs[d], nd.displacement[d],
                                      INSERT_VALUES);
                 }
             }
         }
-        VecAssemblyBegin(global_imposed_solution_);
-        VecAssemblyEnd(global_imposed_solution_);
+        VecAssemblyBegin(global_imposed_solution_.get());
+        VecAssemblyEnd(global_imposed_solution_.get());
     }
 
     /// Number of constrained DOFs across all nodes.
@@ -583,11 +543,11 @@ public:
         return 0.0;
     }       
 
-    void inject_K(Mat& analysis_K){
+    void inject_K(Mat analysis_K){
         for (auto &element : elements_) element.inject_K(analysis_K);
 
-        MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY);
-        MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY);
+        FALL_N_PETSC_CHECK(MatAssemblyBegin(analysis_K, MAT_FINAL_ASSEMBLY));
+        FALL_N_PETSC_CHECK(MatAssemblyEnd  (analysis_K, MAT_FINAL_ASSEMBLY));
     }
 
     // ── Mass matrix assembly (for dynamics) ──────────────────────────
@@ -599,14 +559,14 @@ public:
     //  before calling this.
 
     void assemble_mass_matrix(Mat M) {
-        MatZeroEntries(M);
+        FALL_N_PETSC_CHECK(MatZeroEntries(M));
         for (auto& element : elements_) {
             if constexpr (requires { element.inject_mass(M); }) {
                 element.inject_mass(M);
             }
         }
-        MatAssemblyBegin(M, MAT_FINAL_ASSEMBLY);
-        MatAssemblyEnd(M, MAT_FINAL_ASSEMBLY);
+        FALL_N_PETSC_CHECK(MatAssemblyBegin(M, MAT_FINAL_ASSEMBLY));
+        FALL_N_PETSC_CHECK(MatAssemblyEnd(M, MAT_FINAL_ASSEMBLY));
     }
 
     // ── Set density on all elements ──────────────────────────────────
@@ -735,14 +695,13 @@ public:
     }
 
     Model() = delete;
-    ~Model() {
-        PetscErrorCode e;
-        e = MatDestroy(&Kt_); if (e) std::cerr << "[~Model] MatDestroy: " << e << "\n";
-        e = VecDestroy(&current_state_); if (e) std::cerr << "[~Model] VecDestroy(cs): " << e << "\n";
-        e = VecDestroy(&nodal_forces_); if (e) std::cerr << "[~Model] VecDestroy(nf): " << e << "\n";
-        e = VecDestroy(&global_imposed_solution_); if (e) std::cerr << "[~Model] VecDestroy(gis): " << e << "\n";
-        e = PetscSectionDestroy(&dof_section); if (e) std::cerr << "[~Model] SectionDestroy: " << e << "\n";
-    }
+
+    // ── Destructor: RAII does the work ───────────────────────────────
+    //
+    //  All PETSc resources are owned by petsc::Owned{Vec,Mat,Section}
+    //  members whose destructors call the appropriate PETSc Destroy
+    //  function.  No manual cleanup needed.
+    ~Model() = default;
 
 };
 

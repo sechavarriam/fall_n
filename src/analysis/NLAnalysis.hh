@@ -5,6 +5,7 @@
 #include <petscsnes.h>
 
 #include "../model/Model.hh"
+#include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 
 // =============================================================================
@@ -63,12 +64,12 @@ class NonlinearAnalysis {
         };
 
     ModelT* model_{nullptr};
-    SNES    snes_{nullptr};
+    petsc::OwnedSNES snes_{};
 
-    Vec U{nullptr};       // Global solution
-    Vec R_vec{nullptr};   // Residual vector
-    Vec f_ext{nullptr};   // External forces (current load level)
-    Mat J{nullptr};       // Jacobian (tangent stiffness)
+    petsc::OwnedVec U{};       // Global solution
+    petsc::OwnedVec R_vec{};   // Residual vector
+    petsc::OwnedVec f_ext{};   // External forces (current load level)
+    petsc::OwnedMat J{};       // Jacobian (tangent stiffness)
 
     bool is_setup_{false};
 
@@ -270,11 +271,11 @@ public:
 
         DM dm = model_->get_plex();
 
-        DMCreateGlobalVector(dm, &U);
-        VecDuplicate(U, &R_vec);
-        VecDuplicate(U, &f_ext);
-        DMCreateMatrix(dm, &J);
-        MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+        FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, U.ptr()));
+        FALL_N_PETSC_CHECK(VecDuplicate(U, R_vec.ptr()));
+        FALL_N_PETSC_CHECK(VecDuplicate(U, f_ext.ptr()));
+        FALL_N_PETSC_CHECK(DMCreateMatrix(dm, J.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
 
         VecSet(U, 0.0);
         VecSet(R_vec, 0.0);
@@ -385,8 +386,8 @@ public:
 
         // Save a copy of the full (un-scaled) external force vector.
         // This is the target load at λ = 1.0.
-        Vec f_full;
-        VecDuplicate(f_ext, &f_full);
+        petsc::OwnedVec f_full{};
+        VecDuplicate(f_ext, f_full.ptr());
         VecCopy(f_ext, f_full);
 
         double lambda_done = 0.0;   // last converged load level
@@ -403,7 +404,7 @@ public:
                 "\n  ── Load step %d/%d: λ = %.4f → %.4f ──\n",
                 step, num_steps, lambda_done, lambda_target);
 
-            bool ok = advance_to_lambda_(f_full, lambda_done, lambda_target,
+            bool ok = advance_to_lambda_(f_full.get(), lambda_done, lambda_target,
                                          max_bisections);
 
             if (ok) {
@@ -419,7 +420,6 @@ public:
         }
 
         model_->update_elements_state();
-        VecDestroy(&f_full);
 
         PetscPrintf(PETSC_COMM_WORLD,
             "  Incremental solve %s at λ = %.4f\n",
@@ -458,8 +458,8 @@ private:
                             int bisections_left)
     {
         // ── 1. Snapshot current displacement for rollback ─────────
-        Vec U_snap;
-        VecDuplicate(U, &U_snap);
+        petsc::OwnedVec U_snap{};
+        VecDuplicate(U, U_snap.ptr());
         VecCopy(U, U_snap);
 
         // ── 2. Set load level and solve ──────────────────────────
@@ -477,7 +477,6 @@ private:
         // ── 3. Converged? Commit and return ──────────────────────
         if (reason > 0) {
             commit_state();
-            VecDestroy(&U_snap);
 
             PetscPrintf(PETSC_COMM_WORLD,
                 "    λ=%.6f  converged  (reason=%d, %d iterations)\n",
@@ -493,7 +492,6 @@ private:
         //  so material internal variables are still at the previous
         //  converged values.  Only u needs to be reverted.
         VecCopy(U_snap, U);
-        VecDestroy(&U_snap);
 
         PetscPrintf(PETSC_COMM_WORLD,
             "    λ=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
@@ -537,20 +535,14 @@ public:
     // ─── Constructor / Destructor ─────────────────────────────────
 
     explicit NonlinearAnalysis(ModelT* model) : model_{model} {
-        SNESCreate(PETSC_COMM_WORLD, &snes_);
-        SNESSetFromOptions(snes_);
-        SNESSetDM(snes_, model_->get_plex());
+        FALL_N_PETSC_CHECK(SNESCreate(PETSC_COMM_WORLD, snes_.ptr()));
+        FALL_N_PETSC_CHECK(SNESSetFromOptions(snes_.get()));
+        FALL_N_PETSC_CHECK(SNESSetDM(snes_.get(), model_->get_plex()));
     }
 
     NonlinearAnalysis() = default;
 
-    ~NonlinearAnalysis() {
-        if (snes_) SNESDestroy(&snes_);
-        if (U)     VecDestroy(&U);
-        if (R_vec) VecDestroy(&R_vec);
-        if (f_ext) VecDestroy(&f_ext);
-        if (J)     MatDestroy(&J);
-    }
+    ~NonlinearAnalysis() = default;
 
     // Non-copyable (owns PETSc objects)
     NonlinearAnalysis(const NonlinearAnalysis&)            = delete;

@@ -84,6 +84,7 @@
 
 #include "../model/Model.hh"
 #include "../model/BoundaryCondition.hh"
+#include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 #include "Damping.hh"
 
@@ -98,19 +99,19 @@ class DynamicAnalysis {
     static constexpr auto dim = MaterialPolicy::dim;
 
     ModelT* model_{nullptr};
-    TS      ts_{nullptr};
+    petsc::OwnedTS ts_{};
 
-    // ── System matrices ──────────────────────────────────────────────
-    Mat M_{nullptr};    // Mass matrix (assembled once at setup, constant)
-    Mat C_{nullptr};    // Damping matrix (optional, assembled at setup)
-    Mat J_{nullptr};    // Jacobian work matrix: a·M + v·C + K_t(u)
-    Mat K0_{nullptr};   // Initial stiffness (for Rayleigh damping)
+    // ── System matrices ────────────────────────────────────────────────
+    petsc::OwnedMat M_{};    // Mass matrix (assembled once at setup, constant)
+    petsc::OwnedMat C_{};    // Damping matrix (optional, assembled at setup)
+    petsc::OwnedMat J_{};    // Jacobian work matrix: a·M + v·C + K_t(u)
+    petsc::OwnedMat K0_{};   // Initial stiffness (for Rayleigh damping)
 
-    // ── System vectors ───────────────────────────────────────────────
-    Vec U_{nullptr};       // Global displacement
-    Vec V_{nullptr};       // Global velocity
-    Vec F_work_{nullptr};  // Work vector for residual assembly
-    Vec f_ext_work_{nullptr}; // Pre-allocated work vector for f_ext (avoid per-step alloc)
+    // ── System vectors ─────────────────────────────────────────────────
+    petsc::OwnedVec U_{};       // Global displacement
+    petsc::OwnedVec V_{};       // Global velocity
+    petsc::OwnedVec F_work_{};  // Work vector for residual assembly
+    petsc::OwnedVec f_ext_work_{}; // Pre-allocated work vector for f_ext
 
     bool is_setup_{false};
 
@@ -138,7 +139,7 @@ class DynamicAnalysis {
     struct GroundMotionInfo {
         std::size_t direction;
         TimeFunction accel_fn;
-        Vec influence;   // M·ĝ_dir (precomputed)
+        petsc::OwnedVec influence;   // M·ĝ_dir (precomputed)
     };
     std::vector<GroundMotionInfo> ground_motions_;
 
@@ -368,9 +369,9 @@ class DynamicAnalysis {
     // =================================================================
 
     void assemble_initial_stiffness() {
-        DMCreateMatrix(model_->get_plex(), &K0_);
-        MatSetOption(K0_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-        MatZeroEntries(K0_);
+        FALL_N_PETSC_CHECK(DMCreateMatrix(model_->get_plex(), K0_.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(K0_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+        FALL_N_PETSC_CHECK(MatZeroEntries(K0_));
 
         // For initial stiffness, evaluate at u = 0
         model_->inject_K(K0_);  // uses linear K() method
@@ -386,33 +387,31 @@ class DynamicAnalysis {
 
         for (auto& gm : ground_motions_) {
             // Create unit direction vector:  ĝ[i] = 1 if dof % dim == direction
-            Vec g_dir;
-            DMCreateGlobalVector(dm, &g_dir);
-            VecSet(g_dir, 0.0);
+            petsc::OwnedVec g_dir;
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, g_dir.ptr()));
+            FALL_N_PETSC_CHECK(VecSet(g_dir, 0.0));
 
             // Build ĝ in local space
             Vec g_local;
             DMGetLocalVector(dm, &g_local);
-            VecSet(g_local, 0.0);
+            FALL_N_PETSC_CHECK(VecSet(g_local, 0.0));
 
             for (const auto& node : model_->get_domain().nodes()) {
                 if (node.num_dof() > gm.direction) {
                     PetscInt dof_idx = node.dof_index()[gm.direction];
                     PetscScalar one = 1.0;
-                    VecSetValueLocal(g_local, dof_idx, one, INSERT_VALUES);
+                    FALL_N_PETSC_CHECK(VecSetValueLocal(g_local, dof_idx, one, INSERT_VALUES));
                 }
             }
-            VecAssemblyBegin(g_local);
-            VecAssemblyEnd(g_local);
+            FALL_N_PETSC_CHECK(VecAssemblyBegin(g_local));
+            FALL_N_PETSC_CHECK(VecAssemblyEnd(g_local));
 
-            DMLocalToGlobal(dm, g_local, INSERT_VALUES, g_dir);
+            FALL_N_PETSC_CHECK(DMLocalToGlobal(dm, g_local, INSERT_VALUES, g_dir));
             DMRestoreLocalVector(dm, &g_local);
 
             // influence = M · ĝ
-            DMCreateGlobalVector(dm, &gm.influence);
-            MatMult(M_, g_dir, gm.influence);
-
-            VecDestroy(&g_dir);
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, gm.influence.ptr()));
+            FALL_N_PETSC_CHECK(MatMult(M_, g_dir, gm.influence));
         }
     }
 
@@ -498,7 +497,7 @@ public:
 
         // Ground motions — store for setup_ground_motion_influence()
         for (const auto& gm : bcs.ground_motions()) {
-            ground_motions_.push_back({gm.direction, gm.acceleration, nullptr});
+            ground_motions_.push_back({gm.direction, gm.acceleration, {}});
         }
     }
 
@@ -523,19 +522,19 @@ public:
 
         // ── Create vectors (if not already set by set_initial_conditions) ──
         if (!U_) {
-            DMCreateGlobalVector(dm, &U_);
-            VecSet(U_, 0.0);
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, U_.ptr()));
+            FALL_N_PETSC_CHECK(VecSet(U_, 0.0));
         }
         if (!V_) {
-            DMCreateGlobalVector(dm, &V_);
-            VecSet(V_, 0.0);
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, V_.ptr()));
+            FALL_N_PETSC_CHECK(VecSet(V_, 0.0));
         }
-        VecDuplicate(U_, &F_work_);
-        VecDuplicate(U_, &f_ext_work_);
+        FALL_N_PETSC_CHECK(VecDuplicate(U_, F_work_.ptr()));
+        FALL_N_PETSC_CHECK(VecDuplicate(U_, f_ext_work_.ptr()));
 
         // ── Assemble mass matrix ─────────────────────────────────────
-        DMCreateMatrix(dm, &M_);
-        MatSetOption(M_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+        FALL_N_PETSC_CHECK(DMCreateMatrix(dm, M_.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(M_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
         model_->assemble_mass_matrix(M_);
 
         // ── Assemble damping matrix (if damping is configured) ───────
@@ -543,8 +542,8 @@ public:
             // Need initial stiffness for Rayleigh damping
             if (!K0_) assemble_initial_stiffness();
 
-            DMCreateMatrix(dm, &C_);
-            MatSetOption(C_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+            FALL_N_PETSC_CHECK(DMCreateMatrix(dm, C_.ptr()));
+            FALL_N_PETSC_CHECK(MatSetOption(C_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
             damping_assembler_(M_, K0_, C_);
         }
 
@@ -554,21 +553,21 @@ public:
         }
 
         // ── Create Jacobian matrix ───────────────────────────────────
-        DMCreateMatrix(dm, &J_);
-        MatSetOption(J_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+        FALL_N_PETSC_CHECK(DMCreateMatrix(dm, J_.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(J_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
 
         // ── Register TS callbacks ────────────────────────────────────
         ctx_ = {this, model_};
 
-        TSSetI2Function(ts_, F_work_, I2Function, &ctx_);
-        TSSetI2Jacobian(ts_, J_, J_, I2Jacobian, &ctx_);
-        TSMonitorSet(ts_, Monitor, &ctx_, nullptr);
+        FALL_N_PETSC_CHECK(TSSetI2Function(ts_, F_work_, I2Function, &ctx_));
+        FALL_N_PETSC_CHECK(TSSetI2Jacobian(ts_, J_, J_, I2Jacobian, &ctx_));
+        FALL_N_PETSC_CHECK(TSMonitorSet(ts_, Monitor, &ctx_, nullptr));
 
         // ── Set initial solution ─────────────────────────────────────
-        TS2SetSolution(ts_, U_, V_);
+        FALL_N_PETSC_CHECK(TS2SetSolution(ts_, U_, V_));
 
         // ── Apply TS options from command line ───────────────────────
-        TSSetFromOptions(ts_);
+        FALL_N_PETSC_CHECK(TSSetFromOptions(ts_));
 
         is_setup_ = true;
         timer_.stop("setup");
@@ -583,28 +582,28 @@ public:
     void set_initial_displacement(Vec u0_global) {
         if (!U_) {
             DM dm = model_->get_plex();
-            DMCreateGlobalVector(dm, &U_);
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, U_.ptr()));
         }
-        VecCopy(u0_global, U_);
+        FALL_N_PETSC_CHECK(VecCopy(u0_global, U_));
     }
 
     /// Set initial velocity (global vector).
     void set_initial_velocity(Vec v0_global) {
         if (!V_) {
             DM dm = model_->get_plex();
-            DMCreateGlobalVector(dm, &V_);
+            FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, V_.ptr()));
         }
-        VecCopy(v0_global, V_);
+        FALL_N_PETSC_CHECK(VecCopy(v0_global, V_));
     }
 
     /// Set initial conditions from a BoundaryConditionSet.
     void set_initial_conditions(const BoundaryConditionSet<dim>& bcs) {
         DM dm = model_->get_plex();
 
-        if (!U_) DMCreateGlobalVector(dm, &U_);
-        if (!V_) DMCreateGlobalVector(dm, &V_);
-        VecSet(U_, 0.0);
-        VecSet(V_, 0.0);
+        if (!U_) FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, U_.ptr()));
+        if (!V_) FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, V_.ptr()));
+        FALL_N_PETSC_CHECK(VecSet(U_, 0.0));
+        FALL_N_PETSC_CHECK(VecSet(V_, 0.0));
 
         // Apply ICs in local space, then scatter to global
         Vec u_local, v_local;
@@ -634,9 +633,9 @@ public:
     bool solve(double t_final, double dt) {
         setup();
 
-        TSSetTimeStep(ts_, dt);
-        TSSetMaxTime(ts_, t_final);
-        TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP);
+        FALL_N_PETSC_CHECK(TSSetTimeStep(ts_, dt));
+        FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_final));
+        FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
 
         PetscPrintf(PETSC_COMM_WORLD,
             "\n  ══════════════════════════════════════════════════════════\n"
@@ -645,16 +644,16 @@ public:
             t_final, dt);
 
         timer_.start("solve");
-        TSSolve(ts_, U_);
+        FALL_N_PETSC_CHECK(TSSolve(ts_, U_));
         timer_.stop("solve");
 
         TSConvergedReason reason;
-        TSGetConvergedReason(ts_, &reason);
+        FALL_N_PETSC_CHECK(TSGetConvergedReason(ts_, &reason));
 
         PetscInt steps;
         PetscReal final_time;
-        TSGetStepNumber(ts_, &steps);
-        TSGetTime(ts_, &final_time);
+        FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &steps));
+        FALL_N_PETSC_CHECK(TSGetTime(ts_, &final_time));
 
         PetscPrintf(PETSC_COMM_WORLD,
             "\n  DynamicAnalysis: %s at t=%.6f after %d steps (reason=%d)\n",
@@ -677,15 +676,15 @@ public:
     bool solve(double t_start, double t_final, double dt) {
         setup();
 
-        TSSetTime(ts_, t_start);
-        TSSetTimeStep(ts_, dt);
-        TSSetMaxTime(ts_, t_final);
-        TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP);
+        FALL_N_PETSC_CHECK(TSSetTime(ts_, t_start));
+        FALL_N_PETSC_CHECK(TSSetTimeStep(ts_, dt));
+        FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_final));
+        FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
 
-        TSSolve(ts_, U_);
+        FALL_N_PETSC_CHECK(TSSolve(ts_, U_));
 
         TSConvergedReason reason;
-        TSGetConvergedReason(ts_, &reason);
+        FALL_N_PETSC_CHECK(TSGetConvergedReason(ts_, &reason));
 
         // Update model state
         {
@@ -749,30 +748,16 @@ public:
     // =================================================================
 
     explicit DynamicAnalysis(ModelT* model) : model_{model} {
-        TSCreate(PETSC_COMM_WORLD, &ts_);
-        TSSetDM(ts_, model_->get_plex());
+        FALL_N_PETSC_CHECK(TSCreate(PETSC_COMM_WORLD, ts_.ptr()));
+        FALL_N_PETSC_CHECK(TSSetDM(ts_, model_->get_plex()));
 
         // Default: generalized-α (optimal for structural dynamics)
-        TSSetType(ts_, TSALPHA2);
+        FALL_N_PETSC_CHECK(TSSetType(ts_, TSALPHA2));
     }
 
     DynamicAnalysis() = default;
 
-    ~DynamicAnalysis() {
-        if (ts_)         TSDestroy(&ts_);
-        if (U_)          VecDestroy(&U_);
-        if (V_)          VecDestroy(&V_);
-        if (F_work_)     VecDestroy(&F_work_);
-        if (f_ext_work_) VecDestroy(&f_ext_work_);
-        if (M_)      MatDestroy(&M_);
-        if (C_)      MatDestroy(&C_);
-        if (J_)      MatDestroy(&J_);
-        if (K0_)     MatDestroy(&K0_);
-
-        for (auto& gm : ground_motions_) {
-            if (gm.influence) VecDestroy(&gm.influence);
-        }
-    }
+    ~DynamicAnalysis() = default;
 
     DynamicAnalysis(const DynamicAnalysis&)            = delete;
     DynamicAnalysis& operator=(const DynamicAnalysis&) = delete;

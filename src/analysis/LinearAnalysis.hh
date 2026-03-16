@@ -5,6 +5,7 @@
 #include <petscksp.h>
 
 #include "../model/Model.hh"
+#include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 
 // =============================================================================
@@ -31,10 +32,10 @@ class LinearAnalysis
     static constexpr auto dim = MaterialPolicy::dim;
 
     ModelT* model_{nullptr};
-    KSP     solver_{nullptr};
+    petsc::OwnedKSP solver_{};
 
-    Mat K{nullptr};
-    Vec U{nullptr}, F{nullptr};
+    petsc::OwnedMat K{};
+    petsc::OwnedVec U{}, F{};
 
     AnalysisTimer timer_;
 
@@ -47,30 +48,30 @@ public:
     auto get_model() const { return model_; }
 
     void setup_vector_sizes(){
-        DMCreateGlobalVector(model_->get_plex(), &U);
-        VecDuplicate(U, &F);
-        VecSet(U, 0.0);
-        VecSet(F, 0.0);
+        FALL_N_PETSC_CHECK(DMCreateGlobalVector(model_->get_plex(), U.ptr()));
+        FALL_N_PETSC_CHECK(VecDuplicate(U.get(), F.ptr()));
+        FALL_N_PETSC_CHECK(VecSet(U.get(), 0.0));
+        FALL_N_PETSC_CHECK(VecSet(F.get(), 0.0));
     }
 
     void setup_matrix_sizes(){
-        DMCreateMatrix(model_->get_plex(), &K);
-        MatSetOption(K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-        MatZeroEntries(K);
+        FALL_N_PETSC_CHECK(DMCreateMatrix(model_->get_plex(), K.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(K.get(), MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+        FALL_N_PETSC_CHECK(MatZeroEntries(K.get()));
     }
 
     void set_RHS(){
-        DMLocalToGlobal(model_->get_plex(), model_->force_vector(), ADD_VALUES, F);
+        FALL_N_PETSC_CHECK(DMLocalToGlobal(model_->get_plex(), model_->force_vector(), ADD_VALUES, F.get()));
     }
 
     void setup_solver(){
-        KSPSetDM(solver_, model_->get_plex());
-        KSPSetFromOptions(solver_);
-        KSPSetDMActive(solver_, PETSC_FALSE);
+        FALL_N_PETSC_CHECK(KSPSetDM(solver_.get(), model_->get_plex()));
+        FALL_N_PETSC_CHECK(KSPSetFromOptions(solver_.get()));
+        FALL_N_PETSC_CHECK(KSPSetDMActive(solver_.get(), PETSC_FALSE));
     }
 
     void commit_model_state(){
-        DMGlobalToLocal(model_->get_plex(), U, INSERT_VALUES, model_->state_vector());
+        FALL_N_PETSC_CHECK(DMGlobalToLocal(model_->get_plex(), U.get(), INSERT_VALUES, model_->state_vector()));
         VecAXPY        (model_->state_vector(), 1.0, model_->imposed_solution());
     }
 
@@ -82,18 +83,14 @@ public:
         timer_.stop("setup");
 
         timer_.start("assembly");
-        model_->inject_K(this->K);
+        model_->inject_K(K.get());
         timer_.stop("assembly");
 
-        // Honour PETSc runtime visualisation options:
-        //   -mat_view draw          → X11 spy plot
-        //   -mat_view ::ascii_info  → summary to stdout
-        // No-op when none of these options are set.
-        MatViewFromOptions(K, nullptr, "-mat_view");
+        MatViewFromOptions(K.get(), nullptr, "-mat_view");
 
         timer_.start("solve");
-        KSPSetOperators(solver_, K, K);
-        KSPSolve(solver_, F, U);
+        FALL_N_PETSC_CHECK(KSPSetOperators(solver_.get(), K.get(), K.get()));
+        FALL_N_PETSC_CHECK(KSPSolve(solver_.get(), F.get(), U.get()));
         timer_.stop("solve");
 
         timer_.start("commit");
@@ -103,18 +100,13 @@ public:
     }
 
     explicit LinearAnalysis(ModelT* model) : model_{model} {
-        KSPCreate(PETSC_COMM_WORLD, &solver_);
+        FALL_N_PETSC_CHECK(KSPCreate(PETSC_COMM_WORLD, solver_.ptr()));
         setup_solver();
     }
 
     LinearAnalysis() = delete;
 
-    ~LinearAnalysis(){
-        MatDestroy(&K);
-        VecDestroy(&U);
-        VecDestroy(&F);
-        KSPDestroy(&solver_);
-    }
+    ~LinearAnalysis() = default;
 };
 
 #endif // FALL_N_SRC_ANALYSIS_LINEARANALYSIS_HH

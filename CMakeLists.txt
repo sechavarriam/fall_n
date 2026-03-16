@@ -848,6 +848,29 @@ endif()
 
 add_test(NAME boundary_conditions COMMAND fall_n_bc_test)
 
+# ── Phase 1 verification: constitutive state protocol commit chain ───────────
+add_executable(fall_n_commit_chain_test
+  tests/test_constitutive_commit_chain.cpp
+)
+
+target_include_directories(fall_n_commit_chain_test PRIVATE ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(fall_n_commit_chain_test PRIVATE MPI::MPI_CXX)
+target_link_libraries(fall_n_commit_chain_test PRIVATE PkgConfig::PETSC)
+target_link_libraries(fall_n_commit_chain_test PRIVATE Eigen3::Eigen)
+target_link_libraries(fall_n_commit_chain_test PRIVATE ${VTK_LIBRARIES})
+
+vtk_module_autoinit(
+  TARGETS fall_n_commit_chain_test
+  MODULES ${VTK_LIBRARIES}
+)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_commit_chain_test PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+add_test(NAME constitutive_commit_chain COMMAND fall_n_commit_chain_test)
+
 # ===============================================================================
 # ============== Matplot++  =====================================================
 # ===============================================================================
