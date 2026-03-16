@@ -792,7 +792,7 @@ void test_shell_constitutive_matrix() {
     const double E = 200.0, nu = 0.3, t = 0.1;
     MindlinShellSection sec(E, nu, t);
 
-    auto D = sec.compliance_matrix();
+    auto D = sec.stiffness_matrix();
 
     const double Dm  = E * t / (1.0 - nu * nu);
     const double Db  = E * t * t * t / (12.0 * (1.0 - nu * nu));

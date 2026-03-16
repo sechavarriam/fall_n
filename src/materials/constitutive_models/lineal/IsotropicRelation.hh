@@ -9,7 +9,7 @@
 // =============================================================================
 //
 //  Derives from ElasticRelation<ThreeDimensionalMaterial> and populates the
-//  tangent (compliance) matrix using two parameters: E (Young's modulus) and
+//  tangent (stiffness) matrix using two parameters: E (Young's modulus) and
 //  ν (Poisson's ratio).
 //
 //  Inherits full ConstitutiveRelation / ElasticConstitutiveRelation conformance
@@ -56,18 +56,18 @@ public:
     // --- Build the tangent matrix from E, ν ----------------------------------
 
     constexpr void update_elasticity() {
-        compliance_matrix_(0, 0) = c11();
-        compliance_matrix_(1, 1) = c11();
-        compliance_matrix_(2, 2) = c11();
-        compliance_matrix_(3, 3) = (c11() - c12()) / 2.0;
-        compliance_matrix_(4, 4) = (c11() - c12()) / 2.0;
-        compliance_matrix_(5, 5) = (c11() - c12()) / 2.0;
-        compliance_matrix_(0, 1) = c12();
-        compliance_matrix_(0, 2) = c12();
-        compliance_matrix_(1, 0) = c12();
-        compliance_matrix_(1, 2) = c12();
-        compliance_matrix_(2, 0) = c12();
-        compliance_matrix_(2, 1) = c12();
+        stiffness_matrix_(0, 0) = c11();
+        stiffness_matrix_(1, 1) = c11();
+        stiffness_matrix_(2, 2) = c11();
+        stiffness_matrix_(3, 3) = (c11() - c12()) / 2.0;
+        stiffness_matrix_(4, 4) = (c11() - c12()) / 2.0;
+        stiffness_matrix_(5, 5) = (c11() - c12()) / 2.0;
+        stiffness_matrix_(0, 1) = c12();
+        stiffness_matrix_(0, 2) = c12();
+        stiffness_matrix_(1, 0) = c12();
+        stiffness_matrix_(1, 2) = c12();
+        stiffness_matrix_(2, 0) = c12();
+        stiffness_matrix_(2, 1) = c12();
     }
 
     constexpr void update_elasticity(double young_modulus, double poisson_ratio) {

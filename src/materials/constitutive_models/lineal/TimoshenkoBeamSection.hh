@@ -109,13 +109,13 @@ public:
     // --- Build/update the section stiffness matrix ---------------------------
 
     constexpr void update_section_stiffness() {
-        compliance_matrix_.setZero();
-        compliance_matrix_(0, 0) = axial_stiffness();        //  EA
-        compliance_matrix_(1, 1) = bending_stiffness_y();    //  EI_y
-        compliance_matrix_(2, 2) = bending_stiffness_z();    //  EI_z
-        compliance_matrix_(3, 3) = shear_stiffness_y();      //  k_y · GA
-        compliance_matrix_(4, 4) = shear_stiffness_z();      //  k_z · GA
-        compliance_matrix_(5, 5) = torsional_stiffness();    //  GJ
+        stiffness_matrix_.setZero();
+        stiffness_matrix_(0, 0) = axial_stiffness();        //  EA
+        stiffness_matrix_(1, 1) = bending_stiffness_y();    //  EI_y
+        stiffness_matrix_(2, 2) = bending_stiffness_z();    //  EI_z
+        stiffness_matrix_(3, 3) = shear_stiffness_y();      //  k_y · GA
+        stiffness_matrix_(4, 4) = shear_stiffness_z();      //  k_z · GA
+        stiffness_matrix_(5, 5) = torsional_stiffness();    //  GJ
     }
 
     constexpr void update_section_stiffness(
@@ -131,7 +131,7 @@ public:
 
     // --- Allow direct full-matrix assignment (for coupled sections) ----------
 
-    void set_matrix(const TangentT& D) { compliance_matrix_ = D; }
+    void set_matrix(const TangentT& D) { stiffness_matrix_ = D; }
 
     // --- Constructors --------------------------------------------------------
 
@@ -170,7 +170,7 @@ public:
         std::cout << "ky = " << ky_ << "  kz = " << kz_ << std::endl;
         std::cout << std::endl;
         std::cout << "Section stiffness matrix D_s:" << std::endl;
-        std::cout << compliance_matrix() << std::endl;
+        std::cout << stiffness_matrix() << std::endl;
     }
 };
 
@@ -206,10 +206,10 @@ public:
     constexpr double shear_stiffness()   const { return k_ * G_ * A_; }
 
     constexpr void update_section_stiffness() {
-        compliance_matrix_.setZero();
-        compliance_matrix_(0, 0) = axial_stiffness();
-        compliance_matrix_(1, 1) = bending_stiffness();
-        compliance_matrix_(2, 2) = shear_stiffness();
+        stiffness_matrix_.setZero();
+        stiffness_matrix_(0, 0) = axial_stiffness();
+        stiffness_matrix_(1, 1) = bending_stiffness();
+        stiffness_matrix_(2, 2) = shear_stiffness();
     }
 
     constexpr void update_section_stiffness(
@@ -238,7 +238,7 @@ public:
         std::cout << "A = " << A_ << "  I = " << I_ << "  k = " << k_ << std::endl;
         std::cout << std::endl;
         std::cout << "Section stiffness matrix D_s:" << std::endl;
-        std::cout << compliance_matrix() << std::endl;
+        std::cout << stiffness_matrix() << std::endl;
     }
 };
 

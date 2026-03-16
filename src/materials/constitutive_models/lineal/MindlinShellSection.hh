@@ -68,29 +68,29 @@ public:
     // --- Build the section stiffness matrix ----------------------------------
 
     constexpr void update_section_stiffness() {
-        compliance_matrix_.setZero();
+        stiffness_matrix_.setZero();
 
         const double Dm = membrane_modulus();
         const double Db = bending_modulus();
         const double Ds = shear_stiffness();
 
         // Membrane block A (rows/cols 0..2)
-        compliance_matrix_(0, 0) = Dm;
-        compliance_matrix_(0, 1) = Dm * nu_;
-        compliance_matrix_(1, 0) = Dm * nu_;
-        compliance_matrix_(1, 1) = Dm;
-        compliance_matrix_(2, 2) = Dm * (1.0 - nu_) / 2.0;
+        stiffness_matrix_(0, 0) = Dm;
+        stiffness_matrix_(0, 1) = Dm * nu_;
+        stiffness_matrix_(1, 0) = Dm * nu_;
+        stiffness_matrix_(1, 1) = Dm;
+        stiffness_matrix_(2, 2) = Dm * (1.0 - nu_) / 2.0;
 
         // Bending block D_b (rows/cols 3..5)
-        compliance_matrix_(3, 3) = Db;
-        compliance_matrix_(3, 4) = Db * nu_;
-        compliance_matrix_(4, 3) = Db * nu_;
-        compliance_matrix_(4, 4) = Db;
-        compliance_matrix_(5, 5) = Db * (1.0 - nu_) / 2.0;
+        stiffness_matrix_(3, 3) = Db;
+        stiffness_matrix_(3, 4) = Db * nu_;
+        stiffness_matrix_(4, 3) = Db * nu_;
+        stiffness_matrix_(4, 4) = Db;
+        stiffness_matrix_(5, 5) = Db * (1.0 - nu_) / 2.0;
 
         // Transverse shear block S (rows/cols 6..7)
-        compliance_matrix_(6, 6) = Ds;
-        compliance_matrix_(7, 7) = Ds;
+        stiffness_matrix_(6, 6) = Ds;
+        stiffness_matrix_(7, 7) = Ds;
     }
 
     constexpr void update_section_stiffness(
@@ -102,7 +102,7 @@ public:
 
     // --- Allow direct full-matrix assignment (for composites/laminates) ------
 
-    void set_matrix(const TangentT& D) { compliance_matrix_ = D; }
+    void set_matrix(const TangentT& D) { stiffness_matrix_ = D; }
 
     // --- Constructors --------------------------------------------------------
 
@@ -123,7 +123,7 @@ public:
         std::cout << "kappa = " << kappa_ << std::endl;
         std::cout << std::endl;
         std::cout << "Section stiffness matrix D_s:" << std::endl;
-        std::cout << compliance_matrix() << std::endl;
+        std::cout << stiffness_matrix() << std::endl;
     }
 };
 
