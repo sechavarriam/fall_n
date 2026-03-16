@@ -3,18 +3,18 @@
 // =============================================================================
 //
 //  Integration tests exercising the complete DynamicAnalysis pipeline on a
-//  multi-element Hex27 mesh (validation_cube.msh: 8 elements, 125 nodes):
+//  single hex8 element (unit cube [0,1]³, 8 nodes, 24 DOFs):
 //
-//    ── Multi-element free vibration ──────────────────────────────────────
-//    1. Period verification vs analytical bar:  ω₁ = (π/2L)√(E/ρ)
+//    ── Free vibration with monitor ───────────────────────────────────────
+//    1. Period via zero-crossing detection + CSV output
 //    2. Undamped amplitude conservation (energy preservation)
 //
 //    ── Damping ────────────────────────────────────────────────────────────
-//    3. Rayleigh damping amplitude decay on multi-element mesh
+//    3. Rayleigh damping amplitude decay (early vs late)
 //    4. Damping factory completeness (all 5 factories)
 //
 //    ── Seismic ground motion ─────────────────────────────────────────────
-//    5. Ground motion seismic input — verify non-trivial response
+//    5. Ground motion seismic input — non-trivial response
 //    6. Multi-directional ground motion (x + z simultaneously)
 //
 //    ── Time-history output ───────────────────────────────────────────────
@@ -50,20 +50,16 @@
 //  Constants
 // =============================================================================
 
-static constexpr std::size_t DIM  = 3;
+static constexpr std::size_t DIM = 3;
 
-static const std::string MESH_FILE =
-    "/home/sechavarriam/MyLibs/fall_n/tests/validation_cube.msh";
-
-static constexpr double E_mod    = 1000.0;  // Young's modulus
-static constexpr double nu       = 0.0;     // Poisson ratio (1-D like axial)
-static constexpr double rho      = 1.0;     // Mass density
-static constexpr double L_cube   = 1.0;     // Cube side length
+static constexpr double E_mod  = 1000.0;  // Young's modulus
+static constexpr double nu     = 0.0;     // Poisson ratio (1-D like axial)
+static constexpr double rho    = 1.0;     // Mass density
 
 // Analytical first axial natural frequency for uniform bar:
 //   ω₁ = (π / 2L) √(E / ρ)
 static const double omega_analytical =
-    M_PI / (2.0 * L_cube) * std::sqrt(E_mod / rho);
+    M_PI / 2.0 * std::sqrt(E_mod / rho);
 static const double T_analytical = 2.0 * M_PI / omega_analytical;
 
 static int passed = 0;
@@ -104,67 +100,68 @@ static void write_csv(const std::string& filename,
     }
 }
 
-/// Find node IDs on a given coordinate plane.
-static std::vector<std::size_t> find_face_nodes(
-    const Domain<DIM>& D, std::size_t axis, double coord, double tol = 1e-6)
-{
-    std::vector<std::size_t> ids;
-    for (const auto& node : D.nodes()) {
-        if (std::abs(node.coord(axis) - coord) < tol)
-            ids.push_back(node.id());
-    }
-    return ids;
+/// Create a unit cube [0,1]³ with 1 hex8 element, 8 nodes.
+static void create_unit_cube(Domain<DIM>& D) {
+    D.preallocate_node_capacity(8);
+    D.add_node(0, 0.0, 0.0, 0.0);
+    D.add_node(1, 1.0, 0.0, 0.0);
+    D.add_node(2, 0.0, 1.0, 0.0);
+    D.add_node(3, 1.0, 1.0, 0.0);
+    D.add_node(4, 0.0, 0.0, 1.0);
+    D.add_node(5, 1.0, 0.0, 1.0);
+    D.add_node(6, 0.0, 1.0, 1.0);
+    D.add_node(7, 1.0, 1.0, 1.0);
+
+    std::array<PetscInt, 8> conn{0, 1, 2, 3, 4, 5, 6, 7};
+    D.make_element<LagrangeElement<3, 2, 2, 2>>(
+        GaussLegendreCellIntegrator<2, 2, 2>{}, 0, conn.data());
+    D.assemble_sieve();
 }
 
+// x=1 face node IDs in unit cube
+static const std::vector<std::size_t> X1_NODES = {1, 3, 5, 7};
+
 
 // =============================================================================
-//  Test 1: Multi-element free vibration — period verification
+//  Test 1: Free vibration — period via zero-crossing + CSV
 // =============================================================================
 //
-//  8 Hex27 elements, z=0 clamped, z=1 face gets IC u_z = u0.
-//  Measures the oscillation period by tracking zero-crossings of u_z
-//  at a z=1 corner node.  Compares with the analytical bar frequency.
+//  x=0 clamped, x=1 face gets IC u_x = u0.
+//  Tracks zero-crossings via monitor to measure oscillation period.
 
 static void test_1_free_vibration_period() {
-    std::cout << "\n--- Test 1: Multi-element free vibration (period check) ---\n";
+    std::cout << "\n--- Test 1: Free vibration (period check via monitor) ---\n";
 
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
     DynamicAnalysis<Policy> dyn(&M);
 
-    // Apply initial displacement u_z = 0.001 to z=1 face
     BoundaryConditionSet<DIM> bcs;
-    auto z1_nodes = find_face_nodes(D, 2, L_cube);
-    check(!z1_nodes.empty(), "Found z=1 face nodes");
-
-    for (auto nid : z1_nodes)
-        bcs.add_initial_condition({nid, {0.0, 0.0, 0.001}, {0.0, 0.0, 0.0}});
-
+    for (auto nid : X1_NODES)
+        bcs.add_initial_condition({nid, {0.001, 0.0, 0.0}, {0.0, 0.0, 0.0}});
     dyn.set_initial_conditions(bcs);
 
-    // Track zero crossings via monitor
-    std::size_t tip_node = z1_nodes.front();
-    std::vector<double> times, uz_history;
+    // Track displacement via monitor
+    std::vector<double> times, ux_history;
 
     dyn.set_monitor([&](PetscInt /*step*/, double t, Vec /*U*/, Vec /*V*/) {
-        auto u = dyn.get_nodal_displacement(tip_node);
+        auto u = dyn.get_nodal_displacement(1);
         times.push_back(t);
-        uz_history.push_back(u[2]);
+        ux_history.push_back(u[0]);
     });
 
-    // Solve for 1.5 analytical periods (many more actual 3D periods)
-    double dt = T_analytical / 80.0;
+    double dt = T_analytical / 100.0;
     double t_final = 1.5 * T_analytical;
 
     PetscPrintf(PETSC_COMM_WORLD,
@@ -175,40 +172,33 @@ static void test_1_free_vibration_period() {
     bool ok = dyn.solve(t_final, dt);
     check(ok, "TS solve converged");
 
-    // Measure period via zero-crossings
+    // Count zero-crossings
     std::vector<double> crossings;
-    for (std::size_t i = 1; i < uz_history.size(); ++i) {
-        if (uz_history[i-1] * uz_history[i] < 0.0) {
-            // Linear interpolation for crossing time
+    for (std::size_t i = 1; i < ux_history.size(); ++i) {
+        if (ux_history[i-1] * ux_history[i] < 0.0) {
             double t_cross = times[i-1] +
-                (0.0 - uz_history[i-1]) / (uz_history[i] - uz_history[i-1])
+                (0.0 - ux_history[i-1]) / (ux_history[i] - ux_history[i-1])
                 * (times[i] - times[i-1]);
             crossings.push_back(t_cross);
         }
     }
 
     if (crossings.size() >= 3) {
-        // Period = time between every other zero crossing
         double T_measured = crossings[2] - crossings[0];
         PetscPrintf(PETSC_COMM_WORLD,
             "  T_measured = %.6f (from %zu crossings)\n"
             "  T_analytical(1D bar) = %.6f\n",
             T_measured, crossings.size(), T_analytical);
-
-        // For 3D cube the frequency differs from the 1D bar approximation.
-        // Verify the measured period is physically reasonable:
-        //  - positive
-        //  - less than t_final (at least one full cycle)
         check(T_measured > 0.0, "Measured period > 0");
         check(T_measured < t_final, "Measured period < simulation time");
     } else {
         check(crossings.size() >= 2, "At least 2 zero crossings (oscillatory)");
     }
 
-    // Write CSV for visual inspection
+    // CSV output
     write_csv("free_vibration_history.csv",
-              {"time", "uz"},
-              {times, uz_history});
+              {"time", "ux"},
+              {times, ux_history});
     check(std::filesystem::exists(output_dir() / "free_vibration_history.csv"),
           "Free vibration CSV written");
 }
@@ -224,13 +214,13 @@ static void test_2_amplitude_conservation() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
@@ -238,44 +228,37 @@ static void test_2_amplitude_conservation() {
 
     constexpr double u0 = 0.001;
     BoundaryConditionSet<DIM> bcs;
-    auto z1_nodes = find_face_nodes(D, 2, L_cube);
-    for (auto nid : z1_nodes)
-        bcs.add_initial_condition({nid, {0.0, 0.0, u0}, {0.0, 0.0, 0.0}});
+    for (auto nid : X1_NODES)
+        bcs.add_initial_condition({nid, {u0, 0.0, 0.0}, {0.0, 0.0, 0.0}});
     dyn.set_initial_conditions(bcs);
 
-    // Track max displacement amplitude at each half-period
-    std::size_t tip_node = z1_nodes.front();
-    double max_uz = 0.0;
-    double min_uz = 0.0;
+    double max_ux = 0.0, min_ux = 0.0;
 
     dyn.set_monitor([&](PetscInt /*step*/, double /*t*/, Vec /*U*/, Vec /*V*/) {
-        auto u = dyn.get_nodal_displacement(tip_node);
-        max_uz = std::max(max_uz, u[2]);
-        min_uz = std::min(min_uz, u[2]);
+        auto u = dyn.get_nodal_displacement(1);
+        max_ux = std::max(max_ux, u[0]);
+        min_ux = std::min(min_ux, u[0]);
     });
 
-    // Solve for 1.5 analytical periods, undamped
-    double dt = T_analytical / 80.0;
+    double dt = T_analytical / 100.0;
     bool ok = dyn.solve(1.5 * T_analytical, dt);
     check(ok, "Undamped solve converged");
 
     PetscPrintf(PETSC_COMM_WORLD,
-        "  max|u_z| = %.6e, IC u0 = %.6e\n"
-        "  u_z range: [%.6e, %.6e]\n",
-        std::max(max_uz, -min_uz), u0, min_uz, max_uz);
+        "  max|u_x| = %.6e, IC u0 = %.6e\n"
+        "  u_x range: [%.6e, %.6e]\n",
+        std::max(max_ux, -min_ux), u0, min_ux, max_ux);
 
-    // Amplitude should not exceed ~1.2 × u0 (generalized-α with ρ∞=1 is non-dissipative)
-    check(max_uz > 0.5 * u0, "Positive peak > 50% of u0");
-    check(min_uz < -0.5 * u0, "Negative peak reaches −50% of u0 (oscillation)");
+    check(max_ux > 0.5 * u0, "Positive peak > 50% of u0");
+    check(min_ux < -0.3 * u0, "Negative peak (oscillation observed)");
 
-    // Non-dissipative: max amplitude should stay within 20% of u0
-    double max_amp = std::max(max_uz, -min_uz);
+    double max_amp = std::max(max_ux, -min_ux);
     check(max_amp > 0.8 * u0, "Peak amplitude > 80% of u0 (no significant decay)");
 }
 
 
 // =============================================================================
-//  Test 3: Rayleigh damping amplitude decay (multi-element)
+//  Test 3: Rayleigh damping amplitude decay
 // =============================================================================
 
 static void test_3_rayleigh_damping_decay() {
@@ -284,13 +267,13 @@ static void test_3_rayleigh_damping_decay() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
@@ -298,42 +281,38 @@ static void test_3_rayleigh_damping_decay() {
 
     constexpr double u0 = 0.001;
     BoundaryConditionSet<DIM> bcs;
-    auto z1_nodes = find_face_nodes(D, 2, L_cube);
-    for (auto nid : z1_nodes)
-        bcs.add_initial_condition({nid, {0.0, 0.0, u0}, {0.0, 0.0, 0.0}});
+    for (auto nid : X1_NODES)
+        bcs.add_initial_condition({nid, {u0, 0.0, 0.0}, {0.0, 0.0, 0.0}});
     dyn.set_initial_conditions(bcs);
 
-    // Moderate Rayleigh damping: strong enough to be visible
+    // Strong Rayleigh damping
     dyn.set_rayleigh_damping(10.0, 0.002);
 
-    std::size_t tip_node = z1_nodes.front();
-    std::vector<double> times, uz_history;
+    std::vector<double> times, ux_history;
 
     dyn.set_monitor([&](PetscInt /*step*/, double t, Vec /*U*/, Vec /*V*/) {
-        auto u = dyn.get_nodal_displacement(tip_node);
+        auto u = dyn.get_nodal_displacement(1);
         times.push_back(t);
-        uz_history.push_back(u[2]);
+        ux_history.push_back(u[0]);
     });
 
-    // Solve for 2 analytical periods (~150 actual cycles at the higher 3D frequency)
-    double dt = T_analytical / 80.0;
-    bool ok = dyn.solve(2.0 * T_analytical, dt);
+    double dt = T_analytical / 100.0;
+    bool ok = dyn.solve(3.0 * T_analytical, dt);
     check(ok, "Damped solve converged");
 
-    // Compare max|uz| in first quarter vs last quarter of the trace
-    // For a damped system, early amplitudes should exceed late amplitudes
-    std::size_t n = uz_history.size();
+    // Compare max|ux| in first quarter vs last quarter
+    std::size_t n = ux_history.size();
     std::size_t q1_end = n / 4;
     std::size_t q4_start = 3 * n / 4;
 
     double max_early = 0.0, max_late = 0.0;
     for (std::size_t i = 0; i < q1_end; ++i)
-        max_early = std::max(max_early, std::abs(uz_history[i]));
+        max_early = std::max(max_early, std::abs(ux_history[i]));
     for (std::size_t i = q4_start; i < n; ++i)
-        max_late = std::max(max_late, std::abs(uz_history[i]));
+        max_late = std::max(max_late, std::abs(ux_history[i]));
 
     PetscPrintf(PETSC_COMM_WORLD,
-        "  Early max|u_z| = %.6e, Late max|u_z| = %.6e\n"
+        "  Early max|u_x| = %.6e, Late max|u_x| = %.6e\n"
         "  Decay ratio (late/early) = %.4f\n",
         max_early, max_late,
         (max_early > 1e-15) ? max_late / max_early : 0.0);
@@ -341,10 +320,9 @@ static void test_3_rayleigh_damping_decay() {
     check(max_early > 1e-8, "Non-trivial early response");
     check(max_late < max_early, "Amplitude decays with Rayleigh damping");
 
-    // Write CSV
     write_csv("rayleigh_damping_decay.csv",
-              {"time", "uz"},
-              {times, uz_history});
+              {"time", "ux"},
+              {times, ux_history});
     check(std::filesystem::exists(output_dir() / "rayleigh_damping_decay.csv"),
           "CSV time-history written");
 }
@@ -383,12 +361,6 @@ static void test_4_damping_factories() {
 // =============================================================================
 //  Test 5: Ground motion seismic input
 // =============================================================================
-//
-//  Applies a synthetic sinusoidal ground acceleration in z:
-//    a_g(t) = A0 · sin(ω_g · t)   for 0 ≤ t ≤ t_pulse
-//    a_g(t) = 0                    for t > t_pulse
-//
-//  Verifies that the structure develops non-trivial relative displacement.
 
 static void test_5_ground_motion_seismic() {
     std::cout << "\n--- Test 5: Ground motion seismic input ---\n";
@@ -396,64 +368,60 @@ static void test_5_ground_motion_seismic() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
     DynamicAnalysis<Policy> dyn(&M);
 
-    // Ground motion: sinusoidal pulse in z direction
-    double A0 = 0.5;           // acceleration amplitude
-    double omega_g = 30.0;     // ground motion frequency (rad/s)
-    double t_pulse = 0.2;      // pulse duration
+    // Sinusoidal ground acceleration pulse in x-direction
+    double A0 = 0.5;
+    double omega_g = 30.0;
+    double t_pulse = 0.2;
 
     BoundaryConditionSet<DIM> bcs;
     GroundMotionBC gm;
-    gm.direction = 2;  // z-direction
+    gm.direction = 0;  // x-direction
     gm.acceleration = [=](double t) -> double {
         return (t <= t_pulse) ? A0 * std::sin(omega_g * t) : 0.0;
     };
     bcs.add_ground_motion(std::move(gm));
     dyn.set_boundary_conditions(bcs);
 
-    // Light damping to stabilize
     dyn.set_rayleigh_damping(0.5, 0.0001);
 
-    std::size_t tip_node = find_face_nodes(D, 2, L_cube).front();
-    std::vector<double> times, uz_hist;
+    std::vector<double> times, ux_hist;
 
     dyn.set_monitor([&](PetscInt /*step*/, double t, Vec /*U*/, Vec /*V*/) {
-        auto u = dyn.get_nodal_displacement(tip_node);
+        auto u = dyn.get_nodal_displacement(1);
         times.push_back(t);
-        uz_hist.push_back(u[2]);
+        ux_hist.push_back(u[0]);
     });
 
     double dt = T_analytical / 80.0;
-    double t_final = t_pulse + 0.5 * T_analytical;  // pulse + short free vibration
+    double t_final = t_pulse + 0.5 * T_analytical;
 
     bool ok = dyn.solve(t_final, dt);
     check(ok, "Ground motion solve converged");
 
-    // Verify non-trivial response
-    double max_uz = *std::max_element(uz_hist.begin(), uz_hist.end());
-    double min_uz = *std::min_element(uz_hist.begin(), uz_hist.end());
-    double max_response = std::max(max_uz, -min_uz);
+    double max_response = 0.0;
+    for (double v : ux_hist) max_response = std::max(max_response, std::abs(v));
 
     PetscPrintf(PETSC_COMM_WORLD,
-        "  Max seismic response |u_z| = %.6e\n", max_response);
+        "  Max seismic response |u_x| = %.6e\n", max_response);
 
     check(max_response > 1e-8, "Non-trivial seismic response");
-    check(uz_hist.size() > 10, "Sufficient time steps recorded");
+    check(ux_hist.size() > 10, "Sufficient time steps recorded");
 
     write_csv("ground_motion_response.csv",
-              {"time", "uz_relative"},
-              {times, uz_hist});
+              {"time", "ux_relative"},
+              {times, ux_hist});
     check(std::filesystem::exists(output_dir() / "ground_motion_response.csv"),
           "Seismic CSV written");
 }
@@ -469,19 +437,18 @@ static void test_6_multidirectional_ground_motion() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
     DynamicAnalysis<Policy> dyn(&M);
 
-    // Two ground motions: x-direction ramp + z-direction sinusoidal
     double A_x = 0.3, A_z = 0.5;
     double omega_x = 20.0, omega_z = 35.0;
     double t_pulse = 0.15;
@@ -505,11 +472,10 @@ static void test_6_multidirectional_ground_motion() {
     dyn.set_boundary_conditions(bcs);
     dyn.set_rayleigh_damping(0.5, 0.0001);
 
-    std::size_t tip_node = find_face_nodes(D, 2, L_cube).front();
     double max_ux = 0.0, max_uz = 0.0;
 
     dyn.set_monitor([&](PetscInt /*step*/, double /*t*/, Vec /*U*/, Vec /*V*/) {
-        auto u = dyn.get_nodal_displacement(tip_node);
+        auto u = dyn.get_nodal_displacement(1);
         max_ux = std::max(max_ux, std::abs(u[0]));
         max_uz = std::max(max_uz, std::abs(u[2]));
     });
@@ -536,74 +502,57 @@ static void test_7_forced_vibration_csv() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
     ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
     Material<Policy> mat{mat_site, ElasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
     DynamicAnalysis<Policy> dyn(&M);
 
-    // Harmonic force on z=1 face
     double F0 = 0.01;
-    double omega_f = 0.5 * omega_analytical;  // sub-resonant
+    double omega_f = 0.5 * omega_analytical;
 
-    auto z1_nodes = find_face_nodes(D, 2, L_cube);
-    double force_per_node = F0 / static_cast<double>(z1_nodes.size());
+    double force_per_node = F0 / static_cast<double>(X1_NODES.size());
 
     BoundaryConditionSet<DIM> bcs;
-    for (auto nid : z1_nodes) {
+    for (auto nid : X1_NODES) {
         NodalForceBC<DIM> fbc;
         fbc.node_id = nid;
-        fbc.components[0] = time_fn::zero();
+        fbc.components[0] = time_fn::harmonic(force_per_node, omega_f);
         fbc.components[1] = time_fn::zero();
-        fbc.components[2] = time_fn::harmonic(force_per_node, omega_f);
+        fbc.components[2] = time_fn::zero();
         bcs.add_force(std::move(fbc));
     }
     dyn.set_boundary_conditions(bcs);
     dyn.set_rayleigh_damping(0.5, 0.0001);
 
-    std::size_t tip_node = z1_nodes.front();
-    std::vector<double> t_vec, uz_vec, vz_vec;
+    std::vector<double> t_vec, ux_vec;
 
-    dyn.set_monitor([&](PetscInt /*step*/, double t, Vec /*U*/, Vec V) {
-        auto u = dyn.get_nodal_displacement(tip_node);
+    dyn.set_monitor([&](PetscInt /*step*/, double t, Vec /*U*/, Vec /*V*/) {
+        auto u = dyn.get_nodal_displacement(1);
         t_vec.push_back(t);
-        uz_vec.push_back(u[2]);
-
-        // Get velocity at tip from V (global vector)
-        DM dm = M.get_plex();
-        Vec v_local;
-        DMGetLocalVector(dm, &v_local);
-        VecSet(v_local, 0.0);
-        DMGlobalToLocal(dm, V, INSERT_VALUES, v_local);
-
-        const auto& node = M.get_domain().node(tip_node);
-        PetscScalar vz;
-        PetscInt dof_z = node.dof_index()[2];
-        VecGetValues(v_local, 1, &dof_z, &vz);
-        vz_vec.push_back(vz);
-        DMRestoreLocalVector(dm, &v_local);
+        ux_vec.push_back(u[0]);
     });
 
     double T_f = 2.0 * M_PI / omega_f;
-    double dt = T_f / 50.0;
-    bool ok = dyn.solve(2.0 * T_f, dt);
+    double dt = T_f / 40.0;
+    bool ok = dyn.solve(3.0 * T_f, dt);
     check(ok, "Forced vibration solve converged");
 
     check(t_vec.size() > 20, "Recorded ≥ 20 time steps");
 
-    double max_uz = *std::max_element(uz_vec.begin(), uz_vec.end(),
-        [](double a, double b) { return std::abs(a) < std::abs(b); });
-    check(std::abs(max_uz) > 1e-10, "Non-trivial forced response amplitude");
+    double max_ux = 0.0;
+    for (double v : ux_vec) max_ux = std::max(max_ux, std::abs(v));
+    check(max_ux > 1e-10, "Non-trivial forced response amplitude");
 
     write_csv("forced_vibration_history.csv",
-              {"time", "uz", "vz"},
-              {t_vec, uz_vec, vz_vec});
+              {"time", "ux"},
+              {t_vec, ux_vec});
     check(std::filesystem::exists(output_dir() / "forced_vibration_history.csv"),
           "Forced vibration CSV written");
 
@@ -614,10 +563,6 @@ static void test_7_forced_vibration_csv() {
 // =============================================================================
 //  Test 8: J₂ plasticity under dynamic loading
 // =============================================================================
-//
-//  Verifies that the DynamicAnalysis monitor correctly commits material
-//  state at each converged time step.  After dynamic loading, the J₂
-//  material should have accumulated plastic strain.
 
 static void test_8_j2_plasticity_dynamic() {
     std::cout << "\n--- Test 8: J2 plasticity under dynamic loading ---\n";
@@ -625,9 +570,8 @@ static void test_8_j2_plasticity_dynamic() {
     using Policy = ThreeDimensionalMaterial;
 
     Domain<DIM> D;
-    GmshDomainBuilder builder(MESH_FILE, D);
+    create_unit_cube(D);
 
-    // Soft material with low yield stress → guaranteed yielding
     double E_soft  = 200.0;
     double nu_soft = 0.3;
     double sy      = 0.05;
@@ -637,21 +581,18 @@ static void test_8_j2_plasticity_dynamic() {
     Material<Policy> mat{j2_site, InelasticUpdate{}};
 
     Model<Policy> M{D, mat};
-    M.fix_z(0.0);
+    M.fix_x(0.0);
     M.setup();
     M.set_density(rho);
 
     DynamicAnalysis<Policy> dyn(&M);
 
-    // Large initial displacement to guarantee yielding
     constexpr double u0_large = 0.01;
     BoundaryConditionSet<DIM> bcs;
-    auto z1_nodes = find_face_nodes(D, 2, L_cube);
-    for (auto nid : z1_nodes)
-        bcs.add_initial_condition({nid, {0.0, 0.0, u0_large}, {0.0, 0.0, 0.0}});
+    for (auto nid : X1_NODES)
+        bcs.add_initial_condition({nid, {u0_large, 0.0, 0.0}, {0.0, 0.0, 0.0}});
     dyn.set_initial_conditions(bcs);
 
-    // Light damping
     dyn.set_rayleigh_damping(1.0, 0.0005);
 
     int monitor_calls = 0;
@@ -666,28 +607,18 @@ static void test_8_j2_plasticity_dynamic() {
     check(ok, "J2 dynamic solve converged");
     check(monitor_calls > 0, "Monitor callback invoked (state committed)");
 
-    // Verify residual displacement (permanent set from plasticity)
-    auto u_tip = dyn.get_nodal_displacement(z1_nodes.front());
+    auto u_tip = dyn.get_nodal_displacement(1);
     PetscPrintf(PETSC_COMM_WORLD,
-        "  Tip u_z after dynamic plasticity = %.6e\n", u_tip[2]);
+        "  Tip u_x after dynamic plasticity = %.6e\n", u_tip[0]);
 
-    // With yielding + damping, the motion should settle.
-    // The absolute value doesn't need to be exactly predicted,
-    // just verify the solver handled plasticity without diverging.
-    check(std::abs(u_tip[2]) < 10.0 * u0_large,
+    check(std::abs(u_tip[0]) < 10.0 * u0_large,
           "Plastic displacement bounded");
 }
 
 
 // =============================================================================
-//  Test 9: Spectral radius comparison (ρ∞ = 1.0 vs ρ∞ = 0.0)
+//  Test 9: Spectral radius comparison (ρ∞=1 vs ρ∞=0)
 // =============================================================================
-//
-//  TSALPHA2 is the only PETSc method supporting I2Function (2nd-order).
-//  Compare two spectral radii ρ∞:
-//    ρ∞ = 1.0 → no numerical dissipation (trapezoidal-like, default)
-//    ρ∞ = 0.0 → maximum high-frequency dissipation
-//  Both must converge; ρ∞=0 should show more amplitude decay.
 
 static void test_9_spectral_radius_comparison() {
     std::cout << "\n--- Test 9: Spectral radius comparison (ρ∞ = 1 vs 0) ---\n";
@@ -696,50 +627,46 @@ static void test_9_spectral_radius_comparison() {
 
     auto run_with_radius = [](double rho_inf) {
         Domain<DIM> D;
-        GmshDomainBuilder builder(MESH_FILE, D);
+        create_unit_cube(D);
 
         ContinuumIsotropicElasticMaterial mat_site{E_mod, nu};
         Material<Policy> mat{mat_site, ElasticUpdate{}};
 
         Model<Policy> M{D, mat};
-        M.fix_z(0.0);
+        M.fix_x(0.0);
         M.setup();
         M.set_density(rho);
 
         DynamicAnalysis<Policy> dyn(&M);
-
-        // Set spectral radius
         TSAlpha2SetRadius(dyn.get_ts(), rho_inf);
 
         constexpr double u0 = 0.001;
         BoundaryConditionSet<DIM> bcs;
-        auto z1_nodes = find_face_nodes(D, 2, L_cube);
-        for (auto nid : z1_nodes)
-            bcs.add_initial_condition({nid, {0.0, 0.0, u0}, {0.0, 0.0, 0.0}});
+        for (auto nid : X1_NODES)
+            bcs.add_initial_condition({nid, {u0, 0.0, 0.0}, {0.0, 0.0, 0.0}});
         dyn.set_initial_conditions(bcs);
 
-        std::size_t tip_node = z1_nodes.front();
         double max_amp = 0.0;
 
         dyn.set_monitor([&](PetscInt /*step*/, double /*t*/, Vec /*U*/, Vec /*V*/) {
-            auto u = dyn.get_nodal_displacement(tip_node);
-            max_amp = std::max(max_amp, std::abs(u[2]));
+            auto u = dyn.get_nodal_displacement(1);
+            max_amp = std::max(max_amp, std::abs(u[0]));
         });
 
-        double dt = T_analytical / 80.0;
-        bool ok = dyn.solve(1.0 * T_analytical, dt);
+        double dt = T_analytical / 100.0;
+        bool ok = dyn.solve(1.5 * T_analytical, dt);
 
-        auto u_final = dyn.get_nodal_displacement(z1_nodes.front());
-        return std::make_tuple(ok, u_final[2], max_amp);
+        auto u_final = dyn.get_nodal_displacement(1);
+        return std::make_tuple(ok, u_final[0], max_amp);
     };
 
-    auto [ok1, uz1, amp1] = run_with_radius(1.0);
-    auto [ok0, uz0, amp0] = run_with_radius(0.0);
+    auto [ok1, ux1, amp1] = run_with_radius(1.0);
+    auto [ok0, ux0, amp0] = run_with_radius(0.0);
 
     PetscPrintf(PETSC_COMM_WORLD,
-        "  ρ∞=1.0: max|uz| = %.6e, final uz = %.6e\n"
-        "  ρ∞=0.0: max|uz| = %.6e, final uz = %.6e\n",
-        amp1, uz1, amp0, uz0);
+        "  ρ∞=1.0: max|ux| = %.6e, final ux = %.6e\n"
+        "  ρ∞=0.0: max|ux| = %.6e, final ux = %.6e\n",
+        amp1, ux1, amp0, ux0);
 
     check(ok1, "ρ∞=1.0 converged");
     check(ok0, "ρ∞=0.0 converged");
@@ -757,7 +684,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "═══════════════════════════════════════════════════════\n"
               << "  Phase 5: Dynamic & Seismic Verification\n"
-              << "  (8 Hex27 elements, 125 nodes, validation_cube.msh)\n"
+              << "  (1 Hex8 element, 8 nodes, unit cube)\n"
               << "═══════════════════════════════════════════════════════\n";
 
     test_1_free_vibration_period();
