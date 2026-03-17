@@ -1544,11 +1544,233 @@ The proposed architecture introduces two orthogonal subsystems:
         for tiered test execution, and provides CMake presets for
         one-command workflows (\texttt{ctest --preset unit} finishes
         in $\sim$6\,s).
-  \item A \textbf{ModelBuilder} orchestrator that will further extract
-        the domain/model-construction functions into a layered
-        generic/structural builder (Phase~3, not yet started).
+  \item A \textbf{ModelBuilder} orchestrator that extracts
+        the domain/model-construction functions into spec-driven
+        builders with fluent APIs, keeping the door open for
+        future scripting-language bindings
+        (Phase~3, see \S\ref{sec:phase3-implementation}).
 \end{itemize}
 
-Remaining phases: model builder (Phase~3) and completing the
+Remaining phases: completing the
 \texttt{std::print}/\texttt{format} migration across the wider
 library (Phase~4).
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Phase~3 Implementation Notes: ModelBuilder}
+\label{sec:phase3-implementation}
+
+Phase~3 implements the ModelBuilder architecture proposed in
+\S\ref{sec:model-builder}, extracting the \emph{remaining}
+anonymous-namespace functions from \texttt{main.cpp}---grid node
+generation, element creation, physical-group--to--material mapping,
+self-weight computation, and lateral load application---into two
+new library headers under the \texttt{fall\_n::} namespace.
+
+% ------------------------------------------------------------------
+\subsection{Design Decisions}
+\label{sec:phase3-decisions}
+
+\paragraph{Spec-driven, not OOP-driven.}
+The ch54 design proposal (\S\ref{sec:model-builder}) offered a
+\texttt{ModelBuilder<dim>} class with a fluent API.  The implementation
+departs from this by choosing \emph{free functions} and \emph{plain
+data structs} over a stateful class hierarchy.  The reasons:
+
+\begin{enumerate}
+  \item \textbf{Scripting-friendliness.}  A function that takes a
+        POD-like struct and returns a result is the simplest possible
+        FFI boundary.  Julia's \texttt{CxxWrap.jl} and Python's
+        \texttt{pybind11} can expose \texttt{make\_building\_domain(spec)}
+        with minimal glue code---no need to wrap a fluent builder class
+        with chaining semantics.
+
+  \item \textbf{Composability.}  Free functions compose naturally:
+        \texttt{make\_building\_domain} $\to$
+        \texttt{StructuralModelBuilder::build\_elements} $\to$
+        Model constructor.  Each step is independently testable and
+        replaceable (e.g.\ swap \texttt{make\_building\_domain} for a
+        Gmsh import).
+
+  \item \textbf{Minimum state.}  The only stateful class is
+        \texttt{StructuralModelBuilder}, which accumulates
+        group$\to$material mappings via a fluent API and then
+        produces elements in a single \texttt{build\_elements()} call.
+        This is a \emph{configuration object}, not a lifecycle manager.
+\end{enumerate}
+
+\paragraph{Non-template StructuralModelBuilder public API.}
+While the builder is technically a class template (defaulting to
+\texttt{BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>} and
+\texttt{ShellElement<MindlinReissnerShell3D>}), the default template
+arguments mean it can be instantiated as simply
+\texttt{fall\_n::StructuralModelBuilder\{\}}.  Users who need a
+different kinematic policy (e.g.\ \texttt{beam::SmallRotation}) can
+supply explicit template arguments, but the common case requires zero
+template syntax---a deliberate choice for scripting-language
+compatibility.
+
+\paragraph{BuildingGrid: topology metadata as a return value.}
+The \texttt{BuildingGrid} struct returned alongside the
+\texttt{Domain<3>} captures the grid dimensions and provides O(1)
+\texttt{node\_id(ix, iy, level)} lookups.  This avoids recalculating
+grid indices when applying loads or querying results, and serves as
+the bridge between the declarative spec and subsequent analysis steps.
+The grid also exposes topology counters
+(\texttt{num\_columns()}, \texttt{num\_beams()}, \texttt{num\_slabs()})
+used in the final report.
+
+\paragraph{Designated-initialiser API (continued from Phase~2).}
+Both \texttt{FramedBuildingSpec} and \texttt{SelfWeightSpec} use C++20
+aggregate initialisation with designated initialisers, consistent with
+the \texttt{RCColumnSpec}/\texttt{RCBeamSpec} pattern established in
+Phase~2.  This makes each parameter self-documenting at the call site.
+
+% ------------------------------------------------------------------
+\subsection{New File Organisation}
+\label{sec:phase3-files}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Header} & \textbf{Contents} \\
+\midrule
+\texttt{src/model/BuildingDomainBuilder.hh}
+  & \texttt{FramedBuildingSpec} (user-facing building specification),
+    \texttt{BuildingGrid} (immutable topology metadata with
+    \texttt{node\_id()} and topology counters),
+    \texttt{make\_building\_domain(spec)} (free function returning
+    \texttt{pair<Domain<3>, BuildingGrid>}),
+    \texttt{SelfWeightSpec} + \texttt{apply\_building\_self\_weight()}
+    (tributary gravity loads),
+    \texttt{apply\_triangular\_lateral\_load()} (height-proportional
+    lateral forces). \\
+\addlinespace
+\texttt{src/model/StructuralModelBuilder.hh}
+  & \texttt{StructuralModelBuilder<FrameElemT, ShellElemT>}
+    class template with fluent \texttt{set\_frame\_material()} /
+    \texttt{set\_shell\_material()} and a single
+    \texttt{build\_elements(domain)} that produces the type-erased
+    \texttt{StructuralElement} container. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both headers are registered in the umbrella include
+\texttt{header\_files.hh}.
+
+% ------------------------------------------------------------------
+\subsection{API Examples}
+\label{sec:phase3-api}
+
+\paragraph{Domain construction.}
+\begin{lstlisting}[language=C++,basicstyle=\small\ttfamily]
+auto [domain, grid] = fall_n::make_building_domain({
+    .x_axes       = {0.0, 6.0, 12.0, 18.0},
+    .y_axes       = {0.0, 5.0, 10.0},
+    .num_stories  = 5,
+    .story_height = 3.20,
+});
+\end{lstlisting}
+
+\paragraph{Physical-group--to--material mapping.}
+\begin{lstlisting}[language=C++,basicstyle=\small\ttfamily]
+auto elements = fall_n::StructuralModelBuilder{}
+    .set_frame_material("Columns", col_mat)
+    .set_frame_material("Beams",   beam_mat)
+    .set_shell_material("Slabs",   slab_mat)
+    .build_elements(domain);
+
+StructuralModel model{domain, std::move(elements)};
+\end{lstlisting}
+
+\paragraph{Self-weight and lateral loads.}
+\begin{lstlisting}[language=C++,basicstyle=\small\ttfamily]
+fall_n::apply_building_self_weight(model, grid, {
+    .density        = RC_DENSITY,
+    .gravity        = GRAVITY_ACCEL,
+    .column_area    = COLUMN_AREA,
+    .beam_area      = BEAM_AREA,
+    .slab_thickness = SLAB_T,
+});
+
+fall_n::apply_triangular_lateral_load(model, grid,
+    0 /* X direction */, LATERAL_AMPLITUDE);
+\end{lstlisting}
+
+% ------------------------------------------------------------------
+\subsection{Refactoring Impact on \texttt{main.cpp}}
+\label{sec:phase3-refactoring}
+
+\begin{itemize}
+  \item \textbf{Lines removed}: $\sim$240 (9~functions:
+        \texttt{node\_id()}, 3~material factories, 4~geometry
+        generators, \texttt{build\_structural\_elements()}, and the
+        \texttt{Z\_LEVELS} compile-time lambda).
+  \item \textbf{Lines added to library}: $\sim$290 across two new
+        headers (more thorough parameterisation and reusability).
+  \item \textbf{\texttt{main.cpp} size}: 628~$\to$~389 lines
+        ($-$38\%).
+  \item \textbf{Remaining local code}: constants (problem-specific
+        data), type aliases, the analysis driver function
+        (\texttt{run\_corotational\_dynamic\_rc\_building}) which now
+        reads as a declarative sequence of builder calls, and the
+        \texttt{main()} entry point.
+\end{itemize}
+
+\paragraph{Cumulative reduction.}
+Across Phases~1--3, \texttt{main.cpp} has been reduced from its
+pre-Phase~1 size of $\sim$870 lines to $\sim$389 lines ($-$55\%),
+with all extracted logic promoted to reusable, namespace-qualified
+library headers.
+
+% ------------------------------------------------------------------
+\subsection{Scripting-Language Openness}
+\label{sec:phase3-scripting}
+
+The \texttt{FramedBuildingSpec} and \texttt{SelfWeightSpec} structs
+contain only \texttt{double}, \texttt{int}, and
+\texttt{std::vector<double>} members---types that map directly to
+native arrays and scalars in Python (\texttt{pybind11::list}) and
+Julia (\texttt{Vector\{Float64\}}).
+
+The free-function entry points (\texttt{make\_building\_domain},
+\texttt{apply\_building\_self\_weight},
+\texttt{apply\_triangular\_lateral\_load}) have simple signatures:
+\texttt{(const Spec\&) -> Result}.  No template arguments appear at
+call sites when using the default element types.
+
+A future binding layer would expose these as:
+\begin{lstlisting}[language=Python,basicstyle=\small\ttfamily]
+# Python (pybind11)
+domain, grid = fall_n.make_building_domain(
+    x_axes=[0, 6, 12, 18], y_axes=[0, 5, 10],
+    num_stories=5, story_height=3.2)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Julia,basicstyle=\small\ttfamily]
+# Julia (CxxWrap.jl)
+domain, grid = FallN.make_building_domain(
+    x_axes=[0, 6, 12, 18], y_axes=[0, 5, 10],
+    num_stories=5, story_height=3.2)
+\end{lstlisting}
+
+The key design principle: \emph{no template syntax is required at the
+scripting boundary}.  All templates are resolved at library
+compilation time; the scripting layer only sees concrete types and
+free functions.
+
+% ------------------------------------------------------------------
+\subsection{Build and Test Verification}
+\label{sec:phase3-verification}
+
+After the extraction and refactoring:
+
+\begin{center}
+  \textbf{Build: zero warnings (clang++-20, \texttt{-Werror}).} \\[4pt]
+  \textbf{45 / 45 CTests passed, 0 failures.}
+\end{center}
+
+No functional changes---the building example produces identical
+results before and after Phase~3.
