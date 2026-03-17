@@ -172,6 +172,10 @@
 // --- Load application utilities ---
 #include "src/model/LoadUtilities.hh"
 
+// --- Building domain + structural model builders (Phase 3) ---
+#include "src/model/BuildingDomainBuilder.hh"
+#include "src/model/StructuralModelBuilder.hh"
+
 // =================================================================================
 // Reconstruction Module
 // =================================================================================
