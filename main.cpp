@@ -110,9 +110,10 @@ static constexpr double OMEGA_3   = 2.0 * std::numbers::pi / 0.10;  // ≈ 62.83
 //  Cyclic lateral load: sinusoidal at near-fundamental period
 //  with a slow amplitude ramp over the first second.
 static constexpr double SLAB_GRAVITY_PRESSURE = -0.0075;  // MN/m² = 7.5 kN/m²
-static constexpr double LATERAL_AMPLITUDE     =  0.10;    // MN = 100 kN per story corner
+static constexpr double LATERAL_AMPLITUDE     =  0.005;   // MN = 5 kN per node
 static constexpr double EXCITATION_PERIOD      =  0.50;   // s (near T₁ → resonance amplification)
-static constexpr double RAMP_TIME              =  1.00;   // s
+static constexpr double GRAVITY_RAMP_TIME      =  1.00;   // s (ramp gravity to avoid dynamic shock)
+static constexpr double LATERAL_RAMP_TIME      =  1.50;   // s (ramp lateral after gravity settles)
 static constexpr double T_FINAL                =  5.00;   // s
 static constexpr double DT                     =  0.005;  // s  → ~1000 steps
 
@@ -634,17 +635,24 @@ static void run_corotational_dynamic_rc_building() {
     // Damping: Rayleigh from two target frequencies and damping ratio
     solver.set_rayleigh_damping(OMEGA_1, OMEGA_3, XI_DAMP);
 
-    // External force:  f_ext(t) = f_gravity + envelope(t)·sin(2πt/T)·f_lateral
+    // External force:  f_ext(t) = g(t)·f_gravity + h(t)·sin(2πt/T)·f_lateral
+    //  g(t): smooth gravity ramp over GRAVITY_RAMP_TIME
+    //  h(t): lateral amplitude ramp starting after gravity ramp
     solver.set_force_function(
         [&](double t, Vec f_ext) {
-            // Constant gravity
-            VecAXPY(f_ext, 1.0, f_gravity);
+            // Ramp gravity smoothly to avoid dynamic shock
+            const double g_ramp = std::min(t / GRAVITY_RAMP_TIME, 1.0);
+            VecAXPY(f_ext, g_ramp, f_gravity);
 
-            // Cyclic lateral with ramp envelope
-            const double envelope = std::min(t / RAMP_TIME, 1.0);
-            const double lateral_scale =
-                envelope * std::sin(2.0 * std::numbers::pi * t / EXCITATION_PERIOD);
-            VecAXPY(f_ext, lateral_scale, f_lateral);
+            // Cyclic lateral with delayed ramp envelope
+            const double t_lat = t - GRAVITY_RAMP_TIME;
+            if (t_lat > 0.0) {
+                const double envelope =
+                    std::min(t_lat / (LATERAL_RAMP_TIME - GRAVITY_RAMP_TIME), 1.0);
+                const double lateral_scale =
+                    envelope * std::sin(2.0 * std::numbers::pi * t / EXCITATION_PERIOD);
+                VecAXPY(f_ext, lateral_scale, f_lateral);
+            }
         });
 
     // ─────────────────────────────────────────────────────────────────────
@@ -682,12 +690,32 @@ static void run_corotational_dynamic_rc_building() {
     std::cout << "  Damping ratio      : " << XI_DAMP * 100 << " %\n";
     std::cout << "  Rayleigh omega_1   : " << OMEGA_1 << " rad/s (T1=" << 2*std::numbers::pi/OMEGA_1 << " s)\n";
     std::cout << "  Rayleigh omega_3   : " << OMEGA_3 << " rad/s (T3=" << 2*std::numbers::pi/OMEGA_3 << " s)\n";
-    std::cout << "  Lateral amplitude  : " << LATERAL_AMPLITUDE << " MN per story corner\n";
+    std::cout << "  Lateral amplitude  : " << LATERAL_AMPLITUDE << " MN per node\n";
     std::cout << "  Excitation period  : " << EXCITATION_PERIOD << " s\n";
-    std::cout << "  Ramp time          : " << RAMP_TIME << " s\n";
+    std::cout << "  Gravity ramp       : " << GRAVITY_RAMP_TIME << " s\n";
+    std::cout << "  Lateral ramp       : " << LATERAL_RAMP_TIME << " s\n";
     std::cout << "  Total time         : " << T_FINAL << " s\n";
     std::cout << "  Time step          : " << DT << " s\n";
     std::cout << "  Formulation        : Corotational (large displacements)\n\n";
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  9. Setup, then override TS options programmatically
+    // ─────────────────────────────────────────────────────────────────────
+    //  setup() calls TSSetFromOptions(), which consumes the option database.
+    //  After that, we override TS-specific options via the C API to ensure
+    //  they are not reset.
+    solver.setup();
+
+    {
+        TS ts = solver.get_ts();
+        TSAlpha2SetRadius(ts, 0.9);
+
+        TSAdapt adapt;
+        TSGetAdapt(ts, &adapt);
+        TSAdaptSetType(adapt, TSADAPTNONE);
+
+        TSSetMaxSNESFailures(ts, 5);
+    }
 
     const bool ok = solver.solve(T_FINAL, DT);
 
@@ -754,17 +782,11 @@ static void run_corotational_dynamic_rc_building() {
 int main(int argc, char** argv) {
     PetscInitialize(&argc, &argv, nullptr, nullptr);
 
-    // ── PETSc TS + SNES options for structural dynamics ──────────────
-    PetscOptionsSetValue(nullptr, "-ts_type",         "alpha2");
-    PetscOptionsSetValue(nullptr, "-ts_alpha2_radius","0.9");
-    PetscOptionsSetValue(nullptr, "-ts_adapt_type",   "none");
+    // ── PETSc KSP/PC/SNES options (TS options set programmatically) ──
     PetscOptionsSetValue(nullptr, "-ksp_type",        "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type",         "lu");
     PetscOptionsSetValue(nullptr, "-snes_type",       "newtonls");
     PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
-    PetscOptionsSetValue(nullptr, "-snes_rtol",       "1e-8");
-    PetscOptionsSetValue(nullptr, "-snes_atol",       "1e-9");
-    PetscOptionsSetValue(nullptr, "-snes_max_it",     "40");
 
     run_corotational_dynamic_rc_building();
 

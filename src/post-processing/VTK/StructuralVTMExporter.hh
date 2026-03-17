@@ -212,7 +212,8 @@ reconstruction::BeamFieldPoint3D reconstruct_beam_point(
     double xi,
     double y,
     double z,
-    const SectionConstitutiveSnapshot& snapshot)
+    const SectionConstitutiveSnapshot& snapshot,
+    Vec u_petsc = nullptr)
 {
     reconstruction::BeamFieldPoint3D out;
     const auto& geom = element.geometry();
@@ -229,7 +230,17 @@ reconstruction::BeamFieldPoint3D reconstruct_beam_point(
     const auto e = element.sample_generalized_strain_local(xi, u_loc);
 
     out.reference_position = x_ref_mid + R.transpose() * offset_local;
-    out.displacement = R.transpose() * u_local;
+
+    if constexpr (requires { element.sample_displacement_global(xi, u_petsc); }) {
+        if (u_petsc) {
+            out.displacement = element.sample_displacement_global(xi, u_petsc)
+                + R.transpose() * theta.cross(offset_local);
+        } else {
+            out.displacement = R.transpose() * u_local;
+        }
+    } else {
+        out.displacement = R.transpose() * u_local;
+    }
     out.section_y = y;
     out.section_z = z;
     out.strain_xx = e[0] - z * e[1] + y * e[2];
@@ -383,8 +394,20 @@ protected:
                 const std::array<double, 1> xi_arr = {xi};
                 const auto x_ref = element.geometry().map_local_point(xi_arr);
                 const Eigen::Vector3d x = Eigen::Map<const Eigen::Vector3d>(x_ref.data());
-                const auto u = element.rotation_matrix().transpose()
-                    * element.sample_centerline_translation_local(xi, u_loc);
+
+                Eigen::Vector3d u;
+                if constexpr (requires { element.sample_displacement_global(xi, displacement_); }) {
+                    if (displacement_) {
+                        u = element.sample_displacement_global(xi, displacement_);
+                    } else {
+                        u = element.rotation_matrix().transpose()
+                            * element.sample_centerline_translation_local(xi, u_loc);
+                    }
+                } else {
+                    u = element.rotation_matrix().transpose()
+                        * element.sample_centerline_translation_local(xi, u_loc);
+                }
+
                 const auto e = element.sample_generalized_strain_local(xi, u_loc);
 
                 const vtkIdType id = points->InsertNextPoint(x[0], x[1], x[2]);
@@ -501,7 +524,7 @@ protected:
                 for (std::size_t i = 0; i < ring_size; ++i) {
                     const auto yz = profile.boundary_point(i);
                     const auto field = reconstruct_beam_point(
-                        element, u_loc, xi, yz[0], yz[1], sec_snapshot);
+                        element, u_loc, xi, yz[0], yz[1], sec_snapshot, displacement_);
                     const vtkIdType id = points->InsertNextPoint(
                         field.reference_position[0],
                         field.reference_position[1],
@@ -572,7 +595,7 @@ protected:
                 for (std::size_t i = 0; i < ring_size; ++i) {
                     const auto yz = profile.boundary_point(i);
                     const auto field = reconstruct_beam_point(
-                        element, u_loc, xi, yz[0], yz[1], sec_snapshot);
+                        element, u_loc, xi, yz[0], yz[1], sec_snapshot, displacement_);
                     const vtkIdType id = points->InsertNextPoint(
                         field.reference_position[0],
                         field.reference_position[1],
@@ -710,10 +733,22 @@ protected:
                     const Eigen::Vector3d u_local = u_center + theta.cross(offset_local);
                     const Eigen::Vector3d x = site.reference_position + R.transpose() * offset_local;
 
+                    Eigen::Vector3d u_disp;
+                    if constexpr (requires { element.sample_displacement_global(xi, displacement_); }) {
+                        if (displacement_) {
+                            u_disp = element.sample_displacement_global(xi, displacement_)
+                                + R.transpose() * theta.cross(offset_local);
+                        } else {
+                            u_disp = R.transpose() * u_local;
+                        }
+                    } else {
+                        u_disp = R.transpose() * u_local;
+                    }
+
                     const vtkIdType id = points->InsertNextPoint(x[0], x[1], x[2]);
                     verts->InsertNextCell(1);
                     verts->InsertCellPoint(id);
-                    push_vec3(displacement, R.transpose() * u_local);
+                    push_vec3(displacement, u_disp);
                     push_scalar(fiber_y, fiber.y);
                     push_scalar(fiber_z, fiber.z);
                     push_scalar(fiber_area, fiber.area);
@@ -991,6 +1026,10 @@ void dispatch_supported_structural(const StructuralElement& element, F&& visitor
         visitor(*beam);
         return;
     }
+    if (const auto* beam = element.template as<BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>>()) {
+        visitor(*beam);
+        return;
+    }
     if (const auto* beam = element.template as<TimoshenkoBeamN<2>>()) {
         visitor(*beam);
         return;
@@ -1115,8 +1154,24 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         const auto x_ref = element.geometry().map_local_point(xi_arr);
                         const Eigen::Vector3d x =
                             Eigen::Map<const Eigen::Vector3d>(x_ref.data());
-                        const auto u = element.rotation_matrix().transpose()
-                            * element.sample_centerline_translation_local(xi, u_loc);
+
+                        // Use global DOFs directly for displacement to
+                        // ensure element connectivity in Warp-by-Vector
+                        // (critical for corotational formulations where
+                        // u_loc are deformational-only).
+                        Eigen::Vector3d u;
+                        if constexpr (requires { element.sample_displacement_global(xi, displacement_); }) {
+                            if (displacement_) {
+                                u = element.sample_displacement_global(xi, displacement_);
+                            } else {
+                                u = element.rotation_matrix().transpose()
+                                    * element.sample_centerline_translation_local(xi, u_loc);
+                            }
+                        } else {
+                            u = element.rotation_matrix().transpose()
+                                * element.sample_centerline_translation_local(xi, u_loc);
+                        }
+
                         const auto e = element.sample_generalized_strain_local(xi, u_loc);
 
                         const vtkIdType id = points->InsertNextPoint(x[0], x[1], x[2]);
@@ -1276,7 +1331,7 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         for (std::size_t i = 0; i < ring_size; ++i) {
                             const auto yz = profile.boundary_point(i);
                             const auto field = detail::reconstruct_beam_point(
-                                element, u_loc, xi, yz[0], yz[1], sec_snapshot);
+                                element, u_loc, xi, yz[0], yz[1], sec_snapshot, displacement_);
                             const vtkIdType id = points->InsertNextPoint(
                                 field.reference_position[0],
                                 field.reference_position[1],
@@ -1413,7 +1468,7 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         for (std::size_t i = 0; i < ring_size; ++i) {
                             const auto yz = profile.boundary_point(i);
                             const auto field = detail::reconstruct_beam_point(
-                                element, u_loc, xi, yz[0], yz[1], snapshot);
+                                element, u_loc, xi, yz[0], yz[1], snapshot, displacement_);
                             const vtkIdType id = points->InsertNextPoint(
                                 field.reference_position[0],
                                 field.reference_position[1],
@@ -1651,10 +1706,22 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                             const Eigen::Vector3d x =
                                 site.reference_position + R.transpose() * offset_local;
 
+                            Eigen::Vector3d u_disp;
+                            if constexpr (requires { element.sample_displacement_global(xi, displacement_); }) {
+                                if (displacement_) {
+                                    u_disp = element.sample_displacement_global(xi, displacement_)
+                                        + R.transpose() * theta.cross(offset_local);
+                                } else {
+                                    u_disp = R.transpose() * u_local;
+                                }
+                            } else {
+                                u_disp = R.transpose() * u_local;
+                            }
+
                             const vtkIdType id = points->InsertNextPoint(x[0], x[1], x[2]);
                             verts->InsertNextCell(1);
                             verts->InsertCellPoint(id);
-                            detail::push_vec3(displacement, R.transpose() * u_local);
+                            detail::push_vec3(displacement, u_disp);
                             detail::push_scalar(structural_family, beam_family_value());
                             detail::push_scalar(fiber_y, fiber.y);
                             detail::push_scalar(fiber_z, fiber.z);

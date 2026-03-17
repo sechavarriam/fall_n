@@ -108,6 +108,8 @@ void test_structural_mixed_multiblock_writer_contract() {
             return Eigen::Vector<double, 18>::Zero();
         } else if constexpr (std::same_as<ElementT, TimoshenkoBeamN<4>>) {
             return Eigen::Vector<double, 24>::Zero();
+        } else if constexpr (fall_n::vtk::detail::is_beam_element<ElementT>::value) {
+            return Eigen::Vector<double, 12>::Zero();
         } else {
             return shell_u;
         }

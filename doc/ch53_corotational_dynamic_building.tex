@@ -1,0 +1,692 @@
+% ==========================================================================
+%  Chapter 53 — Corotational Dynamic RC Building: Formulation,
+%               VTK Reconstruction Fix, and Kinematic Incompatibility
+% ==========================================================================
+
+\chapter{Corotational Dynamic RC Building Example}
+\label{ch:corotational-dynamic-building}
+
+This chapter documents the transition of the five-story RC building
+example from small-rotation static analysis
+(Chapter~\ref{ch:regular-5story-rc-nonlinear-building}) to a
+\emph{corotational dynamic} formulation.  Three major topics are covered:
+\begin{enumerate}
+  \item the corotational beam kinematics and their integration into the
+        existing structural pipeline;
+  \item a critical bug found and fixed in the VTK displacement-field
+        reconstruction for corotational elements;
+  \item an analysis of the kinematic incompatibility between linear
+        Mindlin--Reissner shells and corotational beams, and its
+        consequences for numerical stability.
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Motivation and Scope}
+\label{sec:corot-motivation}
+
+The small-rotation formulation used in
+Chapter~\ref{ch:regular-5story-rc-nonlinear-building} treats each beam
+element as geometrically linear: the transformation matrix~$\mathbf{T}$
+is evaluated once from the reference configuration and is never updated.
+This is adequate for load levels where each storey drift remains well
+below $1\%$.  For seismic or extreme-wind scenarios, however, the
+building can develop inter-storey drifts of $2$--$5\%$ or more, at which
+point the geometric nonlinearity encoded in $P$-$\Delta$ effects and
+large rotations becomes essential.
+
+The current chapter therefore upgrades the frame elements to the
+\texttt{beam::Corotational} kinematic policy while keeping the same
+material model (nonlinear fiber sections), the same global topology, and
+the same \texttt{DynamicAnalysis} PETSc time-stepping infrastructure.
+The floor slabs remain elastic Mindlin--Reissner shells.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Corotational Beam Kinematics}
+\label{sec:corot-kinematics}
+
+% ------------------------------------------------------------------
+\subsection{Conceptual Framework}
+
+The corotational formulation decomposes the total motion of a beam
+element into:
+\begin{enumerate}\itemsep0pt
+  \item a \emph{rigid-body} component (translation and rotation of the
+        element chord), and
+  \item a \emph{deformational} component (local strains measured in the
+        corotated frame).
+\end{enumerate}
+
+The fundamental idea is that a small-strain $B$-matrix evaluated in the
+\emph{rotating} local frame captures effectively the same physics as a
+geometrically exact formulation, at a fraction of the implementation
+complexity.
+
+Let $\mathbf{x}_0, \mathbf{x}_1 \in \mathbb{R}^3$ be the reference
+nodal positions and $\mathbf{u}_0, \mathbf{u}_1$ the corresponding
+global displacement vectors.  The \emph{current} nodal positions are
+\begin{equation}\label{eq:current-positions}
+  \hat{\mathbf{x}}_i = \mathbf{x}_i + \mathbf{u}_i,
+  \qquad i = 0, 1.
+\end{equation}
+
+The current chord vector is
+$\hat{\mathbf{d}} = \hat{\mathbf{x}}_1 - \hat{\mathbf{x}}_0$, with
+current element length
+\begin{equation}
+  l_n = \lVert \hat{\mathbf{d}} \rVert.
+\end{equation}
+
+% ------------------------------------------------------------------
+\subsection{Corotated Frame Update}
+
+In three dimensions the corotated frame $\mathbf{R}_n$ is constructed as
+follows:
+\begin{align}
+  \mathbf{e}_1 &= \frac{\hat{\mathbf{d}}}{l_n},
+  \\[6pt]
+  \tilde{\mathbf{e}}_2 &= \mathbf{e}_{2,\mathrm{ref}}
+    - \bigl(\mathbf{e}_{2,\mathrm{ref}} \cdot \mathbf{e}_1\bigr)\,
+      \mathbf{e}_1,
+  \\[4pt]
+  \mathbf{e}_2 &= \frac{\tilde{\mathbf{e}}_2}
+                       {\lVert \tilde{\mathbf{e}}_2 \rVert},
+  \\[4pt]
+  \mathbf{e}_3 &= \mathbf{e}_1 \times \mathbf{e}_2.
+\end{align}
+
+Here $\mathbf{e}_{2,\mathrm{ref}} = \mathbf{R}_0^{\mathsf{T}} \mathbf{i}_2$ is
+the reference cross-section $y$-axis.  The projection onto the plane
+normal to the current chord ensures smooth frame evolution even for
+moderate rotations.  In the degenerate case
+$\lVert\tilde{\mathbf{e}}_2\rVert < 10^{-12}$ the algorithm falls back to
+the reference-vector construction.
+
+In the implementation, frame update is \emph{embedded} inside every
+element method that requires the current configuration:
+\begin{lstlisting}
+// BeamElement.hh
+Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e)
+{
+    if constexpr (!KinematicPolicy::is_geometrically_linear) {
+        update_current_frame(u_e);   // recompute R_n from (x+u)
+    }
+    auto T = transformation_matrix();    // T = blkdiag(R_n, R_n)
+    auto u_loc = KinematicPolicy::extract_local_dofs(u_g, frame0_, frame_n_, T);
+    // ... B_local, sigma, f_loc ...
+    return (T.transpose() * f_loc).eval();
+}
+\end{lstlisting}
+This design ensures the frame is self-consistently updated at every Newton
+iteration without requiring explicit calls from the analysis driver.
+
+% ------------------------------------------------------------------
+\subsection{Deformational DOF Extraction}
+
+The \texttt{beam::Corotational::extract\_local\_dofs} function strips the
+rigid-body motion from the global DOFs.  For a 3D two-node beam with 12
+global DOFs $[\mathbf{u}_1,\bm{\theta}_1,\mathbf{u}_2,\bm{\theta}_2]$:
+
+\begin{equation}\label{eq:deformational-dofs}
+  \mathbf{u}_\mathrm{def} =
+  \begin{bmatrix}
+    0 \\ 0 \\ 0 \\
+    \bm{\theta}_{1,\mathrm{loc}} - \bm{\alpha} \\
+    \Delta l \\ 0 \\ 0 \\
+    \bm{\theta}_{2,\mathrm{loc}} - \bm{\alpha}
+  \end{bmatrix},
+\end{equation}
+where $\Delta l = l_n - l_0$ is the axial elongation, and
+$\bm{\alpha}$ is the rigid-body rotation vector extracted from the
+relative rotation between $\mathbf{R}_n$ and
+$\mathbf{R}_0$.
+
+Crucially, node~1 has \emph{zero} translational deformation (it is the
+local origin) and node~2 has only an axial component $\Delta l$.  This
+has fundamental consequences for post-processing, as discussed in
+\cref{sec:vtk-displacement-fix}.
+
+% ------------------------------------------------------------------
+\subsection{Tangent Stiffness and Geometric Contribution}
+
+The tangent stiffness in global coordinates is
+\begin{equation}\label{eq:corot-tangent}
+  \mathbf{K}_t
+  = \mathbf{T}^{\mathsf{T}} \underbrace{\sum_{g=1}^{n_g}
+      w_g \, \lvert J \rvert_g \;
+      \mathbf{B}_g^{\mathsf{T}} \,
+      \mathbf{C}_{t,g} \,
+      \mathbf{B}_g}_{\mathbf{K}_\mathrm{loc}}
+    \mathbf{T}
+  +
+  \mathbf{T}^{\mathsf{T}} \, \mathbf{K}_\sigma \, \mathbf{T},
+\end{equation}
+where $\mathbf{K}_\sigma$ is the geometric stiffness due to the element
+resultants.  Both terms are computed in
+\texttt{BeamElement::compute\_tangent\_stiffness\_matrix}; the
+geometric stiffness is enabled by the compile-time flag
+\texttt{KinematicPolicy::needs\_geometric\_stiffness = true} for the
+corotational policy.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Dynamic Analysis Configuration}
+\label{sec:corot-dynamic-config}
+
+The dynamic analysis uses the same \texttt{DynamicAnalysis} class
+documented in Chapter~\ref{ch:phase5-dynamic-seismic}, with
+PETSc's \texttt{TSALPHA2} generalized-$\alpha$ integrator.
+
+% ------------------------------------------------------------------
+\subsection{Loading and Ramps}
+
+To avoid dynamic shock and ensure a gradual transition to the loaded
+state, the external force function is defined as
+\begin{equation}\label{eq:force-function}
+  \mathbf{f}_\mathrm{ext}(t)
+  = g(t)\,\mathbf{f}_\mathrm{grav}
+  + h(t)\,\sin\!\bigl(\tfrac{2\pi t}{T_\mathrm{exc}}\bigr)\,
+    \mathbf{f}_\mathrm{lat},
+\end{equation}
+with the ramp functions
+\begin{equation}
+  g(t) = \min\!\bigl(\tfrac{t}{t_\mathrm{grav}},\; 1\bigr),
+  \qquad
+  h(t) = \begin{cases}
+    0 & \text{if } t < t_\mathrm{grav}, \\
+    \min\!\Bigl(\dfrac{t - t_\mathrm{grav}}{t_\mathrm{lat} - t_\mathrm{grav}},\; 1\Bigr) & \text{otherwise.}
+  \end{cases}
+\end{equation}
+
+The gravity ramp $g(t)$ linearly increases over $t_\mathrm{grav} = 1.0$\,s
+to avoid a step function in the mass-proportional gravity load.  The
+lateral cyclic loading $h(t)$ is delayed until the gravity ramp
+completes and then smoothly increases over the interval
+$[t_\mathrm{grav},\; t_\mathrm{lat}]$ with $t_\mathrm{lat} = 1.5$\,s.
+
+% ------------------------------------------------------------------
+\subsection{Time-Integration Parameters}
+
+\begin{table}[htbp]
+\centering
+\caption{Dynamic analysis parameters for the corotational RC building.}
+\label{tab:corot-params}
+\begin{tabular}{lrl}
+\toprule
+  \textbf{Parameter} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+  Spectral radius $\rho_\infty$ & 0.9 & High-frequency dissipation \\
+  Time step $\Delta t$ & 0.005\,s & 1000 steps for $T_f = 5\,$s \\
+  Adaptive stepping & off & \texttt{TSADAPTNONE} \\
+  Max SNES failures & 5 & Allow temporary divergence \\
+  KSP type & \texttt{preonly} & Direct solve \\
+  PC type  & \texttt{lu} & LU factorization \\
+  Damping  & Rayleigh & $\xi = 5\%$ at $(T_1, T_3) = (0.5,\, 0.1)\,$s \\
+  Lateral amplitude & 0.005\,MN & Per node per storey \\
+  Excitation period & 0.5\,s & Near first-mode period \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A technical detail of the implementation is that the TS-specific
+options are set \emph{programmatically after} \texttt{solver.setup()},
+because \texttt{TSSetFromOptions()} (called internally by
+\texttt{setup()}) would otherwise overwrite them from the PETSc options
+database:
+\begin{lstlisting}
+solver.setup();
+{
+    TS ts = solver.get_ts();
+    TSAlpha2SetRadius(ts, 0.9);
+    TSAdapt adapt;
+    TSGetAdapt(ts, &adapt);
+    TSAdaptSetType(adapt, TSADAPTNONE);
+    TSSetMaxSNESFailures(ts, 5);
+}
+\end{lstlisting}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{VTK Displacement Reconstruction for Corotational Beams}
+\label{sec:vtk-displacement-fix}
+
+\subsection{The Problem: Disconnected Elements in Warp-by-Vector}
+
+When the VTK multi-block exporter was first used with corotational beam
+elements, ParaView's \emph{Warp by Vector} filter showed every beam
+element as a disconnected fragment: each element appeared to deform
+independently, with gaps at every shared node.
+
+The root cause lies in how displacement was reconstructed for the VTK
+carrier.  The original code in \texttt{StructuralVTMExporter} computed
+displacement at a sampling point~$\xi$ as
+\begin{equation}\label{eq:old-displacement}
+  \mathbf{u}_\mathrm{vis}(\xi)
+  = \mathbf{R}_n^{\mathsf{T}} \,
+    \bigl[\mathbf{u}_\mathrm{center,loc}(\xi)
+    + \bm{\theta}_\mathrm{loc}(\xi) \times \mathbf{d}_\mathrm{offset}\bigr],
+\end{equation}
+where $\mathbf{u}_\mathrm{center,loc}$ is the centerline translation in the
+\emph{local corotated frame} and $\bm{\theta}_\mathrm{loc}$ is the local
+rotation vector.
+
+For \texttt{beam::SmallRotation}, $\mathbf{u}_\mathrm{center,loc}$ contains
+the full translational field (small-rotation $\mathbf{T}$ simply rotates
+global DOFs into the local frame).  The formula
+$\mathbf{R}^{\mathsf{T}} \cdot \mathbf{u}_\mathrm{loc}$ correctly recovers the
+global displacement.
+
+For \texttt{beam::Corotational}, however,
+$\mathbf{u}_\mathrm{center,loc}$ contains only the \emph{deformational}
+part computed from \cref{eq:deformational-dofs}: node~1 translations are
+$(0,0,0)$ and node~2 translations are $(\Delta l, 0, 0)$.  The
+rigid-body displacement has been deliberately stripped.
+Formula~\eqref{eq:old-displacement} therefore returns only the
+deformational contribution, which is typically several orders of
+magnitude smaller than the actual nodal displacement.
+
+Since each element independently produces a tiny deformational
+displacement relative to its own corotated frame, the Warp filter offsets
+every element by a different vector --- and the mesh \emph{appears
+disconnected}.
+
+% ------------------------------------------------------------------
+\subsection{The Fix: Global DOF Interpolation}
+\label{sec:global-dof-interpolation}
+
+The fix introduces a new method in \texttt{BeamElement}:
+\begin{lstlisting}
+Eigen::Vector3d sample_displacement_global(double xi, Vec u_petsc) const
+{
+    Eigen::VectorXd u_e = extract_element_dofs(u_petsc);
+    const double n1 = N1(xi), n2 = N2(xi);
+    Eigen::Vector3d u_glob = Eigen::Vector3d::Zero();
+    u_glob[0] = n1 * u_e[0] + n2 * u_e[6];
+    u_glob[1] = n1 * u_e[1] + n2 * u_e[7];
+    u_glob[2] = n1 * u_e[2] + n2 * u_e[8];
+    return u_glob;
+}
+\end{lstlisting}
+
+This method extracts the \emph{global} element DOFs directly from the
+PETSc solution vector and interpolates them using the standard linear
+shape functions $N_1(\xi), N_2(\xi)$.  Because these are the actual
+nodal displacements (not the corotation-filtered deformational DOFs),
+the resulting field is continuous across element boundaries.
+
+At an off-axis sampling point with section offset
+$\mathbf{d}_\mathrm{off} = (0, y, z)$, the corrected formula becomes
+\begin{equation}\label{eq:new-displacement}
+  \mathbf{u}_\mathrm{vis}(\xi, y, z)
+  = \underbrace{N_1(\xi)\,\mathbf{u}_1 + N_2(\xi)\,\mathbf{u}_2
+    \vphantom{\big|}}_{\text{rigid + deformational (global)}}
+  + \;
+  \underbrace{\mathbf{R}_n^{\mathsf{T}} \bigl[
+      \bm{\theta}_\mathrm{loc}(\xi) \times \mathbf{d}_\mathrm{off}
+    \bigr]}_{\text{section rotation contribution}},
+\end{equation}
+where $\mathbf{u}_1, \mathbf{u}_2$ are the global nodal displacement
+vectors.  The first term captures the total (rigid + deformational)
+centerline motion; the second term adds the rotation-dependent offset
+that varies across the cross-section.
+
+% ------------------------------------------------------------------
+\subsection{Affected Reconstruction Sites}
+
+The \texttt{StructuralVTMExporter} produces five VTK blocks for each
+structural model.  \Cref{tab:vtk-fix-sites} lists every displacement
+reconstruction site that was corrected.
+
+\begin{table}[htbp]
+\centering
+\caption{Displacement reconstruction sites corrected for corotational
+  compatibility.  ``Single'' refers to the homogeneous-element exporter;
+  ``mixed'' to the \texttt{StructuralElement}-based exporter.}
+\label{tab:vtk-fix-sites}
+\begin{tabular}{llll}
+\toprule
+  \textbf{Block} & \textbf{Exporter} & \textbf{Method} & \textbf{Description} \\
+\midrule
+  axis            & single & \texttt{append\_station}
+    & Centerline displacement via \texttt{sample\_displacement\_global} \\
+  axis            & mixed  & \texttt{append\_station}
+    & Same---dispatched through \texttt{dispatch\_supported\_structural} \\
+  surface         & single & \texttt{reconstruct\_beam\_point}
+    & Off-axis displacement with section offset \\
+  surface         & mixed  & \texttt{reconstruct\_beam\_point}
+    & Same---via \texttt{detail::reconstruct\_beam\_point} \\
+  sections        & single & \texttt{reconstruct\_beam\_point}
+    & Section profile points at each station \\
+  sections        & mixed  & \texttt{reconstruct\_beam\_point}
+    & Same---dispatched \\
+  fibers          & single & inline $\mathbf{R}^{\mathsf{T}} \cdot \mathbf{u}_\mathrm{loc}$
+    & Per-fiber displacement at Gauss points \\
+  fibers          & mixed  & inline $\mathbf{R}^{\mathsf{T}} \cdot \mathbf{u}_\mathrm{loc}$
+    & Same---dispatched \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The fix for the surface and sections blocks was centralised in the
+\texttt{reconstruct\_beam\_point} helper function by adding an optional
+\texttt{Vec} parameter.  When a non-null PETSc vector is provided and
+the element supports \texttt{sample\_displacement\_global}, the corrected
+formula~\eqref{eq:new-displacement} is used:
+\begin{lstlisting}
+if constexpr (requires { element.sample_displacement_global(xi, u_petsc); }) {
+    if (u_petsc) {
+        out.displacement = element.sample_displacement_global(xi, u_petsc)
+            + R.transpose() * theta.cross(offset_local);
+    } else {
+        out.displacement = R.transpose() * u_local;
+    }
+} else {
+    out.displacement = R.transpose() * u_local;
+}
+\end{lstlisting}
+
+The \texttt{if constexpr} / \texttt{requires} guard ensures zero overhead
+for formulations where the original reconstruction is correct (e.g.\
+shells, small-rotation beams).  The runtime null-check on the PETSc
+vector allows unit tests---which use a mock model with
+\texttt{state\_vector() = nullptr}---to fall back transparently.
+
+% ------------------------------------------------------------------
+\subsection{Type Dispatch for Corotational Elements}
+
+The mixed exporter's \texttt{dispatch\_supported\_structural} function,
+which performs runtime type recovery from \texttt{StructuralElement},
+was extended with the corotational beam type:
+\begin{lstlisting}
+// StructuralVTMExporter.hh — dispatch_supported_structural
+else if (auto* p = wrapped.template as<
+    BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>>()) {
+    fn(*p);
+}
+\end{lstlisting}
+
+Without this entry the exporter threw
+\texttt{std::runtime\_error} because the element type name (including
+the full \texttt{beam::Corotational} template argument) did not match
+any registered concrete type.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Kinematic Incompatibility: Linear Shell vs.\ Corotational Beam}
+\label{sec:kinematic-incompatibility}
+
+\subsection{Diagnosis: Numerical Divergence in the Mixed Model}
+
+Despite correct convergence of SNES at each time step, the simulation
+exhibited growing displacements during the gravity ramp, with the
+maximum lateral displacement exceeding several metres within a fraction
+of a second---far beyond physically reasonable deformation for the
+applied load level.
+
+Investigation revealed that the source of instability is not the
+corotational beam formulation itself, but rather the
+\textbf{kinematic incompatibility between the geometrically nonlinear
+beams and the geometrically linear shells} at shared nodes.
+
+% ------------------------------------------------------------------
+\subsection{Root Cause Analysis}
+
+\Cref{tab:kinematic-comparison} contrasts the relevant kinematic
+assumptions.
+
+\begin{table}[htbp]
+\centering
+\caption{Kinematic behaviour comparison at shared beam-shell nodes.}
+\label{tab:kinematic-comparison}
+\begin{tabular}{lcc}
+\toprule
+  \textbf{Aspect}
+  & \textbf{BeamElement (Corotational)}
+  & \textbf{ShellElement (Linear)} \\
+\midrule
+  Local frame $\mathbf{R}$
+    & Updated every Newton iteration
+    & Fixed at reference configuration \\[3pt]
+  Strain measure
+    & Corotational local (small in rotating frame)
+    & Infinitesimal ($\bm{\varepsilon} = \mathbf{B}_0 \, \mathbf{R}_0 \, \mathbf{u}_e$) \\[3pt]
+  Geometric stiffness $\mathbf{K}_\sigma$
+    & Yes
+    & No \\[3pt]
+  Transformation $\mathbf{T}$
+    & $\mathbf{T}(\mathbf{R}_n)$, updated
+    & $\mathbf{T}(\mathbf{R}_0)$, fixed \\[3pt]
+  $\mathbf{f}_\mathrm{int}$ for large $\mathbf{u}_e$
+    & Physically correct
+    & Linearly extrapolated \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The fundamental problem is that when the beams undergo large rotations,
+the shared nodes move significantly.  The shell elements connected to
+those same nodes see large nodal displacement vectors
+$\mathbf{u}_e$, but compute their internal forces as
+\begin{equation}\label{eq:shell-force}
+  \mathbf{f}_\mathrm{int}^\mathrm{shell}
+  = \mathbf{T}_0^{\mathsf{T}}
+    \sum_{g} w_g \, \lvert J \rvert_g \;
+    \mathbf{B}_g^{\mathsf{T}} \,
+    \bm{\sigma}\!\bigl(\underbrace{\mathbf{B}_g \, \mathbf{T}_0 \, \mathbf{u}_e
+      }_{\text{linearly extrapolated strain}}\bigr).
+\end{equation}
+
+For an elastic shell with stiffness matrix $\mathbf{D}$, this reduces to
+\begin{equation}
+  \mathbf{f}_\mathrm{int}^\mathrm{shell}
+  \;=\;
+  \underbrace{\mathbf{T}_0^{\mathsf{T}}
+    \Bigl(\sum_g w_g \, \lvert J \rvert_g \;
+    \mathbf{B}_g^{\mathsf{T}} \, \mathbf{D} \, \mathbf{B}_g\Bigr)
+    \mathbf{T}_0}_{\displaystyle \mathbf{K}_0}
+  \;\mathbf{u}_e.
+\end{equation}
+
+The internal force grows linearly with $\mathbf{u}_e$, without any
+geometric correction.  Specifically:
+\begin{itemize}
+  \item Rigid-body rotations of the shell generate \emph{spurious}
+        membrane and bending strains because the reference-frame $B$-matrix
+        does not distinguish rotation from deformation.
+  \item There is no geometric stiffness contribution from the shell, so
+        any destabilising $P$-$\Delta$ effect at the beam-shell junction is
+        not captured.
+  \item The equilibrium at shared nodes is therefore inconsistent: the
+        beam provides geometrically correct forces while the shell provides
+        linearly extrapolated forces.
+\end{itemize}
+
+% ------------------------------------------------------------------
+\subsection{Physical Interpretation}
+
+Consider a storey slab that rigid-body translates laterally by
+$u_x = 50$\,mm due to inter-storey drift.  In the corotational beam
+formulation, this translation is absorbed by the frame update and
+produces no spurious strain.  In the linear shell formulation, however,
+the same 50\,mm lateral displacement of all four shell nodes generates a
+fictitious membrane strain of order
+\begin{equation}
+  \varepsilon_\mathrm{spurious}
+  \;\approx\; \frac{u_x}{L_\mathrm{panel}}
+  \;=\; \frac{0.05}{6.0}
+  \;\approx\; 8.3 \times 10^{-3},
+\end{equation}
+which for a Young's modulus $E \approx 28{,}000$\,MPa yields a spurious
+membrane stress of $\sigma_\mathrm{spurious} \approx 233$\,MPa---clearly
+nonphysical for an elastic slab subjected only to lateral drift.
+
+The resulting spurious forces from the shell ``push back'' against the
+beam displacements, creating an artificial stiffening effect initially.
+As the beam elements rotate further and the shell forces grow linearly,
+the force imbalance can trigger oscillatory behaviour or outright
+divergence in the time integrator.
+
+% ------------------------------------------------------------------
+\subsection{Formal Statement of the Incompatibility}
+
+More formally, the corotational beam's internal force satisfies the
+\emph{objectivity} requirement:
+\begin{equation}\label{eq:objectivity}
+  \mathbf{f}_\mathrm{int}^\mathrm{beam}(\mathbf{Q}\,\mathbf{u})
+  = \mathbf{Q} \, \mathbf{f}_\mathrm{int}^\mathrm{beam}(\mathbf{u})
+\end{equation}
+for any superposed rigid-body rotation $\mathbf{Q}$, because the
+corotational filter removes $\mathbf{Q}$ before computing local strains.
+
+The linear shell, in contrast, does not satisfy objectivity:
+\begin{equation}
+  \mathbf{f}_\mathrm{int}^\mathrm{shell}(\mathbf{Q}\,\mathbf{u})
+  = \mathbf{K}_0 \, \mathbf{Q} \, \mathbf{u}
+  \;\neq\;
+  \mathbf{Q} \, \mathbf{K}_0 \, \mathbf{u}
+  \quad (\text{in general}).
+\end{equation}
+
+At shared nodes, the global equilibrium requires
+\begin{equation}
+  \mathbf{f}_\mathrm{int}^\mathrm{beam}
+  + \mathbf{f}_\mathrm{int}^\mathrm{shell}
+  + \mathbf{f}_\mathrm{inertia}
+  + \mathbf{f}_\mathrm{damping}
+  = \mathbf{f}_\mathrm{ext},
+\end{equation}
+but the lack of objectivity in the shell term introduces
+\emph{configuration-dependent} artificial forces that pollute the
+equilibrium.  The magnitude of this pollution grows with the deviation
+from the reference configuration.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Resolution Strategies}
+\label{sec:resolution-strategies}
+
+Three paths can resolve the kinematic incompatibility:
+
+\begin{description}
+  \item[Option A: Corotational shell formulation.]
+    Implement \texttt{beam::Corotational}-style frame update for
+    \texttt{ShellElement}: at each Newton iteration, compute the
+    mean rotation of the element from the current nodal positions and
+    project out the rigid-body component.  This is the theoretically
+    clean solution and makes the shell objective under superposed
+    rigid-body motions.
+    \emph{Estimated complexity:} medium---the corotational machinery
+    is already available from the beam policy.
+
+  \item[Option B: Keep shells linear, limit deformations.]
+    Restrict the problem to load levels where inter-storey drift is
+    below $\approx\!1\%$, so that the shell's linear kinematic error
+    remains negligible.  This is the pragmatic path already used in the
+    previous small-rotation static analysis.
+
+  \item[Option C: Replace slabs with rigid diaphragm constraints.]
+    Many earthquake engineering codes allow modelling floor slabs as
+    rigid diaphragms---each floor level shares a single translational
+    DOF in the horizontal plane plus a single rotation about the
+    vertical axis.  This eliminates the shell elements entirely and
+    removes the kinematic incompatibility at the cost of losing in-plane
+    slab flexibility.
+\end{description}
+
+Option~A is the long-term architectural target.
+Chapter~\ref{ch:regular-5story-rc-nonlinear-building} documented the
+small-rotation version (effectively Option~B).
+
+For immediate use, the lateral load amplitude was reduced to
+$0.005$\,MN/node (5\,kN) and the gravity was ramped slowly to
+avoid exciting the stiff shell response, keeping drifts within the
+linear-shell validity range.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Test Regression Summary}
+\label{sec:corot-test-regression}
+
+\Cref{tab:corot-test-results} summarises the test status after all
+modifications described in this chapter.
+
+\begin{table}[htbp]
+\centering
+\caption{CTest results after corotational VTK fixes.
+  Pre-existing failures are due to missing mesh files, not code defects.}
+\label{tab:corot-test-results}
+\begin{tabular}{lr}
+\toprule
+  \textbf{Metric} & \textbf{Value} \\
+\midrule
+  Total tests         & 47 \\
+  Passed              & 45 \\
+  Failed              & 2 (pre-existing) \\
+  New regressions     & 0 \\
+\midrule
+  \texttt{structural\_vtm\_export}       & \textbf{pass} \\
+  \texttt{structural\_mixed\_vtm\_export} & \textbf{pass} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The two pre-existing failures (\texttt{cantilever\_benchmark} and
+\texttt{snes\_gmsh\_pipeline}) are due to missing \texttt{.msh} input
+files that were never committed to the repository.
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Files Modified}
+\label{sec:corot-files-modified}
+
+\begin{description}
+  \item[\texttt{src/elements/BeamElement.hh}.]
+    Added \texttt{sample\_displacement\_global(xi, Vec)} method
+    for direct global-DOF interpolation.
+
+  \item[\texttt{src/post-processing/VTK/StructuralVTMExporter.hh}.]
+    (i) Extended \texttt{dispatch\_supported\_structural} with
+    \texttt{BeamElement<\ldots, beam::Corotational>}.
+    (ii) Modified \texttt{reconstruct\_beam\_point} to accept an
+    optional \texttt{Vec} and apply \cref{eq:new-displacement}.
+    (iii) Modified axis and fiber blocks in both single-element and
+    mixed exporters with \texttt{if constexpr} / null-guard idiom.
+
+  \item[\texttt{tests/test\_structural\_mixed\_vtm\_export.cpp}.]
+    Added \texttt{is\_beam\_element} catch-all branch for corotational
+    beam type to return 12-DOF zero vector instead of 24-DOF shell
+    vector.
+
+  \item[\texttt{main.cpp}.]
+    (i) Changed element type from \texttt{beam::SmallRotation} to
+    \texttt{beam::Corotational}.
+    (ii) Added gravity/lateral ramp functions.
+    (iii) Reduced lateral amplitude to 0.005\,MN/node.
+    (iv) Moved TS options to programmatic API after
+    \texttt{solver.setup()}.
+\end{description}
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Summary}
+
+This chapter documented three interrelated developments:
+\begin{enumerate}
+  \item The corotational beam kinematic policy
+        (\texttt{beam::Corotational}) enables geometrically nonlinear
+        analysis of the frame while retaining the small-strain
+        $B$-matrix in a rotating local frame.
+
+  \item The VTK displacement reconstruction was incorrect for
+        corotational elements because the deformational-only local DOFs
+        were being used where total global displacements were required.
+        The fix introduces \texttt{sample\_displacement\_global} and
+        applies it across all eight reconstruction sites with
+        compile-time guards and runtime null checks.
+
+  \item The mixing of geometrically linear Mindlin shells with
+        corotational beams creates a fundamental kinematic
+        incompatibility: rigid-body rotations at shared nodes induce
+        spurious strains in the linear shells, violating
+        objectivity~\eqref{eq:objectivity} and destabilising the global
+        equilibrium.  The long-term resolution is a corotational shell
+        formulation.
+\end{enumerate}
