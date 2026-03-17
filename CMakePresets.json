@@ -1,0 +1,91 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug (default)",
+            "description": "Debug build with -Werror, Ninja generator",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release (optimised)",
+            "description": "Release build with full optimisations",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "relwithdebinfo",
+            "displayName": "RelWithDebInfo (profiling)",
+            "description": "Optimised build with debug info for profiling",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-rwdi",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "jobs": 0
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "jobs": 0
+        }
+    ],
+
+    "testPresets": [
+        {
+            "name": "unit",
+            "displayName": "Unit tests only (~1 s)",
+            "description": "Fast feedback: 36 lightweight tests",
+            "configurePreset": "debug",
+            "filter": { "include": { "label": "unit" } },
+            "execution": {
+                "jobs": 0,
+                "stopOnFailure": false
+            },
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "fast",
+            "displayName": "Unit + integration (~10 s)",
+            "description": "Pre-push gate: unit + solver-level tests",
+            "configurePreset": "debug",
+            "filter": { "include": { "label": "unit|integration" } },
+            "execution": {
+                "jobs": 0,
+                "stopOnFailure": false
+            },
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "all",
+            "displayName": "Full suite (~3 min)",
+            "description": "All 45 tests including long-running analyses",
+            "configurePreset": "debug",
+            "execution": {
+                "jobs": 0,
+                "stopOnFailure": false
+            },
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}
