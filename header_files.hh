@@ -145,6 +145,15 @@
 // --- Arena allocator for bulk Material creation (Phase 6) ---
 #include "src/materials/ArenaAllocator.hh"
 
+// --- Section property utilities ---
+#include "src/utils/SectionProperties.hh"
+
+// --- Fiber section factory (patch/rebar helpers + uniaxial material factories) ---
+#include "src/materials/FiberSectionFactory.hh"
+
+// --- RC section builders (column/beam) ---
+#include "src/materials/RCSectionBuilder.hh"
+
 
 // =================================================================================
 // Model Module
@@ -159,6 +168,9 @@
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
 #include "src/model/BoundaryCondition.hh"
+
+// --- Load application utilities ---
+#include "src/model/LoadUtilities.hh"
 
 // =================================================================================
 // Reconstruction Module

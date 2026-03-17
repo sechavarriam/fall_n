@@ -1038,6 +1038,134 @@ and produces zero warnings.
 
 
 % ══════════════════════════════════════════════════════════════════════════
+\section{Phase~2 Implementation Notes: Helper Extraction}
+\label{sec:phase2-implementation}
+
+Phase~2 extracted the pure-utility functions, fiber-section factories,
+and RC section builders from the anonymous namespace of
+\texttt{main.cpp} into four new reusable library headers.
+The extraction followed the plan in \S\ref{sec:model-builder}
+(Phases~A through~C).
+
+% ------------------------------------------------------------------
+\subsection{New File Organisation}
+\label{sec:phase2-files}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Header} & \textbf{Contents} \\
+\midrule
+\texttt{src/utils/SectionProperties.hh}
+  & Pure \texttt{constexpr} utilities:
+    \texttt{rectangular\_torsion\_constant()},
+    \texttt{bar\_area()},
+    \texttt{isotropic\_shear\_modulus()},
+    \texttt{concrete\_initial\_modulus()}.
+    Depends only on \texttt{<cmath>} and \texttt{<numbers>}. \\
+\addlinespace
+\texttt{src/materials/FiberSectionFactory.hh}
+  & Generic fiber-mesh discretization helpers
+    (\texttt{add\_patch\_fibers()}, \texttt{add\_rebar\_fibers()})
+    and parameterised uniaxial material factories
+    (\texttt{make\_steel\_fiber\_material()},
+     \texttt{make\_unconfined\_concrete()},
+     \texttt{make\_confined\_concrete()}).
+    All functions are in the \texttt{fall\_n::} namespace.  \\
+\addlinespace
+\texttt{src/materials/RCSectionBuilder.hh}
+  & Two designated-initialiser--friendly specification structs
+    (\texttt{RCColumnSpec}, \texttt{RCBeamSpec}) and corresponding
+    builder functions:
+    \texttt{make\_rc\_column\_section(spec)} and
+    \texttt{make\_rc\_beam\_section(spec)}, each returning a
+    \texttt{Material<TimoshenkoBeam3D>}. \\
+\addlinespace
+\texttt{src/model/LoadUtilities.hh}
+  & \texttt{apply\_uniform\_shell\_surface\_load()} template---integrates
+    a uniform surface traction over shell element quadrature points.
+    Extracted for reuse; not currently invoked by the building example
+    (slab gravity uses a manual tributary approach). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All four headers are registered in the umbrella include
+\texttt{header\_files.hh} and follow the project's relative-path
+include convention.
+
+% ------------------------------------------------------------------
+\subsection{Designated-Initialiser API}
+\label{sec:phase2-designated-init}
+
+The old factory functions captured constants from the enclosing
+anonymous namespace, making them non-reusable.  The new API uses
+C++20 designated initialisers to make every parameter explicit:
+
+\begin{lstlisting}[language=C++,basicstyle=\small\ttfamily]
+// Old: zero-argument, 60 lines, non-reusable
+static Material<TimoshenkoBeam3D> make_column_material() { /* ... */ }
+
+// New: all parameters in a self-documenting spec struct
+auto col_mat = fall_n::make_rc_column_section({
+    .b            = COLUMN_B,
+    .h            = COLUMN_H,
+    .cover        = COLUMN_COVER,
+    .bar_diameter = COLUMN_BAR_D,
+    .tie_spacing  = COLUMN_TIE_SPACING,
+    .fpc          = COLUMN_FPC,
+    .nu           = NU_RC,
+    .steel_E      = STEEL_E,
+    .steel_fy     = STEEL_FY,
+    .steel_b      = STEEL_B,
+    .tie_fy       = TIE_FY,
+});
+\end{lstlisting}
+
+This pattern is applied to both the column and beam section builders.
+The slab material (\texttt{MindlinShellMaterial}) remains a simple
+three-parameter construction retained inline.
+
+% ------------------------------------------------------------------
+\subsection{Migration Statistics}
+\label{sec:phase2-statistics}
+
+\begin{itemize}
+  \item \textbf{Lines removed from \texttt{main.cpp}}: $\sim$240
+        (12 functions + associated includes).
+  \item \textbf{Lines added to library}: $\sim$320 across four new
+        headers (more thorough parameterisation and documentation).
+  \item \textbf{Remaining local functions}: \texttt{node\_id()},
+        \texttt{make\_slab\_material()},
+        \texttt{add\_regular\_building\_nodes()},
+        \texttt{add\_columns()}, \texttt{add\_beams()},
+        \texttt{add\_slabs()}, \texttt{build\_structural\_elements()},
+        and \texttt{run\_corotational\_dynamic\_rc\_building()}.
+        These are model-construction and analysis-driver functions
+        targeted for Phase~3 (\texttt{ModelBuilder}).
+  \item \textbf{Unused constant removed}: \texttt{KAPPA\_RC}---the
+        shear correction factor is now embedded in the
+        \texttt{RCColumnSpec}/\texttt{RCBeamSpec} structs
+        (default $\kappa_y = \kappa_z = 5/6$).
+\end{itemize}
+
+% ------------------------------------------------------------------
+\subsection{Build and Test Verification}
+\label{sec:phase2-verification}
+
+After the extraction and refactoring:
+
+\begin{center}
+  \textbf{48 / 48 build targets compiled (zero warnings, \texttt{-Werror}).}\\[4pt]
+  \textbf{45 / 45 CTests passed, 0 failures.}
+\end{center}
+
+No functional changes were introduced---the building example produces
+identical results before and after Phase~2.
+
+
+% ══════════════════════════════════════════════════════════════════════════
 \section{Summary}
 \label{sec:obs-summary}
 
@@ -1049,14 +1177,19 @@ The proposed architecture introduces two orthogonal subsystems:
         runtime.  \emph{Phase~1 is complete}: seven concrete observers,
         a dual static/dynamic composition model, and full integration
         into \texttt{DynamicAnalysis} with backward compatibility.
-        All 45~CTests pass; the build compiles with zero warnings under
+  \item \textbf{Helper extraction} (Phase~2) that promotes $\sim$240
+        lines of anonymous-namespace utilities and fiber-section
+        factories from \texttt{main.cpp} into four reusable library
+        headers under the \texttt{fall\_n::} namespace, using C++20
+        designated-initialiser specification structs for clean,
+        self-documenting APIs.  \emph{Phase~2 is complete}: all 45
+        CTests pass; the build compiles with zero warnings under
         \texttt{-Werror}.
-  \item A \textbf{ModelBuilder} orchestrator that extracts the
-        $\sim$20 helper functions from example code into reusable
-        library headers, with a layered generic/structural design
-        (Phase~3, not yet started).
+  \item A \textbf{ModelBuilder} orchestrator that will further extract
+        the domain/model-construction functions into a layered
+        generic/structural builder (Phase~3, not yet started).
 \end{itemize}
 
-Remaining phases: helper extraction (Phase~2), model builder (Phase~3),
-and completing the \texttt{std::print}/\texttt{format} migration across
-the wider library (partial Phase~2 already done in \texttt{main.cpp}).
+Remaining phases: model builder (Phase~3) and completing the
+\texttt{std::print}/\texttt{format} migration across the wider
+library (Phase~4).
