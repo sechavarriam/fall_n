@@ -95,7 +95,6 @@ static constexpr double STEEL_B    = 0.01;      // strain-hardening ratio
 static constexpr double TIE_FY     = 420.0;     // MPa
 
 static constexpr double SLAB_E  = 28000.0;      // MPa
-static constexpr double KAPPA_RC = 5.0 / 6.0;
 
 // ── Mass + damping ────────────────────────────────────────────────────────────
 //  2400 kg/m³ = 2.4e-3 MN·s²/m⁴  (consistent with MN / m / MPa unit system)
@@ -131,236 +130,40 @@ using StructuralPolicy = SingleElementPolicy<StructuralElement>;
 using StructuralModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 using DynamicSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 
-// ── Small geometry / section helpers ──────────────────────────────────────────
+// ── Grid node ID helper (building-specific) ──────────────────────────────────
 constexpr PetscInt node_id(int ix, int iy, int level) noexcept {
     return static_cast<PetscInt>(level * NUM_PLAN_NODES + iy * NUM_AXES_X + ix);
 }
 
-constexpr double rectangular_torsion_constant(double width, double height) noexcept {
-    const double b_min = std::min(width, height);
-    const double h_max = std::max(width, height);
-    return (b_min * b_min * b_min * h_max / 3.0)
-         * (1.0 - 0.63 * b_min / h_max);
-}
-
-constexpr double concrete_initial_modulus(double fpc) noexcept {
-    return 1000.0 * fpc;
-}
-
-constexpr double isotropic_shear_modulus(double E, double nu) noexcept {
-    return E / (2.0 * (1.0 + nu));
-}
-
-constexpr double bar_area(double diameter) noexcept {
-    return std::numbers::pi * diameter * diameter / 4.0;
-}
-
-template <typename ModelT>
-void apply_uniform_shell_surface_load(
-    ModelT& model,
-    const std::vector<const ElementGeometry<3>*>& shell_geometries,
-    const Eigen::Vector3d& traction)
-{
-    for (const auto* geom : shell_geometries) {
-        std::vector<Eigen::Vector3d> nodal_forces(geom->num_nodes(), Eigen::Vector3d::Zero());
-
-        for (std::size_t gp = 0; gp < geom->num_integration_points(); ++gp) {
-            const auto xi = geom->reference_integration_point(gp);
-            const double wdA = geom->weight(gp) * geom->differential_measure(xi);
-
-            for (std::size_t a = 0; a < geom->num_nodes(); ++a) {
-                nodal_forces[a] += geom->H(a, xi) * traction * wdA;
-            }
-        }
-
-        for (std::size_t a = 0; a < geom->num_nodes(); ++a) {
-            model.apply_node_force(
-                geom->node(a),
-                nodal_forces[a][0],
-                nodal_forces[a][1],
-                nodal_forces[a][2],
-                0.0, 0.0, 0.0);
-        }
-    }
-}
-
-// =============================================================================
-//  Fiber section helpers
-// =============================================================================
-
-static Material<UniaxialMaterial> make_steel_fiber_material() {
-    return Material<UniaxialMaterial>{
-        InelasticMaterial<MenegottoPintoSteel>{STEEL_E, STEEL_FY, STEEL_B},
-        InelasticUpdate{}
-    };
-}
-
-static Material<UniaxialMaterial> make_unconfined_concrete_fiber_material(double fpc) {
-    return Material<UniaxialMaterial>{
-        InelasticMaterial<KentParkConcrete>{fpc, 0.10 * fpc},
-        InelasticUpdate{}
-    };
-}
-
-static Material<UniaxialMaterial> make_confined_concrete_fiber_material(
-    double fpc,
-    double rho_s,
-    double fyh,
-    double h_prime,
-    double sh)
-{
-    return Material<UniaxialMaterial>{
-        InelasticMaterial<KentParkConcrete>{fpc, 0.10 * fpc, rho_s, fyh, h_prime, sh},
-        InelasticUpdate{}
-    };
-}
-
-template <typename Factory>
-void add_patch_fibers(
-    std::vector<Fiber>& fibers,
-    double y_min,
-    double y_max,
-    int ny,
-    double z_min,
-    double z_max,
-    int nz,
-    Factory&& material_factory)
-{
-    const double dy = (y_max - y_min) / static_cast<double>(ny);
-    const double dz = (z_max - z_min) / static_cast<double>(nz);
-
-    for (int iy = 0; iy < ny; ++iy) {
-        for (int iz = 0; iz < nz; ++iz) {
-            const double y = y_min + (static_cast<double>(iy) + 0.5) * dy;
-            const double z = z_min + (static_cast<double>(iz) + 0.5) * dz;
-            const double A = dy * dz;
-            fibers.emplace_back(y, z, A, material_factory());
-        }
-    }
-}
-
-template <std::size_t N, typename Factory>
-void add_rebar_fibers(
-    std::vector<Fiber>& fibers,
-    const std::array<std::pair<double, double>, N>& positions,
-    double area,
-    Factory&& material_factory)
-{
-    for (const auto& [y, z] : positions) {
-        fibers.emplace_back(y, z, area, material_factory());
-    }
-}
-
+// ── Material factories (delegate to library RCSectionBuilder) ────────────────
 static Material<TimoshenkoBeam3D> make_column_material() {
-    const double Ec = concrete_initial_modulus(COLUMN_FPC);
-    const double Gc = isotropic_shear_modulus(Ec, NU_RC);
-    const double J  = rectangular_torsion_constant(COLUMN_B, COLUMN_H);
-
-    std::vector<Fiber> fibers;
-    fibers.reserve(48);
-
-    const double y_edge = 0.5 * COLUMN_B;
-    const double z_edge = 0.5 * COLUMN_H;
-    const double y_core = y_edge - COLUMN_COVER;
-    const double z_core = z_edge - COLUMN_COVER;
-
-    // Cover concrete
-    add_patch_fibers(
-        fibers, -y_edge, y_edge, 8, -z_edge, -z_core, 2,
-        [&] { return make_unconfined_concrete_fiber_material(COLUMN_FPC); });
-    add_patch_fibers(
-        fibers, -y_edge, y_edge, 8,  z_core,  z_edge, 2,
-        [&] { return make_unconfined_concrete_fiber_material(COLUMN_FPC); });
-    add_patch_fibers(
-        fibers, -y_edge, -y_core, 2, -z_core, z_core, 4,
-        [&] { return make_unconfined_concrete_fiber_material(COLUMN_FPC); });
-    add_patch_fibers(
-        fibers,  y_core,  y_edge, 2, -z_core, z_core, 4,
-        [&] { return make_unconfined_concrete_fiber_material(COLUMN_FPC); });
-
-    // Core concrete
-    const double rho_s = 0.015;
-    add_patch_fibers(
-        fibers, -y_core, y_core, 6, -z_core, z_core, 6,
-        [&] {
-            return make_confined_concrete_fiber_material(
-                COLUMN_FPC,
-                rho_s,
-                TIE_FY,
-                2.0 * std::min(y_core, z_core),
-                COLUMN_TIE_SPACING);
-        });
-
-    // Longitudinal reinforcement (8 bars)
-    const double y_bar = y_edge - COLUMN_COVER;
-    const double z_bar = z_edge - COLUMN_COVER;
-    const double A_bar = bar_area(COLUMN_BAR_D);
-
-    const std::array<std::pair<double, double>, 8> bars = {{
-        {-y_bar, -z_bar}, { y_bar, -z_bar},
-        {-y_bar,  z_bar}, { y_bar,  z_bar},
-        { 0.0,   -z_bar}, { 0.0,    z_bar},
-        {-y_bar,  0.0  }, { y_bar,   0.0  }
-    }};
-
-    add_rebar_fibers(
-        fibers, bars, A_bar,
-        [&] { return make_steel_fiber_material(); });
-
-    FiberSection3D section(Gc, KAPPA_RC, KAPPA_RC, J, std::move(fibers));
-    return Material<TimoshenkoBeam3D>{
-        InelasticMaterial<FiberSection3D>{std::move(section)},
-        InelasticUpdate{}
-    };
+    return fall_n::make_rc_column_section({
+        .b            = COLUMN_B,
+        .h            = COLUMN_H,
+        .cover        = COLUMN_COVER,
+        .bar_diameter = COLUMN_BAR_D,
+        .tie_spacing  = COLUMN_TIE_SPACING,
+        .fpc          = COLUMN_FPC,
+        .nu           = NU_RC,
+        .steel_E      = STEEL_E,
+        .steel_fy     = STEEL_FY,
+        .steel_b      = STEEL_B,
+        .tie_fy       = TIE_FY,
+    });
 }
 
 static Material<TimoshenkoBeam3D> make_beam_material() {
-    const double Ec = concrete_initial_modulus(BEAM_FPC);
-    const double Gc = isotropic_shear_modulus(Ec, NU_RC);
-    const double J  = rectangular_torsion_constant(BEAM_B, BEAM_H);
-
-    std::vector<Fiber> fibers;
-    fibers.reserve(42);
-
-    const double y_edge = 0.5 * BEAM_B;
-    const double z_edge = 0.5 * BEAM_H;
-    const double y_core = y_edge - BEAM_COVER;
-    const double z_core = z_edge - BEAM_COVER;
-
-    add_patch_fibers(
-        fibers, -y_edge, y_edge, 6, -z_edge, -z_core, 2,
-        [&] { return make_unconfined_concrete_fiber_material(BEAM_FPC); });
-    add_patch_fibers(
-        fibers, -y_edge, y_edge, 6,  z_core,  z_edge, 2,
-        [&] { return make_unconfined_concrete_fiber_material(BEAM_FPC); });
-    add_patch_fibers(
-        fibers, -y_edge, -y_core, 2, -z_core, z_core, 6,
-        [&] { return make_unconfined_concrete_fiber_material(BEAM_FPC); });
-    add_patch_fibers(
-        fibers,  y_core,  y_edge, 2, -z_core, z_core, 6,
-        [&] { return make_unconfined_concrete_fiber_material(BEAM_FPC); });
-    add_patch_fibers(
-        fibers, -y_core, y_core, 4, -z_core, z_core, 6,
-        [&] { return make_unconfined_concrete_fiber_material(BEAM_FPC); });
-
-    const double y_bar = y_edge - BEAM_COVER;
-    const double z_bar = z_edge - BEAM_COVER;
-    const double A_bar = bar_area(BEAM_BAR_D);
-
-    const std::array<std::pair<double, double>, 6> bars = {{
-        {-y_bar, -z_bar}, {0.0, -z_bar}, { y_bar, -z_bar},
-        {-y_bar,  z_bar}, {0.0,  z_bar}, { y_bar,  z_bar}
-    }};
-
-    add_rebar_fibers(
-        fibers, bars, A_bar,
-        [&] { return make_steel_fiber_material(); });
-
-    FiberSection3D section(Gc, KAPPA_RC, KAPPA_RC, J, std::move(fibers));
-    return Material<TimoshenkoBeam3D>{
-        InelasticMaterial<FiberSection3D>{std::move(section)},
-        InelasticUpdate{}
-    };
+    return fall_n::make_rc_beam_section({
+        .b            = BEAM_B,
+        .h            = BEAM_H,
+        .cover        = BEAM_COVER,
+        .bar_diameter = BEAM_BAR_D,
+        .fpc          = BEAM_FPC,
+        .nu           = NU_RC,
+        .steel_E      = STEEL_E,
+        .steel_fy     = STEEL_FY,
+        .steel_b      = STEEL_B,
+    });
 }
 
 static Material<MindlinReissnerShell3D> make_slab_material() {
