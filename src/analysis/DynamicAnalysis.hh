@@ -87,6 +87,7 @@
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 #include "Damping.hh"
+#include "AnalysisObserver.hh"
 
 
 template <typename MaterialPolicy,
@@ -131,9 +132,12 @@ class DynamicAnalysis {
     // Damping assembler
     DampingAssembler damping_assembler_;
 
-    // Post-step monitor callback
+    // Post-step monitor callback (legacy interface)
     using MonitorCallback = std::function<void(PetscInt step, double t, Vec u, Vec v)>;
     MonitorCallback monitor_callback_;
+
+    // Observer pipeline (new interface — replaces monitor_callback_ when set)
+    fall_n::ObserverCallback<ModelT> observer_callback_;
 
     // Ground motion influence vectors (one per direction with ground motion)
     struct GroundMotionInfo {
@@ -353,7 +357,15 @@ class DynamicAnalysis {
             VecAXPY(model->state_vector(), 1.0, model->imposed_solution());
         }
 
-        // ── User monitor callback ─────────────────────────────────────
+        // ── Observer pipeline (new) ──────────────────────────────────
+        if (self->observer_callback_.on_step) {
+            Vec V;
+            TS2GetSolution(ts, &U, &V);
+            fall_n::StepEvent ev{step, static_cast<double>(t), U, V};
+            self->observer_callback_.on_step(ev, *model);
+        }
+
+        // ── Legacy monitor callback (backward compatible) ─────────────
         if (self->monitor_callback_) {
             Vec V;
             TS2GetSolution(ts, &U, &V);
@@ -501,12 +513,29 @@ public:
         }
     }
 
-    /// Register a monitor callback.
+    /// Register a monitor callback (legacy interface).
     ///
     /// Called after each converged time step with (step, time, U, V).
-    /// Use for VTK snapshots, energy monitoring, etc.
+    /// Prefer set_observer() for the composable observer pipeline.
     void set_monitor(MonitorCallback mc) {
         monitor_callback_ = std::move(mc);
+    }
+
+    /// Register an observer pipeline.
+    ///
+    /// The observer receives (StepEvent, ModelT&) on every converged step,
+    /// plus lifecycle hooks (on_analysis_start, on_analysis_end).
+    /// Any observer-like object (CompositeObserver, DynamicObserverList, or
+    /// any class with the three methods) can be passed via make_observer_callback.
+    void set_observer(fall_n::ObserverCallback<ModelT> obs) {
+        observer_callback_ = std::move(obs);
+    }
+
+    /// Convenience: register any observer-like object directly.
+    /// The object must outlive the analysis.
+    template <typename Obs>
+    void set_observer(Obs& obs) {
+        observer_callback_ = fall_n::make_observer_callback<ModelT>(obs);
     }
 
 
@@ -643,6 +672,10 @@ public:
             "  ══════════════════════════════════════════════════════════\n\n",
             t_final, dt);
 
+        // ── Observer: on_analysis_start ──────────────────────────────
+        if (observer_callback_.on_start)
+            observer_callback_.on_start(*model_);
+
         timer_.start("solve");
         FALL_N_PETSC_CHECK(TSSolve(ts_, U_));
         timer_.stop("solve");
@@ -669,6 +702,10 @@ public:
         }
         timer_.stop("post");
 
+        // ── Observer: on_analysis_end ────────────────────────────────
+        if (observer_callback_.on_end)
+            observer_callback_.on_end(*model_);
+
         return (reason >= 0);
     }
 
@@ -681,6 +718,10 @@ public:
         FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_final));
         FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
 
+        // ── Observer: on_analysis_start ──────────────────────────────
+        if (observer_callback_.on_start)
+            observer_callback_.on_start(*model_);
+
         FALL_N_PETSC_CHECK(TSSolve(ts_, U_));
 
         TSConvergedReason reason;
@@ -692,6 +733,10 @@ public:
             DMGlobalToLocal(dm, U_, INSERT_VALUES, model_->state_vector());
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
         }
+
+        // ── Observer: on_analysis_end ────────────────────────────────
+        if (observer_callback_.on_end)
+            observer_callback_.on_end(*model_);
 
         return (reason >= 0);
     }

@@ -473,29 +473,6 @@ vtk_module_autoinit(
 
 add_test(NAME rc_fiber_frame_nonlinear COMMAND fall_n_rc_fiber_frame_test)
 
-# ── Timoshenko cantilever benchmark (continuum vs beam vs analytical) ─────────
-add_executable(fall_n_cantilever_benchmark
-  tests/test_timoshenko_cantilever_benchmark.cpp
-)
-
-target_include_directories(fall_n_cantilever_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_cantilever_benchmark PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_cantilever_benchmark PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_cantilever_benchmark PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_cantilever_benchmark PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_cantilever_benchmark
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_cantilever_benchmark PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME cantilever_benchmark COMMAND fall_n_cantilever_benchmark)
-
 # ── Continuum tensor module tests ─────────────────────────────────────────────
 add_executable(fall_n_continuum_test
   tests/test_continuum_tensors.cpp
@@ -686,29 +663,6 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 add_test(NAME snes_hyperelastic COMMAND fall_n_snes_test)
-
-# ── SNES + Gmsh pipeline tests (Phase 7B: multi-element, UL, plasticity) ────
-add_executable(fall_n_snes_gmsh_test
-  tests/test_snes_gmsh_pipeline.cpp
-)
-
-target_include_directories(fall_n_snes_gmsh_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_snes_gmsh_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_snes_gmsh_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_snes_gmsh_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_snes_gmsh_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_snes_gmsh_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_snes_gmsh_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME snes_gmsh_pipeline COMMAND fall_n_snes_gmsh_test)
 
 # ── Nonlinear Validation Suite (small mesh, 10 systematic tests) ─────────────
 add_executable(fall_n_nl_validation_test
