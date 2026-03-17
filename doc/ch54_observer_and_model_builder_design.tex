@@ -1,0 +1,780 @@
+% ==========================================================================
+%  Chapter 54 — Observer/Recorder Architecture and ModelBuilder Design
+% ==========================================================================
+
+\chapter{Observer/Recorder Architecture and ModelBuilder Design}
+\label{ch:observer-model-builder-design}
+
+This chapter documents the architectural design of two major
+infrastructure subsystems for the \texttt{fall\_n} library:
+\begin{enumerate}
+  \item an \textbf{Observer/Recorder} framework for structured monitoring,
+        data extraction, and time-history recording during analyses;
+  \item a \textbf{ModelBuilder} orchestrator for declarative model
+        construction, absorbing the ad-hoc helpers currently scattered
+        in example code.
+\end{enumerate}
+Both subsystems target a first stable release and adopt modern C++23
+idioms (\texttt{std::print}, \texttt{std::format}) throughout.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Motivation}
+\label{sec:obs-motivation}
+
+Three successive debugging sessions on the five-story corotational
+building example (Chapter~\ref{ch:corotational-dynamic-building})
+exposed a common pattern: \emph{data that should have been immediately
+visible required manual inspection of internal data structures}.
+
+\begin{itemize}
+  \item The consistent mass matrix was assembled without the
+        cross-sectional area (beams) or thickness (shells), producing
+        dimensionally incorrect mass.  Only excessive displacements
+        flagged the problem—far downstream.
+  \item Gravity forces were never computed for beam and column elements
+        after the shell loads were commented out.  The structure appeared
+        immobile because $\mathbf{f}_{\text{gravity}} = \mathbf{0}$.
+  \item All diagnostic output was embedded in a single monolithic lambda
+        captured as \texttt{MonitorCallback}.  Adding a new recorder
+        (e.g.\ fiber strain time-histories) required editing the lambda
+        and recompiling.
+\end{itemize}
+
+These issues motivate two orthogonal improvements:
+\begin{description}
+  \item[Output/Monitoring] Replace the monolithic monitor callback with a
+        composable \emph{observer} pipeline whose individual components
+        can be attached, removed, or reconfigured at runtime without
+        touching the analysis driver.
+  \item[Input/Construction] Extract the $\sim$20 helper functions
+        currently living in the anonymous namespace of \texttt{main.cpp}
+        into a reusable, declarative \texttt{ModelBuilder} that
+        orchestrates the domain--material--element--solver construction
+        sequence.
+\end{description}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Current Infrastructure Audit}
+\label{sec:obs-audit}
+
+% ------------------------------------------------------------------
+\subsection{Analysis Monitor Interface}
+
+\texttt{DynamicAnalysis} defines:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+using MonitorCallback =
+    std::function<void(PetscInt step, double t, Vec u, Vec v)>;
+void set_monitor(MonitorCallback mc);
+\end{lstlisting}
+A single callback is invoked at every time step.  The callback currently:
+\begin{enumerate}\itemsep0pt
+  \item prints progress to \texttt{stdout} (every 10 steps),
+  \item computes $\max|u_x|$ and $\max|u_z|$ over all nodes,
+  \item writes VTK snapshots via \texttt{StructuralVTMExporter}
+        (every 100 steps),
+  \item accumulates entries in a \texttt{PVDWriter}.
+\end{enumerate}
+All four concerns live in one lambda.  Adding a fifth (e.g.\ recording
+a node time-history) requires modifying the lambda and recompiling.
+
+% ------------------------------------------------------------------
+\subsection{VTK Export}
+
+Two output facilities exist:
+\begin{itemize}
+  \item \textbf{PVDWriter}: writes a ParaView \texttt{.pvd} collection
+        file for time-series animation.
+  \item \textbf{StructuralVTMExporter}: produces a multi-block
+        \texttt{.vtm} file with five VTK sub-blocks (axis, surface,
+        sections, material sites, fibers).
+\end{itemize}
+Neither is integrated into an observer framework; both are called
+explicitly from the monitor lambda.
+
+% ------------------------------------------------------------------
+\subsection{Section Constitutive Snapshot}
+
+The \texttt{SectionConstitutiveSnapshot} (already in the library) provides
+the data bridge for recursive observation:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+struct SectionConstitutiveSnapshot {
+    std::optional<BeamSectionConstitutiveSnapshot>  beam;
+    std::optional<ShellSectionConstitutiveSnapshot> shell;
+    std::span<const FiberSectionSample>             fibers;
+};
+\end{lstlisting}
+This gives access to per-section data (moduli, area, thickness) and
+per-fiber data (position, area, strain, stress) without coupling the
+observer to concrete material types.
+
+% ------------------------------------------------------------------
+\subsection{ModelBuilder (Dead Code)}
+
+\texttt{src/model/ModelBuilder.hh} exists but is entirely commented out.
+Only a default constructor and destructor compile.  The original intent
+was linking \texttt{Domain} and \texttt{Model} DOF layouts, but the
+design was abandoned before the current material type-erasure
+architecture was in place.
+
+% ------------------------------------------------------------------
+\subsection{Helpers in \texttt{main.cpp}}
+
+The anonymous namespace of \texttt{main.cpp} contains $\sim$20 functions
+that are \emph{de facto} library API:
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Category} & \textbf{Functions} & \textbf{Target location} \\
+\midrule
+Section geometry &
+  \texttt{rectangular\_torsion\_constant},
+  \texttt{bar\_area} &
+  \texttt{utils/SectionGeometry.hh} \\
+Material property &
+  \texttt{concrete\_initial\_modulus},
+  \texttt{isotropic\_shear\_modulus} &
+  \texttt{materials/MaterialProperties.hh} \\
+Fiber section builder &
+  \texttt{make\_steel\_fiber\_material}, &
+  \texttt{materials/FiberSectionFactory.hh} \\
+  & \texttt{make\_*\_concrete\_fiber\_material}, & \\
+  & \texttt{add\_patch\_fibers},
+    \texttt{add\_rebar\_fibers} & \\
+RC section builder &
+  \texttt{make\_column\_material},
+  \texttt{make\_beam\_material} &
+  \texttt{materials/RCSectionBuilder.hh} \\
+Slab material &
+  \texttt{make\_slab\_material} &
+  \texttt{materials/ShellMaterialFactory.hh} \\
+Domain builder &
+  \texttt{add\_regular\_building\_nodes}, &
+  \texttt{model/BuildingDomainBuilder.hh} \\
+  & \texttt{add\_columns},
+    \texttt{add\_beams},
+    \texttt{add\_slabs} & \\
+State queries &
+  \texttt{nodal\_translation},
+  \texttt{max\_translation\_norm}, &
+  \texttt{post-processing/StateQuery.hh} \\
+  & \texttt{max\_component\_abs} & \\
+Element wrapping &
+  \texttt{build\_structural\_elements} &
+  \texttt{model/StructuralModelBuilder.hh} \\
+VTK export &
+  \texttt{export\_structural\_vtm} & (already in VTK module) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Observer/Recorder Architecture}
+\label{sec:obs-architecture}
+
+% ------------------------------------------------------------------
+\subsection{Design Principles}
+
+\begin{enumerate}
+  \item \textbf{Open/Closed}: Adding a new observer must not require
+        modifying \texttt{DynamicAnalysis} or any existing observer.
+  \item \textbf{Single Responsibility}: Each observer handles one
+        concern (progress, VTK, node recording, section recording,
+        \ldots).
+  \item \textbf{Composability}: A composite observer delegates to a
+        vector of children, enabling rich pipelines from simple parts.
+  \item \textbf{Non-intrusive}: The analysis exposes data through
+        existing accessors (\texttt{Model::state\_vector()},
+        \texttt{SectionConstitutiveSnapshot}).  No new ``publish'' calls
+        in element code.
+  \item \textbf{Efficiency}: Observers run once per time step (not per
+        quadrature point).  Virtual dispatch overhead is negligible
+        compared to the constitutive integration cost.
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{Core API}
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+namespace fall_n {
+
+// Base class: one virtual call per step, plus lifecycle hooks.
+template <typename ModelT>
+class AnalysisObserver {
+public:
+    virtual ~AnalysisObserver() = default;
+
+    // Called once before the first step.
+    virtual void on_analysis_start(const ModelT& model) {}
+
+    // Called at every time step.
+    virtual void on_step(PetscInt step, double t,
+                         Vec u, Vec v,
+                         const ModelT& model) = 0;
+
+    // Called once after the last step.
+    virtual void on_analysis_end(const ModelT& model) {}
+};
+
+} // namespace fall_n
+\end{lstlisting}
+
+The key design choice is passing the \texttt{model} reference into
+\texttt{on\_step}.  The current \texttt{MonitorCallback} only provides
+\texttt{(step, t, u, v)}, forcing the lambda to capture the model.
+Adding the model reference makes observers self-contained and enables
+them to traverse the element--section--fiber hierarchy via
+\texttt{SectionConstitutiveSnapshot} without external coupling.
+
+% ------------------------------------------------------------------
+\subsection{Composite Observer}
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename ModelT>
+class CompositeObserver : public AnalysisObserver<ModelT> {
+    std::vector<std::unique_ptr<AnalysisObserver<ModelT>>> children_;
+public:
+    template <typename ObsT, typename... Args>
+    ObsT& add(Args&&... args) {
+        auto p = std::make_unique<ObsT>(std::forward<Args>(args)...);
+        auto& ref = *p;
+        children_.push_back(std::move(p));
+        return ref;
+    }
+
+    void on_analysis_start(const ModelT& m) override {
+        for (auto& c : children_) c->on_analysis_start(m);
+    }
+
+    void on_step(PetscInt step, double t,
+                 Vec u, Vec v,
+                 const ModelT& m) override {
+        for (auto& c : children_) c->on_step(step, t, u, v, m);
+    }
+
+    void on_analysis_end(const ModelT& m) override {
+        for (auto& c : children_) c->on_analysis_end(m);
+    }
+};
+\end{lstlisting}
+
+% ------------------------------------------------------------------
+\subsection{Integration with \texttt{DynamicAnalysis}}
+
+The analysis class gains a new overload:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+void set_observer(std::shared_ptr<AnalysisObserver<ModelT>> obs);
+\end{lstlisting}
+Internally, the PETSc \texttt{TSMonitor} callback delegates to
+\texttt{obs->on\_step(...)}.  The old \texttt{set\_monitor(callback)}
+remains for backward compatibility, wrapping the callback in a
+\texttt{LambdaObserver} adapter.
+
+% ------------------------------------------------------------------
+\subsection{Concrete Observers}
+
+\subsubsection{ConsoleProgressObserver}
+
+Replaces the ``print every $N$ steps'' logic.  Parameters: print
+interval, component selection.
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename ModelT>
+class ConsoleProgressObserver : public AnalysisObserver<ModelT> {
+    int interval_;
+public:
+    explicit ConsoleProgressObserver(int interval = 10)
+        : interval_{interval} {}
+
+    void on_step(PetscInt step, double t,
+                 Vec u, Vec v,
+                 const ModelT& model) override {
+        if (step % interval_ != 0) return;
+        const double max_u = max_translation_norm(model);
+        std::println("  [step {:4d}]  t = {:8.4f} s   max|u| = {:10.6e} m",
+                     static_cast<int>(step), t, max_u);
+    }
+};
+\end{lstlisting}
+
+\subsubsection{VTKSnapshotObserver}
+
+Encapsulates the \texttt{StructuralVTMExporter} + \texttt{PVDWriter}
+pipeline.  Parameters: output directory, snapshot interval, exporter
+configuration.
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename ModelT, typename BeamProfileT, typename ThicknessProfileT>
+class VTKSnapshotObserver : public AnalysisObserver<ModelT> {
+    std::string output_dir_;
+    int interval_;
+    PVDWriter pvd_;
+    BeamProfileT beam_profile_;
+    ThicknessProfileT thickness_profile_;
+public:
+    // constructor omitted for brevity
+
+    void on_step(PetscInt step, double t, Vec u, Vec v,
+                 const ModelT& model) override {
+        if (step % interval_ != 0) return;
+        auto filename = std::format("{}/snapshot_{:06d}.vtm",
+                                    output_dir_, static_cast<int>(step));
+        fall_n::vtk::StructuralVTMExporter exporter(
+            model, beam_profile_, thickness_profile_);
+        exporter.write(filename);
+        pvd_.add_timestep(t, filename);
+    }
+
+    void on_analysis_end(const ModelT&) override {
+        pvd_.write();
+    }
+};
+\end{lstlisting}
+
+\subsubsection{NodeRecorder}
+
+Records time-history of selected DOFs at specific nodes.  Stores data
+in columnar format for post-processing or CSV export.
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename ModelT>
+class NodeRecorder : public AnalysisObserver<ModelT> {
+    struct Channel {
+        std::size_t node_id;
+        std::size_t dof;          // local DOF index (0..5)
+        std::vector<double> data; // time-history samples
+    };
+    std::vector<Channel> channels_;
+    std::vector<double>  times_;
+    int interval_;
+public:
+    void record(std::size_t node, std::size_t dof);
+
+    void on_step(PetscInt step, double t, Vec u, Vec v,
+                 const ModelT& model) override;
+
+    // Accessor: returns span of recorded values for a channel
+    std::span<const double> history(std::size_t channel) const;
+    std::span<const double> time_axis() const;
+
+    // Export to CSV
+    void write_csv(const std::string& filename) const;
+};
+\end{lstlisting}
+
+\subsubsection{SectionRecorder}
+
+Records section-level quantities (e.g.\ peak fiber strain, moment
+resultant) by traversing the element--section hierarchy via
+\texttt{SectionConstitutiveSnapshot}.
+
+\subsubsection{EnergyRecorder}
+
+Records kinetic, potential (strain), and dissipated energy per step.
+Useful for verifying energy balance in nonlinear dynamics.
+
+
+% ------------------------------------------------------------------
+\subsection{Data Flow Diagram}
+
+\begin{center}
+\begin{minipage}{0.80\textwidth}
+\small
+\begin{verbatim}
+DynamicAnalysis
+  |-- TSMonitor callback (PETSc)
+       |
+       v
+  CompositeObserver
+       |-- ConsoleProgressObserver  --> stdout
+       |-- VTKSnapshotObserver      --> .vtm/.pvd files
+       |-- NodeRecorder             --> in-memory + CSV
+       |-- SectionRecorder          --> in-memory + CSV
+       |-- EnergyRecorder           --> in-memory + CSV
+       |
+       +-- (user-defined observers)
+\end{verbatim}
+\end{minipage}
+\end{center}
+
+Each observer independently reads from the \texttt{Model} via its
+existing accessors.  No observer modifies the model state.
+
+
+% ------------------------------------------------------------------
+\subsection{Design Alternatives Considered}
+
+\paragraph{Type-erased observer (SBO).}
+The \texttt{Material<T>} pattern uses small-buffer optimisation for
+value semantics.  For observers this is unnecessary: observers are
+few (typically 3--5), created once, and stored by pointer.  Virtual
+dispatch through \texttt{unique\_ptr} is simpler and sufficient.
+
+\paragraph{Concept-based observer.}
+A C++20 concept (\texttt{AnalysisObserverConcept}) could eliminate the
+vtable.  However, the composite pattern requires homogeneous storage
+(\texttt{vector<unique\_ptr<Base>>}), which reintroduces virtual
+dispatch.  The concept adds complexity without benefit here.
+
+\paragraph{Signal/slot (e.g.\ \texttt{boost::signals2}).}
+Decouples publishers and subscribers at the cost of an external
+dependency.  The library avoids non-essential dependencies; the
+composite pattern achieves the same decoupling.
+
+\paragraph{Callback vector.}
+\texttt{DynamicAnalysis} could store a
+\texttt{vector<MonitorCallback>} instead of a single callback.
+This is simpler but loses lifecycle hooks (\texttt{on\_analysis\_start},
+\texttt{on\_analysis\_end}) and named semantics.  The observer base
+class is a small price for the richer protocol.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{ModelBuilder Architecture}
+\label{sec:model-builder}
+
+% ------------------------------------------------------------------
+\subsection{Layered Design}
+
+The ModelBuilder is split into two layers:
+
+\begin{description}
+  \item[Layer 1: \texttt{ModelBuilder<dim>}] (generic) Handles domain
+        construction, DOF configuration, constraint application, and
+        analysis setup---independent of element type.
+  \item[Layer 2: \texttt{StructuralModelBuilder}] (specialised) Extends
+        Layer~1 with frame/shell convenience methods: material-to-group
+        mapping, fiber section builders, VTK export configuration, and
+        structural element wrapping.
+\end{description}
+
+This separation allows future continuum-only problems to use Layer~1
+alone, while structural engineering workflows get the full convenience
+of Layer~2.
+
+% ------------------------------------------------------------------
+\subsection{Layer 1: Generic ModelBuilder}
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <std::size_t dim>
+class ModelBuilder {
+public:
+    // Domain construction
+    ModelBuilder& add_node(PetscInt id, double x, double y, double z = 0.0);
+    ModelBuilder& add_grid(std::span<const double> x,
+                           std::span<const double> y,
+                           std::span<const double> z);
+
+    template <typename ElemType, typename IntStrategy>
+    ModelBuilder& add_element(std::size_t tag,
+                              std::span<const PetscInt> connectivity,
+                              std::string_view group = "");
+
+    ModelBuilder& assemble();
+
+    // Constraints
+    ModelBuilder& fix_base(double z = 0.0);
+    ModelBuilder& fix_node(PetscInt id);
+    ModelBuilder& constrain_dof(PetscInt node, std::size_t dof, double val);
+
+    // Boundary conditions
+    ModelBuilder& add_force(PetscInt node,
+                            std::array<double, dim> components,
+                            time_fn::TimeFunction tf = time_fn::constant(1.0));
+    ModelBuilder& add_ground_motion(std::size_t dir, /* ... */);
+
+    // Finalize
+    Domain<dim>& domain();
+
+private:
+    Domain<dim> domain_;
+};
+\end{lstlisting}
+
+The fluent (method-chaining) API allows declarative construction:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+auto builder = ModelBuilder<3>{}
+    .add_grid(X_GRID, Y_GRID, Z_LEVELS)
+    .fix_base(0.0)
+    .assemble();
+\end{lstlisting}
+
+% ------------------------------------------------------------------
+\subsection{Layer 2: StructuralModelBuilder}
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename FrameElemT, typename ShellElemT>
+class StructuralModelBuilder {
+    using StructuralPolicy = SingleElementPolicy<StructuralElement>;
+    using ModelT = Model</* ... */, StructuralPolicy>;
+public:
+    // Material assignment by physical group
+    StructuralModelBuilder& set_frame_material(
+        std::string_view group,
+        const Material<TimoshenkoBeam3D>& mat);
+
+    StructuralModelBuilder& set_shell_material(
+        std::string_view group,
+        const Material<MindlinReissnerShell3D>& mat);
+
+    // Convenience: RC fiber section builders
+    StructuralModelBuilder& set_rc_column_section(
+        std::string_view group,
+        const RCColumnSectionSpec& spec);
+
+    StructuralModelBuilder& set_rc_beam_section(
+        std::string_view group,
+        const RCBeamSectionSpec& spec);
+
+    // Gravity
+    StructuralModelBuilder& apply_self_weight(double density, double g);
+
+    // Build
+    ModelT build(Domain<3>& domain);
+
+private:
+    std::map<std::string, Material<TimoshenkoBeam3D>> frame_materials_;
+    std::map<std::string, Material<MindlinReissnerShell3D>> shell_materials_;
+};
+\end{lstlisting}
+
+The \texttt{RCColumnSectionSpec} / \texttt{RCBeamSectionSpec} structs
+absorb the parameters currently hardcoded in the \texttt{make\_column\_material()}
+and \texttt{make\_beam\_material()} helpers.
+
+% ------------------------------------------------------------------
+\subsection{Framed Structure Convenience}
+
+For regular framed buildings (the most common use case), a higher-level
+builder provides a grid-based API:
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+namespace fall_n::building {
+
+struct FramedBuildingSpec {
+    std::vector<double> x_axes;
+    std::vector<double> y_axes;
+    int num_stories;
+    double story_height;
+    // per-group section specs, slab thickness, etc.
+};
+
+auto make_framed_building(const FramedBuildingSpec& spec)
+    -> std::pair<Domain<3>, StructuralModelBuilder::ModelT>;
+
+} // namespace fall_n::building
+\end{lstlisting}
+
+This replaces the \texttt{add\_regular\_building\_nodes()},
+\texttt{add\_columns()}, \texttt{add\_beams()}, \texttt{add\_slabs()}
+functions, reducing the entire construction sequence to a single call.
+
+
+% ------------------------------------------------------------------
+\subsection{Helper Function Extraction Plan}
+
+Functions currently in \texttt{main.cpp} are migrated as follows:
+
+\paragraph{Phase A --- Pure utilities (no dependencies).}
+\begin{itemize}
+  \item \texttt{rectangular\_torsion\_constant(b, h)}
+        $\to$ \texttt{src/utils/SectionProperties.hh}
+  \item \texttt{concrete\_initial\_modulus(fpc)}
+        $\to$ \texttt{src/materials/ConcreteMaterial.hh}
+  \item \texttt{isotropic\_shear\_modulus(E, nu)}
+        $\to$ \texttt{src/materials/MaterialProperties.hh}
+  \item \texttt{bar\_area(diameter)}
+        $\to$ \texttt{src/utils/SectionProperties.hh}
+\end{itemize}
+
+\paragraph{Phase B --- Fiber section factories.}
+\begin{itemize}
+  \item \texttt{add\_patch\_fibers()}
+        $\to$ \texttt{src/materials/FiberSectionFactory.hh}
+  \item \texttt{add\_rebar\_fibers()}
+        $\to$ same header
+  \item \texttt{make\_steel\_fiber\_material()},
+        \texttt{make\_*\_concrete\_fiber\_material()}
+        $\to$ \texttt{src/materials/FiberMaterialFactory.hh}
+  \item \texttt{make\_column\_material()},
+        \texttt{make\_beam\_material()}
+        $\to$ \texttt{src/materials/RCSectionBuilder.hh}
+\end{itemize}
+
+\paragraph{Phase C --- State queries.}
+\begin{itemize}
+  \item \texttt{nodal\_translation()},
+        \texttt{max\_translation\_norm()},
+        \texttt{max\_component\_abs()}
+        $\to$ \texttt{src/post-processing/StateQuery.hh}
+\end{itemize}
+
+\paragraph{Phase D --- Domain+model builders.}
+\begin{itemize}
+  \item \texttt{add\_regular\_building\_nodes()}, \texttt{add\_columns()},
+        \texttt{add\_beams()}, \texttt{add\_slabs()}
+        $\to$ \texttt{src/model/BuildingDomainBuilder.hh}
+  \item \texttt{build\_structural\_elements()}
+        $\to$ \texttt{src/model/StructuralModelBuilder.hh}
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Modern C++ Migration}
+\label{sec:cpp23-migration}
+
+% ------------------------------------------------------------------
+\subsection{std::print and std::format}
+
+The library already enables C++23 (\texttt{-std=c++2b}) and includes
+\texttt{<format>} and \texttt{<print>} in several headers, but most
+output still uses \texttt{std::cout}.  The migration:
+
+\begin{itemize}
+  \item Replace \texttt{std::cout << "text" << value << "\textbackslash n"}
+        with \texttt{std::println("text \{\}", value)}.
+  \item Replace \texttt{std::ostringstream} formatting with
+        \texttt{std::format}.
+  \item Prioritise new code (observers, builders) for
+        \texttt{std::print}; migrate existing code incrementally.
+\end{itemize}
+
+\paragraph{Example.}
+Current:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+std::cout << "  Density (RC)       : " << RC_DENSITY << " MN s^2/m^4\n";
+\end{lstlisting}
+Becomes:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+std::println("  Density (RC)       : {} MN s^2/m^4", RC_DENSITY);
+\end{lstlisting}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Implementation Order and Prerequisites}
+\label{sec:obs-impl-order}
+
+% ------------------------------------------------------------------
+\subsection{Prerequisites}
+
+Before beginning implementation:
+\begin{enumerate}
+  \item \textbf{Test suite health}: All 47 CTest targets must pass
+        (45 pass, 2 pre-existing failures:
+        \texttt{cantilever\_benchmark} and
+        \texttt{snes\_gmsh\_pipeline}).
+        \emph{Verified.}
+  \item \textbf{Git commit}: The current working state (mass-matrix
+        fix + force-application fix) must be committed to preserve a
+        known-good baseline.
+  \item \textbf{Build clean}: The build must compile with zero
+        warnings under \texttt{-Werror}.
+        \emph{Verified.}
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{Phased Implementation}
+
+\begin{description}
+  \item[Phase 1: Observer framework] (this chapter)
+    \begin{enumerate}
+      \item Define \texttt{AnalysisObserver<ModelT>} base class.
+      \item Implement \texttt{CompositeObserver}.
+      \item Implement \texttt{ConsoleProgressObserver}.
+      \item Implement \texttt{VTKSnapshotObserver}.
+      \item Integrate into \texttt{DynamicAnalysis}
+            (add \texttt{set\_observer()}, keep backward-compatible
+            \texttt{set\_monitor()}).
+      \item Refactor \texttt{main.cpp} to use the composite pipeline.
+      \item Add \texttt{NodeRecorder} and verify with the building example.
+    \end{enumerate}
+
+  \item[Phase 2: Helper extraction]
+    \begin{enumerate}
+      \item Extract pure utilities (Phase~A from
+            \S\ref{sec:model-builder}).
+      \item Extract fiber section factories (Phase~B).
+      \item Extract state queries (Phase~C).
+      \item Verify \texttt{main.cpp} compiles using the new headers.
+    \end{enumerate}
+
+  \item[Phase 3: ModelBuilder]
+    \begin{enumerate}
+      \item Implement \texttt{ModelBuilder<dim>} (Layer~1).
+      \item Implement \texttt{StructuralModelBuilder} (Layer~2).
+      \item Implement \texttt{make\_framed\_building()} convenience.
+      \item Refactor \texttt{main.cpp} to use the builders.
+      \item Delete dead code in \texttt{ModelBuilder.hh}.
+    \end{enumerate}
+
+  \item[Phase 4: std::print migration]
+    \begin{enumerate}
+      \item Migrate all new code (observers, builders) to
+            \texttt{std::print}.
+      \item Incrementally migrate existing library output.
+    \end{enumerate}
+\end{description}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Trade-offs and Design Decisions}
+\label{sec:obs-tradeoffs}
+
+\begin{center}
+\small
+\begin{tabular}{p{4cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{Decision} & \textbf{Pros} & \textbf{Cons} \\
+\midrule
+Virtual base class for observers &
+  Simple, familiar, composable via \texttt{unique\_ptr} &
+  Small vtable overhead (negligible for per-step calls) \\
+\addlinespace
+Template \texttt{ModelT} on observer &
+  Works with any model type without casting &
+  Observers are not exchangeable across model types \\
+\addlinespace
+Fluent (chaining) API for builder &
+  Readable, declarative construction &
+  Cannot easily validate intermediate states \\
+\addlinespace
+Two-layer builder &
+  Generic layer reusable for continuum; structural layer adds convenience &
+  More classes to maintain \\
+\addlinespace
+Pass \texttt{model} to \texttt{on\_step} &
+  Observer is self-contained; no captured references &
+  Slight API change vs current \texttt{MonitorCallback} \\
+\addlinespace
+\texttt{shared\_ptr} for observer in analysis &
+  Observer lifetime may extend beyond analysis (e.g.\ post-processing) &
+  Shared ownership adds minor complexity \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Summary}
+\label{sec:obs-summary}
+
+The proposed architecture introduces two orthogonal subsystems:
+\begin{itemize}
+  \item An \textbf{Observer/Recorder} pipeline that replaces the
+        monolithic monitor lambda with composable, single-responsibility
+        observers—each independently testable and reconfigurable at
+        runtime.
+  \item A \textbf{ModelBuilder} orchestrator that extracts the
+        $\sim$20 helper functions from example code into reusable
+        library headers, with a layered generic/structural design.
+\end{itemize}
+
+Implementation proceeds in four phases: observer framework first
+(enables better debugging of subsequent work), then helper extraction,
+then model builder, then \texttt{std::print/format} migration.  Each
+phase preserves backward compatibility and maintains the passing test
+suite.
