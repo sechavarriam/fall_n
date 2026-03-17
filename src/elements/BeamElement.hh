@@ -342,6 +342,32 @@ public:
         return u;
     }
 
+    /// Global displacement at parametric coordinate xi.
+    ///
+    /// For small-rotation kinematic policy this equals R^T · u_local(xi).
+    /// For corotational policy this reconstructs the total displacement
+    /// (rigid + deformational) from the global element DOFs stored in
+    /// the PETSc local vector, so that elements remain connected in VTK
+    /// warp visualization.
+    Eigen::Vector3d sample_displacement_global(
+        double xi,
+        Vec u_petsc_local) const
+    {
+        Eigen::VectorXd u_e = extract_element_dofs(u_petsc_local);
+        const double n1 = N1(xi);
+        const double n2 = N2(xi);
+        Eigen::Vector3d u_glob = Eigen::Vector3d::Zero();
+        if constexpr (Dim == 2) {
+            u_glob[0] = n1 * u_e[0] + n2 * u_e[3];
+            u_glob[1] = n1 * u_e[1] + n2 * u_e[4];
+        } else {
+            u_glob[0] = n1 * u_e[0] + n2 * u_e[6];
+            u_glob[1] = n1 * u_e[1] + n2 * u_e[7];
+            u_glob[2] = n1 * u_e[2] + n2 * u_e[8];
+        }
+        return u_glob;
+    }
+
     Eigen::Vector3d sample_rotation_vector_local(
         double xi,
         const Eigen::Vector<double, total_dofs>& u_loc) const
