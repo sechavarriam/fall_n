@@ -659,6 +659,11 @@ public:
         KMatrixT M_e = KMatrixT::Zero();
         if (density_ <= 0.0) return M_e;
 
+        // Cross-section area from the section constitutive model
+        const auto snap = sections_[0].section_snapshot();
+        const double A = snap.beam ? snap.beam->area : 0.0;
+        if (A <= 0.0) return M_e;
+
         const auto ngp = geometry_->num_integration_points();
 
         for (std::size_t gp = 0; gp < ngp; ++gp) {
@@ -684,7 +689,7 @@ public:
                 N_mat(2, 2) = n1;  N_mat(2, 8) = n2;  // w
             }
 
-            M_e += density_ * w * dm * (N_mat.transpose() * N_mat);
+            M_e += density_ * A * w * dm * (N_mat.transpose() * N_mat);
         }
 
         // Transform to global coordinates

@@ -433,6 +433,8 @@ public:
 
     [[nodiscard]] std::size_t num_fibers()       const noexcept { return fibers_.size(); }
     [[nodiscard]] double      total_area()       const noexcept { return A_total_; }
+    [[nodiscard]] double      area()             const noexcept { return A_total_; }
+    [[nodiscard]] double      young_modulus()    const noexcept { return 0.0; } // N/A for fiber section; enables snapshot concept
     [[nodiscard]] double      shear_modulus()    const noexcept { return G_; }
     [[nodiscard]] double      torsional_constant() const noexcept { return J_; }
 

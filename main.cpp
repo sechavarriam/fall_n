@@ -106,27 +106,30 @@ static constexpr double XI_DAMP   = 0.05;
 static constexpr double OMEGA_1   = 2.0 * std::numbers::pi / 0.50;  // ≈ 12.57 rad/s
 static constexpr double OMEGA_3   = 2.0 * std::numbers::pi / 0.10;  // ≈ 62.83 rad/s
 
-// ── Dynamic loading ───────────────────────────────────────────────────────────
-//  Cyclic lateral load: sinusoidal at near-fundamental period
-//  with a slow amplitude ramp over the first second.
-static constexpr double SLAB_GRAVITY_PRESSURE = -0.0075;  // MN/m² = 7.5 kN/m²
-static constexpr double LATERAL_AMPLITUDE     =  0.005;   // MN = 5 kN per node
-static constexpr double EXCITATION_PERIOD      =  0.50;   // s (near T₁ → resonance amplification)
-static constexpr double GRAVITY_RAMP_TIME      =  1.00;   // s (ramp gravity to avoid dynamic shock)
-static constexpr double LATERAL_RAMP_TIME      =  1.50;   // s (ramp lateral after gravity settles)
-static constexpr double T_FINAL                =  5.00;   // s
-static constexpr double DT                     =  0.005;  // s  → ~1000 steps
+// ── Gravity ───────────────────────────────────────────────────────────────────
+//  g = 9.81 m/s²  (no unit conversion needed — consistent with MN / m / s)
+static constexpr double GRAVITY_ACCEL = 9.81;
 
-static constexpr int VTK_SNAPSHOT_INTERVAL = 20;  // write VTK every 20 steps
+static constexpr double COLUMN_AREA = COLUMN_B * COLUMN_H;   // 0.2025 m²
+static constexpr double BEAM_AREA   = BEAM_B   * BEAM_H;     // 0.18   m²
+
+// ── Dynamic loading ───────────────────────────────────────────────────────────
+//  Cyclic lateral load: sinusoidal at near-fundamental period.
+static constexpr double LATERAL_AMPLITUDE      =  0.050;   // MN = 50 kN per node
+static constexpr double EXCITATION_PERIOD      =  0.50;    // s (near T₁ → resonance amplification)
+static constexpr double GRAVITY_RAMP_TIME      =  1.00;    // s (ramp gravity to avoid dynamic shock)
+static constexpr double LATERAL_RAMP_TIME      =  0.50;    // s (ramp lateral envelope)
+static constexpr double T_FINAL                =  5.00;    // s
+static constexpr double DT                     =  0.001;   // s  → 5000 steps
+
+static constexpr int VTK_SNAPSHOT_INTERVAL = 100;  // write VTK every 100 steps
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
-using FrameElement   = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
-using ShellElementT  = ShellElement<MindlinReissnerShell3D>;
+using FrameElement     = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
+using ShellElementT    = ShellElement<MindlinReissnerShell3D>;
 using StructuralPolicy = SingleElementPolicy<StructuralElement>;
-using StructuralModel =
-    Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
-using DynamicSolver =
-    DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
+using StructuralModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
+using DynamicSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 
 // ── Small geometry / section helpers ──────────────────────────────────────────
 constexpr PetscInt node_id(int ix, int iy, int level) noexcept {
@@ -581,15 +584,77 @@ static void run_corotational_dynamic_rc_building() {
     // ─────────────────────────────────────────────────────────────────────
     //  5. Pre-assemble constant gravity load vector
     // ─────────────────────────────────────────────────────────────────────
-    //  Slab self-weight as uniform pressure.
-    //  Applied once to the model's nodal_forces_ (local vector),
-    //  then copied to a separate global vector for the force evaluator.
-    apply_uniform_shell_surface_load(
-        model,
-        shell_geometries,
-        Eigen::Vector3d{0.0, 0.0, SLAB_GRAVITY_PRESSURE});
+    //  Beam/column self-weight: each element contributes
+    //    w_node = ½ · ρ · g · A · L   (in –Z direction)
+    //  at each of its two end nodes.
 
     DM dm = model.get_plex();
+
+    // Apply column self-weight (vertical members, L = STORY_HEIGHT)
+    for (int level = 0; level < NUM_STORIES; ++level) {
+        const double w_half = 0.5 * RC_DENSITY * GRAVITY_ACCEL * COLUMN_AREA * STORY_HEIGHT;
+        for (int iy = 0; iy < NUM_AXES_Y; ++iy) {
+            for (int ix = 0; ix < NUM_AXES_X; ++ix) {
+                // Bottom node
+                model.apply_node_force(
+                    node_id(ix, iy, level),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+                // Top node
+                model.apply_node_force(
+                    node_id(ix, iy, level + 1),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    // Apply beam self-weight (horizontal X-direction members, L = ΔX)
+    for (int level = 1; level <= NUM_STORIES; ++level) {
+        for (int iy = 0; iy < NUM_AXES_Y; ++iy) {
+            for (int ix = 0; ix < NUM_AXES_X - 1; ++ix) {
+                const double Lx = X_GRID[static_cast<std::size_t>(ix + 1)]
+                                - X_GRID[static_cast<std::size_t>(ix)];
+                const double w_half = 0.5 * RC_DENSITY * GRAVITY_ACCEL * BEAM_AREA * Lx;
+                model.apply_node_force(
+                    node_id(ix, iy, level),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+                model.apply_node_force(
+                    node_id(ix + 1, iy, level),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+            }
+        }
+
+        // Y-direction beams
+        for (int ix = 0; ix < NUM_AXES_X; ++ix) {
+            for (int iy = 0; iy < NUM_AXES_Y - 1; ++iy) {
+                const double Ly = Y_GRID[static_cast<std::size_t>(iy + 1)]
+                                - Y_GRID[static_cast<std::size_t>(iy)];
+                const double w_half = 0.5 * RC_DENSITY * GRAVITY_ACCEL * BEAM_AREA * Ly;
+                model.apply_node_force(
+                    node_id(ix, iy, level),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+                model.apply_node_force(
+                    node_id(ix, iy + 1, level),
+                    0.0, 0.0, -w_half, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    // Apply slab tributary self-weight (¼ of panel weight at each corner)
+    for (int level = 1; level <= NUM_STORIES; ++level) {
+        for (int iy = 0; iy < NUM_AXES_Y - 1; ++iy) {
+            for (int ix = 0; ix < NUM_AXES_X - 1; ++ix) {
+                const double Lx = X_GRID[static_cast<std::size_t>(ix + 1)]
+                                - X_GRID[static_cast<std::size_t>(ix)];
+                const double Ly = Y_GRID[static_cast<std::size_t>(iy + 1)]
+                                - Y_GRID[static_cast<std::size_t>(iy)];
+                const double w_quarter = 0.25 * RC_DENSITY * GRAVITY_ACCEL * SLAB_T * Lx * Ly;
+                model.apply_node_force(node_id(ix,     iy,     level), 0.0, 0.0, -w_quarter, 0.0, 0.0, 0.0);
+                model.apply_node_force(node_id(ix + 1, iy,     level), 0.0, 0.0, -w_quarter, 0.0, 0.0, 0.0);
+                model.apply_node_force(node_id(ix,     iy + 1, level), 0.0, 0.0, -w_quarter, 0.0, 0.0, 0.0);
+                model.apply_node_force(node_id(ix + 1, iy + 1, level), 0.0, 0.0, -w_quarter, 0.0, 0.0, 0.0);
+            }
+        }
+    }
 
     petsc::OwnedVec f_gravity;
     DMCreateGlobalVector(dm, f_gravity.ptr());
@@ -598,6 +663,13 @@ static void run_corotational_dynamic_rc_building() {
 
     // Reset model's internal force vector (gravity is now in f_gravity)
     VecSet(model.force_vector(), 0.0);
+
+    // ── Diagnostic: verify gravity forces ──
+    {
+        PetscReal norm;
+        VecNorm(f_gravity, NORM_2, &norm);
+        PetscPrintf(PETSC_COMM_WORLD, "  ||f_gravity|| = %e MN\n", norm);
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     //  6. Pre-assemble unit lateral force pattern (triangular, +X)
@@ -624,6 +696,13 @@ static void run_corotational_dynamic_rc_building() {
 
     VecSet(model.force_vector(), 0.0);
 
+    // ── Diagnostic: verify lateral forces ──
+    {
+        PetscReal norm;
+        VecNorm(f_lateral, NORM_2, &norm);
+        PetscPrintf(PETSC_COMM_WORLD, "  ||f_lateral|| = %e MN\n", norm);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     //  7. Configure dynamic solver
     // ─────────────────────────────────────────────────────────────────────
@@ -637,22 +716,19 @@ static void run_corotational_dynamic_rc_building() {
 
     // External force:  f_ext(t) = g(t)·f_gravity + h(t)·sin(2πt/T)·f_lateral
     //  g(t): smooth gravity ramp over GRAVITY_RAMP_TIME
-    //  h(t): lateral amplitude ramp starting after gravity ramp
+    //  h(t): lateral amplitude ramp starting at t=0 alongside gravity
     solver.set_force_function(
         [&](double t, Vec f_ext) {
             // Ramp gravity smoothly to avoid dynamic shock
             const double g_ramp = std::min(t / GRAVITY_RAMP_TIME, 1.0);
             VecAXPY(f_ext, g_ramp, f_gravity);
 
-            // Cyclic lateral with delayed ramp envelope
-            const double t_lat = t - GRAVITY_RAMP_TIME;
-            if (t_lat > 0.0) {
-                const double envelope =
-                    std::min(t_lat / (LATERAL_RAMP_TIME - GRAVITY_RAMP_TIME), 1.0);
-                const double lateral_scale =
-                    envelope * std::sin(2.0 * std::numbers::pi * t / EXCITATION_PERIOD);
-                VecAXPY(f_ext, lateral_scale, f_lateral);
-            }
+            // Cyclic lateral with simultaneous ramp envelope
+            const double envelope =
+                std::min(t / LATERAL_RAMP_TIME, 1.0);
+            const double lateral_scale =
+                envelope * std::sin(2.0 * std::numbers::pi * t / EXCITATION_PERIOD);
+            VecAXPY(f_ext, lateral_scale, f_lateral);
         });
 
     // ─────────────────────────────────────────────────────────────────────
@@ -661,11 +737,22 @@ static void run_corotational_dynamic_rc_building() {
     std::filesystem::create_directories(OUT);
     PVDWriter pvd(OUT + "building_dynamic");
 
+    static constexpr int PRINT_INTERVAL = 10;
+
     solver.set_monitor(
         [&](PetscInt step, double t, Vec /*u*/, Vec /*v*/) {
+            // Print progress frequently
+            if (step % PRINT_INTERVAL == 0) {
+                const double max_ux = max_component_abs(model, 0);
+                const double max_uz = max_component_abs(model, 2);
+                PetscPrintf(PETSC_COMM_WORLD,
+                    "  [step %4d]  t = %8.4f s   max|ux| = %10.6f m   max|uz| = %10.6f m\n",
+                    static_cast<int>(step), t, max_ux, max_uz);
+            }
+
+            // Write VTK snapshots less frequently
             if (step % VTK_SNAPSHOT_INTERVAL != 0) return;
 
-            // Build snapshot filename
             std::ostringstream oss;
             oss << OUT << "building_dynamic_"
                 << std::setw(6) << std::setfill('0') << step
@@ -674,12 +761,6 @@ static void run_corotational_dynamic_rc_building() {
 
             export_structural_vtm(model, vtm_name);
             pvd.add_timestep(t, vtm_name);
-
-            // Print progress
-            const double max_ux = max_component_abs(model, 0);
-            PetscPrintf(PETSC_COMM_WORLD,
-                "  [step %4d]  t = %8.4f s   max|ux| = %10.6f m\n",
-                static_cast<int>(step), t, max_ux);
         });
 
     // ─────────────────────────────────────────────────────────────────────
@@ -690,6 +771,7 @@ static void run_corotational_dynamic_rc_building() {
     std::cout << "  Damping ratio      : " << XI_DAMP * 100 << " %\n";
     std::cout << "  Rayleigh omega_1   : " << OMEGA_1 << " rad/s (T1=" << 2*std::numbers::pi/OMEGA_1 << " s)\n";
     std::cout << "  Rayleigh omega_3   : " << OMEGA_3 << " rad/s (T3=" << 2*std::numbers::pi/OMEGA_3 << " s)\n";
+    std::cout << "  Gravity accel.     : " << GRAVITY_ACCEL << " m/s^2\n";
     std::cout << "  Lateral amplitude  : " << LATERAL_AMPLITUDE << " MN per node\n";
     std::cout << "  Excitation period  : " << EXCITATION_PERIOD << " s\n";
     std::cout << "  Gravity ramp       : " << GRAVITY_RAMP_TIME << " s\n";
