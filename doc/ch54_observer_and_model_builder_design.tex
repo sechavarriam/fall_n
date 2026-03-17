@@ -446,6 +446,221 @@ class is a small price for the richer protocol.
 
 
 % ══════════════════════════════════════════════════════════════════════════
+\section{Comparison with OpenSees Recorder Architecture}
+\label{sec:opensees-comparison}
+
+The OpenSees framework~\cite{OpenSees}%
+\footnote{F.~McKenna, G.\,L.~Fenves, M.\,H.~Scott, \emph{Open System
+for Earthquake Engineering Simulation}, 2000.  Source:
+\url{https://github.com/OpenSees/OpenSees}.}
+provides a \texttt{Recorder} subsystem that superficially resembles
+the Observer/Recorder pipeline described in this chapter.
+This section analyses the two architectures---OpenSees' runtime
+scripting--driven \texttt{Recorder} and \texttt{fall\_n}'s
+compile-time polymorphic Observer---highlighting points of convergence
+and deliberate divergence.
+
+% ------------------------------------------------------------------
+\subsection{OpenSees Recorder: Key Architectural Traits}
+\label{sec:opensees-recorder}
+
+In OpenSees, a \texttt{Recorder} is a polymorphic object derived from
+an abstract base class with the following interface skeleton:
+
+\begin{lstlisting}[language=C++,basicstyle=\small\ttfamily]
+class Recorder : public MovableObject, public TaggedObject {
+  virtual int record(int commitTag, double timeStamp) = 0;
+  virtual int restart()                               = 0;
+  virtual int setDomain(Domain& theDomain)            = 0;
+  // ... serialization, copy, class-tag machinery
+};
+\end{lstlisting}
+
+Concrete implementations include \texttt{NodeRecorder},
+\texttt{ElementRecorder}, \texttt{EnvelopeNodeRecorder},
+\texttt{DriftRecorder}, \texttt{PatternRecorder}, among others.
+Notable architectural characteristics:
+
+\begin{enumerate}
+  \item \textbf{Domain coupling.}  Every recorder is explicitly
+        \emph{set} on a \texttt{Domain} via \texttt{setDomain()}.
+        The recorder then queries the domain's node/element maps
+        internally.  This couples the recorder tightly to the
+        \texttt{Domain} class hierarchy.
+
+  \item \textbf{File-oriented output.}  Most concrete recorders
+        write to disk (\texttt{FileStream}, \texttt{DataFileStream},
+        \texttt{XmlFileStream}).  The ``record'' verb implies
+        \emph{persistence}---data goes to a file, not into an
+        in-memory buffer that later observers can consume.
+
+  \item \textbf{Tag-based identification.}  Recorders inherit from
+        \texttt{TaggedObject}, receiving an integer tag that the Tcl
+        (or Python) wrapper resolves.  The scripting layer is the
+        primary configuration mechanism:
+        \texttt{recorder Node -file out.txt -node 1 2 3 -dof 1 disp}.
+
+  \item \textbf{Serialisation infrastructure.}  Through
+        \texttt{MovableObject}, recorders participate in distributed
+        analysis and checkpoint/restart.  This adds a non-trivial
+        interface burden (\texttt{sendSelf}, \texttt{recvSelf},
+        \texttt{classTag}).
+
+  \item \textbf{Pull model.}  The analysis driver calls
+        \texttt{recorder->record(commitTag, timeStamp)} at each
+        converged step; the recorder \emph{pulls} data from the
+        domain by navigating its node/element maps.
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{\texttt{fall\_n} Observer: Contrasting Design}
+\label{sec:falln-observer-contrast}
+
+The \texttt{fall\_n} observer pipeline differs in several
+architectural dimensions:
+
+\begin{enumerate}
+  \item \textbf{Push model.}  The analysis hands a
+        \texttt{StepEvent} value (containing time, step number, and
+        a \emph{const reference} to the model) to each observer.
+        Observers do not query a global domain; they receive exactly
+        the data they need.  This eliminates the
+        \texttt{setDomain()} coupling entirely.
+
+  \item \textbf{In-memory first.}  Observers like
+        \texttt{NodeRecorder} accumulate data in
+        \texttt{std::vector} time-series.  File export is a
+        \emph{secondary step} (e.g.\ \texttt{write\_csv()}).
+        This permits post-analysis querying without re-reading files.
+
+  \item \textbf{Lifecycle protocol.}
+        \texttt{on\_analysis\_start}, \texttt{on\_step},
+        \texttt{on\_analysis\_end}---a richer contract than OpenSees'
+        single \texttt{record()} entry point.  Start/end hooks enable
+        resource acquisition (opening files, allocating buffers) and
+        clean teardown (flushing, summary statistics) without
+        sentinel logic inside \texttt{on\_step}.
+
+  \item \textbf{No scripting layer dependency.}  Configuration is
+        entirely C++ (compile-time checked).  Observers are added via
+        the \texttt{CompositeObserver} builder or directly on the
+        analysis object.  No tag system, no class-tag registry, no
+        Tcl interpreter.
+
+  \item \textbf{Composability.}  \texttt{CompositeObserver} stores a
+        \texttt{vector<unique\_ptr<AnalysisObserver>>}, dispatching
+        each hook to all children.  OpenSees achieves the same
+        multiplicity through the \texttt{Domain}'s recorder list,
+        but the composition is implicit (the domain iterates its
+        recorders) rather than explicit (a first-class composite
+        object).
+
+  \item \textbf{No serialisation burden.}  Observers have no
+        obligation to implement \texttt{sendSelf/recvSelf}.  In a
+        future MPI-distributed analysis, serialisation can be added
+        only to the observers that need it, not imposed on all via
+        a base class.
+
+  \item \textbf{Type safety.}  The observer receives a
+        \texttt{const Model\&}, from which it can call
+        \texttt{node\_displacement()}, \texttt{node\_velocity()}, etc.
+        OpenSees recorders downcast through \texttt{Domain} to
+        obtain \texttt{Node*} pointers, then call
+        \texttt{getDisp()} --- a less type-safe chain.
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{Architectural Summary Table}
+\label{sec:comparison-table}
+
+\begin{center}
+\small
+\begin{tabular}{p{3.8cm}p{5cm}p{5cm}}
+\toprule
+\textbf{Aspect} & \textbf{OpenSees Recorder} & \textbf{\texttt{fall\_n} Observer} \\
+\midrule
+Data flow
+  & Pull: recorder queries Domain
+  & Push: analysis delivers StepEvent \\
+\addlinespace
+Primary output
+  & File streams (disk-first)
+  & In-memory vectors (export later) \\
+\addlinespace
+Lifecycle hooks
+  & \texttt{record()} only
+  & \texttt{on\_start}, \texttt{on\_step}, \texttt{on\_end} \\
+\addlinespace
+Composition
+  & Implicit (Domain iterates list)
+  & Explicit (\texttt{CompositeObserver}) \\
+\addlinespace
+Configuration
+  & Tcl/Python scripting + class tags
+  & Compile-time C++ \\
+\addlinespace
+Domain coupling
+  & \texttt{setDomain()} required
+  & None (const model ref in event) \\
+\addlinespace
+Serialisation
+  & Mandatory (\texttt{MovableObject})
+  & Optional (none by default) \\
+\addlinespace
+Base class weight
+  & Heavy (\texttt{MovableObject} + \texttt{TaggedObject})
+  & Minimal (single pure-virtual base) \\
+\addlinespace
+Type safety
+  & \texttt{void*} / downcast chains
+  & Strongly typed model queries \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------
+\subsection{Shared Conceptual Ground}
+\label{sec:comparison-shared}
+
+Despite the architectural divergence, several concepts are shared:
+
+\begin{itemize}
+  \item \textbf{Observer pattern at core.}  Both systems implement
+        the GoF Observer pattern: the analysis is the subject;
+        recorders/observers are subscribers notified at each
+        converged step.
+
+  \item \textbf{Concrete specialisation by entity type.}
+        \texttt{NodeRecorder} and \texttt{ElementRecorder} exist in
+        both systems, reflecting the natural partition of response
+        quantities.
+
+  \item \textbf{Open extension.}  Users can (and do) add new recorder
+        types in OpenSees by subclassing \texttt{Recorder}.  In
+        \texttt{fall\_n}, the same is achieved by subclassing
+        \texttt{AnalysisObserver}.
+
+  \item \textbf{Per-step granularity.}  Both systems operate at
+        the converged-step level: one notification per accepted
+        time/load step, with access to the current state.
+
+  \item \textbf{Separation of analysis logic from output.}  Neither
+        system embeds output formatting inside the solver.
+        The analysis code is agnostic to what observers/recorders do
+        with the data.
+\end{itemize}
+
+\paragraph{Design philosophy.}
+The key difference is one of \emph{architectural epoch}.  OpenSees was
+designed in the late 1990s for a Tcl scripting environment, emphasising
+runtime flexibility and file persistence.  \texttt{fall\_n} is designed
+for modern C++ (C++20/23), emphasising compile-time safety, value
+semantics, and in-memory composability.  The Observer \emph{pattern}
+is the same; the \emph{realisation} reflects two decades of language
+and design evolution.
+
+
+% ══════════════════════════════════════════════════════════════════════════
 \section{ModelBuilder Architecture}
 \label{sec:model-builder}
 
@@ -1166,6 +1381,140 @@ identical results before and after Phase~2.
 
 
 % ══════════════════════════════════════════════════════════════════════════
+\section{Build System Optimisation (Phase~2B)}
+\label{sec:build-optimisation}
+
+As the test suite grew to 45 tests spanning from sub-second unit
+checks to three-minute nonlinear dynamic analyses, the
+\texttt{CMakeLists.txt} became a maintenance burden ($\sim$870 lines
+of repetitive boilerplate) and full test execution time reached
+$\sim$3.5~minutes.  This section documents the refactoring of the
+build system for efficient development iteration.
+
+% ------------------------------------------------------------------
+\subsection{CMake Helper Function}
+\label{sec:cmake-helper}
+
+A single CMake function, \texttt{fall\_n\_add\_test()}, replaces all
+per-test boilerplate.  It accepts five keyword arguments:
+
+\begin{lstlisting}[language={},basicstyle=\small\ttfamily,
+  morekeywords={fall_n_add_test,TARGET,NAME,SOURCE,LIBS,LABEL}]
+fall_n_add_test(
+    TARGET  fall_n_beam_test
+    NAME    beam_element
+    SOURCE  tests/test_beam_element.cpp
+    LIBS    FULL          # FULL | CORE | EIGEN | VTK | NONE
+    LABEL   unit          # unit | integration | slow
+)
+\end{lstlisting}
+
+The \texttt{LIBS} tier controls which dependency bundles are linked:
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Tier} & \textbf{Libraries} \\
+\midrule
+\texttt{FULL} & MPI + PETSc + Eigen + VTK (with \texttt{vtk\_module\_autoinit}) \\
+\texttt{CORE} & MPI + PETSc + Eigen \\
+\texttt{EIGEN}& Eigen only \\
+\texttt{VTK}  & VTK only (with autoinit) \\
+\texttt{NONE} & Header-only (include directory only) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+OpenMP is linked automatically on all tiers (except \texttt{NONE})
+when \texttt{find\_package(OpenMP)} succeeds.
+
+\paragraph{Result.}  \texttt{CMakeLists.txt} reduced from $\sim$870
+lines of test declarations to $\sim$140 lines (one call per test,
+three lines each).  Adding a new test requires exactly one
+\texttt{fall\_n\_add\_test()} invocation.
+
+% ------------------------------------------------------------------
+\subsection{CTest Label Hierarchy}
+\label{sec:ctest-labels}
+
+Tests are classified into three labels based on measured wall-clock
+time:
+
+\begin{center}
+\small
+\begin{tabular}{lcrl}
+\toprule
+\textbf{Label} & \textbf{Count} & \textbf{Wall time} & \textbf{Use case} \\
+\midrule
+\texttt{unit}        & 36 & $\sim$1--6\,s   & Edit--compile--test inner loop \\
+\texttt{integration} &  3 & $\sim$7--10\,s  & Pre-push gate \\
+\texttt{slow}        &  6 & $\sim$2--4\,min & Nightly / CI full regression \\
+\midrule
+\textbf{Total}       & 45 & $\sim$3.5\,min  & Complete suite \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Slow tests also receive a 600\,s timeout guard via
+\texttt{set\_tests\_properties(\ldots\ PROPERTIES TIMEOUT 600)}.
+
+% ------------------------------------------------------------------
+\subsection{CMake Presets}
+\label{sec:cmake-presets}
+
+A \texttt{CMakePresets.json} file provides three configure presets
+and three test presets, enabling one-command workflows:
+
+\begin{lstlisting}[language=bash,basicstyle=\small\ttfamily]
+# Fast feedback (~6 s):
+ctest --preset unit
+
+# Pre-push gate (~10 s):
+ctest --preset fast      # unit + integration
+
+# Full regression (~3 min):
+ctest --preset all
+\end{lstlisting}
+
+Configure presets include \texttt{debug} (default, current flags),
+\texttt{release} (\texttt{-O2}), and \texttt{relwithdebinfo} (for
+profiling).
+
+% ------------------------------------------------------------------
+\subsection{Compiler Cache}
+\label{sec:ccache}
+
+The build system now detects \texttt{ccache} via
+\texttt{find\_program()} and sets
+\texttt{CMAKE\_CXX\_COMPILER\_LAUNCHER} automatically.  On
+incremental rebuilds after header-only changes, \texttt{ccache} can
+reduce recompilation time by 50--80\% by serving cached object files.
+Install with \texttt{sudo apt install ccache} to activate.
+
+% ------------------------------------------------------------------
+\subsection{Development Workflow}
+\label{sec:dev-workflow}
+
+The recommended workflow during active development is:
+
+\begin{enumerate}
+  \item Edit source files.
+  \item \texttt{ninja} (incremental build, typically $<$5\,s for
+        single-file changes).
+  \item \texttt{ctest --preset unit} (36 unit tests, $\sim$6\,s).
+  \item When satisfied: \texttt{ctest --preset fast} (39 tests,
+        $\sim$10\,s).
+  \item Before committing: \texttt{ctest --preset all} (full 45-test
+        regression, $\sim$3\,min).
+\end{enumerate}
+
+This tiered approach reduces the inner-loop iteration time from
+$\sim$3.5~minutes (running all 45 tests every time) to under
+10~seconds, while still guaranteeing full coverage before each commit.
+
+
+% ══════════════════════════════════════════════════════════════════════════
 \section{Summary}
 \label{sec:obs-summary}
 
@@ -1174,7 +1523,10 @@ The proposed architecture introduces two orthogonal subsystems:
   \item An \textbf{Observer/Recorder} pipeline that replaces the
         monolithic monitor lambda with composable, single-responsibility
         observers---each independently testable and reconfigurable at
-        runtime.  \emph{Phase~1 is complete}: seven concrete observers,
+        runtime.  The architecture deliberately departs from OpenSees'
+        pull/file/scripting model in favour of a push/in-memory/C++
+        model (see \S\ref{sec:opensees-comparison}).
+        \emph{Phase~1 is complete}: seven concrete observers,
         a dual static/dynamic composition model, and full integration
         into \texttt{DynamicAnalysis} with backward compatibility.
   \item \textbf{Helper extraction} (Phase~2) that promotes $\sim$240
@@ -1185,6 +1537,13 @@ The proposed architecture introduces two orthogonal subsystems:
         self-documenting APIs.  \emph{Phase~2 is complete}: all 45
         CTests pass; the build compiles with zero warnings under
         \texttt{-Werror}.
+  \item \textbf{Build system optimisation} (Phase~2B) that reduces
+        \texttt{CMakeLists.txt} from $\sim$870 lines to $\sim$340 via
+        a \texttt{fall\_n\_add\_test()} helper function, introduces
+        CTest labels (\texttt{unit}/\texttt{integration}/\texttt{slow})
+        for tiered test execution, and provides CMake presets for
+        one-command workflows (\texttt{ctest --preset unit} finishes
+        in $\sim$6\,s).
   \item A \textbf{ModelBuilder} orchestrator that will further extract
         the domain/model-construction functions into a layered
         generic/structural builder (Phase~3, not yet started).

@@ -77,868 +77,284 @@ vtk_module_autoinit(
 )
 
 # ==============================================================================
-# ============== Tests ==========================================================
+# ============== OpenMP ========================================================
 # ==============================================================================
 
-add_executable(fall_n_tests
-  tests/test_element_geometry.cpp
-)
-
-target_include_directories(fall_n_tests PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_tests PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_tests PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_tests PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_tests PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_tests
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME element_geometry COMMAND fall_n_tests)
-
-# --- Simplex (Tetrahedral) Element Family test ---
-add_executable(fall_n_simplex_test
-  tests/test_simplex.cpp
-)
-
-target_include_directories(fall_n_simplex_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_simplex_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_simplex_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_simplex_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_simplex_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_simplex_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME simplex_elements COMMAND fall_n_simplex_test)
-
-# --- VTK tensor-field derivative test ---
-add_executable(fall_n_vtk_tensor_fields_test
-  tests/test_vtk_tensor_field_derivatives.cpp
-)
-
-target_include_directories(fall_n_vtk_tensor_fields_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-add_test(NAME vtk_tensor_field_derivatives COMMAND fall_n_vtk_tensor_fields_test)
-
-# --- VTK Gauss-cloud contract test ---
-add_executable(fall_n_vtk_gauss_cloud_test
-  tests/test_vtk_gauss_cloud_contract.cpp
-)
-
-target_link_libraries(fall_n_vtk_gauss_cloud_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_vtk_gauss_cloud_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME vtk_gauss_cloud_contract COMMAND fall_n_vtk_gauss_cloud_test)
-
-# --- Material constitutive curves VTK test ---
-add_executable(fall_n_material_curves_test
-  tests/test_material_curves_vtk.cpp
-)
-
-target_include_directories(fall_n_material_curves_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_material_curves_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_material_curves_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_material_curves_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_material_curves_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_material_curves_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME material_curves_vtk COMMAND fall_n_material_curves_test)
-
-# --- Structural reconstruction test ---
-add_executable(fall_n_structural_reconstruction_test
-  tests/test_structural_reconstruction.cpp
-)
-
-target_include_directories(fall_n_structural_reconstruction_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_structural_reconstruction_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_structural_reconstruction_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_structural_reconstruction_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_structural_reconstruction_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_structural_reconstruction_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME structural_reconstruction COMMAND fall_n_structural_reconstruction_test)
-
-# --- Structural VTM export test ---
-add_executable(fall_n_structural_vtm_test
-  tests/test_structural_vtm_export.cpp
-)
-
-target_include_directories(fall_n_structural_vtm_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_structural_vtm_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_structural_vtm_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_structural_vtm_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_structural_vtm_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_structural_vtm_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME structural_vtm_export COMMAND fall_n_structural_vtm_test)
-
-# --- Mixed structural VTM export test ---
-add_executable(fall_n_structural_mixed_vtm_test
-  tests/test_structural_mixed_vtm_export.cpp
-)
-
-target_include_directories(fall_n_structural_mixed_vtm_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_structural_mixed_vtm_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_structural_mixed_vtm_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_structural_mixed_vtm_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_structural_mixed_vtm_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_structural_mixed_vtm_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME structural_mixed_vtm_export COMMAND fall_n_structural_mixed_vtm_test)
-
-# --- Serendipity element family test ---
-add_executable(fall_n_serendipity_test
-  tests/test_serendipity.cpp
-)
-
-target_include_directories(fall_n_serendipity_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_serendipity_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_serendipity_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_serendipity_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_serendipity_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_serendipity_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME serendipity_family COMMAND fall_n_serendipity_test)
-
-# --- Material Strategy test ---
-add_executable(fall_n_strategy_test
-  tests/test_material_strategy.cpp
-)
-
-target_include_directories(fall_n_strategy_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_strategy_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_strategy_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_strategy_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_strategy_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_strategy_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME material_strategy COMMAND fall_n_strategy_test)
-
-# --- Plasticity composition test ---
-add_executable(fall_n_plasticity_test
-  tests/test_plasticity_composition.cpp
-)
-
-target_include_directories(fall_n_plasticity_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_plasticity_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_plasticity_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_plasticity_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_plasticity_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_plasticity_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME plasticity_composition COMMAND fall_n_plasticity_test)
-
-# --- Point / geometry test ---
-add_executable(fall_n_point_test
-  tests/test_point.cpp
-)
-
-target_include_directories(fall_n_point_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_point_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_point_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_point_test PRIVATE Eigen3::Eigen)
-
-add_test(NAME point_geometry COMMAND fall_n_point_test)
-
-# ── Node + DoF Storage Policy tests ──────────────────────────────────────────
-add_executable(fall_n_node_test
-  tests/test_node_dof.cpp
-)
-
-target_include_directories(fall_n_node_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_node_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_node_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_node_test PRIVATE Eigen3::Eigen)
-
-add_test(NAME node_dof_storage COMMAND fall_n_node_test)
-
-# ── Domain / Vertex refactor tests ───────────────────────────────────────────
-add_executable(fall_n_domain_test
-  tests/test_domain_vertex.cpp
-)
-
-target_include_directories(fall_n_domain_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_domain_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_domain_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_domain_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_domain_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_domain_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME domain_vertex_refactor COMMAND fall_n_domain_test)
-
-# ── DMPlex mixed-topology tests ───────────────────────────────────────────────
-add_executable(fall_n_dmplex_mixed_test
-  tests/test_dmplex_mixed_topology.cpp
-)
-
-target_include_directories(fall_n_dmplex_mixed_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_dmplex_mixed_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_dmplex_mixed_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_dmplex_mixed_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_dmplex_mixed_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_dmplex_mixed_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME dmplex_mixed_topology COMMAND fall_n_dmplex_mixed_test)
-
-# ── Static Condensation tests ─────────────────────────────────────────────────
-add_executable(fall_n_condensation_test
-  tests/test_condensation.cpp
-)
-
-target_include_directories(fall_n_condensation_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_condensation_test PRIVATE Eigen3::Eigen)
-
-add_test(NAME static_condensation COMMAND fall_n_condensation_test)
-
-# ── Assembly Policy tests ──────────────────────────────────────────────────────
-add_executable(fall_n_assembly_test
-  tests/test_assembly_policy.cpp
-)
-
-target_include_directories(fall_n_assembly_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_assembly_test PRIVATE Eigen3::Eigen)
-
-add_test(NAME assembly_policy COMMAND fall_n_assembly_test)
-
-# ── Section tests (SectionGeometry + NodeSection + MaterialSection) ────────
-add_executable(fall_n_section_test
-  tests/test_section.cpp
-)
-
-target_include_directories(fall_n_section_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_section_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_section_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_section_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_section_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_section_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME section COMMAND fall_n_section_test)
-
-# ── Integration site ontology tests ─────────────────────────────────────────
-add_executable(fall_n_integration_sites_test
-  tests/test_integration_sites.cpp
-)
-
-target_include_directories(fall_n_integration_sites_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_integration_sites_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_integration_sites_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_integration_sites_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_integration_sites_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_integration_sites_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME integration_sites COMMAND fall_n_integration_sites_test)
-
-# ── FiniteElement concept + FEM_Element + ElementPolicy tests ──────────────
-add_executable(fall_n_element_concept_test
-  tests/test_finite_element_concept.cpp
-)
-
-target_include_directories(fall_n_element_concept_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_element_concept_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_element_concept_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_element_concept_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_element_concept_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_element_concept_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME element_concept COMMAND fall_n_element_concept_test)
-
-# ── BeamElement tests ──────────────────────────────────────────────────────
-add_executable(fall_n_beam_test
-  tests/test_beam_element.cpp
-)
-
-target_include_directories(fall_n_beam_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_beam_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_beam_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_beam_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_beam_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_beam_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME beam_element COMMAND fall_n_beam_test)
-
-# ── TimoshenkoBeamN tests ──────────────────────────────────────────────────
-add_executable(fall_n_beam_n_test
-  tests/test_timoshenko_beam_n.cpp
-)
-
-target_include_directories(fall_n_beam_n_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_beam_n_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_beam_n_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_beam_n_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_beam_n_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_beam_n_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME beam_n_element COMMAND fall_n_beam_n_test)
-
-# ── Nonlinear RC fiber-frame regression ────────────────────────────────────
-add_executable(fall_n_rc_fiber_frame_test
-  tests/test_rc_fiber_frame_nonlinear.cpp
-)
-
-target_include_directories(fall_n_rc_fiber_frame_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_rc_fiber_frame_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_rc_fiber_frame_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME rc_fiber_frame_nonlinear COMMAND fall_n_rc_fiber_frame_test)
-
-# ── Continuum tensor module tests ─────────────────────────────────────────────
-add_executable(fall_n_continuum_test
-  tests/test_continuum_tensors.cpp
-)
-
-target_include_directories(fall_n_continuum_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_continuum_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_continuum_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_continuum_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_continuum_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_continuum_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME continuum_tensors COMMAND fall_n_continuum_test)
-
-# ── KinematicPolicy tests (Phase 2) ──────────────────────────────────────────
-add_executable(fall_n_kinematic_test
-  tests/test_kinematic_policy.cpp
-)
-
-target_include_directories(fall_n_kinematic_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_kinematic_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_kinematic_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_kinematic_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_kinematic_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_kinematic_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME kinematic_policy COMMAND fall_n_kinematic_test)
-
-# ── Hyperelastic model tests (Phase 3) ───────────────────────────────────────
-add_executable(fall_n_hyperelastic_test
-  tests/test_hyperelastic.cpp
-)
-
-target_include_directories(fall_n_hyperelastic_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_hyperelastic_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_hyperelastic_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_hyperelastic_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_hyperelastic_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_hyperelastic_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME hyperelastic COMMAND fall_n_hyperelastic_test)
-
-# ── Continuum constitutive-interface tests ───────────────────────────────────
-add_executable(fall_n_continuum_interface_test
-  tests/test_continuum_constitutive_interface.cpp
-)
-
-target_include_directories(fall_n_continuum_interface_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_continuum_interface_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_continuum_interface_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_continuum_interface_test PRIVATE Eigen3::Eigen)
-
-add_test(NAME continuum_constitutive_interface COMMAND fall_n_continuum_interface_test)
-
-# ── Continuum local-problem tests ────────────────────────────────────────────
-add_executable(fall_n_continuum_local_problem_test
-  tests/test_continuum_local_problem.cpp
-)
-
-target_include_directories(fall_n_continuum_local_problem_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_continuum_local_problem_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_continuum_local_problem_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_continuum_local_problem_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_continuum_local_problem_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_continuum_local_problem_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME continuum_local_problem COMMAND fall_n_continuum_local_problem_test)
-
-# ── Finite-strain damage relation tests ──────────────────────────────────────
-add_executable(fall_n_finite_strain_damage_test
-  tests/test_finite_strain_damage_relation.cpp
-)
-
-target_include_directories(fall_n_finite_strain_damage_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_finite_strain_damage_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_finite_strain_damage_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_finite_strain_damage_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_finite_strain_damage_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_finite_strain_damage_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME finite_strain_damage COMMAND fall_n_finite_strain_damage_test)
-
-# ── TotalLagrangian integration tests (Phase 4) ─────────────────────────────
-add_executable(fall_n_tl_integration_test
-  tests/test_tl_integration.cpp
-)
-
-target_include_directories(fall_n_tl_integration_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_tl_integration_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_tl_integration_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_tl_integration_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_tl_integration_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_tl_integration_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME tl_integration COMMAND fall_n_tl_integration_test)
-
-# ── Newton-Raphson element tests (Phase 5) ───────────────────────────────────
-add_executable(fall_n_newton_test
-  tests/test_newton_element.cpp
-)
-
-target_include_directories(fall_n_newton_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_newton_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_newton_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_newton_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_newton_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_newton_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME newton_element COMMAND fall_n_newton_test)
-
-# ── Updated Lagrangian tests (Phase 6) ───────────────────────────────────────
-add_executable(fall_n_ul_test
-  tests/test_updated_lagrangian.cpp
-)
-
-target_include_directories(fall_n_ul_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_ul_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_ul_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_ul_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_ul_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_ul_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-add_test(NAME updated_lagrangian COMMAND fall_n_ul_test)
-
-# ── SNES + Hyperelastic end-to-end tests (Phase 7) ──────────────────────────
-add_executable(fall_n_snes_test
-  tests/test_snes_hyperelastic.cpp
-)
-
-target_include_directories(fall_n_snes_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_snes_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_snes_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_snes_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_snes_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_snes_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-# Optional: enable OpenMP for parallel element assembly
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_snes_test PRIVATE OpenMP::OpenMP_CXX)
-  target_link_libraries(fall_n         PUBLIC  OpenMP::OpenMP_CXX)
+  target_link_libraries(fall_n PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
-add_test(NAME snes_hyperelastic COMMAND fall_n_snes_test)
 
-# ── Nonlinear Validation Suite (small mesh, 10 systematic tests) ─────────────
-add_executable(fall_n_nl_validation_test
-  tests/test_nonlinear_validation.cpp
-)
+# ==============================================================================
+# ============== Compiler cache (ccache) =======================================
+# ==============================================================================
 
-target_include_directories(fall_n_nl_validation_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_nl_validation_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_nl_validation_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_nl_validation_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_nl_validation_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_nl_validation_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_nl_validation_test PRIVATE OpenMP::OpenMP_CXX)
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+  message(STATUS "ccache found: ${CCACHE_PROGRAM}")
 endif()
 
-add_test(NAME nonlinear_validation COMMAND fall_n_nl_validation_test)
 
-# ── Subentity topology compile-time tests (Phase 10) ──────────────────────
-add_executable(fall_n_subentity_test
-  tests/test_subentity_topology.cpp
-)
+# ==============================================================================
+# ============== Test helper function ==========================================
+# ==============================================================================
+#
+#  fall_n_add_test(
+#    TARGET  <executable-name>         # CMake target (keeps backward compat)
+#    NAME    <ctest-name>              # CTest test name
+#    SOURCE  <path/to/source.cpp>      # Source file
+#    LIBS    FULL | CORE | EIGEN | VTK | NONE
+#    LABEL   unit | integration | slow
+#  )
+#
+#  Library tiers:
+#    FULL  = MPI + PETSc + Eigen + VTK (+ autoinit)
+#    CORE  = MPI + PETSc + Eigen
+#    EIGEN = Eigen only
+#    VTK   = VTK only (+ autoinit)
+#    NONE  = header-only (include dir only)
+#
+#  OpenMP is linked automatically on all tiers (except NONE) when available.
+#
+function(fall_n_add_test)
+    cmake_parse_arguments(ARG "" "TARGET;NAME;SOURCE;LIBS;LABEL" "" ${ARGN})
+
+    add_executable(${ARG_TARGET} ${ARG_SOURCE})
+    target_include_directories(${ARG_TARGET} PRIVATE ${CMAKE_SOURCE_DIR})
+
+    # ── Link libraries by tier ──────────────────────────────────────────
+    if(ARG_LIBS STREQUAL "FULL" OR ARG_LIBS STREQUAL "CORE")
+        target_link_libraries(${ARG_TARGET} PRIVATE
+            MPI::MPI_CXX  PkgConfig::PETSC  Eigen3::Eigen)
+    elseif(ARG_LIBS STREQUAL "EIGEN")
+        target_link_libraries(${ARG_TARGET} PRIVATE Eigen3::Eigen)
+    endif()
+
+    if(ARG_LIBS STREQUAL "FULL" OR ARG_LIBS STREQUAL "VTK")
+        target_link_libraries(${ARG_TARGET} PRIVATE ${VTK_LIBRARIES})
+        vtk_module_autoinit(TARGETS ${ARG_TARGET} MODULES ${VTK_LIBRARIES})
+    endif()
+
+    # OpenMP is harmless if unused; link everywhere if available
+    if(OpenMP_CXX_FOUND AND NOT ARG_LIBS STREQUAL "NONE")
+        target_link_libraries(${ARG_TARGET} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+
+    # ── Register CTest ──────────────────────────────────────────────────
+    add_test(NAME ${ARG_NAME} COMMAND ${ARG_TARGET})
+    if(ARG_LABEL)
+        set_tests_properties(${ARG_NAME} PROPERTIES LABELS "${ARG_LABEL}")
+    endif()
+endfunction()
+
+
+# ==============================================================================
+# ============== Tests =========================================================
+# ==============================================================================
+#
+#  Labels:   unit         (<3 s)   — fast feedback during development
+#            integration  (3–30 s) — solver-level / MPI tests
+#            slow         (>30 s)  — full nonlinear / dynamic analyses
+#
+#  Usage:    ctest -L unit                   # ~5 s   (35 tests)
+#            ctest -L 'unit|integration'     # ~15 s  (38 tests)
+#            ctest                           # ~3 min (45 tests, all)
+# ==============================================================================
+
+# ── unit tests ───────────────────────────────────────────────────────────────
+
+fall_n_add_test(TARGET fall_n_tests
+    NAME element_geometry  SOURCE tests/test_element_geometry.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_simplex_test
+    NAME simplex_elements  SOURCE tests/test_simplex.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_vtk_tensor_fields_test
+    NAME vtk_tensor_field_derivatives  SOURCE tests/test_vtk_tensor_field_derivatives.cpp
+    LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_vtk_gauss_cloud_test
+    NAME vtk_gauss_cloud_contract  SOURCE tests/test_vtk_gauss_cloud_contract.cpp
+    LIBS VTK  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_material_curves_test
+    NAME material_curves_vtk  SOURCE tests/test_material_curves_vtk.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_structural_reconstruction_test
+    NAME structural_reconstruction  SOURCE tests/test_structural_reconstruction.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_structural_vtm_test
+    NAME structural_vtm_export  SOURCE tests/test_structural_vtm_export.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_structural_mixed_vtm_test
+    NAME structural_mixed_vtm_export  SOURCE tests/test_structural_mixed_vtm_export.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_strategy_test
+    NAME material_strategy  SOURCE tests/test_material_strategy.cpp
+    LIBS FULL  LABEL unit)
 
-target_include_directories(fall_n_subentity_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_plasticity_test
+    NAME plasticity_composition  SOURCE tests/test_plasticity_composition.cpp
+    LIBS FULL  LABEL unit)
 
-target_link_libraries(fall_n_subentity_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_subentity_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_subentity_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_subentity_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_point_test
+    NAME point_geometry  SOURCE tests/test_point.cpp
+    LIBS CORE  LABEL unit)
 
-vtk_module_autoinit(
-  TARGETS fall_n_subentity_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_node_test
+    NAME node_dof_storage  SOURCE tests/test_node_dof.cpp
+    LIBS CORE  LABEL unit)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_subentity_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+fall_n_add_test(TARGET fall_n_domain_test
+    NAME domain_vertex_refactor  SOURCE tests/test_domain_vertex.cpp
+    LIBS FULL  LABEL unit)
 
-add_test(NAME subentity_topology COMMAND fall_n_subentity_test)
+fall_n_add_test(TARGET fall_n_dmplex_mixed_test
+    NAME dmplex_mixed_topology  SOURCE tests/test_dmplex_mixed_topology.cpp
+    LIBS FULL  LABEL unit)
 
-# ── Uniaxial Materials + Fiber Section tests (Phase 2–3) ────────────────────
-add_executable(fall_n_uniaxial_fiber_test
-  tests/test_uniaxial_fiber.cpp
-)
+fall_n_add_test(TARGET fall_n_condensation_test
+    NAME static_condensation  SOURCE tests/test_condensation.cpp
+    LIBS EIGEN  LABEL unit)
 
-target_include_directories(fall_n_uniaxial_fiber_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_assembly_test
+    NAME assembly_policy  SOURCE tests/test_assembly_policy.cpp
+    LIBS EIGEN  LABEL unit)
 
-target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_section_test
+    NAME section  SOURCE tests/test_section.cpp
+    LIBS FULL  LABEL unit)
 
-vtk_module_autoinit(
-  TARGETS fall_n_uniaxial_fiber_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_integration_sites_test
+    NAME integration_sites  SOURCE tests/test_integration_sites.cpp
+    LIBS FULL  LABEL unit)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_uniaxial_fiber_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+fall_n_add_test(TARGET fall_n_element_concept_test
+    NAME element_concept  SOURCE tests/test_finite_element_concept.cpp
+    LIBS FULL  LABEL unit)
 
-add_test(NAME uniaxial_fiber COMMAND fall_n_uniaxial_fiber_test)
+fall_n_add_test(TARGET fall_n_beam_test
+    NAME beam_element  SOURCE tests/test_beam_element.cpp
+    LIBS FULL  LABEL unit)
 
-# ── Dynamic Analysis tests (Phase 4: PETSc TS) ─────────────────────────────
-add_executable(fall_n_dynamic_test
-  tests/test_dynamic_analysis.cpp
-)
+fall_n_add_test(TARGET fall_n_beam_n_test
+    NAME beam_n_element  SOURCE tests/test_timoshenko_beam_n.cpp
+    LIBS FULL  LABEL unit)
 
-target_include_directories(fall_n_dynamic_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_rc_fiber_frame_test
+    NAME rc_fiber_frame_nonlinear  SOURCE tests/test_rc_fiber_frame_nonlinear.cpp
+    LIBS FULL  LABEL unit)
 
-target_link_libraries(fall_n_dynamic_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_dynamic_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_dynamic_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_dynamic_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_continuum_test
+    NAME continuum_tensors  SOURCE tests/test_continuum_tensors.cpp
+    LIBS FULL  LABEL unit)
 
-vtk_module_autoinit(
-  TARGETS fall_n_dynamic_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_kinematic_test
+    NAME kinematic_policy  SOURCE tests/test_kinematic_policy.cpp
+    LIBS FULL  LABEL unit)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_dynamic_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+fall_n_add_test(TARGET fall_n_hyperelastic_test
+    NAME hyperelastic  SOURCE tests/test_hyperelastic.cpp
+    LIBS FULL  LABEL unit)
 
-add_test(NAME dynamic_analysis COMMAND fall_n_dynamic_test)
+fall_n_add_test(TARGET fall_n_continuum_interface_test
+    NAME continuum_constitutive_interface  SOURCE tests/test_continuum_constitutive_interface.cpp
+    LIBS CORE  LABEL unit)
 
-# ── Performance & Scalability tests (Phase 5: Benchmark + SolverConfig) ──────
-add_executable(fall_n_benchmark_test
-  tests/test_benchmark.cpp
-)
+fall_n_add_test(TARGET fall_n_continuum_local_problem_test
+    NAME continuum_local_problem  SOURCE tests/test_continuum_local_problem.cpp
+    LIBS FULL  LABEL unit)
 
-target_include_directories(fall_n_benchmark_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_finite_strain_damage_test
+    NAME finite_strain_damage  SOURCE tests/test_finite_strain_damage_relation.cpp
+    LIBS FULL  LABEL unit)
 
-target_link_libraries(fall_n_benchmark_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_benchmark_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_benchmark_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_benchmark_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_tl_integration_test
+    NAME tl_integration  SOURCE tests/test_tl_integration.cpp
+    LIBS FULL  LABEL unit)
 
-vtk_module_autoinit(
-  TARGETS fall_n_benchmark_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_newton_test
+    NAME newton_element  SOURCE tests/test_newton_element.cpp
+    LIBS FULL  LABEL unit)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_benchmark_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+fall_n_add_test(TARGET fall_n_ul_test
+    NAME updated_lagrangian  SOURCE tests/test_updated_lagrangian.cpp
+    LIBS FULL  LABEL unit)
 
-add_test(NAME benchmark COMMAND fall_n_benchmark_test)
+fall_n_add_test(TARGET fall_n_subentity_test
+    NAME subentity_topology  SOURCE tests/test_subentity_topology.cpp
+    LIBS FULL  LABEL unit)
 
-# ── Boundary Condition / Initial Condition tests ──────────────────────────────
-add_executable(fall_n_bc_test
-  tests/test_boundary_conditions.cpp
-)
+fall_n_add_test(TARGET fall_n_uniaxial_fiber_test
+    NAME uniaxial_fiber  SOURCE tests/test_uniaxial_fiber.cpp
+    LIBS FULL  LABEL unit)
 
-target_include_directories(fall_n_bc_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_commit_chain_test
+    NAME constitutive_commit_chain  SOURCE tests/test_constitutive_commit_chain.cpp
+    LIBS FULL  LABEL unit)
 
-target_link_libraries(fall_n_bc_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_bc_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_bc_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_bc_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_heterogeneity_test
+    NAME element_heterogeneity  SOURCE tests/test_element_heterogeneity.cpp
+    LIBS FULL  LABEL unit)
 
-vtk_module_autoinit(
-  TARGETS fall_n_bc_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_phase4_hysteretic_test
+    NAME phase4_hysteretic_cycles  SOURCE tests/test_phase4_hysteretic_cycles.cpp
+    LIBS FULL  LABEL unit)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_bc_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+# ── integration tests (3–30 s) ──────────────────────────────────────────────
 
-add_test(NAME boundary_conditions COMMAND fall_n_bc_test)
+fall_n_add_test(TARGET fall_n_snes_test
+    NAME snes_hyperelastic  SOURCE tests/test_snes_hyperelastic.cpp
+    LIBS FULL  LABEL integration)
 
-# ── Phase 1 verification: constitutive state protocol commit chain ───────────
-add_executable(fall_n_commit_chain_test
-  tests/test_constitutive_commit_chain.cpp
-)
+fall_n_add_test(TARGET fall_n_benchmark_test
+    NAME benchmark  SOURCE tests/test_benchmark.cpp
+    LIBS FULL  LABEL integration)
 
-target_include_directories(fall_n_commit_chain_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_phase6_mpi_test
+    NAME phase6_mpi_scalability  SOURCE tests/test_phase6_mpi_scalability.cpp
+    LIBS FULL  LABEL integration)
 
-target_link_libraries(fall_n_commit_chain_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_commit_chain_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_commit_chain_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_commit_chain_test PRIVATE ${VTK_LIBRARIES})
+# ── slow tests (>30 s) ──────────────────────────────────────────────────────
 
-vtk_module_autoinit(
-  TARGETS fall_n_commit_chain_test
-  MODULES ${VTK_LIBRARIES}
-)
+fall_n_add_test(TARGET fall_n_serendipity_test
+    NAME serendipity_family  SOURCE tests/test_serendipity.cpp
+    LIBS FULL  LABEL slow)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_commit_chain_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
+fall_n_add_test(TARGET fall_n_dynamic_test
+    NAME dynamic_analysis  SOURCE tests/test_dynamic_analysis.cpp
+    LIBS FULL  LABEL slow)
 
-add_test(NAME constitutive_commit_chain COMMAND fall_n_commit_chain_test)
+fall_n_add_test(TARGET fall_n_nl_validation_test
+    NAME nonlinear_validation  SOURCE tests/test_nonlinear_validation.cpp
+    LIBS FULL  LABEL slow)
 
-# ── Phase 2 verification: element contract & heterogeneous containers ────────
-add_executable(fall_n_heterogeneity_test
-  tests/test_element_heterogeneity.cpp
-)
+fall_n_add_test(TARGET fall_n_phase5_dynamic_test
+    NAME phase5_dynamic_verification  SOURCE tests/test_phase5_dynamic_verification.cpp
+    LIBS FULL  LABEL slow)
 
-target_include_directories(fall_n_heterogeneity_test PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_add_test(TARGET fall_n_vertical_slice_test
+    NAME vertical_slice_gate  SOURCE tests/test_vertical_slice_gate.cpp
+    LIBS FULL  LABEL slow)
 
-target_link_libraries(fall_n_heterogeneity_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_heterogeneity_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_heterogeneity_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_heterogeneity_test PRIVATE ${VTK_LIBRARIES})
+fall_n_add_test(TARGET fall_n_bc_test
+    NAME boundary_conditions  SOURCE tests/test_boundary_conditions.cpp
+    LIBS FULL  LABEL slow)
 
-vtk_module_autoinit(
-  TARGETS fall_n_heterogeneity_test
-  MODULES ${VTK_LIBRARIES}
-)
+# ── Timeout guards for slow tests ───────────────────────────────────────────
+set_tests_properties(
+    serendipity_family  dynamic_analysis  nonlinear_validation
+    phase5_dynamic_verification  vertical_slice_gate  boundary_conditions
+    PROPERTIES TIMEOUT 600)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_heterogeneity_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME element_heterogeneity COMMAND fall_n_heterogeneity_test)
-
-# ── Phase 3 vertical-slice gate test ──────────────────────────────────────────
-add_executable(fall_n_vertical_slice_test
-  tests/test_vertical_slice_gate.cpp
-)
-
-target_include_directories(fall_n_vertical_slice_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_vertical_slice_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_vertical_slice_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_vertical_slice_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_vertical_slice_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_vertical_slice_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_vertical_slice_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME vertical_slice_gate COMMAND fall_n_vertical_slice_test)
-
-# --- Phase 4: Hysteretic cycling test ---
-add_executable(fall_n_phase4_hysteretic_test
-  tests/test_phase4_hysteretic_cycles.cpp
-)
-
-target_include_directories(fall_n_phase4_hysteretic_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_phase4_hysteretic_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_phase4_hysteretic_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_phase4_hysteretic_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_phase4_hysteretic_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_phase4_hysteretic_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_phase4_hysteretic_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME phase4_hysteretic_cycles COMMAND fall_n_phase4_hysteretic_test)
-
-# --- Phase 5: Dynamic & Seismic verification test ---
-add_executable(fall_n_phase5_dynamic_test
-  tests/test_phase5_dynamic_verification.cpp
-)
-
-target_include_directories(fall_n_phase5_dynamic_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_phase5_dynamic_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_phase5_dynamic_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_phase5_dynamic_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_phase5_dynamic_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_phase5_dynamic_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_phase5_dynamic_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME phase5_dynamic_verification COMMAND fall_n_phase5_dynamic_test)
-
-# ── Phase 6: MPI scalability audit test ─────────────────────────────────
-add_executable(fall_n_phase6_mpi_test
-  tests/test_phase6_mpi_scalability.cpp
-)
-
-target_include_directories(fall_n_phase6_mpi_test PRIVATE ${CMAKE_SOURCE_DIR})
-
-target_link_libraries(fall_n_phase6_mpi_test PRIVATE MPI::MPI_CXX)
-target_link_libraries(fall_n_phase6_mpi_test PRIVATE PkgConfig::PETSC)
-target_link_libraries(fall_n_phase6_mpi_test PRIVATE Eigen3::Eigen)
-target_link_libraries(fall_n_phase6_mpi_test PRIVATE ${VTK_LIBRARIES})
-
-vtk_module_autoinit(
-  TARGETS fall_n_phase6_mpi_test
-  MODULES ${VTK_LIBRARIES}
-)
-
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_phase6_mpi_test PRIVATE OpenMP::OpenMP_CXX)
-endif()
-
-add_test(NAME phase6_mpi_scalability COMMAND fall_n_phase6_mpi_test)
 
 # ===============================================================================
 # ============== Matplot++  =====================================================
