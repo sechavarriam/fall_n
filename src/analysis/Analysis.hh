@@ -7,11 +7,13 @@
 #include "../model/Model.hh"
 
 
-// Analysis heraders
+// Analysis headers
 #include "LinearAnalysis.hh"
 #include "NLAnalysis.hh"
 #include "Damping.hh"
 #include "DynamicAnalysis.hh"
+#include "AnalysisObserver.hh"
+#include "Observers.hh"
  
  // =========================================================================
 

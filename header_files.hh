@@ -198,3 +198,4 @@
 #include "src/post-processing/VTK/VTKConstitutiveCurveWriter.hh"
 #include "src/post-processing/VTK/StructuralVTMExporter.hh"
 #include "src/post-processing/VTK/PVDWriter.hh"
+#include "src/post-processing/StateQuery.hh"

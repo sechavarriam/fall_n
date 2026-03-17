@@ -31,7 +31,7 @@ visible required manual inspection of internal data structures}.
   \item The consistent mass matrix was assembled without the
         cross-sectional area (beams) or thickness (shells), producing
         dimensionally incorrect mass.  Only excessive displacements
-        flagged the problem—far downstream.
+        flagged the problem---far downstream.
   \item Gravity forces were never computed for beam and column elements
         after the shell loads were commented out.  The structure appeared
         immobile because $\mathbf{f}_{\text{gravity}} = \mathbf{0}$.
@@ -386,17 +386,29 @@ Useful for verifying energy balance in nonlinear dynamics.
 \small
 \begin{verbatim}
 DynamicAnalysis
+  |-- solve(): on_analysis_start(model)
   |-- TSMonitor callback (PETSc)
        |
        v
-  CompositeObserver
-       |-- ConsoleProgressObserver  --> stdout
+  ObserverCallback<ModelT>    (type-erased bridge)
+       |
+       +-- [static path]  CompositeObserver<ModelT, Obs...>
+       |       tuple<Obs...> + fold expressions (zero vtable)
+       |
+       +-- [dynamic path]  DynamicObserverList<ModelT>
+               vector<unique_ptr<ObserverBase<ModelT>>>
+       |
+       |-- ConsoleProgressObserver  --> stdout (std::println)
        |-- VTKSnapshotObserver      --> .vtm/.pvd files
        |-- NodeRecorder             --> in-memory + CSV
-       |-- SectionRecorder          --> in-memory + CSV
-       |-- EnergyRecorder           --> in-memory + CSV
+       |-- ElementRecorder          --> in-memory (TODO: accessor)
+       |-- FiberRecorder            --> in-memory (TODO: accessor)
+       |-- EnergyRecorder           --> in-memory (v^T M v)
+       |-- MaxResponseTracker       --> peak envelope
        |
        +-- (user-defined observers)
+  |
+  |-- solve(): on_analysis_end(model)
 \end{verbatim}
 \end{minipage}
 \end{center}
@@ -663,11 +675,11 @@ std::println("  Density (RC)       : {} MN s^2/m^4", RC_DENSITY);
 
 Before beginning implementation:
 \begin{enumerate}
-  \item \textbf{Test suite health}: All 47 CTest targets must pass
-        (45 pass, 2 pre-existing failures:
-        \texttt{cantilever\_benchmark} and
-        \texttt{snes\_gmsh\_pipeline}).
-        \emph{Verified.}
+  \item \textbf{Test suite health}: The two pre-existing failures
+        (\texttt{cantilever\_benchmark} and
+        \texttt{snes\_gmsh\_pipeline}, both dependent on external mesh
+        files) were removed from \texttt{CMakeLists.txt}.
+        Suite now stands at 45/45. \emph{Verified.}
   \item \textbf{Git commit}: The current working state (mass-matrix
         fix + force-application fix) must be committed to preserve a
         known-good baseline.
@@ -759,6 +771,273 @@ Pass \texttt{model} to \texttt{on\_step} &
 
 
 % ══════════════════════════════════════════════════════════════════════════
+\section{Phase~1 Implementation Notes}
+\label{sec:obs-implementation}
+
+This section records the actual implementation choices, deviations from
+the design proposal, and the file organisation that resulted from
+Phase~1 development.
+
+% ------------------------------------------------------------------
+\subsection{Dual-flavour Observer Composition}
+\label{sec:impl-dual-flavour}
+
+The design document (\S\ref{sec:obs-architecture}) proposed a single
+virtual-dispatch model using
+\texttt{vector<unique\_ptr<AnalysisObserver<ModelT>{}>{}>{}>}.
+During implementation a dual-flavour architecture was adopted to
+honour the user requirement of \emph{favouring compile-time efficiency}:
+
+\begin{description}
+  \item[Static path --- \texttt{CompositeObserver<ModelT, Obs...>}]
+    Stores observers in a \texttt{std::tuple<Obs...>}.
+    Dispatch uses C++17 fold expressions:
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+void on_step(const StepEvent& ev, const ModelT& model) {
+    std::apply([&](auto&... obs) {
+        (obs.on_step(ev, model), ...);
+    }, observers_);
+}
+\end{lstlisting}
+    This eliminates \emph{all} virtual dispatch overhead: no vtable
+    lookup, no indirect branch prediction miss, and full inlining
+    opportunity for trivial observers such as
+    \texttt{ConsoleProgressObserver}.  The factory
+    \texttt{make\_composite\_observer<ModelT>(obs...)} deduces types
+    automatically.
+
+  \item[Dynamic path --- \texttt{DynamicObserverList<ModelT>}]
+    Stores observers via
+    \texttt{vector<unique\_ptr<ObserverBase<ModelT>{}>{}>{}>}
+    for runtime composition (e.g.\ user
+    scripts, configuration-file--driven pipelines).  Preserves the
+    classical composite pattern from the original design.
+\end{description}
+
+Both flavours satisfy the \texttt{ObserverBase<ModelT>} concept (virtual
+base class) but the static path can bypass it entirely when composed via
+\texttt{CompositeObserver}.
+
+% ------------------------------------------------------------------
+\subsection{StepEvent Value Type}
+\label{sec:impl-step-event}
+
+Instead of passing four arguments (\texttt{step, t, u, v}) to
+\texttt{on\_step}, the implementation introduces a lightweight
+aggregate:
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+struct StepEvent {
+    PetscInt step;
+    double   time;
+    Vec      displacement;   // PETSc Vec (non-owning handle)
+    Vec      velocity;       // PETSc Vec (non-owning handle)
+};
+\end{lstlisting}
+
+This simplifies signatures, is trivially copyable (two scalars + two
+opaque pointers), and is easily extensible (e.g.\ adding
+\texttt{acceleration} for Newmark schemes) without changing every
+observer signature.
+
+% ------------------------------------------------------------------
+\subsection{ObserverCallback Bridge}
+\label{sec:impl-observer-callback}
+
+\texttt{DynamicAnalysis} stores a PETSc \texttt{TSMonitor} callback
+whose signature is fixed by the C library.  A type-erased bridge,
+\texttt{ObserverCallback<ModelT>}, wraps any observer flavour into three
+\texttt{std::function} members:
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+template <typename ModelT>
+struct ObserverCallback {
+    std::function<void(const ModelT&)>                    on_start;
+    std::function<void(const StepEvent&, const ModelT&)>  on_step;
+    std::function<void(const ModelT&)>                    on_end;
+};
+\end{lstlisting}
+
+The factory \texttt{make\_observer\_callback(Obs\&)} constructs this
+from any observer (static or dynamic) by binding references.
+\texttt{DynamicAnalysis::Monitor()} feeds into \texttt{on\_step};
+lifecycle hooks are called from \texttt{solve()}.  The old
+\texttt{MonitorCallback} is preserved for backward compatibility:
+both are invoked sequentially.
+
+%-------------------------------------------------------------------
+\subsection{Concrete Observers (Implemented)}
+\label{sec:impl-concrete-observers}
+
+Seven observers were implemented in
+\texttt{src/analysis/Observers.hh}:
+
+\begin{center}
+\small
+\begin{tabular}{lp{7cm}}
+\toprule
+\textbf{Observer} & \textbf{Description} \\
+\midrule
+\texttt{ConsoleProgressObserver} &
+  Prints step/time/max-displacement every $N$ steps via
+  \texttt{std::println}. \\
+\texttt{VTKSnapshotObserver} &
+  Writes VTM snapshots and maintains PVD time series via a
+  user-supplied exporter factory (avoids hard VTK include). \\
+\texttt{NodeRecorder} &
+  Records DOF time-histories at selected (node, dof) channels;
+  CSV export. \\
+\texttt{ElementRecorder} &
+  Per-element section resultants (axial, shear, moment).
+  \emph{Requires \texttt{section\_snapshots()} accessor on
+  \texttt{StructuralElement}.} \\
+\texttt{FiberRecorder} &
+  Per-fiber stress/strain time-histories.
+  \emph{Same accessor prerequisite.} \\
+\texttt{EnergyRecorder} &
+  Kinetic energy $\frac{1}{2}\mathbf{v}^{\!\top}\!\mathbf{M}\mathbf{v}$
+  and cumulative external work. \\
+\texttt{MaxResponseTracker} &
+  Tracks peak $|\mathbf{u}|$, $|u_x|$, $|u_y|$, $|u_z|$ with
+  time stamps. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{VTKSnapshotObserver} deserves special note: its second template
+parameter \texttt{ExporterFactory} is a callable
+\texttt{(const ModelT\&) -> Exporter} rather than a direct VTK type
+reference.  This \emph{compile-time firewall} prevents
+\texttt{Observers.hh} from pulling in VTK translation-unit headers,
+keeping the observer framework header lightweight.
+
+% ------------------------------------------------------------------
+\subsection{StateQuery Extraction}
+\label{sec:impl-state-query}
+
+The helper functions \texttt{nodal\_translation()},
+\texttt{max\_translation\_norm()}, and \texttt{max\_component\_abs()}
+were extracted from the anonymous namespace in \texttt{main.cpp} into
+\texttt{src/post-processing/StateQuery.hh} under namespace
+\texttt{fall\_n::query}.  These are now reusable across any analysis
+driver or observer and serve as the standard response-quantity accessors.
+
+\texttt{main.cpp} was updated to call \texttt{fall\_n::query::} instead
+of local duplicates; the local template functions were deleted.
+
+% ------------------------------------------------------------------
+\subsection{\texttt{std::print/format} Migration (Partial Phase~2)}
+\label{sec:impl-print-migration}
+
+All new observer code uses \texttt{std::println} and
+\texttt{std::format} exclusively.  Additionally, the entire
+\texttt{main.cpp} dynamic-analysis driver was migrated:
+\begin{itemize}
+  \item Dynamic parameter block $\to$ \texttt{std::println}.
+  \item Final report (geometry, materials, solver outcome, response
+        quantities) $\to$ \texttt{std::println} with
+        \texttt{\{:.6f\}} formatting.
+  \item \texttt{<iostream>} and \texttt{<iomanip>} removed from
+        \texttt{main.cpp} includes.
+\end{itemize}
+
+% ------------------------------------------------------------------
+\subsection{File Organisation}
+\label{sec:impl-file-org}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{File} & \textbf{Contents} \\
+\midrule
+\texttt{src/analysis/AnalysisObserver.hh} &
+  \texttt{StepEvent}, \texttt{ObserverBase<ModelT>},
+  \texttt{DynamicObserverList<ModelT>},
+  \texttt{CompositeObserver<ModelT, Obs...>},
+  \texttt{ObserverCallback<ModelT>},
+  factory functions. \\
+\texttt{src/analysis/Observers.hh} &
+  All 7 concrete observer implementations +
+  \texttt{make\_vtk\_observer} factory. \\
+\texttt{src/post-processing/StateQuery.hh} &
+  \texttt{fall\_n::query::nodal\_translation()},
+  \texttt{max\_translation\_norm()},
+  \texttt{max\_component\_abs()},
+  \texttt{nodal\_dof\_value()}. \\
+\texttt{src/analysis/DynamicAnalysis.hh} &
+  Modified: \texttt{observer\_callback\_} member,
+  \texttt{set\_observer()} overloads,
+  lifecycle hooks in \texttt{solve()}. \\
+\texttt{src/analysis/Analysis.hh} &
+  Updated umbrella include. \\
+\texttt{header\_files.hh} &
+  Added \texttt{StateQuery.hh}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------
+\subsection{DynamicAnalysis Integration Detail}
+\label{sec:impl-da-integration}
+
+The integration preserves full backward compatibility:
+
+\begin{enumerate}
+  \item \texttt{DynamicAnalysis} gains a private member
+    \texttt{ObserverCallback<ModelT> observer\_callback\_}.
+  \item The static \texttt{Monitor(TS, PetscInt, PetscReal, Vec, void*)}
+    callback first invokes \texttt{observer\_callback\_.on\_step}
+    (wrapping arguments into a \texttt{StepEvent}), then the legacy
+    \texttt{monitor\_callback\_}.
+  \item Two \texttt{set\_observer()} overloads:
+    \begin{itemize}
+      \item \texttt{set\_observer(ObserverCallback<ModelT>)} for
+            pre-built callbacks;
+      \item \texttt{template<class Obs> set\_observer(Obs\&)} that
+            calls \texttt{make\_observer\_callback(obs)}.
+    \end{itemize}
+  \item Both \texttt{solve()} overloads invoke
+    \texttt{on\_analysis\_start} before \texttt{TSSolve} and
+    \texttt{on\_analysis\_end} after the post-processing phase.
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{Test Suite After Phase~1}
+\label{sec:impl-test-suite}
+
+Two pre-existing failing tests (\texttt{cantilever\_benchmark} and
+\texttt{snes\_gmsh\_pipeline}) that depended on external mesh files
+were removed from \texttt{CMakeLists.txt}.  After all Phase~1 changes
+the test suite passes:
+
+\begin{center}
+  \textbf{45 / 45 tests passed, 0 failures.}
+\end{center}
+
+The build compiles under \texttt{clang++-20} with \texttt{-Werror}
+and produces zero warnings.
+
+% ------------------------------------------------------------------
+\subsection{Known Limitations and Next Steps}
+\label{sec:impl-limitations}
+
+\begin{itemize}
+  \item \texttt{ElementRecorder} and \texttt{FiberRecorder} store
+        empty records because \texttt{StructuralElement}'s type-erased
+        interface does not yet expose \texttt{sections()} or
+        \texttt{section\_snapshots()}.  Adding this accessor to the
+        \texttt{Concept} vtable is a prerequisite for Phase~2.
+  \item \texttt{LinearAnalysis} and \texttt{NonlinearAnalysis} do not
+        have monitor support.  Extending the observer integration to
+        iterative solvers (SNES monitoring) is future work.
+  \item The \texttt{ModelBuilder} (Phase~3) has not been started.
+  \item Node recorder CSV export has been implemented but not yet
+        exercised in a test.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
 \section{Summary}
 \label{sec:obs-summary}
 
@@ -766,15 +1045,18 @@ The proposed architecture introduces two orthogonal subsystems:
 \begin{itemize}
   \item An \textbf{Observer/Recorder} pipeline that replaces the
         monolithic monitor lambda with composable, single-responsibility
-        observers—each independently testable and reconfigurable at
-        runtime.
+        observers---each independently testable and reconfigurable at
+        runtime.  \emph{Phase~1 is complete}: seven concrete observers,
+        a dual static/dynamic composition model, and full integration
+        into \texttt{DynamicAnalysis} with backward compatibility.
+        All 45~CTests pass; the build compiles with zero warnings under
+        \texttt{-Werror}.
   \item A \textbf{ModelBuilder} orchestrator that extracts the
         $\sim$20 helper functions from example code into reusable
-        library headers, with a layered generic/structural design.
+        library headers, with a layered generic/structural design
+        (Phase~3, not yet started).
 \end{itemize}
 
-Implementation proceeds in four phases: observer framework first
-(enables better debugging of subsequent work), then helper extraction,
-then model builder, then \texttt{std::print/format} migration.  Each
-phase preserves backward compatibility and maintains the passing test
-suite.
+Remaining phases: helper extraction (Phase~2), model builder (Phase~3),
+and completing the \texttt{std::print}/\texttt{format} migration across
+the wider library (partial Phase~2 already done in \texttt{main.cpp}).

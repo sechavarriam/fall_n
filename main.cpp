@@ -5,10 +5,10 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
-#include <iomanip>
-#include <iostream>
+#include <format>
 #include <map>
 #include <numbers>
+#include <print>
 #include <string>
 #include <utility>
 #include <vector>
@@ -153,43 +153,6 @@ constexpr double isotropic_shear_modulus(double E, double nu) noexcept {
 
 constexpr double bar_area(double diameter) noexcept {
     return std::numbers::pi * diameter * diameter / 4.0;
-}
-
-template <typename ModelT>
-Eigen::Vector3d nodal_translation(const ModelT& model, std::size_t id) {
-    const auto& node = model.get_domain().node(id);
-    const auto dofs = node.dof_index();
-
-    const PetscScalar* values = nullptr;
-    VecGetArrayRead(model.state_vector(), &values);
-
-    Eigen::Vector3d u = Eigen::Vector3d::Zero();
-    for (std::size_t d = 0; d < 3 && d < dofs.size(); ++d) {
-        u[static_cast<Eigen::Index>(d)] = values[dofs[d]];
-    }
-
-    VecRestoreArrayRead(model.state_vector(), &values);
-    return u;
-}
-
-template <typename ModelT>
-double max_translation_norm(const ModelT& model) {
-    double max_u = 0.0;
-    for (const auto& node : model.get_domain().nodes()) {
-        max_u = std::max(max_u, nodal_translation(model, node.id()).norm());
-    }
-    return max_u;
-}
-
-template <typename ModelT>
-double max_component_abs(const ModelT& model, std::size_t comp) {
-    double max_u = 0.0;
-    for (const auto& node : model.get_domain().nodes()) {
-        max_u = std::max(
-            max_u,
-            std::abs(nodal_translation(model, node.id())[static_cast<Eigen::Index>(comp)]));
-    }
-    return max_u;
 }
 
 template <typename ModelT>
@@ -528,22 +491,12 @@ static auto build_structural_elements(
 // =============================================================================
 //  Step 4 — VTK export helpers
 // =============================================================================
-static void export_structural_vtm(const StructuralModel& model,
-                                  const std::string& filename) {
-    fall_n::vtk::StructuralVTMExporter exporter(
-        model,
-        fall_n::reconstruction::RectangularSectionProfile<2>{BEAM_B, BEAM_H},
-        fall_n::reconstruction::ShellThicknessProfile<5>{});
-    exporter.write(filename);
-}
-
-// =============================================================================
 //  Step 5 — Dynamic analysis driver
 // =============================================================================
 static void run_corotational_dynamic_rc_building() {
-    std::cout << "================================================================\n";
-    std::cout << "  fall_n — Corotational Dynamic 5-Story RC Building\n";
-    std::cout << "================================================================\n\n";
+    std::println("================================================================");
+    std::println("  fall_n — Corotational Dynamic 5-Story RC Building");
+    std::println("================================================================\n");
 
     // ─────────────────────────────────────────────────────────────────────
     //  1. Build the shared geometric domain
@@ -732,53 +685,57 @@ static void run_corotational_dynamic_rc_building() {
         });
 
     // ─────────────────────────────────────────────────────────────────────
-    //  8. VTK time-series monitor
+    //  8. Observer pipeline (replaces monolithic monitor lambda)
     // ─────────────────────────────────────────────────────────────────────
     std::filesystem::create_directories(OUT);
-    PVDWriter pvd(OUT + "building_dynamic");
 
-    static constexpr int PRINT_INTERVAL = 10;
+    // Roof corner node for recording
+    const auto roof_node = node_id(NUM_AXES_X - 1, NUM_AXES_Y - 1, NUM_STORIES);
 
-    solver.set_monitor(
-        [&](PetscInt step, double t, Vec /*u*/, Vec /*v*/) {
-            // Print progress frequently
-            if (step % PRINT_INTERVAL == 0) {
-                const double max_ux = max_component_abs(model, 0);
-                const double max_uz = max_component_abs(model, 2);
-                PetscPrintf(PETSC_COMM_WORLD,
-                    "  [step %4d]  t = %8.4f s   max|ux| = %10.6f m   max|uz| = %10.6f m\n",
-                    static_cast<int>(step), t, max_ux, max_uz);
-            }
+    // VTK exporter factory (captures beam/shell profile settings)
+    auto vtk_factory = [](const StructuralModel& m) {
+        return fall_n::vtk::StructuralVTMExporter(
+            m,
+            fall_n::reconstruction::RectangularSectionProfile<2>{BEAM_B, BEAM_H},
+            fall_n::reconstruction::ShellThicknessProfile<5>{});
+    };
 
-            // Write VTK snapshots less frequently
-            if (step % VTK_SNAPSHOT_INTERVAL != 0) return;
+    // Compose observers:
+    //   1. Console progress (every 10 steps)
+    //   2. VTK snapshots + PVD time series (every 100 steps)
+    //   3. Node recorder at roof corner (ux, uz every step)
+    //   4. Peak response (envelope) tracker
+    auto observers = fall_n::make_composite_observer<StructuralModel>(
+        fall_n::ConsoleProgressObserver<StructuralModel>{10},
+        fall_n::make_vtk_observer<StructuralModel>(
+            OUT, "building_dynamic", VTK_SNAPSHOT_INTERVAL,
+            vtk_factory),
+        fall_n::NodeRecorder<StructuralModel>{
+            {{static_cast<std::size_t>(roof_node), 0},    // ux
+             {static_cast<std::size_t>(roof_node), 2}},   // uz
+            1  // every step
+        },
+        fall_n::MaxResponseTracker<StructuralModel>{1}
+    );
 
-            std::ostringstream oss;
-            oss << OUT << "building_dynamic_"
-                << std::setw(6) << std::setfill('0') << step
-                << ".vtm";
-            const std::string vtm_name = oss.str();
-
-            export_structural_vtm(model, vtm_name);
-            pvd.add_timestep(t, vtm_name);
-        });
+    solver.set_observer(observers);
 
     // ─────────────────────────────────────────────────────────────────────
     //  9. Solve
     // ─────────────────────────────────────────────────────────────────────
-    std::cout << "Dynamic parameters\n";
-    std::cout << "  Density (RC)       : " << RC_DENSITY << " MN s^2/m^4\n";
-    std::cout << "  Damping ratio      : " << XI_DAMP * 100 << " %\n";
-    std::cout << "  Rayleigh omega_1   : " << OMEGA_1 << " rad/s (T1=" << 2*std::numbers::pi/OMEGA_1 << " s)\n";
-    std::cout << "  Rayleigh omega_3   : " << OMEGA_3 << " rad/s (T3=" << 2*std::numbers::pi/OMEGA_3 << " s)\n";
-    std::cout << "  Gravity accel.     : " << GRAVITY_ACCEL << " m/s^2\n";
-    std::cout << "  Lateral amplitude  : " << LATERAL_AMPLITUDE << " MN per node\n";
-    std::cout << "  Excitation period  : " << EXCITATION_PERIOD << " s\n";
-    std::cout << "  Gravity ramp       : " << GRAVITY_RAMP_TIME << " s\n";
-    std::cout << "  Lateral ramp       : " << LATERAL_RAMP_TIME << " s\n";
-    std::cout << "  Total time         : " << T_FINAL << " s\n";
-    std::cout << "  Time step          : " << DT << " s\n";
-    std::cout << "  Formulation        : Corotational (large displacements)\n\n";
+    std::println("Dynamic parameters");
+    std::println("  Density (RC)       : {} MN s^2/m^4",   RC_DENSITY);
+    std::println("  Damping ratio      : {} %",              XI_DAMP * 100);
+    std::println("  Rayleigh omega_1   : {} rad/s (T1={} s)", OMEGA_1, 2*std::numbers::pi/OMEGA_1);
+    std::println("  Rayleigh omega_3   : {} rad/s (T3={} s)", OMEGA_3, 2*std::numbers::pi/OMEGA_3);
+    std::println("  Gravity accel.     : {} m/s^2",          GRAVITY_ACCEL);
+    std::println("  Lateral amplitude  : {} MN per node",    LATERAL_AMPLITUDE);
+    std::println("  Excitation period  : {} s",              EXCITATION_PERIOD);
+    std::println("  Gravity ramp       : {} s",              GRAVITY_RAMP_TIME);
+    std::println("  Lateral ramp       : {} s",              LATERAL_RAMP_TIME);
+    std::println("  Total time         : {} s",              T_FINAL);
+    std::println("  Time step          : {} s",              DT);
+    std::println("  Formulation        : Corotational (large displacements)\n");
 
     // ─────────────────────────────────────────────────────────────────────
     //  9. Setup, then override TS options programmatically
@@ -802,15 +759,15 @@ static void run_corotational_dynamic_rc_building() {
     const bool ok = solver.solve(T_FINAL, DT);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  10. Final report
+    //  10. Final report  (uses fall_n::query:: + std::println)
     // ─────────────────────────────────────────────────────────────────────
-    const auto roof_corner = nodal_translation(
+    const auto roof_corner = fall_n::query::nodal_translation(
         model,
         node_id(NUM_AXES_X - 1, NUM_AXES_Y - 1, NUM_STORIES));
 
-    const double max_u  = max_translation_norm(model);
-    const double max_ux = max_component_abs(model, 0);
-    const double max_uz = max_component_abs(model, 2);
+    const double max_u  = fall_n::query::max_translation_norm(model);
+    const double max_ux = fall_n::query::max_component_abs(model, 0);
+    const double max_uz = fall_n::query::max_component_abs(model, 2);
     const double roof_drift_ratio = roof_corner[0] / Z_LEVELS.back();
 
     const std::size_t num_columns =
@@ -821,42 +778,33 @@ static void run_corotational_dynamic_rc_building() {
     const std::size_t num_slabs =
         static_cast<std::size_t>(NUM_STORIES * (NUM_AXES_X - 1) * (NUM_AXES_Y - 1));
 
-    std::cout << std::fixed << std::setprecision(6);
-    std::cout << "\nGeometry / topology\n";
-    std::cout << "  Nodes              : " << domain.num_nodes() << "\n";
-    std::cout << "  Columns (corot.)   : " << num_columns << "\n";
-    std::cout << "  Beams   (corot.)   : " << num_beams << "\n";
-    std::cout << "  Slabs   (elastic)  : " << num_slabs << "\n";
-    std::cout << "  Total elements     : " << domain.num_elements() << "\n\n";
+    std::println("\nGeometry / topology");
+    std::println("  Nodes              : {}", domain.num_nodes());
+    std::println("  Columns (corot.)   : {}", num_columns);
+    std::println("  Beams   (corot.)   : {}", num_beams);
+    std::println("  Slabs   (elastic)  : {}", num_slabs);
+    std::println("  Total elements     : {}\n", domain.num_elements());
 
-    std::cout << "Materials\n";
-    std::cout << "  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)\n";
-    std::cout << "  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)\n";
-    std::cout << "  Slabs              : elastic Mindlin shell\n";
-    std::cout << "  Steel fy           : " << STEEL_FY << " MPa\n\n";
+    std::println("Materials");
+    std::println("  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)");
+    std::println("  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)");
+    std::println("  Slabs              : elastic Mindlin shell");
+    std::println("  Steel fy           : {} MPa\n", STEEL_FY);
 
-    std::cout << "Solver outcome\n";
-    std::cout << "  Converged          : " << (ok ? "yes" : "no") << "\n\n";
+    std::println("Solver outcome");
+    std::println("  Converged          : {}\n", ok ? "yes" : "no");
 
-    std::cout << "Final-state response\n";
-    std::cout << "  Max |u|            : " << max_u << " m\n";
-    std::cout << "  Max |ux|           : " << max_ux << " m\n";
-    std::cout << "  Max |uz|           : " << max_uz << " m\n";
-    std::cout << "  Roof corner ux     : " << roof_corner[0] << " m\n";
-    std::cout << "  Roof corner uy     : " << roof_corner[1] << " m\n";
-    std::cout << "  Roof corner uz     : " << roof_corner[2] << " m\n";
-    std::cout << "  Roof drift ratio   : " << roof_drift_ratio << "\n\n";
+    std::println("Final-state response");
+    std::println("  Max |u|            : {:.6f} m", max_u);
+    std::println("  Max |ux|           : {:.6f} m", max_ux);
+    std::println("  Max |uz|           : {:.6f} m", max_uz);
+    std::println("  Roof corner ux     : {:.6f} m", roof_corner[0]);
+    std::println("  Roof corner uy     : {:.6f} m", roof_corner[1]);
+    std::println("  Roof corner uz     : {:.6f} m", roof_corner[2]);
+    std::println("  Roof drift ratio   : {:.6f}\n", roof_drift_ratio);
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  11. Write PVD + final VTM snapshot
-    // ─────────────────────────────────────────────────────────────────────
-    export_structural_vtm(model, OUT + "building_dynamic_final.vtm");
-    pvd.write();
-
-    std::cout << "VTK output\n";
-    std::cout << "  PVD time series    : " << OUT + "building_dynamic.pvd" << "\n";
-    std::cout << "  Final VTM snapshot : " << OUT + "building_dynamic_final.vtm" << "\n";
-    std::cout << "  VTK snapshots      : " << pvd.num_timesteps() << "\n";
+    // VTK is written automatically by VTKSnapshotObserver::on_analysis_end
+    std::println("VTK output written to: {}", OUT);
 }
 
 } // namespace
