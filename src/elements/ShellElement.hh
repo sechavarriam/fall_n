@@ -704,6 +704,11 @@ public:
         KMatrixT M_e = KMatrixT::Zero();
         if (density_ <= 0.0) return M_e;
 
+        // Shell thickness from the section constitutive model
+        const auto snap = sections_[0].section_snapshot();
+        const double thickness = snap.shell ? snap.shell->thickness : 0.0;
+        if (thickness <= 0.0) return M_e;
+
         for (std::size_t gp = 0; gp < geometry_->num_integration_points(); ++gp) {
             auto xi_view = geometry_->reference_integration_point(gp);
             const double w  = geometry_->weight(gp);
@@ -720,7 +725,7 @@ public:
                 N_mat(2, off + 2) = Na;  // w
             }
 
-            M_e += density_ * w * Jdet * (N_mat.transpose() * N_mat);
+            M_e += density_ * thickness * w * Jdet * (N_mat.transpose() * N_mat);
         }
 
         // Transform to global coordinates
