@@ -116,14 +116,62 @@ using StructuralPolicy = SingleElementPolicy<StructuralElement>;
 using StructuralModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 using DynamicSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 
+// ── Formulation selection ─────────────────────────────────────────────────────
+enum class Formulation { LinearElastic, NonlinearSmallStrain, Corotational };
+
+static const char* formulation_label(Formulation f) {
+    switch (f) {
+        case Formulation::LinearElastic:        return "Linear Elastic (Small Strain)";
+        case Formulation::NonlinearSmallStrain: return "Nonlinear Fiber (Small Strain)";
+        case Formulation::Corotational:         return "Nonlinear Fiber (Corotational)";
+    }
+    return "unknown";
+}
+
+// ── Elastic section properties (ACI 318 cracked stiffness) ────────────────────
+//
+//  For the elastic baseline, we use a cracked-section approximation:
+//    I_eff = 0.70 · I_gross   (columns — ACI 318 Table 6.6.3.1.1)
+//    I_eff = 0.35 · I_gross   (beams   — ACI 318 Table 6.6.3.1.1)
+//
+//  Concrete modulus: E_c = 4700·√f'c  [MPa]
+//  Shear modulus   : G_c = E_c / (2(1 + ν))
+//  Torsional const.: J ≈ β·b·h³  (β ≈ 0.1406 for b = h)
+//
+
+static auto make_elastic_column_material() {
+    const double Ec  = 4700.0 * std::sqrt(COLUMN_FPC);   // ≈ 27806 MPa
+    const double Gc  = Ec / (2.0 * (1.0 + NU_RC));       // ≈ 11586 MPa
+    const double A   = COLUMN_B * COLUMN_H;
+    const double Iy  = 0.70 * COLUMN_B * std::pow(COLUMN_H, 3) / 12.0;
+    const double Iz  = 0.70 * COLUMN_H * std::pow(COLUMN_B, 3) / 12.0;
+    const double J   = 0.1406 * COLUMN_B * std::pow(COLUMN_H, 3);
+    const double k   = 5.0 / 6.0;
+    TimoshenkoBeamMaterial3D rel{Ec, Gc, A, Iy, Iz, J, k, k};
+    return Material<TimoshenkoBeam3D>{rel, ElasticUpdate{}};
+}
+
+static auto make_elastic_beam_material() {
+    const double Ec  = 4700.0 * std::sqrt(BEAM_FPC);     // ≈ 24870 MPa
+    const double Gc  = Ec / (2.0 * (1.0 + NU_RC));
+    const double A   = BEAM_B * BEAM_H;
+    const double Iy  = 0.35 * BEAM_B * std::pow(BEAM_H, 3) / 12.0;
+    const double Iz  = 0.35 * BEAM_H * std::pow(BEAM_B, 3) / 12.0;
+    const double J   = 0.1406 * BEAM_B * std::pow(BEAM_H, 3);
+    const double k   = 5.0 / 6.0;
+    TimoshenkoBeamMaterial3D rel{Ec, Gc, A, Iy, Iz, J, k, k};
+    return Material<TimoshenkoBeam3D>{rel, ElasticUpdate{}};
+}
+
 
 // =============================================================================
-//  Seismic analysis driver
+//  Seismic analysis driver — parameterised on formulation
 // =============================================================================
-static void run_seismic_rc_building() {
+template <typename BeamElem, typename ShellElem>
+static void run_seismic(Formulation formulation) {
     std::println("================================================================");
     std::println("  fall_n — Seismic Analysis: 5-Story RC Building");
-    std::println("           El Centro 1940 NS — Corotational Formulation");
+    std::println("           El Centro 1940 NS — {}", formulation_label(formulation));
     std::println("================================================================\n");
 
     // ─────────────────────────────────────────────────────────────────────
@@ -153,50 +201,63 @@ static void run_seismic_rc_building() {
     // ─────────────────────────────────────────────────────────────────────
     //  3. Materials
     // ─────────────────────────────────────────────────────────────────────
-    const auto column_material = fall_n::make_rc_column_section({
-        .b            = COLUMN_B,
-        .h            = COLUMN_H,
-        .cover        = COLUMN_COVER,
-        .bar_diameter = COLUMN_BAR_D,
-        .tie_spacing  = COLUMN_TIE_SPACING,
-        .fpc          = COLUMN_FPC,
-        .nu           = NU_RC,
-        .steel_E      = STEEL_E,
-        .steel_fy     = STEEL_FY,
-        .steel_b      = STEEL_B,
-        .tie_fy       = TIE_FY,
-    });
 
-    const auto beam_material = fall_n::make_rc_beam_section({
-        .b            = BEAM_B,
-        .h            = BEAM_H,
-        .cover        = BEAM_COVER,
-        .bar_diameter = BEAM_BAR_D,
-        .fpc          = BEAM_FPC,
-        .nu           = NU_RC,
-        .steel_E      = STEEL_E,
-        .steel_fy     = STEEL_FY,
-        .steel_b      = STEEL_B,
-    });
-
+    // Slab material — always elastic
     MindlinShellMaterial slab_relation{SLAB_E, NU_RC, SLAB_T};
     const auto slab_material = Material<MindlinReissnerShell3D>{slab_relation, ElasticUpdate{}};
 
-    // ─────────────────────────────────────────────────────────────────────
-    //  4. Build structural elements (corotational beams + MITC4 shells)
-    // ─────────────────────────────────────────────────────────────────────
+    // Frame materials — elastic or fiber depending on formulation
     std::vector<const ElementGeometry<3>*> shell_geometries;
+    std::vector<StructuralElement> elements;
 
-    auto elements = fall_n::StructuralModelBuilder<
-        BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>,
-        CorotationalMITC4Shell<>,
-        TimoshenkoBeam3D,
-        MindlinReissnerShell3D>{}
-        .set_frame_material("Columns", column_material)
-        .set_frame_material("Beams",   beam_material)
-        .set_shell_material("Slabs",   slab_material)
-        .build_elements(domain, &shell_geometries);
+    if (formulation == Formulation::LinearElastic) {
+        const auto col_mat  = make_elastic_column_material();
+        const auto beam_mat = make_elastic_beam_material();
 
+        elements = fall_n::StructuralModelBuilder<
+            BeamElem, ShellElem, TimoshenkoBeam3D, MindlinReissnerShell3D>{}
+            .set_frame_material("Columns", col_mat)
+            .set_frame_material("Beams",   beam_mat)
+            .set_shell_material("Slabs",   slab_material)
+            .build_elements(domain, &shell_geometries);
+    } else {
+        const auto column_material = fall_n::make_rc_column_section({
+            .b            = COLUMN_B,
+            .h            = COLUMN_H,
+            .cover        = COLUMN_COVER,
+            .bar_diameter = COLUMN_BAR_D,
+            .tie_spacing  = COLUMN_TIE_SPACING,
+            .fpc          = COLUMN_FPC,
+            .nu           = NU_RC,
+            .steel_E      = STEEL_E,
+            .steel_fy     = STEEL_FY,
+            .steel_b      = STEEL_B,
+            .tie_fy       = TIE_FY,
+        });
+
+        const auto beam_material = fall_n::make_rc_beam_section({
+            .b            = BEAM_B,
+            .h            = BEAM_H,
+            .cover        = BEAM_COVER,
+            .bar_diameter = BEAM_BAR_D,
+            .fpc          = BEAM_FPC,
+            .nu           = NU_RC,
+            .steel_E      = STEEL_E,
+            .steel_fy     = STEEL_FY,
+            .steel_b      = STEEL_B,
+        });
+
+        elements = fall_n::StructuralModelBuilder<
+            BeamElem, ShellElem, TimoshenkoBeam3D, MindlinReissnerShell3D>{}
+            .set_frame_material("Columns", column_material)
+            .set_frame_material("Beams",   beam_material)
+            .set_shell_material("Slabs",   slab_material)
+            .build_elements(domain, &shell_geometries);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  4. Build model
+    // ─────────────────────────────────────────────────────────────────────
     StructuralModel model{domain, std::move(elements)};
 
     // ─────────────────────────────────────────────────────────────────────
@@ -318,7 +379,7 @@ static void run_seismic_rc_building() {
     std::println("  Total time         : {} s", T_FINAL);
     std::println("  Time step          : {} s", DT);
     std::println("  Damage criterion   : {} (ε_ref = {:.6f})", damage_criterion.name(), EPS_YIELD);
-    std::println("  Formulation        : Corotational (large displacements)\n");
+    std::println("  Formulation        : {}\n", formulation_label(formulation));
 
     // ─────────────────────────────────────────────────────────────────────
     //  10. Setup + solve
@@ -353,17 +414,26 @@ static void run_seismic_rc_building() {
     std::println("  SEISMIC ANALYSIS REPORT");
     std::println("════════════════════════════════════════════════════════════════");
 
+    const char* beam_tag = (formulation == Formulation::Corotational) ? "corot." : "small";
+    const char* slab_tag = (formulation == Formulation::Corotational) ? "corot." : "MITC4";
+
     std::println("\nGeometry / topology");
     std::println("  Nodes              : {}", domain.num_nodes());
-    std::println("  Columns (corot.)   : {}", grid.num_columns());
-    std::println("  Beams   (corot.)   : {}", grid.num_beams());
-    std::println("  Slabs   (MITC4)    : {}", grid.num_slabs());
+    std::println("  Columns ({})   : {}", beam_tag, grid.num_columns());
+    std::println("  Beams   ({})   : {}", beam_tag, grid.num_beams());
+    std::println("  Slabs   ({})   : {}", slab_tag, grid.num_slabs());
     std::println("  Total elements     : {}", domain.num_elements());
 
     std::println("\nMaterials");
-    std::println("  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)");
-    std::println("  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)");
-    std::println("  Slabs              : CorotationalMITC4 elastic Mindlin-Reissner shell");
+    if (formulation == Formulation::LinearElastic) {
+        std::println("  Columns            : Elastic (E_c = {:.0f} MPa, cracked I)", 4700.0 * std::sqrt(COLUMN_FPC));
+        std::println("  Beams              : Elastic (E_c = {:.0f} MPa, cracked I)", 4700.0 * std::sqrt(BEAM_FPC));
+    } else {
+        std::println("  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)");
+        std::println("  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)");
+    }
+    std::println("  Slabs              : {} elastic Mindlin-Reissner shell",
+        (formulation == Formulation::Corotational) ? "CorotationalMITC4" : "MITC4");
     std::println("  Steel fy           : {} MPa", STEEL_FY);
     std::println("  Column f'c         : {} MPa", COLUMN_FPC);
     std::println("  Beam f'c           : {} MPa", BEAM_FPC);
@@ -406,7 +476,36 @@ int main(int argc, char** argv) {
     PetscOptionsSetValue(nullptr, "-snes_type",       "newtonls");
     PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
 
-    run_seismic_rc_building();
+    // ── Formulation selection (from argv or default) ─────────────────
+    //
+    //  Usage:  fall_n_seismic [linear | nonlinear | corotational]
+    //
+    //  Default: nonlinear (fiber sections, small strain)
+    //
+    Formulation form = Formulation::NonlinearSmallStrain;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "linear")         form = Formulation::LinearElastic;
+        else if (arg == "nonlinear") form = Formulation::NonlinearSmallStrain;
+        else if (arg == "corotational" || arg == "corot")
+                                     form = Formulation::Corotational;
+    }
+
+    using SmallStrainBeam = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;
+    using CorotBeam       = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
+    using SmallStrainShell = MITC4Shell<>;
+    using CorotShell       = CorotationalMITC4Shell<>;
+
+    switch (form) {
+        case Formulation::LinearElastic:
+        case Formulation::NonlinearSmallStrain:
+            run_seismic<SmallStrainBeam, SmallStrainShell>(form);
+            break;
+        case Formulation::Corotational:
+            run_seismic<CorotBeam, CorotShell>(form);
+            break;
+    }
 
     PetscFinalize();
     return 0;

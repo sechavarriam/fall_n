@@ -838,8 +838,20 @@ protected:
             for (std::size_t i = 0; i < grid.points.size(); ++i) {
                 const auto x_ref = element.geometry().map_local_point(grid.points[i]);
                 const Eigen::Vector3d x = Eigen::Map<const Eigen::Vector3d>(x_ref.data());
-                const auto u = element.rotation_matrix().transpose()
-                    * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+
+                Eigen::Vector3d u;
+                if constexpr (requires { element.sample_displacement_global(grid.points[0], displacement_); }) {
+                    if (displacement_) {
+                        u = element.sample_displacement_global(grid.points[i], displacement_);
+                    } else {
+                        u = element.rotation_matrix().transpose()
+                            * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+                    }
+                } else {
+                    u = element.rotation_matrix().transpose()
+                        * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+                }
+
                 ids[i] = points->InsertNextPoint(x[0], x[1], x[2]);
                 push_vec3(displacement, u);
             }
@@ -879,8 +891,21 @@ protected:
             for (const double zeta : {-0.5, 0.5}) {
                 std::vector<vtkIdType> ids(grid.points.size());
                 for (std::size_t i = 0; i < grid.points.size(); ++i) {
-                    const auto field =
+                    auto field =
                         ReductionPolicy::reconstruct_thickness_point(element, u_loc, grid.points[i], zeta);
+
+                    // Override displacement with total global displacement so
+                    // that WarpByVector works correctly for corotational shells.
+                    if constexpr (requires { element.sample_displacement_global(grid.points[0], displacement_); }) {
+                        if (displacement_) {
+                            const auto theta = element.sample_rotation_vector_local(grid.points[i], u_loc);
+                            const Eigen::Vector3d offset{0.0, 0.0, field.thickness_offset};
+                            field.displacement =
+                                element.sample_displacement_global(grid.points[i], displacement_)
+                                + element.rotation_matrix().transpose() * theta.cross(offset);
+                        }
+                    }
+
                     ids[i] = points->InsertNextPoint(
                         field.reference_position[0],
                         field.reference_position[1],
@@ -1274,8 +1299,20 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         const auto x_ref = element.geometry().map_local_point(grid.points[i]);
                         const Eigen::Vector3d x =
                             Eigen::Map<const Eigen::Vector3d>(x_ref.data());
-                        const auto u = element.rotation_matrix().transpose()
-                            * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+
+                        Eigen::Vector3d u;
+                        if constexpr (requires { element.sample_displacement_global(grid.points[0], displacement_); }) {
+                            if (displacement_) {
+                                u = element.sample_displacement_global(grid.points[i], displacement_);
+                            } else {
+                                u = element.rotation_matrix().transpose()
+                                    * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+                            }
+                        } else {
+                            u = element.rotation_matrix().transpose()
+                                * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
+                        }
+
                         ids[i] = points->InsertNextPoint(x[0], x[1], x[2]);
                         detail::push_vec3(displacement, u);
                         detail::push_scalar(structural_family, shell_family_value());
@@ -1421,9 +1458,21 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                     for (const double zeta : {-0.5, 0.5}) {
                         std::vector<vtkIdType> ids(grid.points.size());
                         for (std::size_t i = 0; i < grid.points.size(); ++i) {
-                            const auto field =
+                            auto field =
                                 reconstruction::StructuralReductionPolicy<ElementT>
                                     ::reconstruct_thickness_point(element, u_loc, grid.points[i], zeta);
+
+                            // Override displacement with total global for correct WarpByVector
+                            if constexpr (requires { element.sample_displacement_global(grid.points[0], displacement_); }) {
+                                if (displacement_) {
+                                    const auto theta = element.sample_rotation_vector_local(grid.points[i], u_loc);
+                                    const Eigen::Vector3d offset{0.0, 0.0, field.thickness_offset};
+                                    field.displacement =
+                                        element.sample_displacement_global(grid.points[i], displacement_)
+                                        + element.rotation_matrix().transpose() * theta.cross(offset);
+                                }
+                            }
+
                             ids[i] = points->InsertNextPoint(
                                 field.reference_position[0],
                                 field.reference_position[1],
