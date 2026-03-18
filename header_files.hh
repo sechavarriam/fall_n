@@ -45,6 +45,9 @@
 #include "src/elements/BeamElement.hh"
 #include "src/elements/TimoshenkoBeamN.hh"
 #include "src/elements/ShellElement.hh"
+#include "src/elements/MITCShellPolicy.hh"
+#include "src/elements/ShellKinematicPolicy.hh"
+#include "src/elements/MITCShellElement.hh"
 #include "src/elements/ElementPolicy.hh"
 
 #include "src/elements/element_geometry/ElementGeometry.hh"
