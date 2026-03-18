@@ -56,6 +56,9 @@ struct is_shell_element : std::false_type {};
 template <typename ShellPolicy, typename AsmPolicy>
 struct is_shell_element<ShellElement<ShellPolicy, AsmPolicy>> : std::true_type {};
 
+template <std::size_t N, typename SP, typename MP, typename KP, typename AP>
+struct is_shell_element<MITCShellElement<N, SP, MP, KP, AP>> : std::true_type {};
+
 inline vtkSmartPointer<vtkDoubleArray> make_array(std::string_view name,
                                                   int num_components = 1) {
     auto arr = vtkSmartPointer<vtkDoubleArray>::New();
@@ -70,6 +73,56 @@ inline void push_scalar(vtkDoubleArray* arr, double value) {
 
 inline void push_vec3(vtkDoubleArray* arr, const Eigen::Vector3d& value) {
     arr->InsertNextTuple3(value[0], value[1], value[2]);
+}
+
+// ── Shell parametric grid helpers ─────────────────────────────────────
+
+struct ShellGrid {
+    std::vector<std::array<double, 2>>  points;     // parametric (ξ, η) coords
+    std::vector<std::array<int, 4>>     sub_quads;  // connectivity: indices into points
+    std::vector<std::array<int, 2>>     edges;      // boundary edges
+    int side;                                        // grid side length
+};
+
+/// Build a n_side × n_side parametric grid for shell visualization.
+/// n_nodes = 4 → side=2, 9 → side=3, 16 → side=4.
+inline ShellGrid make_shell_grid(std::size_t n_nodes) {
+    int side = 2;
+    if (n_nodes >= 9) side = 3;
+    if (n_nodes >= 16) side = 4;
+
+    ShellGrid g;
+    g.side = side;
+    g.points.reserve(side * side);
+
+    for (int j = 0; j < side; ++j) {
+        for (int i = 0; i < side; ++i) {
+            double xi  = -1.0 + 2.0 * i / (side - 1);
+            double eta = -1.0 + 2.0 * j / (side - 1);
+            g.points.push_back({xi, eta});
+        }
+    }
+
+    // Sub-quads (each cell is a bilinear quad in the parametric grid)
+    for (int j = 0; j < side - 1; ++j) {
+        for (int i = 0; i < side - 1; ++i) {
+            int i00 = j * side + i;
+            int i10 = j * side + (i + 1);
+            int i01 = (j + 1) * side + i;
+            int i11 = (j + 1) * side + (i + 1);
+            g.sub_quads.push_back({i00, i10, i11, i01});
+        }
+    }
+
+    // Boundary edges (wireframe outline)
+    for (int i = 0; i < side - 1; ++i) {
+        g.edges.push_back({i, i + 1});                             // bottom
+        g.edges.push_back({(side-1)*side + i, (side-1)*side + i + 1}); // top
+        g.edges.push_back({i * side, (i+1) * side});               // left
+        g.edges.push_back({i * side + (side-1), (i+1) * side + (side-1)}); // right
+    }
+
+    return g;
 }
 
 inline vtkSmartPointer<vtkPolyData> make_empty_block() {
@@ -777,25 +830,20 @@ protected:
         auto lines = vtkSmartPointer<vtkCellArray>::New();
         auto displacement = make_array("displacement", 3);
 
-        constexpr std::array<std::array<double, 2>, 4> node_xi = {{
-            {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}
-        }};
-        constexpr std::array<std::array<int, 2>, 4> edges = {{
-            {0, 1}, {1, 3}, {3, 2}, {2, 0}
-        }};
-
         for (const auto& element : model_->elements()) {
             const auto u_loc = accessor(element);
-            std::array<vtkIdType, 4> ids{};
-            for (std::size_t i = 0; i < node_xi.size(); ++i) {
-                const auto x_ref = element.geometry().map_local_point(node_xi[i]);
+            const auto grid = make_shell_grid(element.num_nodes());
+
+            std::vector<vtkIdType> ids(grid.points.size());
+            for (std::size_t i = 0; i < grid.points.size(); ++i) {
+                const auto x_ref = element.geometry().map_local_point(grid.points[i]);
                 const Eigen::Vector3d x = Eigen::Map<const Eigen::Vector3d>(x_ref.data());
                 const auto u = element.rotation_matrix().transpose()
-                    * element.sample_mid_surface_translation_local(node_xi[i], u_loc);
+                    * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
                 ids[i] = points->InsertNextPoint(x[0], x[1], x[2]);
                 push_vec3(displacement, u);
             }
-            for (const auto& edge : edges) {
+            for (const auto& edge : grid.edges) {
                 lines->InsertNextCell(2);
                 lines->InsertCellPoint(ids[edge[0]]);
                 lines->InsertCellPoint(ids[edge[1]]);
@@ -824,18 +872,15 @@ protected:
         auto stress_yy = make_array("stress_yy");
         auto stress_xy = make_array("stress_xy");
 
-        constexpr std::array<std::array<double, 2>, 4> node_xi = {{
-            {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}
-        }};
-
         for (const auto& element : model_->elements()) {
             const auto u_loc = accessor(element);
+            const auto grid = make_shell_grid(element.num_nodes());
 
             for (const double zeta : {-0.5, 0.5}) {
-                std::array<vtkIdType, 4> ids{};
-                for (std::size_t i = 0; i < node_xi.size(); ++i) {
+                std::vector<vtkIdType> ids(grid.points.size());
+                for (std::size_t i = 0; i < grid.points.size(); ++i) {
                     const auto field =
-                        ReductionPolicy::reconstruct_thickness_point(element, u_loc, node_xi[i], zeta);
+                        ReductionPolicy::reconstruct_thickness_point(element, u_loc, grid.points[i], zeta);
                     ids[i] = points->InsertNextPoint(
                         field.reference_position[0],
                         field.reference_position[1],
@@ -850,11 +895,13 @@ protected:
                     push_scalar(stress_xy, field.stress_xy);
                 }
 
-                polys->InsertNextCell(4);
-                polys->InsertCellPoint(ids[0]);
-                polys->InsertCellPoint(ids[1]);
-                polys->InsertCellPoint(ids[3]);
-                polys->InsertCellPoint(ids[2]);
+                for (const auto& quad : grid.sub_quads) {
+                    polys->InsertNextCell(4);
+                    polys->InsertCellPoint(ids[quad[0]]);
+                    polys->InsertCellPoint(ids[quad[1]]);
+                    polys->InsertCellPoint(ids[quad[2]]);
+                    polys->InsertCellPoint(ids[quad[3]]);
+                }
             }
         }
 
@@ -1046,6 +1093,13 @@ void dispatch_supported_structural(const StructuralElement& element, F&& visitor
         visitor(*shell);
         return;
     }
+    // MITC shell variants
+    if (const auto* s = element.template as<MITC4Shell<>>()) { visitor(*s); return; }
+    if (const auto* s = element.template as<MITC9Shell<>>()) { visitor(*s); return; }
+    if (const auto* s = element.template as<MITC16Shell<>>()) { visitor(*s); return; }
+    if (const auto* s = element.template as<CorotationalMITC4Shell<>>()) { visitor(*s); return; }
+    if (const auto* s = element.template as<CorotationalMITC9Shell<>>()) { visitor(*s); return; }
+    if (const auto* s = element.template as<CorotationalMITC16Shell<>>()) { visitor(*s); return; }
     throw std::runtime_error(
         std::string("StructuralVTMExporter: unsupported structural element type '")
         + element.concrete_type().name() + "'.");
@@ -1213,20 +1267,15 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                     lines->InsertNextCell(static_cast<vtkIdType>(ids.size()));
                     for (const auto id : ids) lines->InsertCellPoint(id);
                 } else {
-                    constexpr std::array<std::array<double, 2>, 4> node_xi = {{
-                        {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}
-                    }};
-                    constexpr std::array<std::array<int, 2>, 4> edges = {{
-                        {0, 1}, {1, 3}, {3, 2}, {2, 0}
-                    }};
+                    const auto grid = detail::make_shell_grid(element.num_nodes());
 
-                    std::array<vtkIdType, 4> ids{};
-                    for (std::size_t i = 0; i < node_xi.size(); ++i) {
-                        const auto x_ref = element.geometry().map_local_point(node_xi[i]);
+                    std::vector<vtkIdType> ids(grid.points.size());
+                    for (std::size_t i = 0; i < grid.points.size(); ++i) {
+                        const auto x_ref = element.geometry().map_local_point(grid.points[i]);
                         const Eigen::Vector3d x =
                             Eigen::Map<const Eigen::Vector3d>(x_ref.data());
                         const auto u = element.rotation_matrix().transpose()
-                            * element.sample_mid_surface_translation_local(node_xi[i], u_loc);
+                            * element.sample_mid_surface_translation_local(grid.points[i], u_loc);
                         ids[i] = points->InsertNextPoint(x[0], x[1], x[2]);
                         detail::push_vec3(displacement, u);
                         detail::push_scalar(structural_family, shell_family_value());
@@ -1244,7 +1293,7 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         detail::push_scalar(torque, reconstruction::nan_value());
                         detail::push_scalar(station_role, reconstruction::nan_value());
                     }
-                    for (const auto& edge : edges) {
+                    for (const auto& edge : grid.edges) {
                         lines->InsertNextCell(2);
                         lines->InsertCellPoint(ids[edge[0]]);
                         lines->InsertCellPoint(ids[edge[1]]);
@@ -1367,16 +1416,14 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         }
                     }
                 } else {
-                    constexpr std::array<std::array<double, 2>, 4> node_xi = {{
-                        {-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}
-                    }};
+                    const auto grid = detail::make_shell_grid(element.num_nodes());
 
                     for (const double zeta : {-0.5, 0.5}) {
-                        std::array<vtkIdType, 4> ids{};
-                        for (std::size_t i = 0; i < node_xi.size(); ++i) {
+                        std::vector<vtkIdType> ids(grid.points.size());
+                        for (std::size_t i = 0; i < grid.points.size(); ++i) {
                             const auto field =
                                 reconstruction::StructuralReductionPolicy<ElementT>
-                                    ::reconstruct_thickness_point(element, u_loc, node_xi[i], zeta);
+                                    ::reconstruct_thickness_point(element, u_loc, grid.points[i], zeta);
                             ids[i] = points->InsertNextPoint(
                                 field.reference_position[0],
                                 field.reference_position[1],
@@ -1397,11 +1444,13 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                             detail::push_scalar(stress_xz, reconstruction::nan_value());
                         }
 
-                        polys->InsertNextCell(4);
-                        polys->InsertCellPoint(ids[0]);
-                        polys->InsertCellPoint(ids[1]);
-                        polys->InsertCellPoint(ids[3]);
-                        polys->InsertCellPoint(ids[2]);
+                        for (const auto& quad : grid.sub_quads) {
+                            polys->InsertNextCell(4);
+                            polys->InsertCellPoint(ids[quad[0]]);
+                            polys->InsertCellPoint(ids[quad[1]]);
+                            polys->InsertCellPoint(ids[quad[2]]);
+                            polys->InsertCellPoint(ids[quad[3]]);
+                        }
                     }
                 }
             });

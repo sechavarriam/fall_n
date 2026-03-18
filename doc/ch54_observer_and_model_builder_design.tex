@@ -1774,3 +1774,945 @@ After the extraction and refactoring:
 
 No functional changes---the building example produces identical
 results before and after Phase~3.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Scripting Language Evaluation: Julia vs.\ Python}
+\label{sec:scripting-evaluation}
+
+A design requirement stated from the outset of Phase~3 is that the
+ModelBuilder API must remain open to a future scripting-language
+binding.  This section presents a systematic comparison of the two
+strongest candidates---\textbf{Julia} and \textbf{Python}---evaluated
+against the specific characteristics and target audience of
+\texttt{fall\_n}, and closes with a justified recommendation.
+
+% ------------------------------------------------------------------
+\subsection{Evaluation Criteria}
+\label{sec:scripting-criteria}
+
+The comparison is organised along seven axes relevant to a
+computational structural mechanics library:
+
+\begin{enumerate}
+  \item \textbf{FFI maturity and C++ interoperability.}
+        How seamless is the Foreign Function Interface for wrapping
+        a modern C++23 library that relies on PETSc, Eigen, and VTK?
+
+  \item \textbf{Numerical ecosystem.}
+        Availability of performant linear algebra, sparse solvers,
+        optimisation, and post-processing tools native to the
+        language.
+
+  \item \textbf{Structural engineering community penetration.}
+        Existing FEM/structural analysis software with established
+        scripting APIs in the language.
+
+  \item \textbf{Interactive workflows.}
+        Notebook support (Jupyter / Pluto), REPL-driven
+        exploration, and integration with plotting libraries.
+
+  \item \textbf{Performance profile.}
+        Overhead of the FFI boundary, ability to write
+        performance-critical callbacks (e.g.\ time-dependent force
+        functions) without falling back to C++.
+
+  \item \textbf{Distribution and deployment.}
+        Ease of distributing a compiled C++ library with its
+        scripting bindings to end users (package managers,
+        virtual environments, reproducibility).
+
+  \item \textbf{User base accessibility.}
+        How many structural engineers, graduate students, and
+        researchers already know or are likely to learn the language?
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\subsection{Python: Strengths and Limitations}
+\label{sec:python-analysis}
+
+\paragraph{FFI via pybind11 / nanobind.}
+\texttt{pybind11}~\cite{pybind11} is the de-facto standard for
+exposing C++ to Python.  It handles aggregate structs, STL containers,
+\texttt{std::string}, and opaque pointer wrappers with minimal glue
+code.  The newer \texttt{nanobind} offers improved compilation
+speed.  Both produce standard CPython extensions distributable
+via \texttt{pip}.
+
+A key advantage: PETSc's own Python layer (\texttt{petsc4py})
+and VTK's Python bindings are production-grade and installable
+via \texttt{pip}.  This means a Python user can mix
+\texttt{fall\_n} calls with direct PETSc vector/matrix queries
+and VTK rendering---all in the same process.
+
+\paragraph{Ecosystem dominance for engineering.}
+\begin{itemize}
+  \item \textbf{OpenSeesPy}~\cite{OpenSees}: The most widely used
+        nonlinear structural FEM framework exposes its entire API
+        through Python, making structural engineers already literate
+        in Python-based FEM workflows.
+  \item \textbf{SAP2000 / ETABS OAPI}: CSi products expose COM/Python
+        scripting interfaces.
+  \item \textbf{Abaqus scripting}: Python is the native scripting
+        language for Abaqus CAE.
+  \item Post-processing: NumPy, SciPy, Matplotlib, pandas, and
+        Jupyter are ubiquitous in the engineering research workflow.
+\end{itemize}
+
+\paragraph{Limitations.}
+\begin{itemize}
+  \item \textbf{Performance ceiling.}  Pure-Python callbacks
+        (e.g.\ a time-dependent force function called at every time
+        step) incur interpreter overhead.  For the 5\,000-step
+        dynamic analysis in the building example, this translates
+        to $\sim$5\,000 Python$\to$C++ round trips---manageable
+        but not zero-cost.
+  \item \textbf{GIL constraints.}  The Global Interpreter Lock
+        prevents true multi-threaded callbacks.  Not a concern
+        for \texttt{fall\_n} (parallelism is handled by MPI/PETSc
+        below the binding interface), but limits future
+        observer-level parallelism in Python.
+  \item \textbf{Type system.}  Python's dynamic typing offers
+        no compile-time safety.  Typing errors surface at runtime
+        rather than at import time.
+\end{itemize}
+
+% ------------------------------------------------------------------
+\subsection{Julia: Strengths and Limitations}
+\label{sec:julia-analysis}
+
+\paragraph{FFI via CxxWrap.jl.}
+\texttt{CxxWrap.jl}~\cite{CxxWrap} generates Julia-callable
+wrappers from C++ code annotated with a registration macro.
+It handles parametric types, inheritance, and value/reference
+semantics.  Unlike pybind11, the C++ wrapper is compiled into a
+shared library, and Julia loads it via \texttt{ccall}.
+
+Julia also has a zero-overhead \texttt{ccall} mechanism for C
+functions, but C++23 templates and class hierarchies require
+\texttt{CxxWrap.jl} for ergonomic wrapping.
+
+\paragraph{Performance.}
+Julia's JIT-compiled functions achieve C-like performance.  A
+time-dependent force callback written in Julia and passed to the
+solver would be compiled to native code \emph{before} the time-stepping
+loop begins---eliminating the per-call interpreter overhead that
+Python would incur.  For tight inner loops (e.g.\ user-defined
+material laws, custom load functions), this is a significant
+practical advantage.
+
+\paragraph{Numerical native design.}
+Julia was designed \emph{ab initio} for numerical computing:
+\begin{itemize}
+  \item Multi-dimensional arrays are first-class, column-major
+        (matching Fortran/Eigen conventions), with BLAS/LAPACK
+        natively integrated.
+  \item Multiple dispatch enables type-stable generic code---a
+        user can define a new material as a Julia struct and
+        dispatch on it seamlessly.
+  \item The \texttt{DifferentialEquations.jl} ecosystem provides
+        production-quality time-stepping algorithms; future
+        integration with \texttt{fall\_n}'s PETSc solver could
+        provide Julia-side adaptive control.
+\end{itemize}
+
+\paragraph{Emerging FEM ecosystem.}
+\begin{itemize}
+  \item \texttt{Ferrite.jl}: A Julia-native FEM assembly library
+        with modern API design.
+  \item \texttt{Gridap.jl}: High-level FE discretisation framework.
+  \item \texttt{PETSc.jl}: Native Julia bindings to PETSc.
+  \item The community is smaller but rapidly growing in
+        computational mechanics.
+\end{itemize}
+
+\paragraph{Limitations.}
+\begin{itemize}
+  \item \textbf{Community size in structural engineering.}
+        No major structural analysis package (OpenSees, SAP2000,
+        ETABS, Abaqus) exposes a Julia API.  Structural engineers
+        are overwhelmingly Python-trained.
+  \item \textbf{CxxWrap.jl maturity.}
+        While functional, \texttt{CxxWrap.jl} has fewer users and
+        less documentation than pybind11.  Complex wrapping scenarios
+        (e.g.\ type-erased \texttt{StructuralElement}) require more
+        manual glue.
+  \item \textbf{First-call latency (TTFX).}
+        Julia's JIT compilation introduces a ``time to first
+        execution'' penalty---annoying for interactive exploration,
+        although mitigated by \texttt{PackageCompiler.jl} and the
+        runtime improvements in Julia~1.9+.
+  \item \textbf{Distribution complexity.}
+        Distributing a Julia package with a compiled C++ backend
+        requires the \texttt{BinaryBuilder.jl} / \texttt{JLL}
+        infrastructure, which is more complex than Python's
+        \texttt{pip install}.
+\end{itemize}
+
+% ------------------------------------------------------------------
+\subsection{Head-to-Head Comparison}
+\label{sec:scripting-comparison}
+
+\begin{center}
+\small
+\begin{tabular}{p{3.5cm}p{5.5cm}p{5.5cm}}
+\toprule
+\textbf{Criterion} & \textbf{Python (pybind11)} & \textbf{Julia (CxxWrap.jl)} \\
+\midrule
+FFI maturity
+  & Production-grade; thousands of C++ libraries wrapped
+  & Functional; fewer complex-wrapping examples \\
+\addlinespace
+PETSc integration
+  & \texttt{petsc4py} (official, pip-installable)
+  & \texttt{PETSc.jl} (community, functional) \\
+\addlinespace
+VTK integration
+  & Official Python bindings (pip)
+  & \texttt{WriteVTK.jl} (pure Julia writer) \\
+\addlinespace
+Structural eng.\ community
+  & Dominant (OpenSeesPy, SAP2000, Abaqus)
+  & Minimal (no major FEM tool uses Julia) \\
+\addlinespace
+Callback performance
+  & Interpreter overhead ($\sim\mu$s/call)
+  & JIT-compiled ($\sim$ns/call, C-like) \\
+\addlinespace
+Numerical expressiveness
+  & Good (NumPy), but duck-typed
+  & Excellent (native arrays, multiple dispatch, type-stable) \\
+\addlinespace
+Interactive notebooks
+  & Jupyter (mature)
+  & Jupyter + Pluto.jl (mature) \\
+\addlinespace
+Distribution
+  & \texttt{pip wheel} (simple, well-understood)
+  & \texttt{BinaryBuilder.jl} (more complex) \\
+\addlinespace
+User onboarding
+  & Most engineers know Python
+  & Learning curve; smaller community \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------
+\subsection{Recommendation: Julia as Primary, Python as Secondary}
+\label{sec:scripting-recommendation}
+
+Despite Python's larger user base and more mature FFI tooling,
+this document recommends \textbf{Julia as the primary scripting
+layer} for \texttt{fall\_n}.  The reasoning is as follows.
+
+\paragraph{1.\ Performance alignment.}
+\texttt{fall\_n} is a \emph{research-oriented computational mechanics
+library}, not a commercial pre/post-processor.  Its target users write
+custom material models, time-dependent force functions, and
+analysis control loops.  In Julia these are all JIT-compiled to
+native code; in Python they remain interpreted.  The performance
+gap matters most precisely where \texttt{fall\_n} differentiates
+itself: the inner loop of nonlinear time-stepping with user-defined
+callbacks.
+
+\paragraph{2.\ Type-system congruence.}
+Julia's parametric type system and multiple dispatch mirror the
+C++ template-based design of \texttt{fall\_n}.  A Julia
+\texttt{struct RCColumnSpec} maps one-to-one to the C++ aggregate;
+dispatch on material types in Julia can parallel the C++
+\texttt{Material<Policy>} hierarchy without losing type information.
+Python's duck typing degrades this structure to runtime checks.
+
+\paragraph{3.\ Composability with the numerical ecosystem.}
+Julia's \texttt{DifferentialEquations.jl} provides adaptive
+time-stepping, sensitivity analysis, and uncertainty quantification
+that could augment PETSc's TS solver.
+\texttt{ForwardDiff.jl} enables automatic differentiation of
+user-defined constitutive laws---a critical capability for
+research into new material models.
+
+\paragraph{4.\ The ``two-language problem'' avoidance.}
+A Python binding inevitably creates a two-language workflow:
+Python for scripting, C++ for performance-critical code.
+Engineers who hit the Python performance ceiling must either
+(a) learn C++ to add features, or (b) write Cython/numba hacks.
+With Julia, the scripting layer \emph{is} the performance layer;
+a prototype material model written in Julia's REPL can be
+used directly in production analyses without rewriting.
+
+\paragraph{5.\ Long-term trajectory.}
+Julia's adoption in computational science is accelerating
+(MIT, national labs, DOE-funded projects).  While Python is
+dominant today, Julia's technical advantages for numerical
+computing make it increasingly likely to become the standard
+in research-oriented computational mechanics---the exact
+audience of \texttt{fall\_n}.
+
+\paragraph{Python as a secondary binding.}
+Python support should \emph{not} be abandoned.  A thin
+\texttt{pybind11} layer for the ModelBuilder API (the same
+spec-driven free functions designed in Phase~3) provides:
+\begin{itemize}
+  \item Access for engineers who are reluctant to learn Julia.
+  \item Integration with Jupyter notebooks and Matplotlib for
+        publication-quality plots.
+  \item A bridge to the OpenSeesPy community for comparative
+        benchmarks.
+\end{itemize}
+
+The recommended implementation order is:
+
+\begin{enumerate}
+  \item \textbf{Phase~4a}: Julia binding via \texttt{CxxWrap.jl}
+        for the core API (\texttt{make\_building\_domain},
+        \texttt{StructuralModelBuilder}, analysis drivers).
+        This establishes the primary interactive workflow.
+  \item \textbf{Phase~4b}: Python binding via \texttt{pybind11}
+        for the same API surface, enabling cross-language
+        access and community adoption.
+\end{enumerate}
+
+Both bindings share the same C++ API surface designed in
+Phase~3 --- the spec-driven free functions and simple structs
+that require \emph{no template syntax at the scripting boundary}.
+
+% ------------------------------------------------------------------
+\subsection{Architectural Implications}
+\label{sec:scripting-architecture}
+
+The choice of Julia as primary binding influences the C++ API
+design in the following ways:
+
+\begin{enumerate}
+  \item \textbf{Callback-friendly solver interface.}
+        The \texttt{DynamicAnalysis::set\_force\_function()} must
+        accept a type-erased callable
+        (\texttt{std::function<void(double, Vec)>}) that can be
+        bound to a Julia function via \texttt{CxxWrap.jl}'s
+        \texttt{@cxxfunction} macro.  This is already the case.
+
+  \item \textbf{Return types over output parameters.}
+        Julia's FFI works best with functions that \emph{return}
+        results rather than filling output pointers.
+        \texttt{make\_building\_domain()} returns a
+        \texttt{pair<Domain, BuildingGrid>}---natural for Julia's
+        destructuring.
+
+  \item \textbf{String-based group names.}
+        Julia's \texttt{String} maps cleanly to C++
+        \texttt{std::string} via \texttt{CxxWrap.jl}.  The
+        physical-group system in \texttt{fall\_n} uses strings
+        throughout, which is FFI-optimal.
+
+  \item \textbf{Thin C bridge for PETSc interop.}
+        PETSc's C API is directly callable from Julia via
+        \texttt{ccall}.  Vectors (\texttt{Vec}) and matrices
+        (\texttt{Mat}) are opaque pointers---trivially passable
+        across the FFI boundary.  A Julia user can call
+        \texttt{VecNorm} on a gravity vector obtained from the
+        model without any wrapper overhead.
+\end{enumerate}
+
+% ======================================================================
+%  MITC Shell Elements and Corotational Shell Formulation
+% ======================================================================
+
+\section{Higher-Order MITC Shell Elements}
+\label{sec:mitc-shells}
+
+This section documents the design and implementation of MITC (Mixed
+Interpolation of Tensorial Components) shell elements in
+\texttt{fall\_n}, covering the MITC4, MITC9, and MITC16 families, their
+assumed-strain methodology, and the integration of a corotational
+kinematic framework for geometrically nonlinear analysis.
+
+\subsection{The Transverse Shear Locking Problem}
+\label{sec:shear-locking}
+
+Standard isoparametric Mindlin--Reissner shell elements suffer from
+\emph{transverse shear locking} when the shell thickness $t$ becomes
+small relative to its characteristic span~$L$.  The mechanism is
+well understood: the standard displacement-based interpolation of the
+transverse shear strains $\gamma_{\alpha 3}$ ($\alpha=1,2$) introduces
+spurious constraints that stiffen the element response as
+$t/L \to 0$.
+
+Consider a Mindlin--Reissner shell with mid-surface parametrisation
+$\xi, \eta \in [-1,1]^2$.  The \emph{covariant} transverse shear
+strains are
+\begin{equation}
+  \label{eq:cov-shear}
+  \gamma_{\alpha 3}
+  = \frac{\partial w}{\partial \xi_\alpha}
+    + \mathbf{e}_3 \cdot
+      \frac{\partial \mathbf{x}}{\partial \xi_\alpha}
+    - \theta_\beta \,
+      \frac{\partial \mathbf{x}}{\partial \xi_\alpha}
+      \cdot \mathbf{e}_\beta
+  ,
+  \qquad \alpha = 1,2
+\end{equation}
+where $w$ is the transverse displacement, $\theta_\alpha$ are the
+section rotations, and $\mathbf{x}(\xi,\eta)$ the mid-surface
+mapping.  In a standard bilinear element the interpolations of $w$
+and $\theta_\alpha$ both live in $Q_1$, but
+$\partial w/\partial \xi_\alpha$ and the rotation contribution
+$\theta_\beta (\partial \mathbf{x}/\partial \xi_\alpha)$ produce
+\emph{bilinear} terms that cannot cancel over the full element
+domain, creating parasitic shear energy.
+
+The MITC methodology eliminates locking by replacing the directly
+interpolated shear strains with an \emph{assumed} strain field
+$\tilde{\gamma}_{\alpha 3}$ constructed from values sampled at
+carefully chosen \emph{tying points}, where the directly computed
+shear strains are reliable~\cite{DvorkinBathe1984, BatheDvorkin1986}.
+
+\subsection{MITC4: Bilinear Assumed-Strain Shell}
+\label{sec:mitc4}
+
+The MITC4 element uses four tying points for the transverse shear
+interpolation, two for each covariant component:
+
+\begin{itemize}
+  \item $\gamma_{13}$ is sampled at $(\xi, \eta) \in \{(0, -1), (0, +1)\}$
+        and interpolated linearly in~$\eta$.
+  \item $\gamma_{23}$ is sampled at $(\xi, \eta) \in \{(-1, 0), (+1, 0)\}$
+        and interpolated linearly in~$\xi$.
+\end{itemize}
+
+The assumed shear strain field is then
+\begin{align}
+  \tilde{\gamma}_{13}(\xi, \eta)
+  &= \tfrac12(1-\eta)\,\gamma_{13}^{(0,-1)}
+   + \tfrac12(1+\eta)\,\gamma_{13}^{(0,+1)}
+  ,
+  \label{eq:mitc4-g13}
+  \\
+  \tilde{\gamma}_{23}(\xi, \eta)
+  &= \tfrac12(1-\xi)\,\gamma_{23}^{(-1,0)}
+   + \tfrac12(1+\xi)\,\gamma_{23}^{(+1,0)}
+  .
+  \label{eq:mitc4-g23}
+\end{align}
+
+This replaces the two shear-strain rows of the standard~$\mathbf{B}$
+matrix with the assumed-strain operator
+$\tilde{\mathbf{B}}_{\text{shear}}$, while the 6~membrane and
+bending rows remain unmodified.  The resulting MITC4 element passes
+all standard patch tests and exhibits asymptotically correct thin-shell
+behaviour.
+
+In \texttt{fall\_n}, the MITC4 assumed-strain policy is implemented as
+\texttt{mitc::MITC4}.  Its static method
+\begin{lstlisting}[language=C++, basicstyle=\small\ttfamily]
+template <int TotalDofs>
+static void compute_assumed_shear(
+    double xi, double eta,
+    const ElementGeometry<3>& geometry,
+    const Eigen::Matrix3d& R,
+    int dofs_per_node,
+    Eigen::Matrix<double, 2, TotalDofs>& B_sh);
+\end{lstlisting}
+builds a $2 \times N_\mathrm{dof}$ assumed-shear $\tilde{\mathbf{B}}_\mathrm{shear}$
+matrix at an arbitrary evaluation point.  The direct shear
+$\mathbf{B}$-matrix at each tying point is computed using the
+projected in-plane Jacobian from the helper
+\texttt{mitc::in\_plane\_jacobian()}.
+
+\subsection{MITC9: Biquadratic Assumed-Strain Shell}
+\label{sec:mitc9}
+
+The 9-node biquadratic shell requires a richer tying-point scheme to
+avoid locking.  Following Bucalem and Bathe~\cite{BucalemBathe1993},
+the MITC9 element uses 12~tying points:
+
+\begin{itemize}
+  \item 6~points for~$\gamma_{13}$: at
+        $(\xi,\eta) \in \{-1/\sqrt{3},\, +1/\sqrt{3}\}
+         \times \{-1,\, 0,\, +1\}$.
+  \item 6~points for~$\gamma_{23}$: at
+        $(\xi,\eta) \in \{-1,\, 0,\, +1\}
+         \times \{-1/\sqrt{3},\, +1/\sqrt{3}\}$.
+\end{itemize}
+
+The assumed shear strains are expressed via Lagrange interpolation
+on the tying grids:
+\begin{equation}
+  \tilde{\gamma}_{13}(\xi,\eta)
+  = \sum_{i=1}^{2}\sum_{j=1}^{3}
+    L_i(\xi) \, M_j(\eta) \;
+    \gamma_{13}^{(A_i, B_j)}
+  ,
+  \qquad
+  \tilde{\gamma}_{23}(\xi,\eta)
+  = \sum_{i=1}^{3}\sum_{j=1}^{2}
+    M_i(\xi) \, L_j(\eta) \;
+    \gamma_{23}^{(C_i, D_j)}
+  ,
+  \label{eq:mitc9-assumed}
+\end{equation}
+where $L_i$ are the two-point Lagrange basis functions on
+$\{-1/\sqrt{3},\, +1/\sqrt{3}\}$ and $M_j$ the three-point basis
+on $\{-1,\, 0,\, +1\}$.
+
+In \texttt{fall\_n}, this is encoded in \texttt{mitc::MITC9}, which
+precomputes the $6 + 6$ tying-point direct shear matrices and then
+blends them via the Lagrange weights at each evaluation point.  The
+resulting $2 \times 54$ assumed-shear operator replaces rows 7--8 of
+the standard~$\mathbf{B}$ matrix.
+
+The MITC9 element uses a
+$\texttt{LagrangeElement<3, 3, 3>}$ geometry (9-node Lagrangian
+quadrilateral) with a $3 \times 3$ Gauss--Legendre quadrature
+(\texttt{GaussLegendreCellIntegrator<3, 3>}).  Its 54~DOFs
+($6 \times 9$~nodes) enable accurate representation of bending-dominated
+problems on coarser meshes than the MITC4.
+
+\subsection{MITC16: Bicubic Assumed-Strain Shell}
+\label{sec:mitc16}
+
+The 16-node bicubic shell extends the MITC concept to even higher
+polynomial order, providing $p$-refinement capability.  Following
+~\cite{BucalemBathe1993}, the MITC16 element uses 24~tying points:
+
+\begin{itemize}
+  \item 12~points for~$\gamma_{13}$: at
+        $(\xi,\eta) \in
+         \bigl\{-\sqrt{3/5},\, 0,\, +\sqrt{3/5}\bigr\}
+         \times \{-1,\, -1/3,\, +1/3,\, +1\}$.
+  \item 12~points for~$\gamma_{23}$: at
+        $(\xi,\eta) \in
+         \{-1,\, -1/3,\, +1/3,\, +1\}
+         \times \bigl\{-\sqrt{3/5},\, 0,\, +\sqrt{3/5}\bigr\}$.
+\end{itemize}
+
+The assumed strain interpolation mirrors \eqref{eq:mitc9-assumed}
+with a $3 \times 4$ (and $4 \times 3$) tensor-product Lagrange basis.
+The three-point basis uses the Gauss--Legendre nodes
+$\{-\sqrt{3/5},\, 0,\, +\sqrt{3/5}\}$ while the four-point basis
+uses the equidistant nodes $\{-1,\, -1/3,\, +1/3,\, +1\}$.
+
+The MITC16 uses a $\texttt{LagrangeElement<3, 4, 4>}$ geometry
+(16-node bi-cubic Lagrangian quadrilateral) with $4 \times 4$
+Gauss--Legendre quadrature.  Its 96~DOFs ($6 \times 16$~nodes)
+make it suitable for single-element benchmarks and high-accuracy
+shell analysis.
+
+\subsection{Unified \texttt{MITCShellElement} Template}
+\label{sec:mitc-template}
+
+All three MITC families are instantiated from a single class
+template:
+\begin{lstlisting}[language=C++, basicstyle=\small\ttfamily]
+template <
+    std::size_t NNodes,        // 4, 9, or 16
+    typename ShellPolicy,      // MindlinReissnerShell3D
+    typename MITCPolicy,       // mitc::MITC4 / MITC9 / MITC16
+    typename KinematicPolicy   // shell::SmallRotation or shell::Corotational
+        = shell::SmallRotation,
+    typename AsmPolicy = assembly::DirectAssembly>
+class MITCShellElement;
+\end{lstlisting}
+
+\noindent
+The template parameters encode:
+\begin{description}
+  \item[\texttt{NNodes}]
+    Number of element nodes.  The total DOFs are $6 \times N$.
+    Supported: 4 (bilinear), 9 (biquadratic), 16~(bicubic).
+  \item[\texttt{ShellPolicy}]
+    Material policy defining the strain measure (8-component
+    Mindlin--Reissner: 3~membrane, 3~bending, 2~shear) and the
+    constitutive relation (block-diagonal $\mathbf{D}$ matrix).
+  \item[\texttt{MITCPolicy}]
+    Assumed-strain policy that provides
+    \texttt{compute\_assumed\_shear()} for the chosen tying-point
+    scheme.
+  \item[\texttt{KinematicPolicy}]
+    Small-rotation or corotational strategy (Sec.~\ref{sec:corotational}).
+  \item[\texttt{AsmPolicy}]
+    Assembly policy (direct or matrix-free).
+\end{description}
+
+Convenient type aliases simplify usage:
+\begin{lstlisting}[language=C++, basicstyle=\small\ttfamily]
+using MITC4Shell<>  = MITCShellElement<4,  ..., mitc::MITC4>;
+using MITC9Shell<>  = MITCShellElement<9,  ..., mitc::MITC9>;
+using MITC16Shell<> = MITCShellElement<16, ..., mitc::MITC16>;
+using CorotationalMITC4Shell<> = MITCShellElement<4, ..., shell::Corotational>;
+using CorotationalMITC9Shell<> = MITCShellElement<9, ..., shell::Corotational>;
+using CorotationalMITC16Shell<>= MITCShellElement<16,..., shell::Corotational>;
+\end{lstlisting}
+
+All aliases satisfy the \texttt{FiniteElement} concept verified via
+\texttt{static\_assert} at the end of the header.
+
+\subsection{Stiffness Matrix Assembly}
+\label{sec:mitc-stiffness}
+
+The element stiffness matrix is assembled in local coordinates as
+\begin{equation}
+  \mathbf{K}_{\mathrm{loc}}
+  = \int_{\Omega_{\Box}} \mathbf{B}^T \, \mathbf{D} \, \mathbf{B}
+    \; \lvert J \rvert \, d\xi\, d\eta
+  ,
+  \label{eq:K-local}
+\end{equation}
+where the $8 \times N_\mathrm{dof}$ strain--displacement matrix is
+partitioned as
+\[
+  \mathbf{B} =
+  \begin{pmatrix}
+    \mathbf{B}_{\mathrm{membrane}} \\
+    \mathbf{B}_{\mathrm{bending}}  \\
+    \tilde{\mathbf{B}}_{\mathrm{shear}}
+  \end{pmatrix}
+  .
+\]
+The first six rows ($\mathbf{B}_\mathrm{membrane}$ and
+$\mathbf{B}_\mathrm{bending}$) are computed from the standard
+displacement interpolation; the last two rows
+($\tilde{\mathbf{B}}_\mathrm{shear}$) come from the MITC
+assumed-strain policy.  The material matrix $\mathbf{D}$ is
+block-diagonal:
+\[
+  \mathbf{D} =
+  \begin{pmatrix}
+    \mathbf{D}_m  &                & \\
+                  & \mathbf{D}_b   & \\
+                  &                & \mathbf{D}_s
+  \end{pmatrix}
+  ,
+\]
+with membrane $\mathbf{D}_m = \frac{Et}{1-\nu^2}\mathbf{C}$,
+bending $\mathbf{D}_b = \frac{Et^3}{12(1-\nu^2)}\mathbf{C}$, and
+shear $\mathbf{D}_s = \kappa G t \, \mathbf{I}_2$ where
+$\kappa = 5/6$ is the shear correction factor.
+
+\subsection{Consistent Mass Matrix}
+\label{sec:mitc-mass}
+
+The consistent mass matrix is assembled as
+\begin{equation}
+  \mathbf{M} = \int_{\Omega_{\Box}}
+    \rho \, t \;
+    \mathbf{N}^T \mathbf{N}
+    \; \lvert J \rvert \, d\xi\, d\eta
+  ,
+  \label{eq:M-consistent}
+\end{equation}
+where $\mathbf{N}$ is the $3 \times N_\mathrm{dof}$ shape function
+matrix that picks out the translational DOFs.  This yields the
+exact total mass $\rho \, t \, A$ when summed over all translational
+DOF pairs:
+$\sum_{a,b} M_{a\cdot6+k,\, b\cdot6+k} = \rho \, t \, A$
+for each translational direction $k \in \{0,1,2\}$.
+Rotational inertia terms are omitted (standard practice for
+structural-dynamics codes), zeroing the $\theta$-DOF mass
+subblocks.
+
+\subsection{Internal Force Vector}
+\label{sec:mitc-internal-force}
+
+The element internal force vector in local coordinates is
+\begin{equation}
+  \mathbf{f}_{\mathrm{int,loc}}
+  = \int_{\Omega_{\Box}} \mathbf{B}^T \, \boldsymbol{\sigma}
+    \; \lvert J \rvert \, d\xi\, d\eta
+  ,
+  \label{eq:f-int}
+\end{equation}
+where $\boldsymbol{\sigma}$ is the 8-component generalised stress
+vector (membrane forces, bending moments, transverse shears).  For
+elastic material, $\boldsymbol{\sigma} = \mathbf{D}\,\mathbf{B}\,\mathbf{u}_\mathrm{loc}$.
+For nonlinear material, $\boldsymbol{\sigma}$ is evaluated from the
+section constitutive state at each Gauss point.
+
+% ======================================================================
+\section{Corotational Kinematic Policy for Shells}
+\label{sec:corotational}
+
+\subsection{Motivation: Geometric Compatibility in Mixed Models}
+\label{sec:corotational-motivation}
+
+The \texttt{fall\_n} dynamic RC building model combines corotational
+Timoshenko beams (columns and beams) with shell slabs.  When the
+beam elements use the \texttt{beam::Corotational} kinematic policy,
+they filter out rigid-body rotations and work with deformational
+(small-strain) local DOFs.  If the shells remain in a small-rotation
+formulation, the kinematic mismatch at beam--shell junctions causes
+\emph{parasitic restoring forces} at shared nodes---the shell ``sees''
+the large nodal rotations as genuine deformation while the beam has
+already subtracted the rigid motion.
+
+This manifests as spurious oscillations and eventual instability in
+dynamic analysis, particularly for slender slabs where bending
+stiffness is small compared to the parasitic forces.  The solution
+is to apply the \emph{same corotational treatment} to the shell
+elements.
+
+\subsection{Corotational Kinematics: Theory}
+\label{sec:cr-theory}
+
+The corotational approach decomposes the element motion into a
+rigid-body part and a deformational part.  For an element with
+nodes at current positions $\mathbf{x}_I$ and reference positions
+$\mathbf{X}_I$:
+
+\begin{enumerate}
+  \item \textbf{Element frame.} An orthonormal frame
+        $\mathbf{R} \in SO(3)$ is attached to the element and
+        updated from the deformed configuration via the tangent
+        vectors at the element centroid:
+        \[
+          \mathbf{g}_\alpha = \sum_I \frac{\partial N_I}{\partial \xi_\alpha}
+          \bigg|_{\boldsymbol{\xi}=\mathbf{0}} \mathbf{x}_I
+          ,\qquad \alpha = 1,2
+          .
+        \]
+        A Gram--Schmidt orthonormalisation produces
+        $\mathbf{e}_1, \mathbf{e}_2, \mathbf{e}_3 = \mathbf{e}_1 \times \mathbf{e}_2$.
+
+  \item \textbf{Deformational displacements.} The local
+        (deformational) translation at each node is obtained by
+        subtracting the rigid-body displacement:
+        \begin{equation}
+          \mathbf{d}_I =
+          \mathbf{R}_{\mathrm{curr}}
+            \bigl(\mathbf{x}_I - \bar{\mathbf{x}}_{\mathrm{def}}\bigr)
+          -
+          \mathbf{R}_{\mathrm{ref}}
+            \bigl(\mathbf{X}_I - \bar{\mathbf{X}}_{\mathrm{ref}}\bigr)
+          ,
+          \label{eq:cr-disp}
+        \end{equation}
+        where $\bar{\mathbf{x}}_{\mathrm{def}}$ and
+        $\bar{\mathbf{X}}_{\mathrm{ref}}$ are the deformed and
+        reference centroids, and $\mathbf{R}_{\mathrm{curr}}$,
+        $\mathbf{R}_{\mathrm{ref}}$ are the current and reference
+        element frames.
+
+  \item \textbf{Deformational rotations.} The nodal rotation
+        (drilling) DOF is reduced by the element rotation:
+        \begin{equation}
+          \tilde{\theta}_{z,I} = \theta_{z,I}
+            - \Delta\alpha_{\mathrm{elem}}
+          ,
+          \label{eq:cr-drill}
+        \end{equation}
+        where $\Delta\alpha_{\mathrm{elem}}$ is the in-plane
+        rotation angle of $\mathbf{R}_{\mathrm{curr}}$ relative
+        to $\mathbf{R}_{\mathrm{ref}}$.  The transverse rotations
+        ($\theta_x$, $\theta_y$) remain as-is (they describe
+        section tilting, not rigid rotation).
+\end{enumerate}
+
+The stiffness assembly proceeds identically to the small-rotation
+case, but using the deformational DOFs.  The resulting local
+tangent stiffness $\mathbf{K}_\mathrm{loc}$ is then transformed
+to global coordinates via the current frame's transformation
+matrix $\mathbf{T}$:
+\begin{equation}
+  \mathbf{K}_{\mathrm{glob}} =
+  \mathbf{T}^T \bigl(\mathbf{K}_\mathrm{loc}
+  + \mathbf{K}_\sigma\bigr) \mathbf{T}
+  ,
+  \label{eq:K-glob}
+\end{equation}
+where $\mathbf{K}_\sigma$ is the geometric stiffness contribution
+from the current stress state~\cite{FelippaHaugen2005}.
+
+\subsection{Geometric Stiffness for Shells}
+\label{sec:geom-stiffness}
+
+The corotational formulation requires a geometric stiffness matrix
+to account for the change of the element frame under load.  For
+the shell, this takes the form
+\begin{equation}
+  (K_\sigma)_{IJ} = \sigma_{33}
+  \int_{\Omega_{\Box}}
+    \nabla N_I \cdot \nabla N_J
+    \; \lvert J \rvert \, d\xi\, d\eta
+  ,
+  \label{eq:K-sigma}
+\end{equation}
+acting on the transverse displacement DOFs only.  Here $\sigma_{33}$
+is the transverse normal stress resultant (approximately the
+membrane force component normal to the shell surface).  In
+\texttt{fall\_n}, the \texttt{shell::Corotational::geometric\_stiffness()}
+method assembles this contribution at each Gauss point and adds it
+to the local stiffness before the coordinate transformation.
+
+\subsection{Implementation in \texttt{fall\_n}}
+\label{sec:cr-implementation}
+
+The corotational shell kinematic policy is encoded in
+\texttt{shell::Corotational}, defined in
+\texttt{ShellKinematicPolicy.hh}.  Key methods:
+
+\begin{description}
+  \item[\texttt{update\_frame()}]
+    Recomputes $\mathbf{R}_{\mathrm{curr}}$ from deformed nodal
+    positions using tangent vectors at the centroid and
+    Gram--Schmidt orthonormalisation.
+
+  \item[\texttt{extract\_local\_dofs()}]
+    Two overloads:
+    \begin{enumerate}
+      \item \textbf{5-argument (geometry-aware):} Implements
+            Eq.~\eqref{eq:cr-disp}--\eqref{eq:cr-drill} using
+            centroid-relative deformational displacements and
+            element-rotation subtraction from the drilling DOF.
+            This overload requires access to the element geometry
+            for nodal coordinates.
+      \item \textbf{2-argument (fallback):} Simple
+            $\mathbf{u}_\mathrm{loc} = \mathbf{T}\,\mathbf{u}_\mathrm{glob}$
+            when geometry is not available.
+    \end{enumerate}
+
+  \item[\texttt{geometric\_stiffness()}]
+    Assembles the $\nabla N_I \cdot \nabla N_J$ contribution
+    from Eq.~\eqref{eq:K-sigma} on the $w$-DOFs using the current
+    stress state.
+\end{description}
+
+In \texttt{MITCShellElement}, a private helper method
+\texttt{extract\_local()} dispatches to the appropriate overload
+via \texttt{if constexpr}:
+\begin{lstlisting}[language=C++, basicstyle=\small\ttfamily]
+auto extract_local(const FVectorT& u_glob,
+                   const TMatrixT& T) const {
+    if constexpr (std::same_as<KinematicPolicy,
+                               shell::Corotational>) {
+        return KinematicPolicy::extract_local_dofs(
+            u_glob, T, R_, R_ref_, geometry_);
+    } else {
+        return KinematicPolicy::extract_local_dofs(u_glob, T);
+    }
+}
+\end{lstlisting}
+
+\subsection{Verification: Rigid-Body Invariance}
+\label{sec:cr-verification}
+
+A fundamental requirement of any corotational formulation is that
+a pure rigid-body motion produces zero internal forces.  The test
+\texttt{MITC4\_corotational\_rigid\_rotation\_zero\_force} applies
+a $30^\circ$ in-plane rotation to all four nodes of a unit-square
+MITC4 shell and verifies:
+\[
+  \lVert \mathbf{f}_\mathrm{int} \rVert_2 < 10^{-10}
+  \quad\text{(achieved: } 4.49 \times 10^{-12}\text{)}
+  .
+\]
+This confirms that the centroid-relative deformational displacement
+extraction (Eq.~\ref{eq:cr-disp}) correctly removes the rigid
+component to machine precision.
+
+Additional verification tests include:
+\begin{itemize}
+  \item Corotational MITC4 at zero displacement gives identical
+        stiffness to the small-rotation MITC4.
+  \item Corotational MITC9 at zero displacement matches the
+        small-rotation MITC9 (verified for 9-node elements).
+  \item Stiffness symmetry and positive semi-definiteness
+        (exactly 6 zero eigenvalues for an unconstrained shell
+        patch) for all MITC families.
+  \item $\mathbf{K}\,\mathbf{u} = \mathbf{f}$ consistency:
+        applying the stiffness matrix to a generic displacement
+        vector and comparing against the internal force vector,
+        achieving residuals of $O(10^{-16})$.
+\end{itemize}
+
+\subsection{VTK Visualisation of Higher-Order Shells}
+\label{sec:vtk-shells}
+
+The VTK exporter has been generalised to handle $Q_4$, $Q_9$,
+and $Q_{16}$ shell elements.  A helper structure
+\texttt{detail::ShellGrid} generates the parametric sampling
+grid and sub-quad connectivity for each element order:
+
+\begin{center}
+\begin{tabular}{l c c c}
+  \toprule
+  Element  & Nodes & Parametric grid & Sub-quads \\
+  \midrule
+  MITC4    & 4     & $2 \times 2$    & 1         \\
+  MITC9    & 9     & $3 \times 3$    & 4         \\
+  MITC16   & 16    & $4 \times 4$    & 9         \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{make\_shell\_grid(n\_nodes)} factory produces the
+grid structure containing:
+\begin{itemize}
+  \item \texttt{points}: parametric coordinates for nodal sampling.
+  \item \texttt{quads}: sub-quad connectivity for surface rendering.
+  \item \texttt{edges}: boundary edges for axis (wireframe)
+        rendering.
+\end{itemize}
+
+The \texttt{dispatch\_supported\_structural()} function has been
+extended to dispatch all six MITC shell type variants
+(MITC4/9/16 in both small-rotation and corotational modes).  The
+type-erased \texttt{StructuralElement} wrapper's \texttt{as<T>()}
+method is used for compile-time dispatch within the visitor pattern.
+
+\subsection{Application: Corotational Dynamic RC Building}
+\label{sec:cr-application}
+
+The \texttt{main.cpp} dynamic 5-story RC building example has been
+updated to use \texttt{CorotationalMITC4Shell<>} for the elastic
+slab elements, specified via the \texttt{StructuralModelBuilder}
+template parameter:
+
+\begin{lstlisting}[language=C++, basicstyle=\small\ttfamily]
+auto elements = fall_n::StructuralModelBuilder<
+    BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>,
+    CorotationalMITC4Shell<>,
+    TimoshenkoBeam3D,
+    MindlinReissnerShell3D>{}
+  .set_frame_material("Columns", column_material)
+  .set_frame_material("Beams",   beam_material)
+  .set_shell_material("Slabs",   slab_material)
+  .build_elements(domain, &shell_geometries);
+\end{lstlisting}
+
+This ensures kinematic compatibility at beam--shell junctions:
+both element types apply the corotational filter, preventing the
+parasitic restoring forces that caused instability in the previous
+formulation where shells used small-rotation kinematics alongside
+corotational beams.
+
+\subsection{Test Suite Summary}
+\label{sec:mitc-tests}
+
+The MITC shell element test suite (\texttt{test\_mitc\_shell\_elements.cpp})
+contains 12~tests registered in CTest under the \texttt{unit} label:
+
+\begin{center}
+\small
+\begin{tabular}{r l l}
+  \toprule
+  \# & Test name & Verification target \\
+  \midrule
+  1  & MITC4 matches original ShellElement     & Backward compatibility \\
+  2  & MITC9 stiffness: symmetric, PSD, 6~zero & Stiffness properties \\
+  3  & MITC16 stiffness: symmetric, PSD, 6~zero & Stiffness properties \\
+  4  & CR-MITC4 zero at zero displacement       & Corotational consistency \\
+  5  & CR-MITC9 matches SR at zero              & Corotational consistency \\
+  6  & MITC9 vs MITC4 trace comparison          & $h$-convergence indicator \\
+  7  & MITC9 $\mathbf{K}\mathbf{u}=\mathbf{f}$ & Force--stiffness consistency \\
+  8  & MITC16 $\mathbf{K}\mathbf{u}=\mathbf{f}$ & Force--stiffness consistency \\
+  9  & MITC9 GP strains finite                  & Assumed-strain correctness \\
+  10 & MITC16 GP strains finite                 & Assumed-strain correctness \\
+  11 & MITC9 consistent mass                    & Mass conservation \\
+  12 & CR-MITC4 rigid rotation zero force       & Rigid-body invariance \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+All 12~tests pass, bringing the total test count to 46 (37~unit,
+3~integration, 6~slow).

@@ -111,7 +111,13 @@ void test_structural_mixed_multiblock_writer_contract() {
         } else if constexpr (fall_n::vtk::detail::is_beam_element<ElementT>::value) {
             return Eigen::Vector<double, 12>::Zero();
         } else {
-            return shell_u;
+            // Generic shell branch: use correct DOF count for each element type
+            constexpr int N = ElementT::total_dofs;
+            Eigen::Vector<double, N> u = Eigen::Vector<double, N>::Zero();
+            if constexpr (N == 24) {
+                u[6] = 0.01; u[18] = 0.01; u[10] = 0.1; u[22] = 0.1;
+            }
+            return u;
         }
     });
 

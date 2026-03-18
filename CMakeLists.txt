@@ -197,6 +197,10 @@ fall_n_add_test(TARGET fall_n_structural_mixed_vtm_test
     NAME structural_mixed_vtm_export  SOURCE tests/test_structural_mixed_vtm_export.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_mitc_shell_test
+    NAME mitc_shell_elements  SOURCE tests/test_mitc_shell_elements.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_strategy_test
     NAME material_strategy  SOURCE tests/test_material_strategy.cpp
     LIBS FULL  LABEL unit)

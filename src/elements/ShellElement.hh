@@ -51,7 +51,10 @@ class ShellElement {
 
     static constexpr std::size_t dofs_per_node = 6; // u,v,w,θx,θy,θz
     static constexpr std::size_t n_nodes       = 4;
+
+public:
     static constexpr std::size_t total_dofs    = dofs_per_node * n_nodes; // 24
+private:
 
     using BMatrixT = Eigen::Matrix<double, num_strains, total_dofs>;
     using KMatrixT = Eigen::Matrix<double, total_dofs,  total_dofs>;

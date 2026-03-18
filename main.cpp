@@ -26,7 +26,7 @@ namespace {
 //  Structural idealisation:
 //    - Columns and beams: 3D Timoshenko frame elements, **corotational**
 //    - Frame sections    : nonlinear fiber sections (Kent-Park + Menegotto-Pinto)
-//    - Slabs             : MITC4 / Mindlin-Reissner shells (elastic)
+//    - Slabs             : Corotational MITC4 Mindlin-Reissner shells (elastic)
 //
 //  Dynamic analysis:
 //    - PETSc TS (Generalized-α, TSALPHA2)
@@ -170,7 +170,11 @@ static void run_corotational_dynamic_rc_building() {
     // ─────────────────────────────────────────────────────────────────────
     std::vector<const ElementGeometry<3>*> shell_geometries;
 
-    auto elements = fall_n::StructuralModelBuilder{}
+    auto elements = fall_n::StructuralModelBuilder<
+        BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>,
+        CorotationalMITC4Shell<>,
+        TimoshenkoBeam3D,
+        MindlinReissnerShell3D>{}
         .set_frame_material("Columns", column_material)
         .set_frame_material("Beams",   beam_material)
         .set_shell_material("Slabs",   slab_material)
@@ -352,7 +356,7 @@ static void run_corotational_dynamic_rc_building() {
     std::println("Materials");
     std::println("  Columns            : RC fiber section (Kent-Park + Menegotto-Pinto)");
     std::println("  Beams              : RC fiber section (Kent-Park + Menegotto-Pinto)");
-    std::println("  Slabs              : elastic Mindlin shell");
+    std::println("  Slabs              : corotational MITC4 elastic Mindlin shell");
     std::println("  Steel fy           : {} MPa\n", STEEL_FY);
 
     std::println("Solver outcome");
