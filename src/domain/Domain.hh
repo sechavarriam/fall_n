@@ -558,17 +558,16 @@ public:
     }
 
     // Constructors
-    // Copy Constructor
-    Domain(const Domain &other) = default;
-    // Move Constructor
-    Domain(Domain &&other) = default;
-    // Copy Assignment
-    Domain &operator=(const Domain &other) = default;
-    // Move Assignment
-    Domain &operator=(Domain &&other) = default;
-
     Domain() = default;
     ~Domain() = default;
+
+    // Move (transfers DM ownership via Mesh move ctor)
+    Domain(Domain &&other) = default;
+    Domain &operator=(Domain &&other) = default;
+
+    // Copy is deleted because the Mesh member owns a DM handle.
+    Domain(const Domain &other) = delete;
+    Domain &operator=(const Domain &other) = delete;
 };
 
 #endif

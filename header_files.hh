@@ -179,6 +179,9 @@
 #include "src/model/BuildingDomainBuilder.hh"
 #include "src/model/StructuralModelBuilder.hh"
 
+// --- Ground motion record parser (seismic analysis) ---
+#include "src/model/GroundMotionRecord.hh"
+
 // =================================================================================
 // Reconstruction Module
 // =================================================================================

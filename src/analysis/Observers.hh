@@ -353,31 +353,18 @@ public:
             SectionRecord rec{};
 
             if (eidx < elements.size()) {
-                // Use the type-erased element's raw_ptr + as<T> to access sections.
-                // Try beam first, then shell.
                 const auto& elem = elements[eidx];
+                auto snapshots = elem.section_snapshots();
 
-                // Access section snapshot via the element's standalone interface.
-                // Since StructuralElement doesn't expose sections() directly,
-                // we use the introspection path: try known concrete types.
-                auto try_beam_snapshot = [&]() -> bool {
-                    // BeamElement types expose .sections()[0].section_snapshot()
-                    // We detect beam via concrete_type() name containing "Beam"
-                    const auto& ti = elem.concrete_type();
-                    // Use raw_ptr for zero-overhead access
-                    (void)ti;  // type_info not string-matchable portably
-
-                    // Generic approach: we know section_snapshot is accessible
-                    // through the VTK exporter path.  For the recorder, we store
-                    // whatever data the snapshot provides.
-                    return false;
-                };
-
-                (void)try_beam_snapshot;
-
-                // Fallback: store zeros (element doesn't expose snapshot yet)
-                // TODO: Add section_snapshots() to StructuralElement concept
-                //       for generic access without downcasting.
+                if (!snapshots.empty() && snapshots[0].has_beam()) {
+                    const auto& sec = *snapshots[0].beam;
+                    rec.E    = sec.young_modulus;
+                    rec.G    = sec.shear_modulus;
+                    rec.area = sec.area;
+                    rec.Iy   = sec.moment_y;
+                    rec.Iz   = sec.moment_z;
+                    rec.J    = sec.torsion_J;
+                }
             }
 
             data_[i].push_back(rec);
@@ -478,12 +465,15 @@ public:
             const auto& tgt = targets_[i];
 
             if (tgt.element_index < elements.size()) {
-                // Access fibers through section_snapshot if available.
-                // TODO: Once StructuralElement exposes section_snapshots(),
-                //       this becomes: elem.section_snapshot(tgt.section_index).fibers
-                //
-                // Currently, fiber data is populated after material state commit
-                // in the Monitor callback, so the snapshot reflects converged state.
+                const auto& elem = elements[tgt.element_index];
+                auto snapshots = elem.section_snapshots();
+
+                if (tgt.section_index < snapshots.size()) {
+                    const auto& fibers = snapshots[tgt.section_index].fibers;
+                    snap.fibers.reserve(fibers.size());
+                    for (const auto& f : fibers)
+                        snap.fibers.push_back({f.y, f.z, f.area, f.strain_xx, f.stress_xx});
+                }
             }
 
             data_[i].push_back(std::move(snap));

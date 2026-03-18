@@ -39,6 +39,7 @@
 #include <Eigen/Dense>
 
 #include "FiniteElementConcept.hh"
+#include "../materials/SectionConstitutiveSnapshot.hh"
 
 
 class StructuralElement {
@@ -88,6 +89,11 @@ class StructuralElement {
         virtual const std::type_info& concrete_type() const noexcept = 0;
         virtual const void* raw_ptr() const noexcept = 0;
         virtual void* raw_ptr() noexcept = 0;
+
+        // Section constitutive snapshots (for observers, damage tracking, etc.)
+        virtual std::vector<SectionConstitutiveSnapshot> section_snapshots() const {
+            return {};
+        }
     };
 
     // ── Inner model (type-specific bridge) ────────────────────────
@@ -151,6 +157,19 @@ class StructuralElement {
         const std::type_info& concrete_type() const noexcept override { return typeid(T); }
         const void* raw_ptr() const noexcept override { return &element_; }
         void* raw_ptr() noexcept override { return &element_; }
+
+        std::vector<SectionConstitutiveSnapshot> section_snapshots() const override {
+            if constexpr (requires { element_.sections(); }) {
+                const auto& secs = element_.sections();
+                std::vector<SectionConstitutiveSnapshot> result;
+                result.reserve(secs.size());
+                for (const auto& s : secs)
+                    result.push_back(s.section_snapshot());
+                return result;
+            } else {
+                return {};
+            }
+        }
     };
 
     // ── Pimpl ─────────────────────────────────────────────────────
@@ -205,6 +224,12 @@ public:
     void inject_mass(Mat M)                    { pimpl_->inject_mass(M); }
 
     const std::type_info& concrete_type() const noexcept { return pimpl_->concrete_type(); }
+
+    /// Section constitutive snapshots across all integration points.
+    /// Empty if the element doesn't expose sections (e.g., pure continuum).
+    [[nodiscard]] std::vector<SectionConstitutiveSnapshot> section_snapshots() const {
+        return pimpl_->section_snapshots();
+    }
 
     template <typename T>
     [[nodiscard]] const T* as() const noexcept {

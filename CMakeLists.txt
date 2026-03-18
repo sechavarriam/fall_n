@@ -21,6 +21,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror")
 #endif()
 
 add_executable(fall_n main.cpp)
+add_executable(fall_n_seismic main_seismic.cpp)
 enable_testing()
 
 
@@ -83,7 +84,13 @@ vtk_module_autoinit(
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)
   target_link_libraries(fall_n PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(fall_n_seismic PUBLIC OpenMP::OpenMP_CXX)
 endif()
+
+# ── Seismic executable links (same as fall_n) ────────────────────────────────
+target_link_libraries(fall_n_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic PRIVATE ${CMAKE_SOURCE_DIR})
 
 
 # ==============================================================================
@@ -199,6 +206,10 @@ fall_n_add_test(TARGET fall_n_structural_mixed_vtm_test
 
 fall_n_add_test(TARGET fall_n_mitc_shell_test
     NAME mitc_shell_elements  SOURCE tests/test_mitc_shell_elements.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_seismic_infra_test
+    NAME seismic_infrastructure  SOURCE tests/test_seismic_infrastructure.cpp
     LIBS FULL  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_strategy_test
@@ -379,6 +390,7 @@ set_tests_properties(
 #endif()
 
 target_link_libraries(fall_n PUBLIC matplot)
+target_link_libraries(fall_n_seismic PUBLIC matplot)
 
 # ===============================================================================
 

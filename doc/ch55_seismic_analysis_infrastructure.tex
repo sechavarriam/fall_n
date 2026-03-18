@@ -1,0 +1,607 @@
+% ==========================================================================
+%  Chapter 55 — Seismic Analysis Infrastructure
+% ==========================================================================
+
+\chapter{Seismic Analysis Infrastructure}
+\label{ch:seismic-analysis-infra}
+
+This chapter documents the comprehensive seismic analysis stack added
+to the \texttt{fall\_n} library.  The infrastructure includes:
+%
+\begin{enumerate}
+  \item a \textbf{GroundMotionRecord} parser for earthquake acceleration
+        files,
+  \item a \textbf{DamageCriterion} framework for identifying the most
+        damaged elements (designed as a strategy/injection point),
+  \item a \textbf{FiberHysteresisRecorder} observer for tracking
+        stress--strain histories in extreme fibers,
+  \item the \texttt{section\_snapshots()} virtual in
+        \texttt{StructuralElement} --- the enabling infrastructure
+        for generic fiber access,
+  \item a complete \textbf{five-story RC building example} under the
+        El~Centro 1940 record with corotational elements, and
+  \item a full test suite validating the infrastructure.
+\end{enumerate}
+
+All code targets C++23 and follows the \texttt{fall\_n} conventions:
+external polymorphism for type erasure, strategy-pattern injection,
+observer-based I/O, and PETSc for the linear algebra backend.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Earthquake Ground Motion Input}
+\label{sec:seismic-ground-motion}
+
+% ── 1.1 ──────────────────────────────────────────────────────────────────
+\subsection{Data Format and the El Centro Record}
+
+The library ships a reference earthquake record in
+\texttt{data/input/earthquakes/el\_centro\_1940\_ns.dat},
+stored in two-column whitespace-delimited format:
+%
+\begin{lstlisting}[language={},basicstyle=\ttfamily\small]
+# El Centro 1940 NS — Imperial Valley earthquake
+# Source: PEER NGA-West2 (RSN6)
+# 406 points, dt = 0.02 s, PGA = 0.3194 g at t = 4.80 s
+# Units: time [s], acceleration [g]
+0.0000    0.00630
+0.0200    0.00364
+0.0400    0.00099
+...
+\end{lstlisting}
+%
+Lines beginning with \texttt{\#} are comments.  Each data line
+contains a time value and the corresponding ground acceleration.
+The El~Centro 1940 North--South component has 406~points
+spanning $t \in [0, 10]$~s with $\Delta t = 0.02$~s and a peak
+ground acceleration (PGA) of approximately $0.3194g$ at
+$t \approx 4.80$~s.
+
+
+% ── 1.2 ──────────────────────────────────────────────────────────────────
+\subsection{The \texttt{GroundMotionRecord} Class}
+
+\texttt{src/model/GroundMotionRecord.hh} provides a lightweight parser
+and accessor class in the \texttt{fall\_n} namespace.
+
+\paragraph{Factory methods.}
+Three static constructors handle different input scenarios:
+%
+\begin{itemize}
+  \item \texttt{from\_file(path, scale)} --- parses a two-column file,
+        multiplying all acceleration values by \texttt{scale}.
+  \item \texttt{from\_single\_column(path, dt, scale)} --- for files
+        containing only acceleration values at a fixed $\Delta t$.
+  \item \texttt{from\_vectors(times, accels, name)} --- in-memory
+        construction from explicit \texttt{std::vector<double>}.
+\end{itemize}
+
+\paragraph{Accessors.}
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Method & Description \\
+  \midrule
+  \texttt{pga()} & Peak ground acceleration ($\max |a_g|$) \\
+  \texttt{time\_of\_pga()} & Time instant of PGA \\
+  \texttt{dt()} & Average time step \\
+  \texttt{duration()} & Total record duration ($t_{\max}$) \\
+  \texttt{num\_points()} & Number of data points \\
+  \texttt{name()} & Descriptive record name \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{TimeFunction conversion.}
+The method \texttt{as\_time\_function()} returns a callable
+\texttt{TimeFunction} that performs piecewise-linear interpolation
+over the data points, with zero-padding beyond the record boundaries.
+This is the key bridge into the dynamic analysis pipeline:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+auto record = fall_n::GroundMotionRecord::from_file(
+    "el_centro_1940_ns.dat", 9.81);   // scale g -> m/s^2
+auto ag = record.as_time_function();   // TimeFunction
+\end{lstlisting}
+
+\paragraph{Convenience factory.}
+The free function \texttt{make\_ground\_motion\_from\_file(path, dir,
+scale)} combines parsing with \texttt{GroundMotionBC} construction
+in a single call:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+auto gm = fall_n::make_ground_motion_from_file(
+    eq_path, /*direction=*/0, /*scale=*/9.81);
+bcs.add_ground_motion(std::move(gm));
+\end{lstlisting}
+%
+The direction index $d \in \{0,1,2\}$ corresponds to
+$\{X, Y, Z\}$.  The resulting \texttt{GroundMotionBC} is consumed
+by \texttt{BoundaryConditionSet::add\_ground\_motion()}, which the
+\texttt{DynamicAnalysis} driver queries to construct the
+pseudo-force vector $\mathbf{M}\hat{\mathbf{g}}\,a_g(t)$.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{The \texttt{section\_snapshots()} Virtual}
+\label{sec:seismic-section-snapshots}
+
+A recurring limitation in the library was the inability to query
+fiber-level state \emph{generically} through the
+\texttt{StructuralElement} type-erased wrapper.  Observer code that
+needed fiber strains had to downcast via \texttt{as<T>()} to each
+concrete beam type --- an unmaintainable and fragile approach.
+
+\subsection{Design Decision}
+
+We added a single virtual method to the
+\texttt{StructuralElement::Concept} base:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+virtual std::vector<SectionConstitutiveSnapshot>
+    section_snapshots() const { return {}; }
+\end{lstlisting}
+%
+The \texttt{Model<T>} override uses a \texttt{if constexpr
+(requires)} check to dispatch statically:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+std::vector<SectionConstitutiveSnapshot>
+section_snapshots() const override {
+    if constexpr (requires { element_.sections(); }) {
+        const auto& secs = element_.sections();
+        std::vector<SectionConstitutiveSnapshot> result;
+        result.reserve(secs.size());
+        for (const auto& s : secs)
+            result.push_back(s.section_snapshot());
+        return result;
+    } else {
+        return {};
+    }
+}
+\end{lstlisting}
+%
+Elements without sections (e.g., continuum elements) return an
+empty vector.  Beam elements return one snapshot per Gauss point,
+each containing beam properties and (optionally) fiber-level data.
+Shell elements return shell section data.
+
+\subsection{SectionConstitutiveSnapshot Anatomy}
+
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+struct SectionConstitutiveSnapshot {
+    std::optional<BeamSectionConstitutiveSnapshot>  beam;
+    std::optional<ShellSectionConstitutiveSnapshot> shell;
+    std::span<const FiberSectionSample>             fibers;
+
+    bool has_beam()   const noexcept;
+    bool has_shell()  const noexcept;
+    bool has_fibers() const noexcept;
+};
+\end{lstlisting}
+%
+Each \texttt{FiberSectionSample} contains:
+\texttt{y}, \texttt{z} (position), \texttt{area},
+\texttt{strain\_xx}, and \texttt{stress\_xx}.
+The \texttt{fibers} span borrows memory from the fiber section's
+internal storage (zero-copy).
+
+This single virtual eliminates all downcast-based fiber access in:
+\begin{itemize}
+  \item \texttt{FiberRecorder::on\_step()} in \texttt{Observers.hh},
+  \item \texttt{ElementRecorder::on\_step()} in \texttt{Observers.hh},
+  \item the new \texttt{DamageCriterion} and
+        \texttt{FiberHysteresisRecorder} modules.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Damage Criterion Framework}
+\label{sec:seismic-damage-criterion}
+
+The identification of the most damaged elements in a structure
+requires a pluggable damage metric.  We implement this as a
+classic \emph{strategy pattern} with a virtual base class,
+providing an injection point for user-defined criteria.
+
+\subsection{Class Hierarchy}
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+  \toprule
+  Class & Role \\
+  \midrule
+  \texttt{DamageCriterion} & Abstract base.
+    Pure virtuals: \texttt{name()}, \texttt{evaluate\_element()},
+    \texttt{evaluate\_fibers()}, \texttt{clone()} \\
+  \texttt{MaxStrainDamageCriterion} & Default implementation.
+    Damage index $D = \max_i |\varepsilon_i| / \varepsilon_{\text{ref}}$
+    over all fibers \\
+  \texttt{CallableDamageCriterion} & Wraps a \texttt{std::function}
+    for quick user injection \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Evaluation Protocol}
+
+\texttt{evaluate\_element(elem, idx, u)} returns an
+\texttt{ElementDamageInfo} containing:
+%
+\begin{itemize}
+  \item \texttt{element\_index} --- global index in the model,
+  \item \texttt{damage\_index} --- scalar damage measure $D \in [0, \infty)$,
+  \item \texttt{max\_gp} --- Gauss point with highest fiber damage,
+  \item \texttt{max\_fiber} --- fiber index within that GP.
+\end{itemize}
+
+\texttt{evaluate\_fibers(elem, idx, u)} returns a
+\texttt{std::vector<FiberDamageInfo>}, one per fiber, with per-fiber
+position $(y,z)$, strain $\varepsilon$, stress $\sigma$, and
+individual damage index.
+
+Both methods receive the raw PETSc \texttt{Vec u}
+(current displacement) for criteria that need element-local
+state beyond what \texttt{section\_snapshots()} provides.
+
+\subsection{MaxStrainDamageCriterion}
+
+The default criterion evaluates
+%
+\begin{equation}
+  D_i = \frac{|\varepsilon_{xx,i}|}{\varepsilon_{\text{ref}}},
+  \qquad
+  D = \max_i D_i
+\end{equation}
+%
+where $\varepsilon_{\text{ref}}$ is a user-supplied reference strain
+(typically the yield strain $\varepsilon_y = f_y / E_s$).
+Values $D > 1$ indicate yielding.
+
+\subsection{CallableDamageCriterion and \texttt{make\_damage\_criterion}}
+
+For rapid prototyping, users can inject a lambda:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+auto custom = fall_n::make_damage_criterion(
+    "ParkAng",
+    [](const StructuralElement& elem,
+       std::size_t idx, Vec u) -> ElementDamageInfo {
+        // user logic here
+        return {idx, damage_index};
+    });
+\end{lstlisting}
+%
+The \texttt{CallableDamageCriterion} owns the function object and
+supports \texttt{clone()} for deep copying.
+
+
+\subsection{DamageTracker Observer}
+
+\texttt{DamageTracker<ModelT>} is a composable observer that
+evaluates the damage criterion at configurable intervals:
+%
+\begin{itemize}
+  \item \texttt{on\_step()}: evaluates all elements, maintains a
+        sorted ranking and a peak (envelope) ranking.
+  \item \texttt{on\_analysis\_end()}: prints the top-$N$ most
+        damaged elements across the entire analysis.
+\end{itemize}
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+fall_n::MaxStrainDamageCriterion criterion(eps_yield);
+fall_n::DamageTracker<ModelT> tracker(criterion, /*interval=*/10);
+\end{lstlisting}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Fiber Hysteresis Recorder}
+\label{sec:seismic-fiber-hysteresis}
+
+The \texttt{FiberHysteresisRecorder<ModelT>} observer discovers
+fibers at the first step, classifies them by material type
+(concrete vs.\ steel), and records complete stress--strain
+time-histories $(\varepsilon_{xx}(t), \sigma_{xx}(t))$ for later
+hysteresis plotting.
+
+\subsection{Architecture}
+
+\paragraph{Fiber classification.}
+A user-injected \texttt{FiberClassifier} function maps each
+\texttt{FiberSectionSample} to a \texttt{FiberMaterialClass}:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+enum class FiberMaterialClass { Concrete, Steel, Unknown };
+
+using FiberClassifier = std::function<
+    FiberMaterialClass(const FiberSectionSample&,
+                       std::size_t elem_idx)>;
+\end{lstlisting}
+%
+The default classifier uses a heuristic based on the initial
+tangent stiffness (stress/strain ratio at the snapshot), but
+users can override it.
+
+\paragraph{Discovery phase.}
+On the first time step, the observer iterates all target elements,
+calls \texttt{section\_snapshots()}, and creates a
+\texttt{FiberTrack} for each fiber with classification metadata.
+
+\paragraph{Recording.}
+Each subsequent step appends $(\varepsilon, \sigma)$ to the
+corresponding track.
+
+\paragraph{Post-analysis.}
+\texttt{write\_hysteresis\_csv(basename)} exports two CSV files:
+\texttt{\_concrete.csv} and \texttt{\_steel.csv}, each with columns:
+\texttt{elem, gp, fiber, y, z, peak\_damage, eps\_1, sig\_1,
+eps\_2, sig\_2, \ldots}
+
+\subsection{Integration with DamageCriterion}
+
+After the analysis, the recorder internally runs the configured
+\texttt{DamageCriterion} (default: \texttt{MaxStrainDamageCriterion})
+to sort fibers by peak damage.  The \texttt{top\_fibers(mat\_class)}
+method returns the top-$N$ most damaged tracks of a given material
+class, providing exactly the ``extreme fibers'' requested for
+hysteresis plots.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Observer Wiring: FiberRecorder and ElementRecorder}
+\label{sec:seismic-observer-wiring}
+
+Prior to this work, \texttt{FiberRecorder::on\_step()} and
+\texttt{ElementRecorder::on\_step()} in \texttt{Observers.hh}
+contained \texttt{TODO} stubs.  Both now use
+\texttt{section\_snapshots()} to populate their internal
+data structures:
+
+\paragraph{FiberRecorder.}
+Each step, the recorder iterates elements, obtains snapshots with
+\texttt{has\_fibers()}, and stores per-fiber strain/stress from
+the \texttt{FiberSectionSample} span.
+
+\paragraph{ElementRecorder.}
+Each step, the recorder extracts beam section properties
+($E$, $G$, $A$, $I_y$, $I_z$, $J$) from
+\texttt{BeamSectionConstitutiveSnapshot} or shell properties
+from the \texttt{ShellSectionConstitutiveSnapshot}.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Five-Story RC Building Under El Centro}
+\label{sec:seismic-building-example}
+
+\texttt{main\_seismic.cpp} implements a complete seismic analysis
+example:
+
+\subsection{Structural Configuration}
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Parameter & Value \\
+  \midrule
+  Stories & 5 \\
+  Story height & 3.0~m \\
+  Bay width & 5.0~m \\
+  Column section & $0.50 \times 0.50$~m RC \\
+  Beam section & $0.30 \times 0.50$~m RC \\
+  Slab thickness & 0.15~m \\
+  Concrete $f'_c$ & 28~MPa (Kent--Park) \\
+  Steel $f_y$ & 420~MPa (Menegotto--Pinto) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Element Formulations}
+
+\begin{itemize}
+  \item \textbf{Columns and beams:}
+    \texttt{BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>}
+    with fiber sections built via \texttt{make\_rc\_column\_section}
+    and \texttt{make\_rc\_beam\_section}.
+  \item \textbf{Slabs:}
+    \texttt{CorotationalMITC4Shell<>} (MITC4 assumed-strain shell
+    with corotational kinematics) using
+    \texttt{MindlinShellMaterial}.
+\end{itemize}
+
+The combination of corotational beams with MITC4 shells avoids
+the membrane locking of standard displacement-based shells and
+maintains numerical stability under large rotations.
+
+\subsection{Loading Sequence}
+
+\begin{enumerate}
+  \item \textbf{Gravity ramp}: self-weight applied as a quasi-static
+    ramp over the first time steps.
+  \item \textbf{Ground motion}: the El~Centro 1940 NS record
+    (scaled to m/s$^2$) applied in the $X$-direction via
+    \texttt{BoundaryConditionSet::add\_ground\_motion()}.
+    The \texttt{DynamicAnalysis} driver pre-computes the
+    influence vector $\mathbf{M}\hat{\mathbf{g}}$ and applies
+    the pseudo-force $a_g(t)\,\mathbf{M}\hat{\mathbf{g}}$
+    at each time step.
+\end{enumerate}
+
+\subsection{Observer Pipeline}
+
+The example configures a six-component
+\texttt{CompositeObserver}:
+%
+\begin{enumerate}
+  \item \texttt{ProgressPrinter}: per-step summary,
+  \item \texttt{FiberRecorder}: fiber-level data,
+  \item \texttt{ElementRecorder}: element-level data,
+  \item \texttt{ResponseRecorder}: time-history at selected nodes,
+  \item \texttt{VTMExporter}: VTK output for visualization,
+  \item \texttt{DamageTracker}: damage ranking (every 10 steps),
+  \item \texttt{FiberHysteresisRecorder}: hysteresis curves export.
+\end{enumerate}
+%
+After the analysis, the \texttt{DamageTracker} prints the top-10
+most damaged elements, and the \texttt{FiberHysteresisRecorder}
+exports hysteresis CSV files for the extreme concrete and steel
+fibers.
+
+\subsection{Time Integration}
+
+The implicit Generalized-$\alpha$ method
+(\texttt{TSALPHA2} in PETSc) is used with:
+%
+\begin{itemize}
+  \item $\Delta t = 0.005$~s,
+  \item Rayleigh damping ($\alpha_M$, $\beta_K$ targeting
+    $\xi = 5\%$ for the first two modes),
+  \item total duration $T = 10.0$~s (matching the record length).
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Test Suite}
+\label{sec:seismic-tests}
+
+\texttt{tests/test\_seismic\_infrastructure.cpp} validates the full
+infrastructure stack with nine test functions and 33~individual
+assertions:
+
+\begin{center}
+\begin{tabular}{clc}
+  \toprule
+  \# & Test & Assertions \\
+  \midrule
+  1 & Parse El Centro record & 5 \\
+  2 & \texttt{TimeFunction} evaluation & 5 \\
+  3 & Scale factor ($g \to$ m/s$^2$) & 1 \\
+  4 & \texttt{section\_snapshots()} beam fibers & 4 \\
+  5 & \texttt{section\_snapshots()} elastic beam & 3 \\
+  6 & \texttt{MaxStrainDamageCriterion} & 3 \\
+  7 & \texttt{CallableDamageCriterion} & 5 \\
+  8 & \texttt{GroundMotionBC} integration & 5 \\
+  9 & \texttt{section\_snapshots()} for shells & 2 \\
+  \midrule
+  & Total & 33 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Tests~4--6 use a standalone \texttt{BeamFixture3D} that
+constructs beam elements without a \texttt{Domain}:
+%
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\small]
+struct BeamFixture3D {
+    Node<3> n0{0, 0.0, 0.0, 0.0};
+    Node<3> n1{1, 0.0, 0.0, 3.0};
+    LagrangeElement3D<2> element{...};
+    GaussLegendreCellIntegrator<2> integrator{};
+    ElementGeometry<3> geom{element, integrator};
+    BeamFixture3D() { geom.set_sieve_id(0); }
+};
+\end{lstlisting}
+%
+Test~9 uses an analogous \texttt{ShellFixture3D} with
+four nodes and a \texttt{LagrangeElement3D<2,2>}.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Build System Integration}
+\label{sec:seismic-build}
+
+\subsection{CMake Targets}
+
+Two targets were added to \texttt{CMakeLists.txt}:
+%
+\begin{itemize}
+  \item \texttt{fall\_n\_seismic}: the five-story RC building
+        example (\texttt{main\_seismic.cpp}), linked against
+        MPI, PETSc, Eigen3, VTK, OpenMP, and matplot++.
+  \item \texttt{fall\_n\_seismic\_infra\_test}: the unit test
+        executable, registered with CTest (label: \texttt{unit}).
+\end{itemize}
+
+\subsection{Header Organization}
+
+\begin{itemize}
+  \item \texttt{src/model/GroundMotionRecord.hh} is included
+        by \texttt{header\_files.hh}.
+  \item \texttt{src/analysis/DamageCriterion.hh} and
+        \texttt{src/analysis/FiberHysteresisRecorder.hh}
+        are included via \texttt{src/analysis/Analysis.hh}.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Design Rationale}
+\label{sec:seismic-rationale}
+
+\subsection{Why a Virtual on StructuralElement?}
+
+The alternative to adding \texttt{section\_snapshots()} would be
+runtime type-switching with \texttt{as<T>()} for every concrete
+element type.  This violates the Open--Closed Principle: every new
+element type would require updating every observer.  The virtual
+approach confines knowledge of ``how to extract sections'' to
+the element's \texttt{Model<T>} specialization.
+
+The \texttt{if constexpr (requires \{ element\_.sections(); \})}
+guard uses C++20 concepts at compile time to enable the override
+only for elements that have sections, making the virtual a
+zero-overhead pass-through for element types that do not.
+
+\subsection{Why Strategy Pattern for Damage?}
+
+Seismic damage metrics vary widely:
+\begin{itemize}
+  \item maximum strain (implemented as default),
+  \item Park--Ang index~\cite{parkang1985},
+  \item inter-story drift ratio,
+  \item energy-based criteria,
+  \item user-defined combinations.
+\end{itemize}
+Making the criterion a pluggable strategy allows researchers to
+inject domain-specific metrics \emph{without modifying library code}.
+The \texttt{CallableDamageCriterion} enables one-line injection
+via lambda.
+
+\subsection{Why a Separate Hysteresis Recorder?}
+
+Hysteresis curves require per-fiber, per-step time-series
+$(\varepsilon(t), \sigma(t))$.  This is fundamentally different
+from the snapshot-based \texttt{FiberRecorder} (latest step only)
+or the scalar \texttt{DamageTracker} (peak ranking only).
+A dedicated observer avoids polluting existing components
+with time-history storage responsibilities.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\section{Summary of Files}
+\label{sec:seismic-file-summary}
+
+\begin{center}
+\begin{tabular}{lp{8.5cm}}
+  \toprule
+  File & Purpose \\
+  \midrule
+  \texttt{data/input/earthquakes/el\_centro\_1940\_ns.dat}
+    & El~Centro 1940 NS record (406 points) \\
+  \texttt{src/model/GroundMotionRecord.hh}
+    & Parser, accessors, \texttt{TimeFunction} conversion \\
+  \texttt{src/analysis/DamageCriterion.hh}
+    & \texttt{DamageCriterion} ABC, \texttt{MaxStrain},
+      \texttt{Callable}, \texttt{DamageTracker} \\
+  \texttt{src/analysis/FiberHysteresisRecorder.hh}
+    & Fiber hysteresis tracking and CSV export \\
+  \texttt{src/elements/StructuralElement.hh}
+    & Added \texttt{section\_snapshots()} virtual \\
+  \texttt{src/analysis/Observers.hh}
+    & Wired \texttt{FiberRecorder}/\texttt{ElementRecorder}
+      via \texttt{section\_snapshots()} \\
+  \texttt{main\_seismic.cpp}
+    & Five-story corotational RC building example \\
+  \texttt{tests/test\_seismic\_infrastructure.cpp}
+    & 9 tests, 33 assertions \\
+  \bottomrule
+\end{tabular}
+\end{center}
