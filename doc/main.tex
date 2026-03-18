@@ -52,6 +52,12 @@
   morekeywords={constexpr, consteval, noexcept, decltype, auto, nullptr,
                 requires, concept, std, size_t, span}
 }
+\lstdefinelanguage{Julia}{
+      morekeywords={abstract,break,case,catch,const,continue,do,else,elseif,end,export,false,for,function,if,import,in,let,local,macro,module,quote,return,struct,true,try,using,while},
+      sensitive=true,
+      morecomment=[l]{\#},
+      morestring=[b]"
+}
 \lstset{style=cppstyle}
 
 % ─── Math operators ──────────────────────────────────────────────────────
@@ -295,6 +301,7 @@ discussion of the design rationale.
 \input{ch53_corotational_dynamic_building}
 \input{ch54_observer_and_model_builder_design}
 \input{ch55_seismic_analysis_infrastructure}
+\input{ch56_seismic_rc_building_results}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}
