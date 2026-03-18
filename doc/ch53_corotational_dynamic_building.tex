@@ -399,7 +399,7 @@ The mixed exporter's \texttt{dispatch\_supported\_structural} function,
 which performs runtime type recovery from \texttt{StructuralElement},
 was extended with the corotational beam type:
 \begin{lstlisting}
-// StructuralVTMExporter.hh — dispatch_supported_structural
+// StructuralVTMExporter.hh -- dispatch_supported_structural
 else if (auto* p = wrapped.template as<
     BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>>()) {
     fn(*p);
