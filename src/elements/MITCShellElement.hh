@@ -324,6 +324,33 @@ public:
         return u;
     }
 
+    /// Total global displacement at parametric point (xi, eta).
+    ///
+    /// Interpolates directly from the PETSc local vector (global DOFs),
+    /// bypassing the corotational/local extraction.  This ensures VTK
+    /// WarpByVector gives the correct deformed shape even for
+    /// corotational elements (where local_state_vector strips rigid
+    /// body motion).
+    Eigen::Vector3d sample_displacement_global(
+        const std::array<double, 2>& xi,
+        Vec u_petsc_local) const
+    {
+        ensure_dof_cache();
+        const auto n = static_cast<PetscInt>(dof_indices_.size());
+        Eigen::VectorXd u_e(n);
+        VecGetValues(u_petsc_local, n, dof_indices_.data(), u_e.data());
+
+        Eigen::Vector3d u_glob = Eigen::Vector3d::Zero();
+        for (std::size_t i = 0; i < n_nodes; ++i) {
+            const auto base = i * dofs_per_node;
+            const double h = geometry_->H(i, xi);
+            u_glob[0] += h * u_e[base + 0];
+            u_glob[1] += h * u_e[base + 1];
+            u_glob[2] += h * u_e[base + 2];
+        }
+        return u_glob;
+    }
+
     Eigen::Vector3d sample_rotation_vector_local(
         const std::array<double, 2>& xi,
         const Eigen::Vector<double, total_dofs>& u_loc) const
