@@ -73,6 +73,29 @@ public:
 
     Mesh() = default;
 
+    // Move constructor: transfer DM ownership, nullify source.
+    Mesh(Mesh&& other) noexcept
+        : dm(other.dm), sieve_size(other.sieve_size) {
+        other.dm = nullptr;
+        other.sieve_size = 0;
+    }
+
+    // Move assignment: destroy own DM, then take over source's.
+    Mesh& operator=(Mesh&& other) noexcept {
+        if (this != &other) {
+            if (dm != nullptr) DMDestroy(&dm);
+            dm = other.dm;
+            sieve_size = other.sieve_size;
+            other.dm = nullptr;
+            other.sieve_size = 0;
+        }
+        return *this;
+    }
+
+    // Copying a DM handle is unsafe (double-destroy).
+    Mesh(const Mesh&) = delete;
+    Mesh& operator=(const Mesh&) = delete;
+
     ~Mesh(){ if (dm != nullptr) DMDestroy(&dm); }
 
 

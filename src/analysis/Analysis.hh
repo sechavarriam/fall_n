@@ -14,6 +14,8 @@
 #include "DynamicAnalysis.hh"
 #include "AnalysisObserver.hh"
 #include "Observers.hh"
+#include "DamageCriterion.hh"
+#include "FiberHysteresisRecorder.hh"
  
  // =========================================================================
 
