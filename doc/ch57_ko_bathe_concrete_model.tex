@@ -41,7 +41,7 @@ function, a smeared crack is initiated.
 \subsection{Octahedral Stress Invariants}
 \label{ssec:kb-octahedral}
 
-The model uses octahedral stress invariants as driving quantities for both
+The model uses stress invariants as driving quantities for both
 fracturing and cracking.  For a plane stress state
 $\bsigma = (\sigma_{xx}, \sigma_{yy}, \tau_{xy})^T$ with $\sigma_{zz} = 0$,
 the principal stresses are
@@ -52,16 +52,22 @@ the principal stresses are
   \sigma_2 = \frac{\sigma_{xx}+\sigma_{yy}}{2}
            - \sqrt{\left(\frac{\sigma_{xx}-\sigma_{yy}}{2}\right)^2 + \tau_{xy}^2},
 \]
-with $\sigma_3 = 0$.  The octahedral normal and shear stresses then read
+with $\sigma_3 = 0$.  The octahedral normal stress and the deviatoric invariant read
 \begin{align}
   \sigma_o &= \frac{\sigma_1 + \sigma_2}{3},
   \label{eq:kb-sigma-o}
   \\[4pt]
-  \tau_o   &= \frac{1}{3}\sqrt{\sigma_1^2 + \sigma_2^2
-             + (\sigma_1-\sigma_2)^2}.
+  \tau_o   &= \frac{\sqrt{2\,J_2}}{3}
+             = \frac{1}{3}\,\sqrt{\sigma_{ij}^{\text{dev}}\,\sigma_{ij}^{\text{dev}}},
   \label{eq:kb-tau-o}
 \end{align}
+where $J_2 = (\sigma_1^2 + \sigma_2^2 - \sigma_1\sigma_2)/3$ is the second
+deviatoric stress invariant for plane stress ($\sigma_3 = 0$).
 The sign convention is engineering: compression gives $\sigma_o < 0$.
+
+\emph{Note:} The paper's $\tau_o$ (Eq.~2b in~\cite{KoBathe2026}) is
+$\sqrt{2J_2}/3$, which differs from the classical octahedral shear stress
+$\tau_{\text{oct}} = \sqrt{2J_2/3}$ by a factor of $\sqrt{3}$.
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Fracturing Mechanism}
@@ -69,17 +75,19 @@ The sign convention is engineering: compression gives $\sigma_o < 0$.
 
 The ascending non-linear branch of the stress--strain curve is captured
 entirely by degrading the elastic moduli.  The secant bulk and shear moduli
-are defined as
+are defined as \emph{rational} functions (Eqs.~10a--b in~\cite{KoBathe2026}):
 \begin{align}
-  K_s(\sigma_o) &= K_e \exp\bigl(-A\,(|\sigma_o|/f'_c)^b\bigr),
+  K_s(\sigma_o) &= \frac{K_e}{1 + A\,(-\sigma_o/f_c')^{\,b-1}},
   \label{eq:kb-ks}
   \\[4pt]
-  G_s(\tau_o)   &= G_e \exp\bigl(-c\,(\tau_o/f'_c)^d\bigr),
+  G_s(\tau_o)   &= \frac{G_e}{1 + c\,(\tau_o/f_c')^{\,d-1}},
   \label{eq:kb-gs}
 \end{align}
-where $K_e$ and $G_e$ are the initial elastic moduli, $f'_c$ is the
+where $K_e$ and $G_e$ are the initial elastic moduli, $f_c'$ is the
 uniaxial compressive strength, and $A, b, c, d$ are empirically fitted
-coefficients depending on $f'_c$ (see Section~\ref{ssec:kb-parameters}).
+coefficients depending on $f_c'$ (see Section~\ref{ssec:kb-parameters}).
+The formula~\eqref{eq:kb-ks} applies for $-\sigma_o/f_c' \le 2$; an
+extended branch is defined for higher confinement.
 
 The fracture history is driven by the \emph{maximum} octahedral invariants
 ever reached:
@@ -92,15 +100,26 @@ During unloading $\sigma_o > \bar\sigma_o$, the moduli remain frozen at
 their last-degraded values, representing the irreversibility of
 micro-cracking.
 
-The tangent moduli, used for the algorithmic tangent matrix, are obtained
-by differentiation of~\eqref{eq:kb-ks}--\eqref{eq:kb-gs}:
+The tangent moduli follow from differentiation (Eqs.~11a--b):
 \begin{align}
-  K_c &= K_s\bigl(1 - A\,b\,(|\bar\sigma_o|/f'_c)^b\bigr),
+  K_c &= \frac{K_e}{1 + A\,b\,(-\bar\sigma_o/f_c')^{\,b-1}},
   \label{eq:kb-kc}
   \\[4pt]
-  G_c &= G_s\bigl(1 - c\,d\,(\bar\tau_o/f'_c)^d\bigr).
+  G_c &= \frac{G_e}{1 + c\,d\,(\bar\tau_o/f_c')^{\,d-1}}.
   \label{eq:kb-gc}
 \end{align}
+
+\paragraph{Confining pressure $\sigma_{\text{id}}$.}
+A confining pressure correction is introduced (Eq.~10b in the paper):
+\begin{equation}
+  \sigma_{\text{id}} = \frac{k\,f_c'\,(\tau_o/f_c')^{n}}{1 + l\,(-\sigma_o/f_c')^{m}},
+  \label{eq:kb-sigma-id}
+\end{equation}
+which is subtracted from the volumetric stress contribution:
+\begin{equation}
+  \sigma_{ij} = 2\,G_s\,e^{\text{dev}}_{ij} + K_s\,e_{kk}\,\delta_{ij} - \sigma_{\text{id}}\,\delta_{ij}.
+  \label{eq:kb-stress-with-sigma-id}
+\end{equation}
 
 Given $K$ and $G$, the plane stress constitutive matrix is
 \[
@@ -133,78 +152,84 @@ and the compression coordinates
   \tilde e_2 &= D_1 + D_2 \ge 0 \qquad \text{(volumetric compression)}.
   \label{eq:kb-e2}
 \end{align}
-Here $\tilde e_1$ measures how much more compressive one direction is
-relative to the other, while $\tilde e_2$ measures the total compressive
-strain magnitude.
+For the plasticity yield functions, these are mapped to a set of three
+elastic coordinates:
+\[
+  \hat{e}_1 = \frac{|\tilde e_2|}{\sqrt{3}}, \qquad
+  \hat{e}_2 = \tilde e_1, \qquad
+  \hat{e}_3 = \frac{\tilde e_2}{2},
+\]
+corresponding to hydrostatic, uniaxial, and biaxial loading paths
+respectively.
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Plasticity Yield Surfaces}
 \label{ssec:kb-plasticity}
 
 Three yield functions are defined in the compression coordinate space
-$(\tilde e_1, \tilde e_2)$:
+(Eq.~15c--d in~\cite{KoBathe2026}):
 \begin{align}
-  f_1 &= \tilde e_2 - f_{p1}(\tilde e_1) \le 0,
-  \label{eq:kb-f1}
-  \\
-  f_2 &= \tilde e_1 - f_{p2}(\tilde e_1,\tilde e_2) \le 0,
-  \label{eq:kb-f2}
-  \\
-  f_3 &= \tilde e_2 - f_{p3}(\tilde e_1) \le 0,
-  \label{eq:kb-f3}
+  f_1 &= |\hat{e}_1| - f_c'\,f_{p1}(\hat{e}_{p1}) \le 0, \label{eq:kb-f1} \\
+  f_2 &= \hat{e}_2   - f_c'\,f_{p2}(\hat{e}_{p2}) \le 0, \label{eq:kb-f2} \\
+  f_3 &= \hat{e}_3   - f_c'\,f_{p3}(\hat{e}_{p3}) \le 0, \label{eq:kb-f3}
 \end{align}
-where the failure curves read
+where $\hat{e}_{pj}$ are effective plastic strains accumulated per surface
+(Eq.~15b).  The failure curves (Eq.~15d) are:
 \begin{align}
-  f_{p1}(\tilde e_1) &= c_{p1}\,\varepsilon_{pu}\,
-    \bigl(1 + k\,\tilde e_1 / \varepsilon_{pu}\bigr),
-  \label{eq:kb-fp1}
-  \\
-  f_{p2}(\tilde e_1, \tilde e_2) &= c_{p2}\,\varepsilon_{pu}\,
-    \bigl(1 + l\,\tilde e_2 / \varepsilon_{pu}\bigr),
-  \label{eq:kb-fp2}
-  \\
-  f_{p3}(\tilde e_1) &= c_{p3}\,\varepsilon_{pu}\,
-    \bigl(1 + m\,(\tilde e_1/\varepsilon_{pu})^n\bigr).
+  f_{p1}(\hat{e}_{p1}) &= c_{p1}\left(1 + \frac{\hat{e}_{p1}-a}{a}\right)^{-s}\hat{e}_{p1},
+  \label{eq:kb-fp1} \\
+  f_{p2}(\hat{e}_{p2}) &= c_{p2}\exp\!\left[-\left(\frac{\hat{e}_{p2}}{c_2}\right)^{m_2}\right]\hat{e}_{p2},
+  \label{eq:kb-fp2} \\
+  f_{p3}(\hat{e}_{p3}) &= c_{p3}\exp\!\left[-\left(\frac{\hat{e}_{p3}}{c_3}\right)^{m_3}\right]\hat{e}_{p3},
   \label{eq:kb-fp3}
 \end{align}
-Here $\varepsilon_{pu} = f'_c / (3 K_e)$ is a reference strain scale.
-The constants $c_{p1}=3$, $c_{p2}=36$, $c_{p3}=12$ define the initial
-positions, and $k, l, m, n$ are $f'_c$-dependent coefficients (see
-Section~\ref{ssec:kb-parameters}).
+with fixed constants $c_{p1}=3$, $c_{p2}=36$, $c_{p3}=12$ and hydrostatic
+parameters $a = 2.5\times 10^{-5}$, $s = 0.8$.
 
-The plastic flow is \emph{associative} in compression coordinates:
-\begin{equation}
-  \Delta\tilde e_1^p = \Delta\lambda_2, \qquad
-  \Delta\tilde e_2^p = \Delta\lambda_1 + \Delta\lambda_3,
-  \label{eq:kb-flow-rule}
-\end{equation}
-where $\Delta\lambda_i \ge 0$ is the plastic multiplier for the $i$-th
-surface.  The return mapping is performed iteratively: at each Newton step
-\textbf{(a)} identify the active set, \textbf{(b)} project back onto the
-closest yield surface by adjusting the compression coordinates, and
-\textbf{(c)} recheck the remaining surfaces until all are satisfied.
+The Appendix~C coefficients $m_2, c_2, m_3, c_3$ are coupling parameters
+that depend on the hydrostatic effective plastic strain $\hat{e}_{p1}$ 
+(Eqs.~C.1--C.2 in the paper):
+\begin{align}
+  m_2 &= \frac{1}{\ln\!\left(\sqrt{2/3}\,\alpha_2 / (\beta_2\,\hat{\varepsilon}_{p2})\right)},
+    &  c_2 &= (\beta_2\,\hat{\varepsilon}_{p2})\,m_2^{1/m_2}, \\
+  \alpha_2 &= 1 + 0.575\,(e_{cp2})^{0.315}, &
+  \beta_2  &= 1 + 8.4\,(e_{cp2})^{0.25}, \\
+  e_{cp2}  &= \max(0,\; K_e\,\hat{e}_{p1} - 0.45), &
+  e_{cp3}  &= \max(0,\; K_e\,\hat{e}_{p1} - 2.17),
+\end{align}
+with reference plastic strains $\hat{\varepsilon}_{p2} = 0.0012$ and
+$\hat{\varepsilon}_{p3} = 0.0025$.
 
-Once the plastic increments are obtained in compression coordinates, they
-are transformed back to principal directions and then rotated to Voigt
-global coordinates using
+The return mapping uses a Newton iteration per active surface
+(Eqs.~27--29):  for each $f_j > 0$, solve
 \[
-  \Delta\varepsilon_1^p = -\tfrac12(\Delta\tilde e_2^p - \Delta\tilde e_1^p),
-  \qquad
-  \Delta\varepsilon_2^p = -\tfrac12(\Delta\tilde e_2^p + \Delta\tilde e_1^p).
+  f_j = \hat{e}_j - \Delta\lambda_j - f_c'\,f_{pj}(\hat{e}_{pj} + \sqrt{2/3}\,\Delta\lambda_j) = 0
+\]
+for $\Delta\lambda_j \ge 0$ using
+\[
+  \Delta\lambda_j^{(I+1)} = \Delta\lambda_j^{(I)} - \frac{f_j^{(I)}}{-1 - \sqrt{2/3}\,\partial(f_c' f_{pj})/\partial\hat{e}_{pj}}.
 \]
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Cracking Mechanism}
 \label{ssec:kb-cracking}
 
-Tensile cracking is governed by a \emph{crack function} in the octahedral
-stress plane:
+Tensile cracking is governed by a Menetr\'ey--Willam crack function in the
+octahedral stress plane (Eq.~16 in~\cite{KoBathe2026}):
 \begin{equation}
-  g(\sigma_o, \tau_o) = \frac{\sigma_o}{f'_c}
-    - t_p + t_p\,\biggl(\frac{\tau_o}{t_p\,f'_c}\biggr)^2,
+  g(\sigma_o, \tau_o) = \tau_o - \frac{0.944\,f_c'}{w(e)}\,
+    \left(t_p - \frac{\sigma_o}{f_c'}\right)^{0.724},
   \label{eq:kb-crack-fn}
 \end{equation}
-where $t_p = f_t / f'_c$ is the tensile-to-compressive strength ratio.
+where $t_p = f_t / f_c'$ is the tensile-to-compressive strength ratio, and
+$w(e)$ is an elliptic function of the eccentricity parameter:
+\begin{align}
+  w(e) &= \frac{4(1-e^2)\cos^2\theta + (2e-1)^2}
+               {2(1-e^2)\cos\theta + (2e-1)\sqrt{4(1-e^2)\cos^2\theta + 5e^2-4e}},
+  \label{eq:kb-w-eccentricity} \\
+  e    &= 0.670551\,(t_p - \sigma_o/f_c')^{0.133}.
+  \label{eq:kb-eccentricity}
+\end{align}
 A crack initiates when $g > 0$ \emph{and} the maximum principal stress is
 tensile.
 
@@ -218,102 +243,104 @@ Each crack possesses:
   \item a closing flag (re-contact when $\varepsilon_{nn} < 0$).
 \end{itemize}
 
+\paragraph{Cracked tangent (Eq.~21).}
 After a crack forms, the tangent matrix is modified in the crack-local
-coordinate system: the normal stiffness is replaced by a softening modulus
-\begin{equation}
-  E_{ts} = -\frac{f_t}{\varepsilon_{tu} - \varepsilon_{tp}},
-  \label{eq:kb-Ets}
-\end{equation}
-where $\varepsilon_{tp} = f_t / E$ is the strain at peak tensile stress and
-$\varepsilon_{tu} = 2\,G_f / (f_t\, h)$ is the ultimate opening strain
-determined by the fracture energy $G_f$ and the element characteristic
-length $h$.  Shear across the crack is retained with a factor $\beta$:
-\begin{equation}
-  G^{\text{crack}} = \beta\,G.
-  \label{eq:kb-shear-retention}
-\end{equation}
+coordinate system with stiffness retention parameters:
+\begin{align}
+  E_{nn} &= \eta_N\,\lambda_a & &\text{(normal, } \eta_N = 0.0001\text{)}, \label{eq:kb-eta-N} \\
+  G_{ns} &= \eta_S\,G_c       & &\text{(shear, }  \eta_S = 0.1\text{)}.    \label{eq:kb-eta-S}
+\end{align}
+
+\paragraph{Tension softening (Eqs.~22--23).}
+For the softening branch between peak and ultimate strains:
+\begin{align}
+  \varepsilon_{tp} &= \frac{f_c'\,t_p}{K_e + \tfrac{4}{3}\,G_e},
+  \label{eq:kb-eps-tp} \\
+  \varepsilon_{tu} &= \frac{2\,G_f}{f_c'\,t_p\,l_b},
+  \label{eq:kb-eps-tu} \\
+  C_{ts} &= -\frac{f_t}{\varepsilon_{tp} - \varepsilon_{tu}},
+  \label{eq:kb-Cts}
+\end{align}
+where $G_f$ is the fracture energy (N/mm) and $l_b$ is the characteristic
+element length (mm).  When $\varepsilon_{tp} \le \varepsilon_{nn} \le
+\varepsilon_{tu}$, the normal stiffness $E_{nn}$ is replaced by $C_{ts}$.
 When the crack closes ($\varepsilon_{nn}<0$), full compressive normal
-stiffness is restored (\emph{re-contact}).  The tangent modification is
-rotated from crack-local to global coordinates using the standard stress
-transformation matrix.
+stiffness is restored (\emph{re-contact}).
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Material Parameters}
 \label{ssec:kb-parameters}
 
 All coefficients are derived from a single primary parameter: the uniaxial
-compressive strength $f'_c$ (in~MPa).
+compressive strength $f_c'$ (in~MPa, positive).
 
-\paragraph{Elastic moduli.}
-The initial bulk and shear moduli follow empirical fits from~\cite{KoBathe2026}:
+\paragraph{Elastic moduli (Eq.~A.1).}
 \begin{equation}
-  K_e = 11000 + 3.2\,f'_c \;\text{(MPa)},
+  K_e = 11000 + 3.2\,f_c' \;\text{(MPa)},
   \qquad
-  G_e = 9224 + 136\,f'_c + 3296\!\times\!10^{-15}\,(f'_c)^{8.273} \;\text{(MPa)}.
+  G_e = 9224 + 136\,f_c' + 3296\!\times\!10^{-15}\,(f_c')^{8.273} \;\text{(MPa)}.
   \label{eq:kb-elastic-params}
 \end{equation}
-Young's modulus and Poisson's ratio derive as
-$E = 9K_eG_e/(3K_e+G_e)$ and $\nu = (3K_e-2G_e)/(6K_e+2G_e)$.
 
-\paragraph{Fracture degradation.}
-The coefficients in~\eqref{eq:kb-ks}--\eqref{eq:kb-gs} are
+\paragraph{Fracture degradation (Eqs.~A.2--A.4).}
+For $f_c' \le 31.7$~MPa:
 \begin{equation}
-  A = 3.2 - 0.50\ln f'_c,\quad
-  b = 0.99 - 0.029\ln f'_c,\quad
-  c = 2.0 - 0.35\ln f'_c,\quad
-  d = 0.90 - 0.050\ln f'_c.
-  \label{eq:kb-fracture-coeffs}
+  A = 0.516,\quad
+  c = 3.573,\quad
+  d = 2.12 + 0.0183\,f_c',\quad
+  m = -2.415,\quad
+  n = 1.0.
+  \label{eq:kb-fracture-coeffs-low}
 \end{equation}
-
-\paragraph{Plasticity.}
-The yield surface coefficients are
+For all $f_c'$:
 \begin{equation}
-  k = 0.00133\,f'_c + 0.02,\quad
-  l = 0.00167\,f'_c + 0.05,\quad
-  m = 0.0001\,f'_c + 0.04,\quad
-  n = 0.8.
-  \label{eq:kb-plasticity-coeffs}
+  b = 2 + 1.81\!\times\!10^{-8}\,(f_c')^{4.461},\quad
+  k = \frac{4}{1 + 1.087\,(\max(f_c'-15, 0.1))^{0.23}},\quad
+  l = 0.222 + 0.01086\,f_c' - 0.000122\,(f_c')^2.
+  \label{eq:kb-fracture-coeffs-all}
 \end{equation}
+For $f_c' > 31.7$~MPa, $A$, $c$, $d$, $m$, $n$ have extended formulas
+(see Appendix~A of~\cite{KoBathe2026}).
 
 \paragraph{Tension.}
 The tensile strength ratio follows the fib~Model~Code approximation
 \begin{equation}
-  t_p = 0.3\,(f'_c)^{-1/3},
+  t_p = 0.3\,(f_c')^{-1/3},
   \quad\text{clamped to}\quad
-  t_p \in [0.05,\, 0.15].
+  t_p \in [0.05,\, 0.10].
   \label{eq:kb-tp}
 \end{equation}
 
-\paragraph{Softening and shear retention.}
+\paragraph{Softening and crack retention.}
 The fracture energy is taken as $G_f = 0.06\;\text{N/mm}$ (default), the
-element length as $h = 100\;\text{mm}$, and the shear retention factor as
-$\beta = 0.25$.
+element length as $l_b = 100\;\text{mm}$ (default), and the stiffness
+retention factors as $\eta_N = 0.0001$, $\eta_S = 0.1$.
 
 Table~\ref{tab:kb-params} summarises the default parameter set for
-$f'_c = 32\;\text{MPa}$.
+$f_c' = 30\;\text{MPa}$.
 
 \begin{table}[htb]
 \centering
-\caption{Default derived parameters for $f'_c = 32\;\text{MPa}$.}
+\caption{Default derived parameters for $f_c' = 30\;\text{MPa}$.}
 \label{tab:kb-params}
 \begin{tabular}{@{}lrl@{}}
 \toprule
 \textbf{Parameter} & \textbf{Value} & \textbf{Unit} \\
 \midrule
-$K_e$          & 11\,102  & MPa \\
-$G_e$          & 13\,580  & MPa \\
-$E$            & 29\,040  & MPa \\
-$\nu$          & 0.069    & --- \\[\jot]
-$A$            & 1.47     & --- \\
-$b$            & 0.89     & --- \\
-$c$            & 0.79     & --- \\
-$d$            & 0.73     & --- \\[\jot]
-$k$            & 0.063    & --- \\
-$l$            & 0.103    & --- \\
-$m$            & 0.043    & --- \\
-$n$            & 0.80     & --- \\[\jot]
-$t_p$          & 0.0944   & --- \\
-$f_t = t_p f'_c$ & 3.02  & MPa \\
+$K_e$          & 11\,096  & MPa \\
+$G_e$          & 13\,310  & MPa \\
+$E$            & 28\,524  & MPa \\
+$\nu$          & 0.072    & --- \\[\jot]
+$A$            & 0.516    & --- \\
+$b$            & 2.07     & --- \\
+$c$            & 3.573    & --- \\
+$d$            & 2.669    & --- \\[\jot]
+$k$            & 1.32     & --- \\
+$l$            & 0.438    & --- \\
+$m$            & $-2.415$ & --- \\
+$n$            & 1.0      & --- \\[\jot]
+$t_p$          & 0.0965   & --- \\
+$f_t = t_p f_c'$ & 2.90  & MPa \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -332,24 +359,24 @@ and consists of three C++ types.
 \subsection{KoBatheParameters}
 \label{ssec:kb-params-class}
 
-A plain aggregate containing all material coefficients derived from $f'_c$
-at construction time.  Follows the library pattern of encapsulating
-parameter computation in a dedicated structure, analogous to
-\texttt{KentParkConcrete}'s internal parameter block.
+A plain aggregate containing all material coefficients derived from $f_c'$
+at construction time.  Includes the elastic moduli, fracture degradation
+coefficients, confining pressure parameters, tension parameters, and
+plasticity failure curve constants.
 
 \begin{lstlisting}
 struct KoBatheParameters {
-    double fc;      // compressive strength (positive, MPa)
-    double Ke, Ge;  // initial bulk / shear moduli
-    double Ee, nue; // derived Young's modulus / Poisson's ratio
-    double A_coeff, b_coeff, c_coeff, d_coeff; // fracture
-    double k_coeff, l_coeff, m_coeff, n_coeff; // plasticity
-    double tp;       // tensile strength ratio
-    double Gf;       // fracture energy (N/mm)
-    double h_elem;   // characteristic element length (mm)
-    double beta_shear; // crack shear retention
+    double fc, Ke, Ge, Ee, nue;
+    double A_coeff, b_coeff, c_coeff, d_coeff;
+    double k_coeff, l_coeff, m_coeff, n_coeff;
+    double tp, Gf, lb;
+    static constexpr double cp1=3, cp2=36, cp3=12;
+    static constexpr double eps_p2_ref=0.0012, eps_p3_ref=0.0025;
+    static constexpr double hydro_a=2.5e-5, hydro_s=0.8;
+    static constexpr double eta_N=0.0001, eta_S=0.1;
 
-    explicit KoBatheParameters(double fc_MPa, ...);
+    explicit KoBatheParameters(double fc_MPa,
+        double tp_ratio=0.0, double Gf_Nmm=0.06, double lb_mm=100.0);
 };
 \end{lstlisting}
 
@@ -357,39 +384,29 @@ struct KoBatheParameters {
 \subsection{KoBatheState}
 \label{ssec:kb-state-class}
 
-The internal history variable set, designed to be stored per integration point
-and passed externally (``external state'' pattern).  It tracks:
+The internal history variable set tracks:
 
 \begin{itemize}
   \item \textbf{Fracture history:} maximum octahedral invariants
         $\bar\sigma_o$ and $\bar\tau_o$.
   \item \textbf{Plastic strain:} $\bvarepsilon^p$ in Voigt format
         $(\varepsilon_{xx}^p, \varepsilon_{yy}^p, \gamma_{xy}^p)$.
+  \item \textbf{Effective plastic strains:} $\hat{e}_{p1}, \hat{e}_{p2},
+        \hat{e}_{p3}$ per yield surface.
   \item \textbf{Crack state:} number of cracks (0, 1, or 2), normal
         directions, opening strains, and closure flags.
   \item \textbf{Committed total strain:} for state tracking.
 \end{itemize}
 
-\begin{lstlisting}
-struct KoBatheState {
-    double sigma_o_max{0.0};
-    double tau_o_max{0.0};
-    Eigen::Vector3d eps_plastic = Eigen::Vector3d::Zero();
-    int num_cracks{0};
-    std::array<Eigen::Vector2d, 2> crack_normals{...};
-    std::array<double, 2> crack_strain{0.0, 0.0};
-    std::array<double, 2> crack_strain_max{0.0, 0.0};
-    std::array<bool, 2>   crack_closed{false, false};
-    Eigen::Vector3d eps_committed = Eigen::Vector3d::Zero();
-};
-\end{lstlisting}
+\noindent The state provides accessors \texttt{eps\_p()} and
+\texttt{eps\_bar\_p()} for integration with the library's
+\texttt{InternalFieldSnapshot} post-processing system.
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{KoBatheConcrete}
 \label{ssec:kb-main-class}
 
-The main constitutive class satisfying the \texttt{fall\_n} concept hierarchy
-(Figure~\ref{fig:kb-concept-satisfaction}):
+The main constitutive class satisfying the \texttt{fall\_n} concept hierarchy:
 
 \begin{itemize}
   \item \textbf{Level 1:} \texttt{ConstitutiveRelation}
@@ -398,46 +415,14 @@ The main constitutive class satisfying the \texttt{fall\_n} concept hierarchy
   \item \textbf{Level 2b:} \texttt{InelasticConstitutiveRelation}
     --- \texttt{compute\_response(k)}, \texttt{tangent(k)}, \texttt{update(k)},
         \texttt{internal\_state()}.
-  \item \textbf{Level 3:} \texttt{ExternallyStateDrivenConstitutiveRelation}
-    --- combines Level~1 and Level~2b, enabling both internal and external
-        state management.
+  \item \textbf{Level 3:} Combines Level~1 and Level~2b.
 \end{itemize}
-
-The central member function is \texttt{evaluate()}, which receives the
-total strain and an existing state and returns the updated stress, tangent,
-and new state.  All public interface methods delegate to this function.
-
-\begin{lstlisting}
-class KoBatheConcrete {
-public:
-    using MaterialPolicyT    = PlaneConstitutiveSpace;
-    using KinematicT         = Strain<3>;
-    using ConjugateT         = Stress<3>;
-    using TangentT           = Eigen::Matrix<double, 3, 3>;
-    using InternalVariablesT = KoBatheState;
-
-    // Level 1 interface
-    ConjugateT compute_response(const KinematicT& k,
-                                const InternalVariablesT& alpha) const;
-    TangentT tangent(const KinematicT& k,
-                     const InternalVariablesT& alpha) const;
-    void commit(InternalVariablesT& alpha,
-                const KinematicT& k) const;
-
-    // Level 2b interface
-    ConjugateT compute_response(const KinematicT& k) const;
-    TangentT tangent(const KinematicT& k) const;
-    void update(const KinematicT& k);
-    const InternalVariablesT& internal_state() const;
-};
-\end{lstlisting}
 
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Algorithm Flow}
 \label{ssec:kb-algorithm}
 
-Algorithm~\ref{alg:kb-evaluate} summarises the evaluation procedure
-implemented in \texttt{KoBatheConcrete::evaluate()}.
+Algorithm~\ref{alg:kb-evaluate} summarises the evaluation procedure.
 
 \begin{algorithm}[htb]
 \SetAlgoLined
@@ -446,26 +431,23 @@ implemented in \texttt{KoBatheConcrete::evaluate()}.
 \Input{Total strain $\bvarepsilon$, previous state $\alpha_n$}
 \Output{Stress $\bsigma$, tangent $\mathbf{C}$, updated state $\alpha_{n+1}$}
 $\bvarepsilon^e \leftarrow \bvarepsilon - \bvarepsilon^p_n$ \tcp*{Elastic strain}
-$(\varepsilon_1,\varepsilon_2,\theta) \leftarrow$ principal decomposition of $\bvarepsilon^e$\;
-$(K_s, G_s, K_c, G_c) \leftarrow$ fracture moduli from $(\bar\sigma_{o,n}, \bar\tau_{o,n})$\;
-$\bsigma \leftarrow \mathbf{C}^{\text{ps}}(K_s, G_s)\,\bvarepsilon^e$ \tcp*{Secant stress}
-$(\sigma_o, \tau_o) \leftarrow$ octahedral invariants of $\bsigma$\;
+$(K_s, G_s, K_c, G_c, \sigma_{\text{id}}) \leftarrow$ fracture moduli from $(\bar\sigma_{o,n}, \bar\tau_{o,n})$\;
+$\bsigma \leftarrow \mathbf{C}^{\text{ps}}(K_s, G_s)\,\bvarepsilon^e - \sigma_{\text{id}}\,\boldsymbol{\delta}$ \tcp*{Eq.~\eqref{eq:kb-stress-with-sigma-id}}
+$(\sigma_o, \tau_o) \leftarrow$ invariants of $\bsigma$ \tcp*{Eqs.~\eqref{eq:kb-sigma-o}--\eqref{eq:kb-tau-o}}
 Update history: $\bar\sigma_o \leftarrow \min(\bar\sigma_{o,n},\sigma_o)$,
   $\bar\tau_o \leftarrow \max(\bar\tau_{o,n},\tau_o)$\;
-Recompute $K_s, G_s, K_c, G_c$ with updated history\;
-$\bsigma \leftarrow \mathbf{C}^{\text{ps}}(K_s, G_s)\,\bvarepsilon^e$\;
+Recompute moduli and stress with updated history\;
 $\mathbf{C}_{\text{tan}} \leftarrow \mathbf{C}^{\text{ps}}(K_c, G_c)$\;
 \If{max principal stress $> 0$ \textbf{and} $g(\sigma_o,\tau_o) > 0$}{
   Initiate new crack with normal along max principal direction\;
 }
 Update crack opening strains, closure flags\;
-$\bsigma \leftarrow$ apply cracked secant to $\bvarepsilon^e$ (if cracked)\;
-$\mathbf{C}_{\text{tan}} \leftarrow$ apply cracking to $\mathbf{C}_{\text{tan}}$\;
-$(D_1,D_2) \rightarrow (\tilde e_1, \tilde e_2) \leftarrow$ compression coordinates\;
-\If{any $f_i > 0$ (yield violated)}{
-  Multi-surface return mapping $\rightarrow$ update $\bvarepsilon^p$\;
+Apply cracking to $\bsigma$ and $\mathbf{C}_{\text{tan}}$ via $\eta_N, \eta_S$\;
+$(\hat{e}_1,\hat{e}_2,\hat{e}_3) \leftarrow$ compression coordinates\;
+\If{any $f_j > 0$ (yield violated)}{
+  Newton return mapping per surface $\rightarrow$ update $\bvarepsilon^p, \hat{e}_{pj}$\;
   $\bvarepsilon^e \leftarrow \bvarepsilon - \bvarepsilon^p$\;
-  $\bsigma \leftarrow \mathbf{C}^{\text{ps}}(K_s, G_s)\,\bvarepsilon^e$\;
+  $\bsigma \leftarrow \mathbf{C}_{\text{sec}}\,\bvarepsilon^e - \sigma_{\text{id}}\,\boldsymbol{\delta}$\;
 }
 \Return $(\bsigma, \mathbf{C}_{\text{tan}}, \alpha_{n+1})$\;
 \caption{Ko--Bathe constitutive evaluation.}
@@ -473,216 +455,147 @@ $(D_1,D_2) \rightarrow (\tilde e_1, \tilde e_2) \leftarrow$ compression coordina
 \end{algorithm}
 
 % ========================================================================
+\section{VTK Visualization}
+\label{sec:kb-vtk}
+
+The Ko--Bathe model is integrated with the library's VTK post-processing
+infrastructure via the \texttt{InternalFieldSnapshot} mechanism.  The
+following fields are exported at each integration (Gauss) point for
+visualization in ParaView:
+
+\begin{table}[htb]
+\centering
+\caption{VTK Gauss-point fields exported for the Ko--Bathe concrete model.}
+\label{tab:kb-vtk-fields}
+\begin{tabular}{@{}llp{7cm}@{}}
+\toprule
+\textbf{Field name} & \textbf{Components} & \textbf{Description} \\
+\midrule
+\texttt{qp\_stress\_voigt}      & $N_{\text{voigt}}$ & Cauchy stress tensor (standard) \\
+\texttt{qp\_strain\_voigt}      & $N_{\text{voigt}}$ & Total strain tensor (standard) \\
+\texttt{qp\_plastic\_strain\_voigt} & $N_{\text{voigt}}$ & Plastic strain tensor \\
+\texttt{qp\_equivalent\_plastic\_strain} & 1 & $\sqrt{\hat{e}_{p1}^2+\hat{e}_{p2}^2+\hat{e}_{p3}^2}$ \\[\jot]
+\texttt{qp\_num\_cracks}        & 1 & Number of active cracks (0, 1, 2) \\
+\texttt{qp\_crack\_normal\_1}   & 3 & Normal to crack 1 (3D vector) \\
+\texttt{qp\_crack\_normal\_2}   & 3 & Normal to crack 2 (3D vector) \\
+\texttt{qp\_crack\_strain\_1}   & 1 & Opening strain across crack 1 \\
+\texttt{qp\_crack\_strain\_2}   & 1 & Opening strain across crack 2 \\
+\texttt{qp\_crack\_closed\_1}   & 1 & Closure flag: 1.0 = closed \\
+\texttt{qp\_crack\_closed\_2}   & 1 & Closure flag: 1.0 = closed \\[\jot]
+\texttt{qp\_sigma\_o\_max}      & 1 & Max octahedral normal stress \\
+\texttt{qp\_tau\_o\_max}        & 1 & Max octahedral shear stress \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Oriented fracture planes.}
+The crack normal vectors \texttt{qp\_crack\_normal\_1} and
+\texttt{qp\_crack\_normal\_2} are stored as 3-component vectors
+($n_x, n_y, 0$).  In ParaView, these can be displayed using the
+\emph{Glyph} filter:
+\begin{enumerate}
+  \item Load the Gauss cloud \texttt{.vtu} file.
+  \item Apply the Glyph filter with Glyph Type = Disc or Arrow.
+  \item Set ``Orientation'' to \texttt{qp\_crack\_normal\_1}.
+  \item Set ``Scale'' to \texttt{qp\_num\_cracks} or a constant.
+  \item Set ``Masking Mode'' to threshold $\ge 1$ on
+        \texttt{qp\_num\_cracks} to show only cracked points.
+\end{enumerate}
+This produces a visualization of oriented fracture planes at each
+integration point where cracks have formed.
+
+\paragraph{Implementation details.}
+The snapshot path uses compile-time detection:
+\begin{itemize}
+  \item \texttt{KoBatheState::eps\_p()} $\to$ \texttt{plastic\_strain}
+  \item \texttt{KoBatheState::eps\_bar\_p()} $\to$ \texttt{equivalent\_plastic\_strain}
+  \item \texttt{KoBatheState::num\_cracks} $\to$ \texttt{InternalFieldSnapshot::num\_cracks}
+  \item \texttt{KoBatheState::crack\_normals} $\to$ promoted to 3D vectors
+  \item \texttt{KoBatheState::sigma\_o\_max}, \texttt{tau\_o\_max} $\to$ fracture history scalars
+\end{itemize}
+
+% ========================================================================
 \section{Concept Satisfaction}
 \label{sec:kb-concepts}
 
 The implementation satisfies the three-level concept hierarchy at compile
-time.  This is verified via \texttt{static\_assert} in the test suite:
+time, verified via \texttt{static\_assert}:
 
 \begin{lstlisting}
-#include "ConstitutiveRelation.hh"
-#include "KoBatheConcrete.hh"
-
 static_assert(ConstitutiveRelation<KoBatheConcrete>);
 static_assert(InelasticConstitutiveRelation<KoBatheConcrete>);
 static_assert(ExternallyStateDrivenConstitutiveRelation<KoBatheConcrete>);
 \end{lstlisting}
 
-The concept requirements and how \texttt{KoBatheConcrete} fulfils them are
-summarised in Table~\ref{tab:kb-concept-map}.
-
-\begin{table}[htb]
-\centering
-\caption{Concept satisfaction map for \texttt{KoBatheConcrete}.}
-\label{tab:kb-concept-map}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Concept} & \textbf{Required} & \textbf{Provided by} \\
-\midrule
-\multirow{3}{*}{Level 1}
-  & \texttt{compute\_response(k,alpha)} & delegates to \texttt{evaluate()} \\
-  & \texttt{tangent(k,alpha)}           & delegates to \texttt{evaluate()} \\
-  & \texttt{commit(alpha,k)}            & delegates to \texttt{evaluate()} \\
-\midrule
-\multirow{3}{*}{Level 2b}
-  & \texttt{compute\_response(k)} & evaluates with \texttt{state\_} \\
-  & \texttt{tangent(k)}           & evaluates with \texttt{state\_} \\
-  & \texttt{update(k)}            & stores result in \texttt{state\_} \\
-  & \texttt{internal\_state()}    & returns \texttt{state\_} \\
-\midrule
-Level 3 & (combination of 1 + 2b) & all above \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 % ========================================================================
 \section{Test Suite}
 \label{sec:kb-tests}
 
-The test suite is located in
-\texttt{tests/test\_ko\_bathe\_concrete.cpp} and comprises eight test
-groups validated by the \texttt{fall\_n\_ko\_bathe\_concrete\_test}
-executable.
+The test suite in \texttt{tests/test\_ko\_bathe\_concrete.cpp} comprises
+eight groups (31 checks), all passing:
 
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 1: Compile-Time Concept Checks}
-
-Three \texttt{static\_assert} statements verify that the class satisfies
-all three concept levels.  These are compile-time checks with zero runtime
-cost.
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 2: Parameter Derivation}
-
-Verifies that \texttt{KoBatheParameters(32.0)} produces physically meaningful
-values:
-\begin{itemize}
-  \item $K_e = 11\,096\;\text{MPa}$,
-  \item $G_e \approx 13\,310\;\text{MPa}$,
-  \item $E \approx 28\,524\;\text{MPa}$, $\nu \approx 0.072$,
-  \item all degradation and plasticity coefficients within expected ranges.
-\end{itemize}
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 3: Elastic Response}
-
-Applies a small strain $\varepsilon_{xx} = -10^{-5}$ (well below any
-nonlinear threshold) and verifies:
-\begin{itemize}
-  \item $\sigma_{xx}$ matches the plane-stress formula
-        $E/(1-\nu^2)\cdot\varepsilon_{xx}$.
-  \item The tangent matrix is symmetric and positive definite.
-\end{itemize}
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 4: Uniaxial Compression Curves}
-
-Drives a monotonic uniaxial compression test to $\varepsilon_{xx} = -0.006$
-in 60 steps.  Two concrete grades are tested ($f'_c = 21$ and $30\;\text{MPa}$).
-Each curve is exported to CSV for plotting.  Checks:
-\begin{itemize}
-  \item The initial tangent slope matches the elastic modulus.
-  \item The peak stress is bounded within a physically reasonable envelope
-        ($50\%$ to $200\%$ of $f'_c$).
-\end{itemize}
-Figure~\ref{fig:kb-uniaxial} conceptually illustrates the expected shape:
-a nonlinear ascending branch governed by fracturing, a peak, and a
-post-peak softening branch governed by plasticity.
+\begin{enumerate}
+  \item \textbf{Compile-time concept checks} (3 static assertions).
+  \item \textbf{Parameter derivation} for $f_c'=30$~MPa.
+  \item \textbf{Elastic response} at small strain.
+  \item \textbf{Uniaxial compression} curves for $f_c'= 21$ and $30$~MPa,
+        exported to CSV.
+  \item \textbf{Biaxial compression} (equibiaxial and proportional).
+  \item \textbf{Tension cracking} with crack formation and softening.
+  \item \textbf{Fracture moduli degradation} (stiffness reduction verification).
+  \item \textbf{Commit/update cycle consistency} (Level~1 vs Level~2b agreement).
+\end{enumerate}
 
 \begin{figure}[htb]
 \centering
 \begin{tikzpicture}[scale=0.85]
   \draw[->] (0,0) -- (7.5,0) node[right] {$|\varepsilon|$};
   \draw[->] (0,0) -- (0,4.5) node[above] {$|\sigma|$};
-  % Ascending nonlinear
   \draw[blue!70!black, thick, smooth] plot coordinates
     {(0,0) (0.5,1.2) (1.0,2.1) (1.5,2.8) (2.0,3.3)
      (2.5,3.6) (3.0,3.8) (3.5,3.85)};
-  % Peak and descending
   \draw[red!70!black, thick, smooth] plot coordinates
     {(3.5,3.85) (4.0,3.7) (4.5,3.4) (5.0,3.0) (5.5,2.5)
      (6.0,2.0) (6.5,1.5) (7.0,1.1)};
-  \draw[dashed, gray] (0,3.85) -- (3.5,3.85) node[midway, above] {$f'_c$};
+  \draw[dashed, gray] (0,3.85) -- (3.5,3.85) node[midway, above] {$f_c'$};
   \draw[dashed, gray] (3.5,0) -- (3.5,3.85);
   \node[blue!70!black] at (1.5,3.5) {\small fracturing};
   \node[red!70!black]  at (5.5,3.5) {\small plasticity};
   \draw[gray, thin] (0,0) -- (1.0,2.8) node[midway, left] {\small $E$};
 \end{tikzpicture}
-\caption{Schematic uniaxial compression response showing the nonlinear
-ascending branch (fracturing) and post-peak descent (plasticity).}
+\caption{Schematic uniaxial compression response: nonlinear ascending
+(fracturing) and post-peak descent (plasticity).}
 \label{fig:kb-uniaxial}
 \end{figure}
 
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 5: Biaxial Compression}
-
-Applies equibiaxial ($\sigma_1/\sigma_2 = 1$) and proportional biaxial
-($\sigma_1/\sigma_2 = 0.52$) loading in compression.  Verifies:
-\begin{itemize}
-  \item The equibiaxial peak stress exceeds $50\%$ of $f'_c$ (confinement
-        increases strength).
-  \item The proportional biaxial peak exceeds $f'_c$ (biaxial confinement
-        effect).
-\end{itemize}
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 6: Tension Cracking}
-
-Applies biaxial tension ($\varepsilon_{xx} = \varepsilon_{yy} > 0$) and
-verifies:
-\begin{itemize}
-  \item A positive peak tensile stress is attained.
-  \item Cracks form once the tensile strength is exceeded.
-  \item The peak tensile stress does not exceed $2f_t$ (bounded by the
-        crack function).
-\end{itemize}
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 7: Fracture Moduli Degradation}
-
-Compares the tangent stiffness $C(0,0)$ at zero strain with the stiffness
-at $\varepsilon_{xx} = -0.001$.  Verifies that the diagonal entry decreases,
-confirming the exponential fracture degradation mechanism is active.
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test 8: Commit/Update Cycle Consistency}
-
-Compares the internal state produced by the Level~2b interface
-(\texttt{update} + \texttt{internal\_state()}) with the external state
-produced by the Level~1 interface (\texttt{commit}).  The two paths must
-yield identical plastic strains, fracture history, and crack counts.
-
-% ────────────────────────────────────────────────────────────────────────
-\subsection{Test Results Summary}
-
-All 31 individual checks pass ($31/31$).  A representative run produces:
-
-\begin{lstlisting}[language={},numbers=none,frame=none]
-==========================================================
-  Ko-Bathe (2026) Concrete Model -- Test Suite
-==========================================================
-  Results: 31 / 31 passed
-==========================================================
-\end{lstlisting}
-
 % ========================================================================
-\section{Design Decisions and Notes}
+\section{Design Decisions}
 \label{sec:kb-design-notes}
 
 \begin{enumerate}
-  \item \textbf{Single header.}  The model is implemented entirely in
-        \texttt{KoBatheConcrete.hh}, consistent with the library's
-        header-only philosophy.  All helper functions are private members;
-        there are no separate compilation units.
+  \item \textbf{Single header.}  Consistent with the library's
+        header-only philosophy.
 
-  \item \textbf{Positive compression convention.}  All input parameters
-        (especially $f'_c$) are specified as positive values.  Internally,
-        the compression coordinate system uses positive magnitudes for
-        compressive quantities.  Stress output follows the standard
-        engineering convention (compression negative).
+  \item \textbf{Rational vs.\ exponential moduli.}  The paper's
+        formulation~\eqref{eq:kb-ks}--\eqref{eq:kb-gs} uses rational
+        degradation functions (not exponential), giving a better match to
+        the experimental ascending branch.
 
-  \item \textbf{Secant--tangent distinction.}  The secant moduli ($K_s$,
-        $G_s$) are used for stress computation, while the tangent moduli
-        ($K_c$, $G_c$) are used for the algorithmic tangent matrix.
-        This avoids over-stiffening the tangent in the nonlinear regime.
+  \item \textbf{Secant--tangent distinction.}  Secant moduli ($K_s, G_s$)
+        for stress; tangent moduli ($K_c, G_c$) for the algorithmic
+        tangent matrix.
 
-  \item \textbf{Fracture history monotonicity.}  The fracturing variables
-        $\bar\sigma_o$ and $\bar\tau_o$ only update in one direction
-        (more compressive or more shearing), ensuring monotonic
-        degradation.  During unloading the secant moduli remain frozen.
+  \item \textbf{Confining pressure $\sigma_{\text{id}}$.}  The stress
+        includes a confining pressure correction (Eq.~\eqref{eq:kb-sigma-id})
+        that accounts for triaxial effects even in the plane stress setting.
 
-  \item \textbf{Coefficient calibration.}  The fracture degradation
-        coefficients~\eqref{eq:kb-fracture-coeffs} are approximate fits
-        to reproduce both the uniaxial Desayi--Krishnan curve and the
-        biaxial failure envelope.  For production use, these should be
-        refined against the full set of experimental data presented
-        in~\cite{KoBathe2026}.
+  \item \textbf{Plane stress only.}  Extension to 3D requires
+        generalising the compression coordinates, yield surfaces, and
+        crack normal tracking to three orthogonal planes.
 
-  \item \textbf{Plane stress only.}  The current implementation is restricted
-        to plane stress ($N=3$ Voigt components).  Extension to 3D (six Voigt
-        components) requires generalising the compression coordinates,
-        yield surfaces, and the crack normal tracking to three orthogonal
-        planes.
+  \item \textbf{VTK integration.}  The snapshot-based export provides
+        crack normal vectors as 3D fields for direct ParaView Glyph rendering of
+        oriented fracture planes at integration points.
 \end{enumerate}
 
 % ========================================================================
@@ -690,14 +603,12 @@ All 31 individual checks pass ($31/31$).  A representative run produces:
 \label{sec:kb-extensions}
 
 \begin{itemize}
-  \item \textbf{Full 3D generalisation}: extend the compression coordinate
-        system to all three principal directions and add a third crack plane.
+  \item \textbf{Full 3D generalisation}: extend compression coordinates
+        to all three principal directions; add a third crack plane.
   \item \textbf{Consistent tangent for plasticity}: derive the full
-        algorithmic tangent including the plastic correction
-        (currently only the fracture+cracking tangent is returned).
+        algorithmic tangent including the plastic correction.
   \item \textbf{Rate effects}: temperature and strain-rate dependence through
         modification of the fracture degradation functions.
   \item \textbf{Mesh-adjusted softening}: use actual element sizes from
-        the mesh for the characteristic length $h$, linking to the element
-        geometry interface of the library.
+        the mesh for the characteristic length $l_b$.
 \end{itemize}

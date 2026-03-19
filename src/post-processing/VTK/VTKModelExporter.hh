@@ -1151,6 +1151,19 @@ public:
             bool has_plastic_strain = false;
             bool has_eps_bar_p      = false;
             bool has_damage         = false;
+            bool has_cracks         = false;
+            bool has_fracture_hist  = false;
+
+            // ── Crack / fracture buffers ─────────────────────────────────
+            std::vector<double> num_cracks_buf;
+            std::vector<double> crack_normal_1_buf;   // 3-component vectors
+            std::vector<double> crack_normal_2_buf;
+            std::vector<double> crack_strain_1_buf;
+            std::vector<double> crack_strain_2_buf;
+            std::vector<double> crack_closed_1_buf;
+            std::vector<double> crack_closed_2_buf;
+            std::vector<double> sigma_o_max_buf;
+            std::vector<double> tau_o_max_buf;
 
             // ── Iterate model elements (ContinuumElement) ────────────────
             for (const auto& element : model_->elements()) {
@@ -1191,6 +1204,51 @@ public:
                     if (snap.has_damage()) {
                         has_damage = true;
                         damage_buf.push_back(snap.damage.value());
+                    }
+
+                    // ── Smeared crack state ──────────────────────────────
+                    if (snap.has_cracks()) {
+                        has_cracks = true;
+                        const int nc = snap.num_cracks.value();
+                        num_cracks_buf.push_back(static_cast<double>(nc));
+
+                        if (snap.crack_normal_1) {
+                            const auto& n1 = snap.crack_normal_1.value();
+                            crack_normal_1_buf.push_back(n1[0]);
+                            crack_normal_1_buf.push_back(n1[1]);
+                            crack_normal_1_buf.push_back(n1[2]);
+                        } else {
+                            crack_normal_1_buf.push_back(0.0);
+                            crack_normal_1_buf.push_back(0.0);
+                            crack_normal_1_buf.push_back(0.0);
+                        }
+
+                        if (snap.crack_normal_2) {
+                            const auto& n2 = snap.crack_normal_2.value();
+                            crack_normal_2_buf.push_back(n2[0]);
+                            crack_normal_2_buf.push_back(n2[1]);
+                            crack_normal_2_buf.push_back(n2[2]);
+                        } else {
+                            crack_normal_2_buf.push_back(0.0);
+                            crack_normal_2_buf.push_back(0.0);
+                            crack_normal_2_buf.push_back(0.0);
+                        }
+
+                        crack_strain_1_buf.push_back(
+                            snap.crack_strain_1.value_or(0.0));
+                        crack_strain_2_buf.push_back(
+                            snap.crack_strain_2.value_or(0.0));
+                        crack_closed_1_buf.push_back(
+                            snap.crack_closed_1.value_or(0.0));
+                        crack_closed_2_buf.push_back(
+                            snap.crack_closed_2.value_or(0.0));
+                    }
+
+                    // ── Fracturing history invariants ────────────────────
+                    if (snap.has_fracture_history()) {
+                        has_fracture_hist = true;
+                        sigma_o_max_buf.push_back(snap.sigma_o_max.value());
+                        tau_o_max_buf.push_back(snap.tau_o_max.value());
                     }
                 }
             }
@@ -1239,6 +1297,43 @@ public:
                     gauss_fields_,
                     "qp_damage",
                     std::move(damage_buf));
+            }
+
+            // ── Smeared crack fields ─────────────────────────────────────
+            if (has_cracks) {
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_num_cracks",
+                    std::move(num_cracks_buf));
+                // Crack normals as 3D vectors — use ParaView Glyph filter
+                // to render oriented fracture planes at integration points.
+                push_field_buffer(
+                    gauss_fields_, "qp_crack_normal_1",
+                    std::move(crack_normal_1_buf), 3);
+                push_field_buffer(
+                    gauss_fields_, "qp_crack_normal_2",
+                    std::move(crack_normal_2_buf), 3);
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_strain_1",
+                    std::move(crack_strain_1_buf));
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_strain_2",
+                    std::move(crack_strain_2_buf));
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_closed_1",
+                    std::move(crack_closed_1_buf));
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_closed_2",
+                    std::move(crack_closed_2_buf));
+            }
+
+            // ── Fracturing history invariants ────────────────────────────
+            if (has_fracture_hist) {
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_sigma_o_max",
+                    std::move(sigma_o_max_buf));
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_tau_o_max",
+                    std::move(tau_o_max_buf));
             }
 
             // ── Project raw Gauss-point fields to mesh nodes ─────────────

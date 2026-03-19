@@ -101,6 +101,40 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
       snap.damage = material.internal_state().d();
    }
 
+   // ── Smeared cracking state (Ko-Bathe concrete and similar models) ─────
+   //  Detects `.num_cracks` and `.crack_normals` on the internal state.
+   //  Crack normals are promoted to 3D vectors for ParaView Glyph export.
+   if constexpr (requires {
+      material.internal_state().num_cracks;
+      material.internal_state().crack_normals;
+   }) {
+      const auto& alpha = material.internal_state();
+      snap.num_cracks = alpha.num_cracks;
+
+      if (alpha.num_cracks >= 1) {
+         snap.crack_normal_1 = {alpha.crack_normals[0][0],
+                                alpha.crack_normals[0][1], 0.0};
+         snap.crack_strain_1 = alpha.crack_strain[0];
+         snap.crack_closed_1 = alpha.crack_closed[0] ? 1.0 : 0.0;
+      }
+      if (alpha.num_cracks >= 2) {
+         snap.crack_normal_2 = {alpha.crack_normals[1][0],
+                                alpha.crack_normals[1][1], 0.0};
+         snap.crack_strain_2 = alpha.crack_strain[1];
+         snap.crack_closed_2 = alpha.crack_closed[1] ? 1.0 : 0.0;
+      }
+   }
+
+   // ── Fracturing history invariants (concrete models) ───────────────────
+   if constexpr (requires {
+      material.internal_state().sigma_o_max;
+      material.internal_state().tau_o_max;
+   }) {
+      const auto& alpha = material.internal_state();
+      snap.sigma_o_max = alpha.sigma_o_max;
+      snap.tau_o_max   = alpha.tau_o_max;
+   }
+
    return snap;
 }
 

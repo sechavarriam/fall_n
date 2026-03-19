@@ -40,6 +40,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -65,10 +66,36 @@ struct InternalFieldSnapshot {
     //  about the exact internal-state layout chosen by the constitutive law.
     std::optional<double> damage{};
 
+    // ── Smeared cracking state — for concrete / brittle models ──────────
+    //  Populated when the internal state exposes `.num_cracks` and
+    //  `.crack_normals[]`.  Crack normals are stored as 3D vectors
+    //  (nz = 0 for plane stress) for direct ParaView Glyph visualization.
+
+    std::optional<int> num_cracks{};
+
+    // Crack normal vectors as 3D (x, y, z).  Up to 2 cracks.
+    // crack_normal_1[2] = 0.0 for plane-stress models.
+    std::optional<std::array<double, 3>> crack_normal_1{};
+    std::optional<std::array<double, 3>> crack_normal_2{};
+
+    // Per-crack opening strain (normal to crack face)
+    std::optional<double> crack_strain_1{};
+    std::optional<double> crack_strain_2{};
+
+    // Per-crack closed status (0.0 = open, 1.0 = closed)
+    std::optional<double> crack_closed_1{};
+    std::optional<double> crack_closed_2{};
+
+    // ── Fracturing history invariants — for concrete models ─────────────
+    std::optional<double> sigma_o_max{};   // max octahedral normal stress (compression)
+    std::optional<double> tau_o_max{};     // max octahedral shear stress
+
     // ── Query helpers ────────────────────────────────────────────────────
     [[nodiscard]] bool has_plastic_strain()            const noexcept { return plastic_strain.has_value(); }
     [[nodiscard]] bool has_equivalent_plastic_strain()  const noexcept { return equivalent_plastic_strain.has_value(); }
     [[nodiscard]] bool has_damage()                     const noexcept { return damage.has_value(); }
+    [[nodiscard]] bool has_cracks()                     const noexcept { return num_cracks.has_value(); }
+    [[nodiscard]] bool has_fracture_history()            const noexcept { return sigma_o_max.has_value(); }
 };
 
 #endif // FALL_N_INTERNAL_FIELD_SNAPSHOT_HH
