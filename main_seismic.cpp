@@ -267,7 +267,7 @@ static void run_seismic(Formulation formulation) {
     model.setup();
 
     BoundaryConditionSet<3> bcs;
-    bcs.add_ground_motion({0, eq_record.as_time_function()});  // X-direction
+    bcs.add_ground_motion({0, eq_record.as_time_function()},3);  // X-direction
 
     // ─────────────────────────────────────────────────────────────────────
     //  6. Gravity loads (pre-assembled, ramped)
@@ -306,7 +306,7 @@ static void run_seismic(Formulation formulation) {
     // Ground motion: applied via BoundaryConditionSet (pseudo-force M·ĝ·ag(t))
     solver.set_force_function(
         [&](double t, Vec f_ext) {
-            const double g_ramp = std::min(t / GRAVITY_RAMP_TIME, 1.0);
+            const double g_ramp = 0*std::min(t / GRAVITY_RAMP_TIME, 1.0); // ojo — gravity off for now to isolate seismic response
             VecAXPY(f_ext, g_ramp, f_gravity);
         });
 

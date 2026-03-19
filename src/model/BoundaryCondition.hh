@@ -330,13 +330,27 @@ struct ElementInitialStress {
 
 template <std::size_t dim>
 class BoundaryConditionSet {
-public:
+
+    std::vector<NodalForceBC<dim>>          forces_;
+    std::vector<PrescribedBC>               prescribed_;
+    std::vector<GroundMotionBC>             ground_motions_;
+    std::vector<NodalInitialCondition<dim>> initial_conditions_;
+    std::vector<ElementInitialStress<dim>>  initial_stresses_;
+
+    public:
 
     // ── Add boundary conditions ──────────────────────────────────────
 
     void add_force(NodalForceBC<dim> bc)          { forces_.push_back(std::move(bc)); }
     void add_prescribed(PrescribedBC bc)           { prescribed_.push_back(std::move(bc)); }
-    void add_ground_motion(GroundMotionBC gm)      { ground_motions_.push_back(std::move(gm)); }
+
+    void add_ground_motion(GroundMotionBC gm, double factor = 1.0) {
+        if (factor != 1.0) {
+            gm.acceleration = time_fn::scale(factor, gm.acceleration);
+        }
+        ground_motions_.push_back(std::move(gm));
+    }
+
     void add_initial_condition(NodalInitialCondition<dim> ic) { initial_conditions_.push_back(std::move(ic)); }
     void add_initial_stress(ElementInitialStress<dim> is)     { initial_stresses_.push_back(std::move(is)); }
 
@@ -457,12 +471,7 @@ public:
     }
 
 
-private:
-    std::vector<NodalForceBC<dim>>          forces_;
-    std::vector<PrescribedBC>               prescribed_;
-    std::vector<GroundMotionBC>             ground_motions_;
-    std::vector<NodalInitialCondition<dim>> initial_conditions_;
-    std::vector<ElementInitialStress<dim>>  initial_stresses_;
+
 };
 
 
