@@ -8,17 +8,31 @@ include(FetchContent) #
 include(CTest)
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /WX")
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror")
+endif()
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror -fsanitize=address ")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror -fsanitize=leak -fsanitize=address ")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror -fsanitize=leak -fsanitize=address -static-libasan ")
 
+# On MinGW-w64 with GCC, link -lstdc++exp for C++23 <print> support
+# and enable big-obj for PE/COFF (large template-heavy translation units)
+if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  link_libraries(stdc++exp)
+  add_compile_options(-Wa,-mbig-obj)
 
-#if     (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") # using Clang
-#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"  ) # using GCC
-#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel") # using Intel C++
-#elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" ) # using Visual Studio C++
-#endif()
+  # MinGW VTK DLLs don't export inline template member functions (like SetValue).
+  # Predefine the extern-template guards so the compiler instantiates them locally.
+  add_compile_definitions(
+    VTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN
+    VTK_GDA_TEMPLATE_EXTERN
+  )
+endif()
+
+# Expose source directory to C++ so files can locate data/ at runtime
+add_compile_definitions(FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_executable(fall_n main.cpp)
 add_executable(fall_n_seismic main_seismic.cpp)
@@ -40,12 +54,27 @@ target_link_libraries(fall_n PUBLIC MPI::MPI_CXX)
 # ============== PETSc ==========================================================
 # ===============================================================================
 
-set(PETSC $ENV{PETSC_DIR}/$ENV{PETSC_ARCH}) # set root of location to find PETSc's pkg-config
-set(ENV{PKG_CONFIG_PATH} ${PETSC}/lib/pkgconfig)
-  
+if(DEFINED ENV{PETSC_DIR} AND NOT "$ENV{PETSC_DIR}" STREQUAL "")
+  set(PETSC $ENV{PETSC_DIR}/$ENV{PETSC_ARCH})
+  set(ENV{PKG_CONFIG_PATH} ${PETSC}/lib/pkgconfig)
+endif()
+
 find_package(PkgConfig REQUIRED)
-pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc)
+# Try canonical name first, then MSYS2 variant (double-precision, MPI, optimised)
+pkg_search_module(PETSC REQUIRED IMPORTED_TARGET PETSc petsc petsc-dmo petsc-dso)
 target_link_libraries(fall_n PUBLIC PkgConfig::PETSC)
+
+# MSYS2 PETSc may lack C++ macros (built with PETSC_CLANGUAGE_C) — provide fallbacks
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_INCLUDES ${PETSC_INCLUDE_DIRS})
+check_symbol_exists(PETSC_FUNCTION_NAME_CXX "petscconf.h" _HAVE_PETSC_FN_CXX)
+if(NOT _HAVE_PETSC_FN_CXX)
+  add_compile_definitions(PETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__)
+endif()
+check_symbol_exists(PETSC_CXX_RESTRICT "petscconf.h" _HAVE_PETSC_CXX_RESTRICT)
+if(NOT _HAVE_PETSC_CXX_RESTRICT)
+  add_compile_definitions(PETSC_CXX_RESTRICT=__restrict__)
+endif()
 
 # ===============================================================================
 # ============== Eigen ==========================================================
@@ -61,7 +90,13 @@ target_link_libraries(fall_n PUBLIC Eigen3::Eigen)
 find_package(VTK COMPONENTS 
   CommonCore
   CommonDataModel
+  CommonExecutionModel
+  IOCore
   IOXML
+  IOXMLParser
+  IOLegacy
+  FiltersCore
+  FiltersGeneral
 )
 
 set(VTK_USE_MPI ON)

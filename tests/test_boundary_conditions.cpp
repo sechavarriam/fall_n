@@ -36,7 +36,11 @@ constexpr bool approx(double a, double b, double tol = 1e-10) {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-static const std::string BASE = "/home/sechavarriam/MyLibs/fall_n/";
+#ifdef FALL_N_SOURCE_DIR
+static const std::string BASE = FALL_N_SOURCE_DIR "/";
+#else
+static const std::string BASE = "./";
+#endif
 static const std::string MESH = BASE + "data/input/Beam_LagCell_Ord1_30x6x3.msh";
 
 static constexpr std::size_t DIM  = 3;

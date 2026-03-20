@@ -11,7 +11,7 @@ namespace utils
 
 
 
-template <ushort... N> // TODO: Optimize using ranges and fold expressions.
+template <unsigned short... N> // TODO: Optimize using ranges and fold expressions.
 static inline constexpr std::size_t md_index_2_list(auto... ijk) 
 requires(sizeof...(N) == sizeof...(ijk))
 {

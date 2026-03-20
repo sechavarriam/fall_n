@@ -588,27 +588,35 @@ static void test_12_forced_vibration() {
 static void test_13_pvd_writer() {
     std::cout << "\n--- Test 13: PVDWriter ---\n";
 
-    PVDWriter pvd("/tmp/fall_n_test_dynamics/simulation");
+    auto tmp = std::filesystem::temp_directory_path() / "fall_n_test_dynamics";
+    auto base = (tmp / "simulation").string();
 
-    check(pvd.snapshot_filename(0) == "/tmp/fall_n_test_dynamics/simulation_000000.vtu",
+    PVDWriter pvd(base);
+
+    auto snap0  = (tmp / "simulation_000000.vtu").string();
+    auto snap42 = (tmp / "simulation_000042.vtu").string();
+    auto snap1  = (tmp / "simulation_000001.vtu").string();
+    auto snap2  = (tmp / "simulation_000002.vtu").string();
+
+    check(pvd.snapshot_filename(0) == snap0,
           "Snapshot filename step 0");
-    check(pvd.snapshot_filename(42) == "/tmp/fall_n_test_dynamics/simulation_000042.vtu",
+    check(pvd.snapshot_filename(42) == snap42,
           "Snapshot filename step 42");
 
-    pvd.add_timestep(0.0, "/tmp/fall_n_test_dynamics/simulation_000000.vtu");
-    pvd.add_timestep(0.001, "/tmp/fall_n_test_dynamics/simulation_000001.vtu");
-    pvd.add_timestep(0.002, "/tmp/fall_n_test_dynamics/simulation_000002.vtu");
+    pvd.add_timestep(0.0, snap0);
+    pvd.add_timestep(0.001, snap1);
+    pvd.add_timestep(0.002, snap2);
 
     check(pvd.num_timesteps() == 3, "3 timesteps registered");
 
     pvd.write();
 
     // Check that the .pvd file was created
-    bool pvd_exists = std::filesystem::exists("/tmp/fall_n_test_dynamics/simulation.pvd");
+    bool pvd_exists = std::filesystem::exists(tmp / "simulation.pvd");
     check(pvd_exists, "PVD file created");
 
     // Clean up
-    std::filesystem::remove_all("/tmp/fall_n_test_dynamics");
+    std::filesystem::remove_all(tmp);
 }
 
 

@@ -166,15 +166,20 @@ static constexpr double J_tor = (b_min*b_min*b_min * h_max / 3.0)
 // Mesh file — absolute path to the Gmsh MSH 4.1 file.
 // Contains hex27 volume elements (type 12) and QUA_9 surface elements (type 10).
 // Physical groups: "domain" (3D), "Fixed" (2D face at x=0).
+#ifdef FALL_N_SOURCE_DIR
+static const std::string _BASE = std::string(FALL_N_SOURCE_DIR) + "/";
+#else
+static const std::string _BASE = "./";
+#endif
 static const std::string MESH_FILE =
-    "/home/sechavarriam/MyLibs/fall_n/tests/beam_cantilever.msh";
+    _BASE + "tests/beam_cantilever.msh";
 
 // Tet mesh files — same beam geometry meshed with tetrahedral elements.
 // Physical groups: "domain" (3D), "Fixed" (2D face at x=0).
 static const std::string MESH_TET4 =
-    "/home/sechavarriam/MyLibs/fall_n/data/input/beam_gmshElem1stOrder.msh";
+    _BASE + "data/input/beam_gmshElem1stOrder.msh";
 static const std::string MESH_TET10 =
-    "/home/sechavarriam/MyLibs/fall_n/data/input/beam_gmshElem2ndOrder.msh";
+    _BASE + "data/input/beam_gmshElem2ndOrder.msh";
 
 // Tip load
 static constexpr double P = 1.0;

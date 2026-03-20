@@ -67,7 +67,11 @@ static constexpr double sigma_y0    = 0.250;    // Initial yield stress (J2)
 static constexpr double H_hardening = 10.0;     // Isotropic hardening modulus
 
 static const std::string MESH_FILE =
-    "/home/sechavarriam/MyLibs/fall_n/data/input/"
+#ifdef FALL_N_SOURCE_DIR
+    std::string(FALL_N_SOURCE_DIR) + "/data/input/"
+#else
+    std::string("data/input/")
+#endif
     "Test_BoxSide10_LagrangianElements27Nodes.msh";
 
 static int passed = 0;

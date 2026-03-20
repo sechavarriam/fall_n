@@ -45,7 +45,11 @@ namespace {
 static constexpr std::size_t NDOF = 6;
 
 // ── Output path ───────────────────────────────────────────────────────────────
-static const std::string BASE = "/home/sechavarriam/MyLibs/fall_n/";
+#ifdef FALL_N_SOURCE_DIR
+static const std::string BASE = FALL_N_SOURCE_DIR "/";
+#else
+static const std::string BASE = "./";
+#endif
 static const std::string OUT  = BASE + "data/output/dynamic_rc_building/";
 
 // ── Grid definition ───────────────────────────────────────────────────────────

@@ -91,8 +91,12 @@ static constexpr double H_hard     = 10.0;    // Isotropic hardening modulus
 // static constexpr double G_mod = E_mod / (2.0 * (1.0 + nu));  // shear modulus
 
 // Mesh file (relative to build directory — tests run from build/)
+#ifdef FALL_N_SOURCE_DIR
 static const std::string MESH_FILE =
-    "/home/sechavarriam/MyLibs/fall_n/tests/validation_cube.msh";
+    std::string(FALL_N_SOURCE_DIR) + "/tests/validation_cube.msh";
+#else
+static const std::string MESH_FILE = "./tests/validation_cube.msh";
+#endif
 
 // Cube dimensions
 static constexpr double L_cube = 1.0;   // cube side length
