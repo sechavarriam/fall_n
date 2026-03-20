@@ -95,7 +95,11 @@ void test_structural_multiblock_writer_contract() {
     u_loc[10] = 0.04;
 
     const auto output_path =
-        std::filesystem::path("/home/sechavarriam/MyLibs/fall_n/build/test_structural_beam.vtm");
+#ifdef FALL_N_SOURCE_DIR
+        std::filesystem::path(FALL_N_SOURCE_DIR) / "build" / "test_structural_beam.vtm";
+#else
+        std::filesystem::path("build/test_structural_beam.vtm");
+#endif
 
     fall_n::vtk::StructuralVTMExporter exporter(
         model,
@@ -153,7 +157,11 @@ void test_shell_structural_multiblock_writer_contract() {
     u_loc[22] = 0.1;
 
     const auto output_path =
-        std::filesystem::path("/home/sechavarriam/MyLibs/fall_n/build/test_structural_shell.vtm");
+#ifdef FALL_N_SOURCE_DIR
+        std::filesystem::path(FALL_N_SOURCE_DIR) / "build" / "test_structural_shell.vtm";
+#else
+        std::filesystem::path("build/test_structural_shell.vtm");
+#endif
 
     fall_n::vtk::StructuralVTMExporter exporter(model);
     exporter.write_with_local_states(output_path.string(), [&](const auto&) { return u_loc; });

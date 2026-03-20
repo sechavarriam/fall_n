@@ -91,7 +91,11 @@ void test_structural_mixed_multiblock_writer_contract() {
     shell_u[22] = 0.1;
 
     const auto output_path = std::filesystem::path(
-        "/home/sechavarriam/MyLibs/fall_n/build/test_structural_mixed.vtm");
+#ifdef FALL_N_SOURCE_DIR
+        std::string(FALL_N_SOURCE_DIR) + "/build/test_structural_mixed.vtm");
+#else
+        "build/test_structural_mixed.vtm");
+#endif
 
     fall_n::vtk::StructuralVTMExporter exporter(
         model,

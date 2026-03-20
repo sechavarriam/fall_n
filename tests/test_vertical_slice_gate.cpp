@@ -46,7 +46,11 @@ static constexpr double sigma_y = 0.250;
 static constexpr double H_hard  = 10.0;
 
 static const std::string MESH_FILE =
-    "/home/sechavarriam/MyLibs/fall_n/tests/validation_cube.msh";
+#ifdef FALL_N_SOURCE_DIR
+    std::string(FALL_N_SOURCE_DIR) + "/tests/validation_cube.msh";
+#else
+    "tests/validation_cube.msh";
+#endif
 
 static constexpr double L_cube = 1.0;
 static constexpr double A_face = L_cube * L_cube;

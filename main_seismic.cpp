@@ -48,7 +48,11 @@ namespace {
 static constexpr std::size_t NDOF = 6;
 
 // ── Project path ──────────────────────────────────────────────────────────────
-static const std::string BASE = "/home/sechavarriam/MyLibs/fall_n/";
+#ifdef FALL_N_SOURCE_DIR
+static const std::string BASE = FALL_N_SOURCE_DIR "/";
+#else
+static const std::string BASE = "./";
+#endif
 static const std::string OUT  = BASE + "data/output/seismic_rc_building/";
 static const std::string EQ_FILE = BASE + "data/input/earthquakes/el_centro_1940_ns.dat";
 

@@ -200,8 +200,7 @@ Key topics include:
         and \texttt{KentParkConcrete} now support external state objects, and
         fiber sections inherit the new behaviour automatically through the
         existing type-erased uniaxial-material layer;
-  \item An explicit compile-time \texttt{YieldFunction} customization point in
-        plasticity, separated from yield-surface geometry and hardening, plus
+  \item An explicit compile-time \texttt{YieldFunction} customization point in        plasticity, separated from yield-surface geometry and hardening, plus
         a constitutive protocol sampler and VTK curve writer to generate
         strain--stress hysteresis loops for direct visual inspection of
         nonlinear materials;
@@ -237,7 +236,12 @@ Key topics include:
   \item The element architecture design: External Polymorphism at the geometry
         and assembly levels, policy-based customisation points
         (MaterialPolicy, KinematicPolicy, ElementPolicy), compile-time
-        efficiency, and comparison with OpenSees and Kratos Multiphysics.
+        efficiency, and comparison with OpenSees and Kratos Multiphysics;
+  \item A complete step-by-step guide to building and running \texttt{fall\_n}
+        on Windows using the MSYS2 UCRT64 toolchain (GCC~15, CMake, Ninja)
+        with all dependencies installed from the \texttt{pacman} binary
+        repository, together with a detailed record of every platform-specific
+        source and build-system change required.
 \end{itemize}
 Each chapter includes the relevant mathematical theory with bibliographic
 references, the concrete C++ implementation in \texttt{fall\_n}, and a
@@ -303,6 +307,7 @@ discussion of the design rationale.
 \input{ch55_seismic_analysis_infrastructure}
 \input{ch56_seismic_rc_building_results}
 \input{ch57_ko_bathe_concrete_model}
+\input{ch58_windows_build}
 
 % ─── Bibliography ────────────────────────────────────────────────────────
 \bibliographystyle{plain}

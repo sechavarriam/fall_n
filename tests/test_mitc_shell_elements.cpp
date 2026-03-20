@@ -414,7 +414,11 @@ void test_mitc9_vtk_output() {
     auto elem = fix.make_element();
 
     // Write basic VTK output — verify no crashes
-    const auto out_dir = std::filesystem::path("/home/sechavarriam/MyLibs/fall_n/build/");
+#ifdef FALL_N_SOURCE_DIR
+    const auto out_dir = std::filesystem::path(FALL_N_SOURCE_DIR) / "build";
+#else
+    const auto out_dir = std::filesystem::path("./build");
+#endif
 
     // For now, verify element can compute strains at all Gauss points
     Eigen::Vector<double, 54> u_loc = Eigen::Vector<double, 54>::Zero();

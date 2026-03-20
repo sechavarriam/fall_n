@@ -75,7 +75,7 @@ static void check(bool cond, const char* msg) {
 }
 
 static std::filesystem::path output_dir() {
-    auto dir = std::filesystem::path("/tmp/fall_n_phase5_dynamic");
+    auto dir = std::filesystem::temp_directory_path() / "fall_n_phase5_dynamic";
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -186,9 +186,9 @@ static void test_1_free_vibration_period() {
     if (crossings.size() >= 3) {
         double T_measured = crossings[2] - crossings[0];
         PetscPrintf(PETSC_COMM_WORLD,
-            "  T_measured = %.6f (from %zu crossings)\n"
+            "  T_measured = %.6f (from %d crossings)\n"
             "  T_analytical(1D bar) = %.6f\n",
-            T_measured, crossings.size(), T_analytical);
+            T_measured, (int)crossings.size(), T_analytical);
         check(T_measured > 0.0, "Measured period > 0");
         check(T_measured < t_final, "Measured period < simulation time");
     } else {

@@ -373,7 +373,12 @@ void write_element_vtk(const ElementGeometry<3>& geom,
                        const NodesArray& nodes,
                        const std::string& prefix) {
     namespace fs = std::filesystem;
-    fs::create_directories("/home/sechavarriam/MyLibs/fall_n/data/output");
+#ifdef FALL_N_SOURCE_DIR
+    const auto out_base = fs::path(FALL_N_SOURCE_DIR) / "data" / "output";
+#else
+    const auto out_base = fs::path("data") / "output";
+#endif
+    fs::create_directories(out_base);
 
     vtkNew<vtkPoints> points;
     points->SetNumberOfPoints(static_cast<vtkIdType>(nodes.size()));
@@ -395,7 +400,7 @@ void write_element_vtk(const ElementGeometry<3>& geom,
     mesh->InsertNextCell(ct, static_cast<vtkIdType>(nn), ids);
     attach_scalar_field(mesh, "nodal_sum_coords", nodal_scalar);
     fall_n::vtk::write_vtu(
-        mesh, "/home/sechavarriam/MyLibs/fall_n/data/output/" + prefix + "_mesh.vtu");
+        mesh, (out_base / (prefix + "_mesh.vtu")).string());
 
     vtkNew<vtkPoints> gauss_points;
     gauss_points->SetNumberOfPoints(static_cast<vtkIdType>(geom.integration_points().size()));
@@ -414,7 +419,7 @@ void write_element_vtk(const ElementGeometry<3>& geom,
     }
     attach_scalar_field(gauss_grid, "gauss_sum_coords", gauss_scalar);
     fall_n::vtk::write_vtu(
-        gauss_grid, "/home/sechavarriam/MyLibs/fall_n/data/output/" + prefix + "_gauss.vtu");
+        gauss_grid, (out_base / (prefix + "_gauss.vtu")).string());
 }
 
 void test_serendipity_vtk_output() {
@@ -425,11 +430,16 @@ void test_serendipity_vtk_output() {
     write_element_vtk(tet.geom, tet.nodes, "serendipity_tet10_sample");
 
     namespace fs = std::filesystem;
+#ifdef FALL_N_SOURCE_DIR
+    const auto out_base = fs::path(FALL_N_SOURCE_DIR) / "data" / "output";
+#else
+    const auto out_base = fs::path("data") / "output";
+#endif
     bool ok = true;
-    ok = ok && fs::exists("/home/sechavarriam/MyLibs/fall_n/data/output/serendipity_hex20_sample_mesh.vtu");
-    ok = ok && fs::exists("/home/sechavarriam/MyLibs/fall_n/data/output/serendipity_hex20_sample_gauss.vtu");
-    ok = ok && fs::exists("/home/sechavarriam/MyLibs/fall_n/data/output/serendipity_tet10_sample_mesh.vtu");
-    ok = ok && fs::exists("/home/sechavarriam/MyLibs/fall_n/data/output/serendipity_tet10_sample_gauss.vtu");
+    ok = ok && fs::exists(out_base / "serendipity_hex20_sample_mesh.vtu");
+    ok = ok && fs::exists(out_base / "serendipity_hex20_sample_gauss.vtu");
+    ok = ok && fs::exists(out_base / "serendipity_tet10_sample_mesh.vtu");
+    ok = ok && fs::exists(out_base / "serendipity_tet10_sample_gauss.vtu");
 
     report(__func__, ok);
 }

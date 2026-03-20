@@ -1,0 +1,608 @@
+% =============================================================================
+%  Chapter 58 — Building fall\_n on Windows (MSYS2/UCRT64 + GCC)
+% =============================================================================
+
+\chapter{Building \texttt{fall\_n} on Windows (MSYS2/UCRT64)}
+\label{ch:windows-build}
+
+This chapter documents the full procedure to configure, compile, and run
+\texttt{fall\_n} on a 64-bit Windows machine using the MSYS2 UCRT64 toolchain.
+Every step is reproducible from a clean Windows install and does not require
+Visual Studio, WSL, or any other Unix compatibility layer beyond MSYS2 itself.
+
+% =============================================================================
+\section{Prerequisites and Motivations}
+\label{sec:win-prereqs}
+
+\texttt{fall\_n} targets C++23 and depends on several scientific libraries
+(PETSc, Eigen, VTK, MS-MPI) that are either unavailable or extremely
+inconvenient to build from source under the MSVC ABI.  The chosen toolchain is:
+
+\begin{itemize}
+  \item \textbf{MSYS2 UCRT64} --- a MinGW-w64 environment based on the
+        Universal C Runtime (UCRT), which ships as a standard component of
+        modern Windows.  All packages are installed via the \texttt{pacman}
+        package manager, giving reproducible binary packages without local
+        compilation.
+  \item \textbf{GCC 15.2} --- full C++23 support including \texttt{<print>},
+        \texttt{std::expected}, ranges, and concepts.
+  \item \textbf{Ninja 1.13} + \textbf{CMake 4.2} --- fast incremental builds.
+  \item \textbf{Microsoft MPI (MS-MPI)} --- the official MPI runtime for
+        Windows, required by PETSc at link time and at runtime.
+\end{itemize}
+
+The companion library versions used and verified to work are summarised in
+\autoref{tab:win-deps}.
+
+\begin{table}[ht]
+  \centering
+  \caption{Dependency versions verified on Windows (MSYS2 UCRT64, March 2026).}
+  \label{tab:win-deps}
+  \begin{tabular}{llll}
+    \toprule
+    Library & MSYS2 package name & Version & Notes \\
+    \midrule
+    GCC           & \texttt{mingw-w64-ucrt-x86\_64-gcc}          & 15.2.0   & C++23 \\
+    CMake         & \texttt{mingw-w64-ucrt-x86\_64-cmake}         & 4.2.3    & \\
+    Ninja         & \texttt{mingw-w64-ucrt-x86\_64-ninja}         & 1.13.2   & \\
+    pkg-config    & \texttt{mingw-w64-ucrt-x86\_64-pkgconf}       & 2.x      & \\
+    Eigen         & \texttt{mingw-w64-ucrt-x86\_64-eigen3}        & 5.0.1    & header-only \\
+    PETSc         & \texttt{mingw-w64-ucrt-x86\_64-petsc}         & 3.24.5   & double/MPI/opt \\
+    VTK           & \texttt{mingw-w64-ucrt-x86\_64-vtk}           & 9.5.2    & \\
+    MS-MPI SDK    & \texttt{mingw-w64-ucrt-x86\_64-msmpi}         & 10.1.1   & headers+stubs \\
+    nlohmann-json & \texttt{mingw-w64-ucrt-x86\_64-nlohmann-json} & 3.12.0   & VTK dep \\
+    fast\_float   & \texttt{mingw-w64-ucrt-x86\_64-fast\_float}   & 8.2.4    & VTK dep \\
+    utf8cpp       & \texttt{mingw-w64-ucrt-x86\_64-utf8cpp}       & 4.0.6    & VTK dep \\
+    MS-MPI runtime & \texttt{winget: Microsoft.msmpi}             & 10.1.12  & runtime DLL \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% =============================================================================
+\section{Step 1 — Install MSYS2}
+\label{sec:win-msys2}
+
+Download the MSYS2 installer from \url{https://www.msys2.org} and run it.
+The default installation path is \texttt{C:\textbackslash msys64}.
+After installation, open the \textbf{MSYS2 UCRT64} terminal (not the plain
+MSYS2 terminal) from the Start menu.
+
+Update the base system before installing anything:
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+pacman -Syu          # update database + core packages; close and reopen
+pacman -Su           # finish updating remaining packages
+\end{lstlisting}
+
+% =============================================================================
+\section{Step 2 — Install Build Tools and Dependencies}
+\label{sec:win-pacman}
+
+All subsequent commands are executed inside the \textbf{MSYS2 UCRT64} terminal.
+Install the compiler toolchain and build tools first:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+pacman -S \
+  mingw-w64-ucrt-x86_64-gcc \
+  mingw-w64-ucrt-x86_64-cmake \
+  mingw-w64-ucrt-x86_64-ninja \
+  mingw-w64-ucrt-x86_64-pkgconf
+\end{lstlisting}
+
+Then install the scientific libraries and their transitive dependencies:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+pacman -S \
+  mingw-w64-ucrt-x86_64-eigen3 \
+  mingw-w64-ucrt-x86_64-petsc \
+  mingw-w64-ucrt-x86_64-vtk \
+  mingw-w64-ucrt-x86_64-msmpi \
+  mingw-w64-ucrt-x86_64-nlohmann-json \
+  mingw-w64-ucrt-x86_64-fast_float \
+  mingw-w64-ucrt-x86_64-utf8cpp
+\end{lstlisting}
+
+\begin{remark}
+The packages \texttt{nlohmann-json}, \texttt{fast\_float}, and \texttt{utf8cpp}
+are direct dependencies of the MSYS2 VTK 9.5.2 package and must be installed
+separately --- they are not pulled in automatically.  Omitting them causes
+CMake's \texttt{find\_package(VTK)} to fail with missing component errors.
+\end{remark}
+
+\begin{remark}
+The MSYS2 PETSc package uses the pkg-config name \texttt{petsc-dmo}
+(double-precision, MPI-enabled, optimized build).  The legacy name
+\texttt{PETSc} used in the original Linux \texttt{CMakeLists.txt} does not
+exist; see \autoref{sec:win-cmake-changes} for the necessary
+\texttt{pkg\_search\_module} adjustment.
+\end{remark}
+
+% =============================================================================
+\section{Step 3 — Install the MS-MPI Runtime}
+\label{sec:win-msmpi-runtime}
+
+The \texttt{mingw-w64-ucrt-x86\_64-msmpi} pacman package provides the
+MS-MPI \emph{SDK} (headers and import libraries) needed to compile and link
+MPI programs.  However, the \emph{runtime DLL} (\texttt{msmpi.dll}) is
+distributed separately by Microsoft and must be installed on every machine
+that will \emph{run} executables linked against MS-MPI (including during
+\texttt{ctest}).
+
+Install the runtime using winget from a regular Windows PowerShell or Command
+Prompt (not from inside MSYS2):
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+winget install Microsoft.msmpi --accept-package-agreements
+\end{lstlisting}
+
+This installs \texttt{mpiexec.exe} to
+\texttt{C:\textbackslash Program Files\textbackslash Microsoft MPI\textbackslash
+Bin\textbackslash} and registers \texttt{msmpi.dll} in the Windows system
+search path.  Without this step all PETSc-linked executables will abort at
+startup with exit code \texttt{0xc0000135} (\textsc{dll not found}).
+
+% =============================================================================
+\section{Step 4 — Configure the CMake Build}
+\label{sec:win-cmake-invoke}
+
+Clone (or copy) the repository to a convenient location, e.g.\
+\texttt{C:\textbackslash MyLibs\textbackslash fall\_n}.  All remaining
+commands are executed inside the \textbf{MSYS2 UCRT64} terminal.
+
+Create a build directory, configure, and generate:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+cd /c/MyLibs/fall_n
+mkdir -p build && cd build
+cmake .. --preset win-debug
+\end{lstlisting}
+
+The \texttt{win-debug} preset is defined in \texttt{CMakePresets.json} and
+activates only on Windows hosts.  It selects the UCRT64 Ninja generator and
+sets \texttt{CMAKE\_BUILD\_TYPE=Debug}.
+
+A successful configuration ends with output similar to:
+\begin{lstlisting}[basicstyle=\ttfamily\small, frame=single,
+    framerule=0.4pt, rulecolor=\color{gray!50}, breaklines=true,
+    showstringspaces=false]
+-- Configuring done (3.6s)
+-- Generating done (0.5s)
+-- Build files have been written to: C:/MyLibs/fall_n/build
+\end{lstlisting}
+
+% =============================================================================
+\section{Step 5 — Compile}
+\label{sec:win-build}
+
+From the build directory, invoke Ninja:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+ninja -j8         # build everything (main + seismic + all 48 tests)
+ninja -j8 fall_n  # build only the main executable
+\end{lstlisting}
+
+On a modern 8-core machine the full build (including the Matplot++ dependency
+fetched via \texttt{FetchContent}) takes approximately 4--6 minutes.  The
+following executables are produced in the build directory:
+
+\begin{itemize}
+  \item \texttt{fall\_n.exe} --- main structural analysis executable;
+  \item \texttt{fall\_n\_seismic.exe} --- seismic analysis entry point;
+  \item 48 test executables (\texttt{fall\_n\_*\_test.exe}).
+\end{itemize}
+
+% =============================================================================
+\section{Step 6 — Run the Tests}
+\label{sec:win-tests}
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+ctest -L unit -j4            # fast unit tests only (~4 s)
+ctest -L 'unit|integration' -j4
+ctest -j4                    # all 48 tests
+\end{lstlisting}
+
+Expected results on a clean install: \textbf{44/48 tests pass}.  The 4
+remaining failures are not related to the Windows port; they are caused by
+missing mesh and seismic data files that are not included in the repository:
+
+\begin{itemize}
+  \item \texttt{seismic\_infrastructure}: requires
+        \texttt{data/input/earthquakes/el\_centro\_1940\_ns.dat};
+  \item \texttt{nonlinear\_validation}, \texttt{vertical\_slice\_gate}:
+        require \texttt{tests/validation\_cube.msh};
+  \item \texttt{boundary\_conditions}: requires
+        \texttt{data/input/Beam\_LagCell\_Ord1\_30x6x3.msh}.
+\end{itemize}
+
+% =============================================================================
+\section{CMake Modifications for Windows Compatibility}
+\label{sec:win-cmake-changes}
+
+This section documents every change that was made to \texttt{CMakeLists.txt}
+and \texttt{CMakePresets.json} relative to the original Linux build system.
+All changes are guarded by platform conditions so the file remains fully
+functional on Linux without modification.
+
+% -----------------------------------------------------------------------------
+\subsection{MinGW-specific compiler and linker flags}
+
+GCC on MinGW-w64 requires two flags that are not needed on Linux:
+
+\begin{enumerate}
+  \item \textbf{\texttt{-lstdc++exp}} --- The C++23 \texttt{<print>} header
+        (\texttt{std::print}, \texttt{std::println}) is implemented in a
+        separate experimental static library on MinGW.  Without this flag all
+        translation units that include \texttt{<print>} fail at link time with
+        undefined references to \texttt{\_ZSt5printB5cxx11\ldots}.
+
+  \item \textbf{\texttt{-Wa,-mbig-obj}} --- The PE/COFF object file format
+        (used on Windows) limits the number of sections in a single
+        \texttt{.obj} file to 65\,535.  Template-heavy translation units in
+        \texttt{fall\_n} (particularly those including PETSc and VTK headers)
+        exceed this limit and cause the assembler to abort with the error
+        \emph{``too many sections (73659 > 65535)''}.  This flag enables the
+        \emph{big-obj} format which raises the limit to over four billion
+        sections.
+\end{enumerate}
+
+The corresponding CMake block added to \texttt{CMakeLists.txt} is:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  link_libraries(stdc++exp)
+  add_compile_options(-Wa,-mbig-obj)
+
+  # VTK DLLs on MinGW do not export inline template member functions.
+  # Predefine these guards to skip the extern template declarations
+  # and allow the compiler to instantiate the functions locally.
+  add_compile_definitions(
+    VTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN
+    VTK_GDA_TEMPLATE_EXTERN
+  )
+endif()
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{VTK extern-template linking fix}
+\label{ssec:win-vtk-extern}
+
+This is the most subtle Windows-specific issue.  VTK uses \emph{explicit
+template instantiation} to reduce compile times: the class template
+\texttt{vtkAOSDataArrayTemplate<T>} (and its ancestor
+\texttt{vtkGenericDataArray<>}) is fully instantiated inside the
+\texttt{libvtkCommonCore.dll} shared library, while all consumer translation
+units use \texttt{extern template} declarations (gated by the macro
+\texttt{VTK\_USE\_EXTERN\_TEMPLATE}, unconditionally defined in
+\texttt{vtkCompiler.h}) to suppress local re-instantiation.
+
+On Linux and macOS this mechanism works perfectly: the shared library exports
+the symbols and the dynamic linker resolves them at load time.  On Windows
+with MinGW, however, the \texttt{extern template} suppression interacts poorly
+with the PE/COFF \texttt{\_\_declspec(dllimport)} mechanism.  In particular,
+\emph{inline methods} such as
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+// vtkAOSDataArrayTemplate.h (line 87)
+void SetValue(vtkIdType valueIdx, ValueType value) {
+  this->Buffer->GetBuffer()[valueIdx] = value;
+}
+\end{lstlisting}
+
+are \emph{already inlined} into the DLL's callers at the time the DLL is
+built; they are \emph{not emitted as distinct exported symbols}.  Yet
+\texttt{extern template class VTKCOMMONCORE\_EXPORT
+vtkAOSDataArrayTemplate<T>;} instructs the consumer translation unit to
+\emph{not} instantiate the template locally and to expect the symbol from the
+DLL import library --- a symbol that does not exist.  The linker then fails
+with:
+\begin{lstlisting}[basicstyle=\ttfamily\small, frame=single,
+    framerule=0.4pt, rulecolor=\color{gray!50}, breaklines=true,
+    showstringspaces=false]
+undefined reference to
+  `vtkAOSDataArrayTemplate<long long>::SetValue(long long, long long)'
+undefined reference to
+  `vtkAOSDataArrayTemplate<int>::SetValue(int, int)'
+undefined reference to
+  `vtkAOSDataArrayTemplate<double>::SetValue(double, double)'
+\end{lstlisting}
+
+The fix is to predefine the guard macros \texttt{VTK\_AOS\_DATA\_ARRAY\_TEMPLATE\_EXTERN}
+and \texttt{VTK\_GDA\_TEMPLATE\_EXTERN} before any VTK header is processed.
+These macros wrap the \texttt{extern template} declarations inside
+\texttt{\#ifndef} guards:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+// vtkAOSDataArrayTemplate.h (abbreviated)
+#ifdef VTK_USE_EXTERN_TEMPLATE
+#ifndef VTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN   // <-- guard
+#define VTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN
+extern template class VTKCOMMONCORE_EXPORT vtkAOSDataArrayTemplate<double>;
+// ... 12 more explicit instantiations ...
+#endif
+#endif
+\end{lstlisting}
+
+By predeclaring \texttt{VTK\_AOS\_DATA\_ARRAY\_TEMPLATE\_EXTERN} (and the
+analogous \texttt{VTK\_GDA\_TEMPLATE\_EXTERN} for the base class), the
+\texttt{extern template} block is skipped and the compiler instantiates the
+inline methods locally from the \texttt{.h} + \texttt{.txx} pair shipped with
+the package.  This is the correct semantics on MinGW: small inline methods
+should never have been placed behind DLL-import stubs in the first place.
+
+% -----------------------------------------------------------------------------
+\subsection{PETSc C++ macro fallbacks}
+
+The MSYS2 PETSc 3.24.5 package was compiled as a pure-C library
+(\texttt{PETSC\_CLANGUAGE\_C~=~1}).  As a result,
+two macros required by the C++ PETSc headers are absent from
+\texttt{petscconf.h}:
+
+\begin{itemize}
+  \item \texttt{PETSC\_FUNCTION\_NAME\_CXX} --- the C++ equivalent of
+        \texttt{\_\_FUNCTION\_\_}, used in error-handling macros such as
+        \texttt{PetscCall} for stack-trace annotation.
+  \item \texttt{PETSC\_CXX\_RESTRICT} --- the C++ spelling of the
+        \texttt{restrict} qualifier.
+\end{itemize}
+
+Missing either macro causes compile errors of the form \emph{``PETSC\_FUNCTION\_NAME\_CXX was not declared''}.  The fix uses CMake's
+\texttt{CheckSymbolExists} to detect their absence and defines fallbacks:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_INCLUDES ${PETSC_INCLUDE_DIRS})
+check_symbol_exists(PETSC_FUNCTION_NAME_CXX "petscconf.h"
+                    _HAVE_PETSC_FN_CXX)
+if(NOT _HAVE_PETSC_FN_CXX)
+  add_compile_definitions(
+    PETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__)
+endif()
+check_symbol_exists(PETSC_CXX_RESTRICT "petscconf.h"
+                    _HAVE_PETSC_CXX_RESTRICT)
+if(NOT _HAVE_PETSC_CXX_RESTRICT)
+  add_compile_definitions(PETSC_CXX_RESTRICT=__restrict__)
+endif()
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{PETSc pkg-config name}
+
+The original \texttt{CMakeLists.txt} searched for PETSc via
+\texttt{pkg\_search\_module(PETSC REQUIRED IMPORTED\_TARGET PETSc)}.  The
+MSYS2 package registers the library under the name \texttt{petsc-dmo} (double,
+MPI, optimized).  The search was widened to try multiple names:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+pkg_search_module(PETSC REQUIRED IMPORTED_TARGET
+                  PETSc petsc petsc-dmo petsc-dso)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{Source directory macro}
+
+Hardcoded absolute Unix paths of the form
+\texttt{/home/sechavarriam/MyLibs/fall\_n/} existed in \texttt{main.cpp},
+\texttt{main\_seismic.cpp}, and thirteen test files.  These were replaced with
+a compile-time macro that resolves to the actual source tree regardless of
+platform or user name:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+# CMakeLists.txt
+add_compile_definitions(
+  FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+\end{lstlisting}
+
+Usage in source code:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+#ifdef FALL_N_SOURCE_DIR
+  static const std::string BASE =
+      std::string(FALL_N_SOURCE_DIR) + "/";
+#else
+  static const std::string BASE = "./";
+#endif
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{Windows CMake preset}
+
+A \texttt{win-debug} preset was added to \texttt{CMakePresets.json}:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+{
+  "name": "win-debug",
+  "displayName": "Windows Debug (MSYS2 UCRT64)",
+  "generator": "Ninja",
+  "binaryDir": "${sourceDir}/build",
+  "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+  "condition": {
+    "type": "equals",
+    "lhs": "${hostSystemName}",
+    "rhs": "Windows"
+  }
+}
+\end{lstlisting}
+
+% =============================================================================
+\section{Source-Code Portability Fixes}
+\label{sec:win-src-fixes}
+
+Besides the build-system changes, several source files required modifications
+to compile cleanly with GCC on Windows.
+
+% -----------------------------------------------------------------------------
+\subsection{\texttt{ushort} is not a standard type}
+
+The file \texttt{src/utils/index.hh} used \texttt{ushort} as a template
+non-type parameter:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+template <ushort... N>  // non-standard: ushort is a POSIX extension
+\end{lstlisting}
+GCC on MinGW does not declare \texttt{ushort} in the global namespace.
+The fix replaces it with the standard \texttt{unsigned short}:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+template <unsigned short... N>
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{\texttt{\%zu} format specifier in \texttt{PetscPrintf}}
+
+The MSYS2 PETSc runtime's \texttt{PetscPrintf} does not recognise the
+\texttt{\%zu} format specifier for \texttt{std::size\_t} on this platform.
+Occurrences were replaced with \texttt{\%d} and an explicit \texttt{(int)} cast:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+// Before
+PetscPrintf(PETSC_COMM_WORLD,
+    "T_measured = %.6f (from %zu crossings)\n",
+    T_measured, crossings.size());
+
+// After
+PetscPrintf(PETSC_COMM_WORLD,
+    "T_measured = %.6f (from %d crossings)\n",
+    T_measured, (int)crossings.size());
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\subsection{Unused-variable warning in tests}
+
+GCC 15 with \texttt{-Werror=unused-but-set-variable} rejected a variable in
+\texttt{tests/test\_kinematic\_policy.cpp} that was assigned but never read
+after the assignment.  The fix adds \texttt{[[maybe\_unused]]}:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small,
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+[[maybe_unused]] Eigen::Vector<double, 3> E_from_B = gp.B * u_e;
+\end{lstlisting}
+
+% =============================================================================
+\section{Runtime PATH Considerations}
+\label{sec:win-runtime-path}
+
+The UCRT64 runtime libraries (\texttt{libvtkCommonCore.dll},
+\texttt{libpetsc-dmo.dll}, \texttt{libgcc\_s\_seh-1.dll}, etc.) reside in
+\texttt{C:\textbackslash msys64\textbackslash ucrt64\textbackslash bin}.  This
+directory is automatically on \texttt{PATH} inside MSYS2 terminal sessions.
+
+When executables are launched \emph{outside} MSYS2 (e.g.\ from PowerShell,
+Explorer, or a CI runner) they will fail with \texttt{0xc0000135} unless the
+UCRT64 bin path is added to the system or user \texttt{PATH}, or the DLLs are
+copied alongside the executables.
+
+For CTest invocations the recommended approach is to run from within the MSYS2
+UCRT64 terminal, where the path is already configured:
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    frame=single, framerule=0.4pt, rulecolor=\color{gray!50},
+    breaklines=true, showstringspaces=false]
+# Open MSYS2 UCRT64 terminal, then:
+cd /c/MyLibs/fall_n/build
+ctest -L unit -j4 --output-on-failure
+\end{lstlisting}
+
+Alternatively, add the UCRT64 bin directory permanently to the Windows system
+environment variables via \textit{System Properties $\to$ Environment Variables
+$\to$ System Variables $\to$ Path}.
+
+% =============================================================================
+\section{Summary of All Changes}
+\label{sec:win-summary}
+
+\autoref{tab:win-changes} lists every file that was modified and the
+corresponding reason.
+
+\begin{table}[ht]
+  \centering
+  \caption{Files modified for Windows/MinGW compatibility.}
+  \label{tab:win-changes}
+  \begin{tabular}{p{6.2cm} p{8cm}}
+    \toprule
+    File & Change \\
+    \midrule
+    \texttt{CMakeLists.txt}
+      & MinGW flags (\texttt{-lstdc++exp},
+        \texttt{-Wa,-mbig-obj}); PETSc fallback macros;
+        \texttt{pkg\_search\_module} widened; VTK extern-template guards;
+        \texttt{FALL\_N\_SOURCE\_DIR} macro; compiler flag guard for MSVC
+        vs.\ GCC. \\[3pt]
+    \texttt{CMakePresets.json}
+      & Added \texttt{win-debug} preset. \\[3pt]
+    \texttt{main.cpp}
+      & Replaced hardcoded \texttt{/home/\ldots} path with
+        \texttt{FALL\_N\_SOURCE\_DIR} macro. \\[3pt]
+    \texttt{main\_seismic.cpp}
+      & Same as \texttt{main.cpp}. \\[3pt]
+    \texttt{src/utils/index.hh}
+      & \texttt{ushort} $\to$ \texttt{unsigned short}. \\[3pt]
+    13 test files under \texttt{tests/}
+      & Replaced hardcoded Unix paths with \texttt{FALL\_N\_SOURCE\_DIR};
+        replaced \texttt{/tmp/} with
+        \texttt{std::filesystem::temp\_directory\_path()}. \\[3pt]
+    \texttt{tests/test\_kinematic\_policy.cpp}
+      & Added \texttt{[[maybe\_unused]]} to suppress GCC 15
+        unused-variable warning. \\[3pt]
+    \texttt{tests/test\_phase5\_dynamic\_verification.cpp}
+      & Replaced \texttt{\%zu} with \texttt{\%d} in
+        \texttt{PetscPrintf} format string. \\
+    \bottomrule
+  \end{tabular}
+\end{table}

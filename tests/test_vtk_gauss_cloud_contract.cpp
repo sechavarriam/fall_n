@@ -74,7 +74,11 @@ vtkSmartPointer<vtkUnstructuredGrid> make_gauss_cloud_grid() {
 
 void test_gauss_cloud_roundtrip_keeps_point_fields() {
     const auto output_path = std::filesystem::path(
-        "/home/sechavarriam/MyLibs/fall_n/build/test_vtk_gauss_cloud.vtu");
+#ifdef FALL_N_SOURCE_DIR
+        std::string(FALL_N_SOURCE_DIR) + "/build/test_vtk_gauss_cloud.vtu");
+#else
+        "build/test_vtk_gauss_cloud.vtu");
+#endif
 
     auto grid = make_gauss_cloud_grid();
 

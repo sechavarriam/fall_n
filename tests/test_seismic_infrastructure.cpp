@@ -61,7 +61,11 @@ void test_ground_motion_parse_el_centro() {
     std::println("\n── Test: parse El Centro 1940 NS ──────────────────────────");
 
     const std::filesystem::path eq_path =
-        "/home/sechavarriam/MyLibs/fall_n/data/input/earthquakes/el_centro_1940_ns.dat";
+#ifdef FALL_N_SOURCE_DIR
+        std::filesystem::path(FALL_N_SOURCE_DIR) / "data/input/earthquakes/el_centro_1940_ns.dat";
+#else
+        "data/input/earthquakes/el_centro_1940_ns.dat";
+#endif
 
     auto record = fall_n::GroundMotionRecord::from_file(eq_path, 1.0);
 
@@ -106,7 +110,11 @@ void test_ground_motion_scaling() {
     std::println("\n── Test: GroundMotionRecord scale factor ───────────────────");
 
     const std::filesystem::path eq_path =
-        "/home/sechavarriam/MyLibs/fall_n/data/input/earthquakes/el_centro_1940_ns.dat";
+#ifdef FALL_N_SOURCE_DIR
+        std::filesystem::path(FALL_N_SOURCE_DIR) / "data/input/earthquakes/el_centro_1940_ns.dat";
+#else
+        "data/input/earthquakes/el_centro_1940_ns.dat";
+#endif
 
     auto record = fall_n::GroundMotionRecord::from_file(eq_path, 9.81);
     report("PGA scaled ≈ 3.13 m/s²", std::abs(record.pga() - 0.3194 * 9.81) < 0.2);
@@ -257,7 +265,11 @@ void test_ground_motion_bc_integration() {
     std::println("\n── Test: GroundMotionBC via BoundaryConditionSet ───────────");
 
     const std::filesystem::path eq_path =
-        "/home/sechavarriam/MyLibs/fall_n/data/input/earthquakes/el_centro_1940_ns.dat";
+#ifdef FALL_N_SOURCE_DIR
+        std::filesystem::path(FALL_N_SOURCE_DIR) / "data/input/earthquakes/el_centro_1940_ns.dat";
+#else
+        "data/input/earthquakes/el_centro_1940_ns.dat";
+#endif
 
     auto gm = fall_n::make_ground_motion_from_file(eq_path, 0, 9.81);
 

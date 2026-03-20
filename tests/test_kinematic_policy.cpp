@@ -416,7 +416,7 @@ void test_TL_evaluate_consistency_2D() {
     auto gp = TotalLagrangian::evaluate_from_gradients<2>(grad, 2, u_e);
 
     // Verify: B_NL · u_e should equal the strain_voigt
-    Eigen::Vector<double, 3> E_from_B = gp.B * u_e;
+    [[maybe_unused]] Eigen::Vector<double, 3> E_from_B = gp.B * u_e;
     Eigen::Vector<double, 3> E_direct = gp.strain_voigt;
 
     // They should NOT be identical in general (E is nonlinear in u).
