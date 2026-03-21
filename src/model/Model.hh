@@ -251,6 +251,27 @@ public:
         }
     }
 
+    /// Update only the VALUE of an already-constrained DOF in both the
+    /// in-memory map and the PETSc imposed-solution vector.
+    ///
+    /// Precondition: the DOF must have been constrained (via constrain_dof
+    /// or fix_node) BEFORE setup() was called, so that the DM section
+    /// already accounts for it.  This method never mutates the section.
+    ///
+    /// Complexity: O(log n) map update + O(1) VecSetValueLocal.
+    /// Safe to call inside an incremental stepping loop.
+    void update_imposed_value(std::size_t node_idx, std::size_t local_dof,
+                              double value) noexcept
+    {
+        constrain_dof(node_idx, local_dof, value);
+
+        auto& node    = domain_->node(node_idx);
+        auto  all_dofs = node.dof_index();
+        VecSetValueLocal(global_imposed_solution_.get(),
+                         all_dofs[local_dof],
+                         static_cast<PetscScalar>(value), INSERT_VALUES);
+    }
+
     /// Constrain ALL DOFs of a node (homogeneous by default).
     void fix_node(std::size_t node_idx) noexcept {
         auto& node = domain_->node(node_idx);
