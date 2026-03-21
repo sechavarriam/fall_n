@@ -1,0 +1,642 @@
+% =============================================================================
+%  Chapter 59 — Incremental Control Policy for NonlinearAnalysis
+% =============================================================================
+
+\chapter{Incremental Control Policy for Nonlinear Analysis}
+\label{ch:incremental-control}
+
+This chapter documents the design, implementation, and testing of the
+\texttt{IncrementalControlPolicy} abstraction, which generalises the
+incremental stepping strategy of \texttt{NonlinearAnalysis} from
+hardcoded proportional load control to an injectable, compile-time
+policy.  Three concrete schemes are provided: \texttt{LoadControl}
+(backward-compatible default), \texttt{DisplacementControl} (single
+or multi-DOF pushover), and \texttt{CustomControl<F>} (user-supplied
+callable for maximum flexibility).  An \texttt{ArcLengthControl} stub
+is included for future development.
+
+% =============================================================================
+\section{Motivation and Problem Statement}
+\label{sec:ic-motivation}
+
+The original implementation of \texttt{NonlinearAnalysis::advance\_to\_lambda\_}
+contained three hardcoded lines that coupled the class to proportional load
+control:
+
+\begin{lstlisting}
+VecCopy(f_full, f_ext);
+VecScale(f_ext, lambda_target);
+ctx_.f_ext = f_ext;
+\end{lstlisting}
+
+This prevented using the existing bisection infrastructure for:
+
+\begin{itemize}
+  \item \textbf{Displacement control} — prescribing displacement increments
+        at specific DOFs (pushover analysis, post-peak softening).
+  \item \textbf{Mixed control} — combining load scaling with prescribed
+        displacements.
+  \item \textbf{Custom ramps} — non-linear load paths, conditional logic,
+        or external coupling.
+  \item \textbf{Arc-length control} (future) — parametrising the solution
+        path by its arc-length to traverse limit points.
+\end{itemize}
+
+The goal was to extract this logic into a \emph{compile-time injectable
+policy} that:
+\begin{enumerate}[label=(\roman*)]
+  \item preserves zero overhead (monomorphised at compile time),
+  \item is backward-compatible (existing code compiles without changes),
+  \item enables displacement control, custom ramps, and future arc-length,
+  \item integrates seamlessly with the existing bisection engine.
+\end{enumerate}
+
+% =============================================================================
+\section{Design Decision: Function-Level Template}
+\label{sec:ic-design}
+
+Two injection points were considered:
+
+\begin{description}
+  \item[Class-level template parameter] Add \texttt{CS} to the class template
+        parameter list of \texttt{NonlinearAnalysis<\ldots, CS>}.  This forces
+        the control scheme to be fixed at object construction time and pollutes
+        the type name.
+
+  \item[Function-level template parameter] Make \texttt{solve\_incremental}
+        a member function template accepting the scheme by value:
+        \begin{lstlisting}
+template <typename CS>
+bool solve_incremental(int num_steps, int max_bisections, CS scheme);
+        \end{lstlisting}
+        The type \texttt{CS} is deduced from the argument via CTAD; a
+        default overload taking no scheme calls with \texttt{LoadControl\{\}}.
+\end{description}
+
+The function-level approach was chosen because:
+
+\begin{itemize}
+  \item The same \texttt{NonlinearAnalysis} object can solve with
+        different schemes in sequence (e.g., load-controlled pre-load
+        followed by displacement-controlled pushover).
+  \item No additional member state is introduced: the scheme is a
+        stack-local value, passed through the recursion.
+  \item The default overload \texttt{solve\_incremental(num\_steps)} is
+        100\% backward-compatible — no existing call site needs changes.
+  \item CTAD deduces \texttt{CS}, so client code never spells the type:
+        \begin{lstlisting}
+nl.solve_incremental(20, 4, DisplacementControl{42, 0, 0.01});
+        \end{lstlisting}
+\end{itemize}
+
+This follows the same philosophy as the project's existing policy-based
+patterns (\texttt{MaterialPolicy}, \texttt{KinematicPolicy},
+\texttt{LocalStepControlPolicy}), but at the function level rather than
+the class level, offering greater flexibility without additional
+coupling.
+
+% =============================================================================
+\section{The \texttt{IncrementalControlPolicy} Concept}
+\label{sec:ic-concept}
+
+The concept constrains any type \texttt{S} that can set the system
+state for a scalar control parameter \texttt{p}:
+
+\begin{lstlisting}
+template <typename S, typename ModelT>
+concept IncrementalControlPolicy = requires(
+    S& scheme, double p, Vec f_full, Vec f_ext, ModelT* model)
+{
+    scheme.apply(p, f_full, f_ext, model);
+};
+\end{lstlisting}
+
+The single required expression \texttt{scheme.apply(p, f\_full, f\_ext,
+model)} sets the complete system state for the control parameter
+\texttt{p}:
+
+\begin{itemize}
+  \item \texttt{p} --- control parameter in $[0, 1]$.  At $p=0$ the
+        system is unloaded; at $p=1$ the full reference load or target
+        displacement is reached.
+  \item \texttt{f\_full} --- reference external force vector (read-only,
+        the unscaled load at $p=1$).
+  \item \texttt{f\_ext} --- external force vector to fill.  Consumed by
+        the SNES residual callback.
+  \item \texttt{model} --- pointer to the \texttt{Model} object, giving
+        access to \texttt{update\_imposed\_value()}, the constraint map,
+        etc.
+\end{itemize}
+
+\subsection{The Absolute-State Invariant}
+\label{ssec:ic-absolute}
+
+\begin{remark}[Absolute invariant]
+\label{rem:ic-absolute}
+\texttt{apply(p, \ldots)} must be \emph{absolute}: for any value of
+\texttt{p}, calling \texttt{apply(p, \ldots)} fully determines the
+system state, regardless of the previous call history.
+This is essential for correctness of the bisection engine.
+\end{remark}
+
+When a Newton step diverges, the bisection engine:
+\begin{enumerate}
+  \item Reverts the displacement field $\mathbf{u}$ to its snapshot.
+  \item Reverts the material state to the last committed values.
+  \item Calls \texttt{scheme.apply(p\_current, \ldots)} to restore
+        the control state.
+\end{enumerate}
+
+Because \texttt{apply()} is absolute, step~3 requires no save/restore
+logic inside the scheme itself --- the system state is a pure function
+$f(p)$ of the control parameter.  This eliminates an entire class of
+state management bugs and keeps the scheme implementations stateless
+and trivially correct.
+
+% =============================================================================
+\section{Concrete Implementations}
+\label{sec:ic-implementations}
+
+\subsection{\texttt{LoadControl} --- Proportional Load Scaling}
+\label{ssec:ic-load}
+
+The default scheme extracts the original three-line logic:
+
+\begin{lstlisting}
+struct LoadControl {
+    template <typename ModelT>
+    void apply(double p, Vec f_full, Vec f_ext,
+               [[maybe_unused]] ModelT*) const
+    {
+        VecCopy(f_full, f_ext);
+        VecScale(f_ext, p);
+    }
+};
+\end{lstlisting}
+
+At each step $k$ of $N$, the external force vector is set to
+$\mathbf{f}_\text{ext} = p \cdot \mathbf{f}_\text{full}$ where
+$p = k/N$.  The model pointer is unused.  This is the identity
+refactoring of the original code and serves as the default:
+
+\begin{lstlisting}
+nl.solve_incremental(10);           // LoadControl{} implicit
+nl.solve_incremental(10, 4, LoadControl{});  // explicit
+\end{lstlisting}
+
+\subsection{\texttt{DisplacementControl} --- Prescribed-DOF Pushover}
+\label{ssec:ic-displacement}
+
+Controls one or more DOFs linearly with $p$, with optional proportional
+load scaling:
+
+\begin{lstlisting}
+struct DisplacementControl {
+    struct PrescribedDOF {
+        std::size_t node;
+        std::size_t dof;
+        double      target;
+    };
+
+    std::vector<PrescribedDOF> controlled_dofs;
+    double load_scale{0.0};
+
+    // Single DOF
+    DisplacementControl(std::size_t node, std::size_t dof,
+                        double target, double scale = 0.0);
+
+    // Multi-DOF
+    DisplacementControl(std::vector<PrescribedDOF> dofs,
+                        double scale = 0.0);
+
+    template <typename ModelT>
+    void apply(double p, Vec f_full, Vec f_ext, ModelT* model) {
+        VecCopy(f_full, f_ext);
+        VecScale(f_ext, p * load_scale);
+        for (const auto& [node, dof, target] : controlled_dofs) {
+            model->update_imposed_value(node, dof, p * target);
+        }
+    }
+};
+\end{lstlisting}
+
+At control parameter $p$:
+\begin{align}
+  u_{\text{imposed}, i} &= p \cdot \mathtt{target}_i, \label{eq:ic-disp-dof} \\
+  \mathbf{f}_\text{ext} &= p \cdot \mathtt{load\_scale} \cdot \mathbf{f}_\text{full}.
+  \label{eq:ic-disp-fext}
+\end{align}
+
+The controlled DOFs must have been pre-constrained via
+\texttt{constrain\_dof()} before \texttt{Model::setup()}, so that the DM
+section includes the boundary condition.  The \texttt{apply()} call only
+updates the \emph{value} of an existing constraint (not the section
+structure), using \texttt{Model::update\_imposed\_value()}.
+
+Typical usage for a pushover analysis at node~42, DOF~0, with
+target displacement 0.01:
+
+\begin{lstlisting}
+M.constrain_dof(42, 0, 0.0);   // register constraint before setup
+M.setup();
+
+NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
+nl.solve_incremental(20, 4, DisplacementControl{42, 0, 0.01});
+\end{lstlisting}
+
+\subsection{\texttt{CustomControl<F>} --- Maximum Flexibility}
+\label{ssec:ic-custom}
+
+Wraps any callable with signature
+\texttt{void(double, Vec, Vec, ModelT*)} into a policy-satisfying
+object:
+
+\begin{lstlisting}
+template <typename F>
+struct CustomControl {
+    F apply_fn;
+
+    template <typename ModelT>
+    void apply(double p, Vec f_full, Vec f_ext, ModelT* model) {
+        apply_fn(p, f_full, f_ext, model);
+    }
+};
+
+template <typename F> CustomControl(F) -> CustomControl<F>;
+
+template <typename F>
+auto make_control(F&& f) {
+    return CustomControl<std::decay_t<F>>{std::forward<F>(f)};
+}
+\end{lstlisting}
+
+This enables arbitrary control strategies without defining a named
+class.  Example with a square-root ramp combined with displacement
+control:
+
+\begin{lstlisting}
+nl.solve_incremental(10, 4, make_control(
+    [](double p, Vec f_full, Vec f_ext, auto* model) {
+        VecCopy(f_full, f_ext);
+        VecScale(f_ext, std::sqrt(p));
+        model->update_imposed_value(42, 0, p * 0.01);
+    }
+));
+\end{lstlisting}
+
+The CTAD deduction guide and \texttt{make\_control()} factory work
+in tandem: the factory perfectly forwards the callable and strips
+references, while the deduction guide enables direct aggregate
+initialisation when desired.
+
+\subsection{Arc-Length Control (Stub)}
+\label{ssec:ic-arclength}
+
+An \texttt{ArcLengthControl} stub is placed in
+\texttt{IncrementalControl.hh} for future development.  Arc-length
+(Riks) methods require augmenting the SNES system to the unknowns
+$(\mathbf{u}, \lambda)$ with a constraint equation:
+\[
+  \|\Delta\mathbf{u}\|^2 + \Delta\lambda^2 \|\mathbf{f}\|^2 = \Delta s^2,
+\]
+where $s$ is the arc-length parameter.  The control parameter becomes
+$s$ rather than $p$, and the stepping engine must reinterpret its
+meaning accordingly.  This is marked with a \texttt{static\_assert}
+guard preventing accidental instantiation.
+
+% =============================================================================
+\section{\texttt{Model::update\_imposed\_value()}}
+\label{sec:ic-update-imposed}
+
+The \texttt{DisplacementControl} scheme needs to update the imposed value
+of a constraint at each step without rebuilding the DM section or
+retraversing all nodes.  The existing \texttt{fill\_imposed\_solution()}
+method is $O(N)$ --- it walks every node in the domain --- which is
+unacceptable inside the stepping loop.
+
+A new $O(1)$ method was added to \texttt{Model}:
+
+\begin{lstlisting}
+void update_imposed_value(std::size_t node_idx,
+                          std::size_t local_dof,
+                          double value) noexcept
+{
+    // 1. Update in-memory constraint map (O(log n) amortised)
+    constrain_dof(node_idx, local_dof, value);
+
+    // 2. Direct write to PETSc imposed-solution Vec (O(1))
+    auto& node = domain_->node(node_idx);
+    auto  all_dofs = node.dof_index();
+    PetscScalar val = static_cast<PetscScalar>(value);
+    VecSetValueLocal(global_imposed_solution_.get(),
+                     all_dofs[local_dof], val, INSERT_VALUES);
+    VecAssemblyBegin(global_imposed_solution_.get());
+    VecAssemblyEnd(global_imposed_solution_.get());
+}
+\end{lstlisting}
+
+This method:
+\begin{enumerate}
+  \item Calls \texttt{constrain\_dof()} to update the constraint map
+        (the same map used by \texttt{fill\_imposed\_solution()}).
+  \item Writes the new value directly into the PETSc Vec via
+        \texttt{VecSetValueLocal()}, using the DOF's local index
+        from the node. This avoids the full-domain traversal.
+  \item Calls \texttt{VecAssemblyBegin/End} to flush the value
+        (required by PETSc even for sequential vectors).
+\end{enumerate}
+
+\begin{remark}
+The DOF must have been registered as constrained \emph{before}
+\texttt{setup()} so that the DM section includes the boundary
+condition.  \texttt{update\_imposed\_value()} only updates the value,
+not the topological structure.
+\end{remark}
+
+% =============================================================================
+\section{Changes to \texttt{NonlinearAnalysis}}
+\label{sec:ic-nlanalysis}
+
+\subsection{Renamed Control Parameter}
+\label{ssec:ic-rename}
+
+The load factor $\lambda$ was renamed to the generic control parameter
+$p$ throughout the implementation.  The stepping function
+\texttt{advance\_to\_lambda\_} became \texttt{advance\_to\_p\_}.
+Print messages were updated accordingly.  This reflects the fact that
+the control parameter may represent load scaling, displacement fraction,
+or any other monotonic path parameter.
+
+\subsection{Template Structure}
+\label{ssec:ic-template}
+
+The two modified functions are now templates on the control scheme:
+
+\begin{lstlisting}
+// Backward-compatible overload
+bool solve_incremental(int num_steps, int max_bisections = 4);
+
+// General form
+template <typename CS>
+bool solve_incremental(int num_steps, int max_bisections, CS scheme);
+
+// Bisection engine (private)
+template <typename CS>
+bool advance_to_p_(CS& scheme, Vec f_full,
+                   double p_current, double p_target,
+                   int bisections_left);
+\end{lstlisting}
+
+The backward-compatible overload delegates to the general form with
+\texttt{LoadControl\{\}} as the default scheme.  A \texttt{static\_assert}
+in the general form enforces the concept:
+
+\begin{lstlisting}
+static_assert(IncrementalControlPolicy<CS, ModelT>,
+    "CS must satisfy IncrementalControlPolicy<CS, ModelT>");
+\end{lstlisting}
+
+\subsection{Integration with the Bisection Engine}
+\label{ssec:ic-bisection}
+
+The bisection engine (\texttt{advance\_to\_p\_}) received minimal
+changes.  The only modification is the replacement of the three
+hardcoded lines with a single call:
+
+\begin{lstlisting}
+// Before (hardcoded):
+VecCopy(f_full, f_ext);
+VecScale(f_ext, lambda_target);
+ctx_.f_ext = f_ext;
+
+// After (policy-driven):
+scheme.apply(p_target, f_full, f_ext, model_);
+ctx_.f_ext = f_ext;
+\end{lstlisting}
+
+The snapshot/revert logic for the displacement field $\mathbf{u}$ and
+material state is unchanged.  After a diverged step, the engine calls
+\texttt{scheme.apply(p\_current, \ldots)} to restore the control
+state before bisecting --- this is correct because \texttt{apply()}
+is absolute (see Remark~\ref{rem:ic-absolute}).
+
+The full bisection algorithm is summarized in
+Algorithm~\ref{alg:ic-bisection}.
+
+\begin{algorithm}[ht]
+  \caption{Policy-driven bisection engine (\texttt{advance\_to\_p\_}).}
+  \label{alg:ic-bisection}
+  \SetAlgoLined
+  \KwIn{scheme, $\mathbf{f}_\text{full}$, $p_\text{current}$,
+        $p_\text{target}$, budget}
+  \KwOut{\texttt{true} if $p_\text{target}$ reached,
+         \texttt{false} otherwise}
+
+  $\mathbf{u}_\text{snap} \gets \mathbf{u}$\;
+  \texttt{scheme.apply}$(p_\text{target})$\;
+  Solve SNES\;
+  \uIf{converged}{
+    Commit material state\;
+    \Return \texttt{true}\;
+  }
+  \Else{
+    $\mathbf{u} \gets \mathbf{u}_\text{snap}$\;
+    Revert material state\;
+    \texttt{scheme.apply}$(p_\text{current})$ \tcp*{restore control state}
+    \uIf{budget $= 0$}{
+      \Return \texttt{false}\;
+    }
+    \Else{
+      $p_\text{mid} \gets (p_\text{current} + p_\text{target}) / 2$\;
+      \lIf{\textbf{not} advance\_to\_p\_(scheme, $p_\text{current}$,
+            $p_\text{mid}$, budget$-1$)}{\Return \texttt{false}}
+      \Return advance\_to\_p\_(scheme, $p_\text{mid}$,
+              $p_\text{target}$, budget$-1$)\;
+    }
+  }
+\end{algorithm}
+
+% =============================================================================
+\section{Relationship with Existing Policy Patterns}
+\label{sec:ic-patterns}
+
+The \texttt{IncrementalControlPolicy} fits naturally into the
+project's policy-based architecture.  \autoref{tab:ic-policy-summary}
+contextualises it alongside existing abstractions.
+
+\begin{table}[ht]
+  \centering
+  \caption{Policy abstractions in \texttt{fall\_n} at different scales.}
+  \label{tab:ic-policy-summary}
+  \begin{tabular}{lll}
+    \toprule
+    Scale & Concept / Interface & Implementations \\
+    \midrule
+    Material (local) & \texttt{LocalStepControlPolicy}
+      & \texttt{FullStepControl},
+        \texttt{BacktrackingResidualStepControl} \\
+    Dynamic analysis & \texttt{ForceEvaluator} (\texttt{std::function})
+      & Lambdas, closures \\
+    \textbf{Static NL}
+      & \textbf{\texttt{IncrementalControlPolicy}}
+      & \textbf{\texttt{LoadControl}},
+        \textbf{\texttt{DisplacementControl}}, \\
+      & & \textbf{\texttt{CustomControl<F>}} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The key difference from \texttt{LocalStepControlPolicy} (which also
+uses C++20 concepts) is the injection point: the local step control
+is a class-level template parameter of the material, while the
+incremental control is a function-level template on
+\texttt{solve\_incremental}.  This reflects their different scopes:
+material policies are fixed for the lifetime of an element, while
+the incremental control strategy may change between analysis phases.
+
+The \texttt{ForceEvaluator} pattern used in
+\texttt{DynamicAnalysis} relies on \texttt{std::function} for
+type-erasure (suitable for time-dependent forces that vary at
+runtime).  In contrast, \texttt{IncrementalControlPolicy} uses
+compile-time polymorphism because the control scheme is typically
+fixed for an entire \texttt{solve\_incremental} call and
+performance in the inner loop is critical.
+
+% =============================================================================
+\section{File Summary}
+\label{sec:ic-files}
+
+\autoref{tab:ic-files} summarises all changes made.
+
+\begin{table}[ht]
+  \centering
+  \caption{Files created or modified for the incremental control policy.}
+  \label{tab:ic-files}
+  \begin{tabular}{lll}
+    \toprule
+    File & Type & Description \\
+    \midrule
+    \texttt{src/analysis/IncrementalControl.hh}
+      & New & Concept + \texttt{LoadControl} +
+              \texttt{DisplacementControl} +
+              \texttt{CustomControl<F>} \\
+    \texttt{src/analysis/NLAnalysis.hh}
+      & Modified & Template \texttt{solve\_incremental} +
+                   \texttt{advance\_to\_p\_} \\
+    \texttt{src/model/Model.hh}
+      & Modified & Added \texttt{update\_imposed\_value()} \\
+    \texttt{src/analysis/Analysis.hh}
+      & Modified & Added include for \texttt{IncrementalControl.hh} \\
+    \texttt{tests/test\_incremental\_control.cpp}
+      & New & 6~tests, 14~assertions \\
+    \texttt{CMakeLists.txt}
+      & Modified & Registered test target \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% =============================================================================
+\section{Testing}
+\label{sec:ic-testing}
+
+Six unit tests validate the implementation across all control schemes.
+The test file \texttt{tests/test\_incremental\_control.cpp} creates a
+minimal 3D unit-cube model (single hexahedral element, elastic material)
+and exercises:
+
+\begin{enumerate}
+  \item \textbf{LoadControl (default call)} ---
+        \texttt{solve\_incremental(3)} with no explicit scheme;
+        verifies backward compatibility and convergence in 3~steps.
+
+  \item \textbf{LoadControl (explicit)} ---
+        \texttt{solve\_incremental(3, 4, LoadControl\{\})} produces
+        the same result.
+
+  \item \textbf{DisplacementControl (single DOF)} ---
+        Constrains node~1 $x$-DOF with target~$0.01$; verifies
+        convergence and that the imposed solution vector is non-zero
+        at the controlled DOF.
+
+  \item \textbf{DisplacementControl (multi-DOF)} ---
+        Four nodes controlled simultaneously; verifies convergence.
+
+  \item \textbf{CustomControl via \texttt{make\_control}} ---
+        Lambda with $\sqrt{p}$ load ramp; verifies convergence.
+
+  \item \textbf{Concept satisfaction (compile-time)} ---
+        Static assertions that \texttt{LoadControl},
+        \texttt{DisplacementControl}, and
+        \texttt{CustomControl<\ldots>} satisfy
+        \texttt{IncrementalControlPolicy}.
+\end{enumerate}
+
+All 14~assertions pass.  The existing 30~commit-chain tests and the
+heterogeneity test (which uses \texttt{solve\_incremental}) also pass
+without modification, confirming backward compatibility.
+
+% =============================================================================
+\section{Usage Guide}
+\label{sec:ic-usage}
+
+\subsection{Load Control (Default)}
+
+No changes to existing code:
+
+\begin{lstlisting}
+NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
+nl.solve_incremental(10);        // LoadControl implicit, 10 steps
+nl.solve_incremental(10, 4);     // same with explicit bisection depth
+\end{lstlisting}
+
+\subsection{Displacement-Controlled Pushover}
+
+\begin{lstlisting}
+// Pre-constrain the controlled DOF (zero initial value)
+M.constrain_dof(42, 0, 0.0);
+M.setup();
+
+NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
+// Push node 42, dof 0 to displacement 0.01 in 20 steps
+nl.solve_incremental(20, 4, DisplacementControl{42, 0, 0.01});
+\end{lstlisting}
+
+\subsection{Multi-DOF Displacement Control with Proportional Load}
+
+\begin{lstlisting}
+nl.solve_incremental(20, 4, DisplacementControl{
+    {{10, 0, 0.01}, {11, 0, 0.01}, {12, 0, 0.01}},
+    0.5   // load_scale: 50% of reference load
+});
+\end{lstlisting}
+
+\subsection{Custom Control}
+
+\begin{lstlisting}
+nl.solve_incremental(10, 4, make_control(
+    [](double p, Vec f_full, Vec f_ext, auto* model) {
+        VecCopy(f_full, f_ext);
+        VecScale(f_ext, std::sqrt(p));   // sqrt ramp
+        model->update_imposed_value(42, 0, p * 0.01);
+    }
+));
+\end{lstlisting}
+
+\subsection{Sequential Multi-Phase Analysis}
+
+Because the scheme is a function-level parameter, the same
+\texttt{NonlinearAnalysis} object can be reused with different
+schemes:
+
+\begin{lstlisting}
+NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
+
+// Phase 1: gravity load (proportional)
+nl.solve_incremental(5, 4, LoadControl{});
+
+// Phase 2: displacement-controlled pushover
+nl.solve_incremental(20, 4, DisplacementControl{42, 0, 0.05});
+\end{lstlisting}
+
+This is a direct benefit of the function-level template design
+over a class-level template parameter.

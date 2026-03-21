@@ -359,6 +359,10 @@ fall_n_add_test(TARGET fall_n_heterogeneity_test
     NAME element_heterogeneity  SOURCE tests/test_element_heterogeneity.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_incremental_control_test
+    NAME incremental_control  SOURCE tests/test_incremental_control.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_phase4_hysteretic_test
     NAME phase4_hysteretic_cycles  SOURCE tests/test_phase4_hysteretic_cycles.cpp
     LIBS FULL  LABEL unit)

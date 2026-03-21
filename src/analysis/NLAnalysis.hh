@@ -8,6 +8,7 @@
 #include "../model/Model.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
+#include "IncrementalControl.hh"
 
 // =============================================================================
 //  NonlinearAnalysis — PETSc SNES-driven Newton-Raphson solver
@@ -367,82 +368,88 @@ public:
         return false;
     }
 
-    // ─── Incremental loading with automatic bisection ────────────
+    // ─── Incremental stepping with automatic bisection ─────────
     //
-    //  Applies the external load f_ext in N equal increments:
+    //  Advances the control parameter p from 0 to 1 in N equal steps.
+    //  The actual system state at each step is determined by the
+    //  injected IncrementalControlPolicy (default: LoadControl).
     //
-    //      step k:  f_applied = (k/N) · f_ext      k = 1, ..., N
+    //    step k:  p = k/N      k = 1, ..., N
+    //             scheme.apply(p, f_full, f_ext, model)
     //
-    //  At each step, SNES solves R(u) = f_int(u) - λ·f_ext = 0 with the
+    //  At each step, SNES solves R(u) = f_int(u) - f_ext = 0 with the
     //  previous converged u as the initial guess.
     //
     //  AUTOMATIC BISECTION (adaptive step-cutting):
-    //    When a load step [λ_prev → λ_target] diverges, the algorithm:
-    //      1. Reverts u to the last converged state (before this step).
-    //      2. Splits the step into two half-steps:
-    //            [λ_prev → λ_mid]  then  [λ_mid → λ_target]
-    //      3. Retries each half-step, recursively bisecting up to
-    //         max_bisections levels deep.
-    //
-    //    This is critical for:
-    //      - Neo-Hookean under large deformation (stiffness varies rapidly)
-    //      - Plasticity near yield surfaces (tangent discontinuity)
-    //      - Any load level where the Newton radius of convergence
-    //        is smaller than the load increment
-    //
-    //    Example: with num_steps=5 and max_bisections=3, a step that
-    //    diverges will be refined to Δλ/2, Δλ/4, or Δλ/8 before giving up.
+    //    When a step [p_prev → p_target] diverges, the algorithm:
+    //      1. Reverts u to the last converged state.
+    //      2. Restores the scheme to p_prev (absolute apply).
+    //      3. Splits the step into two half-steps:
+    //            [p_prev → p_mid]  then  [p_mid → p_target]
+    //      4. Retries each half, recursively up to max_bisections levels.
     //
     //  Returns:
     //    true  — all steps converged (possibly after bisection).
     //    false — at least one step failed even after max bisections.
-    //            In this case, u and material state reflect the last
-    //            SUCCESSFULLY converged step (safe for post-processing).
     //
     //  Usage:
-    //    bool ok = analysis.solve_incremental(10);      // 10 steps, 4 bisections
-    //    bool ok = analysis.solve_incremental(5, 6);    // 5 steps, 6 bisections
-    //
-    //  PETSc runtime options apply at each SNES solve:
-    //    -snes_monitor -snes_converged_reason -ksp_type preonly
-    //    -pc_type lu -pc_factor_mat_solver_type mumps
+    //    nl.solve_incremental(10);                     // LoadControl (default)
+    //    nl.solve_incremental(20, 4, LoadControl{});   // explicit
+    //    nl.solve_incremental(20, 4, DisplacementControl{42, 0, 0.01});
+    //    nl.solve_incremental(10, 4, make_control(my_lambda));
 
+    /// Backward-compatible overload (pure load control).
     bool solve_incremental(int num_steps, int max_bisections = 4) {
+        return solve_incremental(num_steps, max_bisections, LoadControl{});
+    }
+
+    /// Incremental solve with injectable control scheme.
+    ///
+    /// The control parameter p advances from 0 to 1 in num_steps equal
+    /// increments.  At each sub-step, scheme.apply(p, f_full, f_ext, model)
+    /// sets the system state (external forces, imposed displacements, etc.).
+    ///
+    /// CS must satisfy IncrementalControlPolicy<CS, ModelT>.
+    template <typename CS>
+    bool solve_incremental(int num_steps, int max_bisections, CS scheme) {
+        static_assert(IncrementalControlPolicy<CS, ModelT>,
+            "CS must satisfy IncrementalControlPolicy<CS, ModelT>");
+
         setup();
         VecSet(U, 0.0);
 
         // Save a copy of the full (un-scaled) external force vector.
-        // This is the target load at λ = 1.0.
+        // This is the reference load at p = 1.0.
         petsc::OwnedVec f_full{};
         VecDuplicate(f_ext, f_full.ptr());
         VecCopy(f_ext, f_full);
 
-        double lambda_done = 0.0;   // last converged load level
-        bool   all_ok      = true;
+        double p_done = 0.0;   // last converged control parameter
+        bool   all_ok = true;
 
         PetscPrintf(PETSC_COMM_WORLD,
             "  Incremental solve: %d steps, max bisection depth = %d\n",
             num_steps, max_bisections);
 
         for (int step = 1; step <= num_steps; ++step) {
-            double lambda_target = static_cast<double>(step) / num_steps;
+            double p_target = static_cast<double>(step) / num_steps;
 
             PetscPrintf(PETSC_COMM_WORLD,
-                "\n  ── Load step %d/%d: λ = %.4f → %.4f ──\n",
-                step, num_steps, lambda_done, lambda_target);
+                "\n  ── Step %d/%d: p = %.4f → %.4f ──\n",
+                step, num_steps, p_done, p_target);
 
-            bool ok = advance_to_lambda_(f_full.get(), lambda_done, lambda_target,
-                                         max_bisections);
+            bool ok = advance_to_p_(scheme, f_full.get(), p_done, p_target,
+                                    max_bisections);
 
             if (ok) {
-                lambda_done = lambda_target;
-                if (step_callback_) step_callback_(step, lambda_done, *model_);
+                p_done = p_target;
+                if (step_callback_) step_callback_(step, p_done, *model_);
             } else {
                 all_ok = false;
                 PetscPrintf(PETSC_COMM_WORLD,
-                    "\n  *** ABORT at step %d/%d (λ=%.4f) — "
+                    "\n  *** ABORT at step %d/%d (p=%.4f) — "
                     "bisection exhausted after %d levels ***\n",
-                    step, num_steps, lambda_target, max_bisections);
+                    step, num_steps, p_target, max_bisections);
                 break;
             }
         }
@@ -450,49 +457,42 @@ public:
         model_->update_elements_state();
 
         PetscPrintf(PETSC_COMM_WORLD,
-            "  Incremental solve %s at λ = %.4f\n",
-            all_ok ? "COMPLETED" : "ABORTED", lambda_done);
+            "  Incremental solve %s at p = %.4f\n",
+            all_ok ? "COMPLETED" : "ABORTED", p_done);
 
         return all_ok;
     }
 
 private:
 
-    // ─── Bisection engine (recursive) ───────────────────────────
+    // ─── Bisection engine (recursive, policy-driven) ──────────
     //
-    //  Attempts to advance the solution from the current committed state
-    //  to k·f_full (where lambda_target = k).
+    //  Attempts to advance the solution from p_current to p_target
+    //  using the injected control scheme.
     //
     //  Algorithm:
-    //    1. Snapshot u (in case we need to revert on divergence).
-    //    2. Set f_ext = lambda_target · f_full, call SNESSolve.
-    //    3. If converged → commit material state, return true.
-    //    4. If diverged → revert u to snapshot, bisect:
-    //         λ_mid = (lambda_current + lambda_target) / 2
-    //         advance_to_lambda_(f_full, lambda_current, λ_mid, depth-1)
-    //         advance_to_lambda_(f_full, λ_mid, lambda_target, depth-1)
-    //    5. If bisections_left == 0, give up and return false.
+    //    1. Snapshot u.
+    //    2. scheme.apply(p_target, ...) → set system state, SNESSolve.
+    //    3. Converged → commit, return true.
+    //    4. Diverged → revert u, revert material, scheme.apply(p_current).
+    //       Bisect: p_mid = (p_current + p_target) / 2, recurse.
+    //    5. budget == 0 → give up, return false.
     //
-    //  Each recursion level allocates one temporary Vec for the snapshot.
-    //  With max_bisections ≤ 6, this is at most 6 extra vectors — negligible
-    //  compared to the global stiffness matrix.
-    //
-    //  IMPORTANT: This function never commits state on failure.  On success,
-    //  state is committed at each sub-step so the material history is correct
-    //  for path-dependent materials (plasticity, damage).
+    //  The scheme's apply() is ABSOLUTE: no save/restore is needed
+    //  in the scheme itself — only p determines the system state.
 
-    bool advance_to_lambda_(Vec f_full,
-                            double lambda_current, double lambda_target,
-                            int bisections_left)
+    template <typename CS>
+    bool advance_to_p_(CS& scheme, Vec f_full,
+                       double p_current, double p_target,
+                       int bisections_left)
     {
         // ── 1. Snapshot current displacement for rollback ─────────
         petsc::OwnedVec U_snap{};
         VecDuplicate(U, U_snap.ptr());
         VecCopy(U, U_snap);
 
-        // ── 2. Set load level and solve ──────────────────────────
-        VecCopy(f_full, f_ext);
-        VecScale(f_ext, lambda_target);
+        // ── 2. Apply control scheme and solve ────────────────────
+        scheme.apply(p_target, f_full, f_ext, model_);
         ctx_.f_ext = f_ext;
 
         SNESSolve(snes_, nullptr, U);
@@ -507,55 +507,53 @@ private:
             commit_state();
 
             PetscPrintf(PETSC_COMM_WORLD,
-                "    λ=%.6f  converged  (reason=%d, %d iterations)\n",
-                lambda_target,
+                "    p=%.6f  converged  (reason=%d, %d iterations)\n",
+                p_target,
                 static_cast<int>(reason),
                 static_cast<int>(its));
             return true;
         }
 
         // ── 4. Diverged — revert to pre-step state ──────────────
-        //
-        //  Revert displacements to the snapshot and explicitly revert
-        //  material state.  While commit was never called (so committed
-        //  state is safe), trial buffers may hold residuals from the
-        //  failed Newton iterates; explicit revert guarantees a clean
-        //  constitutive state for the next solve attempt.
         VecCopy(U_snap, U);
         revert_state();
 
+        // Restore the scheme to the last converged control parameter
+        // (absolute apply — no incremental state to unwind).
+        scheme.apply(p_current, f_full, f_ext, model_);
+        ctx_.f_ext = f_ext;
+
         PetscPrintf(PETSC_COMM_WORLD,
-            "    λ=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
-            lambda_target,
+            "    p=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
+            p_target,
             static_cast<int>(reason),
             static_cast<int>(its));
 
         // ── 5. Bisection budget exhausted? ───────────────────────
         if (bisections_left <= 0) {
             PetscPrintf(PETSC_COMM_WORLD,
-                "    No bisection budget remaining at λ=%.6f.\n",
-                lambda_target);
+                "    No bisection budget remaining at p=%.6f.\n",
+                p_target);
             return false;
         }
 
-        // ── 6. Bisect: split [λ_current → λ_target] into halves ─
-        double lambda_mid = 0.5 * (lambda_current + lambda_target);
+        // ── 6. Bisect: split [p_current → p_target] into halves ──
+        double p_mid = 0.5 * (p_current + p_target);
 
         PetscPrintf(PETSC_COMM_WORLD,
-            "    Bisecting: λ = %.6f → %.6f → %.6f  "
+            "    Bisecting: p = %.6f → %.6f → %.6f  "
             "(depth remaining: %d)\n",
-            lambda_current, lambda_mid, lambda_target,
+            p_current, p_mid, p_target,
             bisections_left - 1);
 
-        // First half: [λ_current → λ_mid]
-        if (!advance_to_lambda_(f_full, lambda_current, lambda_mid,
-                                bisections_left - 1))
+        // First half: [p_current → p_mid]
+        if (!advance_to_p_(scheme, f_full, p_current, p_mid,
+                           bisections_left - 1))
             return false;
 
-        // Second half: [λ_mid → λ_target]
-        // Note: U and material state are now at λ_mid (committed above).
-        if (!advance_to_lambda_(f_full, lambda_mid, lambda_target,
-                                bisections_left - 1))
+        // Second half: [p_mid → p_target]
+        if (!advance_to_p_(scheme, f_full, p_mid, p_target,
+                           bisections_left - 1))
             return false;
 
         return true;
