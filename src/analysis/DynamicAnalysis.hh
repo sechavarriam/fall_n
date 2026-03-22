@@ -88,6 +88,8 @@
 #include "../utils/Benchmark.hh"
 #include "Damping.hh"
 #include "AnalysisObserver.hh"
+#include "StepDirector.hh"
+#include "SteppableSolver.hh"
 
 
 template <typename MaterialPolicy,
@@ -138,6 +140,9 @@ class DynamicAnalysis {
 
     // Observer pipeline (new interface — replaces monitor_callback_ when set)
     fall_n::ObserverCallback<ModelT> observer_callback_;
+
+    // Step director for condition-based breakpoints (optional)
+    fall_n::StepDirector<ModelT> director_;
 
     // Ground motion influence vectors (one per direction with ground motion)
     struct GroundMotionInfo {
@@ -333,46 +338,61 @@ class DynamicAnalysis {
     {
         PetscFunctionBeginUser;
 
-        auto* ctx   = static_cast<Context*>(ctx_ptr);
-        auto* self  = ctx->self;
-        auto* model = ctx->model;
-        DM    dm    = model->get_plex();
+        auto* ctx  = static_cast<Context*>(ctx_ptr);
+        auto* self = ctx->self;
 
-        // ── Commit material state after each converged time step ─────
+        Vec V;
+        TS2GetSolution(ts, &U, &V);
+        self->post_step_(step, t, U, V);
+
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }
+
+
+    // =================================================================
+    //  post_step_ — extracted core of the post-step pipeline
+    // =================================================================
+    //
+    //  Called after every converged time step (from Monitor or from
+    //  the manual step() API).  Performs:
+    //    1. Material state commit
+    //    2. Model state vector update
+    //    3. Observer notification
+    //    4. Legacy monitor callback
+
+    void post_step_(PetscInt step, double t, Vec U, Vec V) {
+
+        DM dm = model_->get_plex();
+
+        // ── 1. Commit material state –────────────────────────────────
         {
             Vec u_local;
             DMGetLocalVector(dm, &u_local);
             VecSet(u_local, 0.0);
             DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
-            VecAXPY(u_local, 1.0, model->imposed_solution());
+            VecAXPY(u_local, 1.0, model_->imposed_solution());
 
-            for (auto& element : model->elements()) {
+            for (auto& element : model_->elements()) {
                 element.commit_material_state(u_local);
             }
 
             DMRestoreLocalVector(dm, &u_local);
-
-            // Update model state vector
-            DMGlobalToLocal(dm, U, INSERT_VALUES, model->state_vector());
-            VecAXPY(model->state_vector(), 1.0, model->imposed_solution());
         }
 
-        // ── Observer pipeline (new) ──────────────────────────────────
-        if (self->observer_callback_.on_step) {
-            Vec V;
-            TS2GetSolution(ts, &U, &V);
-            fall_n::StepEvent ev{step, static_cast<double>(t), U, V};
-            self->observer_callback_.on_step(ev, *model);
+        // ── 2. Update model state vector ─────────────────────────────
+        DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
+        VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
+
+        // ── 3. Observer pipeline (new) ───────────────────────────────
+        if (observer_callback_.on_step) {
+            fall_n::StepEvent ev{step, t, U, V};
+            observer_callback_.on_step(ev, *model_);
         }
 
-        // ── Legacy monitor callback (backward compatible) ─────────────
-        if (self->monitor_callback_) {
-            Vec V;
-            TS2GetSolution(ts, &U, &V);
-            self->monitor_callback_(step, t, U, V);
+        // ── 4. Legacy monitor callback ───────────────────────────────
+        if (monitor_callback_) {
+            monitor_callback_(step, t, U, V);
         }
-
-        PetscFunctionReturn(PETSC_SUCCESS);
     }
 
 
@@ -653,7 +673,149 @@ public:
 
 
     // =================================================================
-    //  Solve
+    //  Single-Step API
+    // =================================================================
+
+    /// Advance exactly one time step.
+    ///
+    /// Calls TSStep(ts_) to advance the TS integrator by one step.
+    /// The registered Monitor callback handles the post-step pipeline
+    /// (material commit, model state update, observers) automatically.
+    ///
+    /// Returns true if the step converged, false if it diverged.
+    bool step() {
+        setup();
+
+        // TSStep requires a step budget and won't advance if the TS
+        // is already in a "converged" state (e.g. from a previous step).
+        // Reset to ITERATING and allow one additional step.
+        // Also ensure max_time is large enough to not block the step.
+        FALL_N_PETSC_CHECK(TSSetConvergedReason(ts_, TS_CONVERGED_ITERATING));
+        FALL_N_PETSC_CHECK(TSSetMaxSteps(ts_, current_step() + 1));
+        FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, current_time() + 100.0 * get_time_step()));
+        FALL_N_PETSC_CHECK(TSStep(ts_));
+
+        TSConvergedReason reason;
+        FALL_N_PETSC_CHECK(TSGetConvergedReason(ts_, &reason));
+
+        // TS_CONVERGED_ITS means "reached max steps" — that's expected
+        // here since we set max_steps = current+1.  Only a negative
+        // reason indicates actual divergence.
+        return (reason >= 0);
+    }
+
+    /// Advance until t >= t_target, respecting the StepDirector if set.
+    ///
+    /// Returns the StepVerdict that caused the loop to exit:
+    ///   - Continue  → reached t_target normally
+    ///   - Pause     → a director condition fired before t_target
+    ///   - Stop      → a director condition requested termination
+    ///
+    /// After Pause, call step_to() again (same or new target) to resume.
+    fall_n::StepVerdict step_to(double t_target) {
+        return step_to(t_target, director_);
+    }
+
+    /// Advance until t >= t_target with an explicit director.
+    fall_n::StepVerdict step_to(double t_target,
+                                const fall_n::StepDirector<ModelT>& director)
+    {
+        setup();
+
+        FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_target));
+        FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
+
+        while (current_time() < t_target - 1e-14) {
+            if (!step()) {
+                return fall_n::StepVerdict::Stop;
+            }
+
+            // Evaluate director after step
+            if (director) {
+                PetscInt  sn;
+                PetscReal t;
+                Vec U_cur, V_cur;
+                FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
+                FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
+                FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+
+                fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
+                auto verdict = director(ev, *model_);
+                if (verdict != fall_n::StepVerdict::Continue) {
+                    return verdict;
+                }
+            }
+        }
+        return fall_n::StepVerdict::Continue;
+    }
+
+    /// Advance exactly n time steps, respecting the StepDirector if set.
+    ///
+    /// Returns the StepVerdict (Continue if all n steps completed normally).
+    fall_n::StepVerdict step_n(int n) {
+        return step_n(n, director_);
+    }
+
+    /// Advance exactly n time steps with an explicit director.
+    fall_n::StepVerdict step_n(int n,
+                               const fall_n::StepDirector<ModelT>& director)
+    {
+        setup();
+
+        for (int i = 0; i < n; ++i) {
+            if (!step()) {
+                return fall_n::StepVerdict::Stop;
+            }
+
+            if (director) {
+                PetscInt  sn;
+                PetscReal t;
+                Vec U_cur, V_cur;
+                FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
+                FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
+                FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+
+                fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
+                auto verdict = director(ev, *model_);
+                if (verdict != fall_n::StepVerdict::Continue) {
+                    return verdict;
+                }
+            }
+        }
+        return fall_n::StepVerdict::Continue;
+    }
+
+
+    // =================================================================
+    //  Runtime Reconfiguration
+    // =================================================================
+
+    /// Change the time step size at runtime.
+    void set_time_step(double dt) {
+        FALL_N_PETSC_CHECK(TSSetTimeStep(ts_, dt));
+    }
+
+    /// Get the current time step size.
+    double get_time_step() const {
+        PetscReal dt;
+        TSGetTimeStep(ts_, &dt);
+        return dt;
+    }
+
+    /// Change the integration method at runtime (e.g. TSALPHA2, TSNEWMARK,
+    /// TSEULER, TSRK).  The TS must be re-setup after changing the type.
+    void set_integration_method(TSType type) {
+        FALL_N_PETSC_CHECK(TSSetType(ts_, type));
+    }
+
+    /// Set a persistent StepDirector for step_to() / step_n() calls.
+    void set_director(fall_n::StepDirector<ModelT> dir) {
+        director_ = std::move(dir);
+    }
+
+
+    // =================================================================
+    //  Solve (batch API — backward compatible)
     // =================================================================
 
     /// Solve from t = 0 to t = t_final with time step dt.
@@ -785,6 +947,17 @@ public:
 
         DMRestoreLocalVector(dm, &u_local);
         return u;
+    }
+
+    /// Get a snapshot of the current analysis state.
+    /// The returned Vecs are borrowed — valid only while this object lives.
+    fall_n::AnalysisState get_analysis_state() const {
+        return fall_n::AnalysisState{
+            .displacement = U_,
+            .velocity     = V_,
+            .time         = current_time(),
+            .step         = current_step()
+        };
     }
 
 

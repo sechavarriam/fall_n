@@ -7,7 +7,12 @@
 #include "../model/Model.hh"
 
 
-// Analysis headers#include \"IncrementalControl.hh\"#include "LinearAnalysis.hh"
+// Analysis headers
+#include "IncrementalControl.hh"
+#include "StepDirector.hh"
+#include "SteppableSolver.hh"
+#include "AnalysisDirector.hh"
+#include "LinearAnalysis.hh"
 #include "NLAnalysis.hh"
 #include "Damping.hh"
 #include "DynamicAnalysis.hh"
