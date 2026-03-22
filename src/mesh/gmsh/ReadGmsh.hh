@@ -4,6 +4,7 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string_view>
 
 #include <cstdlib>
@@ -145,7 +146,10 @@ namespace gmsh
         {
             // https://stackoverflow.com/questions/18398167/how-to-copy-a-txt-file-to-a-char-array-in-c
             std::ifstream in(filename_);
-            if (!in){std::cerr << "Cannot open the File : " << filename_ << std::endl;}
+            if (!in) {
+                throw std::runtime_error(
+                    "MSHReader: cannot open file '" + std::string(filename_) + "'");
+            }
 
             buffer_ = std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 

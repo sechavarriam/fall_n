@@ -1,0 +1,288 @@
+% =============================================================================
+%  Chapter 60 — Steppable Dynamic Analysis with StepDirector
+% =============================================================================
+
+\chapter{Steppable Dynamic Analysis with StepDirector}
+\label{ch:steppable-dynamic}
+
+This chapter documents the design, implementation, and testing of the
+single-step API for \texttt{DynamicAnalysis} and the \texttt{StepDirector}
+abstraction for condition-based breakpoints.  Together these enable
+pausing a dynamic simulation at specified conditions, inspecting or
+modifying the model, changing integration parameters, and resuming ---
+all without modifying the analysis class itself.
+
+% =============================================================================
+\section{Motivation}
+\label{sec:sd-motivation}
+
+The batch \texttt{solve(t\_final, dt)} interface of \texttt{DynamicAnalysis}
+delegates the entire time-stepping loop to PETSc's \texttt{TSSolve}, which
+runs from $t=0$ to $t_\text{final}$ in a single call.  While convenient,
+this monolithic interface prevents several important use cases:
+
+\begin{itemize}
+  \item \textbf{Pause \& inspect:}  Capture the solution at specific times
+        to couple with external models, extract quantities of interest,
+        or generate intermediate output.
+  \item \textbf{Runtime reconfiguration:}  Change the time step~$\Delta t$,
+        switch the integration scheme (e.g.\ from implicit
+        Generalized-$\alpha$ to explicit Euler), or modify boundary
+        conditions mid-simulation.
+  \item \textbf{Multi-phase analysis:}  Run a static preload phase
+        (via \texttt{NonlinearAnalysis}), transfer the state, and
+        continue with a dynamic phase with different control logic.
+  \item \textbf{Condition-based stopping:}  Terminate or pause when
+        a displacement exceeds a threshold, a damage variable reaches
+        a limit, or an external convergence criterion is met.
+\end{itemize}
+
+The design goal is to provide these capabilities with zero overhead on the
+existing batch API and minimal modifications to the class.
+
+% =============================================================================
+\section{Design}
+\label{sec:sd-design}
+
+\subsection{Single-Step API on DynamicAnalysis}
+
+Three new public methods expose single-step control:
+
+\begin{lstlisting}
+bool step();                                // one time step
+StepVerdict step_to(double t_target);       // advance to t
+StepVerdict step_n(int n);                  // advance n steps
+\end{lstlisting}
+
+\noindent
+\texttt{step()} wraps PETSc's \texttt{TSStep(ts\_)} with the bookkeeping
+required for manual single-step control:
+
+\begin{enumerate}
+  \item Reset the convergence reason to \verb|TS_CONVERGED_ITERATING|
+        (PETSc refuses to step if the TS is flagged as already converged).
+  \item Set the step budget to \verb|current_step() + 1| via
+        \verb|TSSetMaxSteps|.
+  \item Set a sufficiently large \verb|TSSetMaxTime| to avoid
+        time-limit convergence.
+  \item Call \verb|TSStep(ts_)|.
+  \item Check \verb|TSGetConvergedReason|: return \texttt{true} if
+        the reason is non-negative (converged or max-steps reached),
+        \texttt{false} on divergence.
+\end{enumerate}
+
+The Monitor callback registered in \texttt{setup()} is invoked
+automatically by PETSc during \texttt{TSStep}, so the full post-step
+pipeline (material commit, model state update, observer notification)
+runs without duplication.
+
+\subsection{Extracted \texttt{post\_step\_} Method}
+
+The material commit, model state vector update, and observer/monitor
+notification logic was extracted from the static \texttt{Monitor} callback
+into a private member function:
+
+\begin{lstlisting}
+void post_step_(PetscInt step, double t, Vec U, Vec V);
+\end{lstlisting}
+
+\noindent
+The static \texttt{Monitor} callback becomes a thin trampoline:
+
+\begin{lstlisting}
+static PetscErrorCode Monitor(TS ts, PetscInt step,
+                              PetscReal t, Vec U, void* ctx)
+{
+    auto* self = static_cast<Context*>(ctx)->self;
+    Vec V;
+    TS2GetSolution(ts, &U, &V);
+    self->post_step_(step, t, U, V);
+    return PETSC_SUCCESS;
+}
+\end{lstlisting}
+
+This refactoring keeps the Monitor API surface unchanged while enabling
+direct invocation from future code paths where the PETSc monitor is not
+active.
+
+\subsection{Runtime Reconfiguration}
+
+Four additional methods allow runtime parameter changes between steps:
+
+\begin{lstlisting}
+void   set_time_step(double dt);
+double get_time_step() const;
+void   set_integration_method(TSType type);
+void   set_director(StepDirector<ModelT> dir);
+\end{lstlisting}
+
+\noindent
+\texttt{set\_integration\_method} wraps \texttt{TSSetType} and allows
+switching between \texttt{TSALPHA2}, \texttt{TSNEWMARK}, \texttt{TSEULER},
+\texttt{TSRK}, etc.\ at runtime.
+
+% =============================================================================
+\section{StepDirector — Condition-Based Breakpoints}
+\label{sec:step-director}
+
+\subsection{StepVerdict Enum}
+
+The director protocol uses a three-valued verdict:
+
+\begin{lstlisting}
+enum class StepVerdict {
+    Continue,   // keep stepping
+    Pause,      // return control to caller (resumable)
+    Stop        // terminate the analysis
+};
+\end{lstlisting}
+
+\noindent
+The ordering $\text{Continue} < \text{Pause} < \text{Stop}$ enables a
+\texttt{most\_restrictive(a, b)} combinator for composing multiple
+directors.
+
+\subsection{StepDirector Type Alias}
+
+A \texttt{StepDirector<ModelT>} is a type-erased callable:
+
+\begin{lstlisting}
+template <typename ModelT>
+using StepDirector = std::function<
+    StepVerdict(const StepEvent&, const ModelT&)>;
+\end{lstlisting}
+
+\noindent
+The director is evaluated \emph{after} every converged step in
+\texttt{step\_to()} and \texttt{step\_n()}.  This guarantees the
+model is in a fully consistent, committed state when the caller
+inspects it upon a \texttt{Pause} verdict.
+
+\subsection{Convenience Factories}
+
+The \texttt{step\_director} namespace provides ready-made directors:
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Factory & Description \\
+  \midrule
+  \texttt{pause\_at\_times(\{$t_1, t_2, \ldots$\})} &
+    Pause when $t \geq t_i$ (each breakpoint fires once) \\
+  \texttt{pause\_every\_n($N$)} &
+    Pause every $N$ steps \\
+  \texttt{pause\_on($F$)} &
+    Pause when predicate $F(\text{ev}, \text{model})$ is true \\
+  \texttt{stop\_on($F$)} &
+    Stop when predicate $F(\text{ev}, \text{model})$ is true \\
+  \texttt{compose($d_1, d_2, \ldots$)} &
+    Most restrictive verdict of all directors \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Integration with DynamicAnalysis}
+
+The \texttt{step\_to} and \texttt{step\_n} methods accept an optional
+director parameter.  A persistent director can also be set via
+\texttt{set\_director()}.
+
+\begin{lstlisting}
+// Pause at specific times
+auto dir = step_director::pause_at_times<MyModel>({1.0, 2.5});
+auto verdict = solver.step_to(10.0, dir);
+if (verdict == StepVerdict::Pause) {
+    // inspect model, modify BCs, change dt, etc.
+    solver.step_to(10.0, dir);   // resume
+}
+\end{lstlisting}
+
+% =============================================================================
+\section{Backward Compatibility}
+\label{sec:sd-backward}
+
+The existing \texttt{solve(t\_final, dt)} and
+\texttt{solve(t\_start, t\_final, dt)} methods remain unchanged and
+continue to use PETSc's \texttt{TSSolve} internally.  No existing
+call site is affected.  The Monitor callback extraction is a pure
+refactoring with no behavioral change for the batch API.
+
+Test~9 in the verification suite confirms that \texttt{step\_to(t)}
+produces results \emph{identical} to \texttt{solve(t, dt)} (difference
+$= 0$), validating that the single-step pathway is numerically
+equivalent to the batch pathway.
+
+% =============================================================================
+\section{Verification}
+\label{sec:sd-verification}
+
+A dedicated test suite (\texttt{test\_steppable\_dynamic.cpp}) validates
+10 scenarios with 32 assertions:
+
+\begin{center}
+\begin{tabular}{clc}
+  \toprule
+  Test & Description & Assertions \\
+  \midrule
+  1  & \texttt{step()} — single time step convergence & 5 \\
+  2  & \texttt{step\_n(10)} — exact step count         & 3 \\
+  3  & \texttt{step\_to(t)} — target time reached       & 3 \\
+  4  & \texttt{pause\_at\_times} breakpoint             & 5 \\
+  5  & \texttt{pause\_every\_n} periodic pause          & 4 \\
+  6  & \texttt{pause\_on} custom condition              & 2 \\
+  7  & \texttt{compose} directors                       & 2 \\
+  8  & Runtime $\Delta t$ change                        & 3 \\
+  9  & Equivalence: step-by-step = batch solve          & 3 \\
+  10 & \texttt{stop\_on} termination                    & 2 \\
+  \midrule
+     & \textbf{Total}                                   & \textbf{32} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+All 32 assertions pass.  Additionally, the full existing test suite
+(46/50, with 4 pre-existing failures due to missing data files) passes
+unchanged, confirming backward compatibility.
+
+% =============================================================================
+\section{Files Modified and Created}
+\label{sec:sd-files}
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  File & Action & Purpose \\
+  \midrule
+  \texttt{src/analysis/StepDirector.hh} & Created &
+    \texttt{StepVerdict} + \texttt{StepDirector<ModelT>} + factories \\
+  \texttt{src/analysis/DynamicAnalysis.hh} & Modified &
+    \texttt{post\_step\_()}, \texttt{step()}, \texttt{step\_to()},
+    \texttt{step\_n()}, reconfig \\
+  \texttt{src/analysis/Analysis.hh} & Modified &
+    Added \texttt{StepDirector.hh} include \\
+  \texttt{tests/test\_steppable\_dynamic.cpp} & Created &
+    10 tests, 32 assertions \\
+  \texttt{CMakeLists.txt} & Modified &
+    Registered \texttt{fall\_n\_steppable\_dynamic\_test} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================================
+\section{Future Directions}
+\label{sec:sd-future}
+
+This infrastructure enables the remaining phases of the unified
+steppable solver plan:
+
+\begin{description}
+  \item[Phase C — SteppableSolver concept:]  Unify
+    \texttt{NonlinearAnalysis} and \texttt{DynamicAnalysis} under a
+    common concept with \texttt{step()}, \texttt{step\_to()}, and
+    \texttt{current\_time()}.  An \texttt{AnalysisState} struct will
+    enable cross-engine state transfer.
+  \item[Phase D — AnalysisDirector:]  A high-level orchestrator that
+    sequences multiple analysis phases (static preload $\to$ dynamic
+    excitation $\to$ static gravity redistribution), with automatic
+    state transfer and observer lifecycle management.
+\end{description}

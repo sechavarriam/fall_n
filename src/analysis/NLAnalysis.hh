@@ -9,6 +9,7 @@
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 #include "IncrementalControl.hh"
+#include "StepDirector.hh"
 
 // =============================================================================
 //  NonlinearAnalysis — PETSc SNES-driven Newton-Raphson solver
@@ -83,6 +84,18 @@ class NonlinearAnalysis {
     //  Arguments: (step_number, lambda, model_ref)
     using StepCallback = std::function<void(int, double, const ModelT&)>;
     StepCallback step_callback_{};
+
+    // ─── Single-step (incremental) state ──────────────────────────
+    //  Persisted between begin_incremental() and subsequent step() calls.
+    using ApplyFn = std::function<void(double, Vec, Vec, ModelT*)>;
+    ApplyFn       apply_fn_{};
+    petsc::OwnedVec f_full_{};
+    double        p_done_{0.0};
+    int           step_count_{0};
+    double        dp_{0.0};
+    int           max_bisections_{4};
+    bool          incremental_active_{false};
+    fall_n::StepDirector<ModelT> director_{};
 
     // ─── SNES callback context ────────────────────────────────────
 
@@ -426,6 +439,7 @@ public:
 
         double p_done = 0.0;   // last converged control parameter
         bool   all_ok = true;
+        int    steps_done = 0;
 
         PetscPrintf(PETSC_COMM_WORLD,
             "  Incremental solve: %d steps, max bisection depth = %d\n",
@@ -443,6 +457,7 @@ public:
 
             if (ok) {
                 p_done = p_target;
+                ++steps_done;
                 if (step_callback_) step_callback_(step, p_done, *model_);
             } else {
                 all_ok = false;
@@ -455,6 +470,12 @@ public:
         }
 
         model_->update_elements_state();
+
+        // Synchronise single-step state so get_analysis_state()
+        // reflects the terminal position even when called after
+        // the batch solve_incremental() path.
+        p_done_     = p_done;
+        step_count_ = steps_done;
 
         PetscPrintf(PETSC_COMM_WORLD,
             "  Incremental solve %s at p = %.4f\n",
@@ -559,7 +580,267 @@ private:
         return true;
     }
 
+    // ─── Bisection engine (type-erased, for single-step API) ─────
+    //
+    //  Same algorithm as advance_to_p_ but uses the stored apply_fn_
+    //  and f_full_ members instead of template parameters.
+
+    bool advance_step_impl_(double p_current, double p_target,
+                            int bisections_left)
+    {
+        petsc::OwnedVec U_snap{};
+        VecDuplicate(U, U_snap.ptr());
+        VecCopy(U, U_snap);
+
+        apply_fn_(p_target, f_full_, f_ext, model_);
+        ctx_.f_ext = f_ext;
+
+        SNESSolve(snes_, nullptr, U);
+
+        SNESConvergedReason reason;
+        SNESGetConvergedReason(snes_, &reason);
+        PetscInt its;
+        SNESGetIterationNumber(snes_, &its);
+
+        if (reason > 0) {
+            commit_state();
+            PetscPrintf(PETSC_COMM_WORLD,
+                "    p=%.6f  converged  (reason=%d, %d iterations)\n",
+                p_target,
+                static_cast<int>(reason),
+                static_cast<int>(its));
+            return true;
+        }
+
+        VecCopy(U_snap, U);
+        revert_state();
+
+        apply_fn_(p_current, f_full_, f_ext, model_);
+        ctx_.f_ext = f_ext;
+
+        PetscPrintf(PETSC_COMM_WORLD,
+            "    p=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
+            p_target,
+            static_cast<int>(reason),
+            static_cast<int>(its));
+
+        if (bisections_left <= 0) {
+            PetscPrintf(PETSC_COMM_WORLD,
+                "    No bisection budget remaining at p=%.6f.\n",
+                p_target);
+            return false;
+        }
+
+        double p_mid = 0.5 * (p_current + p_target);
+
+        PetscPrintf(PETSC_COMM_WORLD,
+            "    Bisecting: p = %.6f → %.6f → %.6f  "
+            "(depth remaining: %d)\n",
+            p_current, p_mid, p_target,
+            bisections_left - 1);
+
+        if (!advance_step_impl_(p_current, p_mid,
+                                bisections_left - 1))
+            return false;
+
+        if (!advance_step_impl_(p_mid, p_target,
+                                bisections_left - 1))
+            return false;
+
+        return true;
+    }
+
 public:
+
+    // =================================================================
+    //  Single-Step API (incremental)
+    // =================================================================
+
+    /// Initialize the incremental stepping state.
+    ///
+    /// Must be called before step() / step_to() / step_n().
+    /// Sets up the SNES solver, zeroes the solution, captures the
+    /// reference force vector, and stores the control scheme.
+    ///
+    /// After begin_incremental(), call step() or step_to(p) to advance.
+    void begin_incremental(int num_steps, int max_bisections = 4) {
+        begin_incremental(num_steps, max_bisections, LoadControl{});
+    }
+
+    /// Initialize incremental stepping with an injectable control scheme.
+    template <typename CS>
+    void begin_incremental(int num_steps, int max_bisections, CS scheme) {
+        static_assert(IncrementalControlPolicy<CS, ModelT>,
+            "CS must satisfy IncrementalControlPolicy<CS, ModelT>");
+
+        setup();
+        VecSet(U, 0.0);
+
+        // Capture reference force at p = 1.0
+        f_full_ = petsc::OwnedVec{};
+        VecDuplicate(f_ext, f_full_.ptr());
+        VecCopy(f_ext, f_full_);
+
+        dp_              = 1.0 / num_steps;
+        max_bisections_  = max_bisections;
+        p_done_          = 0.0;
+        step_count_      = 0;
+
+        // Type-erase the scheme into a std::function
+        apply_fn_ = [s = std::move(scheme)](
+            double p, Vec ff, Vec fe, ModelT* m) mutable {
+            s.apply(p, ff, fe, m);
+        };
+
+        incremental_active_ = true;
+
+        PetscPrintf(PETSC_COMM_WORLD,
+            "  begin_incremental: %d steps (dp=%.6f), "
+            "max bisection depth = %d\n",
+            num_steps, dp_, max_bisections_);
+    }
+
+    /// Advance exactly one load increment.
+    ///
+    /// Requires a prior call to begin_incremental().
+    /// Returns true if the step converged (possibly after bisection).
+    bool step() {
+        assert(incremental_active_ &&
+            "call begin_incremental() before step()");
+
+        double p_target = p_done_ + dp_;
+        if (p_target > 1.0 + 1e-14) return false;  // already done
+
+        PetscPrintf(PETSC_COMM_WORLD,
+            "\n  ── Step %d: p = %.4f → %.4f ──\n",
+            step_count_ + 1, p_done_, p_target);
+
+        bool ok = advance_step_impl_(p_done_, p_target, max_bisections_);
+
+        if (ok) {
+            p_done_ = p_target;
+            ++step_count_;
+            if (step_callback_) step_callback_(step_count_, p_done_, *model_);
+        }
+
+        model_->update_elements_state();
+        return ok;
+    }
+
+    /// Advance until p >= p_target, respecting the StepDirector.
+    ///
+    /// Returns the StepVerdict that caused the loop to exit:
+    ///   - Continue — reached p_target normally
+    ///   - Pause    — a director condition fired before p_target
+    ///   - Stop     — divergence or director requested termination
+    fall_n::StepVerdict step_to(double p_target) {
+        return step_to(p_target, director_);
+    }
+
+    /// Advance until p >= p_target with an explicit director.
+    fall_n::StepVerdict step_to(double p_target,
+                                const fall_n::StepDirector<ModelT>& director)
+    {
+        assert(incremental_active_ &&
+            "call begin_incremental() before step_to()");
+
+        while (p_done_ < p_target - 1e-14) {
+            if (!step()) {
+                return fall_n::StepVerdict::Stop;
+            }
+
+            if (director) {
+                fall_n::StepEvent ev{
+                    static_cast<PetscInt>(step_count_),
+                    p_done_,
+                    U,
+                    nullptr   // no velocity in static analysis
+                };
+                auto verdict = director(ev, *model_);
+                if (verdict != fall_n::StepVerdict::Continue) {
+                    return verdict;
+                }
+            }
+        }
+        return fall_n::StepVerdict::Continue;
+    }
+
+    /// Advance exactly n load increments, respecting the StepDirector.
+    fall_n::StepVerdict step_n(int n) {
+        return step_n(n, director_);
+    }
+
+    /// Advance exactly n load increments with an explicit director.
+    fall_n::StepVerdict step_n(int n,
+                               const fall_n::StepDirector<ModelT>& director)
+    {
+        assert(incremental_active_ &&
+            "call begin_incremental() before step_n()");
+
+        for (int i = 0; i < n; ++i) {
+            if (!step()) {
+                return fall_n::StepVerdict::Stop;
+            }
+
+            if (director) {
+                fall_n::StepEvent ev{
+                    static_cast<PetscInt>(step_count_),
+                    p_done_,
+                    U,
+                    nullptr
+                };
+                auto verdict = director(ev, *model_);
+                if (verdict != fall_n::StepVerdict::Continue) {
+                    return verdict;
+                }
+            }
+        }
+        return fall_n::StepVerdict::Continue;
+    }
+
+
+    // =================================================================
+    //  Accessors for SteppableSolver concept
+    // =================================================================
+
+    /// Current control parameter (0 = unloaded, 1 = full load).
+    double current_time() const { return p_done_; }
+
+    /// Current step count since begin_incremental().
+    PetscInt current_step() const { return static_cast<PetscInt>(step_count_); }
+
+
+    // =================================================================
+    //  Runtime reconfiguration
+    // =================================================================
+
+    /// Set a persistent StepDirector for step_to() / step_n() calls.
+    void set_director(fall_n::StepDirector<ModelT> dir) {
+        director_ = std::move(dir);
+    }
+
+    /// Get the current increment size dp.
+    double get_increment_size() const { return dp_; }
+
+    /// Change the increment size at runtime.
+    void set_increment_size(double dp) { dp_ = dp; }
+
+
+    // =================================================================
+    //  State transfer
+    // =================================================================
+
+    /// Get a snapshot of the current analysis state.
+    /// The returned Vecs are borrowed — valid only while this object lives.
+    fall_n::AnalysisState get_analysis_state() const {
+        return fall_n::AnalysisState{
+            .displacement = U,
+            .velocity     = nullptr,
+            .time         = p_done_,
+            .step         = static_cast<PetscInt>(step_count_)
+        };
+    }
+
 
     // ─── Constructor / Destructor ─────────────────────────────────
 

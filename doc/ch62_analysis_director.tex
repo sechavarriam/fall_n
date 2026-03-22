@@ -1,0 +1,388 @@
+\chapter{AnalysisDirector — Multi-Phase Orchestrator (Phase D)}
+\label{ch:analysis_director}
+
+% =============================================================================
+%  Chapter 62: AnalysisDirector, state threading, phase gating,
+%              solve_incremental state synchronisation, and test
+%              infrastructure improvements
+% =============================================================================
+
+\section{Motivation}
+
+Real structural analysis workflows rarely consist of a single solver
+invocation.  A typical seismic assessment, for example, involves:
+
+\begin{enumerate}
+  \item \textbf{Static preload:} gravity and imposed dead loads via
+        \texttt{NonlinearAnalysis} ($p: 0 \to 1$).
+  \item \textbf{Dynamic excitation:} earthquake ground motion via
+        \texttt{DynamicAnalysis} ($t: 0 \to T$).
+  \item \textbf{Static redistribution:} post-event settling via
+        \texttt{NonlinearAnalysis} again.
+\end{enumerate}
+
+Each phase may use a different solver engine and different configurations,
+yet they share structural state: the displacement at the end of the
+preload becomes the initial condition for the dynamic phase, and the
+post-earthquake displacement feeds the redistribution phase.
+
+Chapters~59--61 built the individual components (incremental control,
+step director, steppable-solver concept, analysis state transfer).
+Phase~D assembles them into a single orchestrator:
+\texttt{AnalysisDirector}.
+
+
+\section{Design Decisions}
+
+\subsection{Type-Erased Phase Callbacks}
+
+The director is \emph{not} templated on solver types.  Instead, each
+phase is a \texttt{std::function<AnalysisState(const AnalysisState\&)>}:
+the callback receives the output of the previous phase (or a
+default-constructed state for the first phase) and returns its own
+output.
+
+This design gives maximum flexibility:
+\begin{itemize}
+  \item The caller decides how to create, configure, and destroy each
+        solver.
+  \item Different phases can use entirely different engines
+        (\texttt{NonlinearAnalysis}, \texttt{DynamicAnalysis}, or any
+        future solver satisfying \texttt{SteppableSolver}).
+  \item Boundary conditions, observers, and loads can be freely modified
+        between phases without the director knowing their details.
+\end{itemize}
+
+The trade-off is that the director cannot impose compile-time guarantees
+on solver types.  This is acceptable because the director is a
+\emph{workflow} coordinator, not a solver abstraction.
+
+\subsection{Borrowed State and Lifetime}
+
+\texttt{AnalysisState} stores \emph{borrowed} PETSc \texttt{Vec}
+references (see Chapter~61).  This implies a critical lifetime
+constraint:
+
+\begin{quote}
+\textbf{Rule:} The solver that produced an \texttt{AnalysisState} must
+remain alive while any subsequent phase reads its state.
+\end{quote}
+
+In practice, this means solvers that participate in state transfer
+should be constructed \emph{outside} the phase callbacks, so their
+\texttt{Vec} resources outlive the inter-phase handoff.  The tests
+in this chapter demonstrate this pattern explicitly.
+
+\subsection{Failure Semantics}
+
+A phase signals failure by returning an \texttt{AnalysisState} with
+\texttt{displacement == nullptr}.  The director supports two modes:
+
+\begin{itemize}
+  \item \textbf{Abort-on-failure (default):} the phase sequence stops
+        immediately; remaining phases are not executed.
+  \item \textbf{Continue-on-failure:} all phases execute regardless of
+        prior failures.  Useful for robustness studies or post-mortem
+        analysis.
+\end{itemize}
+
+\subsection{Phase Gating}
+
+An optional \texttt{PhaseGateCallback} can be attached to any phase.
+The gate receives the \emph{previous} phase's \texttt{PhaseOutcome} and
+returns a boolean: \texttt{true} to proceed, \texttt{false} to skip.
+
+Typical gates include:
+\begin{itemize}
+  \item Only run a dynamic phase if the preload reached full load:
+        \texttt{prev.state.time >= 0.9}.
+  \item Only run a redistribution phase if the excitation succeeded:
+        \texttt{prev.status == PhaseStatus::Succeeded}.
+\end{itemize}
+
+
+\section{Architecture}
+
+\subsection{Core Types}
+
+\begin{verbatim}
+namespace fall_n {
+
+enum class PhaseStatus { Succeeded, Failed, Skipped };
+
+struct PhaseOutcome {
+    std::string    name;
+    PhaseStatus    status{PhaseStatus::Skipped};
+    double         elapsed_seconds{0.0};
+    AnalysisState  state{};
+};
+
+struct DirectorReport {
+    std::vector<PhaseOutcome> phases;
+    bool        all_succeeded() const noexcept;
+    std::size_t num_succeeded() const noexcept;
+    std::size_t num_failed()    const noexcept;
+    void        print_summary() const;
+};
+
+using PhaseCallback     = std::function<AnalysisState(const AnalysisState&)>;
+using PhaseGateCallback = std::function<bool(const PhaseOutcome&)>;
+
+} // namespace fall_n
+\end{verbatim}
+
+\subsection{AnalysisDirector API}
+
+\begin{verbatim}
+class AnalysisDirector {
+public:
+    // Registration
+    AnalysisDirector& add_phase(std::string name, PhaseCallback cb);
+    AnalysisDirector& add_phase(std::string name, PhaseCallback cb,
+                                PhaseGateCallback gate);
+    AnalysisDirector& set_continue_on_failure(bool);
+
+    // Execution
+    DirectorReport run();
+
+    // Queries
+    std::size_t num_phases() const noexcept;
+};
+\end{verbatim}
+
+The \texttt{add\_phase()} overloads return \texttt{*this} for chaining.
+
+\subsection{Execution Algorithm}
+
+\texttt{run()} iterates over registered phases in order:
+
+\begin{enumerate}
+  \item \textbf{Gate check:} if the phase has a gate and the previous
+        phase's outcome exists, evaluate the gate.  If it returns
+        \texttt{false}, record the phase as \texttt{Skipped} and
+        continue to the next phase.
+  \item \textbf{Execute:} call the phase callback with the current
+        \texttt{AnalysisState}.  Measure wall-clock time via
+        \texttt{std::chrono::steady\_clock}.
+  \item \textbf{Classify:} if the returned state has a non-null
+        displacement, mark \texttt{Succeeded} and update the current
+        state.  Otherwise, mark \texttt{Failed}.
+  \item \textbf{Abort check:} if the phase failed and
+        \texttt{continue\_on\_failure} is \texttt{false}, break.
+\end{enumerate}
+
+The initial state for the first phase is a default-constructed
+\texttt{AnalysisState} (all null, time~0, step~0).
+
+
+\section{Bug Fix: \texttt{solve\_incremental} State Synchronisation}
+\label{sec:solve_incremental_sync}
+
+During Phase~D testing, a latent inconsistency was discovered:
+\texttt{NonlinearAnalysis::solve\_incremental()} uses a \emph{local}
+variable \texttt{p\_done} for bookkeeping, but never updates the
+\emph{member} \texttt{p\_done\_} used by \texttt{get\_analysis\_state()}.
+
+This meant that calling \texttt{get\_analysis\_state()} after
+\texttt{solve\_incremental()} would report $p = 0$ and step $= 0$
+regardless of the actual terminal state.
+
+\subsection{Fix Applied}
+
+After the solve loop and element state update, the batch path now
+synchronises with the single-step state:
+
+\begin{verbatim}
+model_->update_elements_state();
+
+// Synchronise single-step state so get_analysis_state()
+// reflects the terminal position even when called after
+// the batch solve_incremental() path.
+p_done_     = p_done;
+step_count_ = steps_done;
+\end{verbatim}
+
+This ensures that \texttt{get\_analysis\_state()} is consistent
+regardless of whether the solve was performed via the batch API
+(\texttt{solve\_incremental}) or the step-by-step API
+(\texttt{begin\_incremental + step()}).
+
+
+\section{Usage Example}
+
+\begin{verbatim}
+// Setup model (shared across phases)
+Model<Policy> model(domain, material);
+model.fix_x(0.0);
+model.setup();
+model.set_density(2400.0);  // concrete
+
+// Create solvers outside callbacks for lifetime safety
+NonlinearAnalysis<Policy> nl{&model};
+DynamicAnalysis<Policy>   dyn{&model};
+
+AnalysisDirector director;
+
+director.add_phase("gravity", [&](const AnalysisState&) {
+    nl.solve_incremental(10);
+    return nl.get_analysis_state();
+});
+
+director.add_phase("earthquake", [&](const AnalysisState& prev) {
+    dyn.set_initial_displacement(prev.displacement);
+    dyn.set_time_step(0.005);
+    dyn.step_to(30.0);
+    return dyn.get_analysis_state();
+});
+
+auto report = director.run();
+report.print_summary();
+\end{verbatim}
+
+Output:
+\begin{verbatim}
+AnalysisDirector — Phase Summary
+┌────┬────────────────────────────────┬───────────┬────────────┐
+│  # │ Phase                          │ Status    │ Time (s)   │
+├────┼────────────────────────────────┼───────────┼────────────┤
+│  1 │ gravity                        │ OK        │      0.042 │
+│  2 │ earthquake                     │ OK        │     12.340 │
+└────┴────────────────────────────────┴───────────┴────────────┘
+All 2 phases completed successfully.
+\end{verbatim}
+
+
+\section{Verification}
+
+\begin{center}
+\begin{tabular}{clr}
+\hline
+\textbf{\#} & \textbf{Test} & \textbf{Assertions} \\
+\hline
+1  & Empty director                                        & 5  \\
+2  & Single phase (static)                                 & 7  \\
+3  & Two-phase state threading                             & 6  \\
+4  & Static preload $\to$ Dynamic excitation (multi-engine)& 9  \\
+5  & Abort-on-failure                                      & 4  \\
+6  & Continue-on-failure mode                              & 6  \\
+7  & Phase gate callback (pass and block)                  & 5  \\
+8  & DirectorReport summary queries                        & 4  \\
+9  & Three-phase pipeline (preload $\to$ excite $\to$ redistribute) & 7  \\
+10 & Phase timing (\texttt{elapsed\_seconds > 0})          & 1  \\
+\hline
+   & \textbf{Total}                                        & \textbf{54} \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Test~4} is the integration highlight: it performs a static
+preload with \texttt{NonlinearAnalysis}, transfers the displacement
+via \texttt{AnalysisState} to \texttt{DynamicAnalysis}, and verifies
+that the dynamic solver correctly inherits the deformed configuration.
+
+\textbf{Test~9} demonstrates the full three-phase pipeline
+(preload $\to$ excitation $\to$ redistribution) on a shared model,
+confirming that state threads correctly through all transitions.
+
+All 52/52 suite tests pass.
+
+
+\section{Test Infrastructure Improvements}
+
+During Phase~D, four pre-existing test failures (from Phase~C) were
+resolved.  All four had the same root cause: \textbf{missing data files}.
+
+\subsection{MSHReader Defensive Fix}
+
+The mesh reader \texttt{MSHReader} (in \texttt{src/mesh/gmsh/ReadGmsh.hh})
+silently printed an error to \texttt{std::cerr} when a mesh file was not
+found, then proceeded to return to the caller with an uninitialised stream.
+Downstream code (in \texttt{GmshDomainBuilder}) would then dereference
+null pointers and crash with a segmentation fault.
+
+\textbf{Fix:} replaced the \texttt{std::cerr} message with a
+\texttt{throw std::runtime\_error(...)}, providing a clear diagnostic
+and preventing silent null-pointer dereferences.
+
+\subsection{Mesh File Generation}
+
+The test data files (\texttt{.msh} meshes and earthquake records) are
+excluded from version control via \texttt{.gitignore}.  A Python script
+\texttt{scripts/generate\_test\_data.py} was created to regenerate them
+using the Gmsh Python API (v4.15.1):
+
+\begin{description}
+  \item[\texttt{tests/validation\_cube.msh}] \hfill \\
+    Second-order hexahedral mesh ($2 \times 2 \times 2$, 8 Hex27 elements,
+    125 nodes).  Generated from \texttt{validation\_cube.geo} via
+    \texttt{gmsh.model.mesh.generate(3)} + \texttt{setOrder(2)}.
+
+  \item[\texttt{data/input/Beam\_LagCell\_Ord1\_30x6x3.msh}] \hfill \\
+    First-order hexahedral mesh ($30 \times 6 \times 3$, 540 Hex8 elements,
+    868 nodes).  Box geometry $[0,10] \times [0,0.4] \times [0,0.8]$,
+    transfinite meshing via Gmsh API.
+
+  \item[\texttt{data/input/earthquakes/el\_centro\_1940\_ns.dat}] \hfill \\
+    Synthetic earthquake record (501 points, $\Delta t = 0.02$\,s,
+    PGA $= 0.3194g$ at $t = 4.80$\,s).  Jennings envelope with random-phase
+    sinusoids mimicking the El Centro 1940 NS component.
+\end{description}
+
+\textbf{Key insight:} hand-writing MSH 4.1 format files
+programmatically appeared to produce correct meshes (node/element counts
+matched) but caused \texttt{SNES DIVERGED\_FNORM\_NAN} at iteration~0.
+Using the Gmsh API guarantees correct node ordering and element
+connectivity, resolving the issue completely.
+
+
+\section{Files}
+
+\begin{description}
+  \item[\texttt{src/analysis/AnalysisDirector.hh}] \hfill \\
+    \texttt{PhaseStatus}, \texttt{PhaseOutcome}, \texttt{DirectorReport},
+    \texttt{PhaseCallback}, \texttt{PhaseGateCallback},
+    \texttt{AnalysisDirector} class.
+
+  \item[\texttt{src/analysis/NLAnalysis.hh}] \hfill \\
+    Modified: \texttt{solve\_incremental()} now synchronises
+    \texttt{p\_done\_} and \texttt{step\_count\_} at completion.
+
+  \item[\texttt{src/analysis/Analysis.hh}] \hfill \\
+    Added: \texttt{AnalysisDirector.hh} include.
+
+  \item[\texttt{src/mesh/gmsh/ReadGmsh.hh}] \hfill \\
+    Modified: \texttt{std::cerr} $\to$ \texttt{throw std::runtime\_error}
+    on file-not-found.
+
+  \item[\texttt{tests/test\_analysis\_director.cpp}] \hfill \\
+    10 tests, 54 assertions.
+
+  \item[\texttt{scripts/generate\_test\_data.py}] \hfill \\
+    Gmsh API mesh generator + synthetic earthquake record generator.
+
+  \item[\texttt{CMakeLists.txt}] \hfill \\
+    Registered \texttt{fall\_n\_analysis\_director\_test}.
+\end{description}
+
+
+\section{Phase Summary}
+
+\begin{center}
+\begin{tabular}{clcl}
+\hline
+\textbf{Phase} & \textbf{Component} & \textbf{Chapter} & \textbf{Status} \\
+\hline
+A & Single-step API (\texttt{DynamicAnalysis})   & 60 & Complete \\
+B & StepDirector + factories                     & 60 & Complete \\
+C & SteppableSolver concept + NL step API        & 61 & Complete \\
+D & AnalysisDirector orchestrator                & 62 & Complete \\
+\hline
+\end{tabular}
+\end{center}
+
+The four-phase architecture provides a complete workflow construction
+kit: individual steps (Phase~A), conditional breakpoints (Phase~B), a
+unified solver concept (Phase~C), and a multi-phase orchestrator
+(Phase~D).  Together, they enable arbitrary analysis sequences — from a
+simple static solve to a multi-phase seismic assessment — with full
+state transfer and lifecycle control.

@@ -1,0 +1,220 @@
+\chapter{Unified Steppable Solver — Phase C}
+\label{ch:steppable_solver_concept}
+
+% =============================================================================
+%  Chapter 61: SteppableSolver concept, NLAnalysis single-step API,
+%              and AnalysisState cross-engine transfer
+% =============================================================================
+
+\section{Motivation}
+
+Chapter~59 introduced \texttt{IncrementalControlPolicy} for injectable
+load-stepping strategies in \texttt{NonlinearAnalysis}, while Chapter~60
+added single-step control (\texttt{step()}, \texttt{step\_to()},
+\texttt{step\_n()}) and condition-based breakpoints (\texttt{StepDirector})
+to \texttt{DynamicAnalysis}.
+
+Phase~C closes the gap by:
+\begin{enumerate}
+  \item Defining a C++23 \textbf{concept} \texttt{SteppableSolver} that
+        both engines satisfy.
+  \item Extending \texttt{NonlinearAnalysis} with the same single-step
+        API already available in \texttt{DynamicAnalysis}.
+  \item Providing \texttt{AnalysisState}, a lightweight snapshot struct
+        for cross-engine state transfer.
+\end{enumerate}
+
+The result is a unified stepping protocol: any algorithm templated on
+\texttt{SteppableSolver} works identically with static or dynamic solvers.
+
+
+\section{The \texttt{SteppableSolver} Concept}
+
+\begin{verbatim}
+namespace fall_n {
+
+template <typename S>
+concept SteppableSolver = requires(S& solver, const S& csolver,
+                                   double target, int n)
+{
+    { solver.step()          } -> std::convertible_to<bool>;
+    { solver.step_to(target) } -> std::same_as<StepVerdict>;
+    { solver.step_n(n)       } -> std::same_as<StepVerdict>;
+    { csolver.current_time() } -> std::convertible_to<double>;
+    { csolver.current_step() } -> std::convertible_to<PetscInt>;
+};
+
+} // namespace fall_n
+\end{verbatim}
+
+The ``time axis'' has engine-specific semantics:
+\begin{itemize}
+  \item \textbf{DynamicAnalysis}: physical time $t$ (seconds).
+  \item \textbf{NonlinearAnalysis}: control parameter $p \in [0, 1]$
+        (0 = unloaded, 1 = full load/displacement).
+\end{itemize}
+
+Both engines advance monotonically along their axis and share the same
+\texttt{StepVerdict} / \texttt{StepDirector} infrastructure from
+Chapter~60.
+
+
+\section{NonlinearAnalysis Single-Step API}
+
+\subsection{Initialization}
+
+Before calling \texttt{step()}, the user must initialize the stepping
+state with \texttt{begin\_incremental()}:
+
+\begin{verbatim}
+NonlinearAnalysis<Policy> nl{&model};
+
+// Default load control, 10 steps, max 4 bisection levels
+nl.begin_incremental(10);
+
+// Or with an explicit control scheme
+nl.begin_incremental(10, 4, DisplacementControl{1, 0, 0.01});
+\end{verbatim}
+
+Internally, \texttt{begin\_incremental()} calls \texttt{setup()}, zeroes
+the solution vector, captures the reference force vector~$\mathbf{f}_\text{full}$,
+computes the increment size $\Delta p = 1/N$, and type-erases the control
+scheme into a \texttt{std::function} for subsequent calls.
+
+\subsection{Stepping}
+
+\begin{verbatim}
+bool ok = nl.step();            // advance one increment (dp)
+auto v  = nl.step_to(0.5);     // advance to p = 0.5
+auto v  = nl.step_n(3);        // advance 3 increments
+\end{verbatim}
+
+Each \texttt{step()} call:
+\begin{enumerate}
+  \item Computes $p_\text{target} = p_\text{done} + \Delta p$.
+  \item Calls the bisection engine
+        \texttt{advance\_step\_impl\_(p\_done, p\_target, max\_bisections)}.
+  \item On convergence: updates $p_\text{done}$, increments the step counter,
+        fires the step callback, and calls
+        \texttt{model\_.update\_elements\_state()}.
+  \item Returns \texttt{true} on convergence, \texttt{false} on divergence.
+\end{enumerate}
+
+\subsection{Runtime Reconfiguration}
+
+\begin{verbatim}
+nl.set_increment_size(0.05);    // change dp at runtime
+nl.set_director(my_director);   // install a StepDirector
+\end{verbatim}
+
+The \texttt{StepDirector} factories from Chapter~60 work identically:
+\texttt{pause\_at\_times}, \texttt{pause\_every\_n}, \texttt{pause\_on},
+\texttt{stop\_on}, and \texttt{compose}.
+
+In the \texttt{StepEvent} passed to the director:
+\begin{itemize}
+  \item \texttt{step} = load step count.
+  \item \texttt{time} = control parameter $p$.
+  \item \texttt{displacement} = global displacement vector $\mathbf{U}$.
+  \item \texttt{velocity} = \texttt{nullptr} (no velocity in static analysis).
+\end{itemize}
+
+
+\section{Type-Erased Bisection Engine}
+
+The original \texttt{advance\_to\_p\_<CS>()} is templated on the control
+scheme type.  For the single-step API, where the scheme type is erased at
+\texttt{begin\_incremental()} time, we add a non-template companion
+\texttt{advance\_step\_impl\_()} that uses the stored
+\texttt{std::function<void(double, Vec, Vec, ModelT*)>}.
+
+The algorithm is identical (snapshot, apply, solve, commit-or-bisect) but
+operates on the member \texttt{apply\_fn\_} and \texttt{f\_full\_} instead
+of template parameters.  The original templated version is preserved for
+backward compatibility of \texttt{solve\_incremental()}.
+
+
+\section{AnalysisState — Cross-Engine Transfer}
+
+\begin{verbatim}
+namespace fall_n {
+
+struct AnalysisState {
+    Vec      displacement{nullptr};
+    Vec      velocity{nullptr};       // nullptr for static
+    double   time{0.0};
+    PetscInt step{0};
+};
+
+} // namespace fall_n
+\end{verbatim}
+
+Both \texttt{NonlinearAnalysis} and \texttt{DynamicAnalysis} provide
+\texttt{get\_analysis\_state()} returning a snapshot with borrowed PETSc
+vectors.  Typical usage for a preload $\to$ dynamic handoff:
+
+\begin{verbatim}
+// Phase 1: static preload
+NonlinearAnalysis<Policy> nl{&model};
+nl.begin_incremental(10);
+nl.step_to(1.0);
+
+auto state = nl.get_analysis_state();
+
+// Phase 2: dynamic excitation (transfer displacement)
+DynamicAnalysis<Policy> dyn{&model};
+dyn.set_initial_displacement(state.displacement);
+dyn.step_to(10.0);
+\end{verbatim}
+
+
+\section{Verification}
+
+\begin{center}
+\begin{tabular}{clr}
+\hline
+\textbf{\#} & \textbf{Test} & \textbf{Assertions} \\
+\hline
+1  & \texttt{SteppableSolver} concept satisfaction (NL + Dynamic)  & 2  \\
+2  & NL \texttt{begin\_incremental + step()}                       & 6  \\
+3  & NL \texttt{step\_n(n)}                                        & 6  \\
+4  & NL \texttt{step\_to(p)}                                       & 6  \\
+5  & NL \texttt{step\_to + pause\_at\_times}                       & 6  \\
+6  & NL \texttt{step\_to + pause\_on} (custom condition)           & 2  \\
+7  & NL \texttt{set\_increment\_size} (runtime dp change)          & 4  \\
+8  & NL equivalence (step-by-step vs \texttt{solve\_incremental})  & 7  \\
+9  & NL \texttt{get\_analysis\_state}                              & 5  \\
+10 & Dynamic \texttt{get\_analysis\_state}                         & 4  \\
+\hline
+   & \textbf{Total}                                                & \textbf{48} \\
+\hline
+\end{tabular}
+\end{center}
+
+Test~8 confirms exact equivalence: the step-by-step path produces
+$\|\Delta\mathbf{u}\| = 0$ compared to the batch
+\texttt{solve\_incremental()} path.
+
+All 47/51 suite tests pass (4 pre-existing data-file failures unchanged).
+
+
+\section{Files}
+
+\begin{description}
+  \item[\texttt{src/analysis/SteppableSolver.hh}] \hfill \\
+    \texttt{SteppableSolver} concept + \texttt{AnalysisState} struct.
+  \item[\texttt{src/analysis/NLAnalysis.hh}] \hfill \\
+    Added: stepping state members, \texttt{begin\_incremental()},
+    \texttt{step()}, \texttt{step\_to()}, \texttt{step\_n()},
+    \texttt{current\_time()}, \texttt{current\_step()},
+    \texttt{set\_director()}, \texttt{set\_increment\_size()},
+    \texttt{get\_analysis\_state()}, \texttt{advance\_step\_impl\_()}.
+  \item[\texttt{src/analysis/DynamicAnalysis.hh}] \hfill \\
+    Added: \texttt{get\_analysis\_state()}, \texttt{SteppableSolver.hh} include.
+  \item[\texttt{src/analysis/Analysis.hh}] \hfill \\
+    Added: \texttt{SteppableSolver.hh} include.
+  \item[\texttt{tests/test\_steppable\_solver.cpp}] \hfill \\
+    10 tests, 48 assertions.
+  \item[\texttt{CMakeLists.txt}] \hfill \\
+    Registered \texttt{fall\_n\_steppable\_solver\_test}.
+\end{description}
