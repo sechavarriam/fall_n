@@ -1,0 +1,1009 @@
+\chapter{Analysis \& Model Architecture — Comprehensive Reference}
+\label{ch:analysis_model_architecture}
+
+% =============================================================================
+%  Chapter 63: Full architectural documentation of the Analysis and Model
+%  modules, including dependency maps, extension points, usage tutorials,
+%  and semantic critique.
+% =============================================================================
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Overview}
+\label{sec:arch:overview}
+
+The \texttt{fall\_n} framework organises finite-element analysis into two
+principal modules:
+
+\begin{description}[style=nextline]
+  \item[\texttt{src/model/}]
+    Describes \emph{what} is being analysed: the finite element model, its
+    degrees of freedom, boundary conditions, material points, and state
+    snapshots.
+
+  \item[\texttt{src/analysis/}]
+    Describes \emph{how} the model is solved: linear, nonlinear, and dynamic
+    solvers; incremental load control; step-level observation; and multi-phase
+    orchestration.
+\end{description}
+
+Both modules are policy-based (templates) at the inner core and type-erased
+(callbacks, \texttt{std::function}) at the system boundary.  This gives
+zero-cost inner loops and maximum composability at the API surface.
+
+The next sections dissect each module by:
+\begin{itemize}[nosep]
+  \item Header inventory and dependency graph,
+  \item Class-level architecture diagrams,
+  \item Extension points with concrete tutorials,
+  \item Semantic analysis and naming conventions.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Analysis Module Architecture}
+\label{sec:arch:analysis}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Header Inventory}
+\label{sec:arch:analysis:inventory}
+
+The analysis module comprises 13 header files, all flat in
+\texttt{src/analysis/} (no subdirectories):
+
+\begin{center}
+\small
+\begin{tabular}{@{}llp{7.5cm}@{}}
+\toprule
+\textbf{Header} & \textbf{Lines} & \textbf{Role} \\
+\midrule
+\texttt{AnalysisObserver.hh}     & $\sim$320 & \texttt{StepEvent}, \texttt{ObserverBase}, \texttt{DynamicObserverList}, \texttt{CompositeObserver}, \texttt{ObserverCallback} \\
+\texttt{IncrementalControl.hh}   & $\sim$170 & \texttt{IncrementalControlPolicy} concept $+$ \texttt{LoadControl}, \texttt{DisplacementControl}, \texttt{CustomControl} \\
+\texttt{StepDirector.hh}         & $\sim$180 & \texttt{StepVerdict} enum, \texttt{StepDirector<ModelT>} type alias, 5~factories \\
+\texttt{SteppableSolver.hh}      & $\sim$70  & \texttt{SteppableSolver} concept $+$ \texttt{AnalysisState} struct \\
+\texttt{Damping.hh}              & $\sim$100 & \texttt{DampingAssembler} functor $+$ Rayleigh factories \\
+\texttt{LinearAnalysis.hh}       & $\sim$95  & PETSc KSP wrapper (single solve) \\
+\texttt{NLAnalysis.hh}           & $\sim$870 & PETSc SNES Newton--Raphson solver with automatic bisection \\
+\texttt{DynamicAnalysis.hh}      & $\sim$1000& PETSc TS transient solver (generalized-$\alpha$, Newmark) \\
+\texttt{AnalysisDirector.hh}     & $\sim$280 & Multi-phase orchestrator with state threading \\
+\texttt{Observers.hh}            & $\sim$800 & 7~concrete observers (console, VTK, node/element/fiber recorders, energy, max-response) \\
+\texttt{DamageCriterion.hh}      & $\sim$320 & Damage-based stopping criterion (observer) \\
+\texttt{FiberHysteresisRecorder.hh} & $\sim$330 & Fiber-level hysteresis recorder (observer) \\
+\texttt{Analysis.hh}             & $\sim$50  & Module aggregator (includes all of the above in dependency order) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Dependency Graph}
+\label{sec:arch:analysis:deps}
+
+The include relationships form a layered DAG:
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=2pt, minimum width=3.8cm,
+                minimum height=0.8cm, font=\footnotesize\ttfamily,
+                align=center},
+    concept/.style={box, fill=blue!10},
+    solver/.style={box, fill=green!10},
+    orch/.style={box, fill=orange!10},
+    obs/.style={box, fill=yellow!10},
+    facade/.style={box, fill=gray!10},
+    arr/.style={-{Stealth[length=4pt]}, thin, gray!70}
+  ]
+
+  % Layer 0: Model
+  \node[box, fill=red!8] (model) at (0, 6)
+    {Model.hh\\(src/model)};
+
+  % Layer 1: Concepts / value types
+  \node[concept] (observer) at (-5.5, 4.5)   {AnalysisObserver.hh};
+  \node[concept] (incctrl)  at (-1.8, 4.5)   {IncrementalControl.hh};
+  \node[concept] (stepdir)  at ( 1.8, 4.5)   {StepDirector.hh};
+  \node[concept] (steppable)at ( 5.5, 4.5)   {SteppableSolver.hh};
+
+  % Layer 1.5: Damping
+  \node[concept] (damping)  at (-5.5, 3.3)   {Damping.hh};
+
+  % Layer 2: Solvers
+  \node[solver] (linear) at (-4, 1.8)   {LinearAnalysis.hh};
+  \node[solver] (nl)     at ( 0, 1.8)   {NLAnalysis.hh};
+  \node[solver] (dyn)    at ( 4, 1.8)   {DynamicAnalysis.hh};
+
+  % Layer 3: Orchestration
+  \node[orch] (director) at (0, 0.3) {AnalysisDirector.hh};
+
+  % Layer 4: Observers
+  \node[obs] (observers) at (-4, -1.0) {Observers.hh};
+  \node[obs] (damage)    at ( 0, -1.0) {DamageCriterion.hh};
+  \node[obs] (fiber)     at ( 4, -1.0) {FiberHysteresisRecorder.hh};
+
+  % Layer 5: Facade
+  \node[facade] (analysis) at (0, -2.5) {Analysis.hh};
+
+  % Edges
+  \draw[arr] (model) -- (observer);
+  \draw[arr] (model) -- (incctrl);
+  \draw[arr] (observer) -- (stepdir);
+  \draw[arr] (stepdir) -- (steppable);
+
+  \draw[arr] (model) -- (linear);
+  \draw[arr] (model) -- (nl);
+  \draw[arr] (model) -- (dyn);
+  \draw[arr] (incctrl) -- (nl);
+  \draw[arr] (stepdir) -- (nl);
+  \draw[arr] (damping) -- (dyn);
+  \draw[arr] (observer) -- (dyn);
+  \draw[arr] (stepdir) -- (dyn);
+  \draw[arr] (steppable) -- (dyn);
+
+  \draw[arr] (steppable) -- (director);
+
+  \draw[arr] (observer) -- (observers);
+  \draw[arr] (observer) -- (damage);
+  \draw[arr] (observer) -- (fiber);
+
+  \draw[arr] (linear) -- (analysis);
+  \draw[arr] (nl) -- (analysis);
+  \draw[arr] (dyn) -- (analysis);
+  \draw[arr] (director) -- (analysis);
+  \draw[arr] (observers) -- (analysis);
+  \draw[arr] (damage) -- (analysis);
+  \draw[arr] (fiber) -- (analysis);
+
+\end{tikzpicture}
+\end{center}
+
+\texttt{Analysis.hh} is a pure aggregator: it includes everything in
+dependency order so that a single \texttt{\#include "Analysis.hh"} brings
+the entire module into scope.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Class-Level Architecture}
+\label{sec:arch:analysis:classes}
+
+The analysis module is organised around four design pillars:
+
+\begin{enumerate}
+  \item \textbf{Concepts as contracts.}
+        \texttt{IncrementalControlPolicy}, \texttt{SteppableSolver},
+        and \texttt{StepDirector<ModelT>} are not base classes ---
+        they are C++23 concepts or type aliases for \texttt{std::function}.
+        Solvers satisfy these contracts structurally; no inheritance is
+        required.
+
+  \item \textbf{Solver engines as monolithic templates.}
+        \texttt{LinearAnalysis}, \texttt{NonlinearAnalysis}, and
+        \texttt{DynamicAnalysis} are class templates parametrised by
+        \texttt{MaterialPolicy}, \texttt{KinematicPolicy}, \texttt{ndofs},
+        and \texttt{ElemPolicy}.  Each wraps a PETSc solver object (KSP,
+        SNES, TS) with RAII ownership.
+
+  \item \textbf{Observer pattern for non-intrusive recording.}
+        Observers decouple data recording from the solver loop.  Two
+        flavours exist: compile-time (\texttt{CompositeObserver}) and
+        runtime (\texttt{DynamicObserverList}).  Both are integrated via
+        a single \texttt{ObserverCallback} trampoline.
+
+  \item \textbf{Orchestration at the top.}
+        \texttt{AnalysisDirector} composes solver phases using
+        type-erased callbacks (\texttt{PhaseCallback}).  State flows
+        between phases through \texttt{AnalysisState}.
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Solver Engine Anatomy}
+\label{sec:arch:analysis:solvers}
+
+All three solver engines share a common internal structure:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lp{3.5cm}p{3.5cm}p{3.5cm}@{}}
+\toprule
+\textbf{Aspect} & \textbf{LinearAnalysis} & \textbf{NLAnalysis} & \textbf{DynamicAnalysis} \\
+\midrule
+PETSc solver   & KSP              & SNES              & TS \\
+Equation       & $Ku = f$         & $R(u) = f_{\text{int}}(u) - f_{\text{ext}} = 0$ & $M\ddot{u} + C\dot{u} + f_{\text{int}}(u) = f_{\text{ext}}(t)$ \\
+Callbacks      & none             & \texttt{FormResidual}, \texttt{FormJacobian} & \texttt{I2Function}, \texttt{I2Jacobian}, \texttt{Monitor} \\
+Stepping       & single solve     & incremental $+$ bisection & time integration \\
+State commit   & post-solve       & per converged step & per converged step \\
+Observer       & none             & \texttt{step\_callback\_} (legacy) & \texttt{ObserverCallback} $+$ \texttt{MonitorCallback} \\
+Single-step    & no               & \texttt{step()}/\texttt{step\_to()}/\texttt{step\_n()} & same \\
+SteppableSolver& no               & yes                & yes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{NonlinearAnalysis internals.}
+The file is organised as follows:
+\begin{enumerate}[nosep]
+  \item \emph{Private members:} model pointer, PETSc objects (SNES, Vec, Mat),
+        timer, callbacks, single-step state, context struct.
+  \item \emph{Static PETSc callbacks:} \texttt{FormResidual}, \texttt{FormJacobian}
+        --- these are \texttt{static} member functions matching PETSc's C API.
+        The \texttt{Context} struct provides the \texttt{void*} bridge.
+  \item \emph{State management:} \texttt{commit\_state()}, \texttt{revert\_state()}.
+  \item \emph{Public query API:} \texttt{converged\_reason()},
+        \texttt{num\_iterations()}, \texttt{timer()}.
+  \item \emph{Setup.}
+  \item \emph{Solve API:} \texttt{solve()}, \texttt{solve\_incremental()}.
+  \item \emph{Bisection engine:} \texttt{advance\_to\_p\_()},
+        \texttt{advance\_step\_impl\_()}.
+  \item \emph{Single-step API:} \texttt{begin\_incremental()}, \texttt{step()},
+        \texttt{step\_to()}, \texttt{step\_n()}.
+  \item \emph{Accessors:} \texttt{current\_time()}, \texttt{current\_step()}.
+  \item \emph{State transfer:} \texttt{get\_analysis\_state()}.
+  \item \emph{Constructor/destructor.}
+\end{enumerate}
+
+\paragraph{DynamicAnalysis internals.}
+\begin{enumerate}[nosep]
+  \item \emph{Private members:} model pointer, PETSc objects (TS, Mat $\times$4, Vec $\times$4),
+        configuration callbacks, observer pipelines, ground-motion data.
+  \item \emph{Static PETSc callbacks:} \texttt{I2Function}, \texttt{I2Jacobian},
+        \texttt{Monitor}.
+  \item \emph{Private helpers:} \texttt{post\_step\_()},
+        \texttt{assemble\_initial\_stiffness()},
+        \texttt{setup\_ground\_motion\_influence()}.
+  \item \emph{Configuration API:} density, damping, forces, BCs, observers.
+  \item \emph{Setup.}
+  \item \emph{Initial conditions.}
+  \item \emph{Single-step API:} \texttt{step()}, \texttt{step\_to()}, \texttt{step\_n()}.
+  \item \emph{Runtime reconfiguration:} \texttt{set\_time\_step()}, \texttt{set\_director()}.
+  \item \emph{Batch solve:} \texttt{solve(t\_final, dt)}, \texttt{solve(t0, t1, dt)}.
+  \item \emph{Post-solve accessors:} displacement, velocity, matrices, \texttt{get\_analysis\_state()}.
+  \item \emph{Constructor/destructor.}
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Incremental Control Policies}
+\label{sec:arch:analysis:control}
+
+The incremental solver in \texttt{NonlinearAnalysis} accepts any control
+strategy satisfying:
+
+\begin{verbatim}
+template <typename S, typename ModelT>
+concept IncrementalControlPolicy = requires(
+    S& scheme, double p, Vec f_full, Vec f_ext, ModelT* model)
+{
+    scheme.apply(p, f_full, f_ext, model);
+};
+\end{verbatim}
+
+\noindent
+The \texttt{apply()} method is \textbf{absolute}: for a given $p$, it fully
+determines the system state.  This idempotency is critical for bisection
+rollback --- no save/restore logic is needed in the scheme itself.
+
+Three built-in policies are provided:
+
+\begin{center}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Policy} & \textbf{Semantics} \\
+\midrule
+\texttt{LoadControl}         & $f_{\text{ext}} = p \cdot f_{\text{full}}$ (proportional scaling, default) \\
+\texttt{DisplacementControl} & Prescribed DOF $u_D = p \cdot u_{\text{target}}$; optional $f_{\text{ext}} = p \cdot \alpha \cdot f_{\text{full}}$ \\
+\texttt{CustomControl<F>}    & User-supplied $\lambda(p)$ via \texttt{make\_control(fn)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+\textbf{Planned:} \texttt{ArcLengthControl} (Riks method) requires augmenting
+the SNES system to $(u, \lambda)$ with a spherical constraint.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Observer Architecture}
+\label{sec:arch:analysis:observers}
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=2pt, minimum width=3.5cm,
+                minimum height=0.7cm, font=\small\ttfamily},
+    arr/.style={-{Stealth[length=4pt]}, thick}
+  ]
+  \node[box, fill=blue!10] (base) at (0, 3)
+    {ObserverBase<ModelT>};
+  \node[box, fill=green!10] (dyn) at (-3.5, 1.5)
+    {DynamicObserverList};
+  \node[box, fill=green!10] (comp) at (3.5, 1.5)
+    {CompositeObserver};
+  \node[box, fill=orange!10] (cb) at (0, 0)
+    {ObserverCallback<ModelT>};
+
+  \draw[arr] (base) -- (dyn) node[midway, left, font=\scriptsize] {owns via unique\_ptr};
+  \draw[arr] (comp.south) -- (cb) node[midway, right, font=\scriptsize] {make\_observer\_callback};
+  \draw[arr] (dyn.south) -- (cb)  node[midway, left, font=\scriptsize]  {make\_observer\_callback};
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}[nosep]
+  \item \textbf{Static path} (\texttt{CompositeObserver}): observers stored in
+        a \texttt{std::tuple}, fold-expanded at compile time.  Zero virtual
+        dispatch.  Use when the observer set is fixed at compile time.
+
+  \item \textbf{Dynamic path} (\texttt{DynamicObserverList}): observers behind
+        \texttt{unique\_ptr<ObserverBase>}, virtual dispatch per step.
+        Negligible cost compared to constitutive evaluation.  Use when
+        observers are configured at runtime.
+
+  \item \textbf{Integration}: \texttt{DynamicAnalysis::set\_observer()} stores
+        an \texttt{ObserverCallback} --- a struct of three
+        \texttt{std::function} fields (\texttt{on\_start}, \texttt{on\_step},
+        \texttt{on\_end}).  The \texttt{make\_observer\_callback<ModelT>(obs)}
+        factory bridges any observer-like object to this interface.
+\end{itemize}
+
+\paragraph{Concrete observers.}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Observer} & \textbf{Purpose} \\
+\midrule
+\texttt{ConsoleProgressObserver} & Print step/time to stdout every $N$ steps \\
+\texttt{VTKSnapshotObserver}     & Write VTU/VTM files at intervals \\
+\texttt{NodeRecorder}            & Record displacement/velocity at selected nodes \\
+\texttt{ElementRecorder}         & Record element-level fields \\
+\texttt{FiberRecorder}           & Record fiber-level $\sigma$--$\varepsilon$ history \\
+\texttt{EnergyRecorder}          & Track kinetic, strain, and external work \\
+\texttt{MaxResponseTracker}      & Track peak displacement/acceleration \\
+\texttt{DamageCriterion}         & Evaluate damage-based stopping criteria \\
+\texttt{FiberHysteresisRecorder} & Record fiber-level hysteresis loops \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{StepDirector and SteppableSolver}
+\label{sec:arch:analysis:stepping}
+
+Both \texttt{NonlinearAnalysis} and \texttt{DynamicAnalysis} satisfy the
+\texttt{SteppableSolver} concept (Chapter~\ref{ch:steppable_solver_concept}).
+The ``time axis'' has engine-specific semantics:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Engine} & \textbf{Time axis} & \textbf{Range} \\
+\midrule
+\texttt{NonlinearAnalysis} & Control parameter $p$ & $[0, 1]$ \\
+\texttt{DynamicAnalysis}   & Physical time $t$     & $[0, T]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{StepDirector<ModelT>} is a
+\texttt{std::function<StepVerdict(const StepEvent\&, const ModelT\&)>}
+evaluated after each converged step.  Five factories cover common patterns:
+
+\begin{enumerate}[nosep]
+  \item \texttt{pause\_at\_times} --- pause at listed breakpoints.
+  \item \texttt{pause\_every\_n} --- pause every $N$ steps.
+  \item \texttt{pause\_on(pred)} --- pause when a predicate fires.
+  \item \texttt{stop\_on(pred)} --- terminate on a predicate.
+  \item \texttt{compose} --- combine directors (most restrictive wins).
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{AnalysisDirector (Orchestration)}
+\label{sec:arch:analysis:director}
+
+Multi-phase workflows are coordinated by \texttt{AnalysisDirector}
+(Chapter~\ref{ch:analysis_director}).  Key design choices:
+
+\begin{itemize}[nosep]
+  \item Director is \emph{not} templated --- phases are type-erased
+        \texttt{PhaseCallback = std::function<AnalysisState(const AnalysisState\&)>}.
+  \item State flows automatically: the output of phase $n$ becomes the input
+        of phase $n{+}1$.
+  \item Optional \texttt{PhaseGateCallback} for inter-phase decisions.
+  \item Returns a \texttt{DirectorReport} with per-phase timing and status.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Model Module Architecture}
+\label{sec:arch:model}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Header Inventory}
+\label{sec:arch:model:inventory}
+
+The model module comprises 12 header files in \texttt{src/model/}:
+
+\begin{center}
+\small
+\begin{tabular}{@{}llp{7.5cm}@{}}
+\toprule
+\textbf{Header} & \textbf{Lines} & \textbf{Role} \\
+\midrule
+\texttt{DoFStorage.hh}        & $\sim$400 & 3~DOF storage policies $+$ concept; default used by \texttt{Domain} \\
+\texttt{DoF.hh}               & $\sim$130 & Legacy DOF handler (superseded by \texttt{DoFStorage}; retained for transition) \\
+\texttt{MaterialPoint.hh}     & $\sim$130 & Lightweight spatial site carrying material reference \\
+\texttt{ModelState.hh}         & $\sim$140 & Serialisable state snapshot (displacement, velocity, time) \\
+\texttt{NodeSelector.hh}       & $\sim$330 & Concept-based composable node selection (by id, label, box, functor) \\
+\texttt{Model.hh}              & $\sim$550 & Core FEA model: elements, PETSc section, constraints, forces \\
+\texttt{ModelBuilder.hh}       & $\sim$80  & \emph{Dormant} --- original domain$\leftrightarrow$model linker (all code commented) \\
+\texttt{BoundaryCondition.hh}  & $\sim$690 & Time-dependent boundary conditions, IC, ground motion \\
+\texttt{LoadUtilities.hh}      & $\sim$50  & Helper to apply nodal loads \\
+\texttt{BuildingDomainBuilder.hh} & $\sim$350 & Generates multi-story regular building meshes \\
+\texttt{StructuralModelBuilder.hh} & $\sim$150 & High-level builder for beam/shell structural models \\
+\texttt{GroundMotionRecord.hh} & $\sim$280 & Parser for seismic acceleration records (CSV/column) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{The \texttt{Model<>} Template}
+\label{sec:arch:model:model}
+
+\texttt{Model} is the central aggregate: it owns the PETSc data structures
+and connects the domain, elements, materials, and boundary conditions.
+
+\begin{verbatim}
+template <
+    typename MaterialPolicy,
+    typename KinematicPolicy = continuum::SmallStrain,
+    std::size_t ndofs = MaterialPolicy::dim,
+    typename ElemPolicy = SingleElementPolicy<
+        ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>
+>
+class Model;
+\end{verbatim}
+
+\noindent
+Template parameters:
+
+\begin{description}[style=nextline, leftmargin=2cm]
+  \item[\texttt{MaterialPolicy}]
+    Defines the constitutive dimension (\texttt{dim}), strain/stress types.
+    Examples: \texttt{ThreeDimensionalMaterial}, \texttt{PlaneMaterial},
+    \texttt{UniaxialMaterial}.
+
+  \item[\texttt{KinematicPolicy}]
+    Selects the kinematic formulation.
+    Options: \texttt{SmallStrain}, \texttt{TotalLagrangian},
+    \texttt{UpdatedLagrangian}, \texttt{Corotational}.
+
+  \item[\texttt{ndofs}]
+    Degrees of freedom per node (defaults to \texttt{dim} for solid
+    elements; 6~for structural beam/shell).
+
+  \item[\texttt{ElemPolicy}]
+    Storage policy for elements.  \texttt{SingleElementPolicy} stores a
+    homogeneous \texttt{std::vector<ElementT>};
+    \texttt{MultiElementPolicy} stores \texttt{std::vector<FEM\_Element>}
+    (type-erased, heterogeneous).
+\end{description}
+
+\paragraph{Responsibilities.}
+\begin{enumerate}[nosep]
+  \item \textbf{PETSc section management}: creates and configures the
+        \texttt{PetscSection} on the DMPlex, assigning DOF counts per
+        mesh point.
+  \item \textbf{Element storage}: owns the element container; provides
+        \texttt{elements()} accessor for iteration.
+  \item \textbf{Global vectors}: \texttt{force\_vector()},
+        \texttt{imposed\_solution()}, \texttt{state\_vector()} ---
+        PETSc local vectors managed via RAII.
+  \item \textbf{Constraint management}: \texttt{constrain\_dof()},
+        \texttt{update\_imposed\_value()} --- manipulates the DM section
+        to enforce essential BCs.
+  \item \textbf{Stiffness injection}: \texttt{inject\_K(Mat)} --- assembles
+        the global tangent stiffness by iterating over elements.
+  \item \textbf{Mass assembly}: \texttt{assemble\_mass\_matrix(Mat)} for
+        dynamics.
+  \item \textbf{State capture}: \texttt{capture\_state()} /
+        \texttt{restore\_state()} for checkpoint/restart.
+\end{enumerate}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Boundary Condition Framework}
+\label{sec:arch:model:bc}
+
+The \texttt{BoundaryConditionSet<dim>} class provides a declarative API
+for time-dependent boundary conditions:
+
+\begin{itemize}[nosep]
+  \item \textbf{Nodal forces:} point loads with time modulation.
+  \item \textbf{Prescribed displacements:} essential BCs with time functions.
+  \item \textbf{Initial conditions:} displacement and velocity ICs.
+  \item \textbf{Ground motions:} seismic input (direction + acceleration record).
+\end{itemize}
+
+\noindent
+Integration with \texttt{DynamicAnalysis}:
+
+\begin{verbatim}
+BoundaryConditionSet<3> bcs;
+bcs.add_force(node_selector, {0, 0, -1000}, linear_ramp);
+bcs.add_prescribed(base_nodes, 0, ground_motion_fn);
+bcs.add_ground_motion(0, accel_fn);
+
+dyn.set_boundary_conditions(bcs);
+dyn.set_initial_conditions(bcs);
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{NodeSelector: Composable Node Queries}
+\label{sec:arch:model:selector}
+
+\texttt{NodeSelector} uses a concept + combinator pattern:
+
+\begin{verbatim}
+template <typename S>
+concept NodeSelectorConcept = requires(const S& sel, const Node& n) {
+    { sel(n) } -> std::convertible_to<bool>;
+};
+\end{verbatim}
+
+Built-in selectors:
+\begin{itemize}[nosep]
+  \item \texttt{ByNodeId\{ids\}} --- select by explicit node ids.
+  \item \texttt{ByLabel\{label\}} --- select by physical group label.
+  \item \texttt{ByBoundingBox\{min, max\}} --- spatial selection.
+  \item \texttt{ByPredicate\{fn\}} --- arbitrary predicate.
+\end{itemize}
+
+Combinators: \texttt{operator\&\&}, \texttt{operator||}, \texttt{operator!}
+produce composed selectors.  All are value types (no heap allocation).
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Semantic Analysis}
+\label{sec:arch:model:semantics}
+
+\begin{description}[style=nextline]
+  \item[\texttt{DoF.hh} vs.\ \texttt{DoFStorage.hh}]
+    The legacy \texttt{DoF\_Interface}/\texttt{DoF\_Handler} classes use
+    \texttt{shared\_ptr} and a mutable public member style inconsistent
+    with the rest of the framework.  \texttt{DoFStorage.hh} replaces them
+    with three clean storage policies (\texttt{FixedDoFStorage},
+    \texttt{DynamicDoFStorage}, \texttt{PetscDoFStorage}).  The old header
+    is retained only for downstream compatibility and should be removed
+    when all consumers migrate.
+
+  \item[\texttt{ModelBuilder.hh}]
+    All code is commented out.  The original purpose (linking Domain to
+    Model) has been absorbed by \texttt{StructuralModelBuilder} and
+    \texttt{GmshDomainBuilder}.  The empty shell is kept to avoid breaking
+    \texttt{header\_files.hh} includes.
+
+  \item[\texttt{MaterialPoint.hh}]
+    Correctly named: it represents a spatial location carrying a material
+    reference (a Gauss point with material identity).
+
+  \item[\texttt{ModelState.hh}]
+    Clean naming; captures a serialisable snapshot of the model.
+\end{description}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Extension Points}
+\label{sec:arch:extension}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Adding a New Solver Engine}
+\label{sec:arch:ext:solver}
+
+To add a new analysis engine (e.g., explicit dynamics or eigenvalue analysis):
+
+\begin{enumerate}
+  \item \textbf{Create the header} in \texttt{src/analysis/}.  Use the same
+        template signature (\texttt{MaterialPolicy}, \texttt{KinematicPolicy},
+        \texttt{ndofs}, \texttt{ElemPolicy}) for compatibility.
+
+  \item \textbf{Wrap the PETSc solver} (e.g., \texttt{EPS} for eigenvalue)
+        with RAII via \texttt{petsc::OwnedXxx}.
+
+  \item \textbf{Implement the solve API}.  If the engine supports stepping,
+        provide \texttt{step()}, \texttt{step\_to()}, \texttt{step\_n()},
+        \texttt{current\_time()}, \texttt{current\_step()} to satisfy
+        \texttt{SteppableSolver}.
+
+  \item \textbf{Provide \texttt{get\_analysis\_state()}} returning an
+        \texttt{AnalysisState} for integration with \texttt{AnalysisDirector}.
+
+  \item \textbf{Register in \texttt{Analysis.hh}} by adding an include in
+        the ``Solver engines'' section.
+\end{enumerate}
+
+\begin{verbatim}
+// Example skeleton:
+template <typename MaterialPolicy, ...>
+class EigenvalueAnalysis {
+    ModelT* model_;
+    petsc::OwnedEPS eps_;
+public:
+    void solve(int num_modes);
+    auto eigenvalues() const -> std::vector<double>;
+    auto eigenvector(int i) const -> Vec;
+
+    explicit EigenvalueAnalysis(ModelT* model);
+};
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Adding a New Observer}
+\label{sec:arch:ext:observer}
+
+\paragraph{Runtime observer (recommended for most use cases):}
+
+\begin{enumerate}[nosep]
+  \item Derive from \texttt{ObserverBase<ModelT>}.
+  \item Override \texttt{on\_step()} (required) and optionally
+        \texttt{on\_analysis\_start()} / \texttt{on\_analysis\_end()}.
+  \item Add to a \texttt{DynamicObserverList} via \texttt{list.add<MyObs>(args...)}.
+\end{enumerate}
+
+\begin{verbatim}
+template <typename ModelT>
+class DriftObserver : public fall_n::ObserverBase<ModelT> {
+    double max_drift_{0};
+public:
+    void on_step(const fall_n::StepEvent& ev,
+                 const ModelT& model) override
+    {
+        double drift = compute_interstory_drift(ev.displacement, model);
+        max_drift_ = std::max(max_drift_, drift);
+    }
+    double max_drift() const { return max_drift_; }
+};
+\end{verbatim}
+
+\paragraph{Compile-time observer (for maximum performance):}
+
+Implement the three methods (\texttt{on\_analysis\_start},
+\texttt{on\_step}, \texttt{on\_analysis\_end}) as regular member functions
+(no inheritance needed), then pass to \texttt{make\_composite\_observer}.
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Adding a New Incremental Control Policy}
+\label{sec:arch:ext:control}
+
+Any type satisfying \texttt{IncrementalControlPolicy} can be passed
+to \texttt{solve\_incremental()} or \texttt{begin\_incremental()}:
+
+\begin{verbatim}
+struct MyPolicy {
+    template <typename ModelT>
+    void apply(double p, Vec f_full, Vec f_ext, ModelT* model) {
+        // p ∈ [0,1] — must be absolute (idempotent for any p)
+        VecCopy(f_full, f_ext);
+        VecScale(f_ext, std::sin(p * M_PI / 2.0));  // sine ramp
+    }
+};
+
+nl.solve_incremental(20, 4, MyPolicy{});
+\end{verbatim}
+
+\noindent
+Alternatively, use \texttt{make\_control(lambda)} for one-off policies:
+
+\begin{verbatim}
+auto scheme = make_control([](double p, Vec f_full, Vec f_ext, auto* m) {
+    VecCopy(f_full, f_ext);
+    VecScale(f_ext, p * p);  // quadratic ramp
+});
+nl.solve_incremental(10, 4, scheme);
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Adding a New StepDirector}
+\label{sec:arch:ext:director}
+
+Step directors are plain callables.  Use \texttt{pause\_on} or
+\texttt{stop\_on} for quick construction, or write a full
+\texttt{std::function}:
+
+\begin{verbatim}
+// Stop when inter-story drift exceeds 2%
+auto dir = fall_n::step_director::stop_on(
+    [](const fall_n::StepEvent& ev, const auto& model) {
+        return max_interstory_drift(model) > 0.02;
+    }
+);
+solver.set_director(dir);
+\end{verbatim}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Usage Tutorials}
+\label{sec:arch:tutorials}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Tutorial 1: Simple Linear Static Analysis}
+\label{sec:arch:tut:linear}
+
+\begin{verbatim}
+#include "header_files.hh"
+
+int main(int argc, char** argv) {
+    PetscInitialize(&argc, &argv, nullptr, nullptr);
+    {
+        // 1. Build domain from Gmsh
+        auto [domain, groups] = GmshDomainBuilder<3>::from_file("mesh.msh");
+
+        // 2. Create model with elastic material
+        auto material = make_elastic_3d(E, nu);
+        Model<ThreeDimensionalMaterial> model(&domain);
+        model.add_elements(material, groups["solid"]);
+        model.apply_forces(groups["load"], {0, 0, -1000});
+        model.constrain_nodes(groups["base"], {0, 1, 2});
+        model.setup();
+
+        // 3. Solve
+        LinearAnalysis la(&model);
+        la.solve();
+
+        // 4. Post-process
+        VTKModelExporter exporter("result.vtu");
+        exporter.write(model);
+    }
+    PetscFinalize();
+}
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Tutorial 2: Nonlinear Incremental with Displacement Control}
+\label{sec:arch:tut:pushover}
+
+\begin{verbatim}
+// Pushover analysis: node 42, direction X, target displacement 0.05 m
+NonlinearAnalysis nl(&model);
+DisplacementControl dc{42, 0, 0.05};
+nl.solve_incremental(50, /*max_bisections=*/4, dc);
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Tutorial 3: Dynamic Seismic Analysis with Observers}
+\label{sec:arch:tut:seismic}
+
+\begin{verbatim}
+DynamicAnalysis dyn(&model);
+dyn.set_density(2400.0);  // kg/m^3
+dyn.set_rayleigh_damping(omega1, omega2, 0.05);  // 5% at two frequencies
+dyn.set_boundary_conditions(bcs);
+dyn.set_initial_conditions(bcs);
+
+// Compose observers
+auto obs = make_composite_observer<ModelT>(
+    ConsoleProgressObserver<ModelT>{100},
+    VTKSnapshotObserver<ModelT>{"output/", 50, profile, thickness},
+    NodeRecorder<ModelT>{{42, 99}, {0, 1, 2}, 1}
+);
+dyn.set_observer(obs);
+
+// Solve
+dyn.solve(30.0, 0.01);  // 30 seconds, dt = 0.01 s
+
+// Access recorded data
+auto& recorder = obs.get<2>();
+auto history = recorder.get_history(42, 0);  // node 42, dof 0
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Tutorial 4: Multi-Phase Analysis with AnalysisDirector}
+\label{sec:arch:tut:multiphase}
+
+\begin{verbatim}
+AnalysisDirector director;
+
+// Phase 1: Static gravity preload
+director.add_phase("gravity", [&](const AnalysisState& prev) {
+    NonlinearAnalysis nl(&model);
+    nl.solve_incremental(10);
+    return nl.get_analysis_state();
+});
+
+// Phase 2: Dynamic seismic excitation
+director.add_phase("seismic", [&](const AnalysisState& prev) {
+    DynamicAnalysis dyn(&model);
+    dyn.set_initial_displacement(prev.displacement);
+    dyn.set_boundary_conditions(bcs);
+    dyn.solve(30.0, 0.01);
+    return dyn.get_analysis_state();
+});
+
+auto report = director.run();
+report.print_summary();
+\end{verbatim}
+
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Tutorial 5: Single-Step Control with StepDirector}
+\label{sec:arch:tut:stepping}
+
+\begin{verbatim}
+NonlinearAnalysis nl(&model);
+nl.begin_incremental(100);  // 100 load steps
+
+// Step to half load, pause every 10 steps
+auto dir = fall_n::step_director::pause_every_n<ModelT>(10);
+
+while (nl.current_time() < 1.0 - 1e-14) {
+    auto verdict = nl.step_to(1.0, dir);
+
+    if (verdict == fall_n::StepVerdict::Pause) {
+        // Inspect model between steps
+        auto u_max = get_max_displacement(model);
+        std::cout << "p = " << nl.current_time()
+                  << ", u_max = " << u_max << "\n";
+
+        if (u_max > threshold) break;  // early termination
+    }
+
+    if (verdict == fall_n::StepVerdict::Stop) {
+        std::cerr << "Analysis diverged!\n";
+        break;
+    }
+}
+\end{verbatim}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Cross-Module Dependency Map}
+\label{sec:arch:crossmodule}
+
+The full framework follows a strict layered dependency:
+
+\begin{center}
+\begin{tikzpicture}[
+    layer/.style={draw, rounded corners=3pt, minimum width=14cm,
+                  minimum height=1.0cm, font=\small},
+    arr/.style={-{Stealth[length=5pt]}, thick}
+  ]
+  \node[layer, fill=gray!5]   (L6) at (0, 7.0)
+    {\textbf{Post-processing} : VTK exporters, state queries};
+  \node[layer, fill=blue!8]   (L5) at (0, 5.5)
+    {\textbf{Analysis} : LinearAnalysis, NLAnalysis, DynamicAnalysis, AnalysisDirector};
+  \node[layer, fill=green!8]  (L4) at (0, 4.0)
+    {\textbf{Model} : Model, BoundaryCondition, NodeSelector, GroundMotionRecord};
+  \node[layer, fill=orange!8] (L3) at (0, 2.5)
+    {\textbf{Domain + Elements} : Domain, ContinuumElement, BeamElement, ShellElement};
+  \node[layer, fill=red!8]    (L2) at (0, 1.0)
+    {\textbf{Materials + Continuum} : Material, ConstitutiveRelation, Tensor, KinematicPolicy};
+  \node[layer, fill=purple!5] (L1) at (0,-0.5)
+    {\textbf{Geometry + Numerics} : ElementGeometry, Quadrature, Shape functions};
+
+  \draw[arr] (L1) -- (L2);
+  \draw[arr] (L2) -- (L3);
+  \draw[arr] (L3) -- (L4);
+  \draw[arr] (L4) -- (L5);
+  \draw[arr] (L5) -- (L6);
+\end{tikzpicture}
+\end{center}
+
+No layer may depend on a higher layer.  The only allowed cross-layer
+access is downward.  The \texttt{header\_files.hh} aggregator includes
+all layers in bottom-up order.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Ontological Critique}
+\label{sec:arch:ontology}
+
+This section critically examines the semantic coherence of the
+framework's naming conventions.
+
+\paragraph{Well-aligned names.}
+\begin{itemize}[nosep]
+  \item \texttt{NonlinearAnalysis} / \texttt{DynamicAnalysis} /
+        \texttt{LinearAnalysis}: clear solver-type distinction.
+  \item \texttt{SteppableSolver}: accurately describes the stepping
+        protocol (not ``Solver'' alone, which is too generic).
+  \item \texttt{AnalysisDirector}: orchestrator pattern, correctly
+        signalling ``directs'' rather than ``is.''
+  \item \texttt{StepDirector}: breakpoint evaluator, distinct from
+        \texttt{AnalysisDirector} in scope.
+  \item \texttt{IncrementalControlPolicy}: ``control'' + ``policy'' maps
+        precisely to the Strategy pattern.
+  \item \texttt{NodeSelector}: composable predicate --- ``selector'' is a
+        well-established pattern name.
+  \item \texttt{BoundaryConditionSet}: ``set'' correctly denotes a
+        collection of BCs, not a single BC.
+\end{itemize}
+
+\paragraph{Areas for future refinement.}
+\begin{itemize}[nosep]
+  \item \texttt{DoF.hh} / \texttt{DoF\_Interface} / \texttt{DoF\_Handler}: the
+        ``Interface'' / ``Handler'' distinction is unclear.  Superseded by
+        \texttt{DoFStorage} (clean policy-based design); remove when possible.
+  \item \texttt{ModelBuilder}: dormant.  The name conflicts with the active
+        \texttt{StructuralModelBuilder} and \texttt{BuildingDomainBuilder}.
+        Remove or rename to \texttt{LegacyModelBuilder} before reuse.
+  \item \texttt{Observers.hh}: the filename is generic; consider
+        \texttt{ConcreteObservers.hh} or splitting into per-concern files
+        if the file grows further.
+  \item \texttt{ElemPolicy} template parameter: ``Policy'' is accurate for
+        the storage strategy, but could be confused with
+        \texttt{MaterialPolicy} or \texttt{KinematicPolicy} which govern
+        physics.  A name like \texttt{StoragePolicy} would reduce ambiguity.
+\end{itemize}
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Code Cleanup Summary}
+\label{sec:arch:cleanup}
+
+The following changes were applied as part of this architectural review:
+
+\begin{enumerate}
+  \item \textbf{\texttt{Analysis.hh}}: Removed stale \texttt{ANALYSIS CONCEPT : TODO}
+        comment.  Reordered includes into five labelled groups following
+        the dependency graph: concepts/types $\to$ damping $\to$
+        solvers $\to$ orchestration $\to$ observers.  Added module-level
+        documentation comment.
+
+  \item \textbf{\texttt{DoF.hh}}: Fixed include-guard typo
+        (\texttt{DEGGREE} $\to$ \texttt{DEGREE}).
+
+  \item \textbf{\texttt{header\_files.hh}}: Updated the \texttt{DoF.hh}
+        transition comment to match current reality.
+
+  \item \textbf{\texttt{ModelBuilder.hh}}: Added a \texttt{DORMANT} banner
+        explaining the class's status, its historical role, and the active
+        replacements (\texttt{StructuralModelBuilder},
+        \texttt{GmshDomainBuilder}).
+\end{enumerate}
+
+All 52 tests pass after these changes.
+
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Summary}
+\label{sec:arch:summary}
+
+The Analysis and Model modules form a coherent, extensible architecture:
+
+\begin{itemize}[nosep]
+  \item \textbf{Analysis}: concepts define contracts
+        (\texttt{SteppableSolver}, \texttt{IncrementalControlPolicy});
+        template engines wrap PETSc solvers with RAII; observers decouple
+        recording; \texttt{AnalysisDirector} composes multi-phase workflows.
+
+  \item \textbf{Model}: the \texttt{Model<>} template aggregates domain,
+        elements, and PETSc structures; \texttt{BoundaryConditionSet}
+        provides a declarative BC API; \texttt{NodeSelector} enables
+        composable queries; builders specialise construction for
+        structural and building models.
+
+  \item \textbf{Extension}: new solvers, observers, control policies, and
+        step directors can be added without modifying existing code ---
+        the Open/Closed principle is consistently respected.
+
+  \item \textbf{Ontology}: naming is generally precise and well-aligned;
+        legacy artifacts (\texttt{DoF.hh}, \texttt{ModelBuilder.hh}) are
+        documented and quarantined for future removal.
+\end{itemize}

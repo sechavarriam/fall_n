@@ -1,5 +1,5 @@
-#ifndef FALL_N_DEGGREE_OF_FREEDOM_CONTAINER
-#define FALL_N_DEGGREE_OF_FREEDOM_CONTAINER
+#ifndef FALL_N_DEGREE_OF_FREEDOM_CONTAINER
+#define FALL_N_DEGREE_OF_FREEDOM_CONTAINER
 
 #include <array>
 #include <cstddef>
@@ -90,4 +90,4 @@ class DoF_Interface{
 
 } // namespace domain
 
-#endif
+#endif // FALL_N_DEGREE_OF_FREEDOM_CONTAINER
