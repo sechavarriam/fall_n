@@ -165,7 +165,7 @@
 #include "src/continuum/Continuum.hh"
 
 #include "src/model/DoFStorage.hh"
-#include "src/model/DoF.hh"       // TODO: deprecate — kept for transition
+#include "src/model/DoF.hh"       // Legacy — kept for transition (see DoFStorage.hh)
 #include "src/model/NodeSelector.hh"
 #include "src/model/ModelState.hh"
 #include "src/model/Model.hh"

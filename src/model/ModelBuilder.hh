@@ -1,6 +1,20 @@
 #ifndef MODEL_BUILDER_HH
 #define MODEL_BUILDER_HH
 
+// =============================================================================
+//  ModelBuilder — DORMANT
+// =============================================================================
+//
+//  This class was an early prototype for linking Domain and Model (setting
+//  default DOFs per node and connecting the DOF vector).  That role has
+//  since been absorbed by StructuralModelBuilder and GmshDomainBuilder.
+//
+//  Kept as an empty shell for backward compatibility.  All implementation
+//  is commented out.  Remove once no translation unit depends on the
+//  ModelBuilder symbol.
+//
+// =============================================================================
+
 
 #include <memory>
 #include <cstddef>
