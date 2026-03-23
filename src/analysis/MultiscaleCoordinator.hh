@@ -1,0 +1,212 @@
+#ifndef FALL_N_SRC_ANALYSIS_MULTISCALE_COORDINATOR_HH
+#define FALL_N_SRC_ANALYSIS_MULTISCALE_COORDINATOR_HH
+
+// =============================================================================
+//  MultiscaleCoordinator — Global-to-local downscaling orchestrator
+// =============================================================================
+//
+//  Orchestrates the creation of continuum sub-models from structural beam
+//  analysis results.  The coordinator receives kinematic snapshots for
+//  "critical" beam elements (those exceeding a damage/displacement threshold)
+//  and builds prismatic hex sub-models with displacement boundary conditions
+//  derived from the beam state.
+//
+//  This is a ONE-WAY downscaling tool: it transfers information from the
+//  global (beam) scale to the local (continuum) scale.  No coupling back
+//  to the global model is performed.
+//
+//  Typical workflow:
+//
+//    1.  Run global structural analysis (e.g. DynamicAnalysis)
+//    2.  Evaluate damage/threshold criteria (TransitionDirector, etc.)
+//    3.  For each critical element, extract kinematics at both ends
+//    4.  Feed the coordinator with ElementKinematics descriptors
+//    5.  Call build_sub_models(spec) to generate the prismatic meshes + BCs
+//    6.  Access sub_models() for visualization or further local analysis
+//
+//  ─── Design decisions ──────────────────────────────────────────────────────
+//
+//  •  Works with SectionKinematics (from FieldTransfer.hh), not with
+//     concrete beam element types → no template dependency on Model or
+//     element policy.
+//
+//  •  Each sub-model is fully self-contained: Domain<3> + PrismaticGrid +
+//     boundary conditions at both end faces.
+//
+//  •  The coordinator is stateless w.r.t. the global model — it receives
+//     pre-extracted data.  This keeps it testable without PETSc solves.
+//
+// =============================================================================
+
+#include <algorithm>
+#include <cstddef>
+#include <numeric>
+#include <string>
+#include <vector>
+
+#include "../reconstruction/FieldTransfer.hh"
+
+
+namespace fall_n {
+
+
+// =============================================================================
+//  ElementKinematics — kinematic snapshot of a beam element at both ends
+// =============================================================================
+
+struct ElementKinematics {
+    std::size_t element_id{0};
+
+    SectionKinematics kin_A;   ///< Kinematics at end A (ξ=-1)
+    SectionKinematics kin_B;   ///< Kinematics at end B (ξ=+1)
+
+    std::array<double, 3> endpoint_A{};
+    std::array<double, 3> endpoint_B{};
+    std::array<double, 3> up_direction{0.0, 1.0, 0.0};
+};
+
+
+// =============================================================================
+//  MultiscaleSubModel — sub-model produced by the coordinator
+// =============================================================================
+
+struct MultiscaleSubModel {
+    std::size_t parent_element_id{0};
+    Domain<3>     domain;
+    PrismaticGrid grid{};
+
+    SectionKinematics kin_A;
+    SectionKinematics kin_B;
+
+    std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_min_z;
+    std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_max_z;
+};
+
+
+// =============================================================================
+//  MultiscaleReport — summary of the downscaling operation
+// =============================================================================
+
+struct MultiscaleReport {
+    std::size_t num_elements{0};         ///< Number of critical elements
+    std::size_t num_sub_models{0};       ///< Sub-models successfully built
+    std::size_t total_nodes{0};          ///< Total nodes across all sub-models
+    std::size_t total_elements{0};       ///< Total elements across all sub-models
+    double      max_displacement{0};     ///< Max |u| across all BC nodes
+    double      mean_displacement{0};    ///< Mean |u| across all BC nodes
+};
+
+
+// =============================================================================
+//  MultiscaleCoordinator
+// =============================================================================
+
+class MultiscaleCoordinator {
+
+    std::vector<ElementKinematics>  critical_elements_;
+    std::vector<MultiscaleSubModel> sub_models_;
+    bool built_{false};
+
+public:
+
+    MultiscaleCoordinator() = default;
+
+    // ── Input: register critical elements ────────────────────────────────
+
+    void add_critical_element(ElementKinematics ek) {
+        built_ = false;
+        critical_elements_.push_back(std::move(ek));
+    }
+
+    void clear() {
+        critical_elements_.clear();
+        sub_models_.clear();
+        built_ = false;
+    }
+
+    [[nodiscard]] std::size_t num_critical() const noexcept {
+        return critical_elements_.size();
+    }
+
+    // ── Build sub-models ─────────────────────────────────────────────────
+
+    void build_sub_models(const SubModelSpec& spec) {
+        sub_models_.clear();
+        sub_models_.reserve(critical_elements_.size());
+
+        for (const auto& ek : critical_elements_) {
+            MultiscaleSubModel sub;
+            sub.parent_element_id = ek.element_id;
+            sub.kin_A = ek.kin_A;
+            sub.kin_B = ek.kin_B;
+
+            // Build aligned prismatic mesh
+            auto pspec = align_to_beam(
+                ek.endpoint_A, ek.endpoint_B, ek.up_direction,
+                spec.section_width, spec.section_height,
+                spec.nx, spec.ny, spec.nz);
+
+            auto [domain, grid] = make_prismatic_domain(pspec);
+
+            // Compute boundary displacements at both faces
+            auto face_A = grid.nodes_on_face(PrismFace::MinZ);
+            auto face_B = grid.nodes_on_face(PrismFace::MaxZ);
+
+            sub.bc_min_z = compute_boundary_displacements(
+                ek.kin_A, domain, face_A);
+            sub.bc_max_z = compute_boundary_displacements(
+                ek.kin_B, domain, face_B);
+
+            sub.domain = std::move(domain);
+            sub.grid   = std::move(grid);
+
+            sub_models_.push_back(std::move(sub));
+        }
+
+        built_ = true;
+    }
+
+    // ── Access ───────────────────────────────────────────────────────────
+
+    [[nodiscard]] const std::vector<MultiscaleSubModel>& sub_models() const noexcept {
+        return sub_models_;
+    }
+
+    [[nodiscard]] bool is_built() const noexcept { return built_; }
+
+    // ── Report ───────────────────────────────────────────────────────────
+
+    [[nodiscard]] MultiscaleReport report() const {
+        MultiscaleReport r;
+        r.num_elements   = critical_elements_.size();
+        r.num_sub_models = sub_models_.size();
+
+        double sum_u = 0.0;
+        std::size_t count_u = 0;
+
+        for (const auto& sub : sub_models_) {
+            r.total_nodes    += sub.grid.total_nodes();
+            r.total_elements += sub.grid.total_elements();
+
+            auto process_face = [&](const auto& bcs) {
+                for (const auto& [id, u] : bcs) {
+                    double norm = u.norm();
+                    r.max_displacement = std::max(r.max_displacement, norm);
+                    sum_u += norm;
+                    ++count_u;
+                }
+            };
+
+            process_face(sub.bc_min_z);
+            process_face(sub.bc_max_z);
+        }
+
+        r.mean_displacement = (count_u > 0) ? sum_u / static_cast<double>(count_u) : 0.0;
+        return r;
+    }
+};
+
+
+} // namespace fall_n
+
+#endif // FALL_N_SRC_ANALYSIS_MULTISCALE_COORDINATOR_HH

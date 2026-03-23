@@ -39,6 +39,7 @@
 
 // ── 5. Orchestration ────────────────────────────────────────────────────
 #include "AnalysisDirector.hh"
+#include "TransitionDirector.hh"
 
 // ── 6. Concrete observers ───────────────────────────────────────────────
 #include "Observers.hh"

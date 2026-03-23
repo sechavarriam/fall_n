@@ -1,0 +1,139 @@
+Test project C:/MyLibs/fall_n/build
+      Start  1: element_geometry
+ 1/56 Test  #1: element_geometry ...................   Passed    0.09 sec
+      Start  2: simplex_elements
+ 2/56 Test  #2: simplex_elements ...................   Passed    0.10 sec
+      Start  3: vtk_tensor_field_derivatives
+ 3/56 Test  #3: vtk_tensor_field_derivatives .......   Passed    0.07 sec
+      Start  4: vtk_gauss_cloud_contract
+ 4/56 Test  #4: vtk_gauss_cloud_contract ...........   Passed    0.14 sec
+      Start  5: material_curves_vtk
+ 5/56 Test  #5: material_curves_vtk ................   Passed    0.39 sec
+      Start  6: structural_reconstruction
+ 6/56 Test  #6: structural_reconstruction ..........   Passed    0.07 sec
+      Start  7: structural_vtm_export
+ 7/56 Test  #7: structural_vtm_export ..............   Passed    0.32 sec
+      Start  8: structural_mixed_vtm_export
+ 8/56 Test  #8: structural_mixed_vtm_export ........   Passed    0.25 sec
+      Start  9: mitc_shell_elements
+ 9/56 Test  #9: mitc_shell_elements ................   Passed    0.55 sec
+      Start 10: seismic_infrastructure
+10/56 Test #10: seismic_infrastructure .............   Passed    0.10 sec
+      Start 11: ground_motion_parsers
+11/56 Test #11: ground_motion_parsers ..............   Passed    0.46 sec
+      Start 12: l_shaped_building
+12/56 Test #12: l_shaped_building ..................   Passed    0.19 sec
+      Start 13: prismatic_mesh
+13/56 Test #13: prismatic_mesh .....................   Passed    0.20 sec
+      Start 14: linear_nl_transition
+14/56 Test #14: linear_nl_transition ...............***Failed    0.28 sec
+[0]PETSC ERROR: ------------------------------------------------------------------------
+[0]PETSC ERROR: Caught signal number 11 SEGV: Segmentation Violation, probably memory access out of range
+[0]PETSC ERROR: Try option -start_in_debugger or -on_error_attach_debugger
+[0]PETSC ERROR: or see https://petsc.org/release/faq/#valgrind and https://petsc.org/release/faq/
+[0]PETSC ERROR: configure using --with-debugging=yes, recompile, link, and run 
+[0]PETSC ERROR: to get more information on the crash.
+[0]PETSC ERROR: Run with -malloc_debug to check if memory corruption is causing the crash.
+
+job aborted:
+[ranks] message
+
+[0] application aborted
+aborting MPI_COMM_WORLD (comm=0x44000000), error 59, comm rank 0
+
+      Start 15: material_strategy
+15/56 Test #15: material_strategy ..................   Passed    0.22 sec
+      Start 16: plasticity_composition
+16/56 Test #16: plasticity_composition .............   Passed    0.28 sec
+      Start 17: ko_bathe_concrete
+17/56 Test #17: ko_bathe_concrete ..................   Passed    0.16 sec
+      Start 18: point_geometry
+18/56 Test #18: point_geometry .....................   Passed    0.06 sec
+      Start 19: node_dof_storage
+19/56 Test #19: node_dof_storage ...................   Passed    0.07 sec
+      Start 20: domain_vertex_refactor
+20/56 Test #20: domain_vertex_refactor .............   Passed    0.13 sec
+      Start 21: dmplex_mixed_topology
+21/56 Test #21: dmplex_mixed_topology ..............   Passed    0.08 sec
+      Start 22: static_condensation
+22/56 Test #22: static_condensation ................   Passed    0.40 sec
+      Start 23: assembly_policy
+23/56 Test #23: assembly_policy ....................   Passed    0.29 sec
+      Start 24: section
+24/56 Test #24: section ............................   Passed    0.13 sec
+      Start 25: integration_sites
+25/56 Test #25: integration_sites ..................   Passed    0.12 sec
+      Start 26: element_concept
+26/56 Test #26: element_concept ....................   Passed    0.09 sec
+      Start 27: beam_element
+27/56 Test #27: beam_element .......................   Passed    0.06 sec
+      Start 28: beam_n_element
+28/56 Test #28: beam_n_element .....................   Passed    0.07 sec
+      Start 29: rc_fiber_frame_nonlinear
+29/56 Test #29: rc_fiber_frame_nonlinear ...........   Passed    0.11 sec
+      Start 30: continuum_tensors
+30/56 Test #30: continuum_tensors ..................   Passed    0.05 sec
+      Start 31: kinematic_policy
+31/56 Test #31: kinematic_policy ...................   Passed    0.28 sec
+      Start 32: hyperelastic
+32/56 Test #32: hyperelastic .......................   Passed    0.14 sec
+      Start 33: continuum_constitutive_interface
+33/56 Test #33: continuum_constitutive_interface ...   Passed    0.21 sec
+      Start 34: continuum_local_problem
+34/56 Test #34: continuum_local_problem ............   Passed    0.21 sec
+      Start 35: finite_strain_damage
+35/56 Test #35: finite_strain_damage ...............   Passed    0.38 sec
+      Start 36: tl_integration
+36/56 Test #36: tl_integration .....................   Passed    0.08 sec
+      Start 37: newton_element
+37/56 Test #37: newton_element .....................   Passed    0.06 sec
+      Start 38: updated_lagrangian
+38/56 Test #38: updated_lagrangian .................   Passed    0.07 sec
+      Start 39: subentity_topology
+39/56 Test #39: subentity_topology .................   Passed    0.32 sec
+      Start 40: uniaxial_fiber
+40/56 Test #40: uniaxial_fiber .....................   Passed    0.32 sec
+      Start 41: constitutive_commit_chain
+41/56 Test #41: constitutive_commit_chain ..........   Passed    0.10 sec
+      Start 42: element_heterogeneity
+42/56 Test #42: element_heterogeneity ..............   Passed    0.09 sec
+      Start 43: incremental_control
+43/56 Test #43: incremental_control ................   Passed    0.21 sec
+      Start 44: steppable_dynamic
+44/56 Test #44: steppable_dynamic ..................   Passed    1.14 sec
+      Start 45: steppable_solver
+45/56 Test #45: steppable_solver ...................   Passed    0.44 sec
+      Start 46: analysis_director
+46/56 Test #46: analysis_director ..................   Passed    0.47 sec
+      Start 47: phase4_hysteretic_cycles
+47/56 Test #47: phase4_hysteretic_cycles ...........   Passed    0.33 sec
+      Start 48: snes_hyperelastic
+48/56 Test #48: snes_hyperelastic ..................   Passed    0.47 sec
+      Start 49: benchmark
+49/56 Test #49: benchmark ..........................   Passed    0.46 sec
+      Start 50: phase6_mpi_scalability
+50/56 Test #50: phase6_mpi_scalability .............   Passed    0.25 sec
+      Start 51: serendipity_family
+51/56 Test #51: serendipity_family .................   Passed   16.02 sec
+      Start 52: dynamic_analysis
+52/56 Test #52: dynamic_analysis ...................   Passed    3.51 sec
+      Start 53: nonlinear_validation
+53/56 Test #53: nonlinear_validation ...............   Passed   27.74 sec
+      Start 54: phase5_dynamic_verification
+54/56 Test #54: phase5_dynamic_verification ........   Passed    7.79 sec
+      Start 55: vertical_slice_gate
+55/56 Test #55: vertical_slice_gate ................   Passed   23.46 sec
+      Start 56: boundary_conditions
+56/56 Test #56: boundary_conditions ................   Passed   15.90 sec
+
+98% tests passed, 1 tests failed out of 56
+
+Label Time Summary:
+integration    =   2.32 sec*proc (4 tests)
+slow           =  94.42 sec*proc (6 tests)
+unit           =   9.26 sec*proc (46 tests)
+
+Total Test time (real) = 106.11 sec
+
+The following tests FAILED:
+	 14 - linear_nl_transition (Failed)

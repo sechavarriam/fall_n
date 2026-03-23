@@ -1,0 +1,586 @@
+\chapter{Multiscale Seismic Analysis Framework}
+\label{ch:multiscale_seismic}
+
+% =============================================================================
+%  Chapter 64: Six-phase extension of fall_n for multiscale seismic analysis.
+%
+%  Phase 0: Earthquake parser infrastructure (K-NET, COSMOS V2, trim, auto)
+%  Phase 1: L-shaped building domain builder
+%  Phase 2: Linear→nonlinear transition (TransitionDirector)
+%  Phase 3: Prismatic hex mesh builder (PrismaticDomainBuilder)
+%  Phase 4: Beam→continuum field transfer (FieldTransfer)
+%  Phase 5: MultiscaleCoordinator
+% =============================================================================
+
+\section{Motivation}
+
+Seismic assessment of reinforced-concrete buildings requires analysis at
+multiple resolutions.  At the \emph{global} scale, a structural model
+composed of beam, column, and shell elements captures the overall response
+under earthquake excitation.  At the \emph{local} scale, critical regions
+identified during the global analysis demand three-dimensional continuum
+modelling to resolve stress concentrations, cracking patterns, and
+confinement effects.
+
+Bridging these scales requires:
+\begin{itemize}
+  \item parsing earthquake records from international databases,
+  \item generating irregular building domains,
+  \item transitioning between analysis fidelity levels during the same
+        simulation,
+  \item creating prismatic continuum meshes aligned to structural members,
+  \item transferring kinematic fields from beam sections to continuum
+        boundaries,
+  \item orchestrating the creation and management of multiple sub-models.
+\end{itemize}
+
+This chapter documents the six implementation phases that add these
+capabilities to \texttt{fall\_n}.  Each phase was developed with a
+test suite that verifies the new functionality in isolation and in
+composition with existing infrastructure.
+
+
+% =============================================================================
+\section{Phase 0: Earthquake Parser Infrastructure}
+\label{sec:phase0_parsers}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+Earthquake records are distributed in numerous national formats.  Before this
+work, \texttt{GroundMotionRecord} supported only two-column and single-column
+text files.  Real-world seismic studies require reading at least:
+
+\begin{description}
+  \item[K-NET (Japan)] Header block with origin time, station code, sampling
+    frequency, and a \texttt{Scale Factor} line, followed by integer counts
+    that must be multiplied by the scale factor and converted from gal
+    ($\mathrm{cm/s^2}$) to $\mathrm{m/s^2}$.
+  \item[COSMOS V2 (USA)] Multi-line headers with a record count, fixed-width
+    columns of floating-point values, and a physical-units indicator
+    ($\mathrm{cm/s^2}$).
+\end{description}
+
+\subsection{Implementation}
+
+The new parsers are added as static factory methods on
+\texttt{GroundMotionRecord}:
+
+\begin{verbatim}
+    static GroundMotionRecord from_knet(const std::string& path);
+    static GroundMotionRecord from_cosmos_v2(const std::string& path);
+    static GroundMotionRecord from_auto(const std::string& path);
+\end{verbatim}
+
+\paragraph{K-NET parser.}
+The parser reads the \texttt{Sampling Freq(Hz)} and
+\texttt{Scale Factor} fields from the header.  A line starting with
+\texttt{Scale Factor} triggers the end of the header; all subsequent non-empty
+lines are parsed as whitespace-separated integers, multiplied by the scale
+factor, and converted.
+
+\paragraph{COSMOS V2 parser.}
+The COSMOS V2 format stores the number of data points and the sampling
+interval in a header line matching the pattern
+\verb|<N> <...> at <dt> sec|.  Data begins after the last header line and
+consists of fixed-width columns (typically 10 characters) of floating-point
+values.
+
+\paragraph{Auto-detection.}
+\texttt{from\_auto} inspects the file's first lines for format signatures:
+\begin{itemize}
+  \item Lines containing \texttt{Scale Factor} $\Rightarrow$ K-NET,
+  \item Lines containing \texttt{(Uncorrected)} or \texttt{COSMOS} $\Rightarrow$ COSMOS V2,
+  \item Otherwise: two-column or single-column text.
+\end{itemize}
+
+\paragraph{Trimming.}
+A \texttt{trim(t\_start, t\_end)} method filters the record to a time
+window, discarding samples outside $[t_{\text{start}},\, t_{\text{end}}]$
+and re-indexing the retained samples from $t=0$.
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_ground\_motion\_parsers.cpp}) includes 33
+checks covering:
+\begin{itemize}
+  \item K-NET: record count, time step, unit conversion (gal $\to$ m/s$^2$),
+        first/last sample values, peak acceleration;
+  \item COSMOS V2: record count, time step, unit conversion, peak search;
+  \item Auto-detection: correct dispatch for K-NET, COSMOS, and two-column
+        files;
+  \item Trim: window boundary enforcement, time re-indexing, invariance
+        under full-window trim.
+\end{itemize}
+
+
+% =============================================================================
+\section{Phase 1: L-Shaped Building Domain Builder}
+\label{sec:phase1_lshape}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+The existing \texttt{BuildingDomainBuilder} creates rectangular floor-plan
+grids.  Real buildings frequently have L-shaped, T-shaped, or other irregular
+plans.  The minimum extension is to support \emph{cutout} regions where cells
+are omitted from an otherwise rectangular grid.
+
+\subsection{Design}
+
+Rather than introducing a union-of-rectangles approach, the cutout is defined
+via a predicate \texttt{is\_active(ix, iy)} that returns \texttt{false} for
+grid cells that lie inside the removed corner.  The specification is extended
+with a \texttt{CutoutSpec}:
+
+\begin{verbatim}
+    struct CutoutSpec {
+        int start_ix, start_iy;   // lower-left corner (grid indices)
+        int end_ix, end_iy;       // exclusive upper-right corner
+    };
+\end{verbatim}
+
+\noindent
+When a cutout is present, the builder:
+\begin{enumerate}
+  \item skips inactive cells during element creation,
+  \item compresses the node-ID map to eliminate unused nodes, and
+  \item re-counts elements to produce correct totals.
+\end{enumerate}
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_l\_shaped\_building.cpp}) contains 39 checks:
+\begin{itemize}
+  \item Node and element counts for rectangular, single-cutout, and
+        multi-cutout configurations;
+  \item Correct element-count reductions (e.g.\ a $4 \times 4$ grid with a
+        $2 \times 2$ cutout loses the correct number of beam and shell
+        elements);
+  \item Self-weight application on L-shaped domains;
+  \item Edge cases: full cutout (no active cells), zero-size cutout identity.
+\end{itemize}
+
+
+% =============================================================================
+\section{Phase 2: Linear--Nonlinear Transition}
+\label{sec:phase2_transition}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+A full nonlinear dynamic analysis is computationally expensive.  For
+many earthquake records, the structure responds linearly for most of
+the excitation and enters nonlinear behaviour only during the strong
+motion phase.  A \emph{transition} strategy runs a cheaper linear
+analysis until a threshold is exceeded, then switches to a nonlinear
+solver with the full state transferred at the switching instant.
+
+\subsection{Design}
+
+The \texttt{TransitionDirector} module provides:
+
+\begin{description}
+  \item[\texttt{make\_displacement\_threshold\_director<ModelT>(u\_max)}]
+    Returns a \texttt{StepDirector} that pauses the solver when the maximum
+    nodal displacement exceeds $u_{\text{max}}$.
+
+  \item[\texttt{make\_damage\_threshold\_director<ModelT>(criterion, limit)}]
+    Returns a \texttt{StepDirector} that pauses when a damage criterion
+    (supplied via \texttt{DamageCriterion}) exceeds the specified limit.
+
+  \item[\texttt{ExceedanceReport}]
+    Provides per-node exceedance data: which nodes exceeded a
+    displacement threshold and by how much.  Uses \texttt{DMGlobalToLocal}
+    scatter to correctly handle constrained DOFs.
+\end{description}
+
+\noindent
+The transition workflow composes with the \texttt{AnalysisDirector}
+(Chapter~\ref{ch:analysis_director}):
+\begin{enumerate}
+  \item Phase A: \texttt{DynamicAnalysis} with a displacement-threshold
+        step director.  When the director fires, the phase ends and
+        returns its \texttt{AnalysisState}.
+  \item Phase B: A new \texttt{DynamicAnalysis} (possibly with different
+        material parameters) resumes from the transferred state.
+\end{enumerate}
+
+\paragraph{Critical implementation note.}
+The \texttt{AnalysisState} returned by \texttt{DynamicAnalysis} contains
+\emph{borrowed} PETSc \texttt{Vec} objects.  The owning
+\texttt{DynamicAnalysis} must remain alive while the state is consumed.
+In the AnalysisDirector phase-callback design, this means the DynA (RAII
+wrapper) must be constructed \emph{outside} the lambda that returns the
+state, not inside it.
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_linear\_nl\_transition.cpp}) contains 43
+checks across 5 tests:
+\begin{itemize}
+  \item Displacement threshold triggers pause at the correct step;
+  \item State vectors (displacement, velocity, acceleration) transfer
+        correctly between phases;
+  \item Two-phase pipeline: threshold detection $\to$ state transfer $\to$
+        continuation;
+  \item Exceedance report: identifies correct nodes, reports correct
+        magnitudes, handles constrained DOFs via \texttt{DMGlobalToLocal}.
+\end{itemize}
+
+
+% =============================================================================
+\section{Phase 3: Prismatic Hex Mesh Builder}
+\label{sec:phase3_prismatic}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+Continuum sub-models for critical beam sections require structured
+hexahedral meshes.  The mesh must be \emph{prismatic}: a rectangular
+cross-section extruded along the beam axis, with known correspondence
+between mesh faces and beam endpoints.
+
+\subsection{Design}
+
+The builder is implemented in \texttt{PrismaticDomainBuilder.hh} and
+provides:
+
+\begin{description}
+  \item[\texttt{PrismaticSpec}] Specification struct holding cross-section
+    dimensions (\texttt{width}, \texttt{height}), extrusion length,
+    subdivision counts (\texttt{nx}, \texttt{ny}, \texttt{nz}), and a
+    coordinate frame (\texttt{origin}, \texttt{e\_x}, \texttt{e\_y},
+    \texttt{e\_z}).
+
+  \item[\texttt{make\_prismatic\_domain(spec)}] Constructs a
+    \texttt{Domain<3>} with hex8 elements and returns both the domain
+    and a \texttt{PrismaticGrid} index object.
+
+  \item[\texttt{PrismaticGrid}] Provides:
+    \begin{itemize}
+      \item \texttt{node\_id(ix, iy, iz)} — structured-grid node index,
+      \item \texttt{nodes\_on\_face(face)} — boundary node lists, and
+      \item \texttt{total\_nodes()}, \texttt{total\_elements()}.
+    \end{itemize}
+
+  \item[\texttt{PrismFace}] Enumeration: \texttt{MinX}, \texttt{MaxX},
+    \texttt{MinY}, \texttt{MaxY}, \texttt{MinZ}, \texttt{MaxZ}.
+
+  \item[\texttt{align\_to\_beam(A, B, up, w, h, nx, ny, nz)}]
+    Utility that converts beam endpoint coordinates and an ``up'' vector
+    into a \texttt{PrismaticSpec} aligned to the beam element.
+\end{description}
+
+\noindent
+Node coordinates are generated in local frame
+$x \in [-w/2, w/2]$, $y \in [-h/2, h/2]$, $z \in [0, L]$ and then
+transformed to global coordinates via the specification's orthonormal
+frame.
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_prismatic\_mesh.cpp}) contains 34 checks:
+\begin{itemize}
+  \item Node and element counts for various subdivision levels;
+  \item Node coordinate bounds (ensure all nodes lie within the expected
+        bounding box);
+  \item Face extraction (correct count, all nodes on the expected plane);
+  \item \texttt{align\_to\_beam}: frame orthogonality, axis alignment,
+        length computation;
+  \item Rotated beams: non-axis-aligned configurations.
+\end{itemize}
+
+
+% =============================================================================
+\section{Phase 4: Beam--Continuum Field Transfer}
+\label{sec:phase4_field_transfer}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+Given the deformed state of a beam element, we need to prescribe
+displacement boundary conditions on a prismatic continuum sub-model.
+The transfer must respect the Timoshenko beam kinematic hypothesis:
+at any section point $(y, z)$ in the beam's local frame,
+\begin{equation}
+  \label{eq:timoshenko_kinematics}
+  \mathbf{u}(y,z) = \mathbf{u}_c + \boldsymbol{\theta} \times
+  \begin{pmatrix} 0 \\ y \\ z \end{pmatrix},
+\end{equation}
+where $\mathbf{u}_c$ is the centerline translation and
+$\boldsymbol{\theta}$ the section rotation vector, both expressed in the
+beam's local frame.  The global displacement is then
+$\mathbf{u}_{\text{global}} = \mathbf{R}^T \mathbf{u}(y,z)$, where
+$\mathbf{R}$ maps global to local coordinates.
+
+\subsection{Design}
+
+The module is implemented in \texttt{FieldTransfer.hh} and provides:
+
+\begin{description}
+  \item[\texttt{SectionKinematics}] Snapshot struct containing: centroid
+    position, local displacement and rotation, rotation matrix, generalized
+    strains ($\varepsilon_0$, $\kappa_y$, $\kappa_z$, $\gamma_y$,
+    $\gamma_z$, twist), and material properties ($E$, $G$, $\nu$).
+
+  \item[\texttt{section\_displacement\_at(kin, y, z)}]
+    Evaluates~\eqref{eq:timoshenko_kinematics} and returns the
+    global-frame displacement.
+
+  \item[\texttt{displacement\_at\_global\_point(kin, P)}]
+    Projects a global point $P$ into the beam's local frame to extract
+    $(y, z)$, then delegates to \texttt{section\_displacement\_at}.
+
+  \item[\texttt{section\_stress\_at(kin, y, z)}]
+    Computes Cauchy stress from beam generalized strains:
+    \[
+      \sigma_{xx} = E(\varepsilon_0 - z\kappa_y + y\kappa_z), \quad
+      \tau_{xy} = G\gamma_y, \quad \tau_{xz} = G\gamma_z.
+    \]
+
+  \item[\texttt{section\_strain\_at(kin, y, z)}]
+    Returns the corresponding strain tensor in Voigt form.
+
+  \item[\texttt{compute\_boundary\_displacements(kin, domain, node\_ids)}]
+    For each boundary node, reads coordinates from the domain, projects
+    into the beam local frame, and evaluates the section displacement.
+    Returns a vector of (node ID, displacement) pairs.
+
+  \item[\texttt{build\_beam\_submodel(element, u\_loc, spec)}]
+    Template convenience function that creates a prismatic mesh aligned
+    to a beam element and computes boundary conditions at both end faces.
+    This function uses \texttt{extract\_section\_kinematics} to read beam
+    state (intended for future integration when the beam element exposes
+    the required interpolation interface).
+\end{description}
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_field\_transfer.cpp}) contains 34 checks
+across 7 tests:
+\begin{itemize}
+  \item \emph{Pure translation}: uniform displacement at all section points;
+  \item \emph{Pure bending}: linear displacement proportional to $y$, with
+        antisymmetry about the centroid;
+  \item \emph{Stress reconstruction}: $\sigma_{xx}$ linear in $z$,
+        $\tau_{xy}$ constant, off-diagonal stresses zero;
+  \item \emph{Global point projection}: consistency between
+        \texttt{displacement\_at\_global\_point} and
+        \texttt{section\_displacement\_at};
+  \item \emph{Boundary displacement mapping}: prismatic mesh face nodes
+        receive correct BCs from beam kinematics;
+  \item \emph{Sub-model pipeline}: compose \texttt{align\_to\_beam},
+        \texttt{make\_prismatic\_domain}, and
+        \texttt{compute\_boundary\_displacements} end-to-end;
+  \item \emph{Rotated beam}: non-axis-aligned frame with 45$^\circ$
+        rotation in the $xy$-plane.
+\end{itemize}
+
+
+% =============================================================================
+\section{Phase 5: MultiscaleCoordinator}
+\label{sec:phase5_coordinator}
+% =============================================================================
+
+\subsection{Problem Statement}
+
+Given a global structural analysis with potentially many beam elements,
+a subset of elements will be flagged as ``critical'' by damage or
+displacement criteria.  Each critical element requires a continuum
+sub-model.  The \texttt{MultiscaleCoordinator} orchestrates the
+creation, population, and management of all sub-models from a single
+entry point.
+
+\subsection{Design}
+
+The coordinator follows a three-step workflow:
+
+\begin{enumerate}
+  \item \textbf{Register critical elements.}  For each element that
+    exceeds a threshold, the user supplies an
+    \texttt{ElementKinematics} descriptor containing:
+    \begin{itemize}
+      \item element ID,
+      \item \texttt{SectionKinematics} at both ends ($\xi = -1$ and
+            $\xi = +1$),
+      \item endpoint coordinates and up-direction.
+    \end{itemize}
+
+  \item \textbf{Build sub-models} via
+    \texttt{build\_sub\_models(spec)}.  For each registered element,
+    the coordinator:
+    \begin{enumerate}
+      \item calls \texttt{align\_to\_beam} to compute the prismatic
+            specification,
+      \item calls \texttt{make\_prismatic\_domain} to create the mesh,
+      \item calls \texttt{compute\_boundary\_displacements} for both
+            end faces.
+    \end{enumerate}
+
+  \item \textbf{Access and reporting.}
+    \begin{itemize}
+      \item \texttt{sub\_models()} returns the collection of
+            \texttt{MultiscaleSubModel} objects, each containing the
+            domain, grid, kinematics, and boundary conditions.
+      \item \texttt{report()} provides a \texttt{MultiscaleReport}
+            with aggregate statistics: element/node counts,
+            maximum and mean boundary displacements.
+    \end{itemize}
+\end{enumerate}
+
+\noindent
+The coordinator is designed as a \emph{one-way downscaling} tool: it
+transfers information from the global beam scale to the local continuum
+scale.  Coupling back (e.g.\ homogenising sub-model response into the
+global model) is left for future work.
+
+\paragraph{Design decisions.}
+\begin{itemize}
+  \item The coordinator operates on \texttt{SectionKinematics} rather
+    than on concrete element types.  This avoids template dependencies on
+    the global model's element policy and makes the coordinator testable
+    without PETSc solver invocations.
+  \item Each sub-model is fully self-contained: it owns its
+    \texttt{Domain<3>}, \texttt{PrismaticGrid}, and boundary conditions.
+  \item The coordinator is stateless with respect to the global model;
+    it receives pre-extracted data.
+\end{itemize}
+
+\subsection{Verification}
+
+The test suite (\texttt{test\_multiscale\_coordinator.cpp}) contains 37
+checks across 7 tests:
+\begin{itemize}
+  \item \emph{Single element}: one critical element $\to$ one sub-model
+    with correct mesh dimensions and boundary conditions;
+  \item \emph{Multi-element}: two critical elements $\to$ two independent
+    sub-models with correct IDs;
+  \item \emph{Report statistics}: node/element counts, max/mean
+    displacement, max $\geq$ mean invariant;
+  \item \emph{Clear and rebuild}: the coordinator can be reused across
+    multiple analysis steps;
+  \item \emph{Zero displacement}: clamped element $\to$ zero BCs on all
+    faces;
+  \item \emph{Mixed state}: one deformed and one undeformed element
+    produce correct per-element BCs;
+  \item \emph{Rotated element}: beam along global $Y$ with non-trivial
+    rotation matrix; axial displacement correctly maps to global
+    coordinates.
+\end{itemize}
+
+
+% =============================================================================
+\section{Integration and Dependency Map}
+\label{sec:dependency_map}
+% =============================================================================
+
+The six phases form a dependency graph:
+
+\begin{verbatim}
+    Phase 0 (parsers)      ─┐
+    Phase 1 (L-shape)      ─┤
+                            ├──→  Phase 2 (transition)  ──→  Phase 5
+    Phase 3 (prismatic)    ─┤                                  ↑
+                            └──→  Phase 4 (field transfer) ───┘
+\end{verbatim}
+
+\noindent
+Phases 0, 1, and 3 are independent of each other and were developed in
+parallel.  Phase 2 depends on Phase 0 (earthquake records) and Phase 1
+(L-shaped domains).  Phase 4 depends on Phase 3 (prismatic meshes).
+Phase 5 depends on Phases 2 and 4.
+
+\subsection{New Source Files}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\textbf{File} & \textbf{Phase} & \textbf{Description} \\
+\hline
+\texttt{src/analysis/TransitionDirector.hh}      & 2 & Threshold directors + exceedance \\
+\texttt{src/model/PrismaticDomainBuilder.hh}      & 3 & Prismatic hex mesh generator \\
+\texttt{src/reconstruction/FieldTransfer.hh}      & 4 & Beam$\to$continuum kinematic bridge \\
+\texttt{src/analysis/MultiscaleCoordinator.hh}    & 5 & Downscaling orchestrator \\
+\hline
+\texttt{tests/test\_ground\_motion\_parsers.cpp}  & 0 & 33 checks \\
+\texttt{tests/test\_l\_shaped\_building.cpp}      & 1 & 39 checks \\
+\texttt{tests/test\_linear\_nl\_transition.cpp}   & 2 & 43 checks \\
+\texttt{tests/test\_prismatic\_mesh.cpp}          & 3 & 34 checks \\
+\texttt{tests/test\_field\_transfer.cpp}          & 4 & 34 checks \\
+\texttt{tests/test\_multiscale\_coordinator.cpp}  & 5 & 37 checks \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Modified Source Files}
+
+\begin{itemize}
+  \item \texttt{src/model/GroundMotionRecord.hh} — K-NET, COSMOS V2,
+    \texttt{trim}, \texttt{from\_auto} factories.
+  \item \texttt{src/model/BuildingDomainBuilder.hh} — cutout support for
+    irregular floor plans.
+  \item \texttt{src/analysis/DamageCriterion.hh} — added missing
+    \texttt{<print>} and \texttt{<iostream>} includes.
+  \item \texttt{header\_files.hh} — includes for new modules.
+  \item \texttt{CMakeLists.txt} — 6 new test registrations.
+\end{itemize}
+
+\subsection{Test Summary}
+
+\begin{center}
+\begin{tabular}{lrr}
+\hline
+\textbf{Phase} & \textbf{Checks} & \textbf{Status} \\
+\hline
+Phase 0 (parsers)       & 33 & \textbf{pass} \\
+Phase 1 (L-shape)       & 39 & \textbf{pass} \\
+Phase 2 (transition)    & 43 & \textbf{pass} \\
+Phase 3 (prismatic)     & 34 & \textbf{pass} \\
+Phase 4 (field transfer)& 34 & \textbf{pass} \\
+Phase 5 (coordinator)   & 37 & \textbf{pass} \\
+\hline
+\textbf{Total}          & \textbf{220} & \\
+\hline
+Full suite              & 58/58 & \textbf{pass} \\
+\hline
+\end{tabular}
+\end{center}
+
+
+% =============================================================================
+\section{Future Work}
+\label{sec:future_work}
+% =============================================================================
+
+\begin{enumerate}
+  \item \textbf{Beam element interpolation interface.}
+    \texttt{extract\_section\_kinematics} currently assumes methods
+    (\texttt{sample\_centerline\_translation\_local},
+    \texttt{sample\_rotation\_vector\_local}, etc.)  that are not yet
+    part of the \texttt{BeamElement} public API.  Adapting the existing
+    \texttt{StructuralReductionPolicy} specialisations would close this
+    gap.
+
+  \item \textbf{Sub-model solve.}
+    The current implementation produces boundary conditions but does not
+    solve the continuum sub-models.  Integrating with
+    \texttt{NonlinearAnalysis} or \texttt{LinearAnalysis} would enable
+    local stress-field resolution.
+
+  \item \textbf{Bidirectional coupling.}
+    Homogenising the sub-model response back into the global model
+    (e.g.\ updating beam section stiffnesses from continuum results)
+    would enable iterative multiscale analysis.
+
+  \item \textbf{PETSc TS state injection.}
+    For dynamic transition (Phase~2), injecting velocity and acceleration
+    into a \texttt{TS} object requires careful PETSc API usage.  The
+    current implementation transfers displacement; full dynamic state
+    transfer is an open task.
+
+  \item \textbf{Parallel sub-model creation.}
+    Each sub-model in Phase~5 is independent, making the build step
+    trivially parallelisable via OpenMP or PETSc's process-level
+    distribution.
+\end{enumerate}

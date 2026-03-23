@@ -179,6 +179,9 @@
 #include "src/model/BuildingDomainBuilder.hh"
 #include "src/model/StructuralModelBuilder.hh"
 
+// --- Prismatic hex mesh builder (Phase 3) ---
+#include "src/model/PrismaticDomainBuilder.hh"
+
 // --- Ground motion record parser (seismic analysis) ---
 #include "src/model/GroundMotionRecord.hh"
 
@@ -188,6 +191,7 @@
 
 #include "src/reconstruction/SectionProfile.hh"
 #include "src/reconstruction/StructuralFieldReconstruction.hh"
+#include "src/reconstruction/FieldTransfer.hh"
 
 // =================================================================================
 // Utils Module
@@ -200,6 +204,9 @@
 // =================================================================================
 
 #include "src/analysis/Analysis.hh"
+
+// --- Multiscale coordinator (Phase 5) ---
+#include "src/analysis/MultiscaleCoordinator.hh"
 
 // =================================================================================
 // Mesh Module
