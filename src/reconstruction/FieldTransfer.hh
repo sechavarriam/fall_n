@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -51,6 +52,36 @@
 
 
 namespace fall_n {
+
+
+// =============================================================================
+//  BeamInterpolable — concept satisfied by BeamElement<...>
+// =============================================================================
+//
+//  A beam element type B with local-DOF vector type U satisfies
+//  BeamInterpolable<B, U> when it provides all methods required by
+//  extract_section_kinematics().  This concept documents the interface and
+//  allows static_assert checks at the call site.
+//
+//  BeamElement<TimoshenkoBeam3D, 3, SmallRotation> satisfies this concept
+//  out of the box.
+
+template <typename B, typename U>
+concept BeamInterpolable =
+    requires(const B& beam, const U& u_loc, double xi,
+             const std::array<double, 1>& xi_arr)
+    {
+        // Geometry: map parametric coordinate to physical space
+        beam.geometry().map_local_point(xi_arr);
+        // Frame: local-to-global rotation matrix
+        { beam.rotation_matrix() };
+        // Kinematic sampling at ξ ∈ [−1, 1]
+        beam.sample_centerline_translation_local(xi, u_loc);
+        beam.sample_rotation_vector_local(xi, u_loc);
+        beam.sample_generalized_strain_local(xi, u_loc);
+        // Section constitutive data (for E/G extraction)
+        beam.sections();
+    };
 
 
 // =============================================================================
@@ -91,6 +122,7 @@ struct SectionKinematics {
 //    - sections()[gp].section_snapshot().beam           (optional, for E/G)
 
 template <typename BeamElementT, typename LocalStateT>
+    requires BeamInterpolable<BeamElementT, LocalStateT>
 SectionKinematics extract_section_kinematics(
     const BeamElementT& element,
     const LocalStateT& u_loc,

@@ -254,6 +254,64 @@ ExceedanceReport compute_exceedance_report(
 }
 
 
+// =============================================================================
+//  inject_dynamic_state — Transfer kinematic state into a DynamicAnalysis
+// =============================================================================
+//
+//  After a phase transition (StepVerdict::Pause), the caller may want to
+//  continue the simulation on a different (higher-fidelity) DynamicAnalysis
+//  instance, starting from the same kinematic state that caused the pause.
+//
+//  This function performs the injection:
+//
+//    1. Copies `u_global` into the target's initial/live displacement vector.
+//    2. Copies `v_global` into the target's initial/live velocity vector.
+//    3. Sets the PETSc TS time to `t` so that the target begins at the
+//       correct time position within the earthquake record.
+//
+//  Works both BEFORE and AFTER target.setup():
+//    - Before setup: sets the initial-condition vectors used by TS2SetSolution.
+//    - After  setup: writes directly into the live TS solution vectors (safe
+//      because TS2SetSolution stores a reference, not a copy).
+//
+//  Acceleration cannot be injected directly — PETSc's α₂/Newmark integrators
+//  compute it internally.  The first time step will produce a fresh tangent
+//  prediction; for dynamics this is usually acceptable.
+//
+//  Usage:
+//
+//    auto [director, report] = make_displacement_threshold_director<ModelA>(u_lim);
+//    dyn_a.step_to(t_end, director);
+//
+//    if (report.triggered) {
+//        auto ev = report;  // has trigger_time, metric_value …
+//        fall_n::inject_dynamic_state(dyn_b,
+//                                     ev_step.displacement,
+//                                     ev_step.velocity,
+//                                     ev_step.time);
+//        dyn_b.solve(ev_step.time, t_end, dt_fine);
+//    }
+
+template <typename DynamicAnalysisT>
+void inject_dynamic_state(DynamicAnalysisT& target,
+                           Vec u_global,
+                           Vec v_global,
+                           double t = 0.0)
+{
+    // set_initial_displacement / set_initial_velocity handle both the
+    // pre-setup case (create vector, copy) and the post-setup case
+    // (vector already exists, plain VecCopy updates the live TS solver).
+    target.set_initial_displacement(u_global);
+    target.set_initial_velocity(v_global);
+
+    // Advance the TS clock so that time functions (loads, ground motion)
+    // evaluate at the correct time after the restart.
+    if (t != 0.0) {
+        TSSetTime(target.get_ts(), static_cast<PetscReal>(t));
+    }
+}
+
+
 } // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_TRANSITION_DIRECTOR_HH
