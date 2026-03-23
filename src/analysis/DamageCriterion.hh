@@ -265,7 +265,7 @@ public:
     {}
 
     void on_analysis_start(const ModelT& /*model*/) {
-        std::println("  ── Observer: DamageTracker ({}, every {} steps, top-{}) ──",
+        std::println(std::cout, "  \u2500\u2500 Observer: DamageTracker ({}, every {} steps, top-{}) \u2500\u2500",
                      criterion_->name(), interval_, top_n_);
         current_ranking_.clear();
         peak_ranking_.clear();
@@ -291,11 +291,11 @@ public:
     }
 
     void on_analysis_end(const ModelT& /*model*/) {
-        std::println("\n  ── DamageTracker: Final ranking ({}) ──", criterion_->name());
+        std::println(std::cout, "\n  \u2500\u2500 DamageTracker: Final ranking ({}) \u2500\u2500", criterion_->name());
         const std::size_t n = std::min(top_n_, peak_ranking_.size());
         for (std::size_t i = 0; i < n; ++i) {
             const auto& info = peak_ranking_[i];
-            std::println("    #{}: element {} — damage_index = {:.6f} "
+            std::println(std::cout, "    #{}: element {} \u2014 damage_index = {:.6f} "
                          "(GP {}, fiber {})",
                          i + 1, info.element_index, info.damage_index,
                          info.critical_gp, info.critical_fiber);

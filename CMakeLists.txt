@@ -247,6 +247,30 @@ fall_n_add_test(TARGET fall_n_seismic_infra_test
     NAME seismic_infrastructure  SOURCE tests/test_seismic_infrastructure.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_ground_motion_parsers_test
+    NAME ground_motion_parsers  SOURCE tests/test_ground_motion_parsers.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_l_shaped_building_test
+    NAME l_shaped_building  SOURCE tests/test_l_shaped_building.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_prismatic_mesh_test
+    NAME prismatic_mesh  SOURCE tests/test_prismatic_mesh.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_linear_nl_transition_test
+    NAME linear_nl_transition  SOURCE tests/test_linear_nl_transition.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_field_transfer_test
+    NAME field_transfer  SOURCE tests/test_field_transfer.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_multiscale_coordinator_test
+    NAME multiscale_coordinator  SOURCE tests/test_multiscale_coordinator.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_strategy_test
     NAME material_strategy  SOURCE tests/test_material_strategy.cpp
     LIBS FULL  LABEL unit)
