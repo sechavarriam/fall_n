@@ -549,38 +549,186 @@ Full suite              & 58/58 & \textbf{pass} \\
 
 
 % =============================================================================
-\section{Future Work}
-\label{sec:future_work}
+\section{Completed Extensions (Phase 6)}
+\label{sec:phase6_extensions}
 % =============================================================================
 
+All five items identified in the original Future Work section have been
+implemented.  This section documents the resulting API additions.
+
+% ---------------------------------------------------------------------------
+\subsection{Beam element interpolation interface (\texttt{BeamInterpolable})}
+% ---------------------------------------------------------------------------
+
+A C++20 concept \texttt{BeamInterpolable<B, U>} was added to
+\texttt{src/reconstruction/FieldTransfer.hh}.  It constrains the template
+parameter of \texttt{extract\_section\_kinematics} and documents the minimal
+API that any beam element type must expose:
+
+\begin{lstlisting}[language=C++,caption={BeamInterpolable concept},
+                   label={lst:beam_interpolable}]
+template <typename B, typename U>
+concept BeamInterpolable =
+    requires(const B& beam, const U& u_loc, double xi,
+             const std::array<double, 1>& xi_arr) {
+        beam.geometry().map_local_point(xi_arr);
+        { beam.rotation_matrix() };
+        beam.sample_centerline_translation_local(xi, u_loc);
+        beam.sample_rotation_vector_local(xi, u_loc);
+        beam.sample_generalized_strain_local(xi, u_loc);
+        beam.sections();
+    };
+\end{lstlisting}
+
+The three sampling methods (\texttt{sample\_*\_local}) were already part of the
+\texttt{BeamElement} public API; the concept formalises that constraint and
+generates an informative compiler diagnostic if it is not satisfied.
+
+% ---------------------------------------------------------------------------
+\subsection{Sub-model solve (\texttt{SubModelSolver})}
+% ---------------------------------------------------------------------------
+
+\texttt{src/reconstruction/SubModelSolver.hh} provides a self-contained
+solver for a single prismatic continuum sub-model:
+
+\begin{lstlisting}[language=C++,caption={SubModelSolver usage},
+                   label={lst:sub_model_solver}]
+fall_n::SubModelSolver solver(E, nu);        // linear-elastic material
+fall_n::SubModelSolverResult res =
+    solver.solve(coordinator.sub_models()[i]);
+
+if (res.converged) {
+    // Volume-averaged Voigt stress (global frame)
+    Eigen::Vector<double,6> sig = res.avg_stress;
+    double E_eff = res.E_eff;    // <sigma_xx> / <eps_xx>
+    double G_eff = res.G_eff;    // <tau_xy>   / <gamma_xy>
+}
+\end{lstlisting}
+
+Internally, \texttt{solve()} builds a \texttt{Model<ThreeDimensionalMaterial,
+SmallStrain, 3>} from the sub-model's \texttt{Domain<3>}, assigns
+Dirichlet boundary conditions at both end faces from the pre-computed
+\texttt{bc\_min\_z} and \texttt{bc\_max\_z} maps, and delegates to
+\texttt{NonlinearAnalysis} (rather than \texttt{LinearAnalysis}) because
+non-zero Dirichlet conditions require the full $K_{fc}$ coupling term.
+
+After convergence, all Gauss-point stresses and strains are volume-averaged,
+the von Mises maximum is recorded, and effective moduli are derived:
+\[
+  E_\text{eff} = \frac{\langle \sigma_{xx} \rangle}{\langle \varepsilon_{xx} \rangle},
+  \qquad
+  G_\text{eff} = \frac{\langle \tau_{xy} \rangle}{\langle \gamma_{xy} \rangle}.
+\]
+
+% ---------------------------------------------------------------------------
+\subsection{Bidirectional coupling (\texttt{HomogenizedBeamSection})}
+% ---------------------------------------------------------------------------
+
+\texttt{src/reconstruction/HomogenizedSection.hh} closes the downscale→upscale
+loop.  Two free functions are provided:
+
+\paragraph{\texttt{to\_beam\_local\_stress}.}
+Projects a global-frame average Voigt stress vector to the beam's local frame
+using the element rotation matrix $R$:
+\[
+  \boldsymbol{\sigma}_\text{local} = R\,\boldsymbol{\sigma}_\text{global}\,R^\top.
+\]
+
+\paragraph{\texttt{homogenize}.}
+Computes beam section resultants under the uniform-stress assumption:
+\[
+  N = A\,\sigma_{11}^\text{local},\quad
+  V_y = A\,\tau_{12}^\text{local},\quad
+  V_z = A\,\tau_{13}^\text{local},\quad
+  M_y = E_\text{eff}\,I_y\,\kappa_y,\quad
+  M_z = E_\text{eff}\,I_z\,\kappa_z,
+\]
+where $A = b\,h$, $I_y = b\,h^3/12$, and $I_z = h\,b^3/12$ for a
+rectangular cross-section.
+
+\begin{lstlisting}[language=C++,caption={Bidirectional coupling},
+                   label={lst:homogenize}]
+auto hs = fall_n::homogenize(res, sub, width, height);
+// hs.N, hs.Vy, hs.Vz, hs.My, hs.Mz
+// hs.E_eff, hs.G_eff  (ready to update the global beam element)
+\end{lstlisting}
+
+% ---------------------------------------------------------------------------
+\subsection{PETSc TS state injection (\texttt{inject\_dynamic\_state})}
+% ---------------------------------------------------------------------------
+
+A template function in \texttt{src/analysis/TransitionDirector.hh} transfers
+a complete kinematic state — displacement, velocity, and time — into a target
+\texttt{DynamicAnalysis} object:
+
+\begin{lstlisting}[language=C++,caption={inject\_dynamic\_state},
+                   label={lst:inject_dynamic_state}]
+template <typename DynamicAnalysisT>
+void inject_dynamic_state(DynamicAnalysisT& target,
+                           Vec u_global, Vec v_global,
+                           double t = 0.0);
+\end{lstlisting}
+
+Internally it calls \texttt{set\_initial\_displacement(u\_global)},
+\texttt{set\_initial\_velocity(v\_global)}, and, when $t \neq 0$,
+\texttt{TSSetTime(target.get\_ts(), t)}.  Because \texttt{set\_initial\_*}
+performs a \texttt{VecCopy} into the live TS solution vector, the
+injection is safe both before and after \texttt{setup()} has been called.
+
+% ---------------------------------------------------------------------------
+\subsection{Parallel sub-model creation (two-phase \texttt{build\_sub\_models})}
+% ---------------------------------------------------------------------------
+
+\texttt{MultiscaleCoordinator::build\_sub\_models()} was refactored into two
+sequential phases:
+
 \begin{enumerate}
-  \item \textbf{Beam element interpolation interface.}
-    \texttt{extract\_section\_kinematics} currently assumes methods
-    (\texttt{sample\_centerline\_translation\_local},
-    \texttt{sample\_rotation\_vector\_local}, etc.)  that are not yet
-    part of the \texttt{BeamElement} public API.  Adapting the existing
-    \texttt{StructuralReductionPolicy} specialisations would close this
-    gap.
+  \item \textbf{Phase 1 — sequential mesh creation.}  \texttt{DMPlex} mesh
+    construction is not thread-safe in PETSc; all domains and grids are
+    therefore built in a single sequential loop.
 
-  \item \textbf{Sub-model solve.}
-    The current implementation produces boundary conditions but does not
-    solve the continuum sub-models.  Integrating with
-    \texttt{NonlinearAnalysis} or \texttt{LinearAnalysis} would enable
-    local stress-field resolution.
-
-  \item \textbf{Bidirectional coupling.}
-    Homogenising the sub-model response back into the global model
-    (e.g.\ updating beam section stiffnesses from continuum results)
-    would enable iterative multiscale analysis.
-
-  \item \textbf{PETSc TS state injection.}
-    For dynamic transition (Phase~2), injecting velocity and acceleration
-    into a \texttt{TS} object requires careful PETSc API usage.  The
-    current implementation transfers displacement; full dynamic state
-    transfer is an open task.
-
-  \item \textbf{Parallel sub-model creation.}
-    Each sub-model in Phase~5 is independent, making the build step
-    trivially parallelisable via OpenMP or PETSc's process-level
-    distribution.
+  \item \textbf{Phase 2 — parallel BC computation.}  Each sub-model's
+    boundary displacements are independent pure-Eigen computations.  With
+    OpenMP available, this loop is parallelised via
+    \verb|#pragma omp parallel for schedule(static)|.  On platforms without
+    OpenMP the same code path runs sequentially.
 \end{enumerate}
+
+The two-phase design is summarised in the code comment:
+
+\begin{lstlisting}[language=C++,caption={Two-phase build\_sub\_models},
+                   label={lst:parallel_build}]
+// Phase 1 (sequential): mesh creation via PETSc (not thread-safe)
+for (std::size_t i = 0; i < n; ++i) { /* make_prismatic_domain */ }
+
+// Phase 2 (parallel): BC computation is pure Eigen
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+for (std::size_t i = 0; i < n; ++i) {
+    sub.bc_min_z = compute_boundary_displacements(ek.kin_A, ...);
+    sub.bc_max_z = compute_boundary_displacements(ek.kin_B, ...);
+}
+\end{lstlisting}
+
+% ---------------------------------------------------------------------------
+\subsection{Test coverage}
+% ---------------------------------------------------------------------------
+
+Seven unit tests in \texttt{tests/test\_sub\_model\_solver.cpp} cover all new
+functionality and are registered in \texttt{CMakeLists.txt} under the
+\texttt{unit} label (\verb|ctest -L unit|):
+
+\begin{enumerate}
+  \item Zero-displacement BCs $\Rightarrow$ trivial (zero) solution.
+  \item Uniform axial extension $\Rightarrow$ $\sigma_{xx} \approx E\varepsilon_0$,
+        $E_\text{eff} \approx E$.
+  \item Homogenization consistency: $N = A\,\sigma_{xx}$.
+  \item \texttt{to\_beam\_local\_stress} with $R = I$ leaves stress unchanged.
+  \item \texttt{to\_beam\_local\_stress} with a 90° rotation swaps
+        $\sigma_{xx} \leftrightarrow \sigma_{yy}$.
+  \item \texttt{homogenize()} returns $V_y = A\,\tau_{12}$, $V_z = A\,\tau_{13}$.
+  \item Parallel \texttt{build\_sub\_models}: two identical elements produce
+        identical sub-models.
+\end{enumerate}
+

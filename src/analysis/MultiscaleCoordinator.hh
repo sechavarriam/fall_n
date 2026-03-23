@@ -44,6 +44,10 @@
 #include <string>
 #include <vector>
 
+#ifdef _OPENMP
+#  include <omp.h>
+#endif
+
 #include "../reconstruction/FieldTransfer.hh"
 
 
@@ -129,38 +133,62 @@ public:
     }
 
     // ── Build sub-models ─────────────────────────────────────────────────
+    //
+    //  Two-phase strategy:
+    //
+    //    Phase 1 (sequential): Build prismatic Domain<3> + PrismaticGrid for
+    //      every critical element.  DMPlex mesh creation is not thread-safe,
+    //      so this must remain sequential.
+    //
+    //    Phase 2 (parallel): Compute boundary displacements on each face by
+    //      evaluating the Timoshenko displacement field at each boundary node.
+    //      This is pure Eigen arithmetic with no shared state — trivially
+    //      parallelisable via OpenMP.
 
     void build_sub_models(const SubModelSpec& spec) {
+        const std::size_t n = critical_elements_.size();
         sub_models_.clear();
-        sub_models_.reserve(critical_elements_.size());
+        sub_models_.reserve(n);
 
+        // ── Phase 1: sequential mesh creation ────────────────────────────
         for (const auto& ek : critical_elements_) {
             MultiscaleSubModel sub;
             sub.parent_element_id = ek.element_id;
             sub.kin_A = ek.kin_A;
             sub.kin_B = ek.kin_B;
 
-            // Build aligned prismatic mesh
             auto pspec = align_to_beam(
                 ek.endpoint_A, ek.endpoint_B, ek.up_direction,
                 spec.section_width, spec.section_height,
                 spec.nx, spec.ny, spec.nz);
 
             auto [domain, grid] = make_prismatic_domain(pspec);
-
-            // Compute boundary displacements at both faces
-            auto face_A = grid.nodes_on_face(PrismFace::MinZ);
-            auto face_B = grid.nodes_on_face(PrismFace::MaxZ);
-
-            sub.bc_min_z = compute_boundary_displacements(
-                ek.kin_A, domain, face_A);
-            sub.bc_max_z = compute_boundary_displacements(
-                ek.kin_B, domain, face_B);
-
             sub.domain = std::move(domain);
             sub.grid   = std::move(grid);
 
             sub_models_.push_back(std::move(sub));
+        }
+
+        // ── Phase 2: parallel BC computation ─────────────────────────────
+        //
+        //  Each sub-model is independent: reads its own domain nodes (no
+        //  shared writes) and stores results in its own bc_min_z / bc_max_z.
+        //  The critical_elements_ vector is read-only in this phase.
+
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto& ek  = critical_elements_[i];
+            auto&       sub = sub_models_[i];
+
+            auto face_A = sub.grid.nodes_on_face(PrismFace::MinZ);
+            auto face_B = sub.grid.nodes_on_face(PrismFace::MaxZ);
+
+            sub.bc_min_z = compute_boundary_displacements(
+                ek.kin_A, sub.domain, face_A);
+            sub.bc_max_z = compute_boundary_displacements(
+                ek.kin_B, sub.domain, face_B);
         }
 
         built_ = true;
@@ -169,6 +197,11 @@ public:
     // ── Access ───────────────────────────────────────────────────────────
 
     [[nodiscard]] const std::vector<MultiscaleSubModel>& sub_models() const noexcept {
+        return sub_models_;
+    }
+
+    /// Non-const accessor — needed when passing sub-model domains to Model<>.
+    [[nodiscard]] std::vector<MultiscaleSubModel>& sub_models() noexcept {
         return sub_models_;
     }
 

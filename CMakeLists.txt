@@ -403,6 +403,10 @@ fall_n_add_test(TARGET fall_n_phase4_hysteretic_test
     NAME phase4_hysteretic_cycles  SOURCE tests/test_phase4_hysteretic_cycles.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_sub_model_solver_test
+    NAME sub_model_solver  SOURCE tests/test_sub_model_solver.cpp
+    LIBS FULL  LABEL unit)
+
 # ── integration tests (3–30 s) ──────────────────────────────────────────────
 
 fall_n_add_test(TARGET fall_n_snes_test
