@@ -1,0 +1,490 @@
+[1/2] Building CXX object CMakeFiles/fall_n_multiscale.dir/main_multiscale.cpp.obj
+FAILED: [code=1] CMakeFiles/fall_n_multiscale.dir/main_multiscale.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DTBB_USE_DEBUG -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/include/petsc/dmo -isystem C:/msys64/ucrt64/include/petsc -isystem C:/msys64/ucrt64/include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft -Wall -Wextra -Wpedantic -Werror -g -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -MD -MT CMakeFiles/fall_n_multiscale.dir/main_multiscale.cpp.obj -MF CMakeFiles\fall_n_multiscale.dir\main_multiscale.cpp.obj.d -o CMakeFiles/fall_n_multiscale.dir/main_multiscale.cpp.obj -c C:/MyLibs/fall_n/main_multiscale.cpp
+C:/MyLibs/fall_n/main_multiscale.cpp:154:28: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  154 | static void hline(char c = '─', int w = 65) {
+      |                            ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:169:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  169 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:215:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  215 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:229:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  229 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:231:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  231 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:286:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  286 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:288:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  288 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:364:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  364 |     hline('═', 65);
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:368:11: error: character not encodable in a single execution character code unit [-Werror=pedantic]
+  368 |     hline('═', 65);
+      |           ^~~
+In file included from C:/MyLibs/fall_n/src/reconstruction/SubModelSolver.hh:52,
+                 from C:/MyLibs/fall_n/header_files.hh:195,
+                 from C:/MyLibs/fall_n/main_multiscale.cpp:50:
+C:/MyLibs/fall_n/src/analysis/NLAnalysis.hh:835:13: error: 'AnalysisState' in namespace 'fall_n' does not name a type [-Wtemplate-body]
+  835 |     fall_n::AnalysisState get_analysis_state() const {
+      |             ^~~~~~~~~~~~~
+C:/MyLibs/fall_n/main_multiscale.cpp:154:43: error: overflow in conversion from 'int' to 'char' changes value from '14849152' to '-128' [-Werror=overflow]
+  154 | static void hline(char c = '─', int w = 65) {
+      |                                           ^
+C:/MyLibs/fall_n/main_multiscale.cpp: In function 'void print_submodel_results(const std::string&, const fall_n::SubModelSolverResult&, const fall_n::HomogenizedBeamSection&)':
+C:/MyLibs/fall_n/main_multiscale.cpp:169:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  169 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:171:10: error: overflow in conversion from 'int' to 'char' changes value from '14849152' to '-128' [-Werror=overflow]
+  171 |     hline();
+      |     ~~~~~^~
+C:/MyLibs/fall_n/main_multiscale.cpp: In lambda function:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:50: error: no match for 'operator<<' (operand types are 'std::_Setw' and 'std::ios_base&(std::ios_base&)')
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                    ~~~~~~~~~~~~~ ^~ ~~~~~~~~~~
+      |                                             |            |
+      |                                             std::_Setw   std::ios_base&(std::ios_base&)
+C:/MyLibs/fall_n/main_multiscale.cpp:173:50: note: there are 49 candidates
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                    ~~~~~~~~~~~~~~^~~~~~~~~~~~~
+In file included from C:/msys64/ucrt64/include/vtk/vtkObjectBase.h:42,
+                 from C:/msys64/ucrt64/include/vtk/vtkSmartPointerBase.h:18,
+                 from C:/msys64/ucrt64/include/vtk/vtkSmartPointer.h:14,
+                 from C:/MyLibs/fall_n/src/post-processing/VTK/VTKModelExporter.hh:83,
+                 from C:/MyLibs/fall_n/header_files.hh:228:
+C:/msys64/ucrt64/include/vtk/vtkIndent.h:38:40: note: candidate 1: 'std::ostream& operator<<(std::ostream&, const vtkIndent&)'
+   38 |   friend VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkIndent& o);
+      |                                        ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkIndent.h:20:51: note: no known conversion for argument 1 from 'std::_Setw' to 'std::ostream&' {aka 'std::basic_ostream<char>&'}
+   20 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkIndent& o);
+      |                                          ~~~~~~~~~^~
+C:/msys64/ucrt64/include/vtk/vtkSmartPointerBase.h:125:31: note: candidate 2: 'std::ostream& operator<<(std::ostream&, const vtkSmartPointerBase&)'
+  125 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkSmartPointerBase& p);
+      |                               ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkSmartPointerBase.h:125:51: note: no known conversion for argument 1 from 'std::_Setw' to 'std::ostream&' {aka 'std::basic_ostream<char>&'}
+  125 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkSmartPointerBase& p);
+      |                                          ~~~~~~~~~^~
+In file included from C:/msys64/ucrt64/include/vtk/vtkObject.h:36,
+                 from C:/msys64/ucrt64/include/vtk/vtkBuffer.h:16,
+                 from C:/msys64/ucrt64/include/vtk/vtkAOSDataArrayTemplate.h:22,
+                 from C:/msys64/ucrt64/include/vtk/vtkDoubleArray.h:15,
+                 from C:/MyLibs/fall_n/src/post-processing/VTK/VTKModelExporter.hh:84:
+C:/msys64/ucrt64/include/vtk/vtkWeakPointerBase.h:116:31: note: candidate 3: 'std::ostream& operator<<(std::ostream&, const vtkWeakPointerBase&)'
+  116 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkWeakPointerBase& p);
+      |                               ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkWeakPointerBase.h:116:51: note: no known conversion for argument 1 from 'std::_Setw' to 'std::ostream&' {aka 'std::basic_ostream<char>&'}
+  116 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkWeakPointerBase& p);
+      |                                          ~~~~~~~~~^~
+In file included from C:/msys64/ucrt64/include/vtk/vtkVariant.h:19,
+                 from C:/msys64/ucrt64/include/vtk/vtkAbstractArray.h:65,
+                 from C:/msys64/ucrt64/include/vtk/vtkDataArray.h:26,
+                 from C:/msys64/ucrt64/include/vtk/vtkDataArrayMeta.h:8,
+                 from C:/msys64/ucrt64/include/vtk/vtkAOSDataArrayTemplate.h:26:
+C:/msys64/ucrt64/include/vtk/vtkStdString.h:22:31: note: candidate 4: 'std::ostream& operator<<(std::ostream&, const vtkStdString&)'
+   22 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream&, const vtkStdString&);
+      |                               ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkStdString.h:22:42: note: no known conversion for argument 1 from 'std::_Setw' to 'std::ostream&' {aka 'std::basic_ostream<char>&'}
+   22 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream&, const vtkStdString&);
+      |                                          ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkVariant.h:396:40: note: candidate 5: 'std::ostream& operator<<(std::ostream&, const vtkVariant&)'
+  396 |   friend VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkVariant& val);
+      |                                        ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkVariant.h:44:51: note: no known conversion for argument 1 from 'std::_Setw' to 'std::ostream&' {aka 'std::basic_ostream<char>&'}
+   44 | VTKCOMMONCORE_EXPORT ostream& operator<<(ostream& os, const vtkVariant& val);
+      |                                          ~~~~~~~~~^~
+C:/msys64/ucrt64/include/vtk/vtkSmartPointer.h:374:17: note: candidate 6: 'template<class T> std::ostream& operator<<(std::ostream&, const vtkSmartPointer<ArrayType>&)'
+  374 | inline ostream& operator<<(ostream& os, const vtkSmartPointer<T>& p)
+      |                 ^~~~~~~~
+C:/msys64/ucrt64/include/vtk/vtkSmartPointer.h:374:17: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   mismatched types 'const vtkSmartPointer<ArrayType>' and 'std::ios_base&(std::ios_base&)'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/regex:70,
+                 from C:/MyLibs/fall_n/src/model/GroundMotionRecord.hh:43,
+                 from C:/MyLibs/fall_n/header_files.hh:186:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/regex.h:1737:5: note: candidate 7: 'template<class _Ch_type, class _Ch_traits, class _Bi_iter> std::basic_ostream<_CharT, _Traits>& std::__cxx11::operator<<(std::basic_ostream<_CharT, _Traits>&, const sub_match<_Bi_iter>&)'
+ 1737 |     operator<<(basic_ostream<_Ch_type, _Ch_traits>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/regex.h:1737:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/bits/basic_string.h:51,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/string:56,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/bits/locale_classes.h:42,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/bits/ios_base.h:43,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/iomanip:47,
+                 from C:/MyLibs/fall_n/main_multiscale.cpp:43:
+C:/msys64/ucrt64/include/c++/15.2.0/string_view:767:5: note: candidate 8: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, basic_string_view<_CharT, _Traits>)'
+  767 |     operator<<(basic_ostream<_CharT, _Traits>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/string_view:767:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/basic_string.h:4367:5: note: candidate 9: 'template<class _CharT, class _Traits, class _Alloc> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const __cxx11::basic_string<_CharT, _Traits, _Alloc>&)'
+ 4367 |     operator<<(basic_ostream<_CharT, _Traits>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/basic_string.h:4367:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/bits/memory_resource.h:40,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/string:72:
+C:/msys64/ucrt64/include/c++/15.2.0/cstddef:130:5: note: candidate 10: 'template<class _IntegerType> constexpr std::__byte_op_t<_IntegerType> std::operator<<(byte, _IntegerType)'
+  130 |     operator<<(byte __b, _IntegerType __shift) noexcept
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/cstddef:130:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:45: note:   cannot convert 'std::setw(12)' (type 'std::_Setw') to type 'std::byte'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                    ~~~~~~~~~^~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/bits/ios_base.h:48:
+C:/msys64/ucrt64/include/c++/15.2.0/system_error:341:5: note: candidate 11: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const error_code&)'
+  341 |     operator<<(basic_ostream<_CharT, _Traits>& __os, const error_code& __e)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/system_error:341:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/ostream:42,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/istream:43,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/sstream:42,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/bits/quoted_string.h:40,
+                 from C:/msys64/ucrt64/include/c++/15.2.0/iomanip:55:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:626:5: note: candidate 12: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _CharT)'
+  626 |     operator<<(basic_ostream<_CharT, _Traits>& __out, _CharT __c)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:626:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:636:5: note: candidate 13: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, char)'
+  636 |     operator<<(basic_ostream<_CharT, _Traits>& __out, char __c)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:636:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:642:5: note: candidate 14: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, char)'
+  642 |     operator<<(basic_ostream<char, _Traits>& __out, char __c)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:642:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:653:5: note: candidate 15: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, signed char)'
+  653 |     operator<<(basic_ostream<char, _Traits>& __out, signed char __c)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:653:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:658:5: note: candidate 16: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, unsigned char)'
+  658 |     operator<<(basic_ostream<char, _Traits>& __out, unsigned char __c)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:658:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:667:5: note: candidate 17: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, wchar_t)' (deleted)
+  667 |     operator<<(basic_ostream<char, _Traits>&, wchar_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:667:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:672:5: note: candidate 18: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, char8_t)' (deleted)
+  672 |     operator<<(basic_ostream<char, _Traits>&, char8_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:672:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:677:5: note: candidate 19: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, char16_t)' (deleted)
+  677 |     operator<<(basic_ostream<char, _Traits>&, char16_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:677:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:681:5: note: candidate 20: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, char32_t)' (deleted)
+  681 |     operator<<(basic_ostream<char, _Traits>&, char32_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:681:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:687:5: note: candidate 21: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, char8_t)' (deleted)
+  687 |     operator<<(basic_ostream<wchar_t, _Traits>&, char8_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:687:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:692:5: note: candidate 22: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, char16_t)' (deleted)
+  692 |     operator<<(basic_ostream<wchar_t, _Traits>&, char16_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:692:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:696:5: note: candidate 23: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, char32_t)' (deleted)
+  696 |     operator<<(basic_ostream<wchar_t, _Traits>&, char32_t) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:696:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:717:5: note: candidate 24: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const _CharT*)'
+  717 |     operator<<(basic_ostream<_CharT, _Traits>& __out, const _CharT* __s)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:717:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/ostream:294:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.tcc:311:5: note: candidate 25: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const char*)'
+  311 |     operator<<(basic_ostream<_CharT, _Traits>& __out, const char* __s)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.tcc:311:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:734:5: note: candidate 26: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const char*)'
+  734 |     operator<<(basic_ostream<char, _Traits>& __out, const char* __s)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:734:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:747:5: note: candidate 27: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const signed char*)'
+  747 |     operator<<(basic_ostream<char, _Traits>& __out, const signed char* __s)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:747:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:752:5: note: candidate 28: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const unsigned char*)'
+  752 |     operator<<(basic_ostream<char, _Traits>& __out, const unsigned char* __s)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:752:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:761:5: note: candidate 29: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const wchar_t*)' (deleted)
+  761 |     operator<<(basic_ostream<char, _Traits>&, const wchar_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:761:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:766:5: note: candidate 30: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const char8_t*)' (deleted)
+  766 |     operator<<(basic_ostream<char, _Traits>&, const char8_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:766:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:771:5: note: candidate 31: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const char16_t*)' (deleted)
+  771 |     operator<<(basic_ostream<char, _Traits>&, const char16_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:771:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:775:5: note: candidate 32: 'template<class _Traits> std::basic_ostream<char, _Traits>& std::operator<<(basic_ostream<char, _Traits>&, const char32_t*)' (deleted)
+  775 |     operator<<(basic_ostream<char, _Traits>&, const char32_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:775:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<char, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:781:5: note: candidate 33: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, const char8_t*)' (deleted)
+  781 |     operator<<(basic_ostream<wchar_t, _Traits>&, const char8_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:781:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:786:5: note: candidate 34: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, const char16_t*)' (deleted)
+  786 |     operator<<(basic_ostream<wchar_t, _Traits>&, const char16_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:786:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:790:5: note: candidate 35: 'template<class _Traits> std::basic_ostream<wchar_t, _Traits>& std::operator<<(basic_ostream<wchar_t, _Traits>&, const char32_t*)' (deleted)
+  790 |     operator<<(basic_ostream<wchar_t, _Traits>&, const char32_t*) = delete;
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:790:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<wchar_t, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:836:5: note: candidate 36: 'template<class _Ostream, class _Tp> _Ostream&& std::operator<<(_Ostream&&, const _Tp&)'
+  836 |     operator<<(_Ostream&& __os, const _Tp& __x)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:836:5: note: template argument deduction/substitution failed:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h: In substitution of 'template<class _Ostream, class _Tp> _Ostream&& std::operator<<(_Ostream&&, const _Tp&) [with _Ostream = std::_Setw; _Tp = std::ios_base&(std::ios_base&)]':
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58:   required from here
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:836:5: error: template constraint failure for 'template<class _Os, class _Tp>  requires (__derived_from_ios_base<_Os>) && requires(_Os& __os, const _Tp& __t) {__os << __t;} using std::__rvalue_stream_insertion_t = _Os&&'
+  836 |     operator<<(_Ostream&& __os, const _Tp& __x)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:836:5: note: constraints not satisfied
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h: In substitution of 'template<class _Os, class _Tp>  requires (__derived_from_ios_base<_Os>) && requires(_Os& __os, const _Tp& __t) {__os << __t;} using std::__rvalue_stream_insertion_t = _Os&& [with _Os = std::_Setw; _Tp = std::ios_base&(std::ios_base&)]':
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:836:5:   required by substitution of 'template<class _Ostream, class _Tp> _Ostream&& std::operator<<(_Ostream&&, const _Tp&) [with _Ostream = std::_Setw; _Tp = std::ios_base&(std::ios_base&)]'
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58:   required from here
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:803:13:   required for the satisfaction of '__derived_from_ios_base<_Os>' [with _Os = std::_Setw]
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:805:10:   in requirements with '_Tp* __t', 'std::ios_base* __b' [with _Tp = std::_Setw]
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h:805:51: note: the required expression '__b = __t' is invalid
+  805 |       && requires (_Tp* __t, ios_base* __b) { __b = __t; };
+      |                                               ~~~~^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/ostream.h: In substitution of 'template<class _Ostream, class _Tp> _Ostream&& std::operator<<(_Ostream&&, const _Tp&) [with _Ostream = std::_Setw; _Tp = std::ios_base&(std::ios_base&)]':
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58:   required from here
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+cc1plus.exe: note: set '-fconcepts-diagnostics-depth=' to at least 2 for more detail
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:89:5: note: candidate 37: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Resetiosflags)'
+   89 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Resetiosflags __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:89:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:119:5: note: candidate 38: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Setiosflags)'
+  119 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Setiosflags __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:119:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:153:5: note: candidate 39: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Setbase)'
+  153 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Setbase __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:153:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:190:5: note: candidate 40: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Setfill<_CharT>)'
+  190 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Setfill<_CharT> __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:190:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:220:5: note: candidate 41: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Setprecision)'
+  220 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Setprecision __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:220:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:250:5: note: candidate 42: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Setw)'
+  250 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Setw __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:250:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:323:5: note: candidate 43: 'template<class _CharT, class _Traits, class _MoneyT> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Put_money<_MoneyT>)'
+  323 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Put_money<_MoneyT> __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:323:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:375:5: note: candidate 44: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, _Put_time<_CharT>)'
+  375 |     operator<<(basic_ostream<_CharT, _Traits>& __os, _Put_time<_CharT> __f)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/iomanip:375:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/eigen3/Eigen/Core:51,
+                 from C:/msys64/ucrt64/include/eigen3/Eigen/Dense:1,
+                 from C:/MyLibs/fall_n/main_multiscale.cpp:48:
+C:/msys64/ucrt64/include/c++/15.2.0/complex:597:5: note: candidate 45: 'template<class _Tp, class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const complex<_Tp>&)'
+  597 |     operator<<(basic_ostream<_CharT, _Traits>& __os, const complex<_Tp>& __x)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/complex:597:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/memory:80,
+                 from C:/msys64/ucrt64/include/eigen3/Eigen/Core:98:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/unique_ptr.h:1157:5: note: candidate 46: 'template<class _CharT, class _Traits, class _Tp, class _Dp> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const unique_ptr<_Up, _Ep>&) requires requires{std::operator<<::__os << std::operator<<::__p->get();}'
+ 1157 |     operator<<(basic_ostream<_CharT, _Traits>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/unique_ptr.h:1157:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/memory:82:
+C:/msys64/ucrt64/include/c++/15.2.0/bits/shared_ptr.h:70:5: note: candidate 47: 'template<class _Ch, class _Tr, class _Tp, __gnu_cxx::_Lock_policy _Lp> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const __shared_ptr<_Tp, _Lp>&)'
+   70 |     operator<<(std::basic_ostream<_Ch, _Tr>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bits/shared_ptr.h:70:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/eigen3/Eigen/Core:106:
+C:/msys64/ucrt64/include/c++/15.2.0/thread:107:5: note: candidate 48: 'template<class _CharT, class _Traits> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, thread::id)'
+  107 |     operator<<(basic_ostream<_CharT, _Traits>& __out, thread::id __id)
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/thread:107:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+In file included from C:/msys64/ucrt64/include/c++/15.2.0/regex:42:
+C:/msys64/ucrt64/include/c++/15.2.0/bitset:1692:5: note: candidate 49: 'template<class _CharT, class _Traits, long long unsigned int _Nb> std::basic_ostream<_CharT, _Traits>& std::operator<<(basic_ostream<_CharT, _Traits>&, const bitset<_Nb>&)'
+ 1692 |     operator<<(std::basic_ostream<_CharT, _Traits>& __os,
+      |     ^~~~~~~~
+C:/msys64/ucrt64/include/c++/15.2.0/bitset:1692:5: note: template argument deduction/substitution failed:
+C:/MyLibs/fall_n/main_multiscale.cpp:173:58: note:   'std::_Setw' is not derived from 'std::basic_ostream<_CharT, _Traits>'
+  173 |     auto w9 = [](double v){ return std::setw(12) << std::fixed << std::setprecision(4) << v; };
+      |                                                          ^~~~~
+C:/MyLibs/fall_n/main_multiscale.cpp: In function 'void print_submodel_results(const std::string&, const fall_n::SubModelSolverResult&, const fall_n::HomogenizedBeamSection&)':
+C:/MyLibs/fall_n/main_multiscale.cpp:179:10: error: overflow in conversion from 'int' to 'char' changes value from '14849152' to '-128' [-Werror=overflow]
+  179 |     hline();
+      |     ~~~~~^~
+C:/MyLibs/fall_n/main_multiscale.cpp:188:10: error: overflow in conversion from 'int' to 'char' changes value from '14849152' to '-128' [-Werror=overflow]
+  188 |     hline();
+      |     ~~~~~^~
+C:/MyLibs/fall_n/main_multiscale.cpp:197:10: error: overflow in conversion from 'int' to 'char' changes value from '14849152' to '-128' [-Werror=overflow]
+  197 |     hline();
+      |     ~~~~~^~
+C:/MyLibs/fall_n/main_multiscale.cpp:215:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  215 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp: In function 'void part_a_single_element()':
+C:/MyLibs/fall_n/main_multiscale.cpp:229:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  229 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:231:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  231 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp: In function 'void part_b_two_elements()':
+C:/MyLibs/fall_n/main_multiscale.cpp:286:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  286 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:288:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  288 |     hline('═');
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp: In function 'int main(int, char**)':
+C:/MyLibs/fall_n/main_multiscale.cpp:364:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  364 |     hline('═', 65);
+      |           ^~~
+C:/MyLibs/fall_n/main_multiscale.cpp:368:11: error: overflow in conversion from 'int' to 'char' changes value from '14849424' to '-112' [-Werror=overflow]
+  368 |     hline('═', 65);
+      |           ^~~
+cc1plus.exe: all warnings being treated as errors
+ninja: build stopped: subcommand failed.

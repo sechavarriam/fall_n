@@ -136,9 +136,11 @@ auto make_damage_threshold_director(const DamageCriterion& criterion,
     report->criterion_name = criterion.name();
 
     auto crit_clone = criterion.clone();  // own a copy
+    // shared_ptr makes the lambda copy-constructible (required by std::function)
+    auto crit_shared = std::shared_ptr<DamageCriterion>(std::move(crit_clone));
 
     auto director = [report, damage_limit,
-                     crit = std::move(crit_clone)]
+                     crit = crit_shared]
                     (const StepEvent& ev,
                      const ModelT& model) mutable -> StepVerdict
     {

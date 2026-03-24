@@ -51,6 +51,8 @@
 
 #include "../analysis/NLAnalysis.hh"
 
+#include "../post-processing/VTK/VTKModelExporter.hh"
+
 
 namespace fall_n {
 
@@ -107,7 +109,11 @@ public:
     /// this call the domain's DM has its DOF section configured.  Calling
     /// solve() again on the same sub-model (e.g. with different E/nu) is
     /// safe — each call rebuilds the PetscSection from scratch.
-    SubModelSolverResult solve(MultiscaleSubModel& sub) {
+    ///
+    /// If vtk_prefix is non-empty, the deformed mesh and Gauss-point stress
+    /// cloud are written to {vtk_prefix}_mesh.vtu and {vtk_prefix}_gauss.vtu.
+    SubModelSolverResult solve(MultiscaleSubModel& sub,
+                               const std::string& vtk_prefix = "") {
 
         using Policy  = ThreeDimensionalMaterial;
         constexpr std::size_t NDOF = 3;
@@ -193,6 +199,15 @@ public:
         // γ_xy ≈ 2 * ε_xy in engineering notation; Voigt component [5] = ε_xy
         if (std::abs(result.avg_strain[5]) > eps_tol)
             result.G_eff = result.avg_stress[5] / result.avg_strain[5];
+
+        // ── Optional VTK export ────────────────────────────────────────────
+        if (!vtk_prefix.empty()) {
+            fall_n::vtk::VTKModelExporter exporter{M};
+            exporter.set_displacement();
+            exporter.compute_material_fields();
+            exporter.write_mesh(vtk_prefix + "_mesh.vtu");
+            exporter.write_gauss_points(vtk_prefix + "_gauss.vtu");
+        }
 
         return result;
     }
