@@ -185,6 +185,10 @@ struct FramedBuildingSpec {
     int cutout_x_start = 0, cutout_x_end = 0;
     int cutout_y_start = 0, cutout_y_end = 0;
     int cutout_above_story = 0;
+
+    // When false, slab (quad) geometries are not created in the domain.
+    // Useful for frame-only analysis (beam + column elements only).
+    bool include_slabs = true;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -285,6 +289,7 @@ make_building_domain(const FramedBuildingSpec& spec)
     }
 
     // ── Slabs (4-node quad elements) ─────────────────────────────
+    if (spec.include_slabs) {
     for (int level = 1; level <= ns; ++level) {
         for (int iy = 0; iy < ny - 1; ++iy) {
             for (int ix = 0; ix < nx - 1; ++ix) {
@@ -301,6 +306,7 @@ make_building_domain(const FramedBuildingSpec& spec)
             }
         }
     }
+    } // include_slabs
 
     domain.assemble_sieve();
 

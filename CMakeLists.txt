@@ -36,6 +36,8 @@ add_compile_definitions(FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_executable(fall_n main.cpp)
 add_executable(fall_n_seismic main_seismic.cpp)
+add_executable(fall_n_multiscale main_multiscale.cpp)
+add_executable(fall_n_multiscale_seismic main_multiscale_seismic.cpp)
 enable_testing()
 
 
@@ -126,6 +128,216 @@ endif()
 target_link_libraries(fall_n_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
 vtk_module_autoinit(TARGETS fall_n_seismic MODULES ${VTK_LIBRARIES})
 target_include_directories(fall_n_seismic PRIVATE ${CMAKE_SOURCE_DIR})
+
+# ── Multiscale example (same library tier as fall_n_seismic) ─────────────────
+target_link_libraries(fall_n_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_multiscale MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_multiscale PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# ── Seismic multiscale example (fiber sections + Japan 2011) ─────────────────
+target_link_libraries(fall_n_multiscale_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_multiscale_seismic MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_multiscale_seismic PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_multiscale_seismic PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_multiscale_seismic PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# ── Seismic multiscale v2 (fixed DT, explicit time step) ─────────────────────
+add_executable(fall_n_seismic_v2 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v2 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v2 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v2 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v2 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v2 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# ── Seismic multiscale v3 (DT=0.02s, scale=5, robust SNES) ──────────────────
+add_executable(fall_n_seismic_v3 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v3 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v3 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v3 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v3 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v3 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v4 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v4 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v4 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v4 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v4 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v4 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v5 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v5 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v5 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v5 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v5 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v5 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v6 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v6 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v6 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v6 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v6 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v6 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v7 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v7 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v7 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v7 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v7 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_seismic_v7 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v8 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v8 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v8 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v8 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v8 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v8 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v9 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v9 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v9 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v9 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v9 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v9 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v10 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v10 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v10 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v10 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v10 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v10 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v11 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v11 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v11 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v11 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v11 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v11 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v12 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v12 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v12 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v12 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v12 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v12 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v13 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v13 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v13 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v13 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v13 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v13 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v14 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v14 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v14 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v14 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v14 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v14 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v15 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v15 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v15 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v15 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v15 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v15 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v16 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v16 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v16 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v16 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v16 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v16 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v17 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v17 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v17 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v17 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v17 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v17 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v18 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v18 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v18 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v18 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v18 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v18 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v19 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v19 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v19 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v19 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v19 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v19 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(fall_n_seismic_v20 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v20 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v20 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v20 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v20 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v20 PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 
 # ==============================================================================

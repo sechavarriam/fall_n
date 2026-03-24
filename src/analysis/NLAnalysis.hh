@@ -10,6 +10,7 @@
 #include "../utils/Benchmark.hh"
 #include "IncrementalControl.hh"
 #include "StepDirector.hh"
+#include "SteppableSolver.hh"
 
 // =============================================================================
 //  NonlinearAnalysis — PETSc SNES-driven Newton-Raphson solver

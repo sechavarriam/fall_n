@@ -77,6 +77,7 @@
 // =============================================================================
 
 #include <cstddef>
+#include <cstdio>
 #include <functional>
 #include <vector>
 
@@ -183,7 +184,8 @@ class DynamicAnalysis {
         Vec u_local;
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
+        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U, INSERT_VALUES, u_local));
+        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U, INSERT_VALUES, u_local));
 
         // Add prescribed displacements if applicable
         if (self->prescribed_evaluator_) {
@@ -279,7 +281,8 @@ class DynamicAnalysis {
         Vec u_local;
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
+        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U, INSERT_VALUES, u_local));
+        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U, INSERT_VALUES, u_local));
 
         if (self->prescribed_evaluator_) {
             self->prescribed_evaluator_(t);
@@ -364,26 +367,23 @@ class DynamicAnalysis {
 
         DM dm = model_->get_plex();
 
-        // ── 1. Commit material state –────────────────────────────────
-        {
-            Vec u_local;
-            DMGetLocalVector(dm, &u_local);
-            VecSet(u_local, 0.0);
-            DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
-            VecAXPY(u_local, 1.0, model_->imposed_solution());
+        // ── 1. Update model state vector ─────────────────────────────
+        Vec scratch;
+        DMGetLocalVector(dm, &scratch);
+        VecSet(scratch, 0.0);
+        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U, INSERT_VALUES, scratch));
+        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U, INSERT_VALUES, scratch));
 
-            for (auto& element : model_->elements()) {
-                element.commit_material_state(u_local);
-            }
+        VecAXPY(scratch, 1.0, model_->imposed_solution());
+        VecCopy(scratch, model_->state_vector());
+        DMRestoreLocalVector(dm, &scratch);
 
-            DMRestoreLocalVector(dm, &u_local);
+        // ── 2. Commit material state from the same localized vector ──
+        for (auto& element : model_->elements()) {
+            element.commit_material_state(model_->state_vector());
         }
 
-        // ── 2. Update model state vector ─────────────────────────────
-        DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
-        VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
-
-        // ── 3. Observer pipeline (new) ───────────────────────────────
+        // ── 3. Observer pipeline ─────────────────────────────────────
         if (observer_callback_.on_step) {
             fall_n::StepEvent ev{step, t, U, V};
             observer_callback_.on_step(ev, *model_);
@@ -725,20 +725,38 @@ public:
         FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_target));
         FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
 
+        DM dm = model_->get_plex();
+
         while (current_time() < t_target - 1e-14) {
             if (!step()) {
                 return fall_n::StepVerdict::Stop;
             }
 
+            // ── Update model state from TS solution ──────────────────
+            PetscInt  sn;
+            PetscReal t;
+            Vec U_cur, V_cur;
+            FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
+            FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
+            FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+
+            // Scatter global TS solution to local model state vector
+            Vec scratch;
+            DMGetLocalVector(dm, &scratch);
+            VecSet(scratch, 0.0);
+            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_cur, INSERT_VALUES, scratch));
+            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U_cur, INSERT_VALUES, scratch));
+            VecAXPY(scratch, 1.0, model_->imposed_solution());
+            VecCopy(scratch, model_->state_vector());
+            DMRestoreLocalVector(dm, &scratch);
+
+            // Commit material state with the updated local vector
+            for (auto& element : model_->elements()) {
+                element.commit_material_state(model_->state_vector());
+            }
+
             // Evaluate director after step
             if (director) {
-                PetscInt  sn;
-                PetscReal t;
-                Vec U_cur, V_cur;
-                FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
-                FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
-                FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
-
                 fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
                 auto verdict = director(ev, *model_);
                 if (verdict != fall_n::StepVerdict::Continue) {
@@ -762,19 +780,35 @@ public:
     {
         setup();
 
+        DM dm = model_->get_plex();
+
         for (int i = 0; i < n; ++i) {
             if (!step()) {
                 return fall_n::StepVerdict::Stop;
             }
 
-            if (director) {
-                PetscInt  sn;
-                PetscReal t;
-                Vec U_cur, V_cur;
-                FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
-                FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
-                FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+            // ── Update model state from TS solution ──────────────────
+            PetscInt  sn;
+            PetscReal t;
+            Vec U_cur, V_cur;
+            FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
+            FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
+            FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
 
+            Vec scratch;
+            DMGetLocalVector(dm, &scratch);
+            VecSet(scratch, 0.0);
+            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_cur, INSERT_VALUES, scratch));
+            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U_cur, INSERT_VALUES, scratch));
+            VecAXPY(scratch, 1.0, model_->imposed_solution());
+            VecCopy(scratch, model_->state_vector());
+            DMRestoreLocalVector(dm, &scratch);
+
+            for (auto& element : model_->elements()) {
+                element.commit_material_state(model_->state_vector());
+            }
+
+            if (director) {
                 fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
                 auto verdict = director(ev, *model_);
                 if (verdict != fall_n::StepVerdict::Continue) {
@@ -859,7 +893,8 @@ public:
         timer_.start("post");
         {
             DM dm = model_->get_plex();
-            DMGlobalToLocal(dm, U_, INSERT_VALUES, model_->state_vector());
+            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_, INSERT_VALUES, model_->state_vector()));
+            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U_, INSERT_VALUES, model_->state_vector()));
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
         }
         timer_.stop("post");
@@ -892,7 +927,8 @@ public:
         // Update model state
         {
             DM dm = model_->get_plex();
-            DMGlobalToLocal(dm, U_, INSERT_VALUES, model_->state_vector());
+            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_, INSERT_VALUES, model_->state_vector()));
+            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U_, INSERT_VALUES, model_->state_vector()));
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
         }
 
@@ -936,7 +972,8 @@ public:
         Vec u_local;
         DMGetLocalVector(dm, &u_local);
         VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
+        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_, INSERT_VALUES, u_local));
+        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U_, INSERT_VALUES, u_local));
         VecAXPY(u_local, 1.0, model_->imposed_solution());
 
         const auto& node = model_->get_domain().node(node_id);

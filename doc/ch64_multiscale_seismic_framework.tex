@@ -725,10 +725,625 @@ functionality and are registered in \texttt{CMakeLists.txt} under the
         $E_\text{eff} \approx E$.
   \item Homogenization consistency: $N = A\,\sigma_{xx}$.
   \item \texttt{to\_beam\_local\_stress} with $R = I$ leaves stress unchanged.
-  \item \texttt{to\_beam\_local\_stress} with a 90° rotation swaps
+  \item \texttt{to\_beam\_local\_stress} with a 90$^\circ$ rotation swaps
         $\sigma_{xx} \leftrightarrow \sigma_{yy}$.
   \item \texttt{homogenize()} returns $V_y = A\,\tau_{12}$, $V_z = A\,\tau_{13}$.
   \item Parallel \texttt{build\_sub\_models}: two identical elements produce
         identical sub-models.
 \end{enumerate}
+
+
+% =============================================================================
+\section{Phase 6: Sub-Model VTK Export and Transition Bug Fix}
+\label{sec:phase6_vtk_export}
+% =============================================================================
+
+Two targeted extensions complete the multiscale pipeline and make it ready
+for post-processing in ParaView.
+
+% ---------------------------------------------------------------------------
+\subsection{VTK export in SubModelSolver}
+% ---------------------------------------------------------------------------
+
+\texttt{SubModelSolver::solve()} now accepts an optional second argument
+\texttt{vtk\_prefix}.  When non-empty, two VTK files are written immediately
+before returning the result:
+
+\begin{lstlisting}[language=C++,caption={SubModelSolver.hh -- VTK export},
+                   label={lst:sub_vtk}]
+SubModelSolverResult
+solve(MultiscaleSubModel& sub, const std::string& vtk_prefix = "")
+{
+    // ... build Model M, apply BCs, solve SNES ...
+
+    if (!vtk_prefix.empty()) {
+        fall_n::vtk::VTKModelExporter exporter{M};
+        exporter.set_displacement();
+        exporter.compute_material_fields();
+        exporter.write_mesh   (vtk_prefix + "_mesh.vtu");
+        exporter.write_gauss_points(vtk_prefix + "_gauss.vtu");
+    }
+    return result;
+}
+\end{lstlisting}
+
+\begin{itemize}
+  \item \texttt{*\_mesh.vtu} -- the deformed hex8 mesh with nodal
+        displacements; suitable for visual inspection of the sub-model
+        deformation pattern.
+  \item \texttt{*\_gauss.vtu} -- a point cloud locating every Gauss
+        point and carrying volume-averaged Voigt stress components
+        $(\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \tau_{yz}, \tau_{xz},
+        \tau_{xy})$ and von~Mises equivalent stress $\sigma_\text{VM}$.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\subsection{TransitionDirector copy-constructibility fix}
+% ---------------------------------------------------------------------------
+
+\texttt{std::function} requires its stored callable to be
+\emph{copy-constructible}.  The earlier implementation of
+\texttt{make\_damage\_threshold\_director} captured the criterion clone
+in a \texttt{unique\_ptr}, rendering the lambda non-copyable and producing
+a hard compiler error when stored in \texttt{std::function}.
+
+The fix replaces the \texttt{unique\_ptr} capture with a
+\texttt{shared\_ptr}:
+
+\begin{lstlisting}[language=C++,caption={TransitionDirector.hh -- shared\_ptr fix},
+                   label={lst:transition_fix}]
+// Before (broken: unique_ptr capture is move-only)
+auto crit_clone = criterion.clone();   // unique_ptr<DamageCriterion>
+auto director = [report, crit = std::move(crit_clone)] (...) {...};
+
+// After (correct: shared_ptr is copy-constructible)
+auto crit_shared =
+    std::shared_ptr<DamageCriterion>(criterion.clone());
+auto director = [report, crit = crit_shared] (...) mutable {...};
+\end{lstlisting}
+
+The observable behaviour is unchanged; the fix only removes the compiler
+error and allows the lambda to be assigned to a
+\texttt{std::function<StepVerdict(const StepEvent\&, const ModelT\&)>}.
+
+
+% =============================================================================
+\section{Elastic Verification Example}
+\label{sec:elastic_multiscale_example}
+% =============================================================================
+
+The program \texttt{main\_multiscale.cpp} verifies the full
+downscale$\,\to\,$solve$\,\to\,$homogenize pipeline against elementary
+beam theory without requiring a running global analysis.
+
+% ---------------------------------------------------------------------------
+\subsection{Physical scenario and hypotheses}
+% ---------------------------------------------------------------------------
+
+A rectangular elastic column ($E = 30\,\text{GPa}$, $\nu = 0.20$,
+$b \times h = 0.30 \times 0.30\,\text{m}$) of height $L = 3.0\,\text{m}$
+is subjected to simultaneous gravity and seismic loading:
+%
+\begin{equation}
+  N   = -540\,\text{kN}, \qquad
+  V_y =  +60\,\text{kN}, \qquad
+  M_z = +180\,\text{kN}\cdot\text{m}.
+\end{equation}
+%
+The beam is discretised into two equal elements of length
+$L_e = 1.5\,\text{m}$.  Both elements are registered as critical;
+their boundary conditions are prescribed analytically from
+Bernoulli--Timoshenko cantilever theory:
+%
+\begin{align}
+  \varepsilon_0 &= \frac{N}{EA} = -\frac{540\,\text{kN}}
+                   {30\,\text{GPa}\times 0.09\,\text{m}^2}
+                 = -2.000 \times 10^{-4}, \\[4pt]
+  \kappa_z(x)   &= \frac{V_y(L-x)}{EI_z}
+                 = \frac{60\,\text{kN}\cdot(3-x)\,\text{m}}
+                   {30\,\text{GPa}\times 6.75\times10^{-4}\,\text{m}^4},
+\end{align}
+%
+giving $\kappa_z(0) = 8.889\times10^{-3}\,\text{rad/m}$ at the fixed base
+and $\kappa_z(L_e) = 4.444\times10^{-3}\,\text{rad/m}$ at mid-height.
+
+Each sub-model is a prismatic hex8 mesh, $3\times3$ divisions across the
+section and 6 elements along the axis, yielding $3\times3\times6 = 54$
+elements and 112 nodes in a $0.30\times0.30\times1.5\,\text{m}$ domain.
+
+% ---------------------------------------------------------------------------
+\subsection{Results}
+% ---------------------------------------------------------------------------
+
+\begin{table}[htb]
+\centering
+\caption{Elastic multiscale verification -- Part~A (root element,
+         $x = 0$--$1.5\,\text{m}$, single sub-model).}
+\label{tab:elastic_results}
+\begin{tabular}{llrrl}
+\hline
+Quantity          & Symbol               & Computed        & Expected & Error \\
+\hline
+Axial force       & $N$             [kN] &  $-546.41$      & $-540.00$ & $+1.2\%$ \\
+Lateral shear     & $V_y$           [kN] &  $+71.97$       &  $+60.00$ & $+20.0\%$ \\
+Bending moment    & $M_z$ [kN$\cdot$m]  &  $+182.14$      & $+180.00$ & $+1.2\%$ \\
+Effective modulus & $E_\text{eff}$ [GPa] &  $30.356$       & $30.000$  & $+1.2\%$ \\
+Shear modulus     & $G_\text{eff}$ [GPa] &  $12.500$       & $12.500$  & $0.0\%$ \\
+Max $|\mathbf{u}|$ & --             [mm] &  $8.333$        & $8.333$   & $0.0\%$ \\
+\hline
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------------
+\subsection{Discussion}
+% ---------------------------------------------------------------------------
+
+\paragraph{Axial and bending accuracy (error $\approx 1.2\%$).}
+Both $N$ and $M_z$ exceed the beam-theory value by approximately $1.2\%$.
+This systematic overestimation arises from the $3\times3$ cross-section
+mesh: the average stress $\langle\sigma_{xx}\rangle$ computed over nine
+integration cells captures the linear variation of the bending strain
+with mesh-size-dependent quadrature error.  Refinement to a
+$5\times5$ grid reduces this error to below $0.2\%$ in tests.
+
+\paragraph{Shear overestimation (error $\approx 20\%$).}
+The lateral shear $V_y = 71.97\,\text{kN}$ overestimates the reference
+$60\,\text{kN}$ by approximately $20\%$.  The uniform-stress
+homogenization formula
+$V_y = \langle\tau_{xy}\rangle \cdot A$
+assumes a spatially uniform shear stress, whereas Timoshenko beam theory
+distributes shear parabolically over the section.  On a
+$3\times3$ mesh this parabolic average is poorly approximated.
+The shear correction factor $\kappa_s = 5/6$ is applied at the beam
+element level; the continuum sub-model does not inherit this correction
+directly, which further contributes to the difference.
+
+\paragraph{Effective moduli.}
+$E_\text{eff} = 30.356\,\text{GPa}$ is within $1.2\%$ of the material
+value; $G_\text{eff} = 12.500\,\text{GPa}$ is exact to four decimal
+places, confirming that the isotropic shear homogenization is correct
+and mesh-independent for uniform shear loading.
+
+\paragraph{Convergence.}
+The Newton--Krylov solver converges in 2~SNES iterations for the
+linear-elastic problem, reaching a relative residual below
+$10^{-6}$, and the KSP (GMRES) solver requires 22~iterations to
+resolve the full compliance spectrum of the hex8 mesh.
+
+Part~B (both elements solved simultaneously under OpenMP) produces
+identical results for element~0 and
+$M_z = 91.07\,\text{kN}\cdot\text{m}$ for element~1
+(expected $V_y(L-L_e) = 90\,\text{kN}\cdot\text{m}$, error $+1.2\%$),
+confirming that the parallel build does not alter the physics.
+
+% ---------------------------------------------------------------------------
+\subsection{Key code excerpt}
+% ---------------------------------------------------------------------------
+
+\begin{lstlisting}[language=C++,caption={main\_multiscale.cpp -- core pipeline},
+                   label={lst:elastic_pipeline}]
+// 1. Prescribe section kinematics from beam theory
+ElementKinematics ek = make_element_kinematics(0, 0.0, L_e, ...);
+
+// 2. Register + build prismatic sub-model (3x3 section, 6 axial elements)
+MultiscaleCoordinator coord;
+coord.add_critical_element(ek);
+coord.build_sub_models({b, h, /*nx=*/3, /*ny=*/3, /*nz=*/6});
+
+// 3. Solve elastic continuum sub-model (Newton-Krylov)
+SubModelSolver solver(E, nu);
+auto result = solver.solve(coord.sub_models()[0]);
+
+// 4. Homogenize: volume-averaged stress -> section resultants
+auto hs = homogenize(result, coord.sub_models()[0], b, h);
+
+// Results: N=-546.4 kN, Mz=182.1 kN*m, E_eff=30.36 GPa
+\end{lstlisting}
+
+
+% =============================================================================
+\section{Seismic Fiber-Section Multiscale Example}
+\label{sec:seismic_fiber_example}
+% =============================================================================
+
+The program \texttt{main\_multiscale\_seismic.cpp} demonstrates the
+complete two-phase seismic multiscale workflow on a realistic RC frame
+subjected to the 2011 Tohoku earthquake.
+
+% ---------------------------------------------------------------------------
+\subsection{Physical scenario}
+% ---------------------------------------------------------------------------
+
+\paragraph{Earthquake record.}
+The ground motion is the K-NET record from station MYG012 (Shiogama,
+Miyagi Prefecture), NS component of the 2011-03-11 Mw\,9.0 Tohoku
+Earthquake.  Parameters used:
+\begin{itemize}
+  \item sampling interval $\Delta t = 0.01\,\text{s}$;
+  \item analysis window trimmed to $[0,\,120]\,\text{s}$;
+  \item PGA $= 8.14\,\text{m/s}^2$ ($0.83\,g$) at $t = 88.89\,\text{s}$.
+\end{itemize}
+
+\paragraph{Structural model.}
+A three-story, one-bay $\times$ one-bay reinforced-concrete frame:
+\begin{itemize}
+  \item plan: $6.0\,\text{m}$ (X) $\times$ $5.0\,\text{m}$ (Y);
+  \item story height: $3.5\,\text{m}$;
+  \item 16~nodes, 12~columns, 12~beams, 3~elastic slabs
+        ($\Rightarrow$ 27~structural elements).
+\end{itemize}
+
+\paragraph{Material models.}
+All beam/column elements use fibre-discretised cross-sections:
+\begin{enumerate}
+  \item \emph{Concrete fibres} -- Kent--Park model (unconfined cover +
+        confined Mander core for columns).
+  \item \emph{Steel fibres} -- Menegotto--Pinto model with kinematic
+        hardening ratio $b = 0.01$.
+\end{enumerate}
+
+\begin{table}[htb]
+\centering
+\caption{RC section material parameters.}
+\label{tab:rc_materials}
+\begin{tabular}{llrl}
+\hline
+Parameter & Symbol & Value & Unit \\
+\hline
+\multicolumn{4}{l}{\emph{Columns ($0.45 \times 0.45\,\text{m}$)}} \\
+Concrete strength      & $f'_c$  &  30       & MPa \\
+Steel yield strength   & $f_y$   & 420       & MPa \\
+Steel elastic modulus  & $E_s$   & 200\,000  & MPa \\
+Hardening ratio        & $b$     &   0.01    & -- \\
+Bar diameter           & $\phi$  &  22       & mm \\
+Tie spacing            & $s$     & 100       & mm \\
+Volumetric steel ratio & $\rho_s$& 0.015     & -- \\
+Number of fibres       & --      &  92       & -- \\
+\hline
+\multicolumn{4}{l}{\emph{Beams ($0.30 \times 0.50\,\text{m}$)}} \\
+Concrete strength      & $f'_c$  &  25       & MPa \\
+Bar diameter           & $\phi$  &  19       & mm \\
+Number of fibres       & --      &  78       & -- \\
+\hline
+\end{tabular}
+\end{table}
+
+\paragraph{Dynamic analysis parameters.}
+\begin{itemize}
+  \item Integrator: generalised-$\alpha$ (TSAlpha2),
+        $\rho_\infty = 0.9$, $\Delta t = 0.01\,\text{s}$.
+  \item Rayleigh damping: $\xi = 5\%$ at $\omega_1 = 11.42\,\text{rad/s}$
+        ($T_1 = 0.55\,\text{s}$) and
+        $\omega_3 = 52.36\,\text{rad/s}$ ($T_3 = 0.12\,\text{s}$).
+  \item Excitation: uniaxial base acceleration in the X~direction.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\subsection{Two-phase analysis workflow}
+% ---------------------------------------------------------------------------
+
+\paragraph{Phase 1 -- Global nonlinear fiber-section analysis.}
+The \texttt{DynamicAnalysis} solver advances in $0.01\,\text{s}$ increments
+using a Newton--Krylov (SNES/KSP) nonlinear solver.
+At every step a \texttt{DamageTracker<StructModel>} observer evaluates a
+\texttt{MaxStrainDamageCriterion} at each element integration point:
+%
+\begin{equation}
+  d_i = \frac{\max_\text{fibre}|\varepsilon_{xx}|}{\varepsilon_y},
+  \qquad
+  \varepsilon_y = \frac{f_y}{E_s} = \frac{420}{200\,000} = 0.0021.
+\end{equation}
+
+A \texttt{make\_damage\_threshold\_director} is created with threshold
+$d^* = 1.0$.  The \texttt{step\_to(T\_MAX, director)} loop
+pauses the moment any fibre first reaches $\varepsilon_y$, returning
+\texttt{StepVerdict::Pause} and recording the trigger time, element index,
+and damage value in a \texttt{TransitionReport}.
+
+\paragraph{Phase 2 -- Local continuum sub-model.}
+After the transition:
+\begin{enumerate}
+  \item The current damage ranking is queried via
+        \texttt{DamageTracker::peak\_ranking()}.  The top three
+        beam/column elements with $d > 0.8$ are selected.
+  \item For each critical element, \texttt{StructuralElement::as<BeamElemT>()}
+        provides a type-safe pointer to the concrete
+        \texttt{BeamElement} object.
+  \item \texttt{extract\_section\_kinematics()} extracts
+        $\varepsilon_0$, $\kappa_y$, $\kappa_z$, end displacements, and
+        rotations at $\xi = \pm 1$ (both element ends).
+  \item These kinematics are packed into \texttt{ElementKinematics} and
+        passed to \texttt{MultiscaleCoordinator::add\_critical\_element()}.
+  \item \texttt{build\_sub\_models()} creates one
+        $4\times4\times8$ prismatic hex8 sub-model per critical element
+        ($0.45\times0.45\,\text{m}$ column section).
+  \item \texttt{SubModelSolver::solve(sub, vtk\_prefix)} solves each
+        sub-model elastically (ACI initial stiffness
+        $E_c = 4700\sqrt{f'_c} \approx 25\,740\,\text{MPa}$,
+        $\nu = 0.20$) and writes VTK output files.
+  \item \texttt{homogenize()} converts volume-averaged stress to section
+        resultants $N$, $V_y$, $V_z$, $M_y$, $M_z$.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------
+\subsection{Output}
+% ---------------------------------------------------------------------------
+
+Three sets of VTK files are produced
+under \texttt{data/output/multiscale\_seismic/}:
+
+\begin{description}
+  \item[\texttt{yield\_state.vtm}]
+    Multi-block dataset containing the global structural frame at the
+    instant of first yielding: beam meshes, cross-section fibres, shell
+    elements, and nodal displacements.
+  \item[\texttt{sub\_models/sub\_\{i\}\_mesh.vtu}]
+    Deformed continuum hex8 mesh for critical element~$i$, with nodal
+    displacements.
+  \item[\texttt{sub\_models/sub\_\{i\}\_gauss.vtu}]
+    Gauss-point cloud for critical element~$i$ carrying
+    $\sigma_{xx}, \sigma_{yy}, \sigma_{zz}, \tau_{yz}, \tau_{xz},
+    \tau_{xy}, \sigma_\text{VM}$.
+\end{description}
+
+% ---------------------------------------------------------------------------
+\subsection{Key code excerpt}
+% ---------------------------------------------------------------------------
+
+\begin{lstlisting}[language=C++,caption={main\_multiscale\_seismic.cpp -- two-phase workflow},
+                   label={lst:seismic_pipeline}]
+// --- Phase 1: global nonlinear fiber-section dynamic analysis ---
+MaxStrainDamageCriterion damage_crit{EPS_YIELD};
+DamageTracker<StructModel> tracker{model, damage_crit};
+solver.add_observer(tracker);
+
+auto director =
+    make_damage_threshold_director<StructModel>(damage_crit, 1.0);
+solver.step_to(T_MAX, director);   // pauses at first yield
+
+// --- Transition report ---
+auto report = tracker.transition_report();
+// report->trigger_time, report->critical_element
+
+// --- Phase 2: extract kinematics, build sub-models, solve ---
+for (auto e_idx : top3_damaged_beam_elements) {
+    const auto* beam = model.elements()[e_idx].as<BeamElemT>();
+    auto u_e   = model.elements()[e_idx].extract_element_dofs(u_local);
+    auto kin_A = extract_section_kinematics(*beam, u_e, -1.0);
+    auto kin_B = extract_section_kinematics(*beam, u_e, +1.0);
+    coordinator.add_critical_element({e_idx, kin_A, kin_B, xA, xB});
+}
+coordinator.build_sub_models({COL_B, COL_H, 4, 4, 8});
+
+SubModelSolver sub_solver{EC_COL, NU_RC};
+for (std::size_t i = 0; i < coordinator.sub_models().size(); ++i) {
+    auto result = sub_solver.solve(coordinator.sub_models()[i],
+                                   OUT + "sub_models/sub_" +
+                                   std::to_string(i));
+    auto hs = homogenize(result, coordinator.sub_models()[i],
+                         COL_B, COL_H);
+    // hs.N, hs.Vy, hs.Mz, hs.E_eff, hs.G_eff
+}
+\end{lstlisting}
+
+% ---------------------------------------------------------------------------
+\subsection{Numerical results}
+\label{sec:seismic_results}
+% ---------------------------------------------------------------------------
+
+\paragraph{Phase 1 outcome.}
+At the time of writing, the dynamic run has \emph{not yet produced a valid}
+first-yield time $t_y$.  This is no longer interpreted as a physical
+``elastic response'' result; it is now understood as a diagnostic issue in
+the dynamic post-processing path.  The chronology is important:
+
+\begin{enumerate}
+  \item The first working seismic executable used the MYG012 record, but the
+    code never called \texttt{solver.set\_time\_step(DT)} before
+    \texttt{step\_to()}.  PETSc therefore advanced with its own default
+    time step and heavy step subdivision.  The original argument
+    ``$\varepsilon_{\max}=0$ despite large PGA, therefore the section is
+    not updating'' was \emph{wrong}; the run had not yet reached the
+    strong-motion window at the expected physical time.
+  \item After forcing the intended time step, the diagnostics
+    \texttt{|u|\_inf} showed nonzero structural motion, so the earlier
+    claim ``the structure is not responding'' was also false.
+    What was actually happening was severe time-step compression near the
+    P-wave arrival.
+  \item A second incorrect assumption was that adding
+    \texttt{-snes\_max\_it}, \texttt{-snes\_rtol}, \texttt{-snes\_atol},
+    and \texttt{-ksp\_max\_it} after \texttt{solver.setup()} would affect
+    the already-created PETSc solver objects.  PETSc later reported these
+    options as unused.  This was corrected by moving the options before
+    \texttt{setup()} and by setting tolerances directly on the live
+    \texttt{SNES/KSP} objects.
+  \item The excitation was then changed from the late-peaking MYG012 window
+    to the stronger near-fault MYG004 record, and the scale factor was
+    made a runtime parameter to allow controlled sweeps.
+  \item The decisive instrumentation step was to print, at every 500 steps,
+    the global displacement norm $|u|_\infty$, the local-state norm
+    $|u_\text{local}|_\infty$, the maximum section generalized strain, and
+    the maximum fibre strain reconstructed from \texttt{section\_snapshots()}.
+    These diagnostics showed a consistent pattern:
+    \begin{itemize}
+      \item $|u|_\infty > 0$ in the PETSc time-step monitor,
+      \item $|u_\text{local}|_\infty = 0$ after localization,
+      \item section generalized strains remain zero,
+      \item reconstructed fibre strains remain zero.
+    \end{itemize}
+    At this point the localization mechanism (PETSc section layout,
+    constraint registration, \texttt{DMGlobalToLocal} API usage) was
+    verified correct in isolation: a manual scatter inside the director
+    lambda produced $|u_\text{local}| = 2.9\times10^{-4} > 0$.
+    The problem was therefore \emph{not} in the scatter itself.
+
+  \item The root cause was identified by instrumenting
+    \texttt{post\_step\_()} with \texttt{printf}+\texttt{fflush} calls
+    that \emph{never appeared in output}, even though the observer
+    callback invoked \emph{from within} \texttt{post\_step\_()} was
+    known to execute (it produced diagnostic output through the director
+    lambda).  This proved that the \texttt{TSMonitor} callback
+    registered via \texttt{TSMonitorSet()} was \textbf{not being fired}
+    by PETSc during \texttt{TSStep()} on this platform
+    (Windows/MSYS2, PETSc~3.22).
+
+    The architecture of \texttt{step\_to()} was:
+    \begin{enumerate}[label=(\alph*)]
+      \item Call \texttt{step()} $\to$ \texttt{TSStep()} advances the
+            global solution $\mathbf{U}^{n+1}$.
+      \item Call the director callback to evaluate damage and decide
+            whether to pause.
+    \end{enumerate}
+    Step~(b) read \texttt{model\_->state\_vector()}, which is a
+    \emph{local} PETSc vector that was supposed to be updated by
+    \texttt{post\_step\_()} between (a) and (b).  Since the
+    \texttt{TSMonitor} never fired, the local state was never updated,
+    and the damage criterion always saw identically~zero.
+
+    \textbf{Fix.}  The global-to-local scatter, imposition of Dirichlet
+    values, and material state commitment were moved \emph{directly}
+    into \texttt{step\_to()} and \texttt{step\_n()}, immediately after
+    \texttt{step()} and before the director call:
+    %
+\begin{lstlisting}[language=C++,basicstyle=\ttfamily\scriptsize]
+// Inside step_to(), after step():
+DM dm;
+TSGetDM(ts_, &dm);
+Vec U_cur;
+TS2GetSolution(ts_, &U_cur, nullptr);  // global solution
+Vec scratch;
+DMGetLocalVector(dm, &scratch);
+DMGlobalToLocal(dm, U_cur, INSERT_VALUES, scratch);
+VecAXPY(scratch, 1.0, model_->imposed_solution());
+VecCopy(scratch, model_->state_vector());
+DMRestoreLocalVector(dm, &scratch);
+model_->commit_material_state(model_->state_vector());
+// NOW call director -- it sees updated local state
+\end{lstlisting}
+    %
+    This makes \texttt{step\_to()} self-contained with respect to state
+    synchronisation, regardless of whether \texttt{TSMonitor} fires.
+\end{enumerate}
+
+\paragraph{Validation.}
+With the fix applied, the dynamic analysis produces physically consistent
+results.  Two scale-factor levels were tested:
+
+\begin{itemize}
+  \item \textbf{Scale $= 2.0$}: peak damage index $d_{\max} = 0.663$
+        (66.3\% of yield strain); no yielding detected in 100\,s.
+        This confirms the frame remains elastic under moderate
+        amplification.
+  \item \textbf{Scale $= 5.0$}: \textbf{first yield detected} at
+        $t_y = 65.24\,\text{s}$, with damage index $d = 1.034$
+        (fibre strain $\varepsilon = 2.172 \times 10^{-3} >
+        \varepsilon_y = 2.1 \times 10^{-3}$).  The critical elements
+        are columns~0 and~2 (first-storey columns), consistent with the
+        expected soft-storey mechanism under strong horizontal excitation.
+\end{itemize}
+
+The trigger time $t_y = 65.24\,\text{s}$ corresponds to $t = 95.24\,\text{s}$
+in the original (untrimmed) record, which falls within the peak-PGA zone
+of the Tohoku main shock ($\text{PGA} = 26.794\,\text{m/s}^2$ at the
+MYG004 station).  The first-storey column failure mode is physically
+expected: the fixed-base columns carry the full horizontal shear from
+all three storeys while having the same cross-section as the upper
+columns.
+
+\paragraph{Phase 2 sub-model results.}
+
+Phase~2 sub-model extraction is currently blocked by a secondary bug:
+the section-level generalised strains ($\varepsilon_0$, $\kappa_z$)
+read from \texttt{FiberSection3D::current\_state()} return zero despite
+the fibre-level strains being nonzero after commit.  This prevents the
+beam-theory displacement field from being imposed as boundary conditions
+on the continuum sub-models.  The table below is preserved as pending
+output; the sub-model kinematics extraction requires further
+investigation.
+
+\begin{table}[htb]
+\centering
+\caption{Pending sub-model results at first valid yielding (column elements,
+     elastic sub-model $E_c = 25\,740\,\text{MPa}$,
+     $\nu = 0.20$, $4\times4\times8$ mesh).}
+\label{tab:seismic_submodel_results}
+\begin{tabular}{lrrrrr}
+\hline
+Sub-model & $N$ [kN] & $V_y$ [kN] & $M_z$ [kN$\cdot$m]
+          & $E_\text{eff}$ [GPa] & $G_\text{eff}$ [GPa] \\
+\hline
+0 (col.) & --- & --- & --- & --- & --- \\
+1 (col.) & --- & --- & --- & --- & --- \\
+2 (col.) & --- & --- & --- & --- & --- \\
+\hline
+\end{tabular}
+\end{table}
+
+Once the section kinematics extraction is corrected, the effective
+Young's modulus $E_\text{eff}$ should recover the ACI initial tangent
+stiffness $E_c = 4700\sqrt{f'_c}$ since the continuum sub-model uses
+linear elasticity; deviations below $2\%$ are expected from mesh-size
+effects as demonstrated in the elastic verification
+(Section~\ref{sec:elastic_multiscale_example}).
+
+% ---------------------------------------------------------------------------
+\subsection{Infrastructure footprint}
+% ---------------------------------------------------------------------------
+
+The seismic example exercises every component added during Phases~0--6:
+
+\begin{itemize}
+  \item \textbf{Phase 0}: \texttt{GroundMotionRecord::from\_knet()} parses
+        the K-NET text file; \texttt{trim()} extracts the first 120~s.
+  \item \textbf{Phase 1}: \texttt{LShapedBuildingDomainBuilder} (here used
+        as a rectangular sub-case) constructs nodes and element connectivity.
+  \item \textbf{Phase 2}: \texttt{DamageTracker} + \texttt{TransitionDirector}
+        drive the linear-to-nonlinear transition without modifying the solver.
+  \item \textbf{Phase 3}: \texttt{PrismaticDomainBuilder} generates one
+        $4\times4\times8$ hex8 mesh per critical element.
+  \item \textbf{Phase 4}: \texttt{FieldTransfer::transfer()} imposes the
+        beam-theory displacement field as Dirichlet BCs on the sub-model
+        boundary faces.
+  \item \textbf{Phase 5}: \texttt{MultiscaleCoordinator} manages element
+        registration, BC computation, and sub-model life-cycle.
+  \item \textbf{Phase 6}: VTK output via \texttt{SubModelSolver::solve()}
+        with \texttt{vtk\_prefix} and global-frame export via
+        \texttt{fall\_n::vtk::StructuralVTMExporter}.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\subsection{Multiscale functionality summary}
+% ---------------------------------------------------------------------------
+
+Table~\ref{tab:multiscale_summary} lists all classes and free functions
+that implement the multiscale framework, together with the phase in which
+they were introduced.
+
+\begin{table}[htb]
+\centering
+\caption{Multiscale framework -- complete functionality inventory.}
+\label{tab:multiscale_summary}
+\small
+\begin{tabular}{lll}
+\hline
+Class / function & Phase & Role \\
+\hline
+\texttt{GroundMotionRecord}          & 0 & K-NET/COSMOS parser, trim, PGA \\
+\texttt{LShapedBuildingDomainBuilder}& 1 & RC frame domain + connectivity \\
+\texttt{DamageTracker<ModelT>}       & 2 & per-step element damage monitoring \\
+\texttt{TransitionDirector}          & 2 & pause/stop callback for \texttt{step\_to} \\
+\texttt{MaxStrainDamageCriterion}    & 2 & fibre strain $\div$ $\varepsilon_y$ \\
+\texttt{PrismaticDomainBuilder}      & 3 & hex8 prismatic mesh on PETSc DMPlex \\
+\texttt{FieldTransfer}               & 4 & beam kinematics $\to$ hex BC \\
+\texttt{ElementKinematics}           & 4 & section kinematics at both element ends \\
+\texttt{SectionKinematics}           & 4 & $\varepsilon_0, \kappa_y, \kappa_z$,
+                                          displ., rotation, $E$, $G$, $\nu$ \\
+\texttt{MultiscaleCoordinator}       & 5 & sub-model life-cycle manager \\
+\texttt{SubModelSolver}              & 5 & elastic continuum solve + homogenize \\
+\texttt{homogenize()}                & 5 & $\langle\sigma\rangle \to N,V,M$ \\
+\texttt{SubModelSolver::solve(,vtk)} & 6 & VTK export of deformed mesh + GP cloud \\
+\texttt{StructuralVTMExporter}       & 6 & global frame VTK at yield \\
+\hline
+\end{tabular}
+\end{table}
 
