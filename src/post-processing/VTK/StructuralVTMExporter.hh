@@ -326,6 +326,7 @@ class StructuralVTMExporterImpl {
     BeamProfileT           beam_profile_;
     ThicknessProfileT      thickness_profile_;
     Vec                    displacement_{nullptr};
+    double                 yield_strain_{0.0};
 
     static_assert(is_beam_model || is_shell_model,
                   "StructuralVTMExporter supports 3D beam and shell elements only.");
@@ -348,6 +349,8 @@ public:
     void set_displacement(Vec state = nullptr) noexcept {
         displacement_ = state != nullptr ? state : model_->state_vector();
     }
+
+    void set_yield_strain(double eps_y) noexcept { yield_strain_ = eps_y; }
 
     void write(const std::string& filename) const {
         const auto accessor = [&](const auto& element) {
@@ -709,6 +712,13 @@ protected:
         auto shear_force_z = make_array("shear_force_z");
         auto torque = make_array("torque");
 
+        // Inelastic derived fields (only when yield_strain_ > 0)
+        auto damage_index = make_array("damage_index");
+        auto max_fiber_strain = make_array("max_fiber_strain");
+        auto min_fiber_strain = make_array("min_fiber_strain");
+        auto num_yielded_fibers = make_array("num_yielded_fibers");
+        const bool has_yield = yield_strain_ > 0.0;
+
         for (const auto& element : model_->elements()) {
             const auto u_loc = accessor(element);
             for (std::size_t gp = 0; gp < element.num_integration_points(); ++gp) {
@@ -733,6 +743,26 @@ protected:
                 push_scalar(shear_force_y, sample.generalized_resultant[3]);
                 push_scalar(shear_force_z, sample.generalized_resultant[4]);
                 push_scalar(torque, sample.generalized_resultant[5]);
+
+                if (has_yield && sample.section_snapshot.has_fibers()) {
+                    double max_eps = -1e30, min_eps = 1e30;
+                    int n_yielded = 0;
+                    for (const auto& f : sample.section_snapshot.fibers) {
+                        max_eps = std::max(max_eps, f.strain_xx);
+                        min_eps = std::min(min_eps, f.strain_xx);
+                        if (std::abs(f.strain_xx) >= yield_strain_) ++n_yielded;
+                    }
+                    const double abs_max = std::max(std::abs(max_eps), std::abs(min_eps));
+                    push_scalar(damage_index, abs_max / yield_strain_);
+                    push_scalar(max_fiber_strain, max_eps);
+                    push_scalar(min_fiber_strain, min_eps);
+                    push_scalar(num_yielded_fibers, static_cast<double>(n_yielded));
+                } else if (has_yield) {
+                    push_scalar(damage_index, 0.0);
+                    push_scalar(max_fiber_strain, 0.0);
+                    push_scalar(min_fiber_strain, 0.0);
+                    push_scalar(num_yielded_fibers, 0.0);
+                }
             }
         }
 
@@ -752,6 +782,12 @@ protected:
         poly->GetPointData()->AddArray(shear_force_y);
         poly->GetPointData()->AddArray(shear_force_z);
         poly->GetPointData()->AddArray(torque);
+        if (has_yield) {
+            poly->GetPointData()->AddArray(damage_index);
+            poly->GetPointData()->AddArray(max_fiber_strain);
+            poly->GetPointData()->AddArray(min_fiber_strain);
+            poly->GetPointData()->AddArray(num_yielded_fibers);
+        }
         return poly;
     }
 
@@ -768,6 +804,14 @@ protected:
         auto fiber_strain_xx = make_array("fiber_strain_xx");
         auto fiber_stress_xx = make_array("fiber_stress_xx");
 
+        // Inelastic derived fields (only when yield_strain_ > 0)
+        auto damage_index = make_array("damage_index");
+        auto yielded = make_array("yielded");
+        auto element_id = make_array("element_id");
+        auto integration_point_id = make_array("integration_point_id");
+        const bool has_yield = yield_strain_ > 0.0;
+
+        std::size_t elem_counter = 0;
         for (const auto& element : model_->elements()) {
             const auto u_loc = accessor(element);
             for (std::size_t gp = 0; gp < element.num_integration_points(); ++gp) {
@@ -807,8 +851,17 @@ protected:
                     push_scalar(fiber_area, fiber.area);
                     push_scalar(fiber_strain_xx, fiber.strain_xx);
                     push_scalar(fiber_stress_xx, fiber.stress_xx);
+
+                    if (has_yield) {
+                        const double di = std::abs(fiber.strain_xx) / yield_strain_;
+                        push_scalar(damage_index, di);
+                        push_scalar(yielded, di >= 1.0 ? 1.0 : 0.0);
+                        push_scalar(element_id, static_cast<double>(elem_counter));
+                        push_scalar(integration_point_id, static_cast<double>(gp));
+                    }
                 }
             }
+            ++elem_counter;
         }
 
         poly->SetPoints(points);
@@ -820,6 +873,12 @@ protected:
         poly->GetPointData()->AddArray(fiber_area);
         poly->GetPointData()->AddArray(fiber_strain_xx);
         poly->GetPointData()->AddArray(fiber_stress_xx);
+        if (has_yield) {
+            poly->GetPointData()->AddArray(damage_index);
+            poly->GetPointData()->AddArray(yielded);
+            poly->GetPointData()->AddArray(element_id);
+            poly->GetPointData()->AddArray(integration_point_id);
+        }
         return poly;
     }
 
@@ -1175,6 +1234,7 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
     BeamProfileT beam_profile_{};
     ThicknessProfileT thickness_profile_{};
     Vec displacement_{nullptr};
+    double yield_strain_{0.0};
 
     static constexpr double beam_family_value() noexcept { return 0.0; }
     static constexpr double shell_family_value() noexcept { return 1.0; }
@@ -1672,6 +1732,13 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
         auto shear_13 = detail::make_array("shear_13");
         auto shear_23 = detail::make_array("shear_23");
 
+        // Inelastic derived fields (only when yield_strain_ > 0)
+        auto damage_index = detail::make_array("damage_index");
+        auto max_fiber_strain = detail::make_array("max_fiber_strain");
+        auto min_fiber_strain = detail::make_array("min_fiber_strain");
+        auto num_yielded_fibers = detail::make_array("num_yielded_fibers");
+        const bool has_yield = yield_strain_ > 0.0;
+
         for (const auto& wrapped : model_->elements()) {
             detail::dispatch_supported_structural(wrapped, [&](const auto& element) {
                 using ElementT = std::remove_cvref_t<decltype(element)>;
@@ -1711,6 +1778,26 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         detail::push_scalar(curvature_12, reconstruction::nan_value());
                         detail::push_scalar(shear_13, reconstruction::nan_value());
                         detail::push_scalar(shear_23, reconstruction::nan_value());
+
+                        if (has_yield && sample.section_snapshot.has_fibers()) {
+                            double max_eps = -1e30, min_eps = 1e30;
+                            int n_yielded = 0;
+                            for (const auto& f : sample.section_snapshot.fibers) {
+                                max_eps = std::max(max_eps, f.strain_xx);
+                                min_eps = std::min(min_eps, f.strain_xx);
+                                if (std::abs(f.strain_xx) >= yield_strain_) ++n_yielded;
+                            }
+                            const double abs_max = std::max(std::abs(max_eps), std::abs(min_eps));
+                            detail::push_scalar(damage_index, abs_max / yield_strain_);
+                            detail::push_scalar(max_fiber_strain, max_eps);
+                            detail::push_scalar(min_fiber_strain, min_eps);
+                            detail::push_scalar(num_yielded_fibers, static_cast<double>(n_yielded));
+                        } else if (has_yield) {
+                            detail::push_scalar(damage_index, 0.0);
+                            detail::push_scalar(max_fiber_strain, 0.0);
+                            detail::push_scalar(min_fiber_strain, 0.0);
+                            detail::push_scalar(num_yielded_fibers, 0.0);
+                        }
                     } else {
                         detail::push_scalar(structural_family, shell_family_value());
                         detail::push_scalar(axial_strain, reconstruction::nan_value());
@@ -1733,6 +1820,13 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                         detail::push_scalar(curvature_12, sample.generalized_strain[5]);
                         detail::push_scalar(shear_13, sample.generalized_strain[6]);
                         detail::push_scalar(shear_23, sample.generalized_strain[7]);
+
+                        if (has_yield) {
+                            detail::push_scalar(damage_index, 0.0);
+                            detail::push_scalar(max_fiber_strain, 0.0);
+                            detail::push_scalar(min_fiber_strain, 0.0);
+                            detail::push_scalar(num_yielded_fibers, 0.0);
+                        }
                     }
                 }
             });
@@ -1763,6 +1857,12 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
         poly->GetPointData()->AddArray(curvature_12);
         poly->GetPointData()->AddArray(shear_13);
         poly->GetPointData()->AddArray(shear_23);
+        if (has_yield) {
+            poly->GetPointData()->AddArray(damage_index);
+            poly->GetPointData()->AddArray(max_fiber_strain);
+            poly->GetPointData()->AddArray(min_fiber_strain);
+            poly->GetPointData()->AddArray(num_yielded_fibers);
+        }
         return poly;
     }
 
@@ -1780,6 +1880,14 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
         auto fiber_strain_xx = detail::make_array("fiber_strain_xx");
         auto fiber_stress_xx = detail::make_array("fiber_stress_xx");
 
+        // Inelastic derived fields (only when yield_strain_ > 0)
+        auto damage_index = detail::make_array("damage_index");
+        auto yielded = detail::make_array("yielded");
+        auto element_id = detail::make_array("element_id");
+        auto integration_point_id = detail::make_array("integration_point_id");
+        const bool has_yield = yield_strain_ > 0.0;
+
+        std::size_t elem_counter = 0;
         for (const auto& wrapped : model_->elements()) {
             detail::dispatch_supported_structural(wrapped, [&](const auto& element) {
                 using ElementT = std::remove_cvref_t<decltype(element)>;
@@ -1826,10 +1934,19 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
                             detail::push_scalar(fiber_area, fiber.area);
                             detail::push_scalar(fiber_strain_xx, fiber.strain_xx);
                             detail::push_scalar(fiber_stress_xx, fiber.stress_xx);
+
+                            if (has_yield) {
+                                const double di = std::abs(fiber.strain_xx) / yield_strain_;
+                                detail::push_scalar(damage_index, di);
+                                detail::push_scalar(yielded, di >= 1.0 ? 1.0 : 0.0);
+                                detail::push_scalar(element_id, static_cast<double>(elem_counter));
+                                detail::push_scalar(integration_point_id, static_cast<double>(gp));
+                            }
                         }
                     }
                 }
             });
+            ++elem_counter;
         }
 
         if (points->GetNumberOfPoints() == 0) {
@@ -1846,6 +1963,12 @@ class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
         poly->GetPointData()->AddArray(fiber_area);
         poly->GetPointData()->AddArray(fiber_strain_xx);
         poly->GetPointData()->AddArray(fiber_stress_xx);
+        if (has_yield) {
+            poly->GetPointData()->AddArray(damage_index);
+            poly->GetPointData()->AddArray(yielded);
+            poly->GetPointData()->AddArray(element_id);
+            poly->GetPointData()->AddArray(integration_point_id);
+        }
         return poly;
     }
 
@@ -1863,6 +1986,8 @@ public:
     void set_displacement(Vec state = nullptr) noexcept {
         displacement_ = state != nullptr ? state : model_->state_vector();
     }
+
+    void set_yield_strain(double eps_y) noexcept { yield_strain_ = eps_y; }
 
     void write(const std::string& filename) const {
         const auto accessor = [&](const auto& concrete_element) {
