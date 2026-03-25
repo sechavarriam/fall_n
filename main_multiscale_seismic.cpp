@@ -501,6 +501,7 @@ int main(int argc, char* argv[]) {
             fall_n::reconstruction::ShellThicknessProfile<5>{}
         };
         vtm_exp.set_displacement(model.state_vector());
+        vtm_exp.set_yield_strain(EPS_YIELD);
         vtm_exp.write(OUT + "yield_state.vtm");
         std::println("  Written: {}yield_state.vtm", OUT);
     }
@@ -510,12 +511,9 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────
     std::println("\n[10] Extracting element kinematics from paused model state...");
 
-    // Scatter global displacement to PETSc local vector for element DOF access
-    DM dm_struct = model.get_plex();
-    Vec u_local_struct;
-    DMGetLocalVector(dm_struct, &u_local_struct);
-    VecSet(u_local_struct, 0.0);
-    DMGlobalToLocal(dm_struct, model.state_vector(), INSERT_VALUES, u_local_struct);
+    // model.state_vector() is already a LOCAL PETSc Vec populated by
+    // step_to() via DMGlobalToLocal + VecAXPY(imposed).  Use it directly.
+    Vec u_local_struct = model.state_vector();
 
     MultiscaleCoordinator coordinator;
 
@@ -567,8 +565,6 @@ int main(int argc, char* argv[]) {
         std::println("    eps_0(A)   = {:.6e}   kappa_z(A) = {:.6e}",
                      kin_A.eps_0, kin_A.kappa_z);
     }
-
-    DMRestoreLocalVector(dm_struct, &u_local_struct);
 
     // ─────────────────────────────────────────────────────────────────────
     //  11. Phase 2: build prismatic sub-models
