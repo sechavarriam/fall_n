@@ -594,7 +594,7 @@ int main(int argc, char* argv[]) {
     {
         auto& subs = coordinator.sub_models();
         for (auto& sub : subs)
-            evolvers.emplace_back(sub, EC_COL, NU_RC, evol_dir, EVOL_VTK_INTERVAL);
+            evolvers.emplace_back(sub, COL_FPC, evol_dir, EVOL_VTK_INTERVAL);
     }
 
     std::println("  Evolvers created : {}", evolvers.size());

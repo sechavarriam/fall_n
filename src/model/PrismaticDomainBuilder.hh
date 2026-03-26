@@ -261,4 +261,137 @@ inline PrismaticSpec align_to_beam(
 
 } // namespace fall_n
 
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Reinforced Prismatic Domain — hex8 mesh + embedded rebar line elements
+// ═══════════════════════════════════════════════════════════════════════
+
+namespace fall_n {
+
+// ── Rebar bar specification (single longitudinal bar) ────────────────
+struct RebarBar {
+    int ix, iy;               ///< Grid node position in cross-section
+    double area;              ///< Bar cross-sectional area [length²]
+    std::string group = "Rebar";  ///< Physical group label
+};
+
+// ── Rebar specification for a prismatic section ──────────────────────
+struct RebarSpec {
+    std::vector<RebarBar> bars;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+//  make_reinforced_prismatic_domain — hex8 mesh with embedded rebar
+// ─────────────────────────────────────────────────────────────────────
+//
+//  Same as make_prismatic_domain but also generates 2-node line elements
+//  along the z-axis (beam axis) at the grid positions specified by the
+//  rebar bars.  Each bar at (ix, iy) produces nz line elements connecting
+//  consecutive z-level nodes.  These line elements share nodes with the
+//  hex8 elements (perfect-bond assumption).
+//
+//  The returned RebarElementRange provides the index range [first, last)
+//  of rebar element geometries within the Domain's element list, so the
+//  caller can construct TrussElements from them.
+//
+struct RebarElementRange {
+    std::size_t first;  ///< First rebar element index in Domain::elements()
+    std::size_t last;   ///< One past last rebar element index
+};
+
+struct ReinforcedDomainResult {
+    Domain<3>          domain;
+    PrismaticGrid      grid;
+    RebarElementRange  rebar_range;
+};
+
+inline ReinforcedDomainResult
+make_reinforced_prismatic_domain(const PrismaticSpec& spec,
+                                 const RebarSpec& rebar)
+{
+    const double dx = spec.width  / static_cast<double>(spec.nx);
+    const double dy = spec.height / static_cast<double>(spec.ny);
+    const double dz = spec.length / static_cast<double>(spec.nz);
+
+    PrismaticGrid grid{
+        spec.nx, spec.ny, spec.nz,
+        dx, dy, dz,
+        spec.width, spec.height, spec.length
+    };
+
+    Domain<3> domain;
+
+    // ── Nodes (identical to make_prismatic_domain) ────────────────
+    const auto total = static_cast<std::size_t>(grid.total_nodes());
+    domain.preallocate_node_capacity(total);
+
+    const double x0 = -spec.width  / 2.0;
+    const double y0 = -spec.height / 2.0;
+
+    for (int iz = 0; iz <= spec.nz; ++iz) {
+        for (int iy = 0; iy <= spec.ny; ++iy) {
+            for (int ix = 0; ix <= spec.nx; ++ix) {
+                const double lx = x0 + static_cast<double>(ix) * dx;
+                const double ly = y0 + static_cast<double>(iy) * dy;
+                const double lz =      static_cast<double>(iz) * dz;
+
+                const double gx = spec.origin[0]
+                    + lx * spec.e_x[0] + ly * spec.e_y[0] + lz * spec.e_z[0];
+                const double gy = spec.origin[1]
+                    + lx * spec.e_x[1] + ly * spec.e_y[1] + lz * spec.e_z[1];
+                const double gz = spec.origin[2]
+                    + lx * spec.e_x[2] + ly * spec.e_y[2] + lz * spec.e_z[2];
+
+                domain.add_node(grid.node_id(ix, iy, iz), gx, gy, gz);
+            }
+        }
+    }
+
+    // ── Hex8 elements (identical to make_prismatic_domain) ────────
+    std::size_t tag = 0;
+    for (int iz = 0; iz < spec.nz; ++iz) {
+        for (int iy = 0; iy < spec.ny; ++iy) {
+            for (int ix = 0; ix < spec.nx; ++ix) {
+                PetscInt conn[8] = {
+                    grid.node_id(ix,     iy,     iz),
+                    grid.node_id(ix + 1, iy,     iz),
+                    grid.node_id(ix,     iy + 1, iz),
+                    grid.node_id(ix + 1, iy + 1, iz),
+                    grid.node_id(ix,     iy,     iz + 1),
+                    grid.node_id(ix + 1, iy,     iz + 1),
+                    grid.node_id(ix,     iy + 1, iz + 1),
+                    grid.node_id(ix + 1, iy + 1, iz + 1),
+                };
+                auto& geom = domain.make_element<LagrangeElement3D<2, 2, 2>>(
+                    GaussLegendreCellIntegrator<2, 2, 2>{}, tag++, conn);
+                geom.set_physical_group(spec.physical_group);
+            }
+        }
+    }
+
+    // ── Rebar line elements ───────────────────────────────────────
+    const std::size_t rebar_first = domain.num_elements();
+
+    for (const auto& bar : rebar.bars) {
+        for (int iz = 0; iz < spec.nz; ++iz) {
+            PetscInt conn[2] = {
+                grid.node_id(bar.ix, bar.iy, iz),
+                grid.node_id(bar.ix, bar.iy, iz + 1),
+            };
+            auto& geom = domain.make_element<LagrangeElement3D<2>>(
+                GaussLegendreCellIntegrator<2>{}, tag++, conn);
+            geom.set_physical_group(bar.group);
+        }
+    }
+
+    const std::size_t rebar_last = domain.num_elements();
+
+    domain.assemble_sieve();
+
+    return {std::move(domain), std::move(grid),
+            RebarElementRange{rebar_first, rebar_last}};
+}
+
+} // namespace fall_n
+
 #endif // PRISMATIC_DOMAIN_BUILDER_HH

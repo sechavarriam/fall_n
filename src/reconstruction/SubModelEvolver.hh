@@ -37,7 +37,7 @@ namespace fall_n {
 class SubModelEvolver {
 
     MultiscaleSubModel* sub_;      // non-owning — lives in MultiscaleCoordinator
-    double              E_, nu_;
+    double              fc_;       // f'c [MPa]
 
     PVDWriter           pvd_mesh_;
     PVDWriter           pvd_gauss_;
@@ -48,14 +48,13 @@ class SubModelEvolver {
 public:
 
     /// @param sub           Reference to MultiscaleSubModel (owned by coordinator).
-    /// @param E             Young's modulus for the sub-model material.
-    /// @param nu            Poisson's ratio.
+    /// @param fc_MPa        Concrete compressive strength f'c [MPa].
     /// @param output_dir    Directory for VTK output files.
     /// @param vtk_interval  Write VTK every N steps (1 = every step).
-    SubModelEvolver(MultiscaleSubModel& sub, double E, double nu,
+    SubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
                     std::string output_dir, int vtk_interval = 1)
         : sub_{&sub}
-        , E_{E}, nu_{nu}
+        , fc_{fc_MPa}
         , pvd_mesh_{output_dir + "/sub_" +
                     std::to_string(sub.parent_element_id) + "_mesh"}
         , pvd_gauss_{output_dir + "/sub_" +
@@ -88,7 +87,7 @@ public:
 
     /// Solve the sub-model with current BCs and optionally write VTK.
     SubModelSolverResult solve_step(double time) {
-        SubModelSolver solver(E_, nu_);
+        SubModelSolver solver(fc_);
 
         std::string vtk_prefix;
         if (step_count_ % vtk_interval_ == 0) {

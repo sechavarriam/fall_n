@@ -71,6 +71,7 @@ public:
     }
 
     void commit_model_state(){
+        VecSet(model_->state_vector(), 0.0);
         FALL_N_PETSC_CHECK(DMGlobalToLocal(model_->get_plex(), U.get(), INSERT_VALUES, model_->state_vector()));
         VecAXPY        (model_->state_vector(), 1.0, model_->imposed_solution());
     }

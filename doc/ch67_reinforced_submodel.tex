@@ -1,0 +1,214 @@
+% ==========================================================================
+%  Chapter 67 — Reinforced Sub-Model Integration
+% ==========================================================================
+
+\chapter{Reinforced Sub-Model Integration}
+\label{ch:reinforced-submodel}
+
+Chapters~\ref{ch:ko-bathe-3d} and~\ref{ch:truss-element} developed the two
+key ingredients for modelling reinforced-concrete prismatic sub-models:
+the Ko--Bathe three-dimensional concrete constitutive model and the
+\texttt{TrussElement<Dim>} embedded rebar element.  This chapter describes
+how these are assembled into a unified sub-model solver via
+\texttt{MultiElementPolicy}, the reaction-force-based effective-modulus
+extraction, and a critical bug fix in the incremental analysis engine
+that affected all displacement-controlled nonlinear analyses with more
+than one load step.
+
+
+% =========================================================================
+\section{Heterogeneous Element Assembly}
+\label{sec:reinf-hetero}
+
+A reinforced sub-model contains two distinct element types:
+
+\begin{enumerate}
+  \item \textbf{Hex8 continuum elements}
+        (\texttt{ContinuumElement<ThreeDimensionalMaterial, 3, SmallStrain>})
+        with the Ko--Bathe concrete law, discretising the concrete volume.
+  \item \textbf{Line2 truss elements}
+        (\texttt{TrussElement<3>}) with a Menegotto--Pinto steel law,
+        discretising longitudinal rebars.
+\end{enumerate}
+
+Both element families share the same \texttt{Domain<3>} and the same DMPlex
+sieve.  Truss elements connect pairs of hex nodes along the $z$-axis using
+\texttt{Line2} topology; because their nodes coincide with hex vertices, the
+perfect-bond assumption is enforced automatically through the shared
+degrees of freedom.
+
+The heterogeneous collection is stored in a
+\texttt{std::vector<FEM\_Element>} and managed by \texttt{MultiElementPolicy},
+which erases element types behind the \texttt{FiniteElement} interface.
+The model is constructed with Constructor~2:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+Model<Policy, SmallStrain, 3, MultiElementPolicy>
+    M{sub.domain, std::move(all_elements)};
+\end{lstlisting}
+
+
+% =========================================================================
+\section{Domain Builder}
+\label{sec:reinf-domain-builder}
+
+The helper \texttt{make\_reinforced\_prismatic\_domain()} in
+\texttt{PrismaticDomainBuilder.hh} extends the hex-only prismatic builder
+with embedded rebar:
+
+\begin{enumerate}
+  \item Build the base prismatic hex mesh (nodes and \texttt{Hex8} cells).
+  \item For each bar in the \texttt{RebarSpec}, compute the grid indices
+        $(i_x, i_y)$ closest to the bar's cross-section position.
+  \item Create one \texttt{Line2} element per rebar segment between
+        consecutive $z$-layers, reusing existing node IDs.
+  \item Return a \texttt{ReinforcedDomainResult} containing the domain,
+        the grid, and a \texttt{RebarElementRange} that separates
+        hex element indices $[0,\,n_{\mathrm{hex}})$ from truss indices
+        $[n_{\mathrm{hex}},\,n_{\mathrm{total}})$.
+\end{enumerate}
+
+Because the truss elements share hex nodes, the total node count is
+unchanged---only the element count grows.
+
+
+% =========================================================================
+\section{Reaction-Based Effective Modulus}
+\label{sec:reinf-reaction-emod}
+
+With \texttt{MultiElementPolicy}, the type-erased
+\texttt{FEM\_Element} does not expose \texttt{material\_points()}, so
+volume-averaged stress/strain extraction is not directly available.
+Instead, \texttt{solve\_reinforced()} computes effective moduli from
+boundary reactions.
+
+After the incremental nonlinear solve converges at $p = 1$, internal
+forces~$\mathbf{f}_\text{int}$ are reassembled from the converged state
+vector.  The $z$-component of the resultant reaction at the max-$z$
+face gives the axial force:
+\begin{equation}
+  F_z = \sum_{i \in \mathcal{N}_{\max z}} f_{\text{int},z}^{(i)},
+  \qquad
+  \sigma_{zz}^{\text{eff}} = \frac{F_z}{A},
+  \qquad
+  E_{\text{eff}} = \frac{\sigma_{zz}^{\text{eff}}}
+                        {\varepsilon_{zz}^{\text{avg}}},
+  \label{eq:reinf-eeff}
+\end{equation}
+where $A = w\!\times\!h$ is the cross-section area and
+$\varepsilon_{zz}^{\text{avg}} = \bar{u}_z^{\max z} / L$ is the
+average imposed strain.
+
+
+% =========================================================================
+\section{Bug Fix: State Vector Accumulation in Incremental Solve}
+\label{sec:reinf-bugfix}
+
+During the integration testing, the computed $E_{\text{eff}}$ was found
+to be approximately $20{\times}$ higher than the expected value of
+${\sim}28{,}500~\mathrm{MPa}$ for fc~$=30$ concrete.  Detailed diagnostics
+revealed that the model state vector at constrained (Dirichlet) nodes
+accumulated imposed displacements across all load increments, rather than
+reflecting only the final converged state.
+
+\subsection{Root Cause}
+
+The \texttt{commit\_state()} method in \texttt{NonlinearAnalysis} updated the
+model's state vector as:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
+VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
+\end{lstlisting}
+
+PETSc's \texttt{DMGlobalToLocal} with \texttt{INSERT\_VALUES} populates
+free-DOF entries from the global vector~$U$ but \emph{does not touch}
+constrained entries---they retain whatever value was already stored.
+At each of the $N$ incremental steps, \texttt{VecAXPY} adds
+$p_k \cdot u_{\text{imposed}}$ to the untouched constrained entries,
+producing a cumulative sum:
+\begin{equation}
+  u_{\text{state}}^{(N)} \;=\;
+    \sum_{k=1}^{N} p_k \cdot u_{\text{imposed}}
+  \;=\; u_{\text{imposed}} \sum_{k=1}^{N} \frac{k}{N}
+  \;=\; u_{\text{imposed}} \cdot \frac{N+1}{2}.
+  \label{eq:accumulation}
+\end{equation}
+
+For $N = 20$ steps this gives a factor of $10.5{\times}$, exactly matching
+the observed displacement amplification ($u_{\text{state}} = 0.00105$
+vs.\ $u_{\text{imposed}} = 0.0001$).
+
+\subsection{Fix}
+
+The fix is a single-line addition of \texttt{VecSet(model\_->state\_vector(), 0.0)}
+before the \texttt{DMGlobalToLocal} call:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+VecSet(model_->state_vector(), 0.0);
+DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
+VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
+\end{lstlisting}
+
+This ensures constrained entries start from zero at each commit,
+so the final state is exactly $0 + u_{\text{imposed}}$ as intended.
+
+The same defensive zero-fill was applied to
+\texttt{DynamicAnalysis} and \texttt{LinearAnalysis} for consistency,
+even though those code paths were not affected in practice (they
+call the update only once, not in a loop).
+
+\subsection{Scope of Impact}
+
+The bug affected \emph{any} incremental displacement-controlled nonlinear
+solve that:
+\begin{itemize}
+  \item Used more than one load step ($N > 1$), \textbf{and}
+  \item Read the model's \texttt{state\_vector()} at constrained nodes
+        after the solve (e.g., for reaction-force computation or
+        post-processing).
+\end{itemize}
+
+The SNES convergence was \emph{not} affected---the residual evaluation
+in \texttt{FormResidual} correctly zeroed its local vector before
+\texttt{DMGlobalToLocal}.  Only the post-solve state vector used for
+post-processing was corrupted.  This explains why the solver ``converged''
+but the extracted reactions were wrong.
+
+Note that the original \texttt{SubModelSolver::solve()} method extracted
+effective moduli from volume-averaged Gauss-point stresses (not from
+the state vector at constrained nodes), and therefore was not affected
+by this bug.
+
+
+% =========================================================================
+\section{Validation}
+\label{sec:reinf-validation}
+
+The integration test \texttt{test\_reinforced\_submodel.cpp} exercises the
+full pipeline with a $0.30 \times 0.30 \times 1.00$~m prismatic volume
+($n_x\!=\!2$, $n_y\!=\!2$, $n_z\!=\!4$), $f_c'\!=\!30$~MPa concrete,
+and an imposed axial strain of $\varepsilon = 10^{-4}$.
+
+\paragraph{Unreinforced case.}
+With empty rebar, \texttt{solve\_reinforced()} returns
+$E_{\text{eff}} = 28{,}420$~MPa, matching the analytical value
+$E_e \approx 28{,}513$~MPa from the Ko--Bathe elastic parameters
+($K_e = 11{,}096$, $G_e = 13{,}304$,
+$E_e = 9K_eG_e/(3K_e + G_e)$) to within $0.3\%$.
+
+\paragraph{Reinforced case.}
+A single $16$mm-equivalent rebar ($A_s = 0.0002$~m$^2$,
+$\rho = A_s/A = 0.22\%$) with $E_s = 200{,}000$~MPa steel adds
+$\Delta E \approx \rho \cdot E_s \approx 444$~MPa.  The measured
+$E_{\text{eff}} = 28{,}865$~MPa gives $\Delta E = 445$~MPa, in excellent
+agreement with the mixture rule.
+
+All 14 assertions pass, verifying:
+\begin{itemize}
+  \item Domain construction with mixed hex/truss topology (7~checks),
+  \item Convergence of both unreinforced and reinforced solves,
+  \item Positive $E_{\text{eff}}$ in the physical range $[10{,}000,\; 50{,}000]$~MPa,
+  \item Reinforced $E_{\text{eff}} > $ unreinforced (rebar adds stiffness),
+  \item Reinforced $E_{\text{eff}} < 2\times$ unreinforced (small $\rho$).
+\end{itemize}
