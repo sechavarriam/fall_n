@@ -129,6 +129,10 @@ static constexpr int SUB_NX = 4;   // column section: fibres in X
 static constexpr int SUB_NY = 4;   // column section: fibres in Y
 static constexpr int SUB_NZ = 8;   // along element axis
 
+// ── Sub-model evolution ──────────────────────────────────────────────────────
+static constexpr int EVOL_VTK_INTERVAL   = 50;    // VTK every 50 steps (=1.0 s at dt=0.02)
+static constexpr int EVOL_PRINT_INTERVAL = 500;   // progress every 500 steps (=10.0 s)
+
 // ── Type aliases (small-strain, NDOF=6) ─────────────────────────────────────
 static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
@@ -511,59 +515,51 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────
     std::println("\n[10] Extracting element kinematics from paused model state...");
 
-    // model.state_vector() is already a LOCAL PETSc Vec populated by
-    // step_to() via DMGlobalToLocal + VecAXPY(imposed).  Use it directly.
-    Vec u_local_struct = model.state_vector();
-
-    MultiscaleCoordinator coordinator;
-
-    for (const auto e_idx : crit_elem_ids) {
-        const auto& se = model.elements()[e_idx];
+    // Helper: extract beam kinematics for a single element from current
+    // model state.  Captures model + material constants by reference so
+    // it always uses the latest converged displacement field.
+    auto extract_beam_kinematics = [&](std::size_t e_idx) -> ElementKinematics {
+        const auto& se       = model.elements()[e_idx];
         const auto* beam_ptr = se.as<BeamElemT>();
-        if (!beam_ptr) {
-            std::println("  [skip] element {} is not a BeamElemT (shell?)", e_idx);
-            continue;
-        }
 
-        // Element-local DOF vector (12 DOF: 6 per node)
-        // Use the StructuralElement wrapper to access the (otherwise private) method
-        const auto u_e = se.extract_element_dofs(u_local_struct);
-
-        // Section kinematics at both ends (xi = -1 and xi = +1)
+        const auto u_e  = se.extract_element_dofs(model.state_vector());
         auto kin_A = extract_section_kinematics(*beam_ptr, u_e, -1.0);
         auto kin_B = extract_section_kinematics(*beam_ptr, u_e, +1.0);
 
-        // Set material properties for stress reconstruction (nominal elastic)
         kin_A.E = EC_COL; kin_A.G = GC_COL; kin_A.nu = NU_RC;
         kin_B.E = EC_COL; kin_B.G = GC_COL; kin_B.nu = NU_RC;
 
-        // Physical endpoints (map_local_point requires std::span<const double>,
-        // not a braced initializer list — pass through a named array)
         const std::array<double,1> xi_end_A{-1.0};
         const std::array<double,1> xi_end_B{+1.0};
-        const auto xA = beam_ptr->geometry().map_local_point(xi_end_A);
-        const auto xB = beam_ptr->geometry().map_local_point(xi_end_B);
 
         ElementKinematics ek;
         ek.element_id   = e_idx;
         ek.kin_A        = kin_A;
         ek.kin_B        = kin_B;
-        ek.endpoint_A   = xA;
-        ek.endpoint_B   = xB;
-
-        // For vertical columns (axis ~ Z), use global X as the section "up" direction
-        // The section XY plane is orthogonal to the beam axis
+        ek.endpoint_A   = beam_ptr->geometry().map_local_point(xi_end_A);
+        ek.endpoint_B   = beam_ptr->geometry().map_local_point(xi_end_B);
         ek.up_direction = std::array<double,3>{1.0, 0.0, 0.0};
+        return ek;
+    };
 
+    MultiscaleCoordinator coordinator;
+
+    for (const auto e_idx : crit_elem_ids) {
+        if (!model.elements()[e_idx].as<BeamElemT>()) {
+            std::println("  [skip] element {} is not a BeamElemT (shell?)", e_idx);
+            continue;
+        }
+
+        auto ek = extract_beam_kinematics(e_idx);
         coordinator.add_critical_element(ek);
 
         std::println("  Element {}:", e_idx);
         std::println("    endpoint A = ({:.2f}, {:.2f}, {:.2f})",
-                     xA[0], xA[1], xA[2]);
+                     ek.endpoint_A[0], ek.endpoint_A[1], ek.endpoint_A[2]);
         std::println("    endpoint B = ({:.2f}, {:.2f}, {:.2f})",
-                     xB[0], xB[1], xB[2]);
+                     ek.endpoint_B[0], ek.endpoint_B[1], ek.endpoint_B[2]);
         std::println("    eps_0(A)   = {:.6e}   kappa_z(A) = {:.6e}",
-                     kin_A.eps_0, kin_A.kappa_z);
+                     ek.kin_A.eps_0, ek.kin_A.kappa_z);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -586,73 +582,140 @@ int main(int argc, char* argv[]) {
     std::println("  Max BC displacement : {:.6e} m", ms_report.max_displacement);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  12. Solve each sub-model (elastic continuum) + VTK output
+    //  12. Create sub-model evolvers for time-series analysis
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n[12] Solving sub-models (elastic continuum, E_c = {:.0f} MPa)...",
-                 EC_COL);
+    std::println("\n[12] Creating sub-model evolvers for earthquake evolution...");
 
-    SubModelSolver sub_solver{EC_COL, NU_RC};
+    const std::string evol_dir = OUT + "evolution/sub_models";
+    std::filesystem::create_directories(evol_dir);
 
-    auto& sub_models = coordinator.sub_models();
-    for (std::size_t i = 0; i < sub_models.size(); ++i) {
-        auto& sub = sub_models[i];
+    std::vector<SubModelEvolver> evolvers;
+    {
+        auto& subs = coordinator.sub_models();
+        for (auto& sub : subs)
+            evolvers.emplace_back(sub, EC_COL, NU_RC, evol_dir, EVOL_VTK_INTERVAL);
+    }
 
-        // Solve with VTK export
-        const std::string vtk_prefix =
-            OUT + "sub_models/sub_" + std::to_string(i);
-        const auto result = sub_solver.solve(sub, vtk_prefix);
+    std::println("  Evolvers created : {}", evolvers.size());
+    std::println("  VTK interval     : every {} steps ({:.2f} s)",
+                 EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
 
-        // Homogenize section resultants
-        const auto hs = homogenize(result, sub, COL_B, COL_H);
+    // ─────────────────────────────────────────────────────────────────────
+    //  13. Initial sub-model solve at yield time
+    // ─────────────────────────────────────────────────────────────────────
+    std::println("\n[13] Initial sub-model solve at yield time t={:.4f} s...",
+                 transition_report->trigger_time);
 
-        print_sub_model_result(i, result, hs);
-
-        // Cross-check: compare with fiber section stresses already
-        // in the global model (available from section_snapshots)
-        const auto global_elem_id = crit_elem_ids[i];
-        const auto& se_ref = model.elements()[global_elem_id];
-        const auto snapshots = se_ref.section_snapshots();
-        if (!snapshots.empty() && !snapshots.front().fibers.empty()) {
-            double max_fiber_eps = 0.0;
-            double min_fiber_eps = 0.0;
-            for (const auto& f : snapshots.front().fibers) {
-                max_fiber_eps = std::max(max_fiber_eps, f.strain_xx);
-                min_fiber_eps = std::min(min_fiber_eps, f.strain_xx);
-            }
-            std::cout << "  [Fiber cross-check for global elem " << global_elem_id << "]\n";
-            std::cout << "    max fiber eps_xx : " << std::setw(12)
-                      << std::fixed << std::setprecision(6) << max_fiber_eps << "\n";
-            std::cout << "    min fiber eps_xx : " << std::setw(12)
-                      << std::setprecision(6) << min_fiber_eps << "\n";
-            std::cout << "    eps_yield        : " << std::setw(12)
-                      << std::setprecision(6) << EPS_YIELD << "\n";
-        }
-
-        std::println("  VTK mesh  : {}_mesh.vtu", vtk_prefix);
-        std::println("  VTK Gauss : {}_gauss.vtu", vtk_prefix);
+    for (auto& ev : evolvers) {
+        auto result = ev.solve_step(transition_report->trigger_time);
+        auto hs = homogenize(result, ev.sub_model(), COL_B, COL_H);
+        print_sub_model_result(ev.parent_element_id(), result, hs);
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  13. Summary report
+    //  14. Phase 2: Resume global + update sub-models at each step
     // ─────────────────────────────────────────────────────────────────────
+    sep('=');
+    std::println("\n[14] Phase 2: Sub-model time evolution through the earthquake");
+    std::println("    Resuming global nonlinear dynamic analysis step-by-step...");
+    std::println("    Global VTK every {} steps ({:.2f} s)",
+                 EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
+
+    const std::string evol_frame_dir = OUT + "evolution";
+    std::filesystem::create_directories(evol_frame_dir);
+    PVDWriter pvd_global(evol_frame_dir + "/frame");
+
+    auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
+    auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<5>{};
+
+    int    evol_step       = 0;
+    double evol_max_damage = peak_damage_global;
+
+    for (;;) {
+        PetscReal t_current;
+        TSGetTime(solver.get_ts(), &t_current);
+        if (static_cast<double>(t_current) >= T_MAX - 1e-14) break;
+
+        // Advance one global time step (empty director → always Continue)
+        auto verdict = solver.step_n(1, fall_n::StepDirector<StructModel>{});
+        if (verdict == fall_n::StepVerdict::Stop) {
+            std::println("  [!] Global solver stopped at t={:.4f} s",
+                         static_cast<double>(t_current));
+            break;
+        }
+
+        PetscReal t_new;
+        TSGetTime(solver.get_ts(), &t_new);
+        ++evol_step;
+        const double t = static_cast<double>(t_new);
+
+        // ── Update sub-models with new beam kinematics ────────────────
+        for (auto& ev : evolvers) {
+            auto ek = extract_beam_kinematics(ev.parent_element_id());
+            ev.update_kinematics(ek.kin_A, ek.kin_B);
+            ev.solve_step(t);
+        }
+
+        // ── Track peak damage ─────────────────────────────────────────
+        double step_max_damage = 0.0;
+        for (std::size_t e = 0; e < model.elements().size(); ++e) {
+            auto info = damage_crit.evaluate_element(
+                model.elements()[e], e, model.state_vector());
+            step_max_damage = std::max(step_max_damage, info.damage_index);
+        }
+        evol_max_damage = std::max(evol_max_damage, step_max_damage);
+
+        // ── Global VTK snapshot ───────────────────────────────────────
+        if (evol_step % EVOL_VTK_INTERVAL == 0) {
+            const auto vtm_file = std::format("{}/frame_{:06d}.vtm",
+                                              evol_frame_dir, evol_step);
+            fall_n::vtk::StructuralVTMExporter vtm_exp{
+                model, beam_profile, shell_profile};
+            vtm_exp.set_displacement(model.state_vector());
+            vtm_exp.set_yield_strain(EPS_YIELD);
+            vtm_exp.write(vtm_file);
+            pvd_global.add_timestep(t, vtm_file);
+        }
+
+        // ── Progress ──────────────────────────────────────────────────
+        if (evol_step % EVOL_PRINT_INTERVAL == 0) {
+            std::println("  [Evolution] t={:.2f} s  step={}  "
+                         "peak_damage={:.4f}  sub_models={}",
+                         t, evol_step, evol_max_damage, evolvers.size());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  15. Finalize PVD files + Summary
+    // ─────────────────────────────────────────────────────────────────────
+    pvd_global.write();
+    for (auto& ev : evolvers)
+        ev.finalize();
+
+    PetscReal t_final;
+    TSGetTime(solver.get_ts(), &t_final);
+
     sep('=');
     std::println("\nMULTISCALE SEISMIC ANALYSIS -- SUMMARY");
     sep('-');
-    std::println("  Earthquake       : Tohoku 2011, MYG012-NS, PGA={:.3f} m/s^2",
+    std::println("  Earthquake         : Tohoku 2011, MYG004-NS, PGA={:.3f} m/s^2",
                  eq.pga());
-    std::println("  Frame            : {}-story RC, {}-bay x {}-bay",
+    std::println("  Frame              : {}-story RC, {}-bay x {}-bay",
                  NUM_STORIES, X_GRID.size()-1, Y_GRID.size()-1);
-    std::println("  Fiber sections   : Kent-Park f'c (col={}, bm={} MPa) + "
+    std::println("  Fiber sections     : Kent-Park f'c (col={}, bm={} MPa) + "
                  "Menegotto-Pinto fy={} MPa",
                  COL_FPC, BM_FPC, STEEL_FY);
-    std::println("  First yield at   : t = {:.4f} s",
+    std::println("  First yield at     : t = {:.4f} s",
                  transition_report->trigger_time);
-    std::println("  Critical element : index {}",
+    std::println("  Critical element   : index {}",
                  transition_report->critical_element);
-    std::println("  Sub-models built : {}",
-                 sub_models.size());
-    std::println("  VTK output dir   : {}", OUT);
+    std::println("  Sub-models evolved : {}", evolvers.size());
+    std::println("  Evolution steps    : {}", evol_step);
+    std::println("  Final time         : {:.4f} s", static_cast<double>(t_final));
+    std::println("  Peak damage index  : {:.6f}", evol_max_damage);
+    std::println("  VTK output dir     : {}", OUT);
+    std::println("  Global PVD         : {}/frame.pvd", evol_frame_dir);
     sep('=');
 
     PetscFinalize();

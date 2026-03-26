@@ -193,6 +193,7 @@
 #include "src/reconstruction/StructuralFieldReconstruction.hh"
 #include "src/reconstruction/FieldTransfer.hh"
 #include "src/reconstruction/SubModelSolver.hh"
+#include "src/reconstruction/SubModelEvolver.hh"
 #include "src/reconstruction/HomogenizedSection.hh"
 
 // =================================================================================
