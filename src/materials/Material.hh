@@ -111,15 +111,31 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
       const auto& alpha = material.internal_state();
       snap.num_cracks = alpha.num_cracks;
 
+      // Detect whether crack normals are 3D (e.g. KoBatheConcrete3D)
+      // or 2D (KoBatheConcrete).  Promote 2D normals to 3D with z=0.
+      using NormalT = std::remove_cvref_t<decltype(alpha.crack_normals[0])>;
+
       if (alpha.num_cracks >= 1) {
-         snap.crack_normal_1 = {alpha.crack_normals[0][0],
-                                alpha.crack_normals[0][1], 0.0};
+         if constexpr (NormalT::SizeAtCompileTime >= 3) {
+            snap.crack_normal_1 = {alpha.crack_normals[0][0],
+                                   alpha.crack_normals[0][1],
+                                   alpha.crack_normals[0][2]};
+         } else {
+            snap.crack_normal_1 = {alpha.crack_normals[0][0],
+                                   alpha.crack_normals[0][1], 0.0};
+         }
          snap.crack_strain_1 = alpha.crack_strain[0];
          snap.crack_closed_1 = alpha.crack_closed[0] ? 1.0 : 0.0;
       }
       if (alpha.num_cracks >= 2) {
-         snap.crack_normal_2 = {alpha.crack_normals[1][0],
-                                alpha.crack_normals[1][1], 0.0};
+         if constexpr (NormalT::SizeAtCompileTime >= 3) {
+            snap.crack_normal_2 = {alpha.crack_normals[1][0],
+                                   alpha.crack_normals[1][1],
+                                   alpha.crack_normals[1][2]};
+         } else {
+            snap.crack_normal_2 = {alpha.crack_normals[1][0],
+                                   alpha.crack_normals[1][1], 0.0};
+         }
          snap.crack_strain_2 = alpha.crack_strain[1];
          snap.crack_closed_2 = alpha.crack_closed[1] ? 1.0 : 0.0;
       }

@@ -44,6 +44,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <vector>
 
 struct InternalFieldSnapshot {
 
@@ -96,6 +97,26 @@ struct InternalFieldSnapshot {
     [[nodiscard]] bool has_damage()                     const noexcept { return damage.has_value(); }
     [[nodiscard]] bool has_cracks()                     const noexcept { return num_cracks.has_value(); }
     [[nodiscard]] bool has_fracture_history()            const noexcept { return sigma_o_max.has_value(); }
+};
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  GaussFieldRecord — per-integration-point field data for VTK export
+//
+//  Used by FEM_Element::collect_gauss_fields() to return material state
+//  through the type-erased interface.  ContinuumElement populates full
+//  Voigt stress/strain; elements without exportable material state
+//  (e.g. TrussElement) return empty records.
+//
+//  The snapshot's span<const double> members (e.g. plastic_strain) point
+//  into the record's own pstrain_storage, so the record is self-contained.
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct GaussFieldRecord {
+    std::vector<double>     stress;           // Voigt notation
+    std::vector<double>     strain;           // Voigt notation
+    std::vector<double>     pstrain_storage;  // owned copy of plastic strain
+    InternalFieldSnapshot   snapshot;         // internal state (cracks, etc.)
 };
 
 #endif // FALL_N_INTERNAL_FIELD_SNAPSHOT_HH

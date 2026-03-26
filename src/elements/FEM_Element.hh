@@ -27,10 +27,12 @@
 #include <memory>
 #include <cstddef>
 #include <type_traits>
+#include <vector>
 
 #include <petsc.h>
 
 #include "FiniteElementConcept.hh"
+#include "../materials/InternalFieldSnapshot.hh"
 
 class FEM_Element {
 
@@ -57,6 +59,10 @@ class FEM_Element {
         virtual double density()                     const  { return 0.0; }
         virtual void   set_density(double /*rho*/)          {}
         virtual void   inject_mass(Mat /*M*/)               {}
+
+        // Post-processing: Gauss-point field export for VTK
+        virtual std::vector<GaussFieldRecord>
+            collect_gauss_fields(Vec /*u_local*/) const { return {}; }
     };
 
     // ── Inner model (type-specific bridge) ────────────────────────
@@ -96,6 +102,14 @@ class FEM_Element {
         void inject_mass(Mat M) override {
             if constexpr (requires { element_.inject_mass(M); })
                 element_.inject_mass(M);
+        }
+
+        std::vector<GaussFieldRecord>
+        collect_gauss_fields(Vec u_local) const override {
+            if constexpr (requires { element_.collect_gauss_fields(u_local); })
+                return element_.collect_gauss_fields(u_local);
+            else
+                return {};
         }
     };
 
@@ -144,6 +158,13 @@ public:
     auto density()           const -> double   { return pimpl_->density(); }
     void set_density(double rho)               { pimpl_->set_density(rho); }
     void inject_mass(Mat M)                    { pimpl_->inject_mass(M); }
+
+    // Post-processing: type-erased Gauss-point field export
+    auto collect_gauss_fields(Vec u_local) const
+        -> std::vector<GaussFieldRecord>
+    {
+        return pimpl_->collect_gauss_fields(u_local);
+    }
 };
 
 // FEM_Element itself satisfies FiniteElement (recursive erasure is valid)

@@ -7,15 +7,22 @@
 //    - SubModelSolver::solve_reinforced() converges with MultiElementPolicy
 //    - Reinforced model is stiffer than unreinforced
 //    - Reaction-force-based E_eff is positive and reasonable
+//    - VTK Gauss-point export contains stress, strain, and crack fields
 //
 // =============================================================================
 
 #include "header_files.hh"
 
 #include <cmath>
+#include <filesystem>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
+
+#include <vtkNew.h>
+#include <vtkPointData.h>
+#include <vtkUnstructuredGrid.h>
+#include <vtkXMLUnstructuredGridReader.h>
 
 using namespace fall_n;
 
@@ -192,6 +199,137 @@ static void test_reinforced_solve() {
 
 
 // =============================================================================
+//  Test 3: VTK Gauss-point export with crack fields
+// =============================================================================
+//
+//  Solve a reinforced sub-model under tension large enough to initiate
+//  cracking in the Ko-Bathe concrete model.  Write VTK Gauss cloud output,
+//  read it back, and verify that stress/strain tensors and crack-related
+//  point-data arrays are present.
+
+static void test_vtk_crack_export() {
+    std::cout << "\n── Test 3: VTK Gauss-point crack field export ──\n";
+
+    PrismaticSpec spec{
+        .width  = 0.30,
+        .height = 0.30,
+        .length = 1.00,
+        .nx = 2, .ny = 2, .nz = 4,
+    };
+
+    // One center rebar
+    RebarSpec rebar;
+    rebar.bars = { {1, 1, 0.0002, "Rebar"} };
+
+    auto rd = make_reinforced_prismatic_domain(spec, rebar);
+
+    MultiscaleSubModel sub;
+    sub.domain = std::move(rd.domain);
+    sub.grid   = std::move(rd.grid);
+
+    // Tension: fix min-z face, pull max-z face with ε ≈ 5×10⁻⁴
+    // This should exceed the cracking threshold (ft/Ee ≈ 5.6×10⁻⁵)
+    constexpr double imposed_disp = 0.0005;  // 0.5 mm over 1 m → ε = 5×10⁻⁴
+
+    auto face_min = sub.grid.nodes_on_face(PrismFace::MinZ);
+    auto face_max = sub.grid.nodes_on_face(PrismFace::MaxZ);
+
+    for (auto nid : face_min)
+        sub.bc_min_z.emplace_back(static_cast<std::size_t>(nid),
+            Eigen::Vector3d(0.0, 0.0, 0.0));
+    for (auto nid : face_max)
+        sub.bc_max_z.emplace_back(static_cast<std::size_t>(nid),
+            Eigen::Vector3d(0.0, 0.0, imposed_disp));
+
+    SubModelSolver solver(30.0);
+    RebarSteelConfig steel{200000.0, 420.0, 0.01};
+    std::vector<double> rebar_areas = {0.0002};
+
+    // Write VTK to temp directory
+    auto vtk_prefix = (std::filesystem::temp_directory_path()
+                        / "test_reinforced_vtk_crack").string();
+
+    auto result = solver.solve_reinforced(
+        sub, steel, rd.rebar_range, rebar_areas, spec.nz, vtk_prefix);
+
+    check(result.converged, "tension solve converged");
+
+    // ── Verify Gauss cloud VTU file exists and has content ──────────
+    std::string gauss_path = vtk_prefix + "_gauss.vtu";
+    check(std::filesystem::exists(gauss_path),
+          "gauss VTU file exists");
+
+    vtkNew<vtkXMLUnstructuredGridReader> reader;
+    reader->SetFileName(gauss_path.c_str());
+    reader->Update();
+
+    auto* grid = reader->GetOutput();
+    check(grid != nullptr, "gauss VTU parseable");
+
+    if (grid == nullptr) return;
+
+    auto* pd = grid->GetPointData();
+    const auto npts = grid->GetNumberOfPoints();
+
+    // Must have Gauss points (2×2×2 per hex element, 16 hex → 128 QPs,
+    // plus truss QPs)
+    check(npts > 0, "gauss cloud has points");
+    std::cout << "    gauss points = " << npts << "\n";
+
+    // ── Stress / strain tensor fields must be present ────────────────
+    check(pd->GetArray("qp_stress_xx") != nullptr,
+          "qp_stress_xx present");
+    check(pd->GetArray("qp_strain_xx") != nullptr,
+          "qp_strain_xx present");
+    check(pd->GetArray("qp_stress_von_mises") != nullptr,
+          "qp_stress_von_mises present");
+
+    // ── Crack fields should be present (tension exceeds crack threshold)
+    auto* num_cracks = pd->GetArray("qp_num_cracks");
+    check(num_cracks != nullptr, "qp_num_cracks present");
+
+    if (num_cracks != nullptr) {
+        // At least some Gauss points should have cracks
+        int cracked_count = 0;
+        for (vtkIdType i = 0; i < num_cracks->GetNumberOfTuples(); ++i) {
+            if (num_cracks->GetComponent(i, 0) > 0.5)
+                ++cracked_count;
+        }
+        check(cracked_count > 0,
+              "at least one GP is cracked");
+        std::cout << "    cracked GPs = " << cracked_count
+                  << " / " << num_cracks->GetNumberOfTuples() << "\n";
+    }
+
+    check(pd->GetArray("qp_crack_normal_1") != nullptr,
+          "qp_crack_normal_1 present");
+    check(pd->GetArray("qp_crack_strain_1") != nullptr,
+          "qp_crack_strain_1 present");
+    check(pd->GetArray("qp_crack_closed_1") != nullptr,
+          "qp_crack_closed_1 present");
+
+    // ── Fracture history fields ─────────────────────────────────────
+    check(pd->GetArray("qp_sigma_o_max") != nullptr,
+          "qp_sigma_o_max present");
+    check(pd->GetArray("qp_tau_o_max") != nullptr,
+          "qp_tau_o_max present");
+
+    // ── Plastic strain / equivalent plastic strain ──────────────────
+    check(pd->GetArray("qp_equivalent_plastic_strain") != nullptr,
+          "qp_equivalent_plastic_strain present");
+
+    // ── Mesh export should also exist ───────────────────────────────
+    std::string mesh_path = vtk_prefix + "_mesh.vtu";
+    check(std::filesystem::exists(mesh_path),
+          "mesh VTU file exists");
+
+    // Cleanup temp files
+    std::filesystem::remove(gauss_path);
+    std::filesystem::remove(mesh_path);
+}
+
+
+// =============================================================================
 //  Main
 // =============================================================================
 
@@ -204,6 +342,7 @@ int main(int argc, char* argv[]) {
 
     test_reinforced_domain();
     test_reinforced_solve();
+    test_vtk_crack_export();
 
     std::cout << "\n══════════════════════════════════════════════════\n";
     std::cout << "  Results: " << passed << "/" << total << " passed\n";

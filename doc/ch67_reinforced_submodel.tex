@@ -204,7 +204,7 @@ $\Delta E \approx \rho \cdot E_s \approx 444$~MPa.  The measured
 $E_{\text{eff}} = 28{,}865$~MPa gives $\Delta E = 445$~MPa, in excellent
 agreement with the mixture rule.
 
-All 14 assertions pass, verifying:
+All 14 assertions in Tests~1 and~2 pass, verifying:
 \begin{itemize}
   \item Domain construction with mixed hex/truss topology (7~checks),
   \item Convergence of both unreinforced and reinforced solves,
@@ -212,3 +212,182 @@ All 14 assertions pass, verifying:
   \item Reinforced $E_{\text{eff}} > $ unreinforced (rebar adds stiffness),
   \item Reinforced $E_{\text{eff}} < 2\times$ unreinforced (small $\rho$).
 \end{itemize}
+
+
+% =========================================================================
+\section{VTK Gauss-Point Export for Heterogeneous Models}
+\label{sec:reinf-vtk-gauss}
+
+The standard VTK export path in \texttt{VTKModelExporter} relies on
+compile-time access to \texttt{material\_points()} and
+\texttt{get\_geometry()} on each element.  These methods are part of
+the concrete element types (e.g., \texttt{ContinuumElement}) but are
+\emph{not} exposed through the \texttt{FiniteElement} concept or the
+type-erased \texttt{FEM\_Element} wrapper, since they are
+post-processing concerns intentionally excluded from the core interface.
+
+When the model uses \texttt{MultiElementPolicy}, the element type seen
+by \texttt{VTKModelExporter} is \texttt{FEM\_Element}, and the existing
+\texttt{if constexpr} guard on \texttt{material\_points()} silently
+skips all Gauss-point field collection.  To enable crack and stress
+visualisation for reinforced sub-models, three extensions were made.
+
+\subsection{GaussFieldRecord and Virtual Dispatch}
+
+A lightweight aggregate \texttt{GaussFieldRecord} was added to
+\texttt{InternalFieldSnapshot.hh}:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+struct GaussFieldRecord {
+    std::vector<double> stress;
+    std::vector<double> strain;
+    std::vector<double> pstrain_storage;  // owned copy
+    InternalFieldSnapshot snapshot;
+};
+\end{lstlisting}
+
+The virtual method \texttt{collect\_gauss\_fields(Vec\,u\_local)} was added
+to \texttt{FEM\_Element}'s polymorphic Concept/Model chain.
+\texttt{ContinuumElement} implements it by iterating its
+\texttt{material\_points\_}, evaluating the constitutive response at the
+current state, and returning one \texttt{GaussFieldRecord} per integration
+point.  \texttt{TrussElement} inherits the default (empty vector), since
+truss Gauss data is not meaningful for field visualisation.
+
+\subsection{Type-Erased Fallback in VTKModelExporter}
+
+In \texttt{compute\_material\_fields()}, a new \texttt{else if constexpr}
+branch handles the case where \texttt{material\_points()} is unavailable
+but \texttt{collect\_gauss\_fields()} is available (i.e., the
+\texttt{FEM\_Element} path).  This branch:
+
+\begin{enumerate}
+  \item Calls \texttt{element.collect\_gauss\_fields(state\_vector)} for
+        each element.
+  \item Unpacks stress, strain, and \texttt{InternalFieldSnapshot} fields
+        (crack normals, closure state, fracture history, damage, plastic
+        strain) into the same flat buffers used by the direct path.
+  \item Registers all buffers as VTK point-data arrays on the Gauss cloud.
+\end{enumerate}
+
+Elements that return an empty record vector (e.g., trusses) are
+zero-filled, preserving array alignment with the global integration-point
+count.
+
+\subsection{Gauss Displacement Interpolation Guard}
+
+The existing \texttt{interpolate\_gauss\_displacement\_field()} method
+calls \texttt{element.get\_geometry()} to obtain reference-coordinate
+shape functions for interpolating nodal displacement to Gauss points.
+Since \texttt{get\_geometry()} is not available on \texttt{FEM\_Element},
+the function body was wrapped with:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+if constexpr (!requires(const element_type& e) {
+                  e.get_geometry(); }) {
+    return {};
+} else { /* original body */ }
+\end{lstlisting}
+
+When geometry is unavailable, the Gauss displacement field is simply
+omitted from the VTK output.  The Warp-by-Vector filter in ParaView
+can still be applied to the mesh export, where nodal displacements
+are always available.
+
+\subsection{Buffer Alignment for Mixed-Element Models}
+
+The fallback branch iterates \texttt{model\_->elements()} and collects
+Gauss-point records from each element.  For elements that return an empty
+record vector (e.g., truss elements), the code zero-fills the strain and
+stress buffers using the element's \texttt{num\_integration\_points()}.
+However, for \texttt{TrussElement}, this method returns~$1$ (the number
+of material evaluation points), while the underlying
+\texttt{ElementGeometry} has~$2$ quadrature points---the count that
+determines the VTK Gauss cloud size.
+
+This mismatch caused Gauss-point arrays to have fewer entries than the
+point cloud, making VTK's reader abort all arrays with the error
+``\texttt{The data array in the element may be too short}''.
+The fix uses the domain geometry's integration-point count
+(\texttt{domain.element(i).num\_integration\_points()}) for zero-filling
+instead of the element's material-point count:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+const auto ngp_geom =
+    domain_elements[elem_idx].num_integration_points();
+\end{lstlisting}
+
+Additionally, optional field buffers (crack normals, fracture history,
+damage, plastic strain) are padded to the total integration-point count
+with zeros after the main collection loop, ensuring every VTK point-data
+array matches the cloud size.
+
+\subsection{3D Crack Normal Snapshot}
+
+The \texttt{make\_internal\_field\_snapshot()} function in
+\texttt{Material.hh} originally hardcoded the $z$-component of crack
+normals to~$0.0$:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+n1 = {alpha.crack_normals[0][0],
+      alpha.crack_normals[0][1], 0.0};
+\end{lstlisting}
+
+For \texttt{KoBatheConcrete3D}, crack normals are
+\texttt{Eigen::Vector3d}, so the third component was silently dropped.
+The fix uses a compile-time dispatch:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+using NormalT =
+    std::remove_cvref_t<decltype(alpha.crack_normals[0])>;
+if constexpr (NormalT::SizeAtCompileTime >= 3)
+    n1 = {alpha.crack_normals[0][0],
+          alpha.crack_normals[0][1],
+          alpha.crack_normals[0][2]};
+else
+    n1 = {alpha.crack_normals[0][0],
+          alpha.crack_normals[0][1], 0.0};
+\end{lstlisting}
+
+\subsection{VTK Writer Correction}
+
+The utility function \texttt{write\_vtu()} originally called both
+\texttt{writer->Update()} and \texttt{writer->Write()}.  On some VTK
+builds, the combination caused the writer to re-open the file during
+the second call, truncating the closing \texttt{</VTKFile>} tag and
+producing an unreadable file.  Removing the redundant
+\texttt{Update()} call (since \texttt{Write()} already triggers the
+pipeline) resolved the issue.
+
+
+% =========================================================================
+\section{VTK Crack Export Validation}
+\label{sec:reinf-vtk-validation}
+
+Test~3 in \texttt{test\_reinforced\_submodel.cpp} exercises the full VTK
+pipeline under tension ($\varepsilon = 5 \times 10^{-4}$, well above
+the cracking threshold
+$f_t/E_e \approx 5.6 \times 10^{-5}$ for $f_c' = 30$~MPa).  After the
+incremental solve, a \texttt{VTKModelExporter} writes both a mesh VTU
+and a Gauss-point cloud VTU.  The test reads back the Gauss cloud with
+\texttt{vtkXMLUnstructuredGridReader} and verifies:
+
+\begin{itemize}
+  \item The cloud contains $136$ Gauss points ($16 \times 8$ hex
+        plus $4 \times 2$ truss).
+  \item Stress and strain tensor component fields are present
+        (\texttt{qp\_stress\_xx}, \texttt{qp\_strain\_xx},
+         \texttt{qp\_stress\_von\_mises}).
+  \item Crack fields are present (\texttt{qp\_num\_cracks},
+        \texttt{qp\_crack\_normal\_1}, \texttt{qp\_crack\_strain\_1},
+        \texttt{qp\_crack\_closed\_1}).
+  \item Fracture history fields are present (\texttt{qp\_sigma\_o\_max},
+        \texttt{qp\_tau\_o\_max}).
+  \item Equivalent plastic strain is present.
+  \item At least one Gauss point is cracked (observed: $128/136$, i.e.\ all
+        hex points develop cracks under the imposed tension).
+  \item The mesh VTU file also exists.
+\end{itemize}
+
+All 30~assertions across the three sub-tests pass, bringing the total
+test count to 62.
