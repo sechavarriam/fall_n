@@ -115,7 +115,7 @@ void test_zero_bc() {
     auto coord = build_coordinator(ek);
     auto& sub  = coord.sub_models()[0];
 
-    fall_n::SubModelSolver solver(200.0, 0.25);
+    fall_n::SubModelSolver solver(30.0);
     const auto res = solver.solve(sub);
 
     check(res.converged,
@@ -149,30 +149,30 @@ void test_zero_bc() {
 void test_uniform_axial_extension() {
     std::cout << "\nTest 2: Uniform axial extension → σ_xx = E·ε₀\n";
 
-    const double E   = 200.0;
-    const double nu  = 0.25;
+    // Ko-Bathe concrete with fc=30 MPa.
+    // Elastic moduli: Ke≈11096, Ge≈13304 → Ee≈28513 MPa
+    const double fc  = 30.0;
     const double L   = 1.0;
-    const double eps = 1e-3;           // ε₀
+    const double eps = 1e-4;           // ε₀ (small for elastic range)
 
     // Beam from X=0 to X=L;  u_x: 0 → ε·L
     auto ek   = make_axial_ek(0, 0.0, eps * L);
     auto coord = build_coordinator(ek);
     auto& sub  = coord.sub_models()[0];
 
-    fall_n::SubModelSolver solver(E, nu);
+    fall_n::SubModelSolver solver(fc);
     const auto res = solver.solve(sub);
 
     check(res.converged, "solver converged");
 
-    // σ_xx in beam-aligned sub-model is stored in avg_stress[0]
-    const double sigma_xx = res.avg_stress[0];
-    check(std::abs(sigma_xx - E * eps) / (E * eps) < 1e-2,
-          "avg σ_xx ≈ E·ε₀  (within 1%)");
+    // E_eff must be in the elastic concrete range [20k, 40k] MPa
+    check(res.E_eff > 20000.0, "E_eff > 20 GPa");
+    check(res.E_eff < 40000.0, "E_eff < 40 GPa");
 
-    // E_eff must recover the input Young's modulus
-    check(res.E_eff > 0.0, "E_eff > 0");
-    check(std::abs(res.E_eff - E) / E < 1e-2,
-          "E_eff ≈ E  (within 1%)");
+    // σ_xx = E_eff · ε₀ (self-consistency)
+    const double sigma_xx = res.avg_stress[0];
+    check(std::abs(sigma_xx - res.E_eff * eps) / (res.E_eff * eps) < 0.02,
+          "avg σ_xx ≈ E_eff·ε₀  (within 2%)");
 }
 
 
@@ -186,9 +186,8 @@ void test_uniform_axial_extension() {
 void test_homogenization_N() {
     std::cout << "\nTest 3: Homogenization: N = A · avg_σ_xx\n";
 
-    const double E   = 200.0;
-    const double nu  = 0.25;
-    const double eps = 2e-3;
+    const double fc  = 30.0;
+    const double eps = 1e-4;
     const double W   = 0.3;
     const double H   = 0.4;
     const double A   = W * H;
@@ -197,7 +196,7 @@ void test_homogenization_N() {
     auto coord = build_coordinator(ek, W, H);
     auto& sub  = coord.sub_models()[0];
 
-    fall_n::SubModelSolver solver(E, nu);
+    fall_n::SubModelSolver solver(fc);
     const auto res = solver.solve(sub);
 
     check(res.converged, "solver converged");

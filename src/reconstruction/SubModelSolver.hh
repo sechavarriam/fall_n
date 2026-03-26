@@ -452,7 +452,9 @@ public:
         if (!vtk_prefix.empty()) {
             fall_n::vtk::VTKModelExporter exporter{M};
             exporter.set_displacement();
+            exporter.compute_material_fields();
             exporter.write_mesh(vtk_prefix + "_mesh.vtu");
+            exporter.write_gauss_points(vtk_prefix + "_gauss.vtu");
         }
 
         return result;

@@ -97,7 +97,6 @@ inline void write_vtu(vtkUnstructuredGrid* grid, const std::string& filename) {
     writer->SetFileName(filename.c_str());
     writer->SetInputData(grid);
     writer->SetDataModeToAscii();
-    writer->Update();
     writer->Write();
 }
 
@@ -429,9 +428,9 @@ private:
         if (gauss_loaded_) return;
 
         auto& domain = model_->get_domain();
+        const auto n_gp = domain.num_integration_points();
 
-        gauss_points_->SetNumberOfPoints(
-            static_cast<vtkIdType>(domain.num_integration_points()));
+        gauss_points_->SetNumberOfPoints(static_cast<vtkIdType>(n_gp));
 
         for (const auto& elem : domain.elements()) {
             for (const auto& gp : elem.integration_points()) {
@@ -449,8 +448,7 @@ private:
         }
         gauss_points_->Modified();
 
-        gauss_grid_->Allocate(
-            static_cast<vtkIdType>(domain.num_integration_points()));
+        gauss_grid_->Allocate(static_cast<vtkIdType>(n_gp));
         gauss_grid_->SetPoints(gauss_points_);
 
         for (auto& elem : domain.elements()) {
@@ -572,47 +570,51 @@ private:
     }
 
     std::vector<double> interpolate_gauss_displacement_field() const {
-        const auto* displacement = find_nodal_field("displacement");
-        if (displacement == nullptr ||
-            displacement->num_components != static_cast<int>(dim))
-        {
+        if constexpr (!requires(const element_type& e) { e.get_geometry(); }) {
             return {};
-        }
-
-        std::vector<double> gauss_displacement;
-        gauss_displacement.resize(
-            model_->get_domain().num_integration_points() * dim, 0.0);
-
-        std::size_t gp_offset = 0;
-        for (const auto& element : model_->elements()) {
-            const auto* geom = element.get_geometry();
-            if (geom == nullptr) {
+        } else {
+            const auto* displacement = find_nodal_field("displacement");
+            if (displacement == nullptr ||
+                displacement->num_components != static_cast<int>(dim))
+            {
                 return {};
             }
 
-            const auto nn = element.num_nodes();
-            const auto ngp = element.num_integration_points();
+            std::vector<double> gauss_displacement;
+            gauss_displacement.resize(
+                model_->get_domain().num_integration_points() * dim, 0.0);
 
-            for (std::size_t g = 0; g < ngp; ++g) {
-                const auto xi = geom->reference_integration_point(g);
-                double* target =
-                    gauss_displacement.data() + (gp_offset + g) * dim;
+            std::size_t gp_offset = 0;
+            for (const auto& element : model_->elements()) {
+                const auto* geom = element.get_geometry();
+                if (geom == nullptr) {
+                    return {};
+                }
 
-                for (std::size_t i = 0; i < nn; ++i) {
-                    const double Ni = geom->H(i, xi);
-                    const auto node_id = static_cast<std::size_t>(geom->node(i));
-                    const double* nodal_u =
-                        displacement->data.data() + node_id * dim;
-                    for (std::size_t d = 0; d < dim; ++d) {
-                        target[d] += Ni * nodal_u[d];
+                const auto nn = element.num_nodes();
+                const auto ngp = element.num_integration_points();
+
+                for (std::size_t g = 0; g < ngp; ++g) {
+                    const auto xi = geom->reference_integration_point(g);
+                    double* target =
+                        gauss_displacement.data() + (gp_offset + g) * dim;
+
+                    for (std::size_t i = 0; i < nn; ++i) {
+                        const double Ni = geom->H(i, xi);
+                        const auto node_id = static_cast<std::size_t>(geom->node(i));
+                        const double* nodal_u =
+                            displacement->data.data() + node_id * dim;
+                        for (std::size_t d = 0; d < dim; ++d) {
+                            target[d] += Ni * nodal_u[d];
+                        }
                     }
                 }
+
+                gp_offset += ngp;
             }
 
-            gp_offset += ngp;
+            return gauss_displacement;
         }
-
-        return gauss_displacement;
     }
 
     static void set_active_mesh_point_fields(vtkUnstructuredGrid* grid) {
@@ -1397,6 +1399,259 @@ public:
                 }
             }
 
+        }
+        // ── Fallback: type-erased Gauss-point field collection ──────
+        //
+        //  When element_type lacks material_points() (e.g. FEM_Element
+        //  in MultiElementPolicy), use the virtual collect_gauss_fields()
+        //  method.  Elements that do not support export return empty
+        //  records; their Gauss slots are zero-filled.
+        //
+        else if constexpr (requires(const element_type& e, Vec u) {
+                               { e.collect_gauss_fields(u) };
+                           })
+        {
+            clear_material_field_buffers();
+
+            auto& domain   = model_->get_domain();
+            const auto total_gp = domain.num_integration_points();
+
+            std::vector<double> strain_buf;
+            std::vector<double> stress_buf;
+            std::vector<double> eps_p_buf;
+            std::vector<double> eps_bar_p_buf;
+            std::vector<double> damage_buf;
+
+            strain_buf.reserve(total_gp * nvoigt);
+            stress_buf.reserve(total_gp * nvoigt);
+
+            bool has_plastic_strain = false;
+            bool has_eps_bar_p      = false;
+            bool has_damage         = false;
+            bool has_cracks         = false;
+            bool has_fracture_hist  = false;
+
+            std::vector<double> num_cracks_buf;
+            std::vector<double> crack_normal_1_buf;
+            std::vector<double> crack_normal_2_buf;
+            std::vector<double> crack_strain_1_buf;
+            std::vector<double> crack_strain_2_buf;
+            std::vector<double> crack_closed_1_buf;
+            std::vector<double> crack_closed_2_buf;
+            std::vector<double> sigma_o_max_buf;
+            std::vector<double> tau_o_max_buf;
+
+            const auto& model_elements = model_->elements();
+            const auto& domain_elements = domain.elements();
+
+            std::size_t elem_idx = 0;
+            for (const auto& element : model_elements) {
+                auto records = element.collect_gauss_fields(
+                    model_->state_vector());
+
+                // Use the domain geometry's GP count (which matches
+                // the VTK point cloud) rather than the element's
+                // material-point count (which may differ, e.g.
+                // TrussElement reports 1 material point but geometry
+                // has 2 quadrature points).
+                const auto ngp_geom =
+                    domain_elements[elem_idx].num_integration_points();
+
+                if (records.empty()) {
+                    // Zero-fill for elements without export data
+                    for (std::size_t g = 0; g < ngp_geom; ++g) {
+                        for (int c = 0; c < nvoigt; ++c) {
+                            strain_buf.push_back(0.0);
+                            stress_buf.push_back(0.0);
+                        }
+                    }
+                    ++elem_idx;
+                    continue;
+                }
+
+                ++elem_idx;
+
+                for (auto& rec : records) {
+                    // Strain
+                    for (int c = 0; c < nvoigt; ++c)
+                        strain_buf.push_back(
+                            c < static_cast<int>(rec.strain.size())
+                                ? rec.strain[c] : 0.0);
+
+                    // Stress
+                    for (int c = 0; c < nvoigt; ++c)
+                        stress_buf.push_back(
+                            c < static_cast<int>(rec.stress.size())
+                                ? rec.stress[c] : 0.0);
+
+                    const auto& snap = rec.snapshot;
+
+                    if (snap.has_plastic_strain()) {
+                        has_plastic_strain = true;
+                        for (double v : snap.plastic_strain.value())
+                            eps_p_buf.push_back(v);
+                    }
+                    if (snap.has_equivalent_plastic_strain()) {
+                        has_eps_bar_p = true;
+                        eps_bar_p_buf.push_back(
+                            snap.equivalent_plastic_strain.value());
+                    }
+                    if (snap.has_damage()) {
+                        has_damage = true;
+                        damage_buf.push_back(snap.damage.value());
+                    }
+                    if (snap.has_cracks()) {
+                        has_cracks = true;
+                        num_cracks_buf.push_back(
+                            static_cast<double>(snap.num_cracks.value()));
+
+                        if (snap.crack_normal_1) {
+                            const auto& n1 = snap.crack_normal_1.value();
+                            crack_normal_1_buf.push_back(n1[0]);
+                            crack_normal_1_buf.push_back(n1[1]);
+                            crack_normal_1_buf.push_back(n1[2]);
+                        } else {
+                            crack_normal_1_buf.insert(
+                                crack_normal_1_buf.end(), 3, 0.0);
+                        }
+                        if (snap.crack_normal_2) {
+                            const auto& n2 = snap.crack_normal_2.value();
+                            crack_normal_2_buf.push_back(n2[0]);
+                            crack_normal_2_buf.push_back(n2[1]);
+                            crack_normal_2_buf.push_back(n2[2]);
+                        } else {
+                            crack_normal_2_buf.insert(
+                                crack_normal_2_buf.end(), 3, 0.0);
+                        }
+                        crack_strain_1_buf.push_back(
+                            snap.crack_strain_1.value_or(0.0));
+                        crack_strain_2_buf.push_back(
+                            snap.crack_strain_2.value_or(0.0));
+                        crack_closed_1_buf.push_back(
+                            snap.crack_closed_1.value_or(0.0));
+                        crack_closed_2_buf.push_back(
+                            snap.crack_closed_2.value_or(0.0));
+                    }
+                    if (snap.has_fracture_history()) {
+                        has_fracture_hist = true;
+                        sigma_o_max_buf.push_back(
+                            snap.sigma_o_max.value());
+                        tau_o_max_buf.push_back(
+                            snap.tau_o_max.value());
+                    }
+                }
+            }
+
+            // ── Pad optional buffers to total_gp so VTK arrays
+            //    match the point-cloud size (elements that returned
+            //    empty records don't contribute to optional fields). ──
+
+            auto pad_scalar = [&](std::vector<double>& buf) {
+                buf.resize(total_gp, 0.0);
+            };
+            auto pad_vector3 = [&](std::vector<double>& buf) {
+                buf.resize(total_gp * 3, 0.0);
+            };
+            auto pad_voigt = [&](std::vector<double>& buf) {
+                buf.resize(total_gp * nvoigt, 0.0);
+            };
+
+            if (has_plastic_strain) pad_voigt(eps_p_buf);
+            if (has_eps_bar_p)      pad_scalar(eps_bar_p_buf);
+            if (has_damage)         pad_scalar(damage_buf);
+            if (has_cracks) {
+                pad_scalar(num_cracks_buf);
+                pad_vector3(crack_normal_1_buf);
+                pad_vector3(crack_normal_2_buf);
+                pad_scalar(crack_strain_1_buf);
+                pad_scalar(crack_strain_2_buf);
+                pad_scalar(crack_closed_1_buf);
+                pad_scalar(crack_closed_2_buf);
+            }
+            if (has_fracture_hist) {
+                pad_scalar(sigma_o_max_buf);
+                pad_scalar(tau_o_max_buf);
+            }
+
+            // ── Register Gauss-point fields ──────────────────────────
+
+            auto register_gauss_strain_tensor =
+                [&](std::string raw_name, std::vector<double>&& data) {
+                    gauss_fields_.reserve(
+                        gauss_fields_.size() + 2 * nvoigt + 8);
+                    push_field_buffer(
+                        gauss_fields_, std::move(raw_name),
+                        std::move(data), nvoigt);
+                    append_strain_field_views(
+                        gauss_fields_,
+                        field_prefix_from_raw_name(
+                            gauss_fields_.back().name),
+                        gauss_fields_.back().data);
+                };
+
+            auto register_gauss_stress_tensor =
+                [&](std::string raw_name, std::vector<double>&& data) {
+                    gauss_fields_.reserve(
+                        gauss_fields_.size() + 2 * nvoigt + 16);
+                    push_field_buffer(
+                        gauss_fields_, std::move(raw_name),
+                        std::move(data), nvoigt);
+                    append_stress_field_views(
+                        gauss_fields_,
+                        field_prefix_from_raw_name(
+                            gauss_fields_.back().name),
+                        gauss_fields_.back().data);
+                };
+
+            register_gauss_strain_tensor(
+                "qp_strain_voigt", std::move(strain_buf));
+            register_gauss_stress_tensor(
+                "qp_stress_voigt", std::move(stress_buf));
+
+            if (has_plastic_strain)
+                register_gauss_strain_tensor(
+                    "qp_plastic_strain_voigt", std::move(eps_p_buf));
+            if (has_eps_bar_p)
+                push_field_buffer(gauss_fields_,
+                    "qp_equivalent_plastic_strain",
+                    std::move(eps_bar_p_buf), 1);
+            if (has_damage)
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_damage", std::move(damage_buf));
+
+            if (has_cracks) {
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_num_cracks", std::move(num_cracks_buf));
+                push_field_buffer(gauss_fields_,
+                    "qp_crack_normal_1",
+                    std::move(crack_normal_1_buf), 3);
+                push_field_buffer(gauss_fields_,
+                    "qp_crack_normal_2",
+                    std::move(crack_normal_2_buf), 3);
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_strain_1",
+                    std::move(crack_strain_1_buf));
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_strain_2",
+                    std::move(crack_strain_2_buf));
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_closed_1",
+                    std::move(crack_closed_1_buf));
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_closed_2",
+                    std::move(crack_closed_2_buf));
+            }
+            if (has_fracture_hist) {
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_sigma_o_max", std::move(sigma_o_max_buf));
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_tau_o_max", std::move(tau_o_max_buf));
+            }
+
+            // Note: nodal projection is skipped for the type-erased
+            // path because resolve_material_field_projection requires
+            // get_geometry() on elements.  Gauss-point data is still
+            // written to the *_gauss.vtu cloud.
         }
     }
 

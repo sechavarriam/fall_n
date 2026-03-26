@@ -99,6 +99,40 @@ public:
   const std::string& physical_group() const noexcept { return geometry_->physical_group(); }
   bool has_physical_group() const noexcept { return geometry_->has_physical_group(); }
 
+  // ── Post-processing: type-erased Gauss-point field export ──────
+  //
+  //  Returns stress, strain, and internal-state snapshots for each
+  //  integration point.  Used by FEM_Element::collect_gauss_fields()
+  //  to enable VTK material-field export for MultiElementPolicy models.
+
+  std::vector<GaussFieldRecord> collect_gauss_fields(Vec /*u_local*/) const {
+      std::vector<GaussFieldRecord> records;
+      records.reserve(material_points_.size());
+      for (const auto& mp : material_points_) {
+          GaussFieldRecord rec;
+
+          const auto& state = mp.current_state();
+          rec.strain.assign(state.data(), state.data() + num_strains);
+
+          auto sigma = mp.compute_response(state);
+          rec.stress.assign(sigma.data(), sigma.data() + num_strains);
+
+          auto snap = mp.internal_field_snapshot();
+
+          // Deep-copy plastic_strain so the record is self-contained
+          if (snap.has_plastic_strain()) {
+              auto sp = snap.plastic_strain.value();
+              rec.pstrain_storage.assign(sp.begin(), sp.end());
+              snap.plastic_strain = std::span<const double>{
+                  rec.pstrain_storage.data(), rec.pstrain_storage.size()};
+          }
+
+          rec.snapshot = std::move(snap);
+          records.push_back(std::move(rec));
+      }
+      return records;
+  }
+
   constexpr void set_num_dof_in_nodes() noexcept{
     for (std::size_t i = 0; i < num_nodes(); ++i)
       geometry_->node_p(i).set_num_dof(dim);
