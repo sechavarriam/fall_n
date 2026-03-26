@@ -893,6 +893,7 @@ public:
         timer_.start("post");
         {
             DM dm = model_->get_plex();
+            VecSet(model_->state_vector(), 0.0);
             FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_, INSERT_VALUES, model_->state_vector()));
             FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U_, INSERT_VALUES, model_->state_vector()));
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
@@ -927,6 +928,7 @@ public:
         // Update model state
         {
             DM dm = model_->get_plex();
+            VecSet(model_->state_vector(), 0.0);
             FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_, INSERT_VALUES, model_->state_vector()));
             FALL_N_PETSC_CHECK(DMGlobalToLocalEnd(dm, U_, INSERT_VALUES, model_->state_vector()));
             VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());

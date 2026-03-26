@@ -1,0 +1,389 @@
+% ==========================================================================
+%  Chapter 66 — TrussElement: Embedded Rebar for Continuum Sub-Models
+% ==========================================================================
+
+\chapter{TrussElement: Embedded Rebar for Continuum Sub-Models}
+\label{ch:truss-element}
+
+% ==========================================================================
+\section{Motivation}
+\label{sec:truss-motivation}
+
+The multiscale framework described in Chapter~\ref{ch:multiscale_seismic}
+extracts prismatic sub-model volumes around beam--column joints that
+exhibited yielding in the global structural analysis.  These sub-models
+are discretised with hexahedral continuum elements and analysed with the
+Ko--Bathe concrete model (Chapter~\ref{ch:ko-bathe-3d}).  However, a
+realistic concrete sub-model must include steel reinforcement.
+
+Rather than modelling rebar with continuum elements (which would require
+extremely fine meshes), the standard approach in computational mechanics
+is to embed one-dimensional \emph{truss} elements within the continuum
+mesh.  When truss nodes coincide with hex element nodes, the two
+element types share degrees of freedom through the DMPlex sieve
+automatically---this is the \textbf{perfect-bond assumption}.
+
+This chapter describes the implementation of a templated
+\texttt{TrussElement<Dim>} that:
+\begin{itemize}
+    \item Models axial-only behaviour with a uniaxial constitutive law
+          (e.g., Menegotto--Pinto steel),
+    \item Integrates with the existing \texttt{FiniteElement} concept,
+    \item Can be mixed with continuum elements in the same
+          \texttt{Model} via \texttt{MultiElementPolicy} and \texttt{FEM\_Element},
+    \item Supports both 2D and 3D spatial dimensions.
+\end{itemize}
+
+
+% ==========================================================================
+\section{Formulation}
+\label{sec:truss-formulation}
+
+% --------------------------------------------------------------------------
+\subsection{Kinematics}
+\label{sec:truss-kinematics}
+
+Consider a bar element connecting nodes $0$ and $1$ with position vectors
+$\mathbf{x}_0$ and $\mathbf{x}_1$ in $\mathbb{R}^{\mathrm{Dim}}$.  Define:
+\begin{equation}
+    L = \|\mathbf{x}_1 - \mathbf{x}_0\|, \qquad
+    \hat{\mathbf{e}} = \frac{\mathbf{x}_1 - \mathbf{x}_0}{L},
+    \label{eq:truss-length-dir}
+\end{equation}
+where $L$ is the element length and $\hat{\mathbf{e}}$ the unit direction
+vector.  For 3D, $\hat{\mathbf{e}} = (\ell, m, n)^T$ with $\ell = \cos\alpha_x$,
+$m = \cos\alpha_y$, $n = \cos\alpha_z$ being the direction cosines.
+
+The element has $2\,\texttt{Dim}$ translational DOFs arranged as:
+\begin{equation}
+    \mathbf{u}_e = (\mathbf{u}_0^T,\; \mathbf{u}_1^T)^T \in \mathbb{R}^{2\,\mathrm{Dim}}.
+    \label{eq:truss-dof-vector}
+\end{equation}
+
+The axial strain is the projection of the displacement gradient onto the
+element axis:
+\begin{equation}
+    \varepsilon = \hat{\mathbf{e}} \cdot
+    \frac{\mathbf{u}_1 - \mathbf{u}_0}{L}
+    = \mathbf{B}\,\mathbf{u}_e,
+    \label{eq:truss-strain}
+\end{equation}
+where the $1 \times 2\,\mathrm{Dim}$ strain--displacement matrix is:
+\begin{equation}
+    \mathbf{B} = \frac{1}{L}
+    \begin{pmatrix}
+        -\hat{\mathbf{e}}^T & \hat{\mathbf{e}}^T
+    \end{pmatrix}
+    = \frac{1}{L}
+    \begin{pmatrix}
+        -\ell & -m & -n & \ell & m & n
+    \end{pmatrix}.
+    \label{eq:truss-B-matrix}
+\end{equation}
+
+Because the shape functions are linear, $\mathbf{B}$ is constant over the
+element---there is no spatial variation.  A single Gauss point therefore
+integrates all element integrals exactly.
+
+
+% --------------------------------------------------------------------------
+\subsection{Stiffness Matrix}
+\label{sec:truss-stiffness}
+
+The element stiffness follows from the virtual work principle.  With
+cross-sectional area $A$ and elastic modulus $E$:
+\begin{equation}
+    \mathbf{K}_e = A \int_0^L \mathbf{B}^T E\, \mathbf{B}\;\mathrm{d}x
+    = A \cdot L \cdot E \cdot \mathbf{B}^T \mathbf{B}.
+    \label{eq:truss-K}
+\end{equation}
+The integration factor $w \cdot |J| = L$ comes from the single-point
+Gauss rule on the reference interval $[-1,1]$ with weight $w=2$ and
+Jacobian $|J| = L/2$.
+
+Expanding $\mathbf{B}^T \mathbf{B}$ for 3D:
+\begin{equation}
+    \mathbf{K}_e = \frac{EA}{L}
+    \begin{pmatrix}
+        \phantom{-}\hat{\mathbf{e}}\hat{\mathbf{e}}^T
+            & -\hat{\mathbf{e}}\hat{\mathbf{e}}^T \\[4pt]
+        -\hat{\mathbf{e}}\hat{\mathbf{e}}^T
+            & \phantom{-}\hat{\mathbf{e}}\hat{\mathbf{e}}^T
+    \end{pmatrix},
+    \label{eq:truss-K-expanded}
+\end{equation}
+where $\hat{\mathbf{e}}\hat{\mathbf{e}}^T$ is the $\mathrm{Dim}\times\mathrm{Dim}$
+projection operator onto the element axis.  For an element aligned with the
+$x$-axis ($\hat{\mathbf{e}} = (1,0,0)^T$), only the $K_{00}$, $K_{03}$,
+$K_{30}$, $K_{33}$ entries are non-zero.
+
+
+% --------------------------------------------------------------------------
+\subsection{Internal Forces}
+\label{sec:truss-internal-forces}
+
+Given the current displacement $\mathbf{u}_e$, the internal force vector is:
+\begin{equation}
+    \mathbf{f}_e = A \cdot L \cdot \sigma(\varepsilon) \cdot \mathbf{B}^T,
+    \label{eq:truss-f}
+\end{equation}
+where $\sigma(\varepsilon)$ is the uniaxial stress computed by the
+constitutive model at the current strain $\varepsilon = \mathbf{B}\,\mathbf{u}_e$.
+
+
+% --------------------------------------------------------------------------
+\subsection{Tangent Stiffness}
+\label{sec:truss-tangent}
+
+The consistent tangent stiffness for nonlinear material behaviour:
+\begin{equation}
+    \mathbf{K}_t = A \cdot L \cdot E_t(\varepsilon) \cdot \mathbf{B}^T \mathbf{B},
+    \label{eq:truss-Kt}
+\end{equation}
+where $E_t = \partial\sigma/\partial\varepsilon$ is the algorithmic tangent
+modulus returned by the material model.
+
+
+% --------------------------------------------------------------------------
+\subsection{Mass Matrix}
+\label{sec:truss-mass}
+
+The consistent mass matrix for a 2-node bar with density $\rho$:
+\begin{equation}
+    \mathbf{M}_e = \frac{\rho A L}{6}
+    \begin{pmatrix}
+        2\mathbf{I} & \mathbf{I} \\
+        \mathbf{I}  & 2\mathbf{I}
+    \end{pmatrix},
+    \label{eq:truss-M}
+\end{equation}
+where $\mathbf{I}$ is the $\mathrm{Dim} \times \mathrm{Dim}$ identity
+matrix.  This gives lumped entries $\rho A L / 3$ on the diagonal
+and coupling terms $\rho A L / 6$ on the off-diagonal blocks.
+
+
+% ==========================================================================
+\section{Implementation}
+\label{sec:truss-implementation}
+
+The element resides in a single header file,
+\texttt{src/elements/TrussElement.hh} ($\sim$230~lines), and is templated
+on the spatial dimension:
+
+\begin{lstlisting}[style=cppstyle]
+template <std::size_t Dim = 3>
+class TrussElement {
+    static_assert(Dim == 2 || Dim == 3);
+
+    ElementGeometry<Dim>*      geometry_;
+    Material<UniaxialMaterial> material_;  // 1 GP
+    double                     area_;
+    double                     L_;
+    BMatrixT                   B_;        // precomputed (1 x 2*Dim)
+    // ...
+};
+\end{lstlisting}
+
+\noindent Key design decisions:
+
+\begin{enumerate}
+    \item \textbf{Precomputed B-matrix.}  Since $\mathbf{B}$ is constant
+          for a 2-node element, it is computed once in the constructor from
+          nodal coordinates and reused in all subsequent assembly calls.
+          This avoids repeated geometry queries during nonlinear iterations.
+
+    \item \textbf{Direct \texttt{Material<UniaxialMaterial>} storage.}  The
+          element stores a type-erased uniaxial material handle
+          directly, bypassing the \texttt{MaterialPoint} wrapper.  This is
+          necessary because \texttt{MaterialPoint} binds a material to an
+          \texttt{IntegrationPoint<dim>} where \texttt{dim} is the
+          \emph{spatial} dimension---but the truss element lives in 3D
+          space while its constitutive response is 1D.
+
+    \item \textbf{DOF cache pattern.}  Following the same lazy-initialisation
+          pattern as \texttt{ContinuumElement}, DOF indices are gathered from
+          the \texttt{ElementGeometry} nodes on first use and cached for
+          subsequent PETSc assembly calls.
+
+    \item \textbf{Concept satisfaction.}  A \texttt{static\_assert} at
+          file scope verifies that both \texttt{TrussElement<3>} and
+          \texttt{TrussElement<2>} satisfy the \texttt{FiniteElement}
+          concept (Section~\ref{sec:truss-concept}).
+\end{enumerate}
+
+
+% --------------------------------------------------------------------------
+\subsection{FiniteElement Concept Compliance}
+\label{sec:truss-concept}
+
+The \texttt{FiniteElement} concept requires:
+\begin{center}
+\begin{tabular}{lcc}
+    \toprule
+    Method & ContinuumElement & TrussElement \\
+    \midrule
+    \texttt{num\_nodes()} & $n$ (8, 20, \ldots) & 2 \\
+    \texttt{num\_integration\_points()} & $n_{gp}$ & 1 \\
+    \texttt{sieve\_id()} & from geometry & from geometry \\
+    \texttt{set\_num\_dof\_in\_nodes()} & $\mathrm{Dim}$ per node & $\mathrm{Dim}$ per node \\
+    \texttt{inject\_K(Mat)} & $\int \mathbf{B}^T\mathbf{D}\mathbf{B}\,dV$
+                             & $A L E\,\mathbf{B}^T\mathbf{B}$ \\
+    \texttt{compute\_internal\_forces(Vec,Vec)} & $\int \mathbf{B}^T\bsigma\,dV$
+                                                 & $A L \sigma\,\mathbf{B}^T$ \\
+    \texttt{inject\_tangent\_stiffness(Vec,Mat)} & $\int \mathbf{B}^T\mathbf{D}_t\mathbf{B}\,dV$
+                                                  & $A L E_t\,\mathbf{B}^T\mathbf{B}$ \\
+    \texttt{commit\_material\_state(Vec)} & per GP & single GP \\
+    \texttt{revert\_material\_state()} & per GP & single GP \\
+    \bottomrule
+\end{tabular}
+\end{center}
+
+The truss element assembles into the same global PETSc matrices via
+\texttt{MatSetValuesLocal} and \texttt{VecSetValues}, interoperating
+seamlessly with continuum elements in a mixed-topology model.
+
+
+% --------------------------------------------------------------------------
+\subsection{Integration with Mixed-Topology Models}
+\label{sec:truss-mixed}
+
+When truss elements coexist with hex elements in the same DMPlex mesh,
+the model must use \texttt{MultiElementPolicy} (heterogeneous element
+storage via type-erased \texttt{FEM\_Element} wrappers):
+
+\begin{lstlisting}[style=cppstyle]
+// Wrap both element types in FEM_Element
+std::vector<FEM_Element> elements;
+for (auto& hex : hex_elements)
+    elements.emplace_back(std::move(hex));
+for (auto& truss : truss_elements)
+    elements.emplace_back(std::move(truss));
+
+// Constructor 2: pre-built element vector
+Model<MultiElementPolicy> model(domain, std::move(elements));
+\end{lstlisting}
+
+\noindent DOF coupling requires that truss nodes coincide with hex nodes
+in the DMPlex sieve.  The \texttt{PrismaticDomainBuilder} generates the
+hex mesh with node positions at regular grid points; rebar elements are
+created by connecting pairs of these shared nodes along rebar paths.
+
+
+% ==========================================================================
+\section{Verification}
+\label{sec:truss-verification}
+
+A comprehensive unit test suite (\texttt{tests/test\_truss\_element.cpp},
+$\sim$600~lines, 26~assertions) validates the implementation against
+analytical solutions.
+
+% --------------------------------------------------------------------------
+\subsection{Test Material}
+\label{sec:truss-test-material}
+
+All tests use a Menegotto--Pinto steel model with very high yield stress
+($f_y = 10^{12}$~MPa) to ensure purely elastic behaviour during
+verification:
+\begin{equation}
+    E = 200\,000~\text{MPa}, \quad f_y = 10^{12}~\text{MPa}, \quad b = 0.01.
+\end{equation}
+Within the elastic range, $\sigma = E\varepsilon$ and $E_t = E$, giving
+analytically predictable stiffness and force values.
+
+% --------------------------------------------------------------------------
+\subsection{Geometry Tests}
+\label{sec:truss-geometry-tests}
+
+\textbf{X-aligned bar} (nodes at $(0,0,0)$ and $(2,0,0)$):
+\begin{itemize}
+    \item \texttt{num\_nodes} = 2, \texttt{num\_integration\_points} = 1.
+    \item $L = 2.0$.
+\end{itemize}
+
+\textbf{Diagonal bar} (nodes at $(0,0,0)$ and $(1,1,1)$):
+\begin{itemize}
+    \item $L = \sqrt{3}$.
+\end{itemize}
+
+% --------------------------------------------------------------------------
+\subsection{Stiffness Tests}
+\label{sec:truss-stiffness-tests}
+
+\textbf{X-aligned bar} ($A=0.01$, $E=200\,000$, $L=2$):
+\begin{equation}
+    \frac{EA}{L} = \frac{200\,000 \times 0.01}{2} = 1000.
+    \label{eq:truss-test-EA-L}
+\end{equation}
+Verified entries:
+$K_{00} = +1000$,
+$K_{03} = -1000$,
+$K_{33} = +1000$,
+$K_{11} = 0$ (transverse),
+$K_{22} = 0$ (transverse).
+
+\textbf{Diagonal bar} ($\hat{\mathbf{e}} = (1/\sqrt{3},\, 1/\sqrt{3},\, 0)^T$
+for a bar from origin to $(1,1,0,0)$... actually $(1,1,1)$ with
+$\cos^2\alpha = 1/3$):
+\begin{equation}
+    K_{00} = \frac{EA}{L}\cos^2\alpha = \frac{EA}{L}\cdot\frac{1}{3}, \quad
+    K_{01} = \frac{EA}{L}\cos\alpha\cos\beta = \frac{EA}{L}\cdot\frac{1}{3}.
+    \label{eq:truss-test-diagonal}
+\end{equation}
+
+% --------------------------------------------------------------------------
+\subsection{Internal Force Test}
+\label{sec:truss-force-test}
+
+Imposing $\delta = 0.002$ axial elongation on the x-aligned bar:
+\begin{equation}
+    \varepsilon = \frac{\delta}{L} = 0.001, \quad
+    \sigma = E\varepsilon = 200, \quad
+    F = \sigma A = 2.0~\text{force units}.
+\end{equation}
+Verified: $f_0 = -F$, $f_3 = +F$, $f_1 = f_4 = 0$.
+
+% --------------------------------------------------------------------------
+\subsection{Additional Tests}
+
+\begin{itemize}
+    \item \textbf{Tangent consistency}: $\mathbf{K}_t(\mathbf{u}=\mathbf{0})
+          = \mathbf{K}$ for elastic material (all $6 \times 6$ entries).
+    \item \textbf{Commit/revert}: Material state after commit preserves
+          strain; revert returns to last committed state.
+    \item \textbf{FEM\_Element wrapping}: \texttt{TrussElement<3>} wraps
+          successfully in \texttt{FEM\_Element} with preserved topology
+          queries (\texttt{num\_nodes}, \texttt{num\_gp}, \texttt{sieve\_id}).
+    \item \textbf{Mass matrix}: Diagonal entries $M_{00} = 2\rho AL/6$,
+          off-diagonal $M_{03} = \rho AL/6$, cross-direction $M_{01} = 0$.
+\end{itemize}
+
+All 26 assertions pass.
+
+
+% ==========================================================================
+\section{Discussion}
+\label{sec:truss-discussion}
+
+The \texttt{TrussElement} completes the element infrastructure needed for
+reinforced concrete sub-models.  With the concrete continuum modelled by
+hexahedral elements using \texttt{KoBatheConcrete3D}
+(Chapter~\ref{ch:ko-bathe-3d}) and steel reinforcement modelled by truss
+elements using \texttt{MenegottoPintoSteel}, the sub-model solver can
+now represent the composite behaviour of confined concrete with embedded
+rebar.
+
+The \textbf{perfect-bond assumption} (shared nodes) is appropriate for
+well-confined regions typical of beam--column joints, where bond slip is
+negligible under monotonic and low-cycle fatigue loading.
+
+The next step is integrating the \texttt{TrussElement} into the
+\texttt{SubModelSolver} (Chapter~\ref{ch:multiscale_seismic}), which
+requires:
+\begin{enumerate}
+    \item A rebar mesh generator that creates line elements sharing nodes
+          with the hex mesh inside the prismatic sub-model volume.
+    \item Switching the model policy from \texttt{SingleElementPolicy} to
+          \texttt{MultiElementPolicy}.
+    \item Assigning distinct materials: \texttt{KoBatheConcrete3D} for hex
+          elements and \texttt{MenegottoPintoSteel} for truss elements.
+\end{enumerate}

@@ -339,6 +339,15 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(fall_n_seismic_v20 PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+add_executable(fall_n_seismic_v21 main_multiscale_seismic.cpp)
+target_link_libraries(fall_n_seismic_v21 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_seismic_v21 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_seismic_v21 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_seismic_v21 PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_seismic_v21 PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
@@ -498,6 +507,14 @@ fall_n_add_test(TARGET fall_n_ko_bathe_concrete_test
 fall_n_add_test(TARGET fall_n_ko_bathe_concrete_3d_test
     NAME ko_bathe_concrete_3d  SOURCE tests/test_ko_bathe_concrete_3d.cpp
     LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_truss_element_test
+    NAME truss_element  SOURCE tests/test_truss_element.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reinforced_submodel_test
+    NAME reinforced_submodel  SOURCE tests/test_reinforced_submodel.cpp
+    LIBS FULL  LABEL integration)
 
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp

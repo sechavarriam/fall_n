@@ -264,6 +264,7 @@ class NonlinearAnalysis {
         DMRestoreLocalVector(dm, &u_local);
 
         // Update model's current_state for post-processing
+        VecSet(model_->state_vector(), 0.0);
         DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
         VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
     }

@@ -106,6 +106,13 @@ private:
     static constexpr double SQ2 = 1.4142135623730951;
     static constexpr double SQ3 = 1.7320508075688772;
 
+    // 3D stiffness retention factors — larger than 2D to tame the tangent
+    // discontinuity at crack initiation.  With η_N=0.20 the eigenvalue
+    // ratio across the crack threshold is 5:1, allowing Newton to converge
+    // without deep bisection.
+    static constexpr double ETA_N_3D = 0.20;   // vs 0.0001 in 2D
+    static constexpr double ETA_S_3D = 0.50;   // vs 0.1 in 2D
+
 
     // =====================================================================
     //  Octahedral stress invariants — full 3D (Eqs. 2a–2b)
@@ -555,7 +562,7 @@ private:
                     && std::abs(ts.Cts) > TOL) {
                 Enn = ts.Cts;
             } else {
-                Enn = KoBatheParameters::eta_N * C_local(0, 0);
+                Enn = ETA_N_3D * C_local(0, 0);
             }
 
             // Modify crack-local Mandel stiffness
@@ -567,8 +574,8 @@ private:
             }
 
             // Shear retention: indices 4 (n-t₂) and 5 (n-t₁) in Voigt {11,22,33,23,13,12}
-            C_local(4, 4) *= KoBatheParameters::eta_S;
-            C_local(5, 5) *= KoBatheParameters::eta_S;
+            C_local(4, 4) *= ETA_S_3D;
+            C_local(5, 5) *= ETA_S_3D;
 
             // Rotate back: C = Q^T · C_local · Q
             C_m = Q.transpose() * C_local * Q;
@@ -726,7 +733,8 @@ private:
 
     [[nodiscard]] EvalResult3D evaluate(
         const Vec6& eps_total,
-        const KoBatheState3D& state) const
+        const KoBatheState3D& state,
+        bool check_new_cracks = true) const
     {
         KoBatheState3D st = state;
 
@@ -779,7 +787,12 @@ private:
             const double s1_max = evals[2];        // largest principal stress
             const Vec3 n1_dir  = evecs.col(2);     // corresponding direction
 
-            if (st.num_cracks < 3 && s1_max > TOL) {
+            // New crack formation is only performed when check_new_cracks
+            // is true (i.e. during commit).  Skipping this during Newton
+            // iterations prevents oscillation between cracked/uncracked
+            // states at Gauss points near the threshold, which otherwise
+            // causes a non-convergent 2-cycle.
+            if (check_new_cracks && st.num_cracks < 3 && s1_max > TOL) {
                 double g = crack_function_3d(oct2.sigma_o, oct2.tau_o, oct2.cos3theta);
                 if (g > 0.0) {
                     Vec3 normal = n1_dir.normalized();
@@ -870,7 +883,7 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& alpha) const
     {
-        auto result = evaluate(strain.components(), alpha);
+        auto result = evaluate(strain.components(), alpha, /*check_new_cracks=*/false);
         ConjugateT stress;
         stress.set_components(result.stress);
         return stress;
@@ -880,22 +893,22 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& alpha) const
     {
-        return evaluate(strain.components(), alpha).tangent;
+        return evaluate(strain.components(), alpha, /*check_new_cracks=*/false).tangent;
     }
 
     void commit(InternalVariablesT& alpha, const KinematicT& strain) const {
-        alpha = evaluate(strain.components(), alpha).state_new;
+        alpha = evaluate(strain.components(), alpha, /*check_new_cracks=*/true).state_new;
     }
 
     [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
-        auto result = evaluate(strain.components(), state_);
+        auto result = evaluate(strain.components(), state_, /*check_new_cracks=*/false);
         ConjugateT stress;
         stress.set_components(result.stress);
         return stress;
     }
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
-        return evaluate(strain.components(), state_).tangent;
+        return evaluate(strain.components(), state_, /*check_new_cracks=*/false).tangent;
     }
 
     // =====================================================================
@@ -903,7 +916,7 @@ public:
     // =====================================================================
 
     void update(const KinematicT& strain) {
-        state_ = evaluate(strain.components(), state_).state_new;
+        state_ = evaluate(strain.components(), state_, /*check_new_cracks=*/true).state_new;
     }
 
     [[nodiscard]] const InternalVariablesT& internal_state() const {

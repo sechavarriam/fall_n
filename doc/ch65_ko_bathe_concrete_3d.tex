@@ -1,0 +1,546 @@
+% ==========================================================================
+%  Chapter 65 — Ko–Bathe Concrete Model: 3D Extension (N=6)
+% ==========================================================================
+
+\chapter{Ko--Bathe Concrete Model: Three-Dimensional Extension}
+\label{ch:ko-bathe-3d}
+
+Chapter~\ref{ch:ko-bathe-concrete} documented the plane-stress ($N\!=\!3$)
+implementation of the Ko--Bathe plastic-fracturing concrete model.  This
+chapter extends the formulation to the full three-dimensional stress space
+($N\!=\!6$), following the same algorithmic structure---fracturing, plasticity,
+cracking---but with the geometric and algebraic modifications required by six
+independent stress components and three potential crack planes.
+
+The implementation resides in a single header,
+\texttt{KoBatheConcrete3D.hh} ($\sim$620~lines), and reuses the \texttt{KoBatheParameters}
+structure from the 2D version without modification.
+
+% ========================================================================
+\section{Voigt Convention and State Variables}
+\label{sec:kb3d-voigt}
+
+The Voigt ordering follows the \texttt{fall\_n} convention:
+\begin{equation}
+  \bsigma = (\sigma_{xx},\;\sigma_{yy},\;\sigma_{zz},\;
+              \tau_{yz},\;\tau_{xz},\;\tau_{xy})^T, \quad
+  \bvarepsilon = (\varepsilon_{xx},\;\varepsilon_{yy},\;\varepsilon_{zz},\;
+                   \gamma_{yz},\;\gamma_{xz},\;\gamma_{xy})^T,
+  \label{eq:voigt-3d}
+\end{equation}
+where $\gamma_{ij} = 2\varepsilon_{ij}$ denotes engineering shear strain.
+
+The internal state structure \texttt{KoBatheState3D} stores:
+\begin{itemize}
+  \item \textbf{Fracture history}: $\sigma_{o,\max}$ and $\tau_{o,\max}$
+        (octahedral stress maxima driving stiffness degradation).
+  \item \textbf{Plastic strain}: $\bvarepsilon^p \in \mathbb{R}^6$ in Voigt
+        notation, plus three effective plastic strains $\bar\varepsilon^p_1$,
+        $\bar\varepsilon^p_2$, $\bar\varepsilon^p_3$ (compression coordinate
+        hardening variables).
+  \item \textbf{Crack data}: up to 3 orthogonal smeared cracks, each defined
+        by a normal vector $\mathbf{n}_i \in \mathbb{R}^3$, opening strain
+        $\varepsilon_{nn,i}$, maximum historical opening
+        $\varepsilon_{nn,i}^{\max}$, and a closure flag.
+\end{itemize}
+
+
+% ========================================================================
+\section{Octahedral Stress Invariants in 3D}
+\label{sec:kb3d-octahedral}
+
+For a general three-dimensional stress state with principal stresses
+$\sigma_1 \ge \sigma_2 \ge \sigma_3$ obtained from the eigenvalue
+decomposition of the Cauchy stress tensor, the octahedral invariants are
+
+\begin{align}
+  \sigma_o &= \frac{1}{3}(\sigma_1 + \sigma_2 + \sigma_3), \label{eq:sigma-o-3d} \\[4pt]
+  \tau_o   &= \frac{\sqrt{2\,J_2}}{3}, \qquad
+  J_2 = \tfrac{1}{2}(s_1^2 + s_2^2 + s_3^2), \label{eq:tau-o-3d}
+\end{align}
+where $s_i = \sigma_i - \sigma_o$ are deviatoric principal stresses.
+
+The Lode angle $\theta \in [0, \pi/3]$ is computed via
+\begin{equation}
+  \cos(3\theta) = \frac{3\sqrt{3}}{2}\,\frac{J_3}{J_2^{3/2}},
+  \qquad J_3 = s_1\,s_2\,s_3.
+  \label{eq:lode-angle}
+\end{equation}
+The Lode angle governs the shape of the failure surface in the deviatoric
+plane through an elliptic interpolation function (see
+Section~\ref{sec:kb3d-cracking}).
+
+\paragraph{Reduction to plane stress.}
+Setting $\sigma_3 = 0$ and computing the principal stresses from
+$(\sigma_{xx}, \sigma_{yy}, \tau_{xy})$ recovers the 2D octahedral invariants
+of Chapter~\ref{ch:ko-bathe-concrete}.
+
+
+% ========================================================================
+\section{Principal Strain Decomposition}
+\label{sec:kb3d-principal}
+
+The elastic strain tensor
+\[
+  \mathbf{E}^e =
+  \begin{pmatrix}
+    \varepsilon_{xx} & \varepsilon_{xy} & \varepsilon_{xz} \\
+    \varepsilon_{xy} & \varepsilon_{yy} & \varepsilon_{yz} \\
+    \varepsilon_{xz} & \varepsilon_{yz} & \varepsilon_{zz}
+  \end{pmatrix},
+  \qquad \varepsilon_{ij} = \gamma_{ij}/2 \text{ for } i \neq j,
+\]
+is decomposed by Eigen's \texttt{SelfAdjointEigenSolver} into sorted principal
+values $\varepsilon_1 \ge \varepsilon_2 \ge \varepsilon_3$ and an orthogonal
+eigenvector matrix~$\mathbf{V}$.  The rows of $\mathbf{V}$ are the principal
+directions, so that the rotation from global to principal coordinates is
+$\varepsilon^{\text{princ}} = \mathbf{V} \cdot \varepsilon^{\text{global}}
+ \cdot \mathbf{V}^T$.
+
+
+% ========================================================================
+\section{Compression Coordinates}
+\label{sec:kb3d-compression}
+
+Plasticity operates in a \emph{compression coordinate} space derived from the
+compressive magnitudes of the principal elastic strains:
+\begin{equation}
+  D_i = \max(-\varepsilon_i^e, \; 0), \qquad i = 1, 2, 3.
+  \label{eq:Di}
+\end{equation}
+Since $\varepsilon_1 \ge \varepsilon_2 \ge \varepsilon_3$, we have
+$D_3 \ge D_2 \ge D_1 \ge 0$.
+
+The three elastic strain coordinates that drive the yield surfaces are:
+\begin{align}
+  \hat{e}_1 &= \frac{D_1 + D_2 + D_3}{\sqrt{3}}
+             && \text{(hydrostatic)}, \label{eq:ee1-3d} \\
+  \hat{e}_2 &= D_3 - D_1
+             && \text{(deviatoric)}, \label{eq:ee2-3d} \\
+  \hat{e}_3 &= \frac{D_1 + D_2 + D_3}{2}
+             && \text{(biaxial)}. \label{eq:ee3-3d}
+\end{align}
+
+\paragraph{Consistency with the 2D formulation.}
+In the plane-stress case ($\varepsilon_3 = \sigma_{zz} = 0$, so
+$D_3 = 0$ whenever $\varepsilon_3 \ge 0$), the coordinates reduce to
+\[
+  \hat{e}_1 \to \frac{D_1 + D_2}{\sqrt{3}}, \qquad
+  \hat{e}_2 \to D_2 - D_1, \qquad
+  \hat{e}_3 \to \frac{D_1 + D_2}{2},
+\]
+which is exactly the 2D definition in Chapter~\ref{ch:ko-bathe-concrete}
+(where $\tilde{e}_1 = D_2 - D_1$ and $\tilde{e}_2 = D_1 + D_2$, mapped to
+$\hat{e}_1 = \tilde{e}_2/\sqrt{3}$, $\hat{e}_2 = \tilde{e}_1$,
+$\hat{e}_3 = \tilde{e}_2/2$).
+
+This definition—which uses the simple difference $D_3 - D_1$ rather than an
+invariant-based deviatoric radius $\sqrt{2J_{2,D}}$---ensures that the
+calibration constants ($c_{p2} = 36$, $c_{p3} = 12$, etc.)\ obtained for
+the 2D model remain valid in 3D without re-calibration.
+
+
+% ========================================================================
+\section{Isotropic 3D Tangent Matrix}
+\label{sec:kb3d-tangent}
+
+The secant and tangent constitutive matrices use the standard isotropic form
+\begin{equation}
+  \mathbf{C}(K, G) =
+  \begin{pmatrix}
+    \lambda + 2\mu & \lambda & \lambda & 0 & 0 & 0 \\
+    \lambda & \lambda + 2\mu & \lambda & 0 & 0 & 0 \\
+    \lambda & \lambda & \lambda + 2\mu & 0 & 0 & 0 \\
+    0 & 0 & 0 & G & 0 & 0 \\
+    0 & 0 & 0 & 0 & G & 0 \\
+    0 & 0 & 0 & 0 & 0 & G
+  \end{pmatrix}, \quad
+  \lambda = K - \tfrac{2}{3}G, \quad
+  \mu = G.
+  \label{eq:C-iso-3d}
+\end{equation}
+Here $K$ and $G$ are the \emph{secant} bulk and shear moduli from the
+fracturing algorithm (identical scalar formulas as in 2D) or the
+\emph{consistent} (tangent) moduli $K_c$, $G_c$.
+
+
+% ========================================================================
+\section{Mandel Rotation for the Cracked Tangent}
+\label{sec:kb3d-mandel}
+
+In 2D, applying crack modifications to the tangent matrix requires only a
+$3\times3$ rotation.  In 3D, the analogous transformation involves a
+$6\times6$ matrix whose construction requires careful handling of the
+engineering/tensor shear distinction.
+
+\subsection{Mandel Notation}
+
+The \emph{Mandel} (or normalised Voigt) representation scales the shear
+components by $\sqrt{2}$:
+\[
+  \boldsymbol{\sigma}^M =
+  (\sigma_{11},\;\sigma_{22},\;\sigma_{33},\;
+   \sqrt{2}\,\sigma_{23},\;\sqrt{2}\,\sigma_{13},\;\sqrt{2}\,\sigma_{12})^T.
+\]
+In this notation, a rotation $\mathbf{R} \in \mathrm{SO}(3)$ applied to a
+second-order tensor corresponds to an \emph{orthogonal} $6\times6$ matrix
+$\mathbf{Q}$ acting on the Mandel vector:
+\[
+  \boldsymbol{\sigma}^M_{\text{rot}} = \mathbf{Q}\,\boldsymbol{\sigma}^M, \qquad
+  \mathbf{Q}^{-1} = \mathbf{Q}^T.
+\]
+The orthogonality $\mathbf{Q}^T\mathbf{Q} = \mathbf{I}$ is the key property
+that makes Mandel notation attractive: fourth-order tensor transformations
+reduce to simple matrix products.
+
+\subsection{Construction of the Mandel Rotation Matrix}
+
+Given a rotation matrix $\mathbf{R}$ whose rows are the basis vectors
+$(\mathbf{n}, \mathbf{t}_1, \mathbf{t}_2)$ of the local crack frame, the
+$6\times6$ Mandel rotation matrix has four blocks:
+
+\paragraph{Normal--Normal block} ($3\times3$, upper-left):
+\[
+  Q_{ij} = R_{ij}^2, \qquad i, j \in \{0, 1, 2\}.
+\]
+
+\paragraph{Normal--Shear block} ($3\times3$, upper-right):
+For shear index $s \leftrightarrow (a, b)$ with convention
+$3 \to (1,2)$, $4 \to (0,2)$, $5 \to (0,1)$:
+\[
+  Q_{i,\,s+3} = \sqrt{2}\, R_{i,a}\, R_{i,b}.
+\]
+
+\paragraph{Shear--Normal block} ($3\times3$, lower-left):
+\[
+  Q_{s+3,\,j} = \sqrt{2}\, R_{a,j}\, R_{b,j}.
+\]
+
+\paragraph{Shear--Shear block} ($3\times3$, lower-right):
+\[
+  Q_{s_1+3,\,s_2+3} = R_{a_1, a_2}\, R_{b_1, b_2} + R_{a_1, b_2}\, R_{b_1, a_2}.
+\]
+
+\subsection{Engineering--Mandel Conversion}
+
+Conversion between the engineering Voigt matrix $\mathbf{C}^{\text{eng}}$ and
+the Mandel matrix $\mathbf{C}^M$ is performed via a diagonal scaling matrix
+$\mathbf{D} = \mathrm{diag}(1, 1, 1, \sqrt{2}, \sqrt{2}, \sqrt{2})$:
+\begin{equation}
+  \mathbf{C}^M = \mathbf{D}\,\mathbf{C}^{\text{eng}}\,\mathbf{D}^{-1}.
+  \label{eq:eng-mandel}
+\end{equation}
+
+\subsection{Cracked Tangent Application}
+
+For each active crack $i$ with normal $\mathbf{n}_i$:
+\begin{enumerate}
+  \item Build an orthonormal basis $(\mathbf{n}, \mathbf{t}_1, \mathbf{t}_2)$.
+  \item Construct the rotation matrix $\mathbf{R}$ with rows
+        $(\mathbf{n}, \mathbf{t}_1, \mathbf{t}_2)$.
+  \item Convert $\mathbf{C}^{\text{eng}}$ to Mandel:
+        $\mathbf{C}^M = \mathbf{D}\mathbf{C}\mathbf{D}^{-1}$.
+  \item Rotate to crack-local frame:
+        $\mathbf{C}^M_{\text{loc}} = \mathbf{Q}\,\mathbf{C}^M\,\mathbf{Q}^T$.
+  \item In the local frame, modify the $(0,0)$ component (normal stiffness):
+        \[
+          C^M_{\text{loc}}(0,0) \leftarrow
+          \begin{cases}
+            C_{\text{intact}} & \text{if crack closed}, \\
+            C_{ts}           & \text{if in softening zone } (\varepsilon_{tp} \le \varepsilon_{nn} \le \varepsilon_{tu}), \\
+            \eta_N \cdot C_{\text{intact}} & \text{otherwise (fully open)}.
+          \end{cases}
+        \]
+        Decouple the normal row/column: $C^M(0,j) = C^M(j,0) = 0$ for $j \neq 0$.
+        Apply shear retention: $C^M(4,4) \leftarrow \eta_S \cdot C^M(4,4)$,
+        $C^M(5,5) \leftarrow \eta_S \cdot C^M(5,5)$.
+  \item Rotate back: $\mathbf{C}^M = \mathbf{Q}^T\,\mathbf{C}^M_{\text{loc}}\,\mathbf{Q}$.
+  \item Convert back to engineering: $\mathbf{C}^{\text{eng}} = \mathbf{D}^{-1}\mathbf{C}^M\mathbf{D}$.
+\end{enumerate}
+
+Multiple cracks are applied sequentially; each crack modifies the tangent
+produced by the previous one.
+
+
+% ========================================================================
+\section{Crack Initiation in 3D}
+\label{sec:kb3d-cracking}
+
+A new crack is initiated when the maximum principal stress direction exceeds
+the crack function envelope.  The crack function uses the Menetr\'{e}y--Willam
+form with the Lode angle $\theta$ from Eq.~\eqref{eq:lode-angle}:
+
+\begin{equation}
+  g(\sigma_o, \tau_o, \theta) = \tau_o - \frac{0.944\,f_c'}{w(e, \theta)} \,
+  \left(t_p - \frac{\sigma_o}{f_c'}\right)^{0.724},
+  \label{eq:crack-function-3d}
+\end{equation}
+where $w(e, \theta)$ is the polar radius of an elliptic deviatoric cross-section:
+\[
+  w(e,\theta) = \frac{4(1-e^2)\cos^2\theta + (2e-1)^2}
+  {2(1-e^2)\cos\theta + (2e-1)\sqrt{4(1-e^2)\cos^2\theta + 5e^2 - 4e}},
+\]
+and the eccentricity $e$ depends on the current stress state:
+\begin{equation}
+  e = 0.670551 \left(t_p - \frac{\sigma_o}{f_c'}\right)^{0.133}.
+\end{equation}
+
+A crack initiates when $g > 0$.  Its normal is the eigenvector corresponding
+to the largest principal stress.  Additional cracks are orthogonalised:
+\begin{itemize}
+  \item The second crack normal is projected to lie in the plane
+        perpendicular to the first crack normal.
+  \item The third crack normal is computed as the cross product of the
+        first two normals.
+\end{itemize}
+This guarantees a mutually orthogonal set of up to three crack planes in 3D.
+
+
+% ========================================================================
+\section{Plasticity Return Mapping}
+\label{sec:kb3d-plasticity}
+
+The plasticity algorithm operates on the same three yield surfaces as the 2D
+model (hydrostatic, uniaxial, biaxial), defined in the compression coordinate
+space of Section~\ref{sec:kb3d-compression}:
+\begin{align}
+  f_1 &= \hat{e}_1 - f_c'\,f_{p1}(\bar\varepsilon^p_1), \label{eq:f1-3d} \\
+  f_2 &= \hat{e}_2 - f_c'\,f_{p2}(\bar\varepsilon^p_2), \\
+  f_3 &= \hat{e}_3 - f_c'\,f_{p3}(\bar\varepsilon^p_3). \label{eq:f3-3d}
+\end{align}
+The failure curves $f_{p1}$, $f_{p2}$, $f_{p3}$ and their derivatives are
+identical to those in 2D (Chapter~\ref{ch:ko-bathe-concrete},
+Section~``Yield Functions'').
+
+\subsection{Back-Transform: Compression Coordinates to Global Voigt}
+
+The Newton iteration produces plastic multiplier increments
+$\Delta\lambda_1$ (hydrostatic), $\Delta\lambda_2$ (deviatoric), and
+$\Delta\lambda_3$ (biaxial; only updates the hardening variable
+$\bar\varepsilon^p_3$, no plastic flow).
+
+The back-transform from compression coordinates to principal plastic strain
+increments is:
+\begin{align}
+  \Delta\varepsilon^p_1 &= -\!\left(\frac{\Delta\lambda_1}{\sqrt{3}} - \frac{\Delta\lambda_2}{2}\right), \\
+  \Delta\varepsilon^p_2 &= -\frac{\Delta\lambda_1}{\sqrt{3}}, \\
+  \Delta\varepsilon^p_3 &= -\!\left(\frac{\Delta\lambda_1}{\sqrt{3}} + \frac{\Delta\lambda_2}{2}\right).
+\end{align}
+This is the natural 3D extension of the 2D back-transform: the volumetric
+contribution $\Delta\lambda_1/\sqrt{3}$ is shared equally among all three
+principal directions, while the deviatoric contribution $\pm\Delta\lambda_2/2$
+is added to the extreme directions ($D_1$ and $D_3$) symmetrically.
+
+\paragraph{Principal to global.}
+The principal plastic strain increment tensor
+$\Delta\varepsilon^p_{\text{princ}} = \mathrm{diag}(\Delta\varepsilon^p_1,
+\Delta\varepsilon^p_2, \Delta\varepsilon^p_3)$
+is rotated to the global frame using the eigenvector matrix $\mathbf{V}$:
+\[
+  \Delta\boldsymbol{\varepsilon}^p_{\text{global}} = \mathbf{V}^T \cdot
+  \Delta\boldsymbol{\varepsilon}^p_{\text{princ}} \cdot \mathbf{V},
+\]
+and the resulting tensor is mapped to Voigt form (with engineering shear
+$\gamma_{ij} = 2\varepsilon_{ij}$).
+
+
+% ========================================================================
+\section{Full Algorithm}
+\label{sec:kb3d-algorithm}
+
+The 3D evaluation follows the same eight-step structure as the 2D model
+(Table~1 in~\cite{KoBathe2026}), with the dimensional extensions described
+above:
+
+\begin{enumerate}
+  \item Elastic strain: $\bvarepsilon^e = \bvarepsilon - \bvarepsilon^p$.
+  \item Principal decomposition of $\bvarepsilon^e$ (eigenvalues + eigenvectors).
+  \item Fracture moduli $K_s$, $G_s$, $\sigma_{id}$ from history
+        ($\sigma_{o,\max}$, $\tau_{o,\max}$).
+  \item Secant stress: $\bsigma = \mathbf{C}(K_s, G_s)\,\bvarepsilon^e
+        - \sigma_{id}\,\boldsymbol{\delta}$.
+  \item Update fracture history (track envelope of $\sigma_o$, $\tau_o$).
+  \item Cracking check: evaluate crack function~\eqref{eq:crack-function-3d};
+        if $g > 0$ and fewer than 3 cracks exist, initiate new crack with
+        orthogonality enforcement.
+  \item Update crack opening strains $\varepsilon_{nn,i}$; apply cracked
+        tangent (Section~\ref{sec:kb3d-mandel}); recompute stress.
+  \item Plasticity return mapping
+        (Section~\ref{sec:kb3d-plasticity}); update $\bvarepsilon^p$ and
+        recalculate equilibrium stress.
+\end{enumerate}
+
+
+% ========================================================================
+\section{Integration with the Sub-Model Solver}
+\label{sec:kb3d-integration}
+
+The 3D model is integrated into the multiscale sub-model solver chain
+through the \texttt{fall\_n} type-erasure infrastructure:
+
+\begin{lstlisting}
+InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_MPa};
+Material<ThreeDimensionalMaterial> mat{mat_inst, InelasticUpdate{}};
+Model<ThreeDimensionalMaterial, SmallStrain, 3> M{domain, mat};
+\end{lstlisting}
+
+Here \texttt{InelasticMaterial<R>} is a type alias for
+\texttt{MaterialInstance<R, CommittedState>}, which wraps the constitutive
+relation \texttt{R} in an algorithmic state holder that provides the
+\texttt{commit()} / \texttt{revert()} interface required by the Newton--Raphson
+solver.
+
+\subsection{Operator-Splitting Crack Check}
+\label{sec:kb3d-operator-splitting}
+
+A critical convergence issue arises from the sharp transition between
+\emph{uncracked} ($\mathbf{C} = \mathbf{C}_e$) and \emph{cracked}
+($\mathbf{C} = \eta_N\,\mathbf{C}_e$) tangent stiffness.  When several
+Gauss points are near the crack-initiation threshold, the standard
+Newton procedure oscillates: an element cracks $\to$ stress drops $\to$
+Newton update reverses the strain $\to$ element un-cracks $\to$ stress
+rises $\to$ element cracks again.  This creates a non-convergent 2-cycle
+that no amount of damping, line-search tuning, or bisection can resolve.
+
+The \texttt{evaluate()} function is pure-functional (copies the committed
+state and returns a modified copy without mutating the input), so the
+oscillation is between consistent but \emph{different} branches of the
+stress function at each iteration---not from state mutation.
+
+The fix is an \emph{operator splitting} strategy: the
+\texttt{check\_new\_cracks} flag (default \texttt{true}) in
+\texttt{evaluate()} gates the crack-initiation check (Step~7).
+During Newton iterations, \texttt{compute\_response()} and
+\texttt{tangent()} pass \texttt{false}; only \texttt{commit()} passes
+\texttt{true}.  This means:
+
+\begin{itemize}
+  \item During Newton iterations: the stress function $\bsigma(\bvarepsilon)$
+        is smooth---it uses only the \emph{committed} crack state (no new
+        cracks form).  Newton converges reliably.
+  \item At commit time: \texttt{evaluate()} runs with full crack checking,
+        propagating any new cracks into the committed state.
+  \item The next load step begins from the updated state, and Newton
+        iteration proceeds smoothly again.
+\end{itemize}
+
+\subsection{PETSc Solver Configuration}
+
+The sub-model solver uses incremental displacement control with 20 steps
+and 8 levels of recursive bisection:
+
+\begin{lstlisting}
+PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
+PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
+PetscOptionsSetValue(nullptr, "-pc_type", "lu");
+constexpr int NUM_STEPS  = 20;
+constexpr int MAX_BISECT = 8;
+\end{lstlisting}
+
+Key design choices:
+
+\begin{itemize}
+  \item \textbf{Basic line search} (no backtracking): the committed-crack
+        tangent still creates piecewise-smooth residuals that confuse
+        the backtracking line search (PETSc reason $-6$ =
+        \texttt{SNES\_DIVERGED\_LINE\_SEARCH} in v3.24).  Basic line search
+        takes the full Newton step and relies on the operator-splitting
+        smoothness for convergence.
+  \item \textbf{Direct LU}: always succeeds for the sub-model problem
+        size ($\sim$1350 DOFs).
+  \item \textbf{20 steps with bisection}: each step imposes $\Delta p = 0.05$.
+        At each commit boundary new cracks form, and the next step starts
+        from a well-defined state.
+\end{itemize}
+
+
+% ========================================================================
+\section{Test Suite}
+\label{sec:kb3d-tests}
+
+The test file \texttt{tests/test\_ko\_bathe\_concrete\_3d.cpp} validates 23
+checks across 10 test groups:
+
+\begin{enumerate}
+  \item \textbf{Concept satisfaction} (3 compile-time \texttt{static\_assert}s).
+  \item \textbf{3D elastic response}: tangent symmetry, positive diagonal,
+        correct $\sigma_{xx}$, $\sigma_{yy}$ for uniaxial strain.
+  \item \textbf{Uniaxial compression} curves for $f_c' = 21$ and $30$~MPa
+        (CSV export); peak stress within calibration bounds.
+  \item \textbf{Triaxial compression}: confinement increases peak mean stress
+        beyond $f_c'$.
+  \item \textbf{Tension cracking}: positive peak tensile stress $\le 2f_t$;
+        crack normal aligned with the tension direction; 1 crack formed.
+  \item \textbf{Mandel rotation orthogonality}: hydrostatic strain produces
+        equal normal stresses and vanishing shear.
+  \item \textbf{Biaxial compression}: enhanced strength beyond $0.5\,f_c'$.
+  \item \textbf{Commit cycle consistency}: external-state and internal-state
+        evaluation paths produce identical stresses.
+  \item \textbf{Pure shear}: positive $\tau_{xy}$, normal stresses $\approx 0$.
+  \item \textbf{3D vs.\ 2D consistency}: uniaxial stress path comparison; maximum
+        stress deviation within $50\%$ of $f_c'$.
+\end{enumerate}
+
+All 23/23 checks pass.  The CSV output for the uniaxial compression curves
+allows visual comparison with the 2D model and the reference
+paper~\cite{KoBathe2026}.
+
+
+% ========================================================================
+\section{Discussion}
+\label{sec:kb3d-discussion}
+
+\paragraph{Compression coordinate choice.}
+An early implementation used $\hat{e}_2 = \sqrt{2\,J_{2,D}}$ (the deviatoric
+radius of the compressive strain vector $\mathbf{D}$) as a more
+``invariant-based'' extension.  However, this yields
+$\hat{e}_2 \approx 0.82\,\varepsilon_c$ under uniaxial compression (versus
+$\hat{e}_2 = \varepsilon_c$ with the current definition), delaying plasticity
+activation and producing peak stresses $\sim$\!3$\times f_c'$.  The direct
+difference $D_3 - D_1$ preserves consistency with the original 2D calibration
+constants.
+
+\paragraph{Tangent conditioning and stiffness retention.}
+The cracked tangent features stiffness retention factors
+$\eta_N = 0.20$ (normal) and $\eta_S = 0.50$ (shear), significantly
+larger than the 2D counterparts ($10^{-4}$ and $0.1$).  The higher
+values improve SNES convergence without significantly affecting the
+structural response, since the sub-model elements are small ($\sim$10\,cm)
+and the global behaviour is governed by the beam kinematics at the
+structural scale.
+
+\paragraph{Newton convergence and operator splitting.}
+The ``pure-functional'' design of \texttt{evaluate()} introduces a subtle
+convergence pathology.  Because \texttt{compute\_response()} always starts
+from the \emph{committed} state (before the current load step), each
+Newton iteration re-evaluates the stress without memory of what happened
+in the previous iteration.  Near the cracking threshold, this creates a
+non-convergent 2-cycle: trial strain crosses the threshold $\to$ crack
+forms (in the local copy) $\to$ stress drops $\to$ Newton update reverses
+the strain $\to$ no crack forms $\to$ stress rises $\to$ cycle repeats.
+
+This 2-cycle manifests as PETSc convergence reason $-6$
+(\texttt{SNES\_DIVERGED\_LINE\_SEARCH} in v3.24, \emph{not}
+\texttt{SNES\_DIVERGED\_LINEAR\_SOLVE}, which is reason $-3$).  The
+backtracking line search fails because the residual oscillates rather
+than decreasing monotonically.
+
+The fix is operator splitting: the flag
+\texttt{check\_new\_cracks\,=\,false} is passed during Newton iterations
+(via \texttt{compute\_response} and \texttt{tangent}), while
+\texttt{commit()} calls with \texttt{true} to allow new cracks to form
+only after convergence.  Combined with the basic (full-step) line search,
+typical sub-model solves converge in 3--34 SNES iterations per load
+increment, with occasional bisections near $p \approx 0.95$.
+
+\paragraph{Mandel vs.\ engineering Voigt.}
+The Mandel notation transformation is central to the 3D cracked tangent.
+Using engineering Voigt directly would require separate transformation
+matrices for stress and strain ($\mathbf{T}_\sigma \neq \mathbf{T}_\varepsilon$),
+and the product
+$\mathbf{C}_{\text{rot}} = \mathbf{T}_\sigma^{-1}\,\mathbf{C}_{\text{loc}}\,\mathbf{T}_\varepsilon$
+loses the symmetry guarantee.  Mandel notation avoids this by ensuring
+$\mathbf{Q}^{-1} = \mathbf{Q}^T$, so that
+$\mathbf{C}^M_{\text{rot}} = \mathbf{Q}^T\,\mathbf{C}^M_{\text{loc}}\,\mathbf{Q}$
+is symmetric whenever $\mathbf{C}^M_{\text{loc}}$ is.
