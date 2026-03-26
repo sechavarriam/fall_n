@@ -495,6 +495,10 @@ fall_n_add_test(TARGET fall_n_ko_bathe_concrete_test
     NAME ko_bathe_concrete  SOURCE tests/test_ko_bathe_concrete.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_ko_bathe_concrete_3d_test
+    NAME ko_bathe_concrete_3d  SOURCE tests/test_ko_bathe_concrete_3d.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)
