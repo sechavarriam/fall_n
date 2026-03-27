@@ -147,6 +147,17 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(fall_n_multiscale_seismic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# ── L-shaped building multiscale seismic (3-component, Hex20, nonlinear) ─────
+add_executable(fall_n_lshaped_multiscale main_lshaped_multiscale.cpp)
+target_link_libraries(fall_n_lshaped_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_lshaped_multiscale MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_lshaped_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_lshaped_multiscale PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_lshaped_multiscale PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # ── Seismic multiscale v2 (fixed DT, explicit time step) ─────────────────────
 add_executable(fall_n_seismic_v2 main_multiscale_seismic.cpp)
 target_link_libraries(fall_n_seismic_v2 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})

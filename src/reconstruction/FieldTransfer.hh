@@ -313,6 +313,7 @@ struct SubModelSpec {
     double section_width;
     double section_height;
     int    nx, ny, nz;
+    HexOrder hex_order = HexOrder::Linear;
 };
 
 template <typename BeamElementT, typename LocalStateT>
