@@ -230,9 +230,10 @@ public:
 
         times_.push_back(ev.time);
 
-        // Read displacement Vec once
+        // Read the model's localized state vector so node-local DOF indices
+        // map to the correct entries regardless of PETSc global layout.
         const PetscScalar* u_arr = nullptr;
-        VecGetArrayRead(ev.displacement, &u_arr);
+        VecGetArrayRead(model.state_vector(), &u_arr);
 
         for (std::size_t i = 0; i < channels_.size(); ++i) {
             const auto& ch = channels_[i];
@@ -247,7 +248,7 @@ public:
             data_[i].push_back(val);
         }
 
-        VecRestoreArrayRead(ev.displacement, &u_arr);
+        VecRestoreArrayRead(model.state_vector(), &u_arr);
     }
 
     void on_analysis_end([[maybe_unused]] const ModelT& model) override {
