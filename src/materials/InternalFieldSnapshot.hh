@@ -74,18 +74,21 @@ struct InternalFieldSnapshot {
 
     std::optional<int> num_cracks{};
 
-    // Crack normal vectors as 3D (x, y, z).  Up to 2 cracks.
-    // crack_normal_1[2] = 0.0 for plane-stress models.
+    // Crack normal vectors as 3D (x, y, z).  Up to 3 cracks.
+    // crack_normal_N[2] = 0.0 for plane-stress models.
     std::optional<std::array<double, 3>> crack_normal_1{};
     std::optional<std::array<double, 3>> crack_normal_2{};
+    std::optional<std::array<double, 3>> crack_normal_3{};
 
     // Per-crack opening strain (normal to crack face)
     std::optional<double> crack_strain_1{};
     std::optional<double> crack_strain_2{};
+    std::optional<double> crack_strain_3{};
 
     // Per-crack closed status (0.0 = open, 1.0 = closed)
     std::optional<double> crack_closed_1{};
     std::optional<double> crack_closed_2{};
+    std::optional<double> crack_closed_3{};
 
     // ── Fracturing history invariants — for concrete models ─────────────
     std::optional<double> sigma_o_max{};   // max octahedral normal stress (compression)
