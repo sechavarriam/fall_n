@@ -8,6 +8,7 @@
 #include "../model/Model.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
+#include "AnalysisObserver.hh"
 #include "IncrementalControl.hh"
 #include "StepDirector.hh"
 #include "SteppableSolver.hh"
@@ -85,6 +86,11 @@ class NonlinearAnalysis {
     //  Arguments: (step_number, lambda, model_ref)
     using StepCallback = std::function<void(int, double, const ModelT&)>;
     StepCallback step_callback_{};
+
+    // ─── Observer protocol (optional) ─────────────────────────────
+    //  Structured alternative to StepCallback, supporting start/step/end
+    //  lifecycle events via the AnalysisObserver protocol.
+    fall_n::ObserverCallback<ModelT> observer_{};
 
     // ─── Single-step (incremental) state ──────────────────────────
     //  Persisted between begin_incremental() and subsequent step() calls.
@@ -292,6 +298,18 @@ public:
     /// Signature: void(int step, double lambda, const ModelT& model).
     void set_step_callback(StepCallback cb) { step_callback_ = std::move(cb); }
 
+    /// Register a structured observer (start/step/end lifecycle).
+    /// Accepts any observer-like object (CompositeObserver, DynamicObserverList, etc.)
+    template <typename Obs>
+    void set_observer(Obs& obs) {
+        observer_ = fall_n::make_observer_callback<ModelT>(obs);
+    }
+
+    /// Register an ObserverCallback directly.
+    void set_observer(fall_n::ObserverCallback<ModelT> cb) {
+        observer_ = std::move(cb);
+    }
+
     /// Query SNES convergence reason after solve (positive = converged).
     SNESConvergedReason converged_reason() const {
         SNESConvergedReason reason;
@@ -447,6 +465,8 @@ public:
             "  Incremental solve: %d steps, max bisection depth = %d\n",
             num_steps, max_bisections);
 
+        if (observer_.on_start) observer_.on_start(*model_);
+
         for (int step = 1; step <= num_steps; ++step) {
             double p_target = static_cast<double>(step) / num_steps;
 
@@ -461,6 +481,10 @@ public:
                 p_done = p_target;
                 ++steps_done;
                 if (step_callback_) step_callback_(step, p_done, *model_);
+                if (observer_.on_step) {
+                    fall_n::StepEvent ev{step, p_done, U.get(), nullptr};
+                    observer_.on_step(ev, *model_);
+                }
             } else {
                 all_ok = false;
                 PetscPrintf(PETSC_COMM_WORLD,
@@ -482,6 +506,8 @@ public:
         PetscPrintf(PETSC_COMM_WORLD,
             "  Incremental solve %s at p = %.4f\n",
             all_ok ? "COMPLETED" : "ABORTED", p_done);
+
+        if (observer_.on_end) observer_.on_end(*model_);
 
         return all_ok;
     }
@@ -723,6 +749,10 @@ public:
             p_done_ = p_target;
             ++step_count_;
             if (step_callback_) step_callback_(step_count_, p_done_, *model_);
+            if (observer_.on_step) {
+                fall_n::StepEvent ev{step_count_, p_done_, U.get(), nullptr};
+                observer_.on_step(ev, *model_);
+            }
         }
 
         model_->update_elements_state();

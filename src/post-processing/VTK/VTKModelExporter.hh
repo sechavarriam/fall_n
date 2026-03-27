@@ -1160,10 +1160,13 @@ public:
             std::vector<double> num_cracks_buf;
             std::vector<double> crack_normal_1_buf;   // 3-component vectors
             std::vector<double> crack_normal_2_buf;
+            std::vector<double> crack_normal_3_buf;
             std::vector<double> crack_strain_1_buf;
             std::vector<double> crack_strain_2_buf;
+            std::vector<double> crack_strain_3_buf;
             std::vector<double> crack_closed_1_buf;
             std::vector<double> crack_closed_2_buf;
+            std::vector<double> crack_closed_3_buf;
             std::vector<double> sigma_o_max_buf;
             std::vector<double> tau_o_max_buf;
 
@@ -1236,14 +1239,29 @@ public:
                             crack_normal_2_buf.push_back(0.0);
                         }
 
+                        if (snap.crack_normal_3) {
+                            const auto& n3 = snap.crack_normal_3.value();
+                            crack_normal_3_buf.push_back(n3[0]);
+                            crack_normal_3_buf.push_back(n3[1]);
+                            crack_normal_3_buf.push_back(n3[2]);
+                        } else {
+                            crack_normal_3_buf.push_back(0.0);
+                            crack_normal_3_buf.push_back(0.0);
+                            crack_normal_3_buf.push_back(0.0);
+                        }
+
                         crack_strain_1_buf.push_back(
                             snap.crack_strain_1.value_or(0.0));
                         crack_strain_2_buf.push_back(
                             snap.crack_strain_2.value_or(0.0));
+                        crack_strain_3_buf.push_back(
+                            snap.crack_strain_3.value_or(0.0));
                         crack_closed_1_buf.push_back(
                             snap.crack_closed_1.value_or(0.0));
                         crack_closed_2_buf.push_back(
                             snap.crack_closed_2.value_or(0.0));
+                        crack_closed_3_buf.push_back(
+                            snap.crack_closed_3.value_or(0.0));
                     }
 
                     // ── Fracturing history invariants ────────────────────
@@ -1314,6 +1332,9 @@ public:
                 push_field_buffer(
                     gauss_fields_, "qp_crack_normal_2",
                     std::move(crack_normal_2_buf), 3);
+                push_field_buffer(
+                    gauss_fields_, "qp_crack_normal_3",
+                    std::move(crack_normal_3_buf), 3);
                 push_scalar_field_buffer(
                     gauss_fields_, "qp_crack_strain_1",
                     std::move(crack_strain_1_buf));
@@ -1321,11 +1342,17 @@ public:
                     gauss_fields_, "qp_crack_strain_2",
                     std::move(crack_strain_2_buf));
                 push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_strain_3",
+                    std::move(crack_strain_3_buf));
+                push_scalar_field_buffer(
                     gauss_fields_, "qp_crack_closed_1",
                     std::move(crack_closed_1_buf));
                 push_scalar_field_buffer(
                     gauss_fields_, "qp_crack_closed_2",
                     std::move(crack_closed_2_buf));
+                push_scalar_field_buffer(
+                    gauss_fields_, "qp_crack_closed_3",
+                    std::move(crack_closed_3_buf));
             }
 
             // ── Fracturing history invariants ────────────────────────────
@@ -1434,10 +1461,13 @@ public:
             std::vector<double> num_cracks_buf;
             std::vector<double> crack_normal_1_buf;
             std::vector<double> crack_normal_2_buf;
+            std::vector<double> crack_normal_3_buf;
             std::vector<double> crack_strain_1_buf;
             std::vector<double> crack_strain_2_buf;
+            std::vector<double> crack_strain_3_buf;
             std::vector<double> crack_closed_1_buf;
             std::vector<double> crack_closed_2_buf;
+            std::vector<double> crack_closed_3_buf;
             std::vector<double> sigma_o_max_buf;
             std::vector<double> tau_o_max_buf;
 
@@ -1467,6 +1497,13 @@ public:
                     }
                     ++elem_idx;
                     continue;
+                }
+
+                // Pad records when element reports fewer material points
+                // than the geometry's quadrature count (e.g. TrussElement
+                // has 1 GP but Line2 geometry has 2 quadrature points).
+                while (records.size() < ngp_geom) {
+                    records.push_back(records.back());
                 }
 
                 ++elem_idx;
@@ -1523,14 +1560,27 @@ public:
                             crack_normal_2_buf.insert(
                                 crack_normal_2_buf.end(), 3, 0.0);
                         }
+                        if (snap.crack_normal_3) {
+                            const auto& n3 = snap.crack_normal_3.value();
+                            crack_normal_3_buf.push_back(n3[0]);
+                            crack_normal_3_buf.push_back(n3[1]);
+                            crack_normal_3_buf.push_back(n3[2]);
+                        } else {
+                            crack_normal_3_buf.insert(
+                                crack_normal_3_buf.end(), 3, 0.0);
+                        }
                         crack_strain_1_buf.push_back(
                             snap.crack_strain_1.value_or(0.0));
                         crack_strain_2_buf.push_back(
                             snap.crack_strain_2.value_or(0.0));
+                        crack_strain_3_buf.push_back(
+                            snap.crack_strain_3.value_or(0.0));
                         crack_closed_1_buf.push_back(
                             snap.crack_closed_1.value_or(0.0));
                         crack_closed_2_buf.push_back(
                             snap.crack_closed_2.value_or(0.0));
+                        crack_closed_3_buf.push_back(
+                            snap.crack_closed_3.value_or(0.0));
                     }
                     if (snap.has_fracture_history()) {
                         has_fracture_hist = true;
@@ -1563,10 +1613,13 @@ public:
                 pad_scalar(num_cracks_buf);
                 pad_vector3(crack_normal_1_buf);
                 pad_vector3(crack_normal_2_buf);
+                pad_vector3(crack_normal_3_buf);
                 pad_scalar(crack_strain_1_buf);
                 pad_scalar(crack_strain_2_buf);
+                pad_scalar(crack_strain_3_buf);
                 pad_scalar(crack_closed_1_buf);
                 pad_scalar(crack_closed_2_buf);
+                pad_scalar(crack_closed_3_buf);
             }
             if (has_fracture_hist) {
                 pad_scalar(sigma_o_max_buf);
@@ -1628,6 +1681,9 @@ public:
                 push_field_buffer(gauss_fields_,
                     "qp_crack_normal_2",
                     std::move(crack_normal_2_buf), 3);
+                push_field_buffer(gauss_fields_,
+                    "qp_crack_normal_3",
+                    std::move(crack_normal_3_buf), 3);
                 push_scalar_field_buffer(gauss_fields_,
                     "qp_crack_strain_1",
                     std::move(crack_strain_1_buf));
@@ -1635,11 +1691,17 @@ public:
                     "qp_crack_strain_2",
                     std::move(crack_strain_2_buf));
                 push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_strain_3",
+                    std::move(crack_strain_3_buf));
+                push_scalar_field_buffer(gauss_fields_,
                     "qp_crack_closed_1",
                     std::move(crack_closed_1_buf));
                 push_scalar_field_buffer(gauss_fields_,
                     "qp_crack_closed_2",
                     std::move(crack_closed_2_buf));
+                push_scalar_field_buffer(gauss_fields_,
+                    "qp_crack_closed_3",
+                    std::move(crack_closed_3_buf));
             }
             if (has_fracture_hist) {
                 push_scalar_field_buffer(gauss_fields_,

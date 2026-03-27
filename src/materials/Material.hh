@@ -139,6 +139,18 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
          snap.crack_strain_2 = alpha.crack_strain[1];
          snap.crack_closed_2 = alpha.crack_closed[1] ? 1.0 : 0.0;
       }
+      if (alpha.num_cracks >= 3) {
+         if constexpr (NormalT::SizeAtCompileTime >= 3) {
+            snap.crack_normal_3 = {alpha.crack_normals[2][0],
+                                   alpha.crack_normals[2][1],
+                                   alpha.crack_normals[2][2]};
+         } else {
+            snap.crack_normal_3 = {alpha.crack_normals[2][0],
+                                   alpha.crack_normals[2][1], 0.0};
+         }
+         snap.crack_strain_3 = alpha.crack_strain[2];
+         snap.crack_closed_3 = alpha.crack_closed[2] ? 1.0 : 0.0;
+      }
    }
 
    // ── Fracturing history invariants (concrete models) ───────────────────

@@ -360,6 +360,17 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(fall_n_lshaped_rc PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# ── RC beam 3D validation (Ko-Bathe + rebar, imposed rotation) ────────────────
+add_executable(fall_n_rc_beam_validation main_rc_beam_validation.cpp)
+target_link_libraries(fall_n_rc_beam_validation PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_rc_beam_validation MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_rc_beam_validation PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_rc_beam_validation PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_rc_beam_validation PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
 # ==============================================================================

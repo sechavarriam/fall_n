@@ -30,6 +30,7 @@
 #include "element_geometry/ElementGeometry.hh"
 #include "FiniteElementConcept.hh"
 
+#include "../materials/InternalFieldSnapshot.hh"
 #include "../materials/Material.hh"
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Strain.hh"
@@ -216,6 +217,33 @@ public:
 
     void revert_material_state() {
         material_.revert();
+    }
+
+    // ── Post-processing: Gauss-point field export for VTK ─────────
+    //
+    //  Promotes uniaxial σ/ε to 6-component Voigt vectors:
+    //    [σ_axial, 0, 0, 0, 0, 0]
+    //
+    //  Returns exactly 1 record (1 material point).  The VTK exporter
+    //  handles padding to the domain geometry's GP count.
+
+    std::vector<GaussFieldRecord> collect_gauss_fields(Vec u_local) const {
+        // Need mutable access to extract element DOFs (dof cache)
+        auto& self = const_cast<TrussElement&>(*this);
+        FVectorT u_e = self.extract_element_dofs(u_local);
+
+        double eps = B_.dot(u_e);
+        Strain<1> strain_val(eps);
+
+        auto sigma = material_.compute_response(strain_val);
+        double sig = sigma.components();
+
+        GaussFieldRecord rec;
+        rec.strain = {eps, 0.0, 0.0, 0.0, 0.0, 0.0};
+        rec.stress = {sig, 0.0, 0.0, 0.0, 0.0, 0.0};
+        rec.snapshot = material_.internal_field_snapshot();
+
+        return {std::move(rec)};
     }
 
     // ── Mass matrix (optional — for dynamics) ─────────────────────────
