@@ -81,6 +81,7 @@
 
 #include <vtkNew.h>
 #include <vtkSmartPointer.h>
+#include <vtkCellData.h>
 #include <vtkDoubleArray.h>
 #include <vtkPointData.h>
 #include <vtkPoints.h>
@@ -370,10 +371,12 @@ private:
 
     std::vector<FieldBuffer> gauss_fields_;   // fields on Gauss grid
     std::vector<FieldBuffer> nodal_fields_;   // fields on mesh grid
+    std::vector<FieldBuffer> cell_fields_;    // fields per cell (e.g. local axes)
 
     MaterialFieldProjection last_material_field_projection_{
         MaterialFieldProjection::Auto};
     std::vector<std::string> attached_mesh_point_field_names_;
+    std::vector<std::string> attached_mesh_cell_field_names_;
     std::vector<std::string> attached_gauss_point_field_names_;
 
     // ══════════════════════════════════════════════════════════════════════
@@ -556,6 +559,18 @@ private:
     static void attach_point_field(vtkUnstructuredGrid* grid,
                                    const FieldBuffer& field) {
         grid->GetPointData()->AddArray(make_vtk_array(field));
+    }
+
+    static void attach_cell_field(vtkUnstructuredGrid* grid,
+                                  const FieldBuffer& field) {
+        grid->GetCellData()->AddArray(make_vtk_array(field));
+    }
+
+    void detach_mesh_cell_arrays() {
+        if (!mesh_loaded_) return;
+        remove_named_arrays(
+            mesh_grid_->GetCellData(), attached_mesh_cell_field_names_);
+        attached_mesh_cell_field_names_.clear();
     }
 
     [[nodiscard]] const FieldBuffer* find_nodal_field(
@@ -1068,6 +1083,51 @@ public:
 
     explicit VTKModelExporter(ModelT& model)
         : model_(std::addressof(model)) {}
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  set_local_axes — attach per-cell local axis vectors
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    //  Stores three 3-component cell fields ("local_x", "local_y",
+    //  "local_z") for every element in the domain, representing the
+    //  local coordinate frame.  When the frame is uniform (prismatic
+    //  sub-model), a single (e_x, e_y, e_z) is replicated to all cells.
+    //
+    //  These fields are exported as CellData in the VTU file, enabling
+    //  the analyst to visualise local axes using the Glyph filter in
+    //  ParaView (arrow glyphs oriented by each vector).
+    //
+
+    void set_local_axes(const std::array<double, 3>& e_x,
+                        const std::array<double, 3>& e_y,
+                        const std::array<double, 3>& e_z)
+    {
+        ensure_mesh_loaded();
+        const auto num_cells = static_cast<std::size_t>(
+            mesh_grid_->GetNumberOfCells());
+
+        auto fill = [&](const std::string& name,
+                        const std::array<double, 3>& v) {
+            std::vector<double> data(num_cells * 3);
+            for (std::size_t c = 0; c < num_cells; ++c) {
+                data[3 * c + 0] = v[0];
+                data[3 * c + 1] = v[1];
+                data[3 * c + 2] = v[2];
+            }
+            push_field_buffer(cell_fields_, name, std::move(data), 3);
+        };
+
+        // Remove any previously stored local-axis fields
+        auto is_axis = [](const FieldBuffer& f) {
+            return f.name == "local_x" || f.name == "local_y"
+                || f.name == "local_z";
+        };
+        std::erase_if(cell_fields_, is_axis);
+
+        fill("local_x", e_x);
+        fill("local_y", e_y);
+        fill("local_z", e_z);
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     //  set_displacement — record the displacement field
@@ -1757,10 +1817,16 @@ public:
     void write_mesh(const std::string& filename) {
         ensure_mesh_loaded();
         detach_mesh_exported_arrays();
+        detach_mesh_cell_arrays();
 
         for (const auto& field : nodal_fields_) {
             attach_point_field(mesh_grid_, field);
             attached_mesh_point_field_names_.push_back(field.name);
+        }
+
+        for (const auto& field : cell_fields_) {
+            attach_cell_field(mesh_grid_, field);
+            attached_mesh_cell_field_names_.push_back(field.name);
         }
 
         set_active_mesh_point_fields(mesh_grid_);
@@ -1808,9 +1874,11 @@ public:
 
     void clear_fields() {
         detach_mesh_exported_arrays();
+        detach_mesh_cell_arrays();
         detach_gauss_exported_arrays();
         gauss_fields_.clear();
         nodal_fields_.clear();
+        cell_fields_.clear();
     }
 };
 
