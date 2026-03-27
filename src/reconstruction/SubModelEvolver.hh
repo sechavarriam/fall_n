@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <format>
 #include <string>
+#include <vector>
 
 #include "SubModelSolver.hh"
 #include "../analysis/MultiscaleCoordinator.hh"
@@ -45,6 +46,13 @@ class SubModelEvolver {
     int                 vtk_interval_;
     int                 step_count_{0};
 
+    // ── Optional rebar configuration ─────────────────────────────────
+    bool                       reinforced_{false};
+    RebarSteelConfig           steel_{};
+    RebarElementRange          rebar_range_{0, 0};
+    std::vector<double>        rebar_areas_;
+    int                        nz_{0};
+
 public:
 
     /// @param sub           Reference to MultiscaleSubModel (owned by coordinator).
@@ -62,6 +70,23 @@ public:
         , output_dir_{std::move(output_dir)}
         , vtk_interval_{vtk_interval}
     {}
+
+
+    // ── Enable embedded rebar ──────────────────────────────────────
+
+    /// Configure embedded rebar for reinforced sub-model solves.
+    /// After calling this, solve_step() uses solve_reinforced() internally.
+    void set_rebar(const RebarSteelConfig& steel,
+                   const RebarElementRange& range,
+                   const std::vector<double>& areas,
+                   int nz)
+    {
+        reinforced_  = true;
+        steel_       = steel;
+        rebar_range_ = range;
+        rebar_areas_ = areas;
+        nz_          = nz;
+    }
 
 
     // ── BC update ────────────────────────────────────────────────────────
@@ -97,7 +122,10 @@ public:
                                      step_count_);
         }
 
-        auto result = solver.solve(*sub_, vtk_prefix);
+        auto result = reinforced_
+            ? solver.solve_reinforced(*sub_, steel_, rebar_range_,
+                                      rebar_areas_, nz_, vtk_prefix)
+            : solver.solve(*sub_, vtk_prefix);
 
         if (!vtk_prefix.empty()) {
             pvd_mesh_.add_timestep(time,  vtk_prefix + "_mesh.vtu");

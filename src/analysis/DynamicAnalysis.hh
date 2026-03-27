@@ -79,6 +79,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include <petscts.h>
@@ -144,6 +145,11 @@ class DynamicAnalysis {
 
     // Step director for condition-based breakpoints (optional)
     fall_n::StepDirector<ModelT> director_;
+
+    // Deduplicate post-step processing when PETSc monitor and manual stepping
+    // both report the same converged step.
+    PetscInt last_post_step_{-1};
+    double   last_post_time_{-std::numeric_limits<double>::infinity()};
 
     // Ground motion influence vectors (one per direction with ground motion)
     struct GroundMotionInfo {
@@ -364,6 +370,13 @@ class DynamicAnalysis {
     //    4. Legacy monitor callback
 
     void post_step_(PetscInt step, double t, Vec U, Vec V) {
+
+        if (step == last_post_step_ && std::abs(t - last_post_time_) < 1e-14) {
+            return;
+        }
+
+        last_post_step_ = step;
+        last_post_time_ = t;
 
         DM dm = model_->get_plex();
 
@@ -679,8 +692,9 @@ public:
     /// Advance exactly one time step.
     ///
     /// Calls TSStep(ts_) to advance the TS integrator by one step.
-    /// The registered Monitor callback handles the post-step pipeline
-    /// (material commit, model state update, observers) automatically.
+    /// Then explicitly runs the post-step pipeline so step(), step_to(),
+    /// and step_n() all behave consistently even when PETSc monitors are not
+    /// invoked for manual stepping.
     ///
     /// Returns true if the step converged, false if it diverged.
     bool step() {
@@ -694,6 +708,14 @@ public:
         FALL_N_PETSC_CHECK(TSSetMaxSteps(ts_, current_step() + 1));
         FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, current_time() + 100.0 * get_time_step()));
         FALL_N_PETSC_CHECK(TSStep(ts_));
+
+        PetscInt  sn;
+        PetscReal t;
+        Vec U_cur, V_cur;
+        FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
+        FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
+        FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+        post_step_(sn, static_cast<double>(t), U_cur, V_cur);
 
         TSConvergedReason reason;
         FALL_N_PETSC_CHECK(TSGetConvergedReason(ts_, &reason));
@@ -725,35 +747,17 @@ public:
         FALL_N_PETSC_CHECK(TSSetMaxTime(ts_, t_target));
         FALL_N_PETSC_CHECK(TSSetExactFinalTime(ts_, TS_EXACTFINALTIME_MATCHSTEP));
 
-        DM dm = model_->get_plex();
-
         while (current_time() < t_target - 1e-14) {
             if (!step()) {
                 return fall_n::StepVerdict::Stop;
             }
 
-            // ── Update model state from TS solution ──────────────────
             PetscInt  sn;
             PetscReal t;
             Vec U_cur, V_cur;
             FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
             FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
             FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
-
-            // Scatter global TS solution to local model state vector
-            Vec scratch;
-            DMGetLocalVector(dm, &scratch);
-            VecSet(scratch, 0.0);
-            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_cur, INSERT_VALUES, scratch));
-            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U_cur, INSERT_VALUES, scratch));
-            VecAXPY(scratch, 1.0, model_->imposed_solution());
-            VecCopy(scratch, model_->state_vector());
-            DMRestoreLocalVector(dm, &scratch);
-
-            // Commit material state with the updated local vector
-            for (auto& element : model_->elements()) {
-                element.commit_material_state(model_->state_vector());
-            }
 
             // Evaluate director after step
             if (director) {
@@ -780,33 +784,17 @@ public:
     {
         setup();
 
-        DM dm = model_->get_plex();
-
         for (int i = 0; i < n; ++i) {
             if (!step()) {
                 return fall_n::StepVerdict::Stop;
             }
 
-            // ── Update model state from TS solution ──────────────────
             PetscInt  sn;
             PetscReal t;
             Vec U_cur, V_cur;
             FALL_N_PETSC_CHECK(TSGetStepNumber(ts_, &sn));
             FALL_N_PETSC_CHECK(TSGetTime(ts_, &t));
             FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
-
-            Vec scratch;
-            DMGetLocalVector(dm, &scratch);
-            VecSet(scratch, 0.0);
-            FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U_cur, INSERT_VALUES, scratch));
-            FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U_cur, INSERT_VALUES, scratch));
-            VecAXPY(scratch, 1.0, model_->imposed_solution());
-            VecCopy(scratch, model_->state_vector());
-            DMRestoreLocalVector(dm, &scratch);
-
-            for (auto& element : model_->elements()) {
-                element.commit_material_state(model_->state_vector());
-            }
 
             if (director) {
                 fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
