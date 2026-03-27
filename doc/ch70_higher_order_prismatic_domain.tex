@@ -1,0 +1,317 @@
+% ==========================================================================
+%  Chapter 70 — Higher-Order Prismatic Domains and VTK Local Axes
+% ==========================================================================
+
+\chapter{Higher-Order Prismatic Domains and VTK Local Axes}
+\label{ch:ho-prismatic-domain}
+
+Chapter~\ref{ch:reinforced-submodel} introduced the
+\texttt{PrismaticDomainBuilder} for generating structured hexahedral
+meshes (Hex8) automatically aligned to beam elements.  The present
+chapter generalises the builder to support higher-order hexahedral
+elements---specifically the 20-node serendipity element (Hex20) and the
+27-node triquadratic element (Hex27)---and adds a new VTK cell-data
+mechanism for exporting element local axes to ParaView.
+
+
+% =========================================================================
+\section{Motivation}
+\label{sec:ho-prism-motivation}
+
+Linear hexahedral elements (Hex8) are the simplest three-dimensional
+continuum elements but suffer from well-known shear-locking artifacts
+in bending-dominated problems.  When a prismatic sub-model is used to
+evaluate nonlinear concrete behaviour after kinematic reconstruction
+from a beam analysis, the accuracy of the strain field within the
+sub-model can be significantly improved by using quadratic elements.
+
+Two quadratic hexahedral variants are available in \texttt{fall\_n}:
+
+\begin{description}
+  \item[Hex20 — Serendipity (\texttt{SerendipityElement<3,3,2>})]
+        Uses 8 corner nodes plus 12 edge-midpoint nodes (no face or
+        body-centre nodes).  It yields a 20-DOF element that generally
+        performs well in bending and avoids most Hex8 locking issues.
+  \item[Hex27 — Triquadratic (\texttt{LagrangeElement3D<3,3,3>})]
+        Uses all 27 nodes of a $3\times 3\times 3$ tensor-product grid.
+        It offers full quadratic completeness at the cost of 7 additional
+        internal nodes per element.
+\end{description}
+
+Both use $3\times 3\times 3$ Gauss--Legendre quadrature (27 integration
+points), which is the minimum complete rule for triquadratic shape
+functions.
+
+
+% =========================================================================
+\section{The \texttt{HexOrder} Enumeration}
+\label{sec:ho-hex-order}
+
+The generalisation is controlled through the \texttt{HexOrder} enumeration:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+enum class HexOrder {
+    Linear,       // Hex8  -- 8-node trilinear
+    Serendipity,  // Hex20 -- 20-node serendipity
+    Quadratic     // Hex27 -- 27-node triquadratic
+};
+\end{lstlisting}
+
+A new field \texttt{hex\_order} was added to \texttt{PrismaticSpec} with
+a default value of \texttt{HexOrder::Linear}, so every existing call
+site remains unchanged:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+struct PrismaticSpec {
+    double width, height, length;
+    int    nx, ny, nz;
+    HexOrder hex_order = HexOrder::Linear;   // <-- new
+    // ... origin, e_x, e_y, e_z, physical_group
+};
+\end{lstlisting}
+
+
+% =========================================================================
+\section{Structured Grid Generalisation}
+\label{sec:ho-grid}
+
+The \texttt{PrismaticGrid} metadata struct was rewritten to support
+both linear and quadratic grids.  Two key additions drive the change:
+
+\begin{enumerate}
+  \item A \textbf{step} factor: \texttt{step = 1} for linear meshes,
+        \texttt{step = 2} for quadratic meshes.
+  \item The number of nodes per direction becomes
+        \texttt{step $\cdot$ n + 1} instead of \texttt{n + 1}.
+\end{enumerate}
+
+\noindent For a quadratic mesh with $n_x \times n_y \times n_z$ elements
+the grid has $(2n_x + 1) \times (2n_y + 1) \times (2n_z + 1)$ node
+positions.  Node IDs are assigned in lexicographic (column-major) order:
+%
+\begin{equation}
+  \text{node\_id}(i_x, i_y, i_z)
+  = i_z \cdot N_x \cdot N_y + i_y \cdot N_x + i_x,
+  \qquad
+  N_\alpha = \text{step} \cdot n_\alpha + 1.
+  \label{eq:ho-node-id}
+\end{equation}
+
+For Hex20 (serendipity) meshes, all $(2n+1)^3$ grid positions are
+created as nodes in the \texttt{Domain}, even though face-centre and
+body-centre positions are not referenced by any element connectivity.
+These orphan nodes are harmless and greatly simplify the code.
+
+The node spacing in each direction is $\Delta x / \text{step}$ so that
+mid-edge nodes lie at exactly the half-way position between element
+corners:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+const double sub_dx = dx / static_cast<double>(step);
+// lx = x0 + ix * sub_dx
+\end{lstlisting}
+
+
+% =========================================================================
+\section{Element Connectivity Patterns}
+\label{sec:ho-connectivity}
+
+\subsection{Hex8 — Linear}
+
+The original column-major pattern on a $\{0,1\}^3$ sub-grid:
+%
+\begin{equation}
+  \texttt{conn}[i_0 + 2\,i_1 + 4\,i_2]
+  = \text{node\_id}(e_x + i_0,\; e_y + i_1,\; e_z + i_2),
+  \qquad i_\alpha \in \{0,1\}.
+\end{equation}
+
+\subsection{Hex20 — Serendipity}
+
+The 20-node connectivity follows the node ordering of
+\texttt{SerendipityCell<3,2>}:
+
+\begin{itemize}
+  \item Nodes 0--7: corners at even grid offsets
+        $\{0,2\}^3$ from the base $(2e_x, 2e_y, 2e_z)$.
+  \item Nodes 8--11: bottom-face edge midpoints (one odd $x$ or $y$
+        index, $z$ at base).
+  \item Nodes 12--15: top-face edge midpoints (one odd index,
+        $z$ at base$+2$).
+  \item Nodes 16--19: vertical edge midpoints (both $x,y$ even,
+        $z$ at base$+1$).
+\end{itemize}
+
+\noindent This ordering matches VTK's
+\texttt{VTK\_QUADRATIC\_HEXAHEDRON} exactly, so no permutation is
+needed (identity map in \texttt{VTKCellTraits}).
+
+\subsection{Hex27 — Triquadratic}
+
+A full $3^3$ tensor product in column-major order:
+%
+\begin{equation}
+  \texttt{conn}[i_0 + 3\,i_1 + 9\,i_2]
+  = \text{node\_id}(2e_x + i_0,\; 2e_y + i_1,\; 2e_z + i_2),
+  \qquad i_\alpha \in \{0,1,2\}.
+\end{equation}
+
+
+% =========================================================================
+\section{Quadrature Selection}
+\label{sec:ho-quadrature}
+
+The quadrature rule is selected per element type:
+
+\begin{center}
+\begin{tabular}{lccc}
+  \toprule
+  Element & Template & Integrator & Gauss points \\
+  \midrule
+  Hex8  & \texttt{LagrangeElement3D<2,2,2>}
+        & \texttt{GaussLegendreCellIntegrator<2,2,2>} & $2^3 = 8$ \\
+  Hex20 & \texttt{SerendipityElement<3,3,2>}
+        & \texttt{GaussLegendreCellIntegrator<3,3,3>} & $3^3 = 27$ \\
+  Hex27 & \texttt{LagrangeElement3D<3,3,3>}
+        & \texttt{GaussLegendreCellIntegrator<3,3,3>} & $3^3 = 27$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The $3 \times 3 \times 3$ rule is the minimum complete rule for a
+triquadratic integrand $(\text{order } 2 \times 2 = 4$,
+requiring $\lceil 5/2 \rceil = 3$ points per direction).
+
+
+% =========================================================================
+\section{Reinforced Domain with Higher-Order Elements}
+\label{sec:ho-reinforced}
+
+The \texttt{make\_reinforced\_prismatic\_domain()} function was updated
+to dispatch on \texttt{hex\_order} using the same logic as the
+unreinforced builder.  The only change affecting rebar line elements is
+that corner nodes in a quadratic grid are located at even indices:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+PetscInt conn[2] = {
+    grid.node_id(step * bar.ix, step * bar.iy, step * iz),
+    grid.node_id(step * bar.ix, step * bar.iy, step * (iz + 1)),
+};
+\end{lstlisting}
+
+Since \texttt{step = 2} for quadratic meshes, the rebar bar at
+cross-section position \texttt{(ix, iy)} connects grid nodes
+\texttt{(2·ix, 2·iy, 2·iz)} and \texttt{(2·ix, 2·iy, 2·(iz+1))},
+both of which are corner positions shared by the surrounding hex
+elements.  The perfect-bond assumption is thus preserved exactly.
+
+
+% =========================================================================
+\section{The \texttt{align\_to\_beam} Helper}
+\label{sec:ho-align}
+
+The convenience function \texttt{align\_to\_beam()} now accepts an
+optional \texttt{HexOrder} parameter at the end of its argument list:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+PrismaticSpec align_to_beam(
+    A, B, up,
+    width, height,
+    nx, ny, nz,
+    group = "Solid",
+    hex_order = HexOrder::Linear    // <-- new, default = backward-compatible
+);
+\end{lstlisting}
+
+The returned \texttt{PrismaticSpec} carries the requested
+\texttt{hex\_order} alongside the computed origin and rotation matrix.
+
+
+% =========================================================================
+\section{VTK Local-Axes Cell Data}
+\label{sec:ho-vtk-axes}
+
+\subsection{Motivation}
+
+When interpreting material state fields (stress, strain, crack
+directions) on a prismatic sub-model, the analyst needs to know the
+element's local coordinate frame relative to the global axes.  Without
+this information, a shear stress $\sigma_{xz}$ in the results could
+refer to any direction, making visual inspection unreliable.
+
+\subsection{Implementation}
+
+The \texttt{VTKModelExporter} was extended with a general cell-data
+mechanism:
+
+\begin{enumerate}
+  \item A new member \texttt{cell\_fields\_} (same \texttt{FieldBuffer}
+        type used for nodal fields).
+  \item A new static method \texttt{attach\_cell\_field()} that calls
+        \texttt{grid->GetCellData()->AddArray(...)}.
+  \item A \texttt{detach\_mesh\_cell\_arrays()} housekeeping method.
+  \item Integration into \texttt{write\_mesh()}: after attaching
+        point-data arrays, cell-data arrays are also attached.
+  \item The \texttt{vtkCellData.h} header was added to the VTK include
+        block.
+\end{enumerate}
+
+A dedicated public method \texttt{set\_local\_axes(e\_x, e\_y, e\_z)}
+creates three 3-component cell fields named \texttt{local\_x},
+\texttt{local\_y} and \texttt{local\_z}.  Each field contains one
+3D vector per cell, all set to the corresponding axis direction.
+Usage:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+vtk_exporter.set_local_axes(spec.e_x, spec.e_y, spec.e_z);
+vtk_exporter.write_mesh("submodel.vtu");
+\end{lstlisting}
+
+\subsection{Visualisation in ParaView}
+
+To display local axes in ParaView:
+
+\begin{enumerate}
+  \item Open the \texttt{.vtu} file.
+  \item Apply a \textbf{Cell Centers} filter to obtain a point per cell.
+  \item Apply a \textbf{Glyph} filter on the result:
+        \begin{itemize}
+          \item Glyph type: Arrow.
+          \item Orientation array: \texttt{local\_x} (or \texttt{local\_y},
+                \texttt{local\_z}).
+          \item Scale mode: Off (uniform arrow length).
+        \end{itemize}
+  \item Repeat for each axis, using different colours.
+\end{enumerate}
+
+
+% =========================================================================
+\section{Example: Hex20 Prismatic Sub-Model}
+\label{sec:ho-example}
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+auto spec = fall_n::align_to_beam(
+    A, B, up,
+    0.40, 0.60,    // width, height
+    4, 6, 8,       // nx, ny, nz
+    "Concrete",
+    fall_n::HexOrder::Serendipity   // Hex20
+);
+
+auto [domain, grid] = fall_n::make_prismatic_domain(spec);
+// domain contains:
+//   4 * 6 * 8 = 192  Hex20 elements  (27 GPs each)
+//   (2*4+1)*(2*6+1)*(2*8+1) = 9 * 13 * 17 = 1989 nodes
+\end{lstlisting}
+
+
+% =========================================================================
+\section{Backward Compatibility}
+\label{sec:ho-compat}
+
+The default value \texttt{HexOrder::Linear} ensures that every existing
+call to \texttt{make\_prismatic\_domain()},
+\texttt{make\_reinforced\_prismatic\_domain()} and
+\texttt{align\_to\_beam()} continues to produce the same Hex8 meshes
+without modification.  The grid's \texttt{step = 1} reproduces the
+original \texttt{(n+1)} indexing identically.
