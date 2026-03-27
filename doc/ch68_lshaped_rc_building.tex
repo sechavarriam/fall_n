@@ -221,6 +221,16 @@ damage-index threshold of 0.80 is reached.  Figure~\ref{fig:lshaped-phase1-evolu
 traces the peak damage index ($d$) and peak fiber strain ($\varepsilon_{\max}$)
 versus simulation time.
 
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/lshaped_rc/damage_evolution.pdf}
+  \caption{Peak damage index evolution during Phase~1 (global fiber model,
+           blue circles) and Phase~2 (reinforced continuum sub-models,
+           red squares).  The dashed line marks the transition threshold
+           $d_{\mathrm{thr}} = 0.80$.}
+  \label{fig:lshaped-phase1-evolution}
+\end{figure}
+
 The response is initially linear-elastic for $t < 10$\,s (the first
 $\sim$10\,s within the window correspond to the P-wave coda of the
 T\={o}hoku event at 40\,s absolute time).  A rapid jump in damage occurs
@@ -314,6 +324,32 @@ $\max |u_y| = 6.83$\,mm.  At the end of the truncated run
 ($t = 15.2631$\,s), the roof retains a residual translation of roughly
 $-10.3$\,mm in $X$ at the right-hand edge nodes, confirming that the
 transition criterion is reached during a genuinely nonlinear drift state.
+
+Figure~\ref{fig:lshaped-roof-disp} shows the four roof-node time
+histories in both horizontal directions, and
+Figure~\ref{fig:lshaped-roof-orbit} visualises the displacement orbit
+at node~$(3,0)$ on the $u_x$--$u_y$ plane, clearly showing the
+residual drift towards the bottom-left corner of the orbit at the
+end of the analysis.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/lshaped_rc/roof_displacement.pdf}
+  \caption{Roof displacement time histories at the four monitored nodes.
+           Top: $u_x$ (NS direction); bottom: $u_y$ (EW direction).
+           The abrupt amplitude growth around $t=10$\,s corresponds to the
+           arrival of the S-wave phase in the T\={o}hoku MYG004 record.}
+  \label{fig:lshaped-roof-disp}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.55\textwidth]{figures/lshaped_rc/roof_orbit.pdf}
+  \caption{Displacement orbit at the roof node~$(3,0)$ showing
+           bidirectional coupling and the residual drift
+           ($\approx -10$\,mm in $u_x$) at the end of the analysis.}
+  \label{fig:lshaped-roof-orbit}
+\end{figure}
 
 The time histories reveal several characteristic features of
 bidirectional seismic response in an irregular building:
