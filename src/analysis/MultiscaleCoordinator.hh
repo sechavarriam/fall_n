@@ -160,7 +160,8 @@ public:
             auto pspec = align_to_beam(
                 ek.endpoint_A, ek.endpoint_B, ek.up_direction,
                 spec.section_width, spec.section_height,
-                spec.nx, spec.ny, spec.nz);
+                spec.nx, spec.ny, spec.nz,
+                "Solid", spec.hex_order);
 
             auto [domain, grid] = make_prismatic_domain(pspec);
             sub.domain = std::move(domain);
