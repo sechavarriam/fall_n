@@ -14,14 +14,17 @@
 //      + Menegotto-Pinto steel).  A TransitionDirector monitors damage at
 //      every step and pauses the instant any steel fiber reaches yield.
 //
-//    Phase 2 (local, nonlinear continuum sub-model evolution):
+//    Phase 2 (local, nonlinear RC continuum sub-model evolution):
 //      After the transition, the top-3 most-damaged column elements are
 //      identified via DamageTracker::peak_ranking().  For each critical
-//      column, a prismatic Hex20 sub-model is built by MultiscaleCoordinator.
-//      The sub-models are evolved through the rest of the earthquake using
-//      NonlinearSubModelEvolver, which persists KoBatheConcrete3D material
-//      state across all time steps so that plastic strains, crack patterns,
-//      and damage accumulate realistically.
+//      RC column, a prismatic Hex27 sub-model is built by MultiscaleCoordinator.
+//      The KoBatheConcrete3D constitutive model captures cracking, crushing,
+//      and damage evolution of the concrete matrix, while longitudinal and
+//      transverse reinforcement effects operate at the structural scale
+//      through the fiber sections.  The sub-models are evolved through the
+//      rest of the earthquake using NonlinearSubModelEvolver, which persists
+//      material state across all time steps so that plastic strains, crack
+//      patterns, and damage accumulate realistically.
 //
 //  Outputs
 //  -------
@@ -37,6 +40,7 @@
 //      roof_displacement.csv         nodal displacement histories
 //      fiber_hysteresis_concrete.csv top-5 concrete fiber hysteresis
 //      fiber_hysteresis_steel.csv    top-5 steel fiber hysteresis
+//      crack_evolution.csv           crack count/damage vs time (per sub-model)
 //
 //  Units: [m, MN, MPa = MN/m², MN·s²/m⁴, s]
 //
@@ -49,6 +53,7 @@
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numbers>
@@ -130,18 +135,18 @@ static const double OMEGA_3 = 2.0 * std::numbers::pi / 0.15;
 
 // ── Time integration ─────────────────────────────────────────────────────────
 static constexpr double DT      = 0.02;    // s
-static constexpr double T_SKIP  = 40.0;    // skip to main S-wave phase
-static constexpr double T_MAX   = 80.0;    // analysis window duration after skip
-static constexpr double EQ_SCALE = 0.5;    // scale factor (MYG004 is extreme: PGA≈2.7 g)
+static constexpr double T_SKIP  = 25.0;    // skip pre-event noise
+static constexpr double T_MAX   = 275.0;   // analysis window after skip (full strong motion)
+static constexpr double EQ_SCALE = 1.0;    // no scaling — full PGA for realism
 
 // ── Sub-model mesh ───────────────────────────────────────────────────────────
 static constexpr int SUB_NX = 4;
 static constexpr int SUB_NY = 4;
 static constexpr int SUB_NZ = 8;
 
-// ── Sub-model evolution ──────────────────────────────────────────────────────
-static constexpr int EVOL_VTK_INTERVAL   = 25;    // VTK every 25 steps (= 0.5 s)
-static constexpr int EVOL_PRINT_INTERVAL = 250;   // progress every 250 steps (= 5.0 s)
+// ── Sub-model evolution ────────────────────────────────────────────────────────
+static constexpr int EVOL_VTK_INTERVAL   = 50;    // VTK every 50 steps (= 1.0 s)
+static constexpr int EVOL_PRINT_INTERVAL = 500;   // progress every 500 steps (= 10.0 s)
 
 // ── Type aliases (small-strain, NDOF=6) ─────────────────────────────────────
 static constexpr std::size_t NDOF = 6;
@@ -497,7 +502,7 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────
     //  11. Extract element kinematics + build sub-models
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[11] Extracting kinematics and building Hex20 sub-models...");
+    std::println("\n[11] Extracting kinematics and building Hex27 (RC) sub-models...");
 
     auto extract_beam_kinematics = [&](std::size_t e_idx) -> ElementKinematics {
         const auto& se = model.elements()[e_idx];
@@ -531,14 +536,14 @@ int main(int argc, char* argv[]) {
         .nx = SUB_NX,
         .ny = SUB_NY,
         .nz = SUB_NZ,
-        .hex_order = HexOrder::Serendipity,  // Hex20
+        .hex_order = HexOrder::Quadratic,  // Hex27
     });
 
     const auto ms_report = coordinator.report();
     std::println("  Sub-models built   : {}", ms_report.num_elements);
     std::println("  Total nodes        : {}", ms_report.total_nodes);
     std::println("  Total elements     : {}", ms_report.total_elements);
-    std::println("  Element type       : Hex20 (Serendipity)");
+    std::println("  Element type       : Hex27 (triquadratic Lagrange)");
 
     // ─────────────────────────────────────────────────────────────────────
     //  12. Create NONLINEAR sub-model evolvers (persistent material state)
@@ -559,7 +564,8 @@ int main(int argc, char* argv[]) {
     }
 
     std::println("  Nonlinear evolvers : {}", nl_evolvers.size());
-    std::println("  Material model     : KoBatheConcrete3D (f'c={} MPa)", COL_FPC);
+    std::println("  Constitutive model : KoBatheConcrete3D (f'c={} MPa)", COL_FPC);
+    std::println("  RC treatment       : concrete matrix in 3D, rebar at fiber-section scale");
     std::println("  Material state     : PERSISTENT across all time steps");
     std::println("  VTK interval       : every {} steps ({:.2f} s)",
                  EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
@@ -596,6 +602,15 @@ int main(int argc, char* argv[]) {
     double evol_max_damage = peak_damage_global;
     int    total_cracks    = 0;
 
+    // ── Crack evolution CSV ────────────────────────────────────────────────────
+    std::ofstream crack_csv(OUT + "recorders/crack_evolution.csv");
+    crack_csv << "time,total_cracked_gps,total_cracks,max_damage,max_opening";
+    for (std::size_t i = 0; i < nl_evolvers.size(); ++i)
+        crack_csv << ",sub" << i << "_cracked_gps"
+                  << ",sub" << i << "_cracks"
+                  << ",sub" << i << "_max_damage";
+    crack_csv << "\n";
+
     for (;;) {
         PetscReal t_current;
         TSGetTime(solver.get_ts(), &t_current);
@@ -615,15 +630,39 @@ int main(int argc, char* argv[]) {
         const double t = static_cast<double>(t_new);
 
         // ── Update and solve sub-models ─────────────────────────────
+        int step_cracked_gps = 0;
+        int step_total_cracks = 0;
+        double step_max_crack_damage = 0.0;
+        double step_max_opening = 0.0;
+        std::vector<CrackSummary> step_summaries;
+        step_summaries.reserve(nl_evolvers.size());
+
         for (auto& ev : nl_evolvers) {
             auto ek = extract_beam_kinematics(ev.parent_element_id());
             ev.update_kinematics(ek.kin_A, ek.kin_B);
             ev.solve_step(t);
 
-            // Count active cracks
-            for (const auto& cr : ev.latest_cracks())
-                total_cracks += cr.num_cracks;
+            auto cs = ev.crack_summary();
+            step_summaries.push_back(cs);
+            step_cracked_gps  += cs.num_cracked_gps;
+            step_total_cracks += cs.total_cracks;
+            step_max_crack_damage = std::max(step_max_crack_damage, cs.max_damage);
+            step_max_opening      = std::max(step_max_opening, cs.max_opening);
         }
+        total_cracks = step_total_cracks;
+
+        // ── Write crack evolution CSV row ────────────────────────
+        crack_csv << std::fixed << std::setprecision(4) << t
+                  << "," << step_cracked_gps
+                  << "," << step_total_cracks
+                  << std::scientific << std::setprecision(6)
+                  << "," << step_max_crack_damage
+                  << "," << step_max_opening;
+        for (const auto& cs : step_summaries)
+            crack_csv << "," << cs.num_cracked_gps
+                      << "," << cs.total_cracks
+                      << "," << cs.max_damage;
+        crack_csv << "\n";
 
         // ── Track peak damage ───────────────────────────────────────
         double step_max_damage = 0.0;
@@ -653,6 +692,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    crack_csv.close();
+
     // ─────────────────────────────────────────────────────────────────────
     //  15. Finalize: write PVD files, export recorder CSV files
     // ─────────────────────────────────────────────────────────────────────
@@ -675,8 +716,8 @@ int main(int argc, char* argv[]) {
     sep('=');
     std::println("\n  L-SHAPED MULTISCALE SEISMIC ANALYSIS — SUMMARY");
     sep('-');
-    std::println("  Earthquake:    Tohoku 2011, MYG004 (NS+EW+UD), PGA={:.3f}g (NS, scaled)",
-                 eq_scale * eq_ns.pga() / 9.81);
+    std::println("  Earthquake:    Tohoku 2011, MYG004 (NS+EW+UD), PGA(NS)={:.3f}g (scale={:.2f})",
+                 eq_scale * eq_ns.pga() / 9.81, eq_scale);
     std::println("  Structure:     {}-story L-shaped RC frame, {} × {} m plan",
                  NUM_STORIES, X_GRID.back(), Y_GRID.back());
     std::println("  Columns:       {}×{} m, f'c={} MPa", COL_B, COL_H, COL_FPC);
@@ -684,11 +725,11 @@ int main(int argc, char* argv[]) {
     std::println("  First yield:   t = {:.4f} s  (element {})",
                  transition_report->trigger_time,
                  transition_report->critical_element);
-    std::println("  Sub-models:    {} (Hex20, KoBatheConcrete3D)", nl_evolvers.size());
+    std::println("  Sub-models:    {} (Hex27, KoBatheConcrete3D)", nl_evolvers.size());
     std::println("  Evolution:     {} steps, {:.1f} s — t_final = {:.4f} s",
                  evol_step, evol_step * DT, static_cast<double>(t_final));
     std::println("  Peak damage:   {:.6f}", evol_max_damage);
-    std::println("  Total cracks:  {} (accumulated across all sub-models/steps)", total_cracks);
+    std::println("  Active cracks: {} (across all sub-models at final step)", total_cracks);
     std::println("  Output dir:    {}", OUT);
     sep('=');
 

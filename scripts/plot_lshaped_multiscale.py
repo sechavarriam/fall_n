@@ -9,6 +9,7 @@ Expected input files (under DATA_DIR):
     recorders/roof_displacement.csv
     recorders/fiber_hysteresis_concrete.csv
     recorders/fiber_hysteresis_steel.csv
+    recorders/crack_evolution.csv
 
 Usage:
     python scripts/plot_lshaped_multiscale.py
@@ -190,7 +191,86 @@ def plot_hysteresis(mat_name, csv_path, stress_unit="MPa"):
 
 
 # =====================================================================
-#  3. Inter-story drift envelopes (derived from roof displacement)
+#  4. Crack evolution (from crack_evolution.csv)
+# =====================================================================
+
+def plot_crack_evolution():
+    csv_path = DATA / "crack_evolution.csv"
+    if not csv_path.exists():
+        print(f"  [skip] {csv_path} not found"); return
+
+    data = np.loadtxt(csv_path, delimiter=",", skiprows=1)
+    with open(csv_path) as f:
+        header = f.readline().strip().split(",")
+
+    t = data[:, 0]
+    total_cracked_gps = data[:, 1]
+    total_cracks      = data[:, 2]
+    max_damage        = data[:, 3]
+    max_opening       = data[:, 4]
+
+    # ── Figure: 4-panel crack evolution ───────────────────────────────
+    fig, axes = plt.subplots(2, 2, figsize=(8.0, 6.0), sharex=True)
+
+    # Panel 1: Cracked Gauss points
+    axes[0, 0].plot(t, total_cracked_gps, color=BLUE, lw=0.8)
+    axes[0, 0].set_ylabel("Cracked Gauss points")
+    axes[0, 0].set_title("(a) Number of cracked integration points")
+
+    # Panel 2: Total crack count
+    axes[0, 1].plot(t, total_cracks, color=RED, lw=0.8)
+    axes[0, 1].set_ylabel("Total crack planes")
+    axes[0, 1].set_title("(b) Total individual cracks")
+
+    # Panel 3: Maximum damage
+    axes[1, 0].plot(t, max_damage, color=PURPLE, lw=0.8)
+    axes[1, 0].set_ylabel(r"$d_{\max}$")
+    axes[1, 0].set_xlabel("Time [s]")
+    axes[1, 0].set_title("(c) Maximum damage index")
+
+    # Panel 4: Maximum crack opening
+    axes[1, 1].plot(t, max_opening, color=ORANGE, lw=0.8)
+    axes[1, 1].set_ylabel(r"$\varepsilon_{\mathrm{cr,max}}$")
+    axes[1, 1].set_xlabel("Time [s]")
+    axes[1, 1].set_title("(d) Maximum crack opening strain")
+
+    fig.suptitle("Crack evolution — L-shaped RC building sub-models",
+                 fontsize=11, y=1.01)
+    fig.tight_layout()
+    save(fig, "crack_evolution")
+    plt.close(fig)
+
+    # ── Per-sub-model comparison (if multiple sub-models) ─────────────
+    # Count sub-model columns: sub0_cracked_gps, sub0_cracks, sub0_max_damage, ...
+    sub_cols = [c for c in header if c.startswith("sub")]
+    n_subs = len(sub_cols) // 3
+    if n_subs > 1:
+        fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.0, 3.5))
+        for s in range(n_subs):
+            base = 5 + s * 3
+            if base + 2 >= data.shape[1]:
+                break
+            c = PALETTE[s % len(PALETTE)]
+            ax1.plot(t, data[:, base], color=c, lw=0.8, label=f"Sub-model {s}")
+            ax2.plot(t, data[:, base + 2], color=c, lw=0.8, label=f"Sub-model {s}")
+
+        ax1.set_ylabel("Cracked GPs")
+        ax1.set_xlabel("Time [s]")
+        ax1.set_title("Cracked Gauss points per sub-model")
+        ax1.legend(loc="upper left", fontsize=7)
+
+        ax2.set_ylabel(r"$d_{\max}$")
+        ax2.set_xlabel("Time [s]")
+        ax2.set_title("Maximum damage per sub-model")
+        ax2.legend(loc="upper left", fontsize=7)
+
+        fig2.tight_layout()
+        save(fig2, "crack_evolution_per_submodel")
+        plt.close(fig2)
+
+
+# =====================================================================
+#  5. Peak displacement envelope
 # =====================================================================
 
 def plot_drift_envelope():
@@ -241,16 +321,19 @@ def main():
         print("Run the simulation first: build/fall_n_lshaped_multiscale.exe")
         sys.exit(1)
 
-    print("[1/4] Roof displacement time histories...")
+    print("[1/5] Roof displacement time histories...")
     plot_roof_displacement()
 
-    print("[2/4] Concrete fiber hysteresis...")
+    print("[2/5] Concrete fiber hysteresis...")
     plot_hysteresis("Concrete", DATA / "fiber_hysteresis_concrete.csv")
 
-    print("[3/4] Steel fiber hysteresis...")
+    print("[3/5] Steel fiber hysteresis...")
     plot_hysteresis("Steel", DATA / "fiber_hysteresis_steel.csv")
 
-    print("[4/4] Peak displacement envelope...")
+    print("[4/5] Crack evolution...")
+    plot_crack_evolution()
+
+    print("[5/5] Peak displacement envelope...")
     plot_drift_envelope()
 
     print("\nDone.")
