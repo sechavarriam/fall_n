@@ -696,11 +696,16 @@ int main(int argc, char* argv[]) {
 
                 D_prev[i] = D_hom;
 
-                // Inject homogenized tangent into the beam element
+                // Inject homogenized tangent and forces into the beam element
                 auto eid = nl_evolvers[i].parent_element_id();
                 auto& se = model.elements()[eid];
-                if (auto* beam = se.as<BeamElemT>())
+                if (auto* beam = se.as<BeamElemT>()) {
                     beam->set_homogenized_tangent(D_hom);
+
+                    auto f_hom = nl_evolvers[i].compute_homogenized_forces(
+                        COL_B, COL_H);
+                    beam->set_homogenized_forces(f_hom);
+                }
             }
 
             staggered_iters = s_iter + 1;
