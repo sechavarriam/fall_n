@@ -7,365 +7,1007 @@
          Multi-Scale Seismic Analysis}
 \label{ch:nl-sub-model-evolver}
 
-Previous chapters developed the kinematic reconstruction pipeline
-(Chapter~\ref{ch:reconstruction}), the prismatic domain builder for
-Hex8/20/27 meshes (Chapter~\ref{ch:ho-prismatic-domain}), and the
-single-shot sub-model solver (\texttt{SubModelSolver}).  While the
-single-shot solver is suitable for instantaneous snapshots of the
-sub-model response, it \emph{discards the material state} after every
-call---each solve starts from virgin concrete.  For an earthquake
-time-history analysis where the KoBathe concrete model accumulates
-cracks, plastic strain, and damage progressively, a persistent solver
-is essential.
-
-This chapter presents the \texttt{NonlinearSubModelEvolver}, a class
-that maintains a continuum sub-model alive throughout the earthquake
-and drives it step-by-step using direct PETSc SNES management.  It is
-demonstrated through a 4-story L-shaped reinforced-concrete building
-subjected to three-component earthquake excitation.
-
 
 % =========================================================================
-\section{Architecture}
-\label{sec:nlevo-architecture}
+\section{Introduction and Motivation}
+\label{sec:nlevo-intro}
 
-The evolver differs from \texttt{SubModelSolver} in three critical
-aspects:
+The multiscale seismic analysis framework developed in
+Chapter~\ref{ch:multiscale_seismic} provides the infrastructure for
+transitioning from a fibre-section beam model to three-dimensional
+continuum sub-models at critical elements.  The single-shot solver
+\texttt{SubModelSolver} (Chapter~\ref{ch:multiscale_seismic},
+\S\,Sub-model solve) and its reinforced variant
+(Chapter~\ref{ch:reinforced-submodel}) construct a fresh
+\texttt{Model<>} at each call, which
+means every solve starts from a \emph{virgin material state}: the
+internal variables---crack normals, plastic strains, damage
+indices---are discarded after each invocation.
 
-\begin{enumerate}
-  \item \textbf{Persistent \texttt{Model<>} instance.}  The model,
-        its DMPlex mesh, and all material-point states are created once
-        and reused across every global time step.  Crack records,
-        plastic strains, and damage indices survive between steps.
-
-  \item \textbf{Direct SNES management.}  Instead of using
-        \texttt{NonlinearAnalysis::solve\_incremental()} (which
-        resets the displacement vector $\mathbf{U}$ to zero before
-        every solve), the evolver maintains its own \texttt{SNES},
-        \texttt{Vec U}, \texttt{Vec R}, and \texttt{Mat J} objects.
-        The converged $\mathbf{U}$ from step~$N$ serves as the
-        initial guess for step~$N{+}1$.
-
-  \item \textbf{Post-setup BC updates.}  After the model has been
-        set up (constraints burned into the PetscSection), new
-        boundary displacement values are written directly into the
-        \texttt{imposed\_solution()} vector using PetscSection
-        offsets, rather than calling \texttt{constrain\_node()}.
-\end{enumerate}
-
-
-% =========================================================================
-\section{Solver Workflow}
-\label{sec:nlevo-workflow}
-
-\subsection{First Call (Model Creation + Incremental Loading)}
-
-On the first invocation of \texttt{solve\_step()}:
-\begin{enumerate}
-  \item A \texttt{Model<ThreeDimensionalMaterial, SmallStrain, 3>} is
-        created over the prismatic domain with KoBathe concrete.
-  \item \texttt{constrain\_node()} is called for all face-A and face-B
-        boundary nodes with the first set of displacement targets.
-  \item \texttt{model->setup()} creates the DMPlex, the local/global
-        vectors, and the PetscSection with constraint information.
-  \item A persistent SNES is created with custom \texttt{FormResidual}
-        and \texttt{FormJacobian} callbacks (identical to those in
-        \texttt{NonlinearAnalysis} but owned by the evolver).
-  \item The global displacement vector $\mathbf{U}$ is initialised
-        to zero, and the target imposed solution is saved.
-  \item An incremental loading loop scales the imposed displacements
-        from $p{=}0$ to $p{=}1$ in $N$ sub-steps:
-        \[
-          \mathbf{u}_{\mathrm{imp}}^{(k)}
-          = \frac{k}{N}\,\mathbf{u}_{\mathrm{target}},
-          \quad k = 1, \ldots, N
-        \]
-        At each sub-step, \texttt{SNESSolve(snes, NULL, U)} is called
-        from the current $\mathbf{U}$.  On convergence, the material
-        state is committed; on divergence, it is reverted.
-\end{enumerate}
-
-
-\subsection{Subsequent Calls (BC Update + Single Newton Solve)}
-
-For each subsequent global time step:
-\begin{enumerate}
-  \item New section kinematics $(\kappa_A, \kappa_B)$ are extracted
-        from the beam element.
-  \item Boundary displacements are recomputed via
-        \texttt{compute\_boundary\_displacements()}.
-  \item The \texttt{imposed\_solution()} vector is updated by
-        obtaining PetscSection offsets for each constrained node
-        (via \texttt{domain.node(nid).sieve\_id}) and writing the
-        new displacement values directly.
-  \item \texttt{SNESSolve(snes, NULL, U)} is called from the
-        previously converged $\mathbf{U}$---no incremental loading
-        is needed because the BC change between consecutive time
-        steps is small.
-  \item On convergence, material state is committed.
-\end{enumerate}
-
-The key insight is that the residual function computes the total
-displacement as:
-\[
-  \mathbf{u}_{\mathrm{total}}
-  = \underbrace{\mathbf{u}_{\mathrm{free}}}_{\text{from }\mathbf{U}}
-  + \underbrace{\mathbf{u}_{\mathrm{imp}}}_{\text{imposed\_solution()}}
-\]
-When the imposed values change, the residual at the old
-$\mathbf{U}$ reflects the new boundary conditions, and Newton
-iterations adjust $\mathbf{U}$ to restore equilibrium.
-
-
-% =========================================================================
-\section{Crack Plane Visualisation}
-\label{sec:nlevo-cracks}
-
-After each converged step, the evolver collects
-\texttt{InternalFieldSnapshot} data from every material point.
-For each Gauss point with active cracks ($n_{\mathrm{crack}} \geq 1$),
-a \texttt{CrackRecord} is stored containing:
-
+For an earthquake time-history analysis spanning hundreds of time steps,
+this approach fails to capture the progressive degradation of the
+concrete.  The Ko--Bathe plastic-fracturing model
+(Chapter~\ref{ch:ko-bathe-3d}) tracks up to three crack planes per
+integration point, storing:
 \begin{itemize}
-  \item Global coordinates of the Gauss point.
-  \item Crack normal vectors $\mathbf{n}_1, \mathbf{n}_2, \mathbf{n}_3$.
-  \item Crack opening strains $\varepsilon_1, \varepsilon_2, \varepsilon_3$.
+  \item crack normals $\mathbf{n}_1, \mathbf{n}_2, \mathbf{n}_3$,
+  \item crack opening strains
+        $\varepsilon_{\mathrm{cr},1}, \varepsilon_{\mathrm{cr},2},
+         \varepsilon_{\mathrm{cr},3}$,
+  \item open/closed status flags,
+  \item a scalar damage index $d \in [0,1]$.
+\end{itemize}
+Resetting these variables at each step would allow the same crack to
+form repeatedly without accumulating irrecoverable damage, yielding
+a fictitiously resilient response.
+
+This chapter presents the \texttt{NonlinearSubModelEvolver}, a
+persistent nonlinear continuum sub-model driver that solves the
+sub-model boundary value problem \emph{incrementally}, preserving
+material history across all earthquake time steps via direct
+PETSc~\texttt{SNES} management.  It is demonstrated through a 4-storey
+L-shaped reinforced-concrete building subjected to three-component
+earthquake excitation from the 2011 T\=ohoku event (station MYG004)
+at full intensity (no scaling), with triquadratic Hex27 elements and
+detailed crack evolution tracking.
+
+
+% =========================================================================
+\section{Mathematical Framework}
+\label{sec:nlevo-math}
+
+% -------------------------------------------------------------------------
+\subsection{Section Kinematics from Beam Elements}
+\label{ssec:nlevo-section-kin}
+
+A Timoshenko beam element in three dimensions carries six degrees of
+freedom per node: translations $(u_x, u_y, u_z)$ and rotations
+$(\theta_x, \theta_y, \theta_z)$ about the local axes.  For a given
+element $e$ with nodal DOF vector $\mathbf{q}_e \in \mathbb{R}^{12}$
+(two-node element) or $\mathbb{R}^{18}$ (three-node), the section
+kinematics at a parametric coordinate $\xi \in [-1, +1]$ along the
+beam axis are obtained by interpolation:
+\begin{align}
+  \mathbf{u}_0(\xi) &= \mathbf{N}_u(\xi)\,\mathbf{q}_e,
+  \label{eq:nlevo-u0}
+  \\
+  \boldsymbol{\theta}(\xi) &= \mathbf{N}_\theta(\xi)\,\mathbf{q}_e,
+  \label{eq:nlevo-theta}
+\end{align}
+where $\mathbf{N}_u$ and $\mathbf{N}_\theta$ are the standard
+Lagrangian shape function matrices for translations and rotations,
+respectively.  The section deformation measures are then:
+\begin{alignat}{2}
+  \varepsilon_{zz} &= \frac{\partial u_z}{\partial s},
+  &\qquad& \text{(axial strain)}
+  \label{eq:nlevo-eps-zz}
+  \\
+  \kappa_x &= \frac{\partial \theta_x}{\partial s},
+  &\qquad& \text{(curvature about local $x$)}
+  \label{eq:nlevo-kappa-x}
+  \\
+  \kappa_y &= \frac{\partial \theta_y}{\partial s},
+  &\qquad& \text{(curvature about local $y$)}
+  \label{eq:nlevo-kappa-y}
+  \\
+  \gamma_{xz} &= \frac{\partial u_x}{\partial s} - \theta_y,
+  &\qquad& \text{(transverse shear $xz$)}
+  \label{eq:nlevo-gamma-xz}
+  \\
+  \gamma_{yz} &= \frac{\partial u_y}{\partial s} + \theta_x,
+  &\qquad& \text{(transverse shear $yz$)}
+  \label{eq:nlevo-gamma-yz}
+\end{alignat}
+where $s$ is the arc-length coordinate and the Jacobian
+$J = \partial s / \partial \xi$ converts parametric to physical
+derivatives.
+
+The complete section state at each end ($\xi = -1$ for face~A,
+$\xi = +1$ for face~B) is collected in a \texttt{SectionKinematics}
+structure:
+\begin{equation}
+  \mathcal{K}
+  = \bigl\{
+      \mathbf{u}_0,\;\boldsymbol{\theta},\;
+      \varepsilon_{zz},\;
+      \kappa_x,\;\kappa_y,\;
+      \gamma_{xz},\;\gamma_{yz},\;
+      E,\;G,\;\nu
+    \bigr\}.
+  \label{eq:nlevo-section-kin}
+\end{equation}
+The elastic moduli $(E, G, \nu)$ are attached for computing the
+Poisson contraction contribution in the displacement reconstruction.
+
+
+% -------------------------------------------------------------------------
+\subsection{Kinematic Reconstruction: From Beam to 3D Continuum}
+\label{ssec:nlevo-reconstruction}
+
+The kinematic reconstruction maps the six-DOF section state
+$\mathcal{K}$ at a face (A or B) to three-component displacement
+boundary conditions on every node of the corresponding sub-model face.
+Let the local coordinate system of the cross-section be
+$(\hat{\mathbf{e}}_x, \hat{\mathbf{e}}_y, \hat{\mathbf{e}}_z)$, with
+$\hat{\mathbf{e}}_z$ along the beam axis.  For a node at local
+position $(x_\ell, y_\ell)$ relative to the section centroid, the
+reconstructed 3D displacement is:
+
+\begin{equation}
+  \boxed{
+  \mathbf{u}^{\mathrm{3D}}(x_\ell, y_\ell)
+  = \underbrace{\mathbf{u}_0\vphantom{\Big|}}_{\text{centroid}}
+  + \underbrace{\boldsymbol{\theta}
+    \times \mathbf{r}\vphantom{\Big|}}_{\text{rotation}}
+  \underbrace{{} - \nu\,\varepsilon_{zz}\,
+    \mathbf{r}_\perp\vphantom{\Big|}}_{\text{Poisson}}
+  }
+  \label{eq:nlevo-recon}
+\end{equation}
+where:
+\begin{align}
+  \mathbf{r} &= x_\ell\,\hat{\mathbf{e}}_x
+               + y_\ell\,\hat{\mathbf{e}}_y,
+  \\
+  \mathbf{r}_\perp &= x_\ell\,\hat{\mathbf{e}}_x
+                     + y_\ell\,\hat{\mathbf{e}}_y.
+\end{align}
+
+Expanding the cross product
+$\boldsymbol{\theta} \times \mathbf{r}$ componentwise:
+\begin{align}
+  u_x(x_\ell, y_\ell)
+    &= u_{x,0} - \theta_z\,y_\ell - \nu\,\varepsilon_{zz}\,x_\ell,
+  \label{eq:nlevo-ux}
+  \\
+  u_y(x_\ell, y_\ell)
+    &= u_{y,0} + \theta_z\,x_\ell - \nu\,\varepsilon_{zz}\,y_\ell,
+  \label{eq:nlevo-uy}
+  \\
+  u_z(x_\ell, y_\ell)
+    &= u_{z,0} + \theta_x\,y_\ell - \theta_y\,x_\ell.
+  \label{eq:nlevo-uz}
+\end{align}
+
+Equations~\eqref{eq:nlevo-ux}--\eqref{eq:nlevo-uz} encode three
+physical mechanisms:
+\begin{enumerate}
+  \item \textbf{Rigid-body translation} $\mathbf{u}_0$: bodily
+        displacement of the entire section.
+  \item \textbf{Rotation-induced displacement}
+        $\boldsymbol{\theta} \times \mathbf{r}$: the plane-sections
+        hypothesis for bending (axial distribution linear in
+        $x_\ell, y_\ell$) and torsion ($\theta_z$ produces in-plane
+        displacements).
+  \item \textbf{Poisson contraction}
+        $-\nu\,\varepsilon_{zz}\,\mathbf{r}_\perp$: lateral contraction
+        (or expansion) of the cross-section due to axial strain, scaled
+        by the effective Poisson ratio~$\nu$.
+\end{enumerate}
+
+The reconstruction is evaluated at face~A ($\xi = -1$, the MinZ face
+of the prismatic domain) and face~B ($\xi = +1$, the MaxZ face),
+yielding Dirichlet boundary conditions for all nodes on those faces.
+
+
+% -------------------------------------------------------------------------
+\subsection{Incremental Application of Boundary Conditions}
+\label{ssec:nlevo-incremental-bc}
+
+The evolver operates in two distinct modes, depending on whether the
+sub-model has been solved before.
+
+\paragraph{First step: incremental loading from virgin state.}
+At the transition instant (the first time the sub-model is activated),
+the material is virgin and the displacement field is zero.  The
+target boundary displacements $\mathbf{u}^{\mathrm{target}}_{\mathrm{imp}}$
+from~\eqref{eq:nlevo-recon} may be large relative to the elastic
+limit of the concrete.  Applying them in a single step would
+produce a severe initial residual and likely cause Newton divergence.
+
+Instead, the target is applied in $N_{\mathrm{sub}}$ increments
+(default $N_{\mathrm{sub}} = 15$):
+\begin{equation}
+  \mathbf{u}_{\mathrm{imp}}^{(k)}
+  = \frac{k}{N_{\mathrm{sub}}}\,
+    \mathbf{u}^{\mathrm{target}}_{\mathrm{imp}},
+  \qquad k = 1, 2, \ldots, N_{\mathrm{sub}}.
+  \label{eq:nlevo-incremental}
+\end{equation}
+At each sub-step, a Newton iteration is performed via
+\texttt{SNESSolve} from the current converged displacement.  On
+convergence, the material state is committed (crack normals, plastic
+strains, damage are frozen); on divergence, the state is reverted
+to the previous converged snapshot and the analysis is flagged.
+
+\paragraph{Subsequent steps: direct Newton from current state.}
+For all following earthquake time steps, the boundary condition
+increment between consecutive steps is small (of order $\Delta t$
+times the ground velocity), so the previously converged displacement
+$\mathbf{U}^{(n)}$ is an excellent initial guess for
+$\mathbf{U}^{(n+1)}$.  No sub-stepping is required:
+\begin{equation}
+  \mathbf{U}^{(n+1)}
+  = \text{SNESSolve}\bigl(\mathbf{U}^{(n)}\bigr)
+  \quad\text{with updated}~
+  \mathbf{u}_{\mathrm{imp}}^{(n+1)}.
+  \label{eq:nlevo-subsequent}
+\end{equation}
+
+\emph{This is the central design distinction from
+\texttt{NonlinearAnalysis::solve\_incremental()}, which resets
+$\mathbf{U}$ to zero before every solve.}  By retaining the converged
+state, the evolver benefits from quadratic convergence from an
+excellent initial guess, and---crucially---the internal material
+variables evolve continuously.
+
+
+% -------------------------------------------------------------------------
+\subsection{Residual and Tangent Stiffness Formulation}
+\label{ssec:nlevo-residual}
+
+The static equilibrium sub-problem at each step reads:
+find $\mathbf{U} \in \mathbb{R}^{n_{\mathrm{free}}}$ such that
+\begin{equation}
+  \mathbf{R}(\mathbf{U})
+  = \mathbf{f}_{\mathrm{int}}(\mathbf{U})
+  - \mathbf{f}_{\mathrm{ext}}
+  = \mathbf{0},
+  \label{eq:nlevo-equilibrium}
+\end{equation}
+where the internal force vector is assembled element-by-element.  The
+external force vector $\mathbf{f}_{\mathrm{ext}}$ is identically zero
+for a sub-model driven purely by displacement boundary conditions
+(no applied tractions or body forces).
+
+The total displacement at any node is:
+\begin{equation}
+  \mathbf{u}_{\mathrm{total}}
+  = \underbrace{\mathbf{u}_{\mathrm{free}}}_{\text{from SNES vector } \mathbf{U}}
+  + \underbrace{\mathbf{u}_{\mathrm{imp}}}_{\text{imposed\_solution()}}.
+  \label{eq:nlevo-total-disp}
+\end{equation}
+The free DOFs $\mathbf{u}_{\mathrm{free}}$ are determined by Newton
+iteration; the imposed DOFs $\mathbf{u}_{\mathrm{imp}}$ are prescribed
+from the kinematic reconstruction.  In the PETSc implementation, this
+decomposition is handled via \texttt{DMGlobalToLocal} (which maps the
+free-DOF global vector to the full local vector, placing zeros at
+constrained DOFs) and a subsequent \texttt{VecAXPY} to add the
+imposed solution.
+
+\paragraph{Residual callback.}
+At each Newton iterate with trial $\mathbf{U}^{(i)}$:
+\begin{enumerate}
+  \item Compute the local total displacement:
+        $\mathbf{u}_{\mathrm{loc}} = \mathrm{G2L}(\mathbf{U}^{(i)})
+         + \mathbf{u}_{\mathrm{imp}}$.
+  \item Assemble element internal forces into a local vector:
+        $\mathbf{f}_{\mathrm{int,loc}}
+         = \sum_e \mathbf{f}_{\mathrm{int},e}(\mathbf{u}_{\mathrm{loc}})$.
+  \item Map back to the global (free-DOF) space:
+        $\mathbf{R} = \mathrm{L2G}(\mathbf{f}_{\mathrm{int,loc}})
+         - \mathbf{f}_{\mathrm{ext}}$.
+\end{enumerate}
+
+\paragraph{Tangent callback.}
+The consistent tangent stiffness matrix is assembled analogously:
+\begin{equation}
+  \mathbf{K}_T
+  = \frac{\partial \mathbf{R}}{\partial \mathbf{U}}
+  = \sum_e \mathbf{K}_{T,e}(\mathbf{u}_{\mathrm{loc}}),
+  \label{eq:nlevo-tangent}
+\end{equation}
+where each element tangent $\mathbf{K}_{T,e}$ is computed from the
+constitutive tangent operator at the current strain state, accounting
+for cracked/crushed zones in the Ko--Bathe model.
+
+The Newton update is:
+\begin{equation}
+  \mathbf{U}^{(i+1)}
+  = \mathbf{U}^{(i)}
+  - \mathbf{K}_T^{-1}\,\mathbf{R}(\mathbf{U}^{(i)}).
+  \label{eq:nlevo-newton}
+\end{equation}
+The PETSc SNES framework manages convergence monitoring, line-search
+strategies, and tolerance checks automatically.  The solver is
+configured with:
+\begin{itemize}
+  \item Direct LU factorisation (\texttt{-pc\_type lu}),
+  \item Maximum 50 iterations (\texttt{-snes\_max\_it 50}),
+  \item Basic line search (\texttt{-snes\_linesearch\_type basic}).
+\end{itemize}
+
+
+% -------------------------------------------------------------------------
+\subsection{Material State Management}
+\label{ssec:nlevo-material-state}
+
+After each converged Newton solve, the material state is
+\emph{committed}:
+\begin{equation}
+  \boldsymbol{\sigma}^{(n+1)}_{\mathrm{committed}},\;
+  \mathbf{q}^{(n+1)}_{\mathrm{committed}}
+  \leftarrow
+  \boldsymbol{\sigma}^{(n+1)}_{\mathrm{trial}},\;
+  \mathbf{q}^{(n+1)}_{\mathrm{trial}},
+  \label{eq:nlevo-commit}
+\end{equation}
+where $\mathbf{q}$ contains all internal variables (crack normals,
+opening strains, plastic strains, damage, and loading/unloading
+flags).  This is done by calling
+\texttt{elem.commit\_material\_state(u\_local)} for every element, which
+evaluates the constitutive response at the converged displacement and
+freezes the internal state.
+
+If Newton fails to converge, the material state is \emph{reverted}:
+\begin{equation}
+  \boldsymbol{\sigma}^{(n+1)}_{\mathrm{trial}},\;
+  \mathbf{q}^{(n+1)}_{\mathrm{trial}}
+  \leftarrow
+  \boldsymbol{\sigma}^{(n)}_{\mathrm{committed}},\;
+  \mathbf{q}^{(n)}_{\mathrm{committed}},
+  \label{eq:nlevo-revert}
+\end{equation}
+which restores all Gauss-point states to the last converged snapshot.
+The displacement vector $\mathbf{U}$ retains the last converged
+values so that the next step can attempt to solve from that baseline.
+
+
+% -------------------------------------------------------------------------
+\subsection{Post-Setup Boundary Condition Update}
+\label{ssec:nlevo-bc-update}
+
+The PETSc DMPlex framework applies Dirichlet constraints by
+eliminating constrained DOFs from the global vector during
+\texttt{model->setup()}.  Thereafter, the method
+\texttt{constrain\_node()} cannot be called again to modify
+constrained values.
+
+The evolver bypasses this limitation by writing directly into the
+model's \texttt{imposed\_solution()} local vector.  For each
+constrained node~$i$ with new displacement target
+$\mathbf{u}_i^{\mathrm{new}}$:
+\begin{enumerate}
+  \item Retrieve the DMPlex point index:
+        $p = \texttt{domain.node}(i).\texttt{sieve\_id}$.
+  \item Query the PetscSection for the DOF offset:
+        $\texttt{PetscSectionGetOffset}(section, p, \&offset)$.
+  \item Write the three displacement components at
+        $\texttt{arr}[offset], \texttt{arr}[offset{+}1],
+         \texttt{arr}[offset{+}2]$.
+\end{enumerate}
+
+This low-level access is safe because the constraint topology
+(which nodes are constrained) does not change---only the
+\emph{values} are updated.  The DMPlex remains valid, and the
+\texttt{DMGlobalToLocal} / \texttt{DMLocalToGlobal} mappings
+continue to operate correctly.
+
+
+% =========================================================================
+\section{Ko--Bathe Concrete in the Multi-Scale Context}
+\label{sec:nlevo-ko-bathe}
+
+The three-dimensional Ko--Bathe plastic-fracturing model
+(Chapter~\ref{ch:ko-bathe-3d}) governs the material response within
+the sub-model.  In the multi-scale context, the model captures:
+
+\begin{enumerate}
+  \item \textbf{Crack initiation and propagation.}  When the maximum
+        principal stress exceeds the tensile strength $f_t$
+        (derived from $f'_c$ via $f_t \approx 0.33\sqrt{f'_c}$~MPa),
+        a crack plane is inserted normal to the major principal stress.
+        Up to three orthogonal cracks can form at each Gauss point.
+
+  \item \textbf{Crack opening and closing.}  Under cyclic earthquake
+        loading, cracks may open, close, and partially reopen.  The
+        model tracks the open/closed status and applies a reduced
+        shear retention factor $\beta_{\mathrm{cr}}$ for open cracks.
+
+  \item \textbf{Compressive plasticity.}  Beyond the elastic limit in
+        compression, the model uses a Drucker--Prager-type yield
+        surface with hardening/softening.
+
+  \item \textbf{Damage accumulation.}  A scalar damage index $d$
+        monotonically increases as the material degrades, reducing the
+        effective stiffness.
+\end{enumerate}
+
+Because these internal variables persist across time steps in the
+\texttt{NonlinearSubModelEvolver}, the cyclic degradation during the
+earthquake is captured faithfully: a crack that opens at step $n$
+remains in the material memory at step $n{+}1$, affecting the local
+stiffness and stress redistribution.
+
+\paragraph{Multi-scale RC treatment.}
+The sub-model domain is meshed with homogeneous KoBathe concrete
+elements (no explicit rebar).  This choice is justified within the
+multi-scale framework:
+\begin{itemize}
+  \item The longitudinal and transverse reinforcement effects are
+        captured at the \emph{structural scale} through the fibre
+        sections (Kent--Park confined concrete + Menegotto--Pinto
+        steel) that govern the beam--column response.
+  \item The 3D sub-model zooms into the \emph{concrete matrix} to
+        resolve crack patterns, stress redistribution around cracks,
+        and damage localisation that the fibre model cannot capture.
+  \item The boundary conditions imposed on the sub-model faces
+        already encode the integrated effect of the reinforcement
+        through the section kinematics extracted from the beam element.
+\end{itemize}
+This is consistent with the standard hierarchical multi-scale modelling
+approach where different resolution levels capture different physical
+phenomena.
+
+
+% =========================================================================
+\section{Triquadratic Hex27 Elements}
+\label{sec:nlevo-hex27}
+
+The sub-model domain used in this example employs triquadratic
+Lagrangian hexahedral elements (Hex27), constructed via
+\texttt{PrismaticDomainBuilder} with \texttt{HexOrder::Quadratic}
+(Chapter~\ref{ch:ho-prismatic-domain}).  Each element has 27 nodes
+(8 vertices + 12 edge midpoints + 6 face centres + 1 body centre)
+and is integrated with a $3 \times 3 \times 3$ Gauss quadrature rule
+(27 integration points per element).
+
+Compared to the serendipity Hex20 elements (which lack face-centre
+and body-centre nodes), Hex27 elements provide:
+\begin{itemize}
+  \item Complete triquadratic polynomial reproduction: all monomial
+        terms up to $\xi^2\eta^2\zeta^2$ are represented exactly.
+  \item Superior stress accuracy: the additional interior nodes
+        eliminate spurious hourglass-like modes that can appear in
+        Hex20 elements under bending-dominated deformations.
+  \item Richer crack representation: with $4 \times 4 \times 8 = 128$
+        elements and $27 \times 128 = 3{,}456$ Gauss points, the
+        sub-model can resolve fine spatial variations in the crack
+        pattern.
+\end{itemize}
+
+The prismatic mesh with $n_x = 4$, $n_y = 4$, $n_z = 8$ divisions
+over a $0.40 \times 0.40 \times 3.20$~m column produces element
+aspect ratios of $1{:}1{:}4$ (each element is
+$0.10 \times 0.10 \times 0.40$~m), which is acceptable for the
+primarily axial-plus-bending deformation mode of a column.
+
+
+% =========================================================================
+\section{Crack Evolution Tracking}
+\label{sec:nlevo-crack-evolution}
+
+A key output of the persistent sub-model analysis is the temporal
+evolution of cracking: how many Gauss points have cracked, the total
+number of individual crack planes, the maximum damage, and the maximum
+crack opening---all as functions of the earthquake time.
+
+\subsection{CrackSummary Aggregation}
+
+After each solved step, the evolver collects
+\texttt{InternalFieldSnapshot} data from every integration point.
+A \texttt{CrackSummary} structure aggregates the statistics:
+\begin{equation}
+  \texttt{CrackSummary} =
+  \bigl\{
+    n_{\mathrm{GP, cracked}},\;
+    n_{\mathrm{cracks,total}},\;
+    d_{\max},\;
+    \varepsilon_{\mathrm{cr,max}}
+  \bigr\},
+  \label{eq:nlevo-crack-summary}
+\end{equation}
+where:
+\begin{itemize}
+  \item $n_{\mathrm{GP, cracked}}$ = number of Gauss points with
+        at least one crack,
+  \item $n_{\mathrm{cracks,total}}$ = total crack planes across all
+        cracked Gauss points (each GP can contribute 1--3),
+  \item $d_{\max}$ = maximum scalar damage index among all GPs,
+  \item $\varepsilon_{\mathrm{cr,max}}$ = maximum crack opening strain.
+\end{itemize}
+
+\subsection{CSV Output Format}
+
+At each evolution step, a row is written to
+\texttt{crack\_evolution.csv}:
+\begin{verbatim}
+time,total_cracked_gps,total_cracks,max_damage,max_opening,
+  sub0_cracked_gps,sub0_cracks,sub0_max_damage,
+  sub1_cracked_gps,sub1_cracks,sub1_max_damage,...
+\end{verbatim}
+This allows post-processing scripts to plot:
+\begin{itemize}
+  \item Crack count vs.\ time: visualising the onset and progression
+        of cracking with respect to ground motion intensity.
+  \item Damage evolution: monitoring the growth of $d_{\max}$ and
+        identifying the instant of peak damage.
+  \item Per-sub-model comparison: comparing crack evolution across
+        different column elements to identify the most vulnerable
+        structural member.
+\end{itemize}
+
+
+\subsection{Crack Plane Visualisation}
+
+In addition to the scalar statistics, for each integration point with
+$n_{\mathrm{crack}} \geq 1$, a detailed \texttt{CrackRecord} is stored
+containing:
+\begin{itemize}
+  \item Global coordinates $\mathbf{x}_{\mathrm{GP}}$ of the Gauss point.
+  \item Crack normals $\mathbf{n}_1, \mathbf{n}_2, \mathbf{n}_3
+        \in \mathbb{R}^3$.
+  \item Crack opening strains $\varepsilon_{\mathrm{cr},1},
+        \varepsilon_{\mathrm{cr},2}, \varepsilon_{\mathrm{cr},3}$.
   \item Open/closed status flags.
   \item Damage index $d$.
 \end{itemize}
 
-Each active crack is exported as a small \texttt{VTK\_QUAD} cell in an
-unstructured grid (\texttt{.vtu}), oriented perpendicular to the crack
-normal and centred at the Gauss point.  Cell data arrays store the
-opening strain, normal vector, and crack state (open=1, closed=0).
-These can be visualised in ParaView using the Glyph or Threshold
-filters to highlight only open cracks or those exceeding a threshold
-opening.
+Each active crack is exported as a small \texttt{VTK\_QUAD} cell
+centred at the Gauss point and oriented perpendicular to the
+crack normal.  Two tangent vectors $\mathbf{t}_1, \mathbf{t}_2$ are
+computed as:
+\begin{equation}
+  \mathbf{t}_1 = \frac{\mathbf{n}_k \times \mathbf{e}_{\mathrm{ref}}}
+                      {\|\mathbf{n}_k \times \mathbf{e}_{\mathrm{ref}}\|},
+  \qquad
+  \mathbf{t}_2 = \mathbf{n}_k \times \mathbf{t}_1,
+  \label{eq:nlevo-crack-tangents}
+\end{equation}
+where $\mathbf{e}_{\mathrm{ref}}$ is $\hat{\mathbf{e}}_x$ or
+$\hat{\mathbf{e}}_y$ (whichever is less parallel to $\mathbf{n}_k$).
+The quad corners are:
+\begin{equation}
+  \mathbf{x}_j = \mathbf{x}_{\mathrm{GP}}
+  + \frac{h}{2}
+    \bigl[(\pm 1)\,\mathbf{t}_1 + (\pm 1)\,\mathbf{t}_2\bigr],
+  \qquad j = 1,\ldots,4,
+  \label{eq:nlevo-crack-quad}
+\end{equation}
+where $h = 0.4\,\min(\Delta x, \Delta y, \Delta z)/2$ is a sizing
+factor based on the element dimensions.  Cell data arrays carry the
+opening strain, normal vector, and crack state (open${}=1$,
+closed${}=0$), enabling ParaView visualisation via Glyph or Threshold
+filters.
 
 Three PVD time-series files are maintained per sub-model:
 \begin{itemize}
   \item \texttt{nlsub\_<id>\_mesh.pvd} --- deformed mesh with
-        displacement and material fields.
-  \item \texttt{nlsub\_<id>\_gauss.pvd} --- Gauss-point cloud with
-        stress, strain, and damage.
+        displacement and material fields (stress, strain, damage).
+  \item \texttt{nlsub\_<id>\_gauss.pvd} --- Gauss-point cloud.
   \item \texttt{nlsub\_<id>\_cracks.pvd} --- crack plane quads.
 \end{itemize}
+
+
+% =========================================================================
+\section{Implementation}
+\label{sec:nlevo-implementation}
+
+% -------------------------------------------------------------------------
+\subsection{Class Architecture}
+\label{ssec:nlevo-class}
+
+The \texttt{NonlinearSubModelEvolver} class manages:
+\begin{enumerate}
+  \item A persistent \texttt{Model<ThreeDimensionalMaterial,
+        SmallStrain, 3>} instance (\texttt{HomogModel}) with
+        KoBathe concrete at every element.
+  \item PETSc SNES objects: \texttt{SNES snes\_}, \texttt{Vec U\_}
+        (global free-DOF displacement), \texttt{Vec R\_} (residual),
+        \texttt{Vec f\_ext\_} (external forces, identically zero),
+        and \texttt{Mat J\_} (tangent stiffness).
+  \item A \texttt{Context} struct holding pointers to the model and
+        external force vector, passed to the static SNES callbacks.
+  \item PVD writers for mesh, Gauss, and crack output.
+  \item A vector of \texttt{CrackRecord} containing the latest crack
+        data.
+\end{enumerate}
+
+The lifecycle proceeds as:
+\begin{enumerate}
+  \item \textbf{Construction}: store reference to
+        \texttt{MultiscaleSubModel}, $f'_c$, output paths.
+  \item \textbf{First \texttt{solve\_step()} call}: create model,
+        apply constraints, setup, create SNES, incremental load.
+  \item \textbf{Subsequent calls}: update
+        \texttt{imposed\_solution()} via PetscSection offsets,
+        \texttt{SNESSolve} from current $\mathbf{U}$.
+  \item \textbf{After each solve}: collect crack data, write VTK.
+  \item \textbf{Finalisation}: write PVD files.
+\end{enumerate}
+
+The class supports move semantics but prohibits copying, since the
+PETSc objects are non-copyable resources.  The move constructor uses
+\texttt{std::exchange} for all PETSc handles and rebinds the
+\texttt{Context} pointer.
+
+
+% -------------------------------------------------------------------------
+\subsection{SNES Callbacks}
+\label{ssec:nlevo-snes-callbacks}
+
+Two static member functions serve as PETSc callbacks:
+
+\paragraph{FormResidual.}
+\begin{enumerate}
+  \item Convert global $\mathbf{U}$ to local via
+        \texttt{DMGlobalToLocal}.
+  \item Add \texttt{imposed\_solution()} to obtain
+        $\mathbf{u}_{\mathrm{total}}$.
+  \item Loop over elements, calling
+        \texttt{compute\_internal\_forces(u\_local, f\_local)}.
+  \item Map local $\mathbf{f}_{\mathrm{int}}$ to global
+        $\mathbf{R}$ via \texttt{DMLocalToGlobal(ADD\_VALUES)}.
+  \item Subtract $\mathbf{f}_{\mathrm{ext}}$ (zero for sub-models).
+\end{enumerate}
+
+\paragraph{FormJacobian.}
+\begin{enumerate}
+  \item Zero the matrix $\mathbf{J}$.
+  \item Compute local total displacement (same as above).
+  \item Loop over elements, calling
+        \texttt{inject\_tangent\_stiffness(u\_local, J)}.
+  \item Assemble with \texttt{MatAssembly\{Begin,End\}}.
+\end{enumerate}
+
+These callbacks are identical in structure to
+\texttt{NonlinearAnalysis::FormResidual/FormJacobian}
+(Chapter~\ref{ch:analysis_model_architecture}), but are owned by the
+evolver instance rather than the analysis wrapper, enabling the
+critical feature of persistent $\mathbf{U}$.
 
 
 % =========================================================================
 \section{L-Shaped Building Example}
 \label{sec:nlevo-lshaped}
 
+% -------------------------------------------------------------------------
 \subsection{Structural Configuration}
+\label{ssec:nlevo-structure}
 
 A 4-storey reinforced-concrete moment frame with an L-shaped floor
-plan is modelled.  The plan axes are:
+plan is modelled.  The plan grid coordinates are:
 
 \begin{center}
 \begin{tabular}{ll}
   \toprule
   Direction & Grid coordinates \\
   \midrule
-  $x$       & $0,\; 5,\; 10,\; 15$ m \\
-  $y$       & $0,\; 4,\; 8$ m \\
+  $x$       & $0,\; 5,\; 10,\; 15$~m \\
+  $y$       & $0,\; 4,\; 8$~m \\
   \bottomrule
 \end{tabular}
 \end{center}
 
-The L-shape is achieved by cutting out grid cells
-$(x_{\mathrm{start}}{=}2,\;x_{\mathrm{end}}{=}3,\;
-  y_{\mathrm{start}}{=}1,\;y_{\mathrm{end}}{=}2)$
-above all storeys, removing the upper-right quadrant of the plan.
-Each storey has a height of 3.2~m; the total building height is 12.8~m.
+The L-shape is achieved by cutting out the bay at grid indices
+$(i_x \in [2,3),\; i_y \in [1,2))$ above all storeys, removing the
+upper-right quadrant of the full rectangular plan.  Each storey has a
+height of 3.2~m; the total building height is 12.8~m.  The resulting
+structural model contains 55 nodes, 44 column elements, and 60 beam
+elements (104 structural elements total).
 
-Columns:\ $0.40 \times 0.40$~m, $f'_c = 28$~MPa.
-Beams:\ $0.30 \times 0.50$~m, $f'_c = 25$~MPa.
-Steel:\ $f_y = 420$~MPa (Menegotto--Pinto model).
-
-Fiber sections are generated with a $6 \times 6$ grid for columns and
-$5 \times 8$ for beams, with 4 reinforcing bars per section.
-
-
-\subsection{Ground Motion}
-
-Three components (NS, EW, UD) of the MYG004 Tsukidate record from the
-2011 T\=ohoku earthquake are applied simultaneously:
+Section properties:
 
 \begin{center}
-\begin{tabular}{lcl}
+\begin{tabular}{lcccc}
   \toprule
-  Component & Direction & File \\
+  Member & $b$ [m] & $h$ [m] & $f'_c$ [MPa]
+         & Steel \\
   \midrule
-  NS & $x$ & \texttt{MYG0041103111446.NS} \\
-  EW & $y$ & \texttt{MYG0041103111446.EW} \\
-  UD & $z$ & \texttt{MYG0041103111446.UD} \\
+  Columns & 0.40 & 0.40 & 28 & $f_y = 420$~MPa \\
+  Beams   & 0.30 & 0.50 & 25 & $f_y = 420$~MPa \\
   \bottomrule
 \end{tabular}
 \end{center}
 
-Records are trimmed to 40--120~s and scaled by a factor of 0.5 to
-maintain a moderate nonlinear response suitable for demonstrating the
-multi-scale transition.
+Fibre sections use Kent--Park confined concrete (for columns with
+$s_t = 0.10$~m tie spacing) or unconfined concrete (for beams), and
+Menegotto--Pinto steel with hardening ratio $b = 0.01$.
+
+\paragraph{Mass and damping.}
+Lumped mass is computed with $\rho = 2.4 \times 10^{-3}$~MN$\cdot$s$^2$/m$^4$.
+Rayleigh damping targets $\xi = 5\%$ at $T_1 \approx 0.60$~s and
+$T_3 \approx 0.15$~s.
 
 
-\subsection{Analysis Phases}
+% -------------------------------------------------------------------------
+\subsection{Three-Component Ground Motion}
+\label{ssec:nlevo-ground-motion}
 
-The analysis proceeds in two phases:
+The 2011 T\=ohoku earthquake record from K-NET station MYG004
+(Tsukidate, Miyagi Prefecture) is applied simultaneously in three
+components:
 
-\paragraph{Phase 1: Global dynamic analysis with transition monitoring.}
-A Newmark--$\beta$ (generalized-$\alpha$) time integration is performed
-on the beam--column frame model.  Three observers are attached via a
-\texttt{CompositeObserver}:
-\begin{itemize}
-  \item \texttt{DamageTracker} --- monitors curvature-based damage
-        indices at every element.
-  \item \texttt{FiberHysteresisRecorder} --- records $(\varepsilon,
-        \sigma)$ histories for the 5 most-stressed fibres (segregated
-        by material class: concrete and steel).
+\begin{center}
+\begin{tabular}{lcccc}
+  \toprule
+  Component & DOF & PGA [m/s$^2$] & PGA [$g$] & $t_{\mathrm{PGA}}$ [s] \\
+  \midrule
+  NS & $x$ & 26.79 & 2.731 & 70.60 \\
+  EW & $y$ & 12.85 & 1.310 & 70.66 \\
+  UD & $z$ & 18.87 & 1.923 & 70.31 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The records are trimmed to $[25, 300]$~s (skipping the pre-event
+noise) and applied at \textbf{full intensity} (scale factor $= 1.0$,
+no amplification or reduction) to capture the realistic severity of
+this near-fault, high-intensity event.  With PGA exceeding 2.7$g$ in
+the NS direction, the structure is subjected to extreme demands that
+drive extensive cracking and damage in the sub-models.
+
+Time integration uses the generalized-$\alpha$ method with spectral
+radius $\rho_\infty = 0.9$ and a fixed time step
+$\Delta t = 0.02$~s (matching the record sampling interval).
+
+
+% -------------------------------------------------------------------------
+\subsection{Phase 1: Global Dynamic Analysis with Transition Monitoring}
+\label{ssec:nlevo-phase1}
+
+A \texttt{DynamicAnalysis} solver is configured with a
+\texttt{CompositeObserver} containing:
+\begin{enumerate}
+  \item \texttt{DamageTracker} --- monitors the maximum fibre strain
+        in every element and maintains a ranked list of the top-10
+        most-damaged elements.
+  \item \texttt{FiberHysteresisRecorder} --- records
+        $(\varepsilon, \sigma)$ histories for the 5 most-stressed
+        fibres per material class (concrete and steel), enabling
+        post-processing of hysteretic loops.
   \item \texttt{NodeRecorder} --- records displacement time histories
-        at selected roof nodes.
-\end{itemize}
-
-A \texttt{TransitionDirector} halts Phase~1 when any element exceeds
-a damage threshold (default $\varepsilon_y / E_s$).  At that instant,
-the critical elements are identified and sub-models are created.
-
-\paragraph{Phase 2: Multi-scale evolution.}
-For each critical column element, a
-\texttt{NonlinearSubModelEvolver} is instantiated with KoBathe
-concrete ($f'_c = 28$~MPa).  The global dynamic analysis continues
-step-by-step.  After each global step:
-\begin{enumerate}
-  \item Section kinematics are extracted from the beam element.
-  \item Boundary displacements are computed for the sub-model faces.
-  \item \texttt{solve\_step(t)} drives the sub-model from the previous
-        converged state to the new BC target.
-  \item Crack data is collected and VTK output is generated.
+        at all roof-level nodes (3 DOFs each).
 \end{enumerate}
 
-This loop continues until the end of the earthquake record.  At
-finalisation, PVD files are written for the global frame and for each
-sub-model, and CSV files are exported for the recorders.
+A \texttt{TransitionDirector} with a
+\texttt{MaxStrainDamageCriterion} halts Phase~1 the instant any steel
+fibre anywhere in the structure exceeds its yield strain:
+\begin{equation}
+  \varepsilon_{\max,e} > \varepsilon_y
+  = \frac{f_y}{E_s}
+  = \frac{420}{200{,}000}
+  = 0.0021.
+  \label{eq:nlevo-yield-criterion}
+\end{equation}
+
+The transition report records the time of first yield, the critical
+element index, and the damage metric.  Given the extreme ground
+motion intensity (PGA~$>\,$2.7$g$), first yield is expected well
+before the PGA arrival at $t \approx 45.6$~s (accounting for the
+25~s trim offset from the original 70.6~s).
 
 
-\subsection{Post-Processing and Visualisation}
+% -------------------------------------------------------------------------
+\subsection{Phase 2: Multi-Scale Sub-Model Evolution}
+\label{ssec:nlevo-phase2}
 
-The following output artefacts are generated:
+\paragraph{Critical element identification.}
+After Phase~1 halts, the top-3 most-damaged beam elements
+(with damage index $> 0.8$) are identified from the
+\texttt{DamageTracker} ranking.  If fewer than 3 elements exceed
+the threshold, the single critical element from the transition
+report is used.
 
-\begin{description}
-  \item[\texttt{roof\_displacement.csv}]
-    Displacement time histories at selected roof nodes (columns:
-    \texttt{time}, \texttt{node<id>\_dof<d>}).
+\paragraph{Sub-model construction.}
+For each critical column, a \texttt{MultiscaleCoordinator}:
+\begin{enumerate}
+  \item Extracts section kinematics at both ends ($\xi = \pm 1$).
+  \item Builds a prismatic domain via \texttt{PrismaticDomainBuilder}
+        with $n_x = 4,\; n_y = 4,\; n_z = 8$ Hex27 elements.
+  \item Computes displacement boundary conditions on the two end faces
+        from~\eqref{eq:nlevo-ux}--\eqref{eq:nlevo-uz}.
+\end{enumerate}
 
-  \item[\texttt{fiber\_hysteresis\_concrete.csv} /
-        \texttt{fiber\_hysteresis\_steel.csv}]
-    Stress--strain hysteresis loops for the 5 most-stressed fibres
-    of each material class (columns:
-    \texttt{time}, \texttt{e<e>\_gp<g>\_f<f>\_strain},
-    \texttt{e<e>\_gp<g>\_f<f>\_stress}).
+\paragraph{Sub-model evolution loop.}
+A \texttt{NonlinearSubModelEvolver} is instantiated per critical
+column with $f'_c = 28$~MPa.  The global dynamic analysis then
+continues step-by-step.  At each step:
+\begin{enumerate}
+  \item The global solver advances one time step via
+        \texttt{solver.step\_n(1)}.
+  \item For each sub-model evolver:
+    \begin{enumerate}
+      \item Section kinematics are re-extracted from the (updated)
+            beam element.
+      \item \texttt{update\_kinematics(\ldots)} recomputes face BCs
+            via~\eqref{eq:nlevo-recon}.
+      \item \texttt{solve\_step(t)} performs Newton iteration from
+            the previous converged state.
+      \item \texttt{crack\_summary()} returns the aggregate statistics
+            for the CSV log.
+    \end{enumerate}
+  \item Crack evolution data is written to CSV.
+  \item Peak damage across the global model is updated.
+  \item VTK snapshots are written every 50 steps (1.0~s intervals).
+\end{enumerate}
 
-  \item[\texttt{frame\_NNNNNN.vtm}]
-    VTK multi-block structural model at each output interval.
+This loop continues until the end of the 275~s analysis window
+(corresponding to $t = 300$~s in the original record).
 
-  \item[\texttt{nlsub\_<id>\_*.pvd}]
-    PVD time series for each sub-model (mesh, Gauss cloud, crack planes).
-\end{description}
-
-A Python plotting script (\texttt{scripts/plot\_lshaped\_multiscale.py})
-reads the CSV outputs and generates publication-quality figures:
+\paragraph{Output files.}
+The analysis produces:
 \begin{itemize}
-  \item Roof displacement time histories ($u_x$, $u_y$ vs.\ time).
-  \item Roof orbit plot ($u_x$ vs.\ $u_y$).
-  \item Concrete fibre hysteresis loops.
-  \item Steel fibre hysteresis loops.
-  \item Peak lateral displacement envelope.
+  \item \texttt{yield\_state.vtm} --- global frame VTK at first yield.
+  \item \texttt{evolution/frame\_NNNNNN.vtm} + \texttt{frame.pvd} ---
+        global frame time series.
+  \item \texttt{evolution/sub\_models/nlsub\_<id>\_\{mesh,gauss,cracks\}.pvd} ---
+        per sub-model PVD series.
+  \item \texttt{recorders/roof\_displacement.csv} --- nodal displacement
+        histories at roof level.
+  \item \texttt{recorders/fiber\_hysteresis\_\{concrete,steel\}.csv} ---
+        fibre stress--strain histories.
+  \item \texttt{recorders/crack\_evolution.csv} --- crack count, damage,
+        and opening vs.\ time for each sub-model.
 \end{itemize}
 
 
 % =========================================================================
-\section{Implementation Notes}
-\label{sec:nlevo-implementation}
+\section{Incremental Kinematics Coupling: Full Derivation}
+\label{sec:nlevo-coupling-derivation}
 
-\subsection{SNES Callback Registration}
+This section presents the complete mathematical chain from beam DOFs
+to sub-model Dirichlet boundary conditions.
 
-The \texttt{FormResidual} and \texttt{FormJacobian} static methods
-replicate the assembly logic of \texttt{NonlinearAnalysis} but are
-defined as private static methods of \texttt{NonlinearSubModelEvolver}.
-They receive a \texttt{Context\{model, f\_ext\}} pointer and perform:
-\begin{enumerate}
-  \item \texttt{DMGlobalToLocal(U)} to scatter free-DOF values.
-  \item Add \texttt{imposed\_solution()} to obtain total displacement.
-  \item Iterate model elements, calling
-        \texttt{compute\_internal\_forces()} (residual) or
-        \texttt{inject\_tangent\_stiffness()} (Jacobian).
-  \item \texttt{DMLocalToGlobal} to assemble the residual.
-\end{enumerate}
+\paragraph{Step 1: Element DOF extraction.}
+For beam element $e$ with element DOF vector
+$\mathbf{q}_e \in \mathbb{R}^{12}$ (2-node Timoshenko):
+\begin{equation}
+  \mathbf{q}_e
+  = \bigl[
+      u_{x,A},\; u_{y,A},\; u_{z,A},\;
+      \theta_{x,A},\; \theta_{y,A},\; \theta_{z,A},\;
+      u_{x,B},\; u_{y,B},\; u_{z,B},\;
+      \theta_{x,B},\; \theta_{y,B},\; \theta_{z,B}
+    \bigr]^T.
+  \label{eq:nlevo-qe}
+\end{equation}
 
-This avoids the \texttt{VecSet(U, 0.0)} that
-\texttt{NonlinearAnalysis::solve\_incremental()} performs, enabling
-Newton iterations to start from the previously converged state.
+\paragraph{Step 2: Interpolation at end sections.}
+At $\xi = -1$ (face~A), the linear shape functions give:
+\begin{align}
+  \mathbf{u}_0^A &= (u_{x,A},\; u_{y,A},\; u_{z,A})^T, \\
+  \boldsymbol{\theta}^A &= (\theta_{x,A},\; \theta_{y,A},\;
+    \theta_{z,A})^T.
+\end{align}
+The section deformation measures at face~A require derivative
+evaluation:
+\begin{align}
+  \varepsilon_{zz}^A
+    &= \frac{1}{L}(u_{z,B} - u_{z,A}), \\
+  \kappa_x^A
+    &= \frac{1}{L}(\theta_{x,B} - \theta_{x,A}), \\
+  \kappa_y^A
+    &= \frac{1}{L}(\theta_{y,B} - \theta_{y,A}),
+\end{align}
+where $L$ is the element length.  Analogous expressions hold for
+face~B at $\xi = +1$.
 
+\paragraph{Step 3: Displacement reconstruction on sub-model face.}
+Let the sub-model face have $n_f$ nodes at local coordinates
+$\{(x_{\ell,j}, y_{\ell,j})\}_{j=1}^{n_f}$ relative to the section
+centroid.  The $3 \times 1$ displacement vector at node $j$ is:
+\begin{equation}
+  \mathbf{u}_j^{\mathrm{face}}
+  = \underbrace{
+    \begin{pmatrix} u_{x,0} \\ u_{y,0} \\ u_{z,0} \end{pmatrix}
+    }_{\text{centroid}}
+  + \underbrace{
+    \begin{pmatrix}
+      -\theta_z\,y_{\ell,j} \\
+       \theta_z\,x_{\ell,j} \\
+       \theta_x\,y_{\ell,j} - \theta_y\,x_{\ell,j}
+    \end{pmatrix}
+    }_{\text{rotation}}
+  + \underbrace{
+    \begin{pmatrix}
+      -\nu\,\varepsilon_{zz}\,x_{\ell,j} \\
+      -\nu\,\varepsilon_{zz}\,y_{\ell,j} \\
+      0
+    \end{pmatrix}
+    }_{\text{Poisson}}.
+  \label{eq:nlevo-full-recon}
+\end{equation}
 
-\subsection{Boundary Condition Updates After Setup}
+\paragraph{Step 4: Time stepping.}
+At each earthquake step $n$, the beam element DOFs
+$\mathbf{q}_e^{(n)}$ are extracted from the global state vector.
+The section kinematics $\mathcal{K}_A^{(n)}, \mathcal{K}_B^{(n)}$ are
+computed, and the face displacements
+$\{\mathbf{u}_j^{\mathrm{face}}\}_j$ are evaluated
+via~\eqref{eq:nlevo-full-recon}.  These become the Dirichlet BCs for
+the sub-model Newton solve at step $n$.
 
-After model setup, the constraint structure is encoded in the DMPlex
-PetscSection and cannot be modified.  However, the \emph{values} of
-constrained DOFs live in the \texttt{imposed\_solution()} vector
-(a local sequential Vec).  The evolver writes new values at the
-PetscSection offsets for each boundary node:
+The \emph{increment} in the boundary displacement between steps
+is:
+\begin{equation}
+  \Delta\mathbf{u}_j^{(n)}
+  = \mathbf{u}_j^{\mathrm{face},(n)}
+  - \mathbf{u}_j^{\mathrm{face},(n-1)},
+  \label{eq:nlevo-delta-bc}
+\end{equation}
+which is typically small compared to the total displacement.  This
+ensures that the Newton solver converges rapidly from the previous
+state, usually in 2--4 iterations.
 
-\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
-PetscSection section;
-DMGetLocalSection(dm, &section);
-VecSet(imposed, 0.0);
-PetscScalar* arr;
-VecGetArray(imposed, &arr);
-for (const auto& [nid, u] : bc_list) {
-    PetscInt pt = domain.node(nid).sieve_id.value();
-    PetscInt offset;
-    PetscSectionGetOffset(section, pt, &offset);
-    arr[offset] = u[0]; arr[offset+1] = u[1]; arr[offset+2] = u[2];
-}
-VecRestoreArray(imposed, &arr);
-\end{lstlisting}
-
-This is both efficient and correct: the PetscSection offset for a
-constrained vertex is the same position used by
-\texttt{DMGlobalToLocal}/\texttt{VecAXPY} in the assembly callbacks.
-
-\subsection{Material State Commit and Revert}
-
-After convergence, the total displacement (free + imposed) is computed
-and passed to each element's \texttt{commit\_material\_state()}:
-
-\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
-DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
-VecAXPY(u_local, 1.0, imposed_solution());
-for (auto& elem : model->elements())
-    elem.commit_material_state(u_local);
-VecCopy(u_local, model->state_vector());
-\end{lstlisting}
-
-The state vector is also updated for VTK post-processing.
-On divergence, \texttt{revert\_material\_state()} restores each
-material point to its previously committed state.
+\paragraph{Step 5: Equilibrium solve.}
+The sub-model solves:
+\begin{equation}
+  \mathbf{f}_{\mathrm{int}}
+    \bigl(\mathbf{u}_{\mathrm{free}}^{(n)}
+          + \mathbf{u}_{\mathrm{imp}}^{(n)}\bigr)
+  = \mathbf{0}
+  \label{eq:nlevo-submodel-eq}
+\end{equation}
+for $\mathbf{u}_{\mathrm{free}}^{(n)}$, with initial guess
+$\mathbf{u}_{\mathrm{free}}^{(n-1)}$.  The constitutive response at
+each Gauss point accounts for the full crack/damage history from
+steps $1, \ldots, n{-}1$.
 
 
 % =========================================================================
-\section{Summary}
-\label{sec:nlevo-summary}
+\section{Discussion}
+\label{sec:nlevo-discussion}
 
-The \texttt{NonlinearSubModelEvolver} completes the multi-scale
-pipeline by enabling persistent, state-accumulating nonlinear
-continuum sub-models.  Combined with the \texttt{MultiscaleCoordinator}
-and the higher-order prismatic domain builder, it allows a complete
-workflow where a global beam--column frame analysis drives local
-three-dimensional concrete sub-models through an entire earthquake,
-capturing progressive cracking, damage accumulation, and stress
-redistribution.
+\paragraph{Convergence behaviour.}
+The first solve (incremental from virgin state with $N_{\mathrm{sub}}
+= 15$ sub-steps) typically requires 5--10 Newton iterations per
+sub-step due to the nonlinearity of crack initiation.  Subsequent
+solves converge in 2--4 iterations thanks to the small BC increments
+and the excellent initial guess from the previous converged state.
 
-The L-shaped building example demonstrates the full pipeline:
-3-component earthquake input, linear-to-nonlinear transition,
-critical-element sub-model creation, step-by-step evolution with
-persistent material state, and comprehensive VTK + CSV output for
-visualisation and quantitative post-processing.
+\paragraph{Computational cost.}
+Each sub-model has $4 \times 4 \times 8 = 128$ Hex27 elements with
+$27 \times 128 = 3{,}456$ Gauss points and
+approximately $9 \times 9 \times 17 = 1{,}377$ nodes (accounting for
+the Hex27 lattice).  With 3 DOFs per node, the free-DOF system
+(after constraining face nodes) has approximately 3{,}500--3{,}800 DOFs.
+A direct LU solve of this size is very fast: under 0.1~s per Newton
+iteration.  For 3 sub-models with $\sim$5 iterations each per step,
+the sub-model overhead is approximately 1.5~s per global step---a
+modest cost relative to the global dynamic solve that includes
+mass matrix assembly, Rayleigh damping, and the generalized-$\alpha$
+time integrator.
+
+\paragraph{Persistent state vs.\ single-shot.}
+The persistent evolver produces fundamentally different results from
+the single-shot \texttt{SubModelSolver}: once a crack forms at a Gauss
+point, it persists and affects all subsequent steps.  Under cyclic
+earthquake loading, this leads to progressive stiffness degradation,
+stress redistribution to intact regions, and eventually crack
+localisation.  The single-shot solver, by contrast, would produce the
+same crack pattern at every step for the same boundary displacements,
+regardless of prior loading history.
+
+\paragraph{Full-scale earthquake effects.}
+With the MYG004 record applied at full intensity (PGA $>$ 2.7$g$ NS),
+the structure experiences extreme demands.  The sub-models are
+expected to show:
+\begin{itemize}
+  \item Early onset of cracking (during the build-up phase before PGA).
+  \item Rapid increase in cracked Gauss points during the intense
+        shaking phase ($t \approx 45$--$95$~s after the trim offset).
+  \item Potential crack saturation (many GPs reaching the 3-crack
+        maximum) at peak demands.
+  \item Partial recovery during the coda phase as the ground motion
+        subsides, with cracks closing but damage persisting.
+\end{itemize}
+
+\paragraph{Limitations and extensions.}
+\begin{itemize}
+  \item The current sub-models use homogeneous concrete without
+        explicit rebar.  For columns with high confinement or
+        significant shear-reinforcement interaction, embedded truss
+        elements (Chapter~\ref{ch:truss-element}) could be added via
+        \texttt{MixedModel}.  This would require extending the evolver
+        to handle both element types, with specialised crack data
+        collection for the concrete elements.
+  \item The kinematic coupling is one-way: the global beam model is
+        not affected by the sub-model response.  A two-way coupling
+        (where the sub-model feeds back homogenised stiffness to the
+        beam) would require modifications to the global dynamic solver.
+  \item Geometric nonlinearity (large rotations) is not considered in
+        the reconstruction~\eqref{eq:nlevo-recon}.  For columns with
+        extreme inter-storey drifts, a co-rotational formulation would
+        be more appropriate.
+\end{itemize}

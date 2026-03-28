@@ -78,6 +78,18 @@ struct CrackRecord {
 
 
 // =============================================================================
+//  CrackSummary  aggregate crack statistics for one sub-model
+// =============================================================================
+
+struct CrackSummary {
+    int    num_cracked_gps{0};   ///< Gauss points with ≥1 crack
+    int    total_cracks{0};      ///< sum of num_cracks across all cracked GPs
+    double max_damage{0.0};      ///< maximum scalar damage among all GPs
+    double max_opening{0.0};     ///< maximum crack opening strain
+};
+
+
+// =============================================================================
 //  NonlinearSubModelEvolver
 // =============================================================================
 
@@ -401,6 +413,18 @@ public:
     [[nodiscard]] MultiscaleSubModel& sub_model() noexcept { return *sub_; }
     [[nodiscard]] const std::vector<CrackRecord>& latest_cracks() const noexcept {
         return latest_cracks_;
+    }
+
+    [[nodiscard]] CrackSummary crack_summary() const noexcept {
+        CrackSummary s;
+        for (const auto& cr : latest_cracks_) {
+            ++s.num_cracked_gps;
+            s.total_cracks += cr.num_cracks;
+            s.max_damage    = std::max(s.max_damage, cr.damage);
+            s.max_opening   = std::max({s.max_opening,
+                                        cr.opening_1, cr.opening_2, cr.opening_3});
+        }
+        return s;
     }
 
 
