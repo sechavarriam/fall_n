@@ -1,0 +1,313 @@
+% ==========================================================================
+%  Chapter 72 -- Mixed-Model Reinforced Sub-Model with Discrete Rebars
+% ==========================================================================
+
+\chapter{Mixed-Model Reinforced Sub-Model with Discrete Rebars}
+\label{ch:mixed-model-rebar}
+
+
+% =========================================================================
+\section{Introduction and Motivation}
+\label{sec:mixed-intro}
+
+The persistent nonlinear sub-model evolver introduced in
+Chapter~\ref{ch:nl-sub-model-evolver} uses a homogeneous three-dimensional
+continuum model (all Hex27 elements with the Ko--Bathe concrete
+material) to track damage evolution at critical locations.  While this
+captures concrete cracking and damage realistically, it neglects the
+contribution of reinforcing steel, which dominates the post-cracking
+response of reinforced-concrete (RC) members.
+
+This chapter extends the sub-model framework to support \emph{mixed
+models} that embed discrete one-dimensional rebar elements (two-node
+trusses) within the three-dimensional hexahedral mesh.  The resulting
+model has two element types sharing nodes through the DMPlex sieve
+(perfect-bond assumption), a mixed finite-element configuration that
+cannot be handled by the single-type \texttt{SingleElementPolicy}.  The
+type-erased \texttt{FEM\_Element} wrapper and the
+\texttt{MultiElementPolicy} provide the mechanism to store and iterate
+over heterogeneous element types in a single \texttt{Model<>}.
+
+
+% =========================================================================
+\section{Mathematical Formulation}
+\label{sec:mixed-math}
+
+% -------------------------------------------------------------------------
+\subsection{Mixed Displacement Field and Perfect Bond}
+
+Let $\Omega_c \subset \mathbb{R}^3$ denote the concrete domain
+discretised by hexahedral elements, and let $\Gamma_s \subset \Omega_c$
+denote the set of one-dimensional rebar segments embedded within the
+concrete mesh.  Under the perfect-bond assumption, the rebar
+displacement at any point along the bar coincides with the continuum
+displacement interpolated at the shared nodes:
+\begin{equation}
+  \label{eq:perfect-bond}
+  \mathbf{u}^s(\mathbf{x}) = \mathbf{u}^c(\mathbf{x}), \quad
+  \forall\; \mathbf{x} \in \Gamma_s \cap \partial\Omega_c^{\text{nodes}},
+\end{equation}
+where the superscripts $c$ and $s$ refer to concrete and steel,
+respectively.  Since truss nodes coincide with hexahedral nodes the
+shared DOFs enter both element stiffness contributions additively.
+
+% -------------------------------------------------------------------------
+\subsection{Continuum Element Contribution (Concrete)}
+
+Each hexahedral element $e$ contributes the standard 3D solid tangent
+stiffness and internal-force vector:
+\begin{equation}
+  \label{eq:hex-Kt}
+  \mathbf{K}_t^{(e)} = \int_{\Omega^{(e)}}
+    \mathbf{B}_c^T \, \mathbf{D}_t^{(e)} \, \mathbf{B}_c \; \mathrm{d}\Omega,
+  \qquad
+  \mathbf{f}_{\text{int}}^{(e)} = \int_{\Omega^{(e)}}
+    \mathbf{B}_c^T \, \boldsymbol{\sigma}^{(e)} \; \mathrm{d}\Omega,
+\end{equation}
+where $\mathbf{B}_c$ is the standard strain--displacement matrix,
+$\mathbf{D}_t$ the consistent tangent modulus from the Ko--Bathe
+material, and $\boldsymbol{\sigma}$ the Cauchy stress vector.  The
+integrals are evaluated via Gauss--Legendre quadrature at
+$3 \times 3 \times 3 = 27$ points for Hex27 elements.
+
+% -------------------------------------------------------------------------
+\subsection{Truss Element Contribution (Rebar)}
+
+Each rebar segment is modelled as a two-node bar element in 3D space
+with $2 \times 3 = 6$ DOFs.  The element strain is purely axial:
+\begin{equation}
+  \label{eq:truss-eps}
+  \varepsilon = \mathbf{B}_s \, \mathbf{u}_e,
+  \qquad
+  \mathbf{B}_s = \frac{1}{L}
+  \begin{bmatrix} -l & -m & -n & l & m & n \end{bmatrix},
+\end{equation}
+where $(l, m, n)$ are the direction cosines of the bar axis and $L$ is
+the element length.  The tangent stiffness and internal force are:
+\begin{equation}
+  \label{eq:truss-Kt}
+  \mathbf{K}_t^{(s)} = A_s \, L \, E_t(\varepsilon)\;
+  \mathbf{B}_s^T \, \mathbf{B}_s,
+  \qquad
+  \mathbf{f}_{\text{int}}^{(s)} = A_s \, L \, \sigma(\varepsilon)\;
+  \mathbf{B}_s^T,
+\end{equation}
+where $A_s$ is the bar cross-sectional area and
+$E_t = \partial\sigma / \partial\varepsilon$ is
+the uniaxial tangent modulus from the Menegotto--Pinto steel model.
+
+One Gauss point suffices for exact integration over a 2-node linear
+element with constant $\mathbf{B}_s$.
+
+% -------------------------------------------------------------------------
+\subsection{Assembled Mixed System}
+
+The global stiffness matrix and internal-force vector are obtained by
+the standard direct-stiffness assembly:
+\begin{equation}
+  \label{eq:mixed-assembly}
+  \mathbf{K}_t = \sum_{e \in \mathcal{E}_c} \mathbf{A}_e^T
+    \mathbf{K}_t^{(e)} \mathbf{A}_e
+  + \sum_{s \in \mathcal{E}_s} \mathbf{A}_s^T
+    \mathbf{K}_t^{(s)} \mathbf{A}_s,
+\end{equation}
+where $\mathbf{A}_e$ and $\mathbf{A}_s$ are the Boolean scatter
+matrices that map element to global DOFs.  Because rebar nodes are
+shared with hex nodes, the PETSc \texttt{MatSetValuesLocal} assembly
+with \texttt{ADD\_VALUES} automatically couples both contributions at
+shared DOFs.
+
+The equilibrium equation at each Newton iteration is therefore:
+\begin{equation}
+  \label{eq:mixed-Newton}
+  \mathbf{K}_t\;\delta\mathbf{u} = -\mathbf{R},
+  \qquad
+  \mathbf{R} = \mathbf{f}_{\text{int}}^c + \mathbf{f}_{\text{int}}^s
+               - \mathbf{f}_{\text{ext}},
+\end{equation}
+where $\mathbf{f}_{\text{int}}^c$ and $\mathbf{f}_{\text{int}}^s$
+come from concrete and rebar elements respectively.
+
+
+% =========================================================================
+\section{Type-Erased Element Access: \texttt{GaussPointSnapshot}}
+\label{sec:mixed-gauss-snapshot}
+
+With \texttt{MultiElementPolicy}, the model stores elements as
+\texttt{std::vector<FEM\_Element>}, where \texttt{FEM\_Element} is a
+type-erased wrapper using the External Polymorphism pattern.  The
+heterogeneous element list means we cannot call typed methods like
+\texttt{material\_points()} directly.
+
+A new virtual method \texttt{gauss\_point\_snapshots(Vec u\_local)} was
+added to the \texttt{FEM\_Element::Concept} base class.  The
+\texttt{Model<T>} bridge template implements this method using
+\texttt{if constexpr}:
+
+\begin{itemize}
+  \item For \texttt{ContinuumElement}: iterates \texttt{material\_points()},
+    extracts position from geometry integration points, stress/strain from
+    the material state, and crack data from
+    \texttt{internal\_field\_snapshot()}.
+  \item For \texttt{TrussElement}: returns an empty vector (steel has no
+    crack model; its contribution is purely structural).
+\end{itemize}
+
+The returned \texttt{GaussPointSnapshot} struct aggregates:
+\begin{equation*}
+  \texttt{GaussPointSnapshot} = \bigl\{
+    \mathbf{x}, \;
+    \boldsymbol{\sigma}, \;
+    \boldsymbol{\varepsilon}, \;
+    d, \;
+    n_{\text{cracks}}, \;
+    \{\mathbf{n}_i\}_{i=1}^3, \;
+    \{w_i\}_{i=1}^3, \;
+    \{c_i\}_{i=1}^3
+  \bigr\},
+\end{equation*}
+where $d$ is the scalar damage, $\mathbf{n}_i$ are crack normals,
+$w_i$ are crack openings, and $c_i$ are open/closed flags.  This
+struct provides a uniform interface for both crack-data collection
+and volume-averaged stress/strain extraction.
+
+
+% =========================================================================
+\section{Reinforced Prismatic Domain Construction}
+\label{sec:mixed-domain}
+
+The function \texttt{make\_reinforced\_prismatic\_domain()} generates
+a combined hex+line mesh:
+
+\begin{enumerate}
+  \item All nodes are created on the structured prismatic grid
+    (same as the homogeneous case).
+  \item Hexahedral element geometries are created with the specified
+    element order (Hex8, Hex20, or Hex27), each assigned to the
+    \texttt{"Solid"} physical group.
+  \item For each rebar bar specified by grid indices $(i_x, i_y)$
+    and cross-sectional area $A_s$, the builder creates $n_z$ 2-node
+    line elements connecting consecutive z-level nodes at
+    $(\mathtt{step} \cdot i_x, \; \mathtt{step} \cdot i_y, \;
+    \mathtt{step} \cdot k)$ for $k = 0, \ldots, n_z - 1$.
+    These elements are assigned to the \texttt{"Rebar"} physical group.
+  \item A \texttt{RebarElementRange} is returned, providing the index
+    range $[\mathtt{first}, \mathtt{last})$ of rebar element
+    geometries within the domain's element list.
+\end{enumerate}
+
+The coordinator maps physical rebar positions $(y, z)$ from the
+\texttt{SubModelSpec} to grid indices via nearest-node snapping:
+\begin{equation}
+  \label{eq:rebar-snap}
+  i_x = \operatorname{round}\!\left(
+    \frac{y + w/2}{\Delta x}\right), \qquad
+  i_y = \operatorname{round}\!\left(
+    \frac{z + h/2}{\Delta y}\right),
+\end{equation}
+where $w$ and $h$ are the section width and height, and
+$\Delta x = w / n_x$, $\Delta y = h / n_y$ are the element spacings.
+The indices are clamped to $[0, n_x]$ and $[0, n_y]$ respectively.
+
+
+% =========================================================================
+\section{Model Construction in the Evolver}
+\label{sec:mixed-evolver}
+
+The \texttt{NonlinearSubModelEvolver} was refactored from a
+\texttt{HomogModel} (typed, \texttt{SingleElementPolicy}) to a
+\texttt{MixedModel} (\texttt{MultiElementPolicy}) which always stores
+elements as \texttt{FEM\_Element}.  The \texttt{first\_solve()} method
+builds the element list explicitly:
+
+\begin{enumerate}
+  \item \textbf{Concrete elements}: For each hex geometry
+    (indices $[0, \mathtt{rebar\_first})$), create a
+    \texttt{ContinuumElement} with the Ko--Bathe concrete material and
+    wrap in \texttt{FEM\_Element}.
+  \item \textbf{Rebar elements} (optional): For each line geometry
+    (indices $[\mathtt{rebar\_first}, \mathtt{rebar\_last})$), create a
+    \texttt{TrussElement<3>} with the Menegotto--Pinto steel material,
+    the bar's cross-sectional area, and wrap in \texttt{FEM\_Element}.
+  \item Pass the assembled \texttt{std::vector<FEM\_Element>} to the
+    Model constructor~2 (pre-built elements), then proceed with
+    constraint application and PETSc SNES setup as before.
+\end{enumerate}
+
+The SNES callbacks (\texttt{FormResidual}, \texttt{FormJacobian})
+iterate \texttt{model\_->elements()} and call
+\texttt{compute\_internal\_forces}, \texttt{inject\_tangent\_stiffness},
+\texttt{commit\_material\_state}, and \texttt{revert\_material\_state}
+--- all of which are forwarded through the \texttt{FEM\_Element}
+type-erasure to the underlying concrete or truss element.
+
+\subsection{Post-Processing Adaptation}
+
+The \texttt{extract\_results()} and \texttt{collect\_crack\_data()}
+methods were rewritten to use \texttt{gauss\_point\_snapshots()}
+instead of the typed \texttt{material\_points()} access:
+\begin{itemize}
+  \item \texttt{extract\_results()}: Accumulates volume-averaged
+    $\boldsymbol{\sigma}$ and $\boldsymbol{\varepsilon}$ from
+    snapshots, computes effective $E$ and $G$, and evaluates the
+    von~Mises peak.
+  \item \texttt{collect\_crack\_data()}: Iterates snapshots with
+    $n_{\text{cracks}} > 0$ to build \texttt{CrackRecord} entries for
+    VTK crack-plane export.
+\end{itemize}
+Truss elements return empty snapshot vectors, so they contribute
+neither to crack statistics nor to the stress averaging (by design,
+rebar stress is a uniaxial contribution embedded in the continuum
+average).
+
+
+% =========================================================================
+\section{Coordinator Integration}
+\label{sec:mixed-coord}
+
+The \texttt{MultiscaleCoordinator::build\_sub\_models()} method was
+extended to detect \texttt{spec.has\_rebar()} and dispatch accordingly:
+\begin{itemize}
+  \item \textbf{Without rebar}: calls \texttt{make\_prismatic\_domain()}
+    as before, producing a homogeneous hex mesh.
+  \item \textbf{With rebar}: converts the physical rebar coordinates to
+    grid indices via \eqref{eq:rebar-snap}, builds a
+    \texttt{RebarSpec}, and calls
+    \texttt{make\_reinforced\_prismatic\_domain()}.
+\end{itemize}
+
+The \texttt{MultiscaleSubModel} struct was extended with:
+\begin{itemize}
+  \item \texttt{rebar\_range}: the element index range for rebar
+    geometries within the domain.
+  \item \texttt{rebar\_areas}: a vector of bar areas (one per bar,
+    repeated for each z-level segment internally).
+  \item \texttt{has\_rebar()}: convenience query.
+\end{itemize}
+
+The evolver's \texttt{set\_rebar\_material(E, f_y, b)} method allows
+specifying the Menegotto--Pinto parameters (elastic modulus, yield
+stress, hardening ratio) before the first solve.
+
+
+% =========================================================================
+\section{Summary}
+\label{sec:mixed-summary}
+
+The mixed-model extension enables realistic simulation of
+reinforced-concrete sub-models at the microscale:
+\begin{enumerate}
+  \item Concrete (Hex27 + Ko--Bathe): captures cracking, softening,
+    and damage accumulation.
+  \item Steel (TrussElement<3> + Menegotto--Pinto): captures yielding,
+    Bauschinger effect, and cyclic hardening.
+  \item Perfect bond: shared nodes enforce displacement compatibility
+    through the assembled stiffness.
+  \item Type erasure: \texttt{FEM\_Element} and
+    \texttt{MultiElementPolicy} allow both element types in a single
+    \texttt{Model<>} with unified SNES callbacks.
+\end{enumerate}
+
+The implementation preserves full backward compatibility: when
+\texttt{SubModelSpec} has no rebar bars, the evolver creates the
+same homogeneous concrete model as before.

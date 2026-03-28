@@ -41,6 +41,11 @@ class MaterialSection {
     using StateVariableT      = typename MaterialPolicy::StateVariableT;
     using StressT             = typename MaterialPolicy::StressT;
 
+    static constexpr std::size_t num_strain_components =
+        StateVariableT::num_components;
+    using TangentMatrixT = Eigen::Matrix<double,
+        num_strain_components, num_strain_components>;
+
     static constexpr std::size_t material_dim = MaterialPolicy::dim;
 
     std::size_t id_{};
@@ -48,6 +53,12 @@ class MaterialSection {
     IntegrationPoint<PointDim>* integration_point_{nullptr};
 
     MaterialT material_;
+
+    // ── Homogenized tangent override (for FE² coupling) ─────────────
+    //  When set, tangent() and compute_response() use the override
+    //  instead of querying the underlying material.
+    std::optional<TangentMatrixT> tangent_override_{};
+    std::optional<Eigen::Vector<double, num_strain_components>> force_override_{};
     // ↑ Type-erased section constitutive relation (e.g. TimoshenkoBeamSection3D
     //   wrapped in Material<TimoshenkoBeam3D>).  Includes the UpdateStrategy.
 
@@ -81,11 +92,42 @@ public:
     // ── Constitutive interface (strategy-mediated) ──────────────────────
 
     [[nodiscard]] auto compute_response(const StateVariableT& k) const {
+        if (force_override_) {
+            StressT sigma;
+            sigma.set_components(*force_override_);
+            return sigma;
+        }
         return material_.compute_response(k);
     }
 
     [[nodiscard]] auto tangent(const StateVariableT& k) const {
+        if (tangent_override_) return *tangent_override_;
         return material_.tangent(k);
+    }
+
+    // ── FE² coupling: homogenized override ──────────────────────────
+
+    /// Set a homogenized tangent that bypasses the material model.
+    void set_tangent_override(const TangentMatrixT& D_hom) {
+        tangent_override_ = D_hom;
+    }
+
+    /// Set homogenized section forces [N, My, Mz, Vy, Vz, T].
+    void set_force_override(
+        const Eigen::Vector<double, num_strain_components>& f_hom)
+    {
+        force_override_ = f_hom;
+    }
+
+    /// Clear all overrides — revert to material model.
+    void clear_overrides() noexcept {
+        tangent_override_.reset();
+        force_override_.reset();
+    }
+
+    /// Check if this section has an active FE² override.
+    [[nodiscard]] bool has_override() const noexcept {
+        return tangent_override_.has_value();
     }
 
     void commit(const StateVariableT& k) {

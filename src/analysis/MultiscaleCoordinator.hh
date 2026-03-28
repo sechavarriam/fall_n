@@ -39,6 +39,7 @@
 // =============================================================================
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <numeric>
 #include <string>
@@ -84,6 +85,17 @@ struct MultiscaleSubModel {
 
     std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_min_z;
     std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_max_z;
+
+    /// Rebar element range within Domain::elements().
+    /// If first == last, no rebar elements (homogeneous concrete).
+    RebarElementRange rebar_range{0, 0};
+
+    /// Rebar bar areas — one per RebarBar, in the same order as SubModelSpec.
+    std::vector<double> rebar_areas;
+
+    [[nodiscard]] bool has_rebar() const noexcept {
+        return rebar_range.first != rebar_range.last;
+    }
 };
 
 
@@ -163,9 +175,37 @@ public:
                 spec.nx, spec.ny, spec.nz,
                 "Solid", spec.hex_order);
 
-            auto [domain, grid] = make_prismatic_domain(pspec);
-            sub.domain = std::move(domain);
-            sub.grid   = std::move(grid);
+            if (spec.has_rebar()) {
+                // Convert physical (y,z) bar positions to grid indices.
+                // y → X direction (width),  z → Y direction (height).
+                const double dx = spec.section_width  / static_cast<double>(spec.nx);
+                const double dy = spec.section_height / static_cast<double>(spec.ny);
+
+                RebarSpec rebar;
+                for (const auto& bar : spec.rebar_bars) {
+                    int ix = static_cast<int>(
+                        std::round((bar.y + spec.section_width  / 2.0) / dx));
+                    int iy = static_cast<int>(
+                        std::round((bar.z + spec.section_height / 2.0) / dy));
+
+                    // Clamp to valid range [0, n_dir]
+                    ix = std::clamp(ix, 0, spec.nx);
+                    iy = std::clamp(iy, 0, spec.ny);
+
+                    rebar.bars.push_back(
+                        fall_n::RebarBar{ix, iy, bar.area, "Rebar"});
+                    sub.rebar_areas.push_back(bar.area);
+                }
+
+                auto result = make_reinforced_prismatic_domain(pspec, rebar);
+                sub.domain      = std::move(result.domain);
+                sub.grid        = std::move(result.grid);
+                sub.rebar_range = result.rebar_range;
+            } else {
+                auto [domain, grid] = make_prismatic_domain(pspec);
+                sub.domain = std::move(domain);
+                sub.grid   = std::move(grid);
+            }
 
             sub_models_.push_back(std::move(sub));
         }
