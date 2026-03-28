@@ -287,6 +287,36 @@ public:
     const auto& reference_frame() const noexcept { return frame0_; }
     const auto& current_frame()   const noexcept { return frame_n_; }
 
+    // ── FE² coupling: homogenized tangent injection ─────────────────
+
+    /// Override every section's tangent with the homogenized D_hom (6×6).
+    /// This makes the beam use the sub-model–derived stiffness at all GPs.
+    void set_homogenized_tangent(
+        const Eigen::Matrix<double, num_strains, num_strains>& D_hom)
+    {
+        for (auto& sec : sections_)
+            sec.set_tangent_override(D_hom);
+    }
+
+    /// Override section forces at all GPs [N, My, Mz, Vy, Vz, T].
+    void set_homogenized_forces(
+        const Eigen::Vector<double, num_strains>& f_hom)
+    {
+        for (auto& sec : sections_)
+            sec.set_force_override(f_hom);
+    }
+
+    /// Clear all homogenized overrides — revert to fiber-section response.
+    void clear_homogenized_overrides() noexcept {
+        for (auto& sec : sections_)
+            sec.clear_overrides();
+    }
+
+    /// Check if the element has an active FE² override.
+    [[nodiscard]] bool has_homogenized_override() const noexcept {
+        return !sections_.empty() && sections_[0].has_override();
+    }
+
     auto local_state_vector(Vec u_local) const {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
         auto T_cur = transformation_matrix();

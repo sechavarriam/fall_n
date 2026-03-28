@@ -46,6 +46,8 @@
 #include "../materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
 #include "../materials/constitutive_models/non_lineal/MenegottoPintoSteel.hh"
 
+#include "HomogenizedSection.hh"
+
 #include "../model/Model.hh"
 #include "../model/PrismaticDomainBuilder.hh"
 #include "../continuum/KinematicPolicy.hh"
@@ -97,20 +99,26 @@ class NonlinearSubModelEvolver {
 
     using Policy = ThreeDimensionalMaterial;
     static constexpr std::size_t NDOF = 3;
-    using HomogModel = Model<Policy, continuum::SmallStrain, NDOF>;
+    using ContElem   = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
+    using MixedModel = Model<Policy, continuum::SmallStrain, NDOF, MultiElementPolicy>;
 
     //  Sub-model reference 
     MultiscaleSubModel* sub_;
     double              fc_;
     std::array<double,3> local_ex_{1,0,0}, local_ey_{0,1,0}, local_ez_{0,0,1};
 
+    //  Rebar material parameters (used when sub_->has_rebar())
+    double rebar_E_{200000.0};
+    double rebar_fy_{420.0};
+    double rebar_b_{0.01};
+
     //  Persistent model 
-    std::unique_ptr<HomogModel> model_;
+    std::unique_ptr<MixedModel> model_;
     bool model_ready_{false};
 
     //  PETSc solver objects (persist across steps) 
     struct Context {
-        HomogModel* model;
+        MixedModel* model;
         Vec         f_ext;
     };
     Context ctx_{};
@@ -283,6 +291,10 @@ public:
         local_ex_ = ex; local_ey_ = ey; local_ez_ = ez;
     }
 
+    void set_rebar_material(double E, double fy, double b) {
+        rebar_E_ = E; rebar_fy_ = fy; rebar_b_ = b;
+    }
+
 
     //  BC update 
 
@@ -428,6 +440,125 @@ public:
     }
 
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  Homogenised section tangent via perturbation
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  Computes the 6×6 tangent D_hom = ∂s/∂e by forward-difference
+    //  perturbation of the section deformation components at BOTH ends.
+    //
+    //  For each direction j = 0..5:
+    //    1. Perturb kin_A.e_j and kin_B.e_j by +h
+    //    2. Recompute boundary displacements
+    //    3. Write perturbed BCs into imposed_solution
+    //    4. One SNES solve from current state (small perturbation → 1–2 iters)
+    //    5. Extract section forces via homogenize()
+    //    6. D_hom(:,j) = (s_perturbed - s0) / h
+    //    7. Revert material state and restore U, imposed_solution
+    //
+    //  Returns the 6×6 matrix with ordering:
+    //    [0] = N, [1] = My, [2] = Mz, [3] = Vy, [4] = Vz, [5] = Mt
+    //  versus
+    //    [0] = ε₀, [1] = κ_y, [2] = κ_z, [3] = γ_y, [4] = γ_z, [5] = θ'
+    //
+
+    [[nodiscard]] Eigen::Matrix<double, 6, 6>
+    compute_homogenized_tangent(double width, double height,
+                                double h_pert = 1.0e-6)
+    {
+        if (!model_ready_) return Eigen::Matrix<double, 6, 6>::Zero();
+
+        // ── Baseline section forces ──────────────────────────────────
+        SubModelSolverResult base_result = extract_results(true);
+        HomogenizedBeamSection s0 = homogenize(base_result, *sub_, width, height);
+        Eigen::Vector<double, 6> s0_vec;
+        s0_vec << s0.N, s0.My, s0.Mz, s0.Vy, s0.Vz, 0.0;  // Mt ≈ 0
+
+        // ── Save current state vectors ───────────────────────────────
+        Vec U_save, imp_save;
+        VecDuplicate(U_, &U_save);
+        VecCopy(U_, U_save);
+        VecDuplicate(model_->imposed_solution(), &imp_save);
+        VecCopy(model_->imposed_solution(), imp_save);
+
+        const SectionKinematics kin_A_orig = sub_->kin_A;
+        const SectionKinematics kin_B_orig = sub_->kin_B;
+
+        Eigen::Matrix<double, 6, 6> D_hom =
+            Eigen::Matrix<double, 6, 6>::Zero();
+
+        // ── Perturbation loop ────────────────────────────────────────
+        for (int j = 0; j < 6; ++j) {
+            SectionKinematics kin_A_p = kin_A_orig;
+            SectionKinematics kin_B_p = kin_B_orig;
+
+            // Apply perturbation to both ends
+            auto perturb = [&](SectionKinematics& k) {
+                switch (j) {
+                    case 0: k.eps_0   += h_pert; break;
+                    case 1: k.kappa_y += h_pert; break;
+                    case 2: k.kappa_z += h_pert; break;
+                    case 3: k.gamma_y += h_pert; break;
+                    case 4: k.gamma_z += h_pert; break;
+                    case 5: k.twist   += h_pert; break;
+                }
+            };
+            perturb(kin_A_p);
+            perturb(kin_B_p);
+
+            // Recompute boundary displacements with perturbed kinematics
+            sub_->kin_A = kin_A_p;
+            sub_->kin_B = kin_B_p;
+            auto face_A = sub_->grid.nodes_on_face(PrismFace::MinZ);
+            auto face_B = sub_->grid.nodes_on_face(PrismFace::MaxZ);
+            sub_->bc_min_z = compute_boundary_displacements(
+                kin_A_p, sub_->domain, face_A);
+            sub_->bc_max_z = compute_boundary_displacements(
+                kin_B_p, sub_->domain, face_B);
+            write_imposed_values();
+
+            // Solve from current state (small perturbation → fast convergence)
+            SNESSolve(snes_, nullptr, U_);
+
+            SNESConvergedReason reason;
+            SNESGetConvergedReason(snes_, &reason);
+
+            if (reason > 0) {
+                // Extract perturbed section forces (without committing)
+                SubModelSolverResult pert_result = extract_results(true);
+                HomogenizedBeamSection sp =
+                    homogenize(pert_result, *sub_, width, height);
+                Eigen::Vector<double, 6> sp_vec;
+                sp_vec << sp.N, sp.My, sp.Mz, sp.Vy, sp.Vz, 0.0;
+
+                D_hom.col(j) = (sp_vec - s0_vec) / h_pert;
+            }
+            // else: column stays zero (perturbation failed)
+
+            // Revert material state and restore vectors
+            revert_state();
+            VecCopy(U_save, U_);
+            VecCopy(imp_save, model_->imposed_solution());
+        }
+
+        // ── Restore original kinematics ──────────────────────────────
+        sub_->kin_A = kin_A_orig;
+        sub_->kin_B = kin_B_orig;
+        auto face_A = sub_->grid.nodes_on_face(PrismFace::MinZ);
+        auto face_B = sub_->grid.nodes_on_face(PrismFace::MaxZ);
+        sub_->bc_min_z = compute_boundary_displacements(
+            kin_A_orig, sub_->domain, face_A);
+        sub_->bc_max_z = compute_boundary_displacements(
+            kin_B_orig, sub_->domain, face_B);
+        write_imposed_values();
+
+        VecDestroy(&U_save);
+        VecDestroy(&imp_save);
+
+        return D_hom;
+    }
+
+
 private:
 
     //  Destroy PETSc objects 
@@ -537,7 +668,40 @@ private:
         InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
         Material<Policy> mat{mat_inst, InelasticUpdate{}};
 
-        model_ = std::make_unique<HomogModel>(sub_->domain, mat);
+        // Build element list (ContinuumElement for hex + TrussElement for rebar)
+        std::vector<FEM_Element> elems;
+
+        const std::size_t rebar_first = sub_->has_rebar()
+            ? sub_->rebar_range.first : sub_->domain.num_elements();
+
+        {
+            std::size_t idx = 0;
+            for (auto& geom : sub_->domain.elements()) {
+                if (idx >= rebar_first) break;
+                elems.emplace_back(ContElem{&geom, mat});
+                ++idx;
+            }
+        }
+
+        // Optional rebar truss elements
+        if (sub_->has_rebar()) {
+            MenegottoPintoSteel steel_impl{rebar_E_, rebar_fy_, rebar_b_};
+            InelasticMaterial<MenegottoPintoSteel> steel_inst{std::move(steel_impl)};
+            Material<UniaxialMaterial> steel_mat{std::move(steel_inst), InelasticUpdate{}};
+
+            const int nz = sub_->grid.nz;
+            std::size_t bar_idx = 0;
+            for (std::size_t i = sub_->rebar_range.first;
+                 i < sub_->rebar_range.last; ++i)
+            {
+                auto& geom = sub_->domain.elements()[i];
+                double area = sub_->rebar_areas[bar_idx / static_cast<std::size_t>(nz)];
+                elems.emplace_back(TrussElement<3>{&geom, steel_mat, area});
+                ++bar_idx;
+            }
+        }
+
+        model_ = std::make_unique<MixedModel>(sub_->domain, std::move(elems));
 
         // 2. Apply Dirichlet BCs (constrain_node must precede setup)
         for (const auto& [nid, u] : sub_->bc_min_z)
@@ -626,27 +790,35 @@ private:
                                                std::abs(arr[i]));
         VecRestoreArrayRead(model_->state_vector(), &arr);
 
-        // Volume-averaged stress/strain from material points
+        // Volume-averaged stress/strain via gauss_point_snapshots
         Eigen::Vector<double, 6> sum_stress = Eigen::Vector<double, 6>::Zero();
         Eigen::Vector<double, 6> sum_strain = Eigen::Vector<double, 6>::Zero();
         double max_vm = 0.0;
 
-        for (const auto& elem : model_->elements()) {
-            for (const auto& mp : elem.material_points()) {
-                const auto& strain = mp.current_state();
-                const auto  stress = mp.compute_response(strain);
-                const auto& sv = stress.components();
-                const auto& ev = strain.components();
-                sum_stress += sv;
-                sum_strain += ev;
+        {
+            DM dm = model_->get_plex();
+            Vec u_local;
+            DMGetLocalVector(dm, &u_local);
+            VecSet(u_local, 0.0);
+            DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
+            VecAXPY(u_local, 1.0, model_->imposed_solution());
 
-                const double vm = std::sqrt(std::max(0.0,
-                    sv[0]*sv[0] + sv[1]*sv[1] + sv[2]*sv[2]
-                  - sv[0]*sv[1] - sv[1]*sv[2] - sv[0]*sv[2]
-                  + 3.0*(sv[3]*sv[3] + sv[4]*sv[4] + sv[5]*sv[5])));
-                max_vm = std::max(max_vm, vm);
-                ++result.num_gp;
+            for (auto& elem : model_->elements()) {
+                for (const auto& snap : elem.gauss_point_snapshots(u_local)) {
+                    sum_stress += snap.stress;
+                    sum_strain += snap.strain;
+
+                    const auto& sv = snap.stress;
+                    const double vm = std::sqrt(std::max(0.0,
+                        sv[0]*sv[0] + sv[1]*sv[1] + sv[2]*sv[2]
+                      - sv[0]*sv[1] - sv[1]*sv[2] - sv[0]*sv[2]
+                      + 3.0*(sv[3]*sv[3] + sv[4]*sv[4] + sv[5]*sv[5])));
+                    max_vm = std::max(max_vm, vm);
+                    ++result.num_gp;
+                }
             }
+
+            DMRestoreLocalVector(dm, &u_local);
         }
 
         if (result.num_gp > 0) {
@@ -672,48 +844,41 @@ private:
         latest_cracks_.clear();
         if (!model_) return;
 
-        auto to_vec = [](const std::optional<std::array<double, 3>>& opt)
-            -> Eigen::Vector3d {
-            if (!opt) return Eigen::Vector3d::Zero();
-            return Eigen::Vector3d{(*opt)[0], (*opt)[1], (*opt)[2]};
-        };
+        DM dm = model_->get_plex();
+        Vec u_local;
+        DMGetLocalVector(dm, &u_local);
+        VecSet(u_local, 0.0);
+        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
+        VecAXPY(u_local, 1.0, model_->imposed_solution());
 
-        auto& domain = sub_->domain;
-        auto elem_it = model_->elements().begin();
-
-        for (const auto& geom_elem : domain.elements()) {
-            auto gp_it = geom_elem.integration_points().begin();
-
-            for (const auto& mp : elem_it->material_points()) {
-                auto snap = mp.internal_field_snapshot();
-
-                if (snap.has_cracks() && snap.num_cracks.value() > 0) {
+        for (auto& elem : model_->elements()) {
+            for (const auto& snap : elem.gauss_point_snapshots(u_local)) {
+                if (snap.num_cracks > 0) {
                     CrackRecord cr;
-                    cr.position = Eigen::Vector3d{
-                        gp_it->coord(0), gp_it->coord(1), gp_it->coord(2)};
-                    cr.num_cracks = snap.num_cracks.value();
-                    cr.damage = snap.damage.value_or(0.0);
+                    cr.position   = snap.position;
+                    cr.num_cracks = snap.num_cracks;
+                    cr.damage     = snap.damage;
 
-                    cr.normal_1  = to_vec(snap.crack_normal_1);
-                    cr.opening_1 = snap.crack_strain_1.value_or(0.0);
-                    cr.closed_1  = snap.crack_closed_1.value_or(1.0) > 0.5;
+                    cr.normal_1  = snap.crack_normals[0];
+                    cr.opening_1 = snap.crack_openings[0];
+                    cr.closed_1  = snap.crack_closed[0];
 
                     if (cr.num_cracks >= 2) {
-                        cr.normal_2  = to_vec(snap.crack_normal_2);
-                        cr.opening_2 = snap.crack_strain_2.value_or(0.0);
-                        cr.closed_2  = snap.crack_closed_2.value_or(1.0) > 0.5;
+                        cr.normal_2  = snap.crack_normals[1];
+                        cr.opening_2 = snap.crack_openings[1];
+                        cr.closed_2  = snap.crack_closed[1];
                     }
                     if (cr.num_cracks >= 3) {
-                        cr.normal_3  = to_vec(snap.crack_normal_3);
-                        cr.opening_3 = snap.crack_strain_3.value_or(0.0);
-                        cr.closed_3  = snap.crack_closed_3.value_or(1.0) > 0.5;
+                        cr.normal_3  = snap.crack_normals[2];
+                        cr.opening_3 = snap.crack_openings[2];
+                        cr.closed_3  = snap.crack_closed[2];
                     }
                     latest_cracks_.push_back(cr);
                 }
-                ++gp_it;
             }
-            ++elem_it;
         }
+
+        DMRestoreLocalVector(dm, &u_local);
     }
 
 

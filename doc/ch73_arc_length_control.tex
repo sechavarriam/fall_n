@@ -1,0 +1,311 @@
+% ==========================================================================
+%  Chapter 73 -- Arc-Length Control for Nonlinear Analysis
+% ==========================================================================
+
+\chapter{Arc-Length Control for Nonlinear Analysis}
+\label{ch:arc-length}
+
+
+% =========================================================================
+\section{Introduction}
+\label{sec:arc-intro}
+
+Load-controlled and displacement-controlled Newton–Raphson methods
+fail at limit points (snap-through) and bifurcation points
+(snap-back) on the equilibrium path.  At a limit point the tangent
+stiffness matrix becomes singular in the loading direction; at a
+snap-back the displacement path reverses, requiring negative load
+increments that standard monotonic schemes cannot produce.
+
+The arc-length method---originally proposed by Riks (1979) and refined
+by Crisfield (1981, 1983)---augments the equilibrium system with a
+\emph{constraint equation} that controls the step length along the
+equilibrium path in the combined load--displacement space.  This
+chapter documents the mathematical formulation and its implementation
+in the \texttt{ArcLengthControl} and \texttt{ArcLengthSolver} classes.
+
+
+% =========================================================================
+\section{Augmented System}
+\label{sec:arc-augmented}
+
+We seek the equilibrium of a discretised structure under a
+proportional reference load $\hat{\mathbf{f}}$ scaled by a single
+load parameter $\lambda$:
+\begin{equation}
+  \label{eq:arc-equilibrium}
+  \mathbf{R}(\mathbf{u}, \lambda)
+  = \mathbf{f}_{\text{int}}(\mathbf{u})
+    - \lambda \, \hat{\mathbf{f}} = \mathbf{0}.
+\end{equation}
+The unknowns are the displacement vector
+$\mathbf{u} \in \mathbb{R}^n$ and the scalar load parameter
+$\lambda \in \mathbb{R}$, totalling $n + 1$ equations for $n + 1$
+unknowns once a constraint is appended.
+
+% -------------------------------------------------------------------------
+\subsection{Constraint Equations}
+
+Two variants are implemented:
+
+\paragraph{Cylindrical.}
+The cylindrical arc-length constraint (Crisfield, 1981) enforces a
+constant displacement-space step:
+\begin{equation}
+  \label{eq:arc-cylindrical}
+  g(\Delta\mathbf{u}, \Delta\lambda)
+  = \Delta\mathbf{u}^T \Delta\mathbf{u}
+    + \psi^2 \, \Delta\lambda^2 \,
+      \hat{\mathbf{f}}^T \hat{\mathbf{f}}
+  - \Delta\ell^2 = 0,
+\end{equation}
+where $\Delta\ell$ is the prescribed arc-length radius and $\psi$ is a
+scaling factor that controls the relative weight of the load component
+($\psi = 0$ reduces to a purely displacement-based norm,
+$\psi = 1$ gives the ``spherical'' version in the original coordinates).
+
+\paragraph{Spherical.}
+The spherical variant (Crisfield, 1981) uses the full
+$(n+1)$-dimensional norm:
+\begin{equation}
+  \label{eq:arc-spherical}
+  g = \Delta\mathbf{u}^T \Delta\mathbf{u}
+    + \psi^2 \, \Delta\lambda^2 \,
+      \hat{\mathbf{f}}^T \hat{\mathbf{f}}
+  - \Delta\ell^2 = 0.
+\end{equation}
+Both constraints share the same algebraic form but differ in the
+root-selection strategy of the corrector (see below).
+
+
+% =========================================================================
+\section{Predictor Step (Tangent Predictor)}
+\label{sec:arc-predictor}
+
+At the beginning of each new step $k$, the tangent stiffness at the
+last converged state $(\mathbf{u}_k, \lambda_k)$ is factored and the
+load-sensitivity vector is computed:
+\begin{equation}
+  \label{eq:arc-duf}
+  \mathbf{K}_t \, \delta\mathbf{u}_f = \hat{\mathbf{f}}.
+\end{equation}
+
+The predictor increment satisfies the constraint exactly:
+\begin{equation}
+  \label{eq:arc-pred-dl}
+  \Delta\lambda_{\text{pred}} = \pm \frac{\Delta\ell}
+    {\sqrt{\delta\mathbf{u}_f^T \delta\mathbf{u}_f
+           + \psi^2 \,
+             \hat{\mathbf{f}}^T \hat{\mathbf{f}}}}.
+\end{equation}
+
+The sign is chosen to maintain a consistent traversal direction:
+\begin{equation}
+  \label{eq:arc-pred-sign}
+  \operatorname{sign}(\Delta\lambda_{\text{pred}})
+  = \operatorname{sign}(\Delta\lambda_{k-1}),
+\end{equation}
+where $\Delta\lambda_{k-1}$ is the \emph{converged} load increment from
+the previous step.  At the very first step, a positive sign (loading)
+is assumed.  After the predictor:
+\begin{equation}
+  \Delta\mathbf{u}_{\text{pred}} = \Delta\lambda_{\text{pred}} \,
+  \delta\mathbf{u}_f.
+\end{equation}
+
+
+% =========================================================================
+\section{Corrector Iterations (Sherman--Morrison Decomposition)}
+\label{sec:arc-corrector}
+
+At each Newton corrector iteration $j$ within step $k$, the current
+state is $(\mathbf{u}_k^{(j)}, \lambda_k^{(j)})$ with accumulated
+increments $(\Delta\mathbf{u}^{(j)}, \Delta\lambda^{(j)})$.  The
+residual is:
+\begin{equation}
+  \mathbf{R}^{(j)} = \mathbf{f}_{\text{int}}(\mathbf{u}_k^{(j)})
+  - \lambda_k^{(j)} \, \hat{\mathbf{f}}.
+\end{equation}
+
+Two right-hand-side solves are performed:
+\begin{equation}
+  \label{eq:arc-two-solves}
+  \mathbf{K}_t^{(j)} \, \delta\mathbf{u}_R = -\mathbf{R}^{(j)},
+  \qquad
+  \mathbf{K}_t^{(j)} \, \delta\mathbf{u}_f = \hat{\mathbf{f}}.
+\end{equation}
+The total correction is decomposed as:
+\begin{equation}
+  \label{eq:arc-du-decomp}
+  \delta\mathbf{u} = \delta\mathbf{u}_R
+  + \delta\lambda \, \delta\mathbf{u}_f,
+\end{equation}
+where $\delta\lambda$ is determined from the constraint linearisation.
+
+% -------------------------------------------------------------------------
+\subsection{Cylindrical Corrector}
+
+Linearising \eqref{eq:arc-cylindrical} about
+$(\Delta\mathbf{u}^{(j)}, \Delta\lambda^{(j)})$ and substituting
+\eqref{eq:arc-du-decomp}:
+\begin{equation}
+  \label{eq:arc-cyl-dl}
+  \delta\lambda = -\frac{
+    \Delta\mathbf{u}^{(j)\,T} \delta\mathbf{u}_R
+  }{
+    \Delta\mathbf{u}^{(j)\,T} \delta\mathbf{u}_f
+    + \psi^2 \, \Delta\lambda^{(j)} \,
+      \hat{\mathbf{f}}^T \hat{\mathbf{f}}
+  }.
+\end{equation}
+This is the Sherman--Morrison formula for the bordered system.
+
+% -------------------------------------------------------------------------
+\subsection{Spherical Corrector}
+
+The full constraint \eqref{eq:arc-spherical} yields a quadratic in
+$\delta\lambda$:
+\begin{equation}
+  \label{eq:arc-sph-quad}
+  a\,\delta\lambda^2 + b\,\delta\lambda + c = 0,
+\end{equation}
+with:
+\begin{align}
+  a &= \delta\mathbf{u}_f^T \delta\mathbf{u}_f
+       + \psi^2 \, \|\hat{\mathbf{f}}\|^2, \\
+  b &= 2 \bigl(
+         (\Delta\mathbf{u}^{(j)} + \delta\mathbf{u}_R)^T
+         \delta\mathbf{u}_f
+         + \psi^2 \, \Delta\lambda^{(j)} \,
+           \|\hat{\mathbf{f}}\|^2
+       \bigr), \\
+  c &= (\Delta\mathbf{u}^{(j)} + \delta\mathbf{u}_R)^T
+       (\Delta\mathbf{u}^{(j)} + \delta\mathbf{u}_R)
+       + \psi^2 \, \Delta\lambda^{(j)\,2} \,
+         \|\hat{\mathbf{f}}\|^2
+       - \Delta\ell^2.
+\end{align}
+The root with the smaller absolute value is chosen:
+\begin{equation}
+  \delta\lambda = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a},
+  \qquad \text{selecting } |\delta\lambda| \to \min.
+\end{equation}
+When the discriminant is negative (the corrector cannot reach the
+arc-length sphere), the cylindrical formula
+\eqref{eq:arc-cyl-dl} is used as a fallback.
+
+
+% =========================================================================
+\section{Convergence Check and State Commit}
+\label{sec:arc-converge}
+
+At each corrector iteration:
+\begin{equation}
+  \Delta\mathbf{u}^{(j+1)} = \Delta\mathbf{u}^{(j)}
+    + \delta\mathbf{u}_R + \delta\lambda \, \delta\mathbf{u}_f,
+  \qquad
+  \Delta\lambda^{(j+1)} = \Delta\lambda^{(j)} + \delta\lambda.
+\end{equation}
+
+Convergence is declared when the residual norm falls below the
+tolerance:
+\begin{equation}
+  \label{eq:arc-tol}
+  \frac{\|\mathbf{R}^{(j+1)}\|}{\|\hat{\mathbf{f}}\|} < \epsilon_r.
+\end{equation}
+
+Upon convergence the material state is committed and the step result
+$(\lambda, \Delta\lambda, \Delta\ell)$ is stored.  On divergence the
+material state is reverted and the step is reported as failed.
+
+
+% =========================================================================
+\section{Implementation: \texttt{ArcLengthControl}}
+\label{sec:arc-control-impl}
+
+The \texttt{ArcLengthControl} struct in \texttt{IncrementalControl.hh}
+satisfies the existing \texttt{IncrementalControlPolicy} concept:
+\begin{equation*}
+  \texttt{scheme.apply}(p, \hat{\mathbf{f}},
+  \mathbf{f}_{\text{ext}}, \text{model}),
+\end{equation*}
+where $p \in [0, 1]$ is the load proportionality parameter.
+Internally, the control tracks:
+\begin{itemize}
+  \item $\Delta\ell$: arc-length radius,
+  \item $\psi$: scaling parameter,
+  \item $\lambda$: current total load factor,
+  \item $\Delta\mathbf{u}$: accumulated step displacement (PETSc Vec),
+  \item $\Delta\lambda_{\text{prev}}$: last converged load increment
+        (for sign determination),
+  \item $\|\hat{\mathbf{f}}\|^2$: cached reference load norm.
+\end{itemize}
+
+The control manages a PETSc \texttt{Vec} for $\Delta\mathbf{u}$ with
+proper lifecycle (destructor, move semantics, deleted copy).
+
+\paragraph{Variant enum.}
+\texttt{ArcLengthVariant::Cylindrical} and
+\texttt{ArcLengthVariant::Spherical} select the constraint equation
+used in the corrector.
+
+
+% =========================================================================
+\section{Implementation: \texttt{ArcLengthSolver}}
+\label{sec:arc-solver-impl}
+
+The standalone \texttt{ArcLengthSolver} provides a complete
+SNES-free solver for tracing equilibrium paths.  It manages its own
+PETSc vectors ($\mathbf{U}$, $\mathbf{R}$, $\hat{\mathbf{f}}$,
+$\mathbf{f}_{\text{ext}}$), matrix ($\mathbf{K}$), and KSP (direct
+LU via PCLU).
+
+\texttt{solve\_step()} implements the full algorithm:
+\begin{enumerate}
+  \item Assemble tangent $\mathbf{K}_t$ at current state.
+  \item Solve $\mathbf{K}_t \, \delta\mathbf{u}_f = \hat{\mathbf{f}}$.
+  \item Tangent predictor: compute $\Delta\lambda_{\text{pred}}$
+    via \eqref{eq:arc-pred-dl}, update
+    $\Delta\mathbf{u}_{\text{pred}}$.
+  \item Corrector loop (up to 50 iterations):
+    \begin{enumerate}
+      \item Assemble residual $\mathbf{R}$ and tangent $\mathbf{K}_t$.
+      \item Solve \eqref{eq:arc-two-solves} for
+        $\delta\mathbf{u}_R$ and $\delta\mathbf{u}_f$.
+      \item Compute $\delta\lambda$ from constraint
+        (cylindrical or spherical).
+      \item Update $\Delta\mathbf{u}$, $\Delta\lambda$,
+        $\mathbf{U}$, $\lambda$.
+      \item Check convergence \eqref{eq:arc-tol}.
+    \end{enumerate}
+  \item On convergence: commit material state.
+  \item On divergence: revert material state, report failure.
+\end{enumerate}
+
+The result struct \texttt{ArcLengthResult} reports: convergence flag,
+$\lambda$, $\Delta\lambda$, $\Delta\ell$, iteration count, and
+final residual norm.
+
+\texttt{solve\_n\_steps(int n)} provides a convenience wrapper that
+traces $n$ steps sequentially with progress reporting.
+
+
+% =========================================================================
+\section{Summary}
+\label{sec:arc-summary}
+
+The arc-length implementation provides two complementary components:
+\begin{enumerate}
+  \item \texttt{ArcLengthControl}: a lightweight constraint that plugs
+    into the existing \texttt{IncrementalControlPolicy} framework for
+    use within existing solvers.
+  \item \texttt{ArcLengthSolver}: a self-contained solver with its own
+    PETSc infrastructure for standalone equilibrium-path tracing.
+\end{enumerate}
+
+Both support cylindrical and spherical constraint variants, the
+Sherman--Morrison decomposition for the bordered system, and sign
+tracking for consistent traversal past limit and turning points.  The
+implementation is general enough to work with any \texttt{Model<>}
+configuration, including the mixed concrete/rebar models introduced
+in Chapter~\ref{ch:mixed-model-rebar}.

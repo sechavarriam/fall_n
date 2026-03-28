@@ -1,0 +1,273 @@
+% ==========================================================================
+%  Chapter 74 -- Two-Way FE² Coupling: Homogenised Tangent and
+%                Staggered Iteration
+% ==========================================================================
+
+\chapter{Two-Way FE\textsuperscript{2} Coupling}
+\label{ch:two-way-fe2}
+
+
+% =========================================================================
+\section{Introduction}
+\label{sec:fe2-intro}
+
+The one-way downscaling framework (Chapters~\ref{ch:multiscale_seismic}
+--\ref{ch:nl-sub-model-evolver}) transfers kinematics from the global
+beam model to local continuum sub-models, but does not feed the sub-model
+response back into the beam analysis.  This chapter develops the
+mathematical and computational framework for \emph{two-way}
+FE\textsuperscript{2} coupling, where the homogenised sub-model tangent
+modifies the beam section stiffness and the two scales are iterated until
+equilibrium is reached at both levels simultaneously.
+
+
+% =========================================================================
+\section{FE\textsuperscript{2} Framework}
+\label{sec:fe2-framework}
+
+% -------------------------------------------------------------------------
+\subsection{Scale Separation}
+
+\textbf{Macro-scale.}
+The global structural model consists of fibre-section beam elements
+with $n_{\text{gp}}$ Gauss points along the axis.  At each section
+Gauss point the generalised forces and deformations are:
+\begin{equation}
+  \label{eq:fe2-gen}
+  \mathbf{s} = \{N, \, M_y, \, M_z, \, V_y, \, V_z, \, T\}^T, \qquad
+  \mathbf{e} = \{\varepsilon_0, \, \kappa_y, \, \kappa_z,
+                 \, \gamma_y, \, \gamma_z, \, \theta'\}^T.
+\end{equation}
+
+\textbf{Micro-scale.}
+Each critical section Gauss point is associated with a prismatic RVE
+(Representative Volume Element), modelled as a 3D continuum domain
+$\Omega_{\text{RVE}}$ with optional embedded rebar
+(Chapter~\ref{ch:mixed-model-rebar}).  The RVE is driven by
+displacement boundary conditions derived from the macro-scale section
+kinematics via the Timoshenko kinematic field
+(Chapter~\ref{ch:structural-scale-reconstruction}).
+
+% -------------------------------------------------------------------------
+\subsection{Homogenisation: Stress to Section Forces}
+
+The section forces are obtained by volume-averaging the RVE stress
+field and integrating over the cross-section:
+\begin{equation}
+  \label{eq:fe2-homog-N}
+  N = \frac{1}{L_{\text{RVE}}} \int_{\Omega_{\text{RVE}}}
+      \sigma_{zz} \; \mathrm{d}\Omega,
+\end{equation}
+\begin{equation}
+  \label{eq:fe2-homog-M}
+  M_y = \frac{1}{L_{\text{RVE}}} \int_{\Omega_{\text{RVE}}}
+        \sigma_{zz} \, x \; \mathrm{d}\Omega, \quad
+  M_z = -\frac{1}{L_{\text{RVE}}} \int_{\Omega_{\text{RVE}}}
+        \sigma_{zz} \, y \; \mathrm{d}\Omega,
+\end{equation}
+\begin{equation}
+  \label{eq:fe2-homog-V}
+  V_y = \frac{1}{L_{\text{RVE}}} \int_{\Omega_{\text{RVE}}}
+        \sigma_{yz} \; \mathrm{d}\Omega, \quad
+  V_z = \frac{1}{L_{\text{RVE}}} \int_{\Omega_{\text{RVE}}}
+        \sigma_{xz} \; \mathrm{d}\Omega,
+\end{equation}
+where $z$ is the beam axis direction and $L_{\text{RVE}}$ is the RVE
+length.  These integrals reduce to discrete summations over Gauss
+points with appropriate weights.
+
+
+% =========================================================================
+\section{Homogenised Section Tangent}
+\label{sec:fe2-tangent}
+
+% -------------------------------------------------------------------------
+\subsection{Perturbation-Based Tangent Computation}
+
+The $6 \times 6$ section tangent matrix
+$\mathbf{D}_{\text{hom}}$ relates infinitesimal increments of
+section deformations to section forces:
+\begin{equation}
+  \label{eq:fe2-Dhom}
+  \delta\mathbf{s} = \mathbf{D}_{\text{hom}} \, \delta\mathbf{e},
+  \qquad
+  D_{ij} = \frac{\partial s_i}{\partial e_j}.
+\end{equation}
+
+Since the sub-model solver provides only the nonlinear response
+$\mathbf{s}(\mathbf{e})$, the tangent is computed by numerical
+(central) differentiation.  For each section deformation component
+$e_j$, $j = 1, \ldots, 6$:
+\begin{enumerate}
+  \item Perturb: $\mathbf{e}^+ = \mathbf{e} + h \, \mathbf{e}_j$,
+    $\mathbf{e}^- = \mathbf{e} - h \, \mathbf{e}_j$.
+  \item Solve two nonlinear sub-models (or apply the kinematic field
+    and re-homogenise without full Newton solve for small $h$).
+  \item Differentiate:
+    $\mathbf{D}_{\text{hom}}(:, j) \approx
+    (\mathbf{s}^+ - \mathbf{s}^-) / (2h)$.
+\end{enumerate}
+
+The perturbation amplitude $h$ should be chosen small enough for
+accuracy but large enough to avoid round-off:
+\begin{equation}
+  h = \max(\epsilon_r \, |e_j|, \; h_{\min}),
+\end{equation}
+where $\epsilon_r \approx 10^{-6}$ and $h_{\min} \approx 10^{-10}$.
+
+For efficiency, the forward-difference approximation may be used when
+$\mathbf{s}(\mathbf{e})$ is already available at the current state:
+\begin{equation}
+  \mathbf{D}_{\text{hom}}(:, j) \approx
+  \frac{\mathbf{s}(\mathbf{e} + h\,\mathbf{e}_j) - \mathbf{s}(\mathbf{e})}{h}.
+\end{equation}
+This halves the number of sub-model evaluations at the cost of
+first-order accuracy.
+
+% -------------------------------------------------------------------------
+\subsection{Structure of $\mathbf{D}_{\text{hom}}$}
+
+For a rectangular RC section under combined axial--flexural loading, the
+tangent has the block structure:
+\begin{equation}
+  \mathbf{D}_{\text{hom}} =
+  \begin{bmatrix}
+    EA     & ES_y   & ES_z   & 0      & 0      & 0 \\
+    ES_y   & EI_y   & EI_{yz}& 0      & 0      & 0 \\
+    ES_z   & EI_{yz}& EI_z   & 0      & 0      & 0 \\
+    0      & 0      & 0      & GA_y   & 0      & 0 \\
+    0      & 0      & 0      & 0      & GA_z   & 0 \\
+    0      & 0      & 0      & 0      & 0      & GJ
+  \end{bmatrix},
+\end{equation}
+where the axial--flexural block ($3 \times 3$) is fully populated
+(coupling between $N$, $M_y$, $M_z$) and the shear--torsion block
+($3 \times 3$) is diagonal for symmetric sections.  After cracking, the
+off-diagonal axial--flexural coupling terms grow as the neutral axis
+shifts.
+
+
+% =========================================================================
+\section{Stiffness Injection into the Beam Element}
+\label{sec:fe2-injection}
+
+The homogenised tangent $\mathbf{D}_{\text{hom}}$ replaces the
+fibre-based section tangent at the critical Gauss point.  Two
+injection strategies are considered:
+
+\paragraph{Strategy~A: Section tangent override.}
+The beam element's section stiffness at the critical Gauss point is
+replaced wholesale:
+\begin{equation}
+  \mathbf{C}_t^{(k)} \leftarrow \mathbf{D}_{\text{hom}}^{(k)},
+  \qquad k \in \mathcal{G}_{\text{crit}},
+\end{equation}
+where $\mathcal{G}_{\text{crit}}$ is the set of critical Gauss points.
+The element stiffness is then re-integrated:
+\begin{equation}
+  \mathbf{K}_e = \int_0^L
+    \mathbf{B}^T \, \mathbf{C}_t(s) \, \mathbf{B} \; \mathrm{d}s,
+\end{equation}
+where $\mathbf{C}_t(s)$ uses the fibre section tangent at non-critical
+Gauss points and $\mathbf{D}_{\text{hom}}$ at critical ones.
+
+\paragraph{Strategy~B: Homogenised material section adapter.}
+A \texttt{HomogenizedMaterialSection} class that wraps the
+$6 \times 6$ tangent as a ``virtual fibre section'' and returns
+$\mathbf{D}_{\text{hom}}$ from \texttt{compute\_section\_tangent()}.
+This approach integrates cleanly with the existing beam element
+template, which expects sections that satisfy the
+\texttt{BeamSectionConcept}.
+
+
+% =========================================================================
+\section{Staggered Iteration Scheme}
+\label{sec:fe2-stagger}
+
+The FE\textsuperscript{2} coupling is driven by a staggered iteration
+loop within each dynamic time step:
+
+\begin{enumerate}
+  \item \textbf{Global solve}: Solve the macro-scale dynamic analysis
+    for one time step, producing updated beam kinematics.
+  \item \textbf{Local solve}: For each critical element, update the
+    RVE boundary conditions and solve the nonlinear sub-model.
+  \item \textbf{Homogenise}: Extract effective section forces and
+    tangent from each sub-model via volume averaging and numerical
+    differentiation.
+  \item \textbf{Inject}: Replace the beam section tangent at critical
+    Gauss points with $\mathbf{D}_{\text{hom}}$.
+  \item \textbf{Convergence check}: Compare the sub-model section
+    forces with the beam section forces at the critical Gauss points:
+    \begin{equation}
+      \label{eq:fe2-conv}
+      \frac{\|\mathbf{s}_{\text{beam}} - \mathbf{s}_{\text{sub}}\|}
+           {\|\mathbf{s}_{\text{sub}}\| + \epsilon_0}
+      < \epsilon_{\text{stag}}.
+    \end{equation}
+  \item If not converged, return to step~1 with the updated section
+    stiffness.
+\end{enumerate}
+
+\paragraph{Convergence properties.}
+The staggered scheme converges when the spectral radius of the
+coupling operator is less than unity.  For quasi-static problems
+with moderate nonlinearity, 2--4 staggered iterations typically
+suffice.  Under dynamic loading with explicit time integration at
+the macro-scale, a single staggered pass per step may be adequate
+if the time step is sufficiently small.
+
+
+% =========================================================================
+\section{Planned Implementation Architecture}
+\label{sec:fe2-architecture}
+
+The two-way coupling builds on three new components and one
+modification to the existing codebase:
+
+\begin{enumerate}
+  \item \textbf{\texttt{homogenize\_tangent()}} in
+    \texttt{HomogenizedSection.hh}: Performs 6 (or 12) perturbation
+    solves on the sub-model to compute $\mathbf{D}_{\text{hom}}$
+    via central (or forward) differences.  Returns a
+    $6 \times 6$ Eigen matrix.
+
+  \item \textbf{\texttt{HomogenizedMaterialSection}}: An adapter class
+    satisfying \texttt{BeamSectionConcept} that stores the $6 \times 6$
+    tangent and returns it from the section stiffness query.  This
+    allows seamless integration with \texttt{BeamElement}'s Gauss-point
+    integration loop.
+
+  \item \textbf{Stiffness injection in \texttt{BeamElement}}: A method
+    \texttt{override\_section\_tangent(gp\_index, D\_hom)} that replaces
+    the fibre-based tangent at a specific Gauss point with the
+    homogenised tangent.  The beam element re-integrates using the
+    overridden section for subsequent stiffness matrix and internal
+    force computations.
+
+  \item \textbf{Staggered iteration loop}: Implemented in the main
+    driver (e.g.\ \texttt{main\_lshaped\_multiscale.cpp}) as an outer
+    loop wrapping the dynamic solver step and the sub-model updates.
+    The loop tracks convergence via \eqref{eq:fe2-conv} and exits
+    after a maximum number of staggered passes.
+\end{enumerate}
+
+
+% =========================================================================
+\section{Summary}
+\label{sec:fe2-summary}
+
+The two-way FE\textsuperscript{2} coupling closes the multiscale loop:
+\begin{itemize}
+  \item \textbf{Downward}: Beam kinematics $\to$ RVE boundary
+    conditions $\to$ nonlinear sub-model solve.
+  \item \textbf{Upward}: Sub-model stress $\to$ homogenised section
+    forces and tangent $\to$ beam section stiffness override.
+  \item \textbf{Iteration}: Staggered scheme iterates macro/micro
+    solves until equilibrium at both scales.
+\end{itemize}
+
+Combined with the arc-length solver (Chapter~\ref{ch:arc-length}) and
+mixedmodel reinforcement (Chapter~\ref{ch:mixed-model-rebar}), this
+framework enables full nonlinear multiscale analysis of
+reinforced-concrete structures through limit and softening regimes.

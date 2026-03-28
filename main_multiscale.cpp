@@ -260,7 +260,7 @@ static void part_a_single_element() {
               << spec.nz << " elements along axis\n\n";
 
     // ── 3. Solve continuum sub-model ─────────────────────────────────────────
-    SubModelSolver solver(E, nu);
+    SubModelSolver solver(30.0);  // f'c = 30 MPa
     auto& sub    = coord.sub_models()[0];
     auto  result = solver.solve(sub);
 
@@ -332,7 +332,7 @@ static void part_b_two_elements() {
     std::cout << "\n";
 
     // ── Solve and homogenize each sub-model ───────────────────────────────────
-    SubModelSolver solver(E, nu);
+    SubModelSolver solver(30.0);  // f'c = 30 MPa
 
     for (std::size_t i = 0; i < coord.sub_models().size(); ++i) {
         auto& sub    = coord.sub_models()[i];

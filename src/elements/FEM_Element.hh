@@ -31,8 +31,43 @@
 
 #include <petsc.h>
 
+#include <Eigen/Core>
+
 #include "FiniteElementConcept.hh"
 #include "../materials/InternalFieldSnapshot.hh"
+
+
+// =============================================================================
+//  GaussPointSnapshot — per integration point state for multiscale queries
+// =============================================================================
+//
+//  Returned by FEM_Element::gauss_point_snapshots() to expose material
+//  state through the type-erased interface.  This is the bridge that allows
+//  MixedModel (MultiElementPolicy) sub-models to report crack/damage data
+//  without requiring typed access to ContinuumElement::material_points().
+//
+//  Design:
+//    - Self-contained value type (no dangling references).
+//    - Carries the fields needed for multiscale crack tracking:
+//      position, stress, strain, damage, crack normals/openings.
+//    - Elements without material points return an empty vector (default).
+//
+// =============================================================================
+
+struct GaussPointSnapshot {
+    Eigen::Vector3d position{Eigen::Vector3d::Zero()};
+    Eigen::Vector<double, 6> stress{Eigen::Vector<double, 6>::Zero()};
+    Eigen::Vector<double, 6> strain{Eigen::Vector<double, 6>::Zero()};
+
+    double damage{0.0};
+    int    num_cracks{0};
+
+    std::array<Eigen::Vector3d, 3> crack_normals{
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};
+    std::array<double, 3> crack_openings{0.0, 0.0, 0.0};
+    std::array<bool, 3>   crack_closed{true, true, true};
+};
+
 
 class FEM_Element {
 
@@ -63,6 +98,10 @@ class FEM_Element {
         // Post-processing: Gauss-point field export for VTK
         virtual std::vector<GaussFieldRecord>
             collect_gauss_fields(Vec /*u_local*/) const { return {}; }
+
+        // Multiscale: per-GP state snapshot (crack data, damage, stress/strain)
+        virtual std::vector<GaussPointSnapshot>
+            gauss_point_snapshots(Vec /*u_local*/) const { return {}; }
     };
 
     // ── Inner model (type-specific bridge) ────────────────────────
@@ -110,6 +149,77 @@ class FEM_Element {
                 return element_.collect_gauss_fields(u_local);
             else
                 return {};
+        }
+
+        std::vector<GaussPointSnapshot>
+        gauss_point_snapshots([[maybe_unused]] Vec u_local) const override {
+            // Elements that expose material_points() (ContinuumElement) can
+            // be queried for per-GP crack/damage state.  Others return {}.
+            if constexpr (requires { element_.material_points(); }) {
+                std::vector<GaussPointSnapshot> out;
+                const auto& mps = element_.material_points();
+                out.reserve(mps.size());
+
+                // Access Gauss-point coordinates via the element geometry.
+                // The geometry's integration_points() provides (x,y,z) for each GP.
+                [[maybe_unused]] bool has_geometry = false;
+                const void* geom_ptr = nullptr;
+                if constexpr (requires { element_.geometry(); }) {
+                    geom_ptr = &element_.geometry();
+                    has_geometry = true;
+                }
+
+                std::size_t gp_idx = 0;
+                for (const auto& mp : mps) {
+                    GaussPointSnapshot snap;
+
+                    // Position from geometry integration points
+                    if constexpr (requires { element_.geometry(); }) {
+                        const auto& gpts = element_.geometry().integration_points();
+                        if (gp_idx < gpts.size()) {
+                            snap.position = Eigen::Vector3d{
+                                gpts[gp_idx].coord(0),
+                                gpts[gp_idx].coord(1),
+                                gpts[gp_idx].coord(2)};
+                        }
+                    }
+
+                    // Stress/strain from current material state
+                    const auto& state = mp.current_state();
+                    auto response = mp.compute_response(state);
+                    const auto& sv = response.components();
+                    const auto& ev = state.components();
+                    for (int i = 0; i < std::min<int>(6, sv.size()); ++i)
+                        snap.stress[i] = sv[i];
+                    for (int i = 0; i < std::min<int>(6, ev.size()); ++i)
+                        snap.strain[i] = ev[i];
+
+                    // Crack/damage from internal field snapshot
+                    auto ifs = mp.internal_field_snapshot();
+                    snap.damage     = ifs.damage.value_or(0.0);
+                    snap.num_cracks = ifs.num_cracks.value_or(0);
+
+                    auto to_vec = [](const auto& opt) -> Eigen::Vector3d {
+                        if (!opt) return Eigen::Vector3d::Zero();
+                        return Eigen::Vector3d{(*opt)[0], (*opt)[1], (*opt)[2]};
+                    };
+                    snap.crack_normals[0] = to_vec(ifs.crack_normal_1);
+                    snap.crack_normals[1] = to_vec(ifs.crack_normal_2);
+                    snap.crack_normals[2] = to_vec(ifs.crack_normal_3);
+                    snap.crack_openings[0] = ifs.crack_strain_1.value_or(0.0);
+                    snap.crack_openings[1] = ifs.crack_strain_2.value_or(0.0);
+                    snap.crack_openings[2] = ifs.crack_strain_3.value_or(0.0);
+                    snap.crack_closed[0] = ifs.crack_closed_1.value_or(1.0) > 0.5;
+                    snap.crack_closed[1] = ifs.crack_closed_2.value_or(1.0) > 0.5;
+                    snap.crack_closed[2] = ifs.crack_closed_3.value_or(1.0) > 0.5;
+
+                    out.push_back(snap);
+                    ++gp_idx;
+                }
+                return out;
+            } else {
+                return {};
+            }
         }
     };
 
@@ -164,6 +274,13 @@ public:
         -> std::vector<GaussFieldRecord>
     {
         return pimpl_->collect_gauss_fields(u_local);
+    }
+
+    // Multiscale: per-GP state snapshot through type-erased interface
+    auto gauss_point_snapshots(Vec u_local) const
+        -> std::vector<GaussPointSnapshot>
+    {
+        return pimpl_->gauss_point_snapshots(u_local);
     }
 };
 

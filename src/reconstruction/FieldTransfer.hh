@@ -314,6 +314,45 @@ struct SubModelSpec {
     double section_height;
     int    nx, ny, nz;
     HexOrder hex_order = HexOrder::Linear;
+
+    // ── Rebar configuration (optional — for MixedModel sub-models) ──
+    //
+    //  When rebar_positions is non-empty, the coordinator builds a
+    //  MixedModel with ContinuumElement (concrete) + TrussElement<3>
+    //  (reinforcement).  Each rebar bar is described by its (y,z) position
+    //  within the cross-section, its area, and an index into rebar_materials.
+
+    struct RebarBar {
+        double y{0};          ///< cross-section y coordinate [m]
+        double z{0};          ///< cross-section z coordinate [m]
+        double area{0};       ///< bar area [m²]
+    };
+
+    /// Rebar bar layout within the section.
+    /// Empty = homogeneous concrete (no truss elements).
+    std::vector<RebarBar> rebar_bars{};
+
+    /// Rebar Young's modulus [MPa].
+    double rebar_E{200000.0};
+
+    /// Rebar yield stress [MPa] (for MenegottoPinto steel).
+    double rebar_fy{420.0};
+
+    /// Rebar hardening ratio b = E_h / E_s.
+    double rebar_b{0.01};
+
+    /// Tie (transverse reinforcement) spacing [m].
+    /// When > 0, transverse ties are added at this spacing along the
+    /// column axis z.  Ties run around the perimeter at the cover depth.
+    double tie_spacing{0.0};
+
+    /// Tie bar area [m²].
+    double tie_area{0.0};
+
+    /// Whether this spec includes rebar.
+    [[nodiscard]] bool has_rebar() const noexcept {
+        return !rebar_bars.empty();
+    }
 };
 
 template <typename BeamElementT, typename LocalStateT>
