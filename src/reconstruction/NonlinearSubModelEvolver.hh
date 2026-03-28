@@ -47,6 +47,7 @@
 #include "../materials/constitutive_models/non_lineal/MenegottoPintoSteel.hh"
 
 #include "HomogenizedSection.hh"
+#include "../analysis/ArcLengthSolver.hh"
 
 #include "../model/Model.hh"
 #include "../model/PrismaticDomainBuilder.hh"
@@ -143,6 +144,11 @@ class NonlinearSubModelEvolver {
     //  NL solver parameters 
     int first_step_increments_{15};
     int first_step_bisect_{6};
+
+    //  Arc-length control (Phase 2.3) 
+    bool use_arc_length_{false};
+    int  consecutive_divergences_{0};
+    static constexpr int ARC_LENGTH_SWITCH_THRESHOLD = 3;
 
 
     //  SNES callbacks 
@@ -247,6 +253,8 @@ public:
         , latest_cracks_{std::move(o.latest_cracks_)}
         , first_step_increments_{o.first_step_increments_}
         , first_step_bisect_{o.first_step_bisect_}
+        , use_arc_length_{o.use_arc_length_}
+        , consecutive_divergences_{o.consecutive_divergences_}
     {
         ctx_ = {model_.get(), f_ext_};
     }
@@ -272,6 +280,8 @@ public:
             latest_cracks_ = std::move(o.latest_cracks_);
             first_step_increments_ = o.first_step_increments_;
             first_step_bisect_     = o.first_step_bisect_;
+            use_arc_length_          = o.use_arc_length_;
+            consecutive_divergences_ = o.consecutive_divergences_;
             ctx_ = {model_.get(), f_ext_};
         }
         return *this;
@@ -294,6 +304,9 @@ public:
     void set_rebar_material(double E, double fy, double b) {
         rebar_E_ = E; rebar_fy_ = fy; rebar_b_ = b;
     }
+
+    void enable_arc_length(bool flag = true) { use_arc_length_ = flag; }
+    [[nodiscard]] bool arc_length_active() const noexcept { return use_arc_length_; }
 
 
     //  BC update 
@@ -559,6 +572,27 @@ public:
     }
 
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  Homogenised section forces from current sub-model state
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  Returns a 6-component vector [N, My, Mz, Vy, Vz, Mt] obtained
+    //  from the HomogenizedBeamSection (uniform-stress integration).
+    //  This can be injected into the beam element via set_homogenized_forces().
+
+    [[nodiscard]] Eigen::Vector<double, 6>
+    compute_homogenized_forces(double width, double height) {
+        if (!model_ready_) return Eigen::Vector<double, 6>::Zero();
+
+        SubModelSolverResult result = extract_results(true);
+        HomogenizedBeamSection hs = homogenize(result, *sub_, width, height);
+
+        Eigen::Vector<double, 6> f_hom;
+        f_hom << hs.N, hs.My, hs.Mz, hs.Vy, hs.Vz, 0.0;
+        return f_hom;
+    }
+
+
 private:
 
     //  Destroy PETSc objects 
@@ -752,6 +786,12 @@ private:
 
 
     //  Subsequent solve: update BCs, Newton from current state 
+    //
+    //  If SNES diverges repeatedly (≥ ARC_LENGTH_SWITCH_THRESHOLD consecutive
+    //  failures), the solver automatically enables arc-length control for
+    //  subsequent steps.  Once arc-length is active, solve proceeds through
+    //  a displacement-controlled load-path (lambda held at 1.0, arc-length
+    //  governs the increment size).
 
     SubModelSolverResult subsequent_solve() {
         // Write new BC values into imposed_solution
@@ -766,8 +806,20 @@ private:
         bool converged = (reason > 0);
         if (converged) {
             commit_state();
+            consecutive_divergences_ = 0;
         } else {
             revert_state();
+
+            // Auto-switch to arc-length after repeated divergences
+            ++consecutive_divergences_;
+            if (!use_arc_length_ &&
+                consecutive_divergences_ >= ARC_LENGTH_SWITCH_THRESHOLD) {
+                use_arc_length_ = true;
+                std::println("  [SubModel {}] Auto-enabling arc-length "
+                             "after {} consecutive SNES divergences",
+                             sub_->parent_element_id,
+                             consecutive_divergences_);
+            }
         }
 
         return extract_results(converged);
