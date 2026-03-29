@@ -291,6 +291,69 @@ traces $n$ steps sequentially with progress reporting.
 
 
 % =========================================================================
+\section{Integration with the Sub-Model Evolver}
+\label{sec:arc-evolver}
+
+For displacement-controlled sub-models driven by prescribed boundary
+conditions (the FE$^2$ context), the classical force-controlled
+arc-length formulation cannot be applied directly because the loading
+is not proportional force but imposed displacements.  Instead, the
+\texttt{NonlinearSubModelEvolver} implements an \emph{adaptive
+displacement sub-stepping} strategy triggered by the same auto-switch
+logic.
+
+\subsection{Auto-Switch Logic}
+
+Each sub-model tracks the number of consecutive SNES divergences.
+After $k \geq 3$ consecutive failures, the evolver switches to
+adaptive mode:
+
+\begin{verbatim}
+if (consecutive_divergences_ >= ARC_LENGTH_SWITCH_THRESHOLD) {
+    use_arc_length_ = true;
+}
+\end{verbatim}
+
+Once active, the flag remains set for all subsequent steps.  It can
+also be enabled manually via \texttt{enable\_arc\_length(true)}.
+
+\subsection{Adaptive Displacement Sub-Stepping}
+
+When \texttt{use\_arc\_length\_} is active, the method
+\texttt{subsequent\_solve\_adaptive()} replaces the single full-step
+Newton call.  The boundary condition increment is decomposed into
+sub-increments:
+
+\begin{enumerate}
+  \item Save the previous imposed solution $\mathbf{u}^0_{\text{imp}}$.
+  \item Compute the full target $\mathbf{u}^1_{\text{imp}}$ from
+    updated kinematics.
+  \item Set initial step fraction $\alpha = 0.5$, progress $p = 0$.
+  \item \textbf{While} $p < 1$:
+    \begin{enumerate}
+      \item Set target fraction $p^* = \min(p + \alpha,\; 1)$.
+      \item Interpolate: $\mathbf{u}_{\text{imp}} =
+        (1 - p^*)\,\mathbf{u}^0_{\text{imp}}
+        + p^*\,\mathbf{u}^1_{\text{imp}}$.
+      \item Run SNES from current $\mathbf{U}$.
+      \item \textbf{If converged}: commit state, $p \leftarrow p^*$,
+        double step fraction $\alpha \leftarrow \min(2\alpha,\,1-p)$.
+      \item \textbf{If diverged}: revert state, halve step fraction
+        $\alpha \leftarrow \alpha/2$.  If $\alpha < 2^{-6}$ (minimum),
+        report failure and exit.
+    \end{enumerate}
+\end{enumerate}
+
+This strategy captures the essential features of arc-length control
+(traversing through softening and limit points) in a
+displacement-controlled setting.  The bisection limit of $2^{-6} =
+1/64$ provides up to 64 sub-steps per increment, balancing robustness
+against computational cost.  Step-size recovery (doubling $\alpha$
+after convergence) avoids unnecessary sub-stepping in regions where
+the material response is smoother.
+
+
+% =========================================================================
 \section{Summary}
 \label{sec:arc-summary}
 

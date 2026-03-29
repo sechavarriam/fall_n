@@ -457,15 +457,92 @@ public:
     //  Homogenised section tangent via perturbation
     // ═══════════════════════════════════════════════════════════════════
     //
+    // ═══════════════════════════════════════════════════════════════════
+    //  Section forces from assembled internal-force reactions at Face B
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    //  Assembles f_int from the current displacement field and reads the
+    //  internal-force contributions at Face B boundary nodes.  The sum of
+    //  these nodal forces (and their moments about the centroid) gives the
+    //  true 3-D section resultants — bypassing gauss_point_snapshots(),
+    //  which reads stored material state that may be stale after a
+    //  perturbation SNES solve.
+    //
+    //  Returns [N, My, Mz, Vy, Vz, Mt] in beam local frame.
+
+    [[nodiscard]] Eigen::Vector<double, 6>
+    section_forces_from_reactions()
+    {
+        DM dm = model_->get_plex();
+
+        // Total displacement in DM-local space
+        Vec u_loc;
+        DMGetLocalVector(dm, &u_loc);
+        VecSet(u_loc, 0.0);
+        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_loc);
+        VecAXPY(u_loc, 1.0, model_->imposed_solution());
+
+        // Assemble internal force vector
+        Vec f_loc;
+        DMGetLocalVector(dm, &f_loc);
+        VecSet(f_loc, 0.0);
+        for (auto& elem : model_->elements())
+            elem.compute_internal_forces(u_loc, f_loc);
+
+        DMRestoreLocalVector(dm, &u_loc);
+
+        // Read reactions at Face B nodes
+        PetscSection sec;
+        DMGetLocalSection(dm, &sec);
+
+        const Eigen::Matrix3d& R = sub_->kin_B.R;
+        const Eigen::Vector3d& centroid = sub_->kin_B.centroid;
+
+        Eigen::Vector3d F_sum = Eigen::Vector3d::Zero();
+        Eigen::Vector3d M_sum = Eigen::Vector3d::Zero();
+
+        const PetscScalar* f_arr;
+        VecGetArrayRead(f_loc, &f_arr);
+
+        for (const auto& [nid, u_imp] : sub_->bc_max_z) {
+            PetscInt plex_pt =
+                sub_->domain.node(nid).sieve_id.value();
+            PetscInt off;
+            PetscSectionGetOffset(sec, plex_pt, &off);
+
+            Eigen::Vector3d f_g{f_arr[off], f_arr[off+1], f_arr[off+2]};
+
+            const auto& nd = sub_->domain.node(nid);
+            Eigen::Vector3d pos{nd.coord(0), nd.coord(1), nd.coord(2)};
+            Eigen::Vector3d r = pos - centroid;
+
+            F_sum += f_g;
+            M_sum += r.cross(f_g);
+        }
+
+        VecRestoreArrayRead(f_loc, &f_arr);
+        DMRestoreLocalVector(dm, &f_loc);
+
+        // Transform to beam local frame
+        Eigen::Vector3d F_local = R * F_sum;
+        Eigen::Vector3d M_local = R * M_sum;
+
+        Eigen::Vector<double, 6> s;
+        s << F_local[0], M_local[1], M_local[2],
+             F_local[1], F_local[2], M_local[0];
+        return s;
+    }
+
+
     //  Computes the 6×6 tangent D_hom = ∂s/∂e by forward-difference
     //  perturbation of the section deformation components at BOTH ends.
     //
     //  For each direction j = 0..5:
-    //    1. Perturb kin_A.e_j and kin_B.e_j by +h
+    //    1. Perturb kin_B displacement/rotation by +h·L
     //    2. Recompute boundary displacements
     //    3. Write perturbed BCs into imposed_solution
     //    4. One SNES solve from current state (small perturbation → 1–2 iters)
-    //    5. Extract section forces via homogenize()
+    //    5. Assemble f_int and extract Face B reactions
     //    6. D_hom(:,j) = (s_perturbed - s0) / h
     //    7. Revert material state and restore U, imposed_solution
     //
@@ -476,16 +553,14 @@ public:
     //
 
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
-    compute_homogenized_tangent(double width, double height,
+    compute_homogenized_tangent([[maybe_unused]] double width,
+                                [[maybe_unused]] double height,
                                 double h_pert = 1.0e-6)
     {
         if (!model_ready_) return Eigen::Matrix<double, 6, 6>::Zero();
 
-        // ── Baseline section forces ──────────────────────────────────
-        SubModelSolverResult base_result = extract_results(true);
-        HomogenizedBeamSection s0 = homogenize(base_result, *sub_, width, height);
-        Eigen::Vector<double, 6> s0_vec;
-        s0_vec << s0.N, s0.My, s0.Mz, s0.Vy, s0.Vz, 0.0;  // Mt ≈ 0
+        // ── Baseline section forces (from f_int reactions at Face B) ─
+        Eigen::Vector<double, 6> s0_vec = section_forces_from_reactions();
 
         // ── Save current state vectors ───────────────────────────────
         Vec U_save, imp_save;
@@ -501,31 +576,39 @@ public:
             Eigen::Matrix<double, 6, 6>::Zero();
 
         // ── Perturbation loop ────────────────────────────────────────
+        //
+        //  For each section deformation component j, we perturb the
+        //  displacement/rotation fields (u_local, theta_local) at end B
+        //  which drives the Dirichlet BCs via compute_boundary_displacements().
+        //  Section forces are extracted from the assembled f_int at Face B,
+        //  which correctly evaluates constitutive response from the
+        //  displacement field (not stored material state).
+
+        const double L_beam =
+            (kin_B_orig.centroid - kin_A_orig.centroid).norm();
+
         for (int j = 0; j < 6; ++j) {
-            SectionKinematics kin_A_p = kin_A_orig;
             SectionKinematics kin_B_p = kin_B_orig;
 
-            // Apply perturbation to both ends
-            auto perturb = [&](SectionKinematics& k) {
-                switch (j) {
-                    case 0: k.eps_0   += h_pert; break;
-                    case 1: k.kappa_y += h_pert; break;
-                    case 2: k.kappa_z += h_pert; break;
-                    case 3: k.gamma_y += h_pert; break;
-                    case 4: k.gamma_z += h_pert; break;
-                    case 5: k.twist   += h_pert; break;
-                }
-            };
-            perturb(kin_A_p);
-            perturb(kin_B_p);
+            // Perturb displacement/rotation at end B only
+            //   (end A stays as reference / clamped end)
+            //   Linearised Timoshenko: Δε → Δu_x = h·L, Δκ → Δθ = h·L, etc.
+            const double dL = h_pert * L_beam;
+            switch (j) {
+                case 0: kin_B_p.u_local[0]     += dL; break; // axial
+                case 1: kin_B_p.theta_local[1]  += dL; break; // θ_y → κ_y
+                case 2: kin_B_p.theta_local[2]  += dL; break; // θ_z → κ_z
+                case 3: kin_B_p.u_local[1]      += dL; break; // transverse y
+                case 4: kin_B_p.u_local[2]      += dL; break; // transverse z
+                case 5: kin_B_p.theta_local[0]  += dL; break; // twist θ_x
+            }
 
             // Recompute boundary displacements with perturbed kinematics
-            sub_->kin_A = kin_A_p;
             sub_->kin_B = kin_B_p;
             auto face_A = sub_->grid.nodes_on_face(PrismFace::MinZ);
             auto face_B = sub_->grid.nodes_on_face(PrismFace::MaxZ);
             sub_->bc_min_z = compute_boundary_displacements(
-                kin_A_p, sub_->domain, face_A);
+                kin_A_orig, sub_->domain, face_A);
             sub_->bc_max_z = compute_boundary_displacements(
                 kin_B_p, sub_->domain, face_B);
             write_imposed_values();
@@ -537,12 +620,9 @@ public:
             SNESGetConvergedReason(snes_, &reason);
 
             if (reason > 0) {
-                // Extract perturbed section forces (without committing)
-                SubModelSolverResult pert_result = extract_results(true);
-                HomogenizedBeamSection sp =
-                    homogenize(pert_result, *sub_, width, height);
-                Eigen::Vector<double, 6> sp_vec;
-                sp_vec << sp.N, sp.My, sp.Mz, sp.Vy, sp.Vz, 0.0;
+                // Section forces from f_int reactions at Face B
+                Eigen::Vector<double, 6> sp_vec =
+                    section_forces_from_reactions();
 
                 D_hom.col(j) = (sp_vec - s0_vec) / h_pert;
             }
@@ -789,12 +869,15 @@ private:
     //
     //  If SNES diverges repeatedly (≥ ARC_LENGTH_SWITCH_THRESHOLD consecutive
     //  failures), the solver automatically enables arc-length control for
-    //  subsequent steps.  Once arc-length is active, solve proceeds through
-    //  a displacement-controlled load-path (lambda held at 1.0, arc-length
-    //  governs the increment size).
+    //  subsequent steps.  Once arc-length is active, the solver uses adaptive
+    //  displacement sub-stepping — the BC increment is subdivided and each
+    //  sub-step is solved by Newton; on failure the step size is bisected.
 
     SubModelSolverResult subsequent_solve() {
-        // Write new BC values into imposed_solution
+        if (use_arc_length_)
+            return subsequent_solve_adaptive();
+
+        // ── Standard path: full-step SNES ────────────────────────────
         write_imposed_values();
 
         // Newton from current U (NOT reset to zero)
@@ -812,10 +895,9 @@ private:
 
             // Auto-switch to arc-length after repeated divergences
             ++consecutive_divergences_;
-            if (!use_arc_length_ &&
-                consecutive_divergences_ >= ARC_LENGTH_SWITCH_THRESHOLD) {
+            if (consecutive_divergences_ >= ARC_LENGTH_SWITCH_THRESHOLD) {
                 use_arc_length_ = true;
-                std::println("  [SubModel {}] Auto-enabling arc-length "
+                std::println("  [SubModel {}] Auto-enabling adaptive sub-stepping "
                              "after {} consecutive SNES divergences",
                              sub_->parent_element_id,
                              consecutive_divergences_);
@@ -823,6 +905,86 @@ private:
         }
 
         return extract_results(converged);
+    }
+
+
+    //  Adaptive displacement sub-stepping (arc-length mode)
+    //
+    //  Interpolates boundary conditions from the previous converged state
+    //  to the full target in sub-increments.  On SNES failure the step
+    //  fraction is bisected; on success, the fraction doubles (up to 1).
+    //  The method fails only when the minimum step fraction is reached.
+
+    SubModelSolverResult subsequent_solve_adaptive() {
+        static constexpr int    MAX_BISECT = 6;   // 2^6 = 64 minimum sub-steps
+        static constexpr double MIN_FRAC   = 1.0 / (1 << MAX_BISECT);
+
+        // 1. Save previous imposed values (last converged step's BCs)
+        Vec imp_prev;
+        VecDuplicate(model_->imposed_solution(), &imp_prev);
+        VecCopy(model_->imposed_solution(), imp_prev);
+
+        // 2. Write full target imposed values
+        write_imposed_values();
+
+        Vec imp_target;
+        VecDuplicate(model_->imposed_solution(), &imp_target);
+        VecCopy(model_->imposed_solution(), imp_target);
+
+        // 3. Adaptive sub-stepping loop
+        double progress  = 0.0;   // fraction completed [0, 1]
+        double step_frac = 0.5;   // current sub-step fraction
+        int    total_subs = 0;
+        bool   all_converged = true;
+
+        while (progress < 1.0 - 1e-12) {
+            double target_p = std::min(progress + step_frac, 1.0);
+
+            // Interpolate: imp = (1 − p)·imp_prev + p·imp_target
+            VecCopy(imp_prev, model_->imposed_solution());
+            VecScale(model_->imposed_solution(), 1.0 - target_p);
+            VecAXPY(model_->imposed_solution(), target_p, imp_target);
+
+            SNESSolve(snes_, nullptr, U_);
+
+            SNESConvergedReason reason;
+            SNESGetConvergedReason(snes_, &reason);
+
+            if (reason > 0) {
+                commit_state();
+                progress = target_p;
+                ++total_subs;
+                // Try to recover step size for next sub-step
+                step_frac = std::min(step_frac * 2.0, 1.0 - progress);
+            } else {
+                revert_state();
+                step_frac *= 0.5;
+                if (step_frac < MIN_FRAC) {
+                    all_converged = false;
+                    break;
+                }
+            }
+        }
+
+        // 4. Book-keeping
+        if (all_converged) {
+            consecutive_divergences_ = 0;
+            if (total_subs > 1) {
+                std::println("  [SubModel {}] Adaptive sub-stepping: "
+                             "{} sub-steps to reach target",
+                             sub_->parent_element_id, total_subs);
+            }
+        } else {
+            ++consecutive_divergences_;
+            std::println("  [SubModel {}] Adaptive sub-stepping FAILED "
+                         "after {} sub-steps (min frac {:.1e})",
+                         sub_->parent_element_id, total_subs, step_frac);
+        }
+
+        VecDestroy(&imp_prev);
+        VecDestroy(&imp_target);
+
+        return extract_results(all_converged);
     }
 
 
