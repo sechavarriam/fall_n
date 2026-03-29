@@ -196,6 +196,9 @@
 #include "src/reconstruction/SubModelEvolver.hh"
 #include "src/reconstruction/NonlinearSubModelEvolver.hh"
 #include "src/reconstruction/HomogenizedSection.hh"
+#include "src/reconstruction/LocalModelAdapter.hh"
+#include "src/reconstruction/MaterialFactory.hh"
+#include "src/reconstruction/HomogenisationStrategy.hh"
 
 // =================================================================================
 // Utils Module
@@ -211,6 +214,7 @@
 
 // --- Multiscale coordinator (Phase 5) ---
 #include "src/analysis/MultiscaleCoordinator.hh"
+#include "src/analysis/CouplingStrategy.hh"
 
 // =================================================================================
 // Mesh Module

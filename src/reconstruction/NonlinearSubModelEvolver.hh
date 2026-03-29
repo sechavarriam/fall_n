@@ -42,11 +42,10 @@
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
 #include "../materials/InternalFieldSnapshot.hh"
-#include "../materials/update_strategy/IntegrationStrategy.hh"
-#include "../materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
-#include "../materials/constitutive_models/non_lineal/MenegottoPintoSteel.hh"
 
 #include "HomogenizedSection.hh"
+#include "LocalModelAdapter.hh"
+#include "MaterialFactory.hh"
 #include "../analysis/ArcLengthSolver.hh"
 
 #include "../model/Model.hh"
@@ -112,6 +111,10 @@ class NonlinearSubModelEvolver {
     double rebar_E_{200000.0};
     double rebar_fy_{420.0};
     double rebar_b_{0.01};
+
+    //  Material factories (injectable — defaults built in constructor)
+    std::unique_ptr<ConcreteMaterialFactory> concrete_factory_;
+    std::unique_ptr<RebarMaterialFactory>    rebar_factory_;
 
     //  Persistent model 
     std::unique_ptr<MixedModel> model_;
@@ -216,6 +219,26 @@ public:
                              std::string output_dir, int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
+        , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(fc_MPa)}
+        , rebar_factory_{std::make_unique<MenegottoPintoRebarFactory>(200000.0, 420.0, 0.01)}
+        , pvd_mesh_{output_dir + "/nlsub_" +
+                    std::to_string(sub.parent_element_id) + "_mesh"}
+        , pvd_gauss_{output_dir + "/nlsub_" +
+                     std::to_string(sub.parent_element_id) + "_gauss"}
+        , pvd_cracks_{output_dir + "/nlsub_" +
+                      std::to_string(sub.parent_element_id) + "_cracks"}
+        , output_dir_{std::move(output_dir)}
+        , vtk_interval_{vtk_interval}
+    {}
+
+    NonlinearSubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
+                             std::unique_ptr<ConcreteMaterialFactory> concrete_factory,
+                             std::unique_ptr<RebarMaterialFactory> rebar_factory,
+                             std::string output_dir, int vtk_interval = 1)
+        : sub_{&sub}
+        , fc_{fc_MPa}
+        , concrete_factory_{std::move(concrete_factory)}
+        , rebar_factory_{std::move(rebar_factory)}
         , pvd_mesh_{output_dir + "/nlsub_" +
                     std::to_string(sub.parent_element_id) + "_mesh"}
         , pvd_gauss_{output_dir + "/nlsub_" +
@@ -238,6 +261,8 @@ public:
     NonlinearSubModelEvolver(NonlinearSubModelEvolver&& o) noexcept
         : sub_{o.sub_}, fc_{o.fc_}
         , local_ex_{o.local_ex_}, local_ey_{o.local_ey_}, local_ez_{o.local_ez_}
+        , concrete_factory_{std::move(o.concrete_factory_)}
+        , rebar_factory_{std::move(o.rebar_factory_)}
         , model_{std::move(o.model_)}, model_ready_{o.model_ready_}
         , snes_{std::exchange(o.snes_, nullptr)}
         , U_{std::exchange(o.U_, nullptr)}
@@ -264,6 +289,8 @@ public:
             destroy_petsc_objects();
             sub_ = o.sub_; fc_ = o.fc_;
             local_ex_ = o.local_ex_; local_ey_ = o.local_ey_; local_ez_ = o.local_ez_;
+            concrete_factory_ = std::move(o.concrete_factory_);
+            rebar_factory_    = std::move(o.rebar_factory_);
             model_      = std::move(o.model_);
             model_ready_ = o.model_ready_;
             snes_  = std::exchange(o.snes_, nullptr);
@@ -673,6 +700,42 @@ public:
     }
 
 
+    // ═══════════════════════════════════════════════════════════════════
+    //  LocalModelAdapter concept conformance
+    // ═══════════════════════════════════════════════════════════════════
+
+    [[nodiscard]] Eigen::Matrix<double, 6, 6>
+    section_tangent(double width, double height, double h_pert = 1.0e-6) {
+        return compute_homogenized_tangent(width, height, h_pert);
+    }
+
+    [[nodiscard]] Eigen::Vector<double, 6>
+    section_forces(double width, double height) {
+        return compute_homogenized_forces(width, height);
+    }
+
+    void commit_state() {
+        DM dm = model_->get_plex();
+
+        Vec u_local;
+        DMGetLocalVector(dm, &u_local);
+        VecSet(u_local, 0.0);
+        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
+        VecAXPY(u_local, 1.0, model_->imposed_solution());
+
+        for (auto& elem : model_->elements())
+            elem.commit_material_state(u_local);
+
+        VecCopy(u_local, model_->state_vector());
+        DMRestoreLocalVector(dm, &u_local);
+    }
+
+    void revert_state() {
+        for (auto& elem : model_->elements())
+            elem.revert_material_state();
+    }
+
+
 private:
 
     //  Destroy PETSc objects 
@@ -746,41 +809,11 @@ private:
     }
 
 
-    //  Commit material after convergence 
-
-    void commit_state() {
-        DM dm = model_->get_plex();
-
-        Vec u_local;
-        DMGetLocalVector(dm, &u_local);
-        VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->imposed_solution());
-
-        for (auto& elem : model_->elements())
-            elem.commit_material_state(u_local);
-
-        // Store total displacement in state_vector for post-processing
-        VecCopy(u_local, model_->state_vector());
-
-        DMRestoreLocalVector(dm, &u_local);
-    }
-
-
-    //  Revert material on divergence 
-
-    void revert_state() {
-        for (auto& elem : model_->elements())
-            elem.revert_material_state();
-    }
-
-
     //  First solve: build model + incremental loading from zero 
 
     SubModelSolverResult first_solve() {
-        // 1. Build material + model
-        InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
-        Material<Policy> mat{mat_inst, InelasticUpdate{}};
+        // 1. Build material + model (via injectable factories)
+        Material<Policy> mat = concrete_factory_->create();
 
         // Build element list (ContinuumElement for hex + TrussElement for rebar)
         std::vector<FEM_Element> elems;
@@ -799,9 +832,7 @@ private:
 
         // Optional rebar truss elements
         if (sub_->has_rebar()) {
-            MenegottoPintoSteel steel_impl{rebar_E_, rebar_fy_, rebar_b_};
-            InelasticMaterial<MenegottoPintoSteel> steel_inst{std::move(steel_impl)};
-            Material<UniaxialMaterial> steel_mat{std::move(steel_inst), InelasticUpdate{}};
+            Material<UniaxialMaterial> steel_mat = rebar_factory_->create();
 
             const int nz = sub_->grid.nz;
             std::size_t bar_idx = 0;
@@ -1120,6 +1151,9 @@ private:
         }
     }
 };
+
+static_assert(LocalModelAdapter<NonlinearSubModelEvolver>,
+    "NonlinearSubModelEvolver must satisfy the LocalModelAdapter concept");
 
 
 } // namespace fall_n
