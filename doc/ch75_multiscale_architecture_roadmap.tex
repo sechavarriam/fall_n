@@ -1,0 +1,966 @@
+% ==========================================================================
+%  Chapter 75 -- Concurrent Multiscale Architecture:
+%                From FE² to a Publishable Framework in fall_n
+% ==========================================================================
+
+\chapter{Concurrent Multiscale Architecture: Diagnostic, Design, and Roadmap}
+\label{ch:multiscale-architecture}
+
+
+% =========================================================================
+\section{Introduction}
+\label{sec:ms-arch-intro}
+
+The previous chapters developed the building blocks of a concurrent
+multiscale framework for reinforced-concrete structures: a prismatic
+domain builder (Chapter~\ref{ch:prismatic-domain-ho}), a persistent
+nonlinear sub-model solver (Chapter~\ref{ch:nl-sub-model-evolver}),
+arc-length adaptive control (Chapter~\ref{ch:arc-length}), and
+two-way coupling via homogenised tangent injection
+(Chapter~\ref{ch:two-way-fe2}).  This chapter steps back to perform a
+comprehensive architectural audit of the current implementation,
+identifies rigidities and design debts, and lays out a detailed
+roadmap toward a flexible, SOLID-conformant, HPC-ready multiscale
+analysis framework suitable for publication and external use.
+
+The discussion is organised as follows.
+Section~\ref{sec:ms-fe2-review} reviews the classical
+FE\textsuperscript{2} method of Feyel and Chaboche and explains how
+our implementation adapts their ideas.
+Section~\ref{sec:ms-current-status} audits the current code against
+SOLID principles.
+Section~\ref{sec:ms-proposed-arch} presents the target architecture.
+Section~\ref{sec:ms-reuse} catalogues reusable and hard-coded code.
+Section~\ref{sec:ms-hpc} addresses parallelism and HPC scalability.
+Section~\ref{sec:ms-plan} provides a phased implementation plan.
+
+
+% =========================================================================
+\section{The Classical FE\textsuperscript{2} Method}
+\label{sec:ms-fe2-review}
+
+% -------------------------------------------------------------------------
+\subsection{Origin and Formulation}
+
+The FE\textsuperscript{2} method was formalised by
+Feyel \cite{Feyel1999} and subsequently refined by
+Feyel and Chaboche \cite{FeyelandChaboche2000} as a systematic
+framework for concurrent multiscale analysis.  The fundamental idea
+is to replace the phenomenological constitutive law at each Gauss
+point of a macro-scale finite-element model by a boundary-value
+problem solved on a Representative Volume Element (RVE) at the
+micro-scale.  The method proceeds as follows:
+
+\begin{enumerate}[label=(\roman*)]
+  \item \textbf{Localisation.}  At a given macro-scale Gauss point
+    with deformation gradient $\bar{\bm{F}}$ (or strain
+    $\bar{\bm{\varepsilon}}$ in the small-strain case), the macro
+    kinematic field is imposed as boundary conditions on the RVE
+    domain $\Omega_\mu$:
+    \begin{equation}
+      \label{eq:fe2-bc}
+      \mathbf{u}(\mathbf{x}) =
+        \bar{\bm{\varepsilon}} \cdot \mathbf{x}
+        + \tilde{\mathbf{u}}(\mathbf{x}),
+      \qquad \mathbf{x} \in \partial\Omega_\mu,
+    \end{equation}
+    where $\tilde{\mathbf{u}}$ is a fluctuation field satisfying
+    appropriate boundary conditions (linear displacement, periodic,
+    or minimal kinematic).
+
+  \item \textbf{Micro-scale solve.}  The RVE boundary-value problem
+    is solved with the micro-scale material laws (plasticity, damage,
+    cracking, etc.) to obtain the local stress field
+    $\bm{\sigma}(\mathbf{x})$.
+
+  \item \textbf{Homogenisation.}  The macro-scale stress is obtained
+    by volume averaging over the RVE:
+    \begin{equation}
+      \label{eq:fe2-homog}
+      \bar{\bm{\sigma}} = \frac{1}{|\Omega_\mu|}
+        \int_{\Omega_\mu} \bm{\sigma}(\mathbf{x}) \; \mathrm{d}\Omega.
+    \end{equation}
+
+  \item \textbf{Consistent tangent.}  The macro-scale algorithmic
+    tangent $\bar{\mathbb{C}} = \partial\bar{\bm{\sigma}}
+    / \partial\bar{\bm{\varepsilon}}$ is computed either by static
+    condensation of the micro-scale tangent stiffness or by numerical
+    perturbation.  Feyel \cite{Feyel1999} derived the condensed
+    tangent:
+    \begin{equation}
+      \label{eq:fe2-cond-tangent}
+      \bar{\mathbb{C}} = \frac{1}{|\Omega_\mu|}
+        \left(
+          \mathbf{K}_{bb} -
+          \mathbf{K}_{bi} \, \mathbf{K}_{ii}^{-1} \, \mathbf{K}_{ib}
+        \right),
+    \end{equation}
+    where the subscripts $b$ and $i$ denote boundary and interior
+    degrees of freedom, respectively.
+\end{enumerate}
+
+\noindent
+The key contribution of Feyel and Chaboche was demonstrating that
+this concurrent scheme --- nested FE solves --- could be implemented
+within a single FE code, preserving the algorithmic tangent's
+consistency and thereby maintaining quadratic convergence of the
+macro-scale Newton iteration.  They applied the method to
+metal--matrix composites with elasto-viscoplastic constituents,
+showing that the macro-scale response automatically captures complex
+nonlinear phenomena (damage localisation, strain gradients) that
+phenomenological models struggle to represent.
+
+% -------------------------------------------------------------------------
+\subsection{Extensions in the Literature}
+
+Since the original formulation, FE\textsuperscript{2} has been
+extended in numerous directions:
+
+\begin{itemize}
+  \item \textbf{Periodic boundary conditions} for textile composites
+    (Miehe et al.\ \cite{Miehe2002}).
+  \item \textbf{Computational homogenisation for shells and beams}
+    using dimensional reduction at the micro-scale
+    (Geers et al.\ \cite{Geers2010}).
+  \item \textbf{Second-order homogenisation} incorporating macro-scale
+    strain gradients (Kouznetsova et al.\ \cite{Kouznetsova2004}).
+  \item \textbf{Adaptive FE\textsuperscript{2}} where the micro-scale
+    solve is activated only at Gauss points exceeding a damage
+    threshold (Ghosh et al.\ \cite{Ghosh2001}).
+  \item \textbf{HPC implementations} exploiting the embarrassingly
+    parallel nature of the micro-scale solves (Feyel \cite{Feyel2003},
+    Schröder \cite{Schroeder2014}).
+\end{itemize}
+
+% -------------------------------------------------------------------------
+\subsection{Adaptation in \texttt{fall\_n}}
+\label{sec:ms-fe2-adaptation}
+
+Our implementation in \texttt{fall\_n} adapts the original
+FE\textsuperscript{2} framework with several domain-specific
+modifications tailored to structural engineering of RC frames under
+seismic loading:
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{Beam--continuum scale bridge.}
+    Unlike the classical FE\textsuperscript{2}, where both scales
+    operate in the same dimensionality (3D--3D or 2D--2D), our
+    macro-scale is a one-dimensional beam element (Timoshenko 3D with
+    fibre sections) and the micro-scale is a three-dimensional
+    continuum RVE.  The localisation step
+    (\ref{eq:fe2-bc}) is replaced by a \emph{Timoshenko kinematic
+    field} that maps section deformations
+    $\mathbf{e} = \{\varepsilon_0, \kappa_y, \kappa_z, \gamma_y,
+    \gamma_z, \theta'\}$ to displacement boundary conditions on the
+    prismatic RVE faces (see
+    Chapter~\ref{ch:structural-scale-reconstruction}).
+
+  \item \textbf{Boundary-reaction homogenisation.}
+    Instead of volume-averaging the stress field (which requires
+    access to the stored material state at all Gauss points), we
+    extract section forces directly from the assembled
+    internal-force vector at the RVE boundary face.  This approach
+    (Section~\ref{sec:fe2-reactions}) is more robust for the
+    perturbation tangent loop, as it evaluates the constitutive
+    response from the displacement field without relying on stored
+    material state that may be stale between non-committed SNES
+    solves.
+
+  \item \textbf{Damage-triggered transition.}
+    The micro-scale solve is activated only at beam elements exceeding
+    a damage threshold (first steel fiber yield), implementing the
+    adaptive FE\textsuperscript{2} philosophy of Ghosh et al.\
+    \cite{Ghosh2001}.  A \texttt{TransitionDirector} monitors damage
+    at every time step and triggers the transition seamlessly.
+
+  \item \textbf{Persistent material state evolution.}
+    Unlike one-shot homogenisation where the RVE is solved from
+    scratch at each step, our \texttt{NonlinearSubModelEvolver}
+    maintains the full material state (crack history, plastic strains,
+    damage variables) across all time steps.  This is essential for
+    cyclic seismic loading, where unloading--reloading paths govern
+    the hysteretic energy dissipation.
+
+  \item \textbf{Mixed-model RVE.}
+    The RVE employs a \texttt{MixedModel} combining
+    \texttt{ContinuumElement} (KoBatheConcrete3D for the concrete
+    matrix) and \texttt{TrussElement} (MenegottoPinto steel for
+    embedded rebar), enabling a physically motivated representation
+    of the reinforced cross-section.
+
+  \item \textbf{Forward-difference perturbation tangent.}
+    The consistent tangent (\ref{eq:fe2-cond-tangent}) requires
+    access to the condensed micro-scale stiffness matrix, which is
+    not readily available when using PETSc's SNES (Newton) solver as
+    a black box.  Instead, we compute the $6 \times 6$ homogenised
+    tangent $\mathbf{D}_{\text{hom}}$ by forward-difference
+    perturbation of the section deformation components, using the
+    boundary-reaction extraction at each perturbation step.
+\end{enumerate}
+
+\noindent
+The principal contribution of our approach, relative to the classical
+FE\textsuperscript{2}, is the \emph{beam--continuum dimensional
+bridge} with \emph{boundary-reaction homogenisation}: by reducing
+the upscaling from a $6n_{\text{dof}}$-dimensional condensation to a
+six-component reaction summation, we achieve a computationally
+efficient coupling that avoids the full stiffness condensation and
+operates naturally within the PETSc solver framework.
+
+
+% =========================================================================
+\section{Current Implementation Status}
+\label{sec:ms-current-status}
+
+% -------------------------------------------------------------------------
+\subsection{Component Inventory}
+
+Table~\ref{tab:ms-components} summarises the current multiscale
+components, their locations, and coupling directions.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Multiscale component inventory.}
+  \label{tab:ms-components}
+  \small
+  \begin{tabular}{@{}lllc@{}}
+    \toprule
+    \textbf{Component} & \textbf{File} & \textbf{Role} & \textbf{Direction} \\
+    \midrule
+    \texttt{MultiscaleCoordinator}
+      & \texttt{MultiscaleCoordinator.hh}
+      & Kinematic downscaling orchestrator
+      & $\downarrow$ \\
+    \texttt{NonlinearSubModelEvolver}
+      & \texttt{NonlinearSubModelEvolver.hh}
+      & Persistent SNES-based RVE solver
+      & $\updownarrow$ \\
+    \texttt{section\_forces\_from\_reactions()}
+      & idem
+      & Boundary-reaction homogenisation
+      & $\uparrow$ \\
+    \texttt{compute\_homogenized\_tangent()}
+      & idem
+      & $6 \times 6$ perturbation tangent
+      & $\uparrow$ \\
+    \texttt{compute\_homogenized\_forces()}
+      & idem
+      & Section forces via \texttt{HomogenizedSection}
+      & $\uparrow$ \\
+    \texttt{set\_homogenized\_tangent/forces}
+      & \texttt{BeamElement.hh}
+      & Injection into beam section
+      & $\uparrow$ \\
+    Staggered iteration loop
+      & \texttt{main\_lshaped\_multiscale.cpp}
+      & Coupling iteration with relaxation
+      & $\updownarrow$ \\
+    \texttt{SubModelSolver}
+      & \texttt{SubModelSolver.hh}
+      & Stateless one-shot continuum solver
+      & $\downarrow$ \\
+    \texttt{HomogenizedSection}
+      & \texttt{HomogenizedSection.hh}
+      & Stress-to-resultants projection
+      & $\uparrow$ \\
+    \texttt{FieldTransfer / SubModelSpec}
+      & \texttt{FieldTransfer.hh}
+      & Kinematic field transfer
+      & $\downarrow$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% -------------------------------------------------------------------------
+\subsection{Verification Test Results}
+
+The complete test suite (63 tests) passes after the
+boundary-reaction tangent implementation.  The critical
+\texttt{evolver\_advanced} test (21 sub-tests) reports:
+\begin{align*}
+  \mathbf{D}_{\text{hom}} \text{ diagonal}
+    &= [1125.89, \; 6.51, \; 6.51, \; 72.09, \; 72.09, \; 3.52], \\
+  \mathbf{f}_{\text{hom}}
+    &= [0.114, \; 0, \; 0, \; {\sim}0, \; {\sim}0, \; 0],
+\end{align*}
+confirming all six diagonal entries of the tangent are positive and
+the homogenised forces exhibit the expected axial-only response
+under pure tension.
+
+% -------------------------------------------------------------------------
+\subsection{SOLID Principles Audit}
+\label{sec:ms-solid-audit}
+
+Despite passing all tests, the current implementation exhibits several
+design debts when evaluated against the SOLID principles of
+object-oriented design.
+
+\paragraph{Single Responsibility Principle (SRP).}
+\texttt{NonlinearSubModelEvolver} consolidates at least five distinct
+responsibilities in a single class:
+\begin{itemize}
+  \item SNES-based nonlinear solving (residual/Jacobian callbacks,
+    convergence control);
+  \item Boundary condition transfer (writing imposed values from
+    section kinematics);
+  \item Material model construction (hard-coded
+    \texttt{KoBatheConcrete3D} and \texttt{MenegottoPintoSteel});
+  \item VTK post-processing (mesh, Gauss cloud, crack plane export);
+  \item Crack tracking and summary statistics.
+\end{itemize}
+Each of these is an independently evolving concern.
+
+\paragraph{Open/Closed Principle (OCP).}
+The material models used in the RVE are hard-coded:
+\begin{lstlisting}[caption={Hard-coded material in \texttt{first\_solve()}.}]
+InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
+Material<Policy> mat{mat_inst, InelasticUpdate{}};
+// ...
+MenegottoPintoSteel steel_impl{rebar_E_, rebar_fy_, rebar_b_};
+\end{lstlisting}
+Extending the framework to alternative concrete models (e.g.\ CDPM2,
+Mazars damage) or steel models (Ramberg--Osgood, explicit cyclic)
+requires modifying the class internals.
+
+\paragraph{Liskov Substitution Principle (LSP).}
+\texttt{SubModelSolver} (stateless, per-step) and
+\texttt{NonlinearSubModelEvolver} (stateful, persistent) do not
+share an interface, despite providing overlapping functionality:
+both solve a sub-model and extract results.  Client code cannot
+substitute one for the other.
+
+\paragraph{Interface Segregation Principle (ISP).}
+The evolver exposes a monolithic interface that forces clients to
+depend on crack tracking, VTK export, and arc-length control even
+when they only require the solver or homogenisation functionality.
+
+\paragraph{Dependency Inversion Principle (DIP).}
+The staggered coupling loop in
+\texttt{main\_lshaped\_multiscale.cpp} (approximately 80 lines)
+depends directly on concrete types (\texttt{NonlinearSubModelEvolver},
+\texttt{BeamElemT}, \texttt{COL\_B}, \texttt{COL\_H}).  The coupling
+algorithm, convergence criterion, and relaxation strategy are all
+embedded in the application driver rather than abstracted behind
+stable interfaces.
+
+
+% =========================================================================
+\section{Proposed Architecture: \texttt{MultiscaleAnalysis}}
+\label{sec:ms-proposed-arch}
+
+% -------------------------------------------------------------------------
+\subsection{Design Overview}
+
+The target architecture decomposes the current monolith into
+a layered system of abstractions, as shown in
+Figure~\ref{fig:ms-arch}.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw, rounded corners, minimum width=4.8cm,
+                  minimum height=1cm, text centered,
+                  font=\small\ttfamily},
+      iface/.style={draw, dashed, rounded corners, minimum width=4cm,
+                    minimum height=0.8cm, text centered,
+                    font=\small\itshape},
+      arr/.style={-{Stealth[length=3mm]}, thick},
+      >=Stealth
+    ]
+    % Top level
+    \node[box, fill=blue!10] (msa) at (0,0)
+      {MultiscaleAnalysis};
+
+    % Policies
+    \node[iface, fill=yellow!10] (sbp) at (-4.5,-1.8)
+      {ScaleBridgePolicy};
+    \node[iface, fill=yellow!10] (ccp) at (0,-1.8)
+      {CouplingConvergence};
+    \node[iface, fill=yellow!10] (rlx) at (4.5,-1.8)
+      {RelaxationPolicy};
+
+    % MultiscaleModel
+    \node[box, fill=green!10] (msm) at (0,-3.6)
+      {MultiscaleModel};
+
+    % Sub-components
+    \node[box, fill=gray!10] (gm) at (-4,-5.2)
+      {GlobalModel (beams)};
+    \node[box, fill=gray!10] (lm) at (4,-5.2)
+      {LocalModelAdapter[]};
+
+    % Bottom
+    \node[iface, fill=orange!10] (mf) at (-4,-7)
+      {MaterialFactory};
+    \node[iface, fill=orange!10] (ht) at (4,-7)
+      {HomogenisationStrategy};
+
+    % Arrows
+    \draw[arr] (msa) -- (sbp);
+    \draw[arr] (msa) -- (ccp);
+    \draw[arr] (msa) -- (rlx);
+    \draw[arr] (msa) -- (msm);
+    \draw[arr] (msm) -- (gm);
+    \draw[arr] (msm) -- (lm);
+    \draw[arr] (lm) -- (mf);
+    \draw[arr] (lm) -- (ht);
+  \end{tikzpicture}
+  \caption{Proposed multiscale analysis architecture.
+    Solid boxes are concrete classes; dashed boxes are
+    interfaces (concepts or abstract classes).}
+  \label{fig:ms-arch}
+\end{figure}
+
+% -------------------------------------------------------------------------
+\subsection{Core Abstractions}
+
+\paragraph{\texttt{MultiscaleAnalysis}.}
+The top-level orchestrator, analogous to \texttt{DynamicAnalysis}
+or \texttt{NonlinearAnalysis} in the existing codebase.  It owns
+a \texttt{MultiscaleModel} and drives the staggered iteration loop.
+Its \texttt{step()} method encapsulates:
+\begin{enumerate}
+  \item Global macro-scale solve (one time step or load increment).
+  \item Kinematics extraction at critical elements.
+  \item Parallel local-scale solves (sub-model updates).
+  \item Homogenisation and tangent injection.
+  \item Coupling convergence evaluation.
+\end{enumerate}
+
+\paragraph{\texttt{MultiscaleModel}.}
+An aggregation of model types: one \texttt{GlobalModel}
+(e.g.\ \texttt{Model<TimoshenkoBeam3D, \ldots>}) and a vector
+of \texttt{LocalModelAdapter} instances.  The
+\texttt{MultiscaleModel} maintains the transition map
+(beam element $\to$ local model index) and provides the interface
+for kinematics transfer and result injection.
+
+\paragraph{\texttt{LocalModelAdapter}.}
+A type-erased or concept-constrained interface for local-scale
+solvers.  Any class satisfying:
+\begin{lstlisting}[caption={\texttt{LocalModelAdapter} concept (sketch).}]
+template <typename T>
+concept LocalModelAdapter = requires(T t,
+    const SectionKinematics& kA,
+    const SectionKinematics& kB,
+    double time)
+{
+    { t.update_kinematics(kA, kB) };
+    { t.solve_step(time) } -> SubModelSolverResult;
+    { t.section_forces() } -> Eigen::Vector<double, 6>;
+    { t.section_tangent(double) }
+        -> Eigen::Matrix<double, 6, 6>;
+    { t.revert_state() };
+    { t.commit_state() };
+};
+\end{lstlisting}
+can serve as a local model.  This decouples the coupling
+framework from the specific solver implementation.
+
+\paragraph{\texttt{ScaleBridgePolicy}.}
+A strategy that controls the coupling direction:
+\begin{itemize}
+  \item \texttt{OneWayCoupling}: downscaling only
+    (kinematics $\to$ sub-model, no feedback).
+  \item \texttt{TwoWayStaggered}: full staggered iteration
+    with tangent injection.
+  \item \texttt{TwoWayMonolithic}: assembles a combined
+    system (future extension).
+\end{itemize}
+
+\paragraph{\texttt{CouplingConvergence}.}
+An interface for convergence criteria:
+\begin{lstlisting}[caption={Convergence criterion interface.}]
+struct CouplingConvergence {
+    virtual ~CouplingConvergence() = default;
+    virtual bool converged(
+        std::span<const Eigen::Matrix<double,6,6>> D_prev,
+        std::span<const Eigen::Matrix<double,6,6>> D_curr
+    ) const = 0;
+};
+\end{lstlisting}
+Implementations include Frobenius-norm relative tolerance,
+energy-norm criteria, and force-equilibrium residuals.
+
+\paragraph{\texttt{RelaxationPolicy}.}
+Controls under-relaxation between staggered iterations:
+\begin{itemize}
+  \item \texttt{ConstantRelaxation}: $\mathbf{D}^{(k+1)} =
+    \omega \, \mathbf{D}_{\text{new}} +
+    (1 - \omega) \, \mathbf{D}^{(k)}$.
+  \item \texttt{AitkenRelaxation}: adaptive $\omega$ from
+    successive residual vectors.
+  \item \texttt{AndersonAcceleration}: multi-secant acceleration
+    using the last $m$ iterates.
+\end{itemize}
+
+\paragraph{\texttt{MaterialFactory}.}
+Decouples material construction from the solver:
+\begin{lstlisting}[caption={Material factory concept.}]
+struct ConcreteMaterialFactory {
+    virtual Material<ThreeDimensionalMaterial>
+        create_concrete() const = 0;
+};
+struct RebarMaterialFactory {
+    virtual Material<UniaxialMaterial>
+        create_rebar(double area) const = 0;
+};
+\end{lstlisting}
+
+\paragraph{\texttt{HomogenisationStrategy}.}
+Controls how micro-scale results are upscaled:
+\begin{itemize}
+  \item \texttt{BoundaryReactionHomogenisation}: current approach
+    (sum nodal reactions at Face~B).
+  \item \texttt{VolumeAveragingHomogenisation}: classical approach
+    (\ref{eq:fe2-homog}).
+  \item \texttt{EnergyBasedHomogenisation}: Hill--Mandel energy
+    equivalence.
+\end{itemize}
+
+
+% =========================================================================
+\section{Code Reusability Assessment}
+\label{sec:ms-reuse}
+
+% -------------------------------------------------------------------------
+\subsection{Directly Reusable Components}
+
+The following components have clean interfaces and correct
+implementations that can be adopted with minimal change:
+
+\begin{enumerate}
+  \item \textbf{\texttt{section\_forces\_from\_reactions()}} ---
+    Algorithm: assemble $\mathbf{f}_{\mathrm{int}}$ from
+    displacement, read Face~B nodal forces, sum into section
+    resultants.  Generic and material-independent.
+
+  \item \textbf{Perturbation tangent loop} --- The forward-difference
+    scheme in \texttt{compute\_homogenized\_tangent()} is independent
+    of the material model; it only requires a callable that maps
+    kinematics to section forces.
+
+  \item \textbf{\texttt{SectionKinematics} +
+    \texttt{compute\_boundary\_displacements()}} --- The kinematic
+    transfer from beam section deformations to 3D displacement BCs
+    is well isolated in \texttt{FieldTransfer.hh}.
+
+  \item \textbf{\texttt{MultiscaleSubModel} struct} --- A clean
+    data container holding domain, grid, kinematics, and boundary
+    conditions.
+
+  \item \textbf{Section override mechanism} ---
+    \texttt{BeamElement::set\_homogenized\_tangent/forces()} and
+    the \texttt{tangent\_override\_} / \texttt{force\_override\_} in
+    \texttt{MaterialSection} implement a clean Strategy/Decorator
+    pattern for FE\textsuperscript{2} injection.
+
+  \item \textbf{SNES callbacks} ---
+    \texttt{FormResidual()} and \texttt{FormJacobian()} are
+    static functions parameterised by a \texttt{Context} struct;
+    they can be reused in any PETSc-SNES-based solver.
+\end{enumerate}
+
+% -------------------------------------------------------------------------
+\subsection{Hard-Coded Dependencies Requiring Refactoring}
+
+\begin{enumerate}
+  \item \textbf{Material construction in \texttt{first\_solve()}.}
+    \texttt{KoBatheConcrete3D} and \texttt{MenegottoPintoSteel} are
+    instantiated directly.  Should be replaced by injected factories.
+
+  \item \textbf{Staggered loop in \texttt{main()}.}
+    Approximately 80 lines of coupling algorithm embedded in the
+    application driver, including convergence criterion, relaxation
+    factor, and ``lagged'' coupling logic.
+
+  \item \textbf{\texttt{extract\_beam\_kinematics()} lambda.}
+    Defined locally in \texttt{main\_lshaped\_multiscale.cpp}; should
+    be a member of \texttt{MultiscaleModel} or a reusable free
+    function.
+
+  \item \textbf{\texttt{SubModelSolver} vs.\
+    \texttt{NonlinearSubModelEvolver}.}
+    Two classes with $>60\%$ duplicated code (material setup,
+    BCs, result extraction).  Should be unified under a common
+    interface.
+
+  \item \textbf{\texttt{homogenize()} in
+    \texttt{HomogenizedSection.hh}.}
+    Assumes uniform stress distribution across the section ---
+    not extensible to gradient-based or energy-based
+    homogenisation.  Should become a strategy.
+
+  \item \textbf{Geometry coupling to \texttt{PrismaticGrid}.}
+    The evolver assumes a prismatic grid with
+    \texttt{PrismFace::MinZ/MaxZ} faces.  General RVE geometries
+    (e.g.\ from Gmsh imports) would require a different boundary
+    identification strategy.
+\end{enumerate}
+
+
+% =========================================================================
+\section{Parallelism and HPC Scalability}
+\label{sec:ms-hpc}
+
+% -------------------------------------------------------------------------
+\subsection{Current Parallelism}
+
+The current implementation exploits parallelism at two levels:
+\begin{itemize}
+  \item \textbf{BC computation:}
+    \texttt{MultiscaleCoordinator::build\_sub\_models()} uses OpenMP
+    for the embarrassingly parallel boundary displacement evaluation
+    (Phase~2 of the coordinator).
+
+  \item \textbf{Sub-model independence:}  Each sub-model's SNES solver
+    uses \texttt{PETSC\_COMM\_SELF} (sequential per sub-model), but
+    multiple sub-models can be solved concurrently.
+\end{itemize}
+
+% -------------------------------------------------------------------------
+\subsection{Scalability Bottlenecks}
+
+\begin{enumerate}
+  \item \textbf{Serial perturbation tangent.}
+    The six perturbation solves in
+    \texttt{compute\_homogenized\_tangent()} are executed
+    sequentially.  Since each perturbation is independent (all start
+    from the same baseline state), they are trivially parallelisable.
+
+  \item \textbf{Serial sub-model evolution.}
+    The sub-model loop in the staggered iteration executes
+    sequentially.  For $N_s$ sub-models, this misses a factor-$N_s$
+    speedup.
+
+  \item \textbf{Global--local communication.}
+    Currently implemented via shared-memory access (kinematics
+    extraction and tangent injection occur through direct pointer
+    dereference).  Distributed-memory parallelism would require
+    explicit communication of kinematics and tangent data.
+\end{enumerate}
+
+% -------------------------------------------------------------------------
+\subsection{HPC Strategy}
+
+\paragraph{Level 1: Thread-level parallelism.}
+Use \texttt{std::jthread} or OpenMP tasks for concurrent sub-model
+solves.  Each sub-model owns its own PETSc objects
+(\texttt{PETSC\_COMM\_SELF}), so no synchronisation is needed
+during the SNES solve.
+
+\paragraph{Level 2: MPI sub-communicators.}
+For large-scale analyses with $N_s$ sub-models, partition MPI
+ranks into sub-communicators:
+\begin{equation}
+  \texttt{MPI\_Comm\_split}(\texttt{world}, \;
+    \text{rank} \bmod N_s, \; \text{rank}, \; \&\text{sub\_comm}).
+\end{equation}
+Each sub-communicator drives one sub-model's PETSc solve in
+parallel.  The global model runs on a dedicated communicator (or
+the full world communicator with the sub-model ranks idle during
+the global phase).
+
+\paragraph{Level 3: Perturbation parallelism.}
+The six perturbation directions can be distributed across MPI ranks
+or OpenMP tasks:
+\begin{lstlisting}[caption={Parallelised perturbation tangent.}]
+#pragma omp parallel for schedule(static)
+for (int j = 0; j < 6; ++j) {
+    // Each thread has its own copy of U, imposed_solution
+    auto [sp, ok] = perturb_and_solve(j, h_pert);
+    if (ok) D_hom.col(j) = (sp - s0) / h_pert;
+}
+\end{lstlisting}
+This requires thread-local copies of the PETSc vectors and SNES
+objects, which can be pre-allocated in a pool.
+
+\paragraph{Level 4: GPU offloading.}
+For sub-models with $>10{,}000$ degrees of freedom, PETSc's GPU
+backend (\texttt{MatSetType(MATAIJCUSPARSE)}) can accelerate the
+sparse linear algebra.  This is transparent to the sub-model solver
+if the matrix and vector types are set via the options database.
+
+\paragraph{Proposed architecture for HPC:}
+\begin{lstlisting}[caption={HPC-aware \texttt{MultiscaleAnalysis}.}]
+class MultiscaleAnalysis {
+    MPI_Comm global_comm_;         // all ranks
+    MPI_Comm macro_comm_;          // global model ranks
+    std::vector<MPI_Comm> micro_comms_; // per sub-model
+    
+    void step(double dt) {
+        // 1. Global solve on macro_comm_
+        // 2. Broadcast kinematics to micro_comms_
+        // 3. Parallel local solves (each on micro_comm_)
+        // 4. Gather homogenised responses
+        // 5. Inject and check convergence
+    }
+};
+\end{lstlisting}
+
+
+% =========================================================================
+\section{Phased Implementation Plan}
+\label{sec:ms-plan}
+
+The refactoring is organised into eight phases, ordered by
+dependency and decreasing impact.  Each phase is designed to
+maintain a green test suite throughout.
+
+\subsection{Phase 0: Build System Cleanup}
+\label{sec:ms-plan-phase0}
+
+\begin{itemize}
+  \item \textbf{P0.1:} Remove the 20 duplicate
+    \texttt{fall\_n\_seismic\_v2}--\texttt{v21} targets.
+    Replace with a single parameterised executable.
+    \emph{Impact:} ${\sim}35\%$ build-time reduction.
+  \item \textbf{P0.2:} Add precompiled headers (PCH) for Eigen,
+    PETSc, VTK, and STL containers.
+    \emph{Impact:} ${\sim}15{-}20\%$ reduction.
+  \item \textbf{P0.3:} Introduce explicit template instantiations
+    for \texttt{Model<>}, \texttt{ContinuumElement<>},
+    \texttt{NonlinearAnalysis<>} in dedicated \texttt{.cpp} files,
+    with \texttt{extern template} declarations in headers.
+    \emph{Impact:} ${\sim}20{-}30\%$ reduction.
+  \item \textbf{P0.4:} Modularise \texttt{header\_files.hh} into
+    tier-specific headers
+    (\texttt{fall\_n/core.hh}, \texttt{fall\_n/materials.hh}, etc.).
+\end{itemize}
+
+\subsection{Phase 1: \texttt{LocalModelAdapter} Interface}
+\label{sec:ms-plan-phase1}
+
+\begin{itemize}
+  \item Define the \texttt{LocalModelAdapter} concept (or abstract
+    base class).
+  \item Refactor \texttt{NonlinearSubModelEvolver} to satisfy the
+    concept.
+  \item Deprecate \texttt{SubModelSolver} (stateless variant);
+    provide a thin adapter if backward compatibility is required.
+  \item All existing tests must pass without modification.
+\end{itemize}
+
+\subsection{Phase 2: \texttt{MaterialFactory} Injection}
+\label{sec:ms-plan-phase2}
+
+\begin{itemize}
+  \item Extract material construction into factory interfaces
+    (\texttt{ConcreteMaterialFactory},
+    \texttt{RebarMaterialFactory}).
+  \item Provide default implementations for KoBatheConcrete3D and
+    MenegottoPinto.
+  \item Inject the factory into the local model adapter via
+    constructor parameter.
+  \item Extend with at least one alternative material (e.g.\
+    linear-elastic concrete for testing) to validate OCP.
+\end{itemize}
+
+\subsection{Phase 3: \texttt{MultiscaleModel} Aggregation}
+\label{sec:ms-plan-phase3}
+
+\begin{itemize}
+  \item Create a \texttt{MultiscaleModel} class that owns the global
+    model and a vector of \texttt{LocalModelAdapter} instances.
+  \item Implement the transition map (element ID $\to$ local model
+    index).
+  \item Move \texttt{extract\_beam\_kinematics()} from the main
+    driver into \texttt{MultiscaleModel}.
+  \item Provide \texttt{inject\_homogenized\_response()} as a
+    member function.
+\end{itemize}
+
+\subsection{Phase 4: \texttt{MultiscaleAnalysis} Orchestrator}
+\label{sec:ms-plan-phase4}
+
+\begin{itemize}
+  \item Create \texttt{MultiscaleAnalysis} class that owns a
+    \texttt{MultiscaleModel} and orchestrates the staggered loop.
+  \item Move the 80-line staggered iteration from
+    \texttt{main\_lshaped\_multiscale.cpp} into
+    \texttt{MultiscaleAnalysis::step()}.
+  \item Accept \texttt{ScaleBridgePolicy}, \texttt{CouplingConvergence},
+    and \texttt{RelaxationPolicy} as constructor parameters.
+  \item The main driver reduces to ${\sim}20$ lines of configuration
+    plus \texttt{analysis.run()}.
+\end{itemize}
+
+\subsection{Phase 5: Coupling Strategy Injection}
+\label{sec:ms-plan-phase5}
+
+\begin{itemize}
+  \item Implement \texttt{OneWayCoupling} and
+    \texttt{TwoWayStaggeredCoupling} as
+    \texttt{ScaleBridgePolicy} instances.
+  \item Implement \texttt{FrobeniusConvergence},
+    \texttt{EnergyConvergence} as
+    \texttt{CouplingConvergence} instances.
+  \item Implement \texttt{ConstantRelaxation},
+    \texttt{AitkenRelaxation} as
+    \texttt{RelaxationPolicy} instances.
+  \item Verify that switching between strategies requires only
+    configuration changes (no recompilation of the coupling core).
+\end{itemize}
+
+\subsection{Phase 6: Inter-Sub-Model Parallelism}
+\label{sec:ms-plan-phase6}
+
+\begin{itemize}
+  \item Parallelise sub-model solves within
+    \texttt{MultiscaleAnalysis::step()} using \texttt{std::jthread}
+    (shared-memory) or \texttt{MPI\_Comm\_split}
+    (distributed-memory).
+  \item Parallelise the six perturbation directions in the tangent
+    computation.
+  \item Benchmark scaling: $N_s = 1, 2, 4, 8$ sub-models on 8
+    cores.
+\end{itemize}
+
+\subsection{Phase 7: Homogenisation Strategy}
+\label{sec:ms-plan-phase7}
+
+\begin{itemize}
+  \item Refactor \texttt{homogenize()} into a
+    \texttt{HomogenisationStrategy} interface.
+  \item Implement boundary-reaction and volume-averaging variants.
+  \item Verify consistency: both strategies must yield the same
+    section forces for elastic material.
+\end{itemize}
+
+\subsection{Phase 8: Header Modularisation and Compilation}
+\label{sec:ms-plan-phase8}
+
+\begin{itemize}
+  \item Decompose \texttt{header\_files.hh} into module-specific
+    aggregation headers.
+  \item Create a CMake OBJECT library
+    (\texttt{fall\_n\_core}) with explicit template instantiations.
+  \item All executables link against the OBJECT library.
+  \item Evaluate C++20 modules readiness (GCC~15 experimental
+    support).
+\end{itemize}
+
+
+% =========================================================================
+\section{Summary}
+\label{sec:ms-arch-summary}
+
+The \texttt{fall\_n} multiscale framework successfully implements the
+core FE\textsuperscript{2} coupling loop with verified two-way
+interaction between beam and continuum scales.  The main contribution
+relative to the classical Feyel--Chaboche method is the
+\emph{beam--continuum dimensional bridge with boundary-reaction
+homogenisation}, which provides a computationally efficient
+alternative to full stiffness condensation.
+
+The architectural audit reveals that the current implementation,
+while functionally correct, concentrates too many responsibilities
+in \texttt{NonlinearSubModelEvolver} and hard-codes material choices
+and coupling parameters.  The proposed refactoring into
+\texttt{MultiscaleAnalysis} $\to$ \texttt{MultiscaleModel} $\to$
+\texttt{LocalModelAdapter} with injected strategies for coupling,
+convergence, relaxation, material, and homogenisation will yield a
+flexible, extensible, and HPC-ready framework aligned with SOLID
+principles and suitable for publication as a reusable library for
+the structural engineering community.
+
+
+% =========================================================================
+% References (to be included in the global bibliography)
+% =========================================================================
+%
+% The following references are cited in this chapter.  When a global
+% .bib file is used, these entries should be merged there.
+%
+% @article{Feyel1999,
+%   author  = {F. Feyel},
+%   title   = {Multiscale {FE2} elastoviscoplastic analysis of composite structures},
+%   journal = {Computational Materials Science},
+%   volume  = {16},
+%   number  = {1--4},
+%   pages   = {344--354},
+%   year    = {1999},
+%   doi     = {10.1016/S0927-0256(99)00077-4}
+% }
+%
+% @article{FeyelandChaboche2000,
+%   author  = {F. Feyel and J.-L. Chaboche},
+%   title   = {{FE2} multiscale approach for modelling the elastoviscoplastic
+%              behaviour of long fibre {SiC/Ti} composite materials},
+%   journal = {Computer Methods in Applied Mechanics and Engineering},
+%   volume  = {183},
+%   number  = {3--4},
+%   pages   = {309--330},
+%   year    = {2000},
+%   doi     = {10.1016/S0045-7825(99)00224-8}
+% }
+%
+% @article{Miehe2002,
+%   author  = {C. Miehe and J. Schröder and J. Schotte},
+%   title   = {Computational homogenization analysis in finite plasticity.
+%              Simulation of texture development in polycrystalline materials},
+%   journal = {Computer Methods in Applied Mechanics and Engineering},
+%   volume  = {171},
+%   number  = {3--4},
+%   pages   = {387--418},
+%   year    = {1999},
+% }
+%
+% @article{Geers2010,
+%   author  = {M. G. D. Geers and V. G. Kouznetsova and W. A. M. Brekelmans},
+%   title   = {Multi-scale computational homogenization: Trends and challenges},
+%   journal = {Journal of Computational and Applied Mathematics},
+%   volume  = {234},
+%   number  = {7},
+%   pages   = {2175--2182},
+%   year    = {2010},
+%   doi     = {10.1016/j.cam.2009.08.077}
+% }
+%
+% @article{Kouznetsova2004,
+%   author  = {V. G. Kouznetsova and M. G. D. Geers and W. A. M. Brekelmans},
+%   title   = {Multi-scale second-order computational homogenization of
+%              multi-phase materials: a nested finite element solution
+%              strategy},
+%   journal = {Computer Methods in Applied Mechanics and Engineering},
+%   volume  = {193},
+%   number  = {48--51},
+%   pages   = {5525--5550},
+%   year    = {2004},
+%   doi     = {10.1016/j.cma.2003.12.073}
+% }
+%
+% @article{Ghosh2001,
+%   author  = {S. Ghosh and K. Lee and S. Moorthy},
+%   title   = {Multiple scale analysis of heterogeneous elastic structures
+%              using homogenization theory and Voronoi cell finite element
+%              method},
+%   journal = {International Journal of Solids and Structures},
+%   volume  = {32},
+%   pages   = {27--62},
+%   year    = {1995},
+% }
+%
+% @article{Feyel2003,
+%   author  = {F. Feyel},
+%   title   = {A multilevel finite element method ({FE2}) to describe the
+%              response of highly non-linear structures using generalized
+%              continua},
+%   journal = {Computer Methods in Applied Mechanics and Engineering},
+%   volume  = {192},
+%   number  = {28--30},
+%   pages   = {3233--3244},
+%   year    = {2003},
+%   doi     = {10.1016/S0045-7825(03)00348-7}
+% }
+%
+% @article{Schroeder2014,
+%   author  = {J. Schröder},
+%   title   = {A numerical two-scale homogenization scheme: the {FE2}-method},
+%   journal = {Plasticity and Beyond},
+%   volume  = {550},
+%   pages   = {1--64},
+%   year    = {2014},
+%   publisher = {Springer},
+%   doi     = {10.1007/978-3-7091-1625-8_1}
+% }

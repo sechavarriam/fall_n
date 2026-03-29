@@ -1,0 +1,438 @@
+% ==========================================================================
+%  Chapter 76 -- Build System Diagnosis and Compilation Optimisation
+% ==========================================================================
+
+\chapter{Build System Diagnosis and Compilation Optimisation}
+\label{ch:build-system-optimisation}
+
+
+% =========================================================================
+\section{Motivation}
+\label{sec:build-motivation}
+
+A full rebuild of \texttt{fall\_n} with eight parallel jobs
+(\texttt{ninja -j8}) on a modern desktop (AMD Ryzen 7, 32\,GB RAM)
+takes approximately 50~minutes to generate 115 Ninja targets
+(28~executables and 65~tests, plus object files).  This severely
+limits the developer iteration cycle: a single-header edit that
+touches \texttt{header\_files.hh} forces recompilation of every
+translation unit.
+
+This chapter diagnoses the root causes of the excessive compilation
+time, quantifies the contribution of each factor, and proposes a
+concrete mitigation plan.
+
+
+% =========================================================================
+\section{Build System Overview}
+\label{sec:build-overview}
+
+The build system uses CMake with the Ninja generator.  The main
+\texttt{CMakeLists.txt} defines:
+
+\begin{itemize}
+  \item \textbf{28 executable targets}, including
+    \texttt{fall\_n\_main}, \texttt{fall\_n\_seismic\_main},
+    \texttt{fall\_n\_lshaped\_multiscale}, and 20~variants
+    \texttt{fall\_n\_seismic\_v2} through
+    \texttt{fall\_n\_seismic\_v21}.
+  \item \textbf{65 test targets} registered via the custom
+    \texttt{fall\_n\_add\_test()} macro, each compiling a
+    separate test source file.
+  \item \textbf{No static or shared library targets:}
+    the codebase is entirely header-only, with all template
+    definitions visible in every translation unit.
+\end{itemize}
+
+
+% =========================================================================
+\section{Root Cause Analysis}
+\label{sec:build-root-cause}
+
+% -------------------------------------------------------------------------
+\subsection{Monolithic Header: \texttt{header\_files.hh}}
+\label{sec:build-monolithic-header}
+
+The file \texttt{header\_files.hh} includes approximately 100
+project headers covering \emph{every} module:
+
+\begin{lstlisting}[caption={Excerpt from \texttt{header\_files.hh}.}]
+// Core
+#include "src/geometry/entities/Node.hh"
+#include "src/geometry/entities/Vertex.hh"
+// ... 40+ geometry/element headers
+
+// Materials
+#include "src/materials/concrete/KoBatheConcrete3D.hh"
+#include "src/materials/steel/MenegottoPintoSteel.hh"
+// ... 15+ material headers
+
+// Model, Analysis, VTK
+#include "src/model/Model.hh"
+#include "src/analysis/NonlinearAnalysis.hh"
+#include "src/vtk/VtkWriter.hh"
+// ... 20+ analysis/vtk headers
+
+// Reconstruction
+#include "src/reconstruction/SubModelSolver.hh"
+#include "src/reconstruction/NonlinearSubModelEvolver.hh"
+#include "src/reconstruction/HomogenizedSection.hh"
+\end{lstlisting}
+
+Every test and executable that includes \texttt{header\_files.hh}
+must parse and instantiate templates from all 100+ headers.  Since
+most tests depend on only a small subset of the library, the vast
+majority of this parsing is wasted.
+
+\paragraph{Estimated impact.}
+Header parsing and template instantiation account for approximately
+$70{-}80\%$ of compilation time per translation unit.  With 93~TUs
+(28~executables $+$ 65~tests), the aggregate waste is substantial.
+
+
+% -------------------------------------------------------------------------
+\subsection{Duplicate Seismic Executables}
+\label{sec:build-duplicate-seismic}
+
+Twenty targets (\texttt{fall\_n\_seismic\_v2} through
+\texttt{fall\_n\_seismic\_v21}) all compile the same source file,
+\texttt{main\_multiscale\_seismic.cpp}, with different preprocessor
+definitions:
+
+\begin{lstlisting}[caption={CMakeLists.txt excerpt.}]
+add_executable(fall_n_seismic_v2  main_multiscale_seismic.cpp)
+target_compile_definitions(fall_n_seismic_v2  PRIVATE SEISMIC_V2)
+add_executable(fall_n_seismic_v3  main_multiscale_seismic.cpp)
+target_compile_definitions(fall_n_seismic_v3  PRIVATE SEISMIC_V3)
+# ... v4 through v21
+\end{lstlisting}
+
+Each variant triggers a full compilation of a large translation unit
+(\texttt{main\_multiscale\_seismic.cpp}) that includes
+\texttt{header\_files.hh}.  Thus, the same 100+ headers are parsed
+and instantiated 20~times, producing nearly identical object files.
+
+\paragraph{Estimated impact.}
+These 20~targets represent ${\sim}35\%$ of the total build time.
+They can be consolidated into a single executable with a
+runtime parameter.
+
+
+% -------------------------------------------------------------------------
+\subsection{No Precompiled Headers (PCH)}
+\label{sec:build-no-pch}
+
+CMake supports precompiled headers via
+\texttt{target\_precompile\_headers()}.  The current project does
+not use this feature.  Third-party headers (PETSc, Eigen, VTK,
+\texttt{<algorithm>}, \texttt{<vector>}, etc.) are re-parsed in
+every TU.
+
+\paragraph{Estimated impact.}
+PCH for stable third-party headers typically reduces per-TU
+compilation time by $15{-}25\%$.
+
+
+% -------------------------------------------------------------------------
+\subsection{No Explicit Template Instantiation}
+\label{sec:build-no-explicit-inst}
+
+The library's template-heavy design (e.g.\
+\texttt{Model<ElementT, MeshT>},
+\texttt{ContinuumElement<Material, Kinematics, Quadrature>})
+means that every translation unit that uses these templates
+instantiates them independently.  Identical instantiations (e.g.\
+\texttt{ContinuumElement<KoBathe, SmallStrain, GaussLegendre>})
+occur in multiple TUs, leading to redundant compilation that is
+only discarded at link time.
+
+\paragraph{Estimated impact.}
+Explicit instantiation with \texttt{extern template} declarations
+can reduce compilation time by $20{-}30\%$ for template-heavy
+codebases.
+
+
+% =========================================================================
+\section{Mitigation Plan}
+\label{sec:build-mitigation}
+
+Table~\ref{tab:build-mitigation} summarises the proposed
+optimisation steps in priority order, with estimated build-time
+reductions and implementation effort.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Build optimisation steps, ordered by impact.}
+  \label{tab:build-mitigation}
+  \small
+  \begin{tabular}{@{}clccc@{}}
+    \toprule
+    \textbf{Step} &
+    \textbf{Optimisation} &
+    \textbf{Reduction} &
+    \textbf{Effort} &
+    \textbf{Risk} \\
+    \midrule
+    1 & Consolidate seismic variants &
+        ${\sim}35\%$ & Low  & None \\
+    2 & Add PCH (Eigen, PETSc, VTK, STL) &
+        ${\sim}15\%$ & Low  & None \\
+    3 & Explicit template instantiation &
+        ${\sim}25\%$ & Med. & Moderate$^{a}$ \\
+    4 & Modularise \texttt{header\_files.hh} &
+        ${\sim}15\%$ & High & Low \\
+    5 & CMake OBJECT library &
+        ${\sim}10\%$ & Med. & Low \\
+    6 & C++20 modules (experimental) &
+        TBD   & High & High$^{b}$ \\
+    \bottomrule
+  \end{tabular}
+  
+  \medskip
+  \footnotesize
+  $^{a}$ Requires maintaining explicit instantiation lists in sync
+  with the template usage across TUs.  Missing an instantiation causes
+  a linker error.
+
+  $^{b}$ GCC~15 offers partial C++20 module support; not yet production-ready.
+\end{table}
+
+% -------------------------------------------------------------------------
+\subsection{Step 1: Consolidate Seismic Variants}
+\label{sec:build-seismic-consolidate}
+
+Replace 20 separate executables with a single parameterised
+executable that selects the variant at runtime:
+
+\begin{lstlisting}[language=C++, caption={Proposed unified seismic driver.}]
+int main(int argc, char* argv[]) {
+    int variant = 2;   // default
+    if (argc > 1) variant = std::atoi(argv[1]);
+    
+    switch (variant) {
+        case 2:  run_seismic_v2();  break;
+        case 3:  run_seismic_v3();  break;
+        // ...
+        default:
+            std::cerr << "Unknown variant: "
+                      << variant << "\n";
+            return 1;
+    }
+}
+\end{lstlisting}
+
+If compile-time configuration is truly required, use
+\texttt{if constexpr} with a single \texttt{-DSEISMIC\_VERSION=N}
+define, building only the needed variant.  The CMake target reduces
+to one:
+
+\begin{lstlisting}
+add_executable(fall_n_seismic main_multiscale_seismic.cpp)
+target_compile_definitions(fall_n_seismic PRIVATE
+    SEISMIC_VERSION=${SEISMIC_VERSION})
+\end{lstlisting}
+
+
+% -------------------------------------------------------------------------
+\subsection{Step 2: Precompiled Headers}
+\label{sec:build-pch}
+
+Add PCH for the heaviest third-party headers:
+
+\begin{lstlisting}[caption={CMake PCH setup.}]
+# In CMakeLists.txt
+set(PCH_HEADERS
+    <Eigen/Dense>
+    <Eigen/Sparse>
+    <petsc.h>
+    <petscsnes.h>
+    <petscmat.h>
+    <vtkSmartPointer.h>
+    <vtkUnstructuredGrid.h>
+    <algorithm>
+    <vector>
+    <array>
+    <memory>
+    <cmath>
+)
+
+# Apply to all fall_n targets
+foreach(tgt ${FALL_N_ALL_TARGETS})
+    target_precompile_headers(${tgt} PRIVATE ${PCH_HEADERS})
+endforeach()
+\end{lstlisting}
+
+
+% -------------------------------------------------------------------------
+\subsection{Step 3: Explicit Template Instantiation}
+\label{sec:build-explicit-inst}
+
+Identify the most commonly instantiated template combinations and
+provide explicit instantiation definitions in dedicated
+\texttt{.cpp} files:
+
+\begin{lstlisting}[caption={Explicit instantiation example.}]
+// file: src/model/Model_instantiations.cpp
+#include "header_files.hh" // only this TU pays full cost
+
+// Explicit instantiation definitions
+template class Model<
+    TimoshenkoBeam3D<GaussLobatto<3>>,
+    DMPlexMesh>;
+
+template class Model<
+    ContinuumElement<
+        Material<ThreeDimensionalMaterial>,
+        SmallStrainKinematics,
+        GaussLegendre<2,2,2>>,
+    DMPlexMesh>;
+\end{lstlisting}
+
+In the headers, add \texttt{extern template} declarations to
+suppress implicit instantiation:
+
+\begin{lstlisting}[caption={\texttt{extern template} in header.}]
+// In Model.hh, at the bottom:
+#ifdef FALL_N_EXTERN_TEMPLATES
+extern template class Model<
+    TimoshenkoBeam3D<GaussLobatto<3>>,
+    DMPlexMesh>;
+// ... other common instantiations
+#endif
+\end{lstlisting}
+
+A new CMake OBJECT library compiles the instantiation TUs once,
+and all executables link against it.
+
+
+% -------------------------------------------------------------------------
+\subsection{Step 4: Header Modularisation}
+\label{sec:build-modularise}
+
+Decompose \texttt{header\_files.hh} into tiered headers:
+
+\begin{center}
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Header} & \textbf{Contents} \\
+    \midrule
+    \texttt{fall\_n/core.hh} &
+      Node, Vertex, BasisFunctions, Quadrature \\
+    \texttt{fall\_n/materials.hh} &
+      Material, KoBathe, Menegotto, \ldots \\
+    \texttt{fall\_n/elements.hh} &
+      ContinuumElement, BeamElement, TrussElement \\
+    \texttt{fall\_n/model.hh} &
+      Model, DofHandler, BCs \\
+    \texttt{fall\_n/analysis.hh} &
+      NonlinearAnalysis, DynamicAnalysis \\
+    \texttt{fall\_n/reconstruction.hh} &
+      SubModel*, FieldTransfer, Evolver \\
+    \texttt{fall\_n/vtk.hh} &
+      VtkWriter, VtkPatch, \ldots \\
+    \texttt{fall\_n/all.hh} &
+      Includes all of the above (backward compat.) \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+Test files include only the tier they need:
+\begin{lstlisting}
+// test_quadrature.cpp
+#include "fall_n/core.hh"   // 10 headers instead of 100
+\end{lstlisting}
+
+This change requires updating all 65+ test files and 28+
+main files, so it is best done incrementally.
+
+
+% -------------------------------------------------------------------------
+\subsection{Step 5: CMake OBJECT Library}
+\label{sec:build-object-lib}
+
+Create a shared compilation target:
+
+\begin{lstlisting}[caption={CMake OBJECT library.}]
+add_library(fall_n_lib OBJECT
+    src/model/Model_instantiations.cpp
+    src/elements/Element_instantiations.cpp
+    src/analysis/Analysis_instantiations.cpp
+)
+target_precompile_headers(fall_n_lib PRIVATE ${PCH_HEADERS})
+
+# All executables link to the OBJECT library
+foreach(tgt ${FALL_N_ALL_TARGETS})
+    target_link_libraries(${tgt} PRIVATE fall_n_lib)
+endforeach()
+\end{lstlisting}
+
+This ensures that common template instantiations are compiled
+exactly once.
+
+
+% -------------------------------------------------------------------------
+\subsection{Step 6: C++20 Modules (Exploratory)}
+\label{sec:build-modules}
+
+GCC~15 provides experimental support for C++20 named modules.
+A future step could convert the most include-heavy components into
+modules:
+
+\begin{lstlisting}
+// fall_n.core.cppm
+export module fall_n.core;
+export import :node;
+export import :vertex;
+export import :quadrature;
+\end{lstlisting}
+
+This is not recommended until the GCC/Clang module build system
+integration (via CMake 3.28+ \texttt{CXX\_MODULES}) is stable.
+
+
+% =========================================================================
+\section{Expected Cumulative Impact}
+\label{sec:build-impact}
+
+Applying Steps 1--5 in sequence is expected to reduce the full build
+time as follows:
+
+\begin{equation*}
+  \underbrace{50\;\text{min}}_{\text{current}}
+  \xrightarrow[\text{Step 1}]{-35\%}
+  32\;\text{min}
+  \xrightarrow[\text{Step 2}]{-15\%}
+  27\;\text{min}
+  \xrightarrow[\text{Step 3}]{-25\%}
+  20\;\text{min}
+  \xrightarrow[\text{Step 4}]{-15\%}
+  17\;\text{min}
+  \xrightarrow[\text{Step 5}]{-10\%}
+  15\;\text{min}
+\end{equation*}
+
+\noindent
+A \textbf{${\sim}70\%$ overall reduction} is achievable with moderate
+engineering effort.  Incremental builds (single-header changes) would
+benefit even more, as PCH and modularised headers eliminate the
+re-parsing of unrelated headers.
+
+
+% =========================================================================
+\section{Summary}
+\label{sec:build-summary}
+
+The current build system's excessive compilation time is attributable
+to four primary causes: a monolithic uber-header, 20~duplicate
+seismic targets, absence of precompiled headers, and redundant
+template instantiation across 93~translation units.
+
+A five-step optimisation plan --- consolidating seismic variants,
+adding PCH, introducing explicit template instantiations,
+modularising the header hierarchy, and creating a CMake OBJECT
+library --- can reduce full build times from ${\sim}50$ minutes to
+${\sim}15$ minutes.
+
+These improvements require no changes to the library's public API
+or test expectations; they are purely internal build-system
+and compilation-model optimisations.
