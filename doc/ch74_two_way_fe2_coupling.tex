@@ -76,6 +76,38 @@ where $z$ is the beam axis direction and $L_{\text{RVE}}$ is the RVE
 length.  These integrals reduce to discrete summations over Gauss
 points with appropriate weights.
 
+% -------------------------------------------------------------------------
+\subsection{Section Forces from Boundary Reactions}
+\label{sec:fe2-reactions}
+
+An alternative---and more robust---approach extracts the section
+resultants directly from the assembled internal-force vector.
+After convergence of the RVE finite-element solve with displacement
+$\mathbf{u}$, the global internal-force vector is
+\begin{equation}
+  \mathbf{f}_{\mathrm{int}} = \bigcup_{e}
+    \int_{\Omega_e} \mathbf{B}^T \boldsymbol{\sigma}(\mathbf{u})
+    \; \mathrm{d}\Omega.
+\end{equation}
+At the constrained Face~B boundary nodes, $\mathbf{f}_{\mathrm{int}}$
+gives the reaction forces.  The section resultants follow from
+summation over all Face~B nodes~$i$:
+\begin{equation}
+  \mathbf{F} = \sum_{i \in \text{Face\,B}} \mathbf{f}_i,
+  \qquad
+  \mathbf{M} = \sum_{i \in \text{Face\,B}}
+    (\mathbf{x}_i - \mathbf{c}) \times \mathbf{f}_i,
+\end{equation}
+where $\mathbf{c}$ is the section centroid.  Rotating to the beam
+local frame via $\mathbf{R}$ gives $N$, $V_y$, $V_z$ from
+$\mathbf{R}\mathbf{F}$ and $M_t$, $M_y$, $M_z$ from
+$\mathbf{R}\mathbf{M}$.
+
+This approach is preferred for the perturbation tangent loop because
+it evaluates the constitutive response from the displacement field
+at each perturbation step, avoiding reliance on stored material state
+which may be stale between non-committed SNES solves.
+
 
 % =========================================================================
 \section{Homogenised Section Tangent}

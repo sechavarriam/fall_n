@@ -549,6 +549,10 @@ fall_n_add_test(TARGET fall_n_reinforced_submodel_test
     NAME reinforced_submodel  SOURCE tests/test_reinforced_submodel.cpp
     LIBS FULL  LABEL integration)
 
+fall_n_add_test(TARGET fall_n_evolver_advanced_test
+    NAME evolver_advanced  SOURCE tests/test_evolver_advanced.cpp
+    LIBS FULL  LABEL integration)
+
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)
