@@ -576,13 +576,43 @@ int main(int argc, char* argv[]) {
     std::println("  VTK interval       : every {} steps ({:.2f} s)",
                  EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
 
+    // ── Assemble MultiscaleModel + MultiscaleAnalysis orchestrator ───────
+    MultiscaleModel<NonlinearSubModelEvolver> ms_model;
+    ms_model.set_kinematics_extractor(extract_beam_kinematics);
+    ms_model.set_response_injector(
+        [&model](std::size_t eid,
+                 const Eigen::Matrix<double,6,6>& D_hom,
+                 const Eigen::Vector<double,6>&   f_hom)
+        {
+            if (auto* beam = model.elements()[eid].as<BeamElemT>()) {
+                beam->set_homogenized_tangent(D_hom);
+                beam->set_homogenized_forces(f_hom);
+            }
+        });
+
+    for (auto& ev : nl_evolvers) {
+        const auto eid = ev.parent_element_id();
+        ms_model.register_local_model(eid, std::move(ev));
+    }
+
+    MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
+        std::move(ms_model),
+        std::make_unique<TwoWayStaggered>(MAX_STAGGERED_ITER),
+        std::make_unique<FrobeniusConvergence>(STAGGERED_TOL),
+        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX));
+    analysis.set_coupling_start_step(COUPLING_START_STEP);
+    analysis.set_section_dimensions(COL_B, COL_H);
+
+    std::println("  MultiscaleAnalysis : max_iter={} tol={:.2f} relax={:.2f}",
+                 MAX_STAGGERED_ITER, STAGGERED_TOL, STAGGERED_RELAX);
+
     // ─────────────────────────────────────────────────────────────────────
     //  13. Initial sub-model solve at yield time
     // ─────────────────────────────────────────────────────────────────────
     std::println("\n[13] Initial nonlinear solve at t={:.4f} s...",
                  transition_report->trigger_time);
 
-    for (auto& ev : nl_evolvers) {
+    for (auto& ev : analysis.model().local_models()) {
         auto result = ev.solve_step(transition_report->trigger_time);
         std::println("  Sub-model elem {} : converged={} max|u|={:.3e} mm",
                      ev.parent_element_id(),
@@ -596,7 +626,7 @@ int main(int argc, char* argv[]) {
     sep('=');
     std::println("\n[14] PHASE 2: Sub-model evolution through the earthquake");
     std::println("    Evolving global + {} nonlinear sub-models simultaneously...",
-                 nl_evolvers.size());
+                 analysis.model().num_local_models());
 
     const std::string evol_frame_dir = OUT + "evolution";
     PVDWriter pvd_global(evol_frame_dir + "/frame");
@@ -611,7 +641,7 @@ int main(int argc, char* argv[]) {
     // ── Crack evolution CSV ────────────────────────────────────────────────────
     std::ofstream crack_csv(OUT + "recorders/crack_evolution.csv");
     crack_csv << "time,total_cracked_gps,total_cracks,max_damage,max_opening";
-    for (std::size_t i = 0; i < nl_evolvers.size(); ++i)
+    for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i)
         crack_csv << ",sub" << i << "_cracked_gps"
                   << ",sub" << i << "_cracks"
                   << ",sub" << i << "_max_damage";
@@ -635,95 +665,23 @@ int main(int argc, char* argv[]) {
         ++evol_step;
         const double t = static_cast<double>(t_new);
 
-        // ── Update and solve sub-models (with FE² staggered coupling) ──
-        int step_cracked_gps = 0;
-        int step_total_cracks = 0;
+        // ── FE² staggered coupling (delegated to MultiscaleAnalysis) ──
+        analysis.step(t, evol_step);
+        const int staggered_iters = analysis.last_staggered_iterations();
+
+        // ── Collect crack summaries (post-step) ──────────────────
+        int step_cracked_gps    = 0;
+        int step_total_cracks   = 0;
         double step_max_crack_damage = 0.0;
-        double step_max_opening = 0.0;
+        double step_max_opening      = 0.0;
         std::vector<CrackSummary> step_summaries;
-        step_summaries.reserve(nl_evolvers.size());
-
-        // Store previous homogenized tangents for convergence check
-        std::vector<Eigen::Matrix<double, 6, 6>> D_prev(
-            nl_evolvers.size(), Eigen::Matrix<double, 6, 6>::Zero());
-
-        int staggered_iters = 0;
-        const bool do_coupling = (evol_step >= COUPLING_START_STEP);
-
-        for (int s_iter = 0; ; ++s_iter) {
-            step_cracked_gps = 0;
-            step_total_cracks = 0;
-            step_max_crack_damage = 0.0;
-            step_max_opening = 0.0;
-            step_summaries.clear();
-
-            // (a) Extract kinematics, update BCs, solve sub-models
-            for (auto& ev : nl_evolvers) {
-                auto ek = extract_beam_kinematics(ev.parent_element_id());
-                ev.update_kinematics(ek.kin_A, ek.kin_B);
-                ev.solve_step(t);
-
-                auto cs = ev.crack_summary();
-                step_summaries.push_back(cs);
-                step_cracked_gps  += cs.num_cracked_gps;
-                step_total_cracks += cs.total_cracks;
-                step_max_crack_damage = std::max(step_max_crack_damage, cs.max_damage);
-                step_max_opening      = std::max(step_max_opening, cs.max_opening);
-            }
-
-            // (b) If coupling disabled or first staggered iter, skip convergence check
-            if (!do_coupling || s_iter >= MAX_STAGGERED_ITER) break;
-
-            // (c) Compute homogenized tangents and inject into beam elements
-            bool all_converged = true;
-            for (std::size_t i = 0; i < nl_evolvers.size(); ++i) {
-                auto D_hom = nl_evolvers[i].compute_homogenized_tangent(
-                    COL_B, COL_H);
-
-                // Relaxation: D_new = ω·D_hom + (1-ω)·D_prev
-                if (s_iter > 0 && STAGGERED_RELAX < 1.0) {
-                    D_hom = STAGGERED_RELAX * D_hom
-                          + (1.0 - STAGGERED_RELAX) * D_prev[i];
-                }
-
-                // Check convergence: ‖D_new - D_prev‖_F / ‖D_new‖_F
-                if (s_iter > 0) {
-                    double d_norm = D_hom.norm();
-                    double delta  = (D_hom - D_prev[i]).norm();
-                    if (d_norm > 1e-14 && delta / d_norm > STAGGERED_TOL)
-                        all_converged = false;
-                }
-
-                D_prev[i] = D_hom;
-
-                // Inject homogenized tangent and forces into the beam element
-                auto eid = nl_evolvers[i].parent_element_id();
-                auto& se = model.elements()[eid];
-                if (auto* beam = se.as<BeamElemT>()) {
-                    beam->set_homogenized_tangent(D_hom);
-
-                    auto f_hom = nl_evolvers[i].compute_homogenized_forces(
-                        COL_B, COL_H);
-                    beam->set_homogenized_forces(f_hom);
-                }
-            }
-
-            staggered_iters = s_iter + 1;
-
-            // First iteration: always do at least one coupling cycle
-            if (s_iter == 0) continue;
-
-            // Converged → stop staggered loop
-            if (all_converged) break;
-
-            // Re-solve global step with updated tangent
-            // (step_n advances by one TS step; we need to redo the step)
-            // Note: for simplicity, in the staggered loop we only update
-            // the sub-model tangent and re-solve the sub-models. The global
-            // re-solve would require rewinding TS, which is complex. The
-            // practical approach: update just the Jacobian seen by the next
-            // global step. This is a "lagged" staggered scheme.
-            break;  // Exit after convergence check — lagged coupling
+        for (auto& ev : analysis.model().local_models()) {
+            auto cs = ev.crack_summary();
+            step_summaries.push_back(cs);
+            step_cracked_gps  += cs.num_cracked_gps;
+            step_total_cracks += cs.total_cracks;
+            step_max_crack_damage = std::max(step_max_crack_damage, cs.max_damage);
+            step_max_opening      = std::max(step_max_opening, cs.max_opening);
         }
         total_cracks = step_total_cracks;
 
@@ -775,7 +733,7 @@ int main(int argc, char* argv[]) {
     //  15. Finalize: write PVD files, export recorder CSV files
     // ─────────────────────────────────────────────────────────────────────
     pvd_global.write();
-    for (auto& ev : nl_evolvers)
+    for (auto& ev : analysis.model().local_models())
         ev.finalize();
 
     // Export recorder data
@@ -802,7 +760,7 @@ int main(int argc, char* argv[]) {
     std::println("  First yield:   t = {:.4f} s  (element {})",
                  transition_report->trigger_time,
                  transition_report->critical_element);
-    std::println("  Sub-models:    {} (Hex27, KoBatheConcrete3D)", nl_evolvers.size());
+    std::println("  Sub-models:    {} (Hex27, KoBatheConcrete3D)", analysis.model().num_local_models());
     std::println("  Evolution:     {} steps, {:.1f} s — t_final = {:.4f} s",
                  evol_step, evol_step * DT, static_cast<double>(t_final));
     std::println("  Peak damage:   {:.6f}", evol_max_damage);
