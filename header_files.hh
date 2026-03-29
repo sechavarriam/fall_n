@@ -215,6 +215,8 @@
 // --- Multiscale coordinator (Phase 5) ---
 #include "src/analysis/MultiscaleCoordinator.hh"
 #include "src/analysis/CouplingStrategy.hh"
+#include "src/analysis/MultiscaleModel.hh"
+#include "src/analysis/MultiscaleAnalysis.hh"
 
 // =================================================================================
 // Mesh Module

@@ -1,0 +1,1012 @@
+% ==========================================================================
+%  Chapter 77 -- Multiscale Architecture Refactoring: Implementation
+% ==========================================================================
+
+\chapter{Multiscale Architecture Refactoring: Implementation}
+\label{ch:multiscale-refactoring}
+
+
+% =========================================================================
+\section{Introduction}
+\label{sec:refactor-intro}
+
+Chapter~\ref{ch:multiscale-architecture} identified six rigidities in
+the FE\textsuperscript{2} coupling implementation and proposed a
+nine-phase refactoring plan to achieve a SOLID-conformant,
+extensible, and HPC-ready architecture.  Chapter~\ref{ch:build-system-optimisation}
+diagnosed the root causes of the excessive compilation time and
+proposed a mitigation plan.  This chapter documents the
+implementation of the first seven phases of that plan:
+
+\begin{enumerate}[label=\textbf{Phase \arabic*}:]
+  \setcounter{enumi}{-1}
+  \item Build system cleanup: consolidation of 20 duplicate seismic
+    targets.
+  \item \texttt{LocalModelAdapter} concept and type-erased handle.
+  \item \texttt{MaterialFactory} injection into the sub-model solver.
+  \item \texttt{MultiscaleModel} aggregation class.
+  \item \texttt{CouplingStrategy} interfaces and \texttt{MultiscaleAnalysis}
+    orchestrator.
+  \item \texttt{HomogenisationStrategy} for switchable upscaling.
+\end{enumerate}
+
+All code changes presented here compile under GCC~15.2 with
+\texttt{-Werror} enabled.  The full test suite (63~CTest cases)
+continues to pass after each phase.
+
+Section~\ref{sec:refactor-build-cleanup} covers the build system
+cleanup.  Sections~\ref{sec:refactor-local-model}
+through~\ref{sec:refactor-homogenisation} present each architectural
+phase with design rationale, code listings, and SOLID analysis.
+Section~\ref{sec:refactor-orchestrator} presents the
+\texttt{MultiscaleAnalysis} orchestrator that absorbs the staggered
+coupling loop.  Section~\ref{sec:refactor-discussion} provides a
+comprehensive discussion of design decisions and trade-offs.
+
+
+% =========================================================================
+\section{Phase 0.1: Build System Cleanup}
+\label{sec:refactor-build-cleanup}
+
+% -------------------------------------------------------------------------
+\subsection{Problem: 20 Duplicate Seismic Targets}
+
+As diagnosed in Chapter~\ref{ch:build-system-optimisation}, the
+CMake build system contained 20 near-identical executable targets
+(\texttt{fall\_n\_seismic\_v2} through \texttt{fall\_n\_seismic\_v21}),
+each compiling the same source file
+(\texttt{main\_multiscale\_seismic.cpp}) with a different preprocessor
+definition.  Each target incurred the full parse cost of
+\texttt{header\_files.hh} ($\sim$100 project headers), resulting in
+${\sim}35\%$ of the total build time spent on redundant compilation.
+
+\subsection{Solution: Target Consolidation}
+
+All 20 duplicate target blocks were removed from
+\texttt{CMakeLists.txt}.  The single pre-existing target
+\texttt{fall\_n\_seismic} is retained; variant selection is
+performed at runtime via command-line arguments.
+
+\paragraph{Impact.}
+\begin{itemize}
+  \item Ninja targets: $115 \to 88$ ($-23\%$).
+  \item Build time: estimated ${\sim}35\%$ reduction for full rebuilds.
+  \item No test regressions: 63/63 CTest cases pass.
+\end{itemize}
+
+
+% =========================================================================
+\section{Phase 1: \texttt{LocalModelAdapter} Concept}
+\label{sec:refactor-local-model}
+
+% -------------------------------------------------------------------------
+\subsection{Design Rationale}
+\label{sec:refactor-local-model-rationale}
+
+The \texttt{NonlinearSubModelEvolver} class
+(Chapter~\ref{ch:nl-sub-model-evolver}) is the sole concrete
+sub-model solver.  However, the multiscale analysis framework should
+be open to alternative sub-model types (e.g.\ a future
+\texttt{LinearSubModel} for elastic columns, or a
+\texttt{ReducedOrderModel} for computational efficiency).
+
+The design choice between a C++20 concept and a classical abstract
+base class (ABC) was guided by consistency with the existing
+codebase:
+
+\begin{itemize}
+  \item \texttt{FiniteElement}
+    (\texttt{src/elements/FiniteElementConcept.hh}) uses a concept.
+  \item \texttt{SteppableSolver}
+    (\texttt{src/analysis/SteppableSolverConcept.hh}) uses a concept.
+  \item \texttt{IncrementalControlPolicy}
+    (\texttt{src/analysis/IncrementalControl.hh}) uses a concept.
+  \item \texttt{DamageCriterion}
+    (\texttt{src/analysis/DamageCriterion.hh}) uses an ABC.
+\end{itemize}
+
+Concepts are preferred for interfaces where compile-time dispatch
+suffices.  Since the inner staggered loop processes sub-models of
+homogeneous type (all are \texttt{NonlinearSubModelEvolver}), a
+concept avoids the overhead of virtual dispatch.  For the
+heterogeneous case (mixing different solver types in one container),
+a type-erased handle is provided.
+
+% -------------------------------------------------------------------------
+\subsection{The \texttt{LocalModelAdapter} Concept}
+\label{sec:refactor-concept-def}
+
+The concept is defined in
+\texttt{src/reconstruction/LocalModelAdapter.hh}:
+
+\begin{lstlisting}[caption={C++20 concept for local sub-model solvers.},
+                   label={lst:local-model-concept}]
+template <typename T>
+concept LocalModelAdapter = requires(
+    T& t,
+    const SectionKinematics& kin,
+    double width, double height, double h_pert, double time)
+{
+    { t.update_kinematics(kin, kin) };
+    { t.solve_step(time) };
+    { t.section_tangent(width, height, h_pert) }
+        -> std::convertible_to<Eigen::Matrix<double, 6, 6>>;
+    { t.section_forces(width, height) }
+        -> std::convertible_to<Eigen::Vector<double, 6>>;
+    { t.commit_state() };
+    { t.revert_state() };
+    { t.parent_element_id() }
+        -> std::convertible_to<std::size_t>;
+};
+\end{lstlisting}
+
+Each required expression maps to a well-defined responsibility:
+\begin{description}
+  \item[\texttt{update\_kinematics}] Localisation: imposes macro-scale
+    beam kinematics as Dirichlet BCs on the sub-model.
+  \item[\texttt{solve\_step}] Solves the nonlinear boundary-value
+    problem from the current converged state.
+  \item[\texttt{section\_tangent}] Computational homogenisation:
+    returns the $6\times6$ tangent $\mathbf{D}_{\mathrm{hom}} =
+    \partial\mathbf{s}/\partial\mathbf{e}$ via perturbation.
+  \item[\texttt{section\_forces}] Returns the upscaled section forces
+    $\mathbf{s} = [N, M_y, M_z, V_y, V_z, M_t]^\top$.
+  \item[\texttt{commit\_state} / \texttt{revert\_state}]
+    Transaction semantics for irreversible constitutive state
+    (damage, plasticity).
+  \item[\texttt{parent\_element\_id}] Identifies the owning beam
+    element in the global model.
+\end{description}
+
+
+% -------------------------------------------------------------------------
+\subsection{Type-Erased Handle: \texttt{LocalModelHandle}}
+\label{sec:refactor-type-erasure}
+
+For heterogeneous containers (\texttt{std::vector<LocalModelHandle>}),
+a type-erased wrapper follows the Concept/Model/Handle pattern
+established by \texttt{FEM\_Element}
+(\texttt{src/elements/FEM\_Element.hh}):
+
+\begin{lstlisting}[caption={Type-erased handle (abridged).},
+                   label={lst:local-model-handle}]
+class LocalModelHandle {
+    struct Concept {  // pure virtual interface
+        virtual ~Concept() = default;
+        virtual void update_kinematics(...) = 0;
+        virtual void solve_step(double) = 0;
+        virtual Eigen::Matrix<double,6,6>
+            section_tangent(double, double, double) = 0;
+        virtual Eigen::Vector<double,6>
+            section_forces(double, double) = 0;
+        virtual void commit_state() = 0;
+        virtual void revert_state() = 0;
+        virtual std::size_t parent_element_id() const = 0;
+    };
+
+    template <LocalModelAdapter T>
+    struct Model final : Concept {
+        T adapter_;
+        // ... delegates all calls to adapter_
+    };
+
+    std::unique_ptr<Concept> pimpl_;
+public:
+    template <LocalModelAdapter T>
+    LocalModelHandle(T adapter);  // implicit conversion
+
+    // Move-only (sub-models own PETSc resources)
+    LocalModelHandle(LocalModelHandle&&) noexcept = default;
+    LocalModelHandle(const LocalModelHandle&) = delete;
+
+    // Forwarding interface mirrors the concept
+    void update_kinematics(const SectionKinematics&,
+                           const SectionKinematics&);
+    void solve_step(double);
+    auto section_tangent(double, double, double = 1e-6)
+        -> Eigen::Matrix<double,6,6>;
+    // ...
+};
+\end{lstlisting}
+
+The handle is \emph{move-only} because sub-model solvers own PETSc
+objects (DM, SNES, Vec) that cannot be trivially copied.  The
+implicit converting constructor allows any
+\texttt{LocalModelAdapter}-satisfying type to be stored in a
+\texttt{std::vector<LocalModelHandle>} without explicit wrapping.
+
+% -------------------------------------------------------------------------
+\subsection{Adapting \texttt{NonlinearSubModelEvolver}}
+\label{sec:refactor-evolver-adaptation}
+
+The evolver was modified to satisfy the concept:
+
+\begin{enumerate}
+  \item \textbf{Public aliases:} New methods \texttt{section\_tangent()}
+    and \texttt{section\_forces()} delegate to the existing private
+    methods \texttt{compute\_homogenized\_tangent()} and
+    \texttt{compute\_homogenized\_forces()}, preserving backward
+    compatibility:
+\begin{lstlisting}[caption={Public aliases on the evolver.},
+                   label={lst:evolver-aliases}]
+// LocalModelAdapter concept conformance
+[[nodiscard]] Eigen::Matrix<double, 6, 6>
+section_tangent(double width, double height,
+                double h_pert = 1.0e-6) {
+    return compute_homogenized_tangent(width, height, h_pert);
+}
+
+[[nodiscard]] Eigen::Vector<double, 6>
+section_forces(double width, double height) {
+    return compute_homogenized_forces(width, height);
+}
+\end{lstlisting}
+
+  \item \textbf{Public state management:} Methods
+    \texttt{commit\_state()} and \texttt{revert\_state()} were moved
+    from the private section to public.  \texttt{commit\_state()}
+    traverses the DM mesh and calls \texttt{commit\_material\_state()}
+    on each element.  \texttt{revert\_state()} calls
+    \texttt{revert\_material\_state()} to discard the trial state
+    after a perturbation solve.
+
+  \item \textbf{Static assertion:} A compile-time check at the end
+    of the header ensures concept satisfaction is maintained as the
+    class evolves:
+\begin{lstlisting}[caption={Compile-time concept check.}]
+static_assert(
+    LocalModelAdapter<NonlinearSubModelEvolver>,
+    "NonlinearSubModelEvolver must satisfy "
+    "the LocalModelAdapter concept");
+\end{lstlisting}
+\end{enumerate}
+
+
+% =========================================================================
+\section{Phase 2: \texttt{MaterialFactory} Injection}
+\label{sec:refactor-material-factory}
+
+% -------------------------------------------------------------------------
+\subsection{Problem: Hardcoded Constitutive Models}
+
+The \texttt{first\_solve()} method of
+\texttt{NonlinearSubModelEvolver} directly instantiated
+\texttt{KoBatheConcrete3D} and \texttt{MenegottoPintoSteel} material
+models:
+
+\begin{lstlisting}[caption={Hardcoded material construction (before).}]
+// In first_solve():
+InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
+Material<ThreeDimensionalMaterial> mat{mat_inst, InelasticUpdate{}};
+// ...
+MenegottoPintoSteel steel_impl{200000.0, 420.0, 0.01};
+InelasticMaterial<MenegottoPintoSteel> steel_inst{std::move(steel_impl)};
+Material<UniaxialMaterial> steel_mat{std::move(steel_inst), InelasticUpdate{}};
+\end{lstlisting}
+
+This violated the Open--Closed Principle (OCP): using a different
+concrete model (e.g.\ \texttt{Mazars3D}) or rebar steel (e.g.\
+\texttt{BilinearSteel}) required modifying the evolver source.
+
+% -------------------------------------------------------------------------
+\subsection{Solution: Abstract Factory Pattern}
+\label{sec:refactor-factory-design}
+
+Two abstract factory interfaces are defined in
+\texttt{src/reconstruction/MaterialFactory.hh}, following the
+\texttt{DamageCriterion} ABC pattern from
+\texttt{src/analysis/DamageCriterion.hh}:
+
+\begin{lstlisting}[caption={Material factory ABCs.},
+                   label={lst:material-factories}]
+struct ConcreteMaterialFactory {
+    virtual ~ConcreteMaterialFactory() = default;
+    virtual Material<ThreeDimensionalMaterial> create() const = 0;
+    virtual std::unique_ptr<ConcreteMaterialFactory> clone() const = 0;
+};
+
+struct RebarMaterialFactory {
+    virtual ~RebarMaterialFactory() = default;
+    virtual Material<UniaxialMaterial> create() const = 0;
+    virtual std::unique_ptr<RebarMaterialFactory> clone() const = 0;
+};
+\end{lstlisting}
+
+Default implementations encapsulate the previously hardcoded
+construction:
+
+\begin{lstlisting}[caption={Default factory implementations.},
+                   label={lst:default-factories}]
+class KoBatheConcreteMaterialFactory final
+    : public ConcreteMaterialFactory
+{
+    double fc_;
+public:
+    explicit KoBatheConcreteMaterialFactory(double fc_MPa)
+        : fc_{fc_MPa} {}
+
+    Material<ThreeDimensionalMaterial> create() const override {
+        InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
+        return Material<ThreeDimensionalMaterial>{
+            mat_inst, InelasticUpdate{}};
+    }
+
+    std::unique_ptr<ConcreteMaterialFactory>
+    clone() const override {
+        return std::make_unique<
+            KoBatheConcreteMaterialFactory>(*this);
+    }
+};
+\end{lstlisting}
+
+% -------------------------------------------------------------------------
+\subsection{Injection into the Evolver}
+\label{sec:refactor-factory-injection}
+
+The evolver now holds two factory members:
+
+\begin{lstlisting}[caption={Factory members in the evolver.}]
+std::unique_ptr<ConcreteMaterialFactory> concrete_factory_;
+std::unique_ptr<RebarMaterialFactory>    rebar_factory_;
+\end{lstlisting}
+
+Two constructors are provided:
+
+\begin{enumerate}
+  \item \textbf{Original constructor} (backward-compatible): initialises
+    default factories using \texttt{KoBatheConcreteMaterialFactory}
+    and \texttt{MenegottoPintoRebarFactory} with the same parameters
+    as the previously hardcoded construction.
+  \item \textbf{Factory-injecting constructor}: accepts custom
+    \texttt{std::unique\_ptr<ConcreteMaterialFactory>} and
+    \texttt{std::unique\_ptr<RebarMaterialFactory>}, enabling
+    user-defined materials without modifying the evolver.
+\end{enumerate}
+
+In \texttt{first\_solve()}, the hardcoded material lines are replaced
+by factory calls:
+
+\begin{lstlisting}[caption={Factory-delegated material creation.}]
+// Before: InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
+Material<Policy> mat = concrete_factory_->create();
+
+// Before: MenegottoPintoSteel steel_impl{...};
+Material<UniaxialMaterial> steel_mat = rebar_factory_->create();
+\end{lstlisting}
+
+\paragraph{OCP compliance.}
+Adding a new constitutive model (e.g.\ \texttt{Mazars3D}) now
+requires only writing a new factory subclass; the evolver source is
+\emph{closed for modification}.
+
+
+% =========================================================================
+\section{Phase 3: \texttt{MultiscaleModel} Aggregation}
+\label{sec:refactor-multiscale-model}
+
+% -------------------------------------------------------------------------
+\subsection{Problem: Scattered Model--Sub-Model Coupling}
+
+In the original \texttt{main\_lshaped\_multiscale.cpp}, the
+relationship between the global beam model and the local sub-model
+solvers was managed through three separate variables:
+
+\begin{lstlisting}[caption={Scattered state in original main.}]
+std::vector<NonlinearSubModelEvolver> nl_evolvers;  // sub-models
+std::vector<Eigen::Matrix<double,6,6>> D_prev;      // tangent history
+// kinematics extraction: a lambda capturing model and material params
+auto extract_beam_kinematics = [&](std::size_t e_idx) { ... };
+\end{lstlisting}
+
+The kinematics extraction lambda captured the global model, element
+type, and material constants (\texttt{EC\_COL}, \texttt{GC\_COL},
+\texttt{NU\_RC}) by reference.  The injection of homogenised
+tangent and forces was performed inline via
+\texttt{beam->set\_homogenized\_tangent(D\_hom)}.  This scattered
+organisation made it impossible to reuse the coupling logic in
+another context (different building, different element type).
+
+% -------------------------------------------------------------------------
+\subsection{Design: Template on Local Model Type}
+\label{sec:refactor-model-design}
+
+The \texttt{MultiscaleModel} class aggregates the global--local
+relationship into a single reusable object, defined in
+\texttt{src/analysis/MultiscaleModel.hh}:
+
+\begin{lstlisting}[caption={\texttt{MultiscaleModel} class template (abridged).},
+                   label={lst:multiscale-model}]
+template <LocalModelAdapter LocalModel>
+class MultiscaleModel {
+
+    std::vector<LocalModel> local_models_;
+    std::unordered_map<std::size_t, std::size_t> transition_map_;
+
+    std::function<ElementKinematics(std::size_t)>
+        kinematics_extractor_;
+
+    using InjectorFn = std::function<void(
+        std::size_t,
+        const Eigen::Matrix<double,6,6>&,
+        const Eigen::Vector<double,6>&)>;
+    InjectorFn response_injector_;
+
+public:
+    void register_local_model(std::size_t parent_elem_id,
+                              LocalModel model);
+
+    LocalModel& local_model_for(std::size_t elem_id);
+
+    ElementKinematics extract_kinematics(std::size_t elem_id) const;
+
+    void inject_response(std::size_t elem_id,
+                         const Eigen::Matrix<double,6,6>& D_hom,
+                         const Eigen::Vector<double,6>& f_hom);
+
+    std::size_t num_local_models() const;
+    std::vector<std::size_t> parent_element_ids() const;
+};
+\end{lstlisting}
+
+Key design decisions:
+
+\begin{enumerate}
+  \item \textbf{Template on local model type.}  The class is
+    parametrised on a \texttt{LocalModelAdapter}-constrained type
+    rather than using \texttt{LocalModelHandle} directly.  This
+    avoids virtual dispatch overhead in the inner staggered loop,
+    while the concept constraint ensures type safety.  If
+    heterogeneous sub-models are needed, instantiate with
+    \texttt{LocalModelHandle}.
+
+  \item \textbf{Callback-based scale bridging.}  The kinematics
+    extraction and response injection functions are stored as
+    \texttt{std::function} callbacks, set via
+    \texttt{set\_kinematics\_extractor()} and
+    \texttt{set\_response\_injector()}.  This decouples the model
+    aggregation from the concrete element type
+    (\texttt{TimoshenkoBeam3D}, \texttt{EulerBernoulliBeam}, etc.)
+    and the specific model template parameters.
+
+  \item \textbf{Transition map.}  An \texttt{unordered\_map} maps
+    global beam element IDs to sub-model indices, enabling $O(1)$
+    lookup.  This replaces the implicit index-based correspondence
+    in the original code.
+\end{enumerate}
+
+
+% =========================================================================
+\section{Phase 4: Coupling Strategy Interfaces}
+\label{sec:refactor-coupling-strategy}
+
+% -------------------------------------------------------------------------
+\subsection{Problem: Hardcoded Coupling Parameters}
+
+The staggered coupling loop in
+\texttt{main\_lshaped\_multiscale.cpp} used four hardcoded
+compile-time constants:
+
+\begin{lstlisting}[caption={Hardcoded coupling parameters.}]
+static constexpr int    MAX_STAGGERED_ITER  = 4;
+static constexpr double STAGGERED_TOL       = 0.05;
+static constexpr double STAGGERED_RELAX     = 0.7;
+static constexpr int    COUPLING_START_STEP = 10;
+\end{lstlisting}
+
+The convergence criterion (relative Frobenius norm), relaxation
+policy (constant $\omega$), and coupling mode (two-way staggered)
+were all embedded in the loop body.  Switching to one-way coupling
+or Aitken adaptive relaxation required editing the main driver.
+
+% -------------------------------------------------------------------------
+\subsection{Strategy Interfaces}
+\label{sec:refactor-strategy-interfaces}
+
+Three abstract base classes are defined in
+\texttt{src/analysis/CouplingStrategy.hh}, implementing the
+\emph{Strategy pattern} \cite{GammaDesignPatterns}:
+
+\paragraph{ScaleBridgePolicy.}
+Controls whether the coupling is one-way (sub-models are
+\emph{passive observers}) or two-way (sub-models feed back
+stiffness and forces to the global model):
+
+\begin{lstlisting}[caption={Scale bridge policy ABC and concrete implementations.},
+                   label={lst:scale-bridge}]
+struct ScaleBridgePolicy {
+    virtual ~ScaleBridgePolicy() = default;
+    virtual bool requires_feedback() const = 0;
+    virtual int  max_staggered_iterations() const = 0;
+};
+
+class OneWayCoupling final : public ScaleBridgePolicy {
+public:
+    bool requires_feedback() const override { return false; }
+    int  max_staggered_iterations() const override { return 1; }
+};
+
+class TwoWayStaggered final : public ScaleBridgePolicy {
+    int max_iter_;
+public:
+    explicit TwoWayStaggered(int max_iter = 4)
+        : max_iter_{max_iter} {}
+    bool requires_feedback() const override { return true; }
+    int  max_staggered_iterations() const override
+        { return max_iter_; }
+};
+\end{lstlisting}
+
+\paragraph{CouplingConvergence.}
+Defines the convergence criterion for the staggered iteration.
+The current implementation uses the relative Frobenius norm:
+
+\begin{lstlisting}[caption={Frobenius convergence criterion.},
+                   label={lst:frobenius-conv}]
+struct CouplingConvergence {
+    virtual ~CouplingConvergence() = default;
+    virtual bool converged(
+        std::span<const Eigen::Matrix<double,6,6>> D_prev,
+        std::span<const Eigen::Matrix<double,6,6>> D_curr) const = 0;
+};
+
+class FrobeniusConvergence final : public CouplingConvergence {
+    double tol_;
+public:
+    explicit FrobeniusConvergence(double tol = 0.05)
+        : tol_{tol} {}
+    bool converged(
+        std::span<const Eigen::Matrix<double,6,6>> D_prev,
+        std::span<const Eigen::Matrix<double,6,6>> D_curr
+    ) const override {
+        for (std::size_t i = 0; i < D_prev.size(); ++i) {
+            double d_norm = D_curr[i].norm();
+            double delta  = (D_curr[i] - D_prev[i]).norm();
+            if (d_norm > 1e-14 && delta / d_norm > tol_)
+                return false;
+        }
+        return true;
+    }
+};
+\end{lstlisting}
+
+The convergence criterion checks whether the relative change in \emph{every}
+sub-model's tangent matrix is below the tolerance~$\tau$:
+\begin{equation}
+  \frac{\bigl\lVert \mathbf{D}_{\mathrm{hom},i}^{(k)}
+        - \mathbf{D}_{\mathrm{hom},i}^{(k-1)} \bigr\rVert_F}
+       {\bigl\lVert \mathbf{D}_{\mathrm{hom},i}^{(k)} \bigr\rVert_F}
+  < \tau, \qquad \forall i \in \{1,\ldots,N_s\}
+  \label{eq:frobenius-conv}
+\end{equation}
+where $N_s$ is the number of sub-models and $k$ is the staggered
+iteration counter.
+
+\paragraph{RelaxationPolicy.}
+Controls how the updated tangent is blended with the previous
+iteration's value:
+
+\begin{lstlisting}[caption={Relaxation policy implementations.},
+                   label={lst:relaxation}]
+struct RelaxationPolicy {
+    virtual ~RelaxationPolicy() = default;
+    virtual void relax(
+        Eigen::Matrix<double,6,6>& D_new,
+        const Eigen::Matrix<double,6,6>& D_prev,
+        int iteration) = 0;
+};
+
+class ConstantRelaxation final : public RelaxationPolicy {
+    double omega_;
+public:
+    explicit ConstantRelaxation(double omega = 0.7)
+        : omega_{omega} {}
+    void relax(
+        Eigen::Matrix<double,6,6>& D_new,
+        const Eigen::Matrix<double,6,6>& D_prev,
+        [[maybe_unused]] int iteration) override
+    {
+        D_new = omega_ * D_new + (1.0 - omega_) * D_prev;
+    }
+};
+\end{lstlisting}
+
+The constant relaxation applies:
+\begin{equation}
+  \mathbf{D}_{\mathrm{hom}}^{(k)}
+    \leftarrow
+    \omega \, \mathbf{D}_{\mathrm{hom}}^{(k)}
+    + (1-\omega) \, \mathbf{D}_{\mathrm{hom}}^{(k-1)}
+  \label{eq:relaxation}
+\end{equation}
+with $\omega = 0.7$ as default.  A \texttt{NoRelaxation} policy is
+also provided for cases where relaxation is unnecessary or
+destabilising.
+
+
+% =========================================================================
+\section{Phase 4.3: \texttt{MultiscaleAnalysis} Orchestrator}
+\label{sec:refactor-orchestrator}
+
+% -------------------------------------------------------------------------
+\subsection{Design}
+
+The \texttt{MultiscaleAnalysis} class, defined in
+\texttt{src/analysis/MultiscaleAnalysis.hh}, absorbs the
+staggered coupling loop into a reusable, strategy-controlled
+template:
+
+\begin{lstlisting}[caption={\texttt{MultiscaleAnalysis} class (abridged).},
+                   label={lst:multiscale-analysis}]
+template <LocalModelAdapter LocalModel>
+class MultiscaleAnalysis {
+    MultiscaleModel<LocalModel>             model_;
+    std::unique_ptr<ScaleBridgePolicy>      bridge_;
+    std::unique_ptr<CouplingConvergence>    convergence_;
+    std::unique_ptr<RelaxationPolicy>       relaxation_;
+
+    int    coupling_start_step_{0};
+    double section_width_{0.30};
+    double section_height_{0.30};
+    double tangent_perturbation_{1.0e-6};
+
+    std::vector<Eigen::Matrix<double,6,6>> D_prev_;
+
+public:
+    MultiscaleAnalysis(
+        MultiscaleModel<LocalModel> model,
+        std::unique_ptr<ScaleBridgePolicy> bridge,
+        std::unique_ptr<CouplingConvergence> convergence,
+        std::unique_ptr<RelaxationPolicy> relaxation);
+
+    void set_coupling_start_step(int step);
+    void set_section_dimensions(double w, double h);
+
+    // One global time step + staggered loop
+    bool step(double time, int global_step);
+};
+\end{lstlisting}
+
+% -------------------------------------------------------------------------
+\subsection{The \texttt{step()} Method}
+\label{sec:refactor-step-method}
+
+The \texttt{step()} method implements the full staggered coupling
+algorithm for one global time step.  The pseudocode is:
+
+\begin{enumerate}
+  \item Determine whether coupling is active:
+    \texttt{bridge\_->requires\_feedback()} \textbf{and}
+    \texttt{global\_step $\geq$ coupling\_start\_step\_}.
+  \item For each staggered iteration $k = 0, 1, \ldots$:
+    \begin{enumerate}[label=(\alph*)]
+      \item \textbf{Downscale.}  For each local model:
+        extract kinematics from the global model via
+        \texttt{model\_.extract\_kinematics()}, update the sub-model
+        BCs, and solve the nonlinear BVP.
+      \item \textbf{Upscale.}  For each local model:
+        compute the homogenised tangent
+        $\mathbf{D}_{\mathrm{hom}}^{(k)}$ via perturbation,
+        apply relaxation $(\ref{eq:relaxation})$, and check
+        convergence $(\ref{eq:frobenius-conv})$.
+      \item \textbf{Inject.}  Write
+        $\mathbf{D}_{\mathrm{hom}}^{(k)}$ and
+        $\mathbf{f}_{\mathrm{hom}}^{(k)}$ into the global beam
+        elements via
+        \texttt{model\_.inject\_response()}.
+      \item If $k > 0$ and converged, \textbf{break}.
+    \end{enumerate}
+  \item Commit the converged constitutive state of all sub-models.
+\end{enumerate}
+
+\paragraph{Intended usage in the main driver:}
+\begin{lstlisting}[caption={Proposed refactored main driver.},
+                   label={lst:proposed-main}]
+auto bridge = std::make_unique<TwoWayStaggered>(4);
+auto conv   = std::make_unique<FrobeniusConvergence>(0.05);
+auto relax  = std::make_unique<ConstantRelaxation>(0.7);
+
+MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
+    std::move(ms_model),
+    std::move(bridge), std::move(conv), std::move(relax));
+analysis.set_coupling_start_step(10);
+analysis.set_section_dimensions(COL_B, COL_H);
+
+for (int step = 0; step < n_steps; ++step)
+    analysis.step(time[step], step);
+\end{lstlisting}
+
+This replaces the ${\sim}80$ lines of staggered loop logic in the
+original \texttt{main\_lshaped\_multiscale.cpp} with a single
+\texttt{analysis.step()} call, while retaining full configurability
+via the injected strategy objects.
+
+
+% =========================================================================
+\section{Phase 5: \texttt{HomogenisationStrategy}}
+\label{sec:refactor-homogenisation}
+
+% -------------------------------------------------------------------------
+\subsection{Problem: Two Upscaling Methods}
+
+The sub-model solver implements two distinct methods for extracting
+section forces from the 3-D displacement field:
+
+\begin{enumerate}
+  \item \textbf{Boundary reaction} (used by
+    \texttt{section\_forces\_from\_reactions()}):
+    assembles the internal force vector $\mathbf{f}_{\mathrm{int}}$,
+    reads the nodal forces at Face~B nodes, and computes the section
+    resultants $\mathbf{s} = [N, M_y, M_z, V_y, V_z, M_t]^\top$
+    from the reaction force and moment sums.  This method is
+    consistent with the perturbation tangent computation and gives
+    equilibrium-consistent forces.
+
+  \item \textbf{Volume averaging} (used by
+    \texttt{compute\_homogenized\_forces()} via the
+    \texttt{homogenize()} free function in
+    \texttt{HomogenizedSection.hh}):
+    integrates the Cauchy stress field over the cross-section using
+    the uniform-stress approximation.  This is the classical
+    Hill--Mandel approach.
+\end{enumerate}
+
+The choice between these methods was previously hardcoded: the
+tangent used boundary reactions while the forces used volume
+averaging.
+
+% -------------------------------------------------------------------------
+\subsection{Strategy Interface}
+
+The \texttt{HomogenisationStrategy} ABC in
+\texttt{src/reconstruction/HomogenisationStrategy.hh} provides a
+clean selection mechanism:
+
+\begin{lstlisting}[caption={Homogenisation strategy interface.},
+                   label={lst:homogenisation-strategy}]
+struct HomogenisationStrategy {
+    virtual ~HomogenisationStrategy() = default;
+
+    virtual Eigen::Vector<double, 6> select_forces(
+        const Eigen::Vector<double, 6>& boundary_reaction,
+        const Eigen::Vector<double, 6>& volume_average
+    ) const = 0;
+
+    virtual std::string name() const = 0;
+};
+\end{lstlisting}
+
+The interface is \emph{deliberately independent} of the solver class
+to avoid circular header dependencies.  The sub-model solver
+computes both force vectors and passes them to the strategy for
+selection.
+
+\paragraph{Concrete implementations:}
+
+\begin{lstlisting}[caption={Concrete homogenisation strategies.},
+                   label={lst:homogenisation-impls}]
+struct BoundaryReactionHomogenisation final
+    : HomogenisationStrategy
+{
+    Eigen::Vector<double, 6> select_forces(
+        const Eigen::Vector<double, 6>& boundary_reaction,
+        const Eigen::Vector<double, 6>& /*volume_average*/
+    ) const override { return boundary_reaction; }
+
+    std::string name() const override
+        { return "boundary-reaction"; }
+};
+
+struct VolumeAverageHomogenisation final
+    : HomogenisationStrategy
+{
+    Eigen::Vector<double, 6> select_forces(
+        const Eigen::Vector<double, 6>& /*boundary_reaction*/,
+        const Eigen::Vector<double, 6>& volume_average
+    ) const override { return volume_average; }
+
+    std::string name() const override
+        { return "volume-average"; }
+};
+\end{lstlisting}
+
+The \texttt{BoundaryReactionHomogenisation} strategy is recommended
+as the default because it produces forces consistent with the
+perturbation-based tangent computation (both use assembled
+$\mathbf{f}_{\mathrm{int}}$), whereas the volume-average approach
+may give stale results when the stored material state is behind the
+displacement field.
+
+
+% =========================================================================
+\section{Discussion}
+\label{sec:refactor-discussion}
+
+% -------------------------------------------------------------------------
+\subsection{SOLID Compliance}
+\label{sec:refactor-solid}
+
+Table~\ref{tab:solid-compliance} summarises how each refactoring
+phase addresses specific SOLID principles.
+
+\begin{table}[htbp]
+  \centering
+  \caption{SOLID compliance of each refactoring phase.}
+  \label{tab:solid-compliance}
+  \small
+  \begin{tabular}{@{}llp{7cm}@{}}
+    \toprule
+    \textbf{Phase} & \textbf{Principle} & \textbf{Mechanism} \\
+    \midrule
+    1 -- LocalModelAdapter &
+      OCP, DIP &
+      New sub-model types can be added without modifying the
+      orchestrator; high-level modules depend on the concept
+      abstraction. \\[4pt]
+    2 -- MaterialFactory &
+      OCP, SRP &
+      New materials via factory subclasses; material creation
+      responsibility extracted from the solver. \\[4pt]
+    3 -- MultiscaleModel &
+      SRP &
+      Model--sub-model relationship encapsulated; main driver cleaned. \\[4pt]
+    4 -- CouplingStrategy &
+      OCP, ISP, SRP &
+      Convergence, relaxation, and coupling mode are independently
+      switchable; each interface has a single, narrow contract. \\[4pt]
+    5 -- HomogenisationStrategy &
+      OCP &
+      Upscaling method switchable without modifying the solver. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% -------------------------------------------------------------------------
+\subsection{Concept vs.\ ABC Trade-Offs}
+\label{sec:refactor-concept-vs-abc}
+
+The choice between C++20 concepts and ABCs was made on a
+case-by-case basis:
+
+\begin{itemize}
+  \item \textbf{Concept} (\texttt{LocalModelAdapter}): The local
+    model type is known at compile time for a given analysis.  A
+    concept avoids virtual dispatch in the inner loop (perturbation
+    tangent: 6 SNES solves per sub-model per staggered iteration)
+    and enables the compiler to inline critical paths.  The
+    type-erased handle \texttt{LocalModelHandle} is available as an
+    opt-in for the heterogeneous case.
+
+  \item \textbf{ABC} (\texttt{ConcreteMaterialFactory},
+    \texttt{ScaleBridgePolicy}, \texttt{CouplingConvergence},
+    \texttt{RelaxationPolicy}, \texttt{HomogenisationStrategy}):
+    These are called once per staggered iteration (not in a tight
+    loop), so the virtual dispatch cost is negligible.  ABCs provide
+    runtime polymorphism, enabling strategy selection at
+    configuration time rather than compilation time.
+\end{itemize}
+
+% -------------------------------------------------------------------------
+\subsection{Circular Dependency Avoidance}
+\label{sec:refactor-circular-deps}
+
+The \texttt{HomogenisationStrategy} interface was redesigned to
+avoid a circular dependency between
+\texttt{HomogenisationStrategy.hh} and
+\texttt{NonlinearSubModelEvolver.hh}.  The original design took a
+\texttt{NonlinearSubModelEvolver\&} parameter.  The final design
+takes pre-computed force vectors (boundary reaction and volume
+average), inverting the dependency: the solver computes both and
+passes them to the strategy.  This also makes the strategies
+testable in isolation.
+
+% -------------------------------------------------------------------------
+\subsection{Type-Erasure Pattern Reuse}
+\label{sec:refactor-type-erasure-pattern}
+
+The \texttt{LocalModelHandle} follows the same Concept/Model/Handle
+triple used by \texttt{FEM\_Element}
+(\texttt{src/elements/FEM\_Element.hh}).  This pattern is now a
+well-established idiom in the codebase:
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  \textbf{Handle} & \textbf{Concept} & \textbf{Purpose} \\
+  \midrule
+  \texttt{FEM\_Element} & \texttt{FiniteElement} & Heterogeneous element containers \\
+  \texttt{LocalModelHandle} & \texttt{LocalModelAdapter} & Heterogeneous sub-model containers \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Both are move-only (owning PETSc/mesh resources) and use
+\texttt{std::unique\_ptr<Concept>} for type erasure.
+
+% -------------------------------------------------------------------------
+\subsection{Build Verification}
+\label{sec:refactor-build-verification}
+
+After all phases:
+
+\begin{itemize}
+  \item \textbf{Compilation:} 88 Ninja targets (down from 115),
+    all compile under GCC~15.2 with \texttt{-Werror -std=c++23}.
+  \item \textbf{Tests:} 63/63 CTest cases pass (51~unit, 6~integration,
+    6~slow).
+  \item \textbf{New headers:} 6 files added, listed in
+    Table~\ref{tab:new-files}.
+  \item \textbf{Modified headers:} 3 files modified, listed in
+    Table~\ref{tab:modified-files}.
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering
+  \caption{New files introduced by the refactoring.}
+  \label{tab:new-files}
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{File} & \textbf{Purpose} \\
+    \midrule
+    \texttt{src/reconstruction/LocalModelAdapter.hh} &
+      Concept + type-erased handle \\
+    \texttt{src/reconstruction/MaterialFactory.hh} &
+      Material factory ABCs + defaults \\
+    \texttt{src/reconstruction/HomogenisationStrategy.hh} &
+      Upscaling strategy ABC + implementations \\
+    \texttt{src/analysis/CouplingStrategy.hh} &
+      Coupling strategy ABCs + implementations \\
+    \texttt{src/analysis/MultiscaleModel.hh} &
+      Model aggregation template \\
+    \texttt{src/analysis/MultiscaleAnalysis.hh} &
+      Staggered coupling orchestrator \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Modified files.}
+  \label{tab:modified-files}
+  \small
+  \begin{tabular}{@{}lp{8cm}@{}}
+    \toprule
+    \textbf{File} & \textbf{Changes} \\
+    \midrule
+    \texttt{CMakeLists.txt} &
+      Removed 20 duplicate seismic targets ($115 \to 88$). \\[3pt]
+    \texttt{NonlinearSubModelEvolver.hh} &
+      Public \texttt{section\_tangent()}/\texttt{section\_forces()} aliases;
+      public \texttt{commit\_state()}/\texttt{revert\_state()};
+      factory injection; \texttt{static\_assert} for concept. \\[3pt]
+    \texttt{header\_files.hh} &
+      Added includes for all 6 new headers. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+% -------------------------------------------------------------------------
+\subsection{Remaining Work}
+\label{sec:refactor-remaining}
+
+The following phases from the original roadmap
+(Chapter~\ref{ch:multiscale-architecture}) are deferred to future
+chapters:
+
+\begin{description}
+  \item[Phase 0.2 -- PCH:] Precompiled headers for third-party
+    includes (Eigen, PETSc, VTK).
+  \item[Phase 0.3 -- Explicit instantiation:] \texttt{extern template}
+    for the most-used template combinations.
+  \item[Phase 4.4 -- Main driver refactoring:]
+    Replace the staggered loop in
+    \texttt{main\_lshaped\_multiscale.cpp} with
+    \texttt{MultiscaleAnalysis::step()}.
+  \item[Phase 6 -- Parallelism:] OpenMP parallel sub-model solves
+    and perturbation tangent.
+  \item[Phase 7 -- SRP cleanup:] Extract VTK export and crack
+    tracking from the evolver into separate classes.
+  \item[Phase 8 -- Header modularisation:] Split
+    \texttt{header\_files.hh} into tiered includes.
+\end{description}
