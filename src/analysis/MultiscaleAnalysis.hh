@@ -69,9 +69,14 @@ class MultiscaleAnalysis {
     double section_width_{0.30};
     double section_height_{0.30};
     double tangent_perturbation_{1.0e-6};
+    bool   auto_commit_{false};     ///< Call commit_state() after step()?
 
     /// Tangent history for convergence checking across staggered iterations.
     std::vector<Eigen::Matrix<double,6,6>> D_prev_;
+
+    /// Diagnostics from the last step() call.
+    int  last_staggered_iters_{0};
+    bool last_converged_{true};
 
 
 public:
@@ -100,11 +105,15 @@ public:
         section_height_ = h;
     }
     void set_tangent_perturbation(double h) { tangent_perturbation_ = h; }
+    void set_auto_commit(bool v) { auto_commit_ = v; }
 
     // ── Access ───────────────────────────────────────────────────
 
     [[nodiscard]] MultiscaleModel<LocalModel>&       model()       { return model_; }
     [[nodiscard]] const MultiscaleModel<LocalModel>& model() const { return model_; }
+
+    [[nodiscard]] int  last_staggered_iterations() const { return last_staggered_iters_; }
+    [[nodiscard]] bool last_converged()            const { return last_converged_; }
 
     // ── Main step: staggered coupling for one global time step ───
     //
@@ -129,6 +138,7 @@ public:
             : 1;
 
         bool converged = true;
+        last_staggered_iters_ = 0;
 
         for (int s_iter = 0; s_iter < max_iter; ++s_iter) {
 
@@ -175,6 +185,8 @@ public:
                     lm.parent_element_id(), D_curr[i], f_hom);
             }
 
+            last_staggered_iters_ = s_iter + 1;
+
             if (s_iter == 0)
                 continue;   // always do at least 2 iterations
 
@@ -185,9 +197,13 @@ public:
             }
         }
 
-        // ── Commit converged state ───────────────────────────────────
-        for (auto& lm : model_.local_models())
-            lm.commit_state();
+        last_converged_ = converged;
+
+        // ── Optionally commit converged state ────────────────────────
+        if (auto_commit_) {
+            for (auto& lm : model_.local_models())
+                lm.commit_state();
+        }
 
         return converged;
     }
