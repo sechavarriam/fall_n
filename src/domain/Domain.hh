@@ -68,7 +68,7 @@ class Domain
     bool node_index_built_ = false;
 
     std::map<std::string, PetscInt, std::less<>> physical_group_ids_;
-    std::optional<std::size_t>        num_integration_points_;
+    mutable std::optional<std::size_t>        num_integration_points_;
 
     enum class PlexPointRole : PetscInt {
         vertex = 0,
@@ -101,16 +101,14 @@ public:
         return std::nullopt;
     }
     
-    std::size_t num_integration_points(){
+    std::size_t num_integration_points() const {
         if (!num_integration_points_.has_value()){
             std::size_t n = 0;
-            for (auto &e : elements_){
+            for (const auto &e : elements_){
                 n += e.num_integration_points();
             }
-            //set optional value
             num_integration_points_ = n;
         }
-        //std::cout << "Number of integration points: " << num_integration_points_.value() << std::endl;
         return num_integration_points_.value();
     };
 

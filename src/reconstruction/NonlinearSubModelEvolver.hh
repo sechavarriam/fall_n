@@ -69,6 +69,7 @@ namespace fall_n {
 
 struct CrackRecord {
     Eigen::Vector3d position;
+    Eigen::Vector3d displacement{Eigen::Vector3d::Zero()};  ///< for Warp by Vector
     int             num_cracks{0};
     Eigen::Vector3d normal_1{Eigen::Vector3d::Zero()};
     Eigen::Vector3d normal_2{Eigen::Vector3d::Zero()};
@@ -219,7 +220,8 @@ public:
                              std::string output_dir, int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
-        , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(fc_MPa)}
+        , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(
+              fc_MPa, std::cbrt(sub.grid.dx * sub.grid.dy * sub.grid.dz) * 1e3)}
         , rebar_factory_{std::make_unique<MenegottoPintoRebarFactory>(200000.0, 420.0, 0.01)}
         , pvd_mesh_{output_dir + "/nlsub_" +
                     std::to_string(sub.parent_element_id) + "_mesh"}
@@ -396,6 +398,10 @@ public:
         stateArr->SetName("crack_state");
         stateArr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> dispArr;
+        dispArr->SetName("displacement");
+        dispArr->SetNumberOfComponents(3);
+
         for (const auto& cr : latest_cracks_) {
             auto add_quad = [&](const Eigen::Vector3d& n_vec,
                                 double opening, bool closed) {
@@ -417,9 +423,12 @@ public:
                 };
 
                 vtkIdType ids[4];
-                for (int k = 0; k < 4; ++k)
+                for (int k = 0; k < 4; ++k) {
                     ids[k] = pts->InsertNextPoint(
                         corners[k][0], corners[k][1], corners[k][2]);
+                    dispArr->InsertNextTuple3(
+                        cr.displacement[0], cr.displacement[1], cr.displacement[2]);
+                }
 
                 grid->InsertNextCell(VTK_QUAD, 4, ids);
                 openingArr->InsertNextValue(opening);
@@ -440,6 +449,10 @@ public:
             grid->GetCellData()->AddArray(openingArr);
             grid->GetCellData()->AddArray(normalArr);
             grid->GetCellData()->AddArray(stateArr);
+        }
+        if (dispArr->GetNumberOfTuples() > 0) {
+            grid->GetPointData()->AddArray(dispArr);
+            grid->GetPointData()->SetActiveVectors("displacement");
         }
         fall_n::vtk::write_vtu(grid, filename);
     }
@@ -797,7 +810,7 @@ private:
 
         ctx_ = {model_.get(), f_ext_};
 
-        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
+        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
         PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
         PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
         PetscOptionsSetValue(nullptr, "-pc_type", "lu");
@@ -1096,13 +1109,55 @@ private:
         DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
         VecAXPY(u_local, 1.0, model_->imposed_solution());
 
+        // Build flat lists of physical GP positions and displacements from domain
+        // (same source as VTKModelExporter — proven correct for gauss VTU).
+        auto& domain = model_->get_domain();
+        const std::size_t rebar_first = sub_->has_rebar()
+            ? sub_->rebar_range.first : domain.num_elements();
+
+        struct GaussInfo { Eigen::Vector3d pos, disp; };
+        std::vector<GaussInfo> gp_info;
+
+        const PetscScalar* u_arr;
+        VecGetArrayRead(u_local, &u_arr);
+
+        for (std::size_t ei = 0; ei < rebar_first; ++ei) {
+            auto& geom = domain.elements()[ei];
+            const auto nn  = geom.num_nodes();
+            const auto ngp = geom.num_integration_points();
+
+            for (std::size_t g = 0; g < ngp; ++g) {
+                const auto& ip = geom.integration_points()[g];
+                Eigen::Vector3d pos{ip.coord(0), ip.coord(1), ip.coord(2)};
+
+                // Interpolate displacement at this GP
+                const auto xi = geom.reference_integration_point(g);
+                Eigen::Vector3d disp = Eigen::Vector3d::Zero();
+                for (std::size_t i = 0; i < nn; ++i) {
+                    const double Ni = geom.H(i, xi);
+                    const auto& nd = domain.node(geom.node(i));
+                    for (std::size_t d = 0; d < 3; ++d)
+                        disp[d] += Ni * u_arr[nd.dof_index()[d]];
+                }
+                gp_info.push_back({pos, disp});
+            }
+        }
+
+        VecRestoreArrayRead(u_local, &u_arr);
+
+        // Iterate over ContinuumElement model elements (same order as domain 0..rebar_first)
+        std::size_t flat_gp = 0;
         for (auto& elem : model_->elements()) {
-            for (const auto& snap : elem.gauss_point_snapshots(u_local)) {
-                if (snap.num_cracks > 0) {
+            auto snaps = elem.gauss_point_snapshots(u_local);
+            if (snaps.empty()) continue;  // skip truss elements (no material_points)
+
+            for (const auto& snap : snaps) {
+                if (snap.num_cracks > 0 && flat_gp < gp_info.size()) {
                     CrackRecord cr;
-                    cr.position   = snap.position;
-                    cr.num_cracks = snap.num_cracks;
-                    cr.damage     = snap.damage;
+                    cr.position     = gp_info[flat_gp].pos;
+                    cr.displacement = gp_info[flat_gp].disp;
+                    cr.num_cracks   = snap.num_cracks;
+                    cr.damage       = snap.damage;
 
                     cr.normal_1  = snap.crack_normals[0];
                     cr.opening_1 = snap.crack_openings[0];
@@ -1120,6 +1175,7 @@ private:
                     }
                     latest_cracks_.push_back(cr);
                 }
+                ++flat_gp;
             }
         }
 

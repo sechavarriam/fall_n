@@ -585,51 +585,44 @@ private:
     }
 
     std::vector<double> interpolate_gauss_displacement_field() const {
-        if constexpr (!requires(const element_type& e) { e.get_geometry(); }) {
+        const auto* displacement = find_nodal_field("displacement");
+        if (displacement == nullptr ||
+            displacement->num_components != static_cast<int>(dim))
+        {
             return {};
-        } else {
-            const auto* displacement = find_nodal_field("displacement");
-            if (displacement == nullptr ||
-                displacement->num_components != static_cast<int>(dim))
-            {
-                return {};
-            }
+        }
 
-            std::vector<double> gauss_displacement;
-            gauss_displacement.resize(
-                model_->get_domain().num_integration_points() * dim, 0.0);
+        // Use domain geometry directly — works for both SingleElementPolicy
+        // and MultiElementPolicy (FEM_Element doesn't expose get_geometry()).
+        const auto& domain = model_->get_domain();
+        std::vector<double> gauss_displacement;
+        gauss_displacement.resize(domain.num_integration_points() * dim, 0.0);
 
-            std::size_t gp_offset = 0;
-            for (const auto& element : model_->elements()) {
-                const auto* geom = element.get_geometry();
-                if (geom == nullptr) {
-                    return {};
-                }
+        std::size_t gp_offset = 0;
+        for (const auto& geom : domain.elements()) {
+            const auto nn  = geom.num_nodes();
+            const auto ngp = geom.num_integration_points();
 
-                const auto nn = element.num_nodes();
-                const auto ngp = element.num_integration_points();
+            for (std::size_t g = 0; g < ngp; ++g) {
+                const auto xi = geom.reference_integration_point(g);
+                double* target =
+                    gauss_displacement.data() + (gp_offset + g) * dim;
 
-                for (std::size_t g = 0; g < ngp; ++g) {
-                    const auto xi = geom->reference_integration_point(g);
-                    double* target =
-                        gauss_displacement.data() + (gp_offset + g) * dim;
-
-                    for (std::size_t i = 0; i < nn; ++i) {
-                        const double Ni = geom->H(i, xi);
-                        const auto node_id = static_cast<std::size_t>(geom->node(i));
-                        const double* nodal_u =
-                            displacement->data.data() + node_id * dim;
-                        for (std::size_t d = 0; d < dim; ++d) {
-                            target[d] += Ni * nodal_u[d];
-                        }
+                for (std::size_t i = 0; i < nn; ++i) {
+                    const double Ni = geom.H(i, xi);
+                    const auto node_id = static_cast<std::size_t>(geom.node(i));
+                    const double* nodal_u =
+                        displacement->data.data() + node_id * dim;
+                    for (std::size_t d = 0; d < dim; ++d) {
+                        target[d] += Ni * nodal_u[d];
                     }
                 }
-
-                gp_offset += ngp;
             }
 
-            return gauss_displacement;
+            gp_offset += ngp;
         }
+
+        return gauss_displacement;
     }
 
     static void set_active_mesh_point_fields(vtkUnstructuredGrid* grid) {

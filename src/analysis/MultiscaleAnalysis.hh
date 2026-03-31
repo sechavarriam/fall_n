@@ -192,7 +192,7 @@ public:
 
             if (converged) {
                 std::cout << "    [FE²] converged at staggered iter "
-                          << s_iter << "\n";
+                          << s_iter << std::endl;
                 break;
             }
         }

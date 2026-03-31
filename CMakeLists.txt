@@ -158,6 +158,17 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(fall_n_lshaped_multiscale PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# ── L-shaped 16-story building, height-irregular, multiscale FE² ──────────────
+add_executable(fall_n_lshaped_multiscale_16 main_lshaped_multiscale_16storey.cpp)
+target_link_libraries(fall_n_lshaped_multiscale_16 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_lshaped_multiscale_16 MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_lshaped_multiscale_16 PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_lshaped_multiscale_16 PRIVATE
+    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_lshaped_multiscale_16 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # ── L-shaped RC building, bidirectional seismic, reinforced multiscale ────────
 add_executable(fall_n_lshaped_rc main_lshaped_rc.cpp)
 target_link_libraries(fall_n_lshaped_rc PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
