@@ -54,11 +54,14 @@ struct RebarMaterialFactory {
 
 class KoBatheConcreteMaterialFactory final : public ConcreteMaterialFactory {
     double fc_;
+    double lb_;
 public:
-    explicit KoBatheConcreteMaterialFactory(double fc_MPa) : fc_{fc_MPa} {}
+    explicit KoBatheConcreteMaterialFactory(double fc_MPa, double lb_mm = 100.0)
+        : fc_{fc_MPa}, lb_{lb_mm} {}
 
     Material<ThreeDimensionalMaterial> create() const override {
-        InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
+        KoBatheParameters params{fc_, 0.06, lb_};
+        InelasticMaterial<KoBatheConcrete3D> mat_inst{params};
         return Material<ThreeDimensionalMaterial>{mat_inst, InelasticUpdate{}};
     }
 

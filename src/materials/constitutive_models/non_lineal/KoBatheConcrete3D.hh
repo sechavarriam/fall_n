@@ -552,18 +552,26 @@ private:
             // Rotate to crack-local (Mandel): C_local = Q · C · Q^T
             Mat6 C_local = Q * C_m * Q.transpose();
 
-            // Determine normal stiffness
-            double Enn = 0.0;
+            // Determine normal stiffness with smooth open/close transition
+            double Enn_open = 0.0;
             const auto ts = tension_softening();
-            if (st.crack_closed[ic]) {
-                Enn = C_local(0, 0);
-            } else if (st.crack_strain[ic] >= ts.eps_tp
-                    && st.crack_strain[ic] <= ts.eps_tu
-                    && std::abs(ts.Cts) > TOL) {
-                Enn = ts.Cts;
+            if (st.crack_strain[ic] >= ts.eps_tp
+                && st.crack_strain[ic] <= ts.eps_tu
+                && std::abs(ts.Cts) > TOL) {
+                Enn_open = ts.Cts;
             } else {
-                Enn = ETA_N_3D * C_local(0, 0);
+                Enn_open = ETA_N_3D * C_local(0, 0);
             }
+
+            // Smooth transition: avoids tangent discontinuity at e_nn = 0
+            // alpha → 0 (closed, full stiffness) for e_nn << 0
+            // alpha → 1 (open, degraded)         for e_nn >> 0
+            constexpr double delta = 1.0e-5;
+            double alpha = 0.5 * (1.0 + std::tanh(st.crack_strain[ic] / delta));
+            double Enn = (1.0 - alpha) * C_local(0, 0) + alpha * Enn_open;
+
+            // Smooth shear retention factor
+            double beta_s = (1.0 - alpha) * 1.0 + alpha * ETA_S_3D;
 
             // Modify crack-local Mandel stiffness
             C_local(0, 0) = Enn;
@@ -574,8 +582,8 @@ private:
             }
 
             // Shear retention: indices 4 (n-t₂) and 5 (n-t₁) in Voigt {11,22,33,23,13,12}
-            C_local(4, 4) *= ETA_S_3D;
-            C_local(5, 5) *= ETA_S_3D;
+            C_local(4, 4) *= beta_s;
+            C_local(5, 5) *= beta_s;
 
             // Rotate back: C = Q^T · C_local · Q
             C_m = Q.transpose() * C_local * Q;

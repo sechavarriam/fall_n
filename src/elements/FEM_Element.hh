@@ -164,8 +164,8 @@ class FEM_Element {
                 // The geometry's integration_points() provides (x,y,z) for each GP.
                 [[maybe_unused]] bool has_geometry = false;
                 const void* geom_ptr = nullptr;
-                if constexpr (requires { element_.geometry(); }) {
-                    geom_ptr = &element_.geometry();
+                if constexpr (requires { element_.get_geometry(); }) {
+                    geom_ptr = element_.get_geometry();
                     has_geometry = true;
                 }
 
@@ -174,8 +174,8 @@ class FEM_Element {
                     GaussPointSnapshot snap;
 
                     // Position from geometry integration points
-                    if constexpr (requires { element_.geometry(); }) {
-                        const auto& gpts = element_.geometry().integration_points();
+                    if constexpr (requires { element_.get_geometry(); }) {
+                        const auto& gpts = element_.get_geometry()->integration_points();
                         if (gp_idx < gpts.size()) {
                             snap.position = Eigen::Vector3d{
                                 gpts[gp_idx].coord(0),

@@ -1,52 +1,39 @@
 // =============================================================================
-//  main_lshaped_multiscale.cpp
+//  main_lshaped_multiscale_16storey.cpp
 // =============================================================================
 //
-//  L-shaped 4-story RC building — 3-component seismic multiscale analysis
+//  L-shaped 16-story RC building — height-irregular, 3-component seismic
+//  multiscale FE² analysis.
 //
-//  This example demonstrates the full fall_n multiscale seismic pipeline
-//  for a doctoral-level case study:
-//
-//    Phase 1 (global, nonlinear fiber):
-//      A 4-story L-shaped RC frame is subjected to the 2011 Tohoku earthquake
-//      (K-NET station MYG004, Tsukidate) using all three components (NS, EW,
-//      UD).  Columns and beams use fibered RC sections (Kent-Park concrete
-//      + Menegotto-Pinto steel).  A TransitionDirector monitors damage at
-//      every step and pauses the instant any steel fiber reaches yield.
-//
-//    Phase 2 (local, nonlinear RC continuum sub-model evolution):
-//      After the transition, the top-3 most-damaged column elements are
-//      identified via DamageTracker::peak_ranking().  For each critical
-//      RC column, a prismatic Hex27 sub-model is built by MultiscaleCoordinator.
-//      The KoBatheConcrete3D constitutive model captures cracking, crushing,
-//      and damage evolution of the concrete matrix, while longitudinal and
-//      transverse reinforcement effects operate at the structural scale
-//      through the fiber sections.  The sub-models are evolved through the
-//      rest of the earthquake using NonlinearSubModelEvolver, which persists
-//      material state across all time steps so that plastic strains, crack
-//      patterns, and damage accumulate realistically.
+//  This example extends the 4-story reference to demonstrate:
+//    - Height irregularity: three column-section ranges reducing with height
+//      (0.50×0.50 base, 0.40×0.40 mid, 0.30×0.30 top); different f'c per range.
+//    - Full FE² two-way staggered coupling on ALL critical sub-models.
+//    - Per-range Hex27 sub-models with KoBatheConcrete3D.
+//    - Parallel sub-model solving via OpenMP (within MultiscaleAnalysis).
+//    - VTK evolution series (global frame + per-sub-model crack glyphs).
+//    - CSV output for roof displacement, fiber hysteresis, crack evolution.
+//    - Python postprocessing invocation from C++.
 //
 //  Outputs
 //  -------
-//  data/output/lshaped_multiscale/
+//  data/output/lshaped_multiscale_16/
 //    yield_state.vtm               -- global frame at first yield
 //    evolution/frame_NNNNNN.vtm    -- global frame time series
 //    evolution/frame.pvd           -- ParaView PVD for frame animation
-//    evolution/sub_models/         -- per-element PVD series:
-//      nlsub_{id}_mesh.pvd           mesh (deformed shape + material fields)
-//      nlsub_{id}_gauss.pvd          Gauss-point cloud (stress, strain, cracks)
-//      nlsub_{id}_cracks.pvd         crack plane glyphs
+//    evolution/sub_models/         -- per-element PVD series
 //    recorders/
-//      roof_displacement.csv         nodal displacement histories
-//      fiber_hysteresis_concrete.csv top-5 concrete fiber hysteresis
-//      fiber_hysteresis_steel.csv    top-5 steel fiber hysteresis
-//      crack_evolution.csv           crack count/damage vs time (per sub-model)
+//      roof_displacement.csv
+//      fiber_hysteresis_concrete.csv
+//      fiber_hysteresis_steel.csv
+//      crack_evolution.csv
 //
 //  Units: [m, MN, MPa = MN/m², MN·s²/m⁴, s]
 //
 // =============================================================================
 
 #include "header_files.hh"
+#include "src/utils/PythonPlotter.hh"
 
 #include <Eigen/Dense>
 
@@ -56,9 +43,11 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <numbers>
 #include <print>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using namespace fall_n;
@@ -81,80 +70,105 @@ static const std::string EQ_DIR = BASE + "data/input/earthquakes/Japan2011/"
 static const std::string EQ_NS  = EQ_DIR + "MYG0041103111446.NS";
 static const std::string EQ_EW  = EQ_DIR + "MYG0041103111446.EW";
 static const std::string EQ_UD  = EQ_DIR + "MYG0041103111446.UD";
-static const std::string OUT    = BASE + "data/output/lshaped_multiscale/";
+static const std::string OUT    = BASE + "data/output/lshaped_multiscale_16/";
 
 // ── L-shaped frame geometry ─────────────────────────────────────────────────
-//  3 bays in X (5 m each), 2 bays in Y (4 m each)
-//  Cutout removes upper-right bay at all stories → L-shape in plan
-static constexpr std::array<double, 4> X_GRID = {0.0, 5.0, 10.0, 15.0};
-static constexpr std::array<double, 3> Y_GRID = {0.0, 4.0, 8.0};
-static constexpr int    NUM_STORIES  = 4;
-static constexpr double STORY_HEIGHT = 3.2;   // m
+//  4 bays in X (5 m each),  3 bays in Y (4 m each)
+//  Cutout removes bays ix∈[2,4) iy∈[2,3) → L-shape in plan
+static constexpr std::array<double, 5> X_GRID = {0.0, 5.0, 10.0, 15.0, 20.0};
+static constexpr std::array<double, 4> Y_GRID = {0.0, 4.0, 8.0, 12.0};
+static constexpr int    NUM_STORIES  = 16;
+static constexpr double STORY_HEIGHT = 3.2;   // m (uniform — API limitation)
 
-// Cutout: bay indices (ix=2, iy=1) → removes upper-right corner at all stories
-static constexpr int CUTOUT_X_START = 2;
-static constexpr int CUTOUT_X_END   = 3;
+// Cutout: remove upper-right 2×1 bays at all stories → L-shape
+static constexpr int CUTOUT_X_START = 1;
+static constexpr int CUTOUT_X_END   = 4;
 static constexpr int CUTOUT_Y_START = 1;
-static constexpr int CUTOUT_Y_END   = 2;
-static constexpr int CUTOUT_ABOVE   = 0;  // from story 0 upward = all stories
+static constexpr int CUTOUT_Y_END   = 3;
+static constexpr int CUTOUT_ABOVE   = 0;  // all stories
 
-// ── Column section 0.40 × 0.40 m ───────────────────────────────────────────
-static constexpr double COL_B    = 0.40;
-static constexpr double COL_H    = 0.40;
-static constexpr double COL_CVR  = 0.04;
-static constexpr double COL_BAR  = 0.020;
-static constexpr double COL_TIE  = 0.10;
+// ── Story ranges for height irregularity ────────────────────────────────────
+//  Range 0 (Lower):  stories 1–5   — bottom z < STORY_BREAK_1 * STORY_HEIGHT
+//  Range 1 (Mid):    stories 6–11  — bottom z < STORY_BREAK_2 * STORY_HEIGHT
+//  Range 2 (Upper):  stories 12–16 — remainder
+static constexpr int STORY_BREAK_1 = 5;
+static constexpr int STORY_BREAK_2 = 11;
+static constexpr int NUM_RANGES    = 3;
 
-// ── Beam section 0.30 × 0.50 m ─────────────────────────────────────────────
+// ── Column sections per range ───────────────────────────────────────────────
+static constexpr double COL_B[]   = {0.50,  0.40,  0.30};   // width  [m]
+static constexpr double COL_H[]   = {0.50,  0.40,  0.30};   // height [m]
+static constexpr double COL_FPC[] = {35.0,  28.0,  21.0};   // f'c    [MPa]
+static constexpr double COL_CVR   = 0.04;
+static constexpr double COL_BAR   = 0.020;
+static constexpr double COL_TIE   = 0.10;
+
+// ── Beam section 0.30 × 0.60 m (uniform across all stories) ────────────────
 static constexpr double BM_B   = 0.30;
-static constexpr double BM_H   = 0.50;
+static constexpr double BM_H   = 0.60;
 static constexpr double BM_CVR = 0.04;
 static constexpr double BM_BAR = 0.016;
+static constexpr double BM_FPC = 25.0;
 
-// ── RC materials ─────────────────────────────────────────────────────────────
-static constexpr double COL_FPC  = 28.0;    // f'c columns [MPa]
-static constexpr double BM_FPC   = 25.0;    // f'c beams   [MPa]
-static constexpr double STEEL_E  = 200000.0;// Es [MPa]
-static constexpr double STEEL_FY = 420.0;   // fy [MPa]
-static constexpr double STEEL_B  = 0.01;    // hardening ratio
-static constexpr double TIE_FY   = 420.0;   // tie yield [MPa]
+// ── RC steel ─────────────────────────────────────────────────────────────────
+static constexpr double STEEL_E  = 200000.0;  // Es [MPa]
+static constexpr double STEEL_FY = 420.0;     // fy [MPa]
+static constexpr double STEEL_B  = 0.01;      // hardening ratio
+static constexpr double TIE_FY   = 420.0;     // tie yield [MPa]
 static constexpr double NU_RC    = 0.20;
 
-// Effective elastic modulus (ACI 318: Ec = 4700√f'c)
-static const double EC_COL = 4700.0 * std::sqrt(COL_FPC);
-static const double GC_COL = EC_COL / (2.0 * (1.0 + NU_RC));
+// Effective elastic moduli per range (ACI 318: Ec = 4700√f'c)
+static const double EC_RANGE[] = {
+    4700.0 * std::sqrt(COL_FPC[0]),
+    4700.0 * std::sqrt(COL_FPC[1]),
+    4700.0 * std::sqrt(COL_FPC[2]),
+};
+static const double GC_RANGE[] = {
+    EC_RANGE[0] / (2.0 * (1.0 + NU_RC)),
+    EC_RANGE[1] / (2.0 * (1.0 + NU_RC)),
+    EC_RANGE[2] / (2.0 * (1.0 + NU_RC)),
+};
+
+// Story range group names
+static const std::string COL_GROUPS[] = {
+    "ColumnsLower", "ColumnsMid", "ColumnsUpper"};
 
 // ── Damage / transition ──────────────────────────────────────────────────────
 static constexpr double EPS_YIELD = STEEL_FY / STEEL_E;  // ≈ 0.0021
 
-// ── Mass + Rayleigh damping  (5 % at T₁≈0.60 s, T₃≈0.15 s) ────────────────
+// ── Mass + Rayleigh damping  (5 % at T₁≈1.6 s, T₃≈0.40 s) ─────────────────
+//  Empirical T₁ ≈ 0.1·N for RC frames → 0.1×16 = 1.6 s
 static constexpr double RC_DENSITY = 2.4e-3;   // MN·s²/m⁴
 static constexpr double XI_DAMP    = 0.05;
-static const double OMEGA_1 = 2.0 * std::numbers::pi / 0.60;
-static const double OMEGA_3 = 2.0 * std::numbers::pi / 0.15;
+static const double OMEGA_1 = 2.0 * std::numbers::pi / 1.60;
+static const double OMEGA_3 = 2.0 * std::numbers::pi / 0.40;
 
 // ── Time integration ─────────────────────────────────────────────────────────
-static constexpr double DT      = 0.02;    // s
-static constexpr double T_SKIP  = 25.0;    // skip pre-event noise
-static constexpr double T_MAX   = 275.0;   // analysis window after skip (full strong motion)
-static constexpr double EQ_SCALE = 1.0;    // no scaling — full PGA for realism
+static constexpr double DT       = 0.02;     // s
+static constexpr double T_SKIP   = 40.0;     // skip to strong-motion onset
+static constexpr double T_MAX    = 1.5;      // window [40,41.5]s — elastic + post-yield
+static constexpr double EQ_SCALE = 5.0;      // amplified for lab-scale demonstration
 
 // ── Sub-model mesh ───────────────────────────────────────────────────────────
-static constexpr int SUB_NX = 4;
-static constexpr int SUB_NY = 4;
-static constexpr int SUB_NZ = 8;
+static constexpr int SUB_NX = 2;
+static constexpr int SUB_NY = 2;
+static constexpr int SUB_NZ = 4;   // refined longitudinally for convergence
 
-// ── Sub-model evolution ────────────────────────────────────────────────────────
-static constexpr int EVOL_VTK_INTERVAL   = 10;    // VTK every 10 steps (= 0.2 s)
-static constexpr int EVOL_PRINT_INTERVAL = 100;   // progress every 100 steps (= 2.0 s)
+// ── Sub-model evolution ──────────────────────────────────────────────────────
+static constexpr int EVOL_VTK_INTERVAL   = 5;     // Sub-model VTK every 5 steps
+static constexpr int EVOL_PRINT_INTERVAL = 1;     // print every Phase-2 step
+static constexpr int FRAME_VTK_INTERVAL  = 10;    // frame VTK every 10 Phase-2 steps
 
-// ── FE² two-way coupling ─────────────────────────────────────────────────────
-static constexpr int    MAX_STAGGERED_ITER  = 4;      // max coupling iterations per step
-static constexpr double STAGGERED_TOL       = 0.05;   // 5% relative Frobenius norm
-static constexpr double STAGGERED_RELAX     = 0.7;    // relaxation factor ω ∈ (0,1]
-static constexpr int    COUPLING_START_STEP = 10;      // begin coupling after 10 evol steps
+// ── FE² two-way coupling ────────────────────────────────────────────────────
+static constexpr int    MAX_STAGGERED_ITER  = 6;
+static constexpr double STAGGERED_TOL       = 0.03;
+static constexpr double STAGGERED_RELAX     = 0.7;
+static constexpr int    COUPLING_START_STEP = 5;
 
-// ── Type aliases (small-strain, NDOF=6) ─────────────────────────────────────
+// ── Number of critical elements for sub-model analysis ──────────────────────
+static constexpr std::size_t N_CRITICAL = 3;
+
+// ── Type aliases ─────────────────────────────────────────────────────────────
 static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
@@ -170,6 +184,16 @@ using ShellElemT   = MITC4Shell<>;
 // =============================================================================
 static void sep(char c = '=', int n = 72) {
     std::cout << std::string(n, c) << '\n';
+}
+
+
+// =============================================================================
+//  Helper: determine story range from bottom z-coordinate
+// =============================================================================
+static int story_range(double z_bottom) {
+    if (z_bottom < STORY_BREAK_1 * STORY_HEIGHT - 0.01) return 0;
+    if (z_bottom < STORY_BREAK_2 * STORY_HEIGHT - 0.01) return 1;
+    return 2;
 }
 
 
@@ -192,7 +216,8 @@ int main(int argc, char* argv[]) {
     PetscOptionsSetValue(nullptr, "-ksp_monitor_cancel",  "");
 
     sep('=');
-    std::println("  fall_n — L-Shaped RC Building: 3-Component Seismic Multiscale");
+    std::println("  fall_n — 16-Story L-Shaped RC Building: Height-Irregular");
+    std::println("  Multiscale FE² Seismic Analysis");
     std::println("  Tohoku 2011 (MYG004 NS+EW+UD) + Fiber Sections + Ko-Bathe 3D");
     sep('=');
 
@@ -211,20 +236,19 @@ int main(int argc, char* argv[]) {
 
     std::println("  Station       : MYG004 (Tsukidate, Miyagi) — near-fault");
     std::println("  Event         : Tohoku 2011-03-11 Mw 9.0");
-    std::println("  Window        : [{:.0f} s, {:.0f} s] of original {:.1f} s",
-                 T_SKIP, T_SKIP + T_MAX, eq_ns_full.duration());
-    std::println("  PGA (NS)      : {:.3f} m/s² ({:.3f} g) at t={:.2f} s",
-                 eq_ns.pga(), eq_ns.pga() / 9.81, eq_ns.time_of_pga());
-    std::println("  PGA (EW)      : {:.3f} m/s² ({:.3f} g) at t={:.2f} s",
-                 eq_ew.pga(), eq_ew.pga() / 9.81, eq_ew.time_of_pga());
-    std::println("  PGA (UD)      : {:.3f} m/s² ({:.3f} g) at t={:.2f} s",
-                 eq_ud.pga(), eq_ud.pga() / 9.81, eq_ud.time_of_pga());
+    std::println("  Window        : [{:.0f} s, {:.0f} s]", T_SKIP, T_SKIP + T_MAX);
+    std::println("  PGA (NS)      : {:.3f} m/s² ({:.3f} g)",
+                 eq_ns.pga(), eq_ns.pga() / 9.81);
+    std::println("  PGA (EW)      : {:.3f} m/s² ({:.3f} g)",
+                 eq_ew.pga(), eq_ew.pga() / 9.81);
+    std::println("  PGA (UD)      : {:.3f} m/s² ({:.3f} g)",
+                 eq_ud.pga(), eq_ud.pga() / 9.81);
     std::println("  Scale factor  : {:.2f}", eq_scale);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  2. Building domain: 4-story L-shaped RC frame
+    //  2. Building domain: 16-story L-shaped RC frame
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[2] Building L-shaped structural domain...");
+    std::println("\n[2] Building L-shaped structural domain (16 stories)...");
 
     auto [domain, grid] = make_building_domain({
         .x_axes          = {X_GRID.begin(), X_GRID.end()},
@@ -236,7 +260,7 @@ int main(int argc, char* argv[]) {
         .cutout_y_start  = CUTOUT_Y_START,
         .cutout_y_end    = CUTOUT_Y_END,
         .cutout_above_story = CUTOUT_ABOVE,
-        .include_slabs   = false,   // frame-only for computational speed
+        .include_slabs   = false,
     });
 
     std::println("  Plan          : {} bays X × {} bays Y, L-shape with cutout",
@@ -248,23 +272,56 @@ int main(int argc, char* argv[]) {
     std::println("  Beams         : {}", grid.num_beams());
 
     // ─────────────────────────────────────────────────────────────────────
-    //  3. RC fiber sections
+    //  3. Post-process: reassign column physical groups by story range
+    //     This enables per-range material assignment for height irregularity.
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[3] Building RC fiber sections...");
+    std::println("\n[3] Assigning column groups by story range (height irregularity)...");
 
-    const auto col_mat = make_rc_column_section({
-        .b            = COL_B,
-        .h            = COL_H,
-        .cover        = COL_CVR,
-        .bar_diameter = COL_BAR,
-        .tie_spacing  = COL_TIE,
-        .fpc          = COL_FPC,
-        .nu           = NU_RC,
-        .steel_E      = STEEL_E,
-        .steel_fy     = STEEL_FY,
-        .steel_b      = STEEL_B,
-        .tie_fy       = TIE_FY,
-    });
+    std::unordered_map<std::size_t, int> elem_to_range;
+    std::array<int, NUM_RANGES> col_count_per_range = {0, 0, 0};
+
+    {
+        std::size_t idx = 0;
+        for (auto& geom : domain.elements()) {
+            if (geom.physical_group() == "Columns") {
+                const double z_bot = geom.point_p(0).coord(2);
+                const int r = story_range(z_bot);
+                geom.set_physical_group(COL_GROUPS[r]);
+                elem_to_range[idx] = r;
+                ++col_count_per_range[static_cast<std::size_t>(r)];
+            }
+            ++idx;
+        }
+    }
+
+    for (int r = 0; r < NUM_RANGES; ++r) {
+        std::println("  {} : {} cols, {}×{} m, f'c={} MPa",
+                     COL_GROUPS[r], col_count_per_range[r],
+                     COL_B[r], COL_H[r], COL_FPC[r]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  4. RC fiber sections (one per range + one for beams)
+    // ─────────────────────────────────────────────────────────────────────
+    std::println("\n[4] Building RC fiber sections (3 column ranges + beams)...");
+
+    std::vector<decltype(make_rc_column_section({}))> col_mats;
+    col_mats.reserve(NUM_RANGES);
+    for (int r = 0; r < NUM_RANGES; ++r) {
+        col_mats.push_back(make_rc_column_section({
+            .b            = COL_B[r],
+            .h            = COL_H[r],
+            .cover        = COL_CVR,
+            .bar_diameter = COL_BAR,
+            .tie_spacing  = COL_TIE,
+            .fpc          = COL_FPC[r],
+            .nu           = NU_RC,
+            .steel_E      = STEEL_E,
+            .steel_fy     = STEEL_FY,
+            .steel_b      = STEEL_B,
+            .tie_fy       = TIE_FY,
+        }));
+    }
 
     const auto bm_mat = make_rc_beam_section({
         .b            = BM_B,
@@ -278,24 +335,24 @@ int main(int argc, char* argv[]) {
         .steel_b      = STEEL_B,
     });
 
-    std::println("  Columns : {}×{} m, f'c={} MPa, confined Kent-Park + M-P steel",
-                 COL_B, COL_H, COL_FPC);
-    std::println("  Beams   : {}×{} m, f'c={} MPa, unconfined + M-P steel",
-                 BM_B, BM_H, BM_FPC);
+    std::println("  Beams : {}×{} m, f'c={} MPa", BM_B, BM_H, BM_FPC);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  4. Structural model
+    //  5. Structural model
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[4] Assembling structural model (frame-only)...");
+    std::println("\n[5] Assembling structural model (frame-only)...");
 
     std::vector<const ElementGeometry<3>*> shell_geoms;
+
+    auto builder = StructuralModelBuilder<
+        BeamElemT, ShellElemT,
+        TimoshenkoBeam3D, MindlinReissnerShell3D>{};
+    for (int r = 0; r < NUM_RANGES; ++r)
+        builder.set_frame_material(COL_GROUPS[r], col_mats[static_cast<std::size_t>(r)]);
+    builder.set_frame_material("Beams", bm_mat);
+
     std::vector<StructuralElement> elements =
-        StructuralModelBuilder<
-            BeamElemT, ShellElemT,
-            TimoshenkoBeam3D, MindlinReissnerShell3D>{}
-            .set_frame_material("Columns", col_mat)
-            .set_frame_material("Beams",   bm_mat)
-            .build_elements(domain, &shell_geoms);
+        builder.build_elements(domain, &shell_geoms);
 
     StructModel model{domain, std::move(elements)};
     model.fix_z(0.0);
@@ -304,9 +361,9 @@ int main(int argc, char* argv[]) {
     std::println("  Total structural elements : {}", model.elements().size());
 
     // ─────────────────────────────────────────────────────────────────────
-    //  5. Dynamic solver: density, Rayleigh damping, 3-component ground motion
+    //  6. Dynamic solver: density, Rayleigh damping, 3-component ground motion
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[5] Configuring dynamic solver (3-component)...");
+    std::println("\n[6] Configuring dynamic solver (3-component)...");
 
     DynSolver solver{&model};
     solver.set_density(RC_DENSITY);
@@ -325,20 +382,16 @@ int main(int argc, char* argv[]) {
     std::println("  T₃ (approx.)    : {:.2f} s", 2.0 * std::numbers::pi / OMEGA_3);
     std::println("  Time step        : {} s", DT);
     std::println("  Duration         : {} s", T_MAX);
-    std::println("  Components       : NS (X) + EW (Y) + UD (Z)");
 
     // ─────────────────────────────────────────────────────────────────────
-    //  6. Observers: damage tracker + fiber hysteresis recorder + node recorder
+    //  7. Observers
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[6] Setting up observers...");
+    std::println("\n[7] Setting up observers...");
 
     MaxStrainDamageCriterion damage_crit{EPS_YIELD};
 
-    // Damage tracker: keep top-10 elements
     DamageTracker<StructModel> damage_tracker{damage_crit, 1, 10};
 
-    // Fiber hysteresis recorder: top-5 per material class
-    // Classifier: steel fibers have area < 0.001 m² (typical bar ~300 mm²)
     auto fiber_classifier = [](std::size_t, std::size_t, std::size_t,
                                double, double, double area) -> FiberMaterialClass {
         return (area < 0.001) ? FiberMaterialClass::Steel
@@ -347,9 +400,6 @@ int main(int argc, char* argv[]) {
     FiberHysteresisRecorder<StructModel> hysteresis_rec{
         damage_crit, fiber_classifier, {}, 5, 1};
 
-    // Node recorder: roof displacement at top corner nodes
-    //  The top level = NUM_STORIES, so z = NUM_STORIES * STORY_HEIGHT
-    //  We track DOFs 0 (X), 1 (Y) at a few top nodes
     const int top_level = NUM_STORIES;
     std::vector<NodeRecorder<StructModel>::Channel> disp_channels;
     for (int ix = 0; ix < static_cast<int>(X_GRID.size()); ++ix) {
@@ -363,37 +413,47 @@ int main(int argc, char* argv[]) {
     }
     NodeRecorder<StructModel> node_rec{disp_channels, 1};
 
-    // Composite observer
     auto composite = make_composite_observer<StructModel>(
         std::move(damage_tracker), std::move(hysteresis_rec), std::move(node_rec));
     solver.set_observer(composite);
 
-    std::println("  DamageTracker         : top-10, every step");
-    std::println("  FiberHysteresisRecorder : top-5/material, every step");
+    std::println("  DamageTracker          : top-10, every step");
+    std::println("  FiberHysteresisRecorder: top-5/material, every step");
     std::println("  NodeRecorder           : {} channels (roof nodes)", disp_channels.size());
 
     // ─────────────────────────────────────────────────────────────────────
-    //  7. Transition director: pause at first fiber yield
+    //  8. Transition director
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[7] Configuring damage-threshold transition director...");
+    std::println("\n[8] Configuring transition director...");
 
     auto [director, transition_report] =
         make_damage_threshold_director<StructModel>(damage_crit, 1.0);
 
     std::println("  Criterion  : MaxStrain (ε_ref = {:.6f})", EPS_YIELD);
-    std::println("  Threshold  : damage_index > 1.0 (i.e. ε > ε_y)");
+    std::println("  Threshold  : damage_index > 1.0 (ε > ε_y)");
+
+    // ── Create output directories upfront ────────────────────────────────
+    std::filesystem::create_directories(OUT);
+    std::filesystem::create_directories(OUT + "evolution/sub_models/");
+    std::filesystem::create_directories(OUT + "recorders/");
+
+    // ── Global history CSV (elastic + post-yield, every step) ────────────
+    std::ofstream global_csv(OUT + "recorders/global_history.csv");
+    global_csv << "time,step,phase,u_inf,peak_damage\n";
 
     // ─────────────────────────────────────────────────────────────────────
-    //  8. Phase 1: Global nonlinear dynamic analysis until first yield
+    //  9. Phase 1: Global nonlinear dynamic analysis until first yield
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n[8] PHASE 1: Global fiber-section dynamic analysis");
+    std::println("\n[9] PHASE 1: Global fiber-section dynamic analysis");
     std::println("    Running until first steel fiber reaches yield...");
 
-    PetscOptionsSetValue(nullptr, "-snes_max_it", "100");
-    PetscOptionsSetValue(nullptr, "-snes_rtol",   "1e-3");
-    PetscOptionsSetValue(nullptr, "-snes_atol",   "1e-6");
-    PetscOptionsSetValue(nullptr, "-ksp_max_it",  "200");
+    PetscOptionsSetValue(nullptr, "-snes_max_it",          "50");
+    PetscOptionsSetValue(nullptr, "-snes_rtol",             "1e-2");
+    PetscOptionsSetValue(nullptr, "-snes_atol",             "1e-6");
+    PetscOptionsSetValue(nullptr, "-ksp_type",              "preonly");
+    PetscOptionsSetValue(nullptr, "-pc_type",               "lu");
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type",  "bt");
 
     solver.setup();
     solver.set_time_step(DT);
@@ -403,21 +463,21 @@ int main(int argc, char* argv[]) {
         TSAlpha2SetRadius(ts, 0.9);
         TSAdapt adapt;
         TSGetAdapt(ts, &adapt);
-        TSAdaptSetType(adapt, TSADAPTNONE);
+        TSAdaptSetType(adapt, TSADAPTBASIC);
+        TSAdaptSetStepLimits(adapt, DT * 0.01, DT);
         TSSetTimeStep(ts, DT);
         TSSetMaxSNESFailures(ts, -1);
         SNES snes;
         TSGetSNES(ts, &snes);
-        SNESSetTolerances(snes, 1e-6, 1e-3, PETSC_DETERMINE, 100, PETSC_DETERMINE);
+        SNESSetTolerances(snes, 1e-6, 1e-2, PETSC_DETERMINE, 50, PETSC_DETERMINE);
         KSP ksp;
         SNESGetKSP(snes, &ksp);
         KSPSetTolerances(ksp, PETSC_DETERMINE, PETSC_DETERMINE, PETSC_DETERMINE, 200);
     }
 
-    // Diagnostic wrapper for the transition director
     double peak_damage_global = 0.0;
     fall_n::StepDirector<StructModel> phase1_director =
-        [&director, &peak_damage_global, &damage_crit]
+        [&director, &peak_damage_global, &damage_crit, &global_csv]
         (const fall_n::StepEvent& ev, const StructModel& m) -> fall_n::StepVerdict
     {
         double max_d = 0.0;
@@ -427,11 +487,23 @@ int main(int argc, char* argv[]) {
         }
         peak_damage_global = std::max(peak_damage_global, max_d);
 
-        if (ev.step % 500 == 0) {
-            PetscReal u_norm = 0.0;
-            VecNorm(ev.displacement, NORM_INFINITY, &u_norm);
-            std::println("    t={:.2f} s  step={}  |u|_inf={:.3e} m  peak_damage={:.6e}",
-                         ev.time, ev.step, u_norm, peak_damage_global);
+        PetscReal u_norm = 0.0;
+        VecNorm(ev.displacement, NORM_INFINITY, &u_norm);
+
+        // Every step → global history CSV
+        global_csv << std::fixed << std::setprecision(6) << ev.time
+                   << "," << ev.step
+                   << ",1,"
+                   << std::scientific << std::setprecision(6)
+                   << static_cast<double>(u_norm)
+                   << "," << peak_damage_global
+                   << "\n" << std::flush;
+
+        if (ev.step % 5 == 0) {
+            std::println("    t={:.4f} s  step={:4d}  |u|={:.3e} m  damage={:.6e}",
+                         ev.time, ev.step, static_cast<double>(u_norm),
+                         peak_damage_global);
+            std::cout << std::flush;
         }
         return director(ev, m);
     };
@@ -442,6 +514,7 @@ int main(int argc, char* argv[]) {
     if (!transition_report->triggered) {
         std::println("[!] No fiber yielding detected within {} s.", T_MAX);
         std::println("    Peak damage = {:.4f} — try larger scale.", peak_damage_global);
+        global_csv.close();
         PetscFinalize();
         return 0;
     }
@@ -452,9 +525,9 @@ int main(int argc, char* argv[]) {
     std::println("    Damage index          : {:.6f}", transition_report->metric_value);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  9. Identify top-3 critical column elements
+    //  10. Identify top-N critical column elements
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[9] Identifying most-damaged elements...");
+    std::println("\n[10] Identifying {} most-damaged column elements...", N_CRITICAL);
 
     std::vector<ElementDamageInfo> current_damages;
     current_damages.reserve(model.elements().size());
@@ -470,7 +543,7 @@ int main(int argc, char* argv[]) {
         const auto& se = model.elements()[di.element_index];
         if (se.as<BeamElemT>() && di.damage_index > 0.8) {
             crit_elem_ids.push_back(di.element_index);
-            if (crit_elem_ids.size() >= 3) break;
+            if (crit_elem_ids.size() >= N_CRITICAL) break;
         }
     }
     if (crit_elem_ids.empty()) {
@@ -482,21 +555,20 @@ int main(int argc, char* argv[]) {
         double di = 0;
         for (const auto& d : current_damages)
             if (d.element_index == eid) { di = d.damage_index; break; }
-        std::println("    element {}  —  damage_index = {:.6f}", eid, di);
+        int r = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
+        std::println("    element {}  —  damage_index = {:.6f}  range = {} ({})",
+                     eid, di, r, COL_GROUPS[r]);
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  10. Export global frame VTK at yield time
+    //  11. Export global frame VTK at yield time
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[10] Exporting global frame VTK at first yield...");
-    std::filesystem::create_directories(OUT);
-    std::filesystem::create_directories(OUT + "evolution/sub_models/");
-    std::filesystem::create_directories(OUT + "recorders/");
+    std::println("\n[11] Exporting global frame VTK at first yield...");
 
     {
         fall_n::vtk::StructuralVTMExporter vtm{
             model,
-            fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H},
+            fall_n::reconstruction::RectangularSectionProfile<2>{COL_B[0], COL_H[0]},
             fall_n::reconstruction::ShellThicknessProfile<5>{}
         };
         vtm.set_displacement(model.state_vector());
@@ -506,77 +578,83 @@ int main(int argc, char* argv[]) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  11. Extract element kinematics + build sub-models
+    //  12. Extract element kinematics + build sub-models (per range)
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[11] Extracting kinematics and building Hex27 (RC) sub-models...");
+    std::println("\n[12] Extracting kinematics and building Hex27 sub-models...");
 
     auto extract_beam_kinematics = [&](std::size_t e_idx) -> ElementKinematics {
         const auto& se = model.elements()[e_idx];
         const auto* beam = se.as<BeamElemT>();
         const auto u_e = se.extract_element_dofs(model.state_vector());
 
+        int r = elem_to_range.count(e_idx) ? elem_to_range.at(e_idx) : 0;
+
         auto kin_A = extract_section_kinematics(*beam, u_e, -1.0);
         auto kin_B = extract_section_kinematics(*beam, u_e, +1.0);
-        kin_A.E = EC_COL; kin_A.G = GC_COL; kin_A.nu = NU_RC;
-        kin_B.E = EC_COL; kin_B.G = GC_COL; kin_B.nu = NU_RC;
+        kin_A.E = EC_RANGE[r]; kin_A.G = GC_RANGE[r]; kin_A.nu = NU_RC;
+        kin_B.E = EC_RANGE[r]; kin_B.G = GC_RANGE[r]; kin_B.nu = NU_RC;
 
         ElementKinematics ek;
-        ek.element_id  = e_idx;
-        ek.kin_A       = kin_A;
-        ek.kin_B       = kin_B;
-        ek.endpoint_A  = beam->geometry().map_local_point(std::array{-1.0});
-        ek.endpoint_B  = beam->geometry().map_local_point(std::array{+1.0});
+        ek.element_id   = e_idx;
+        ek.kin_A        = kin_A;
+        ek.kin_B        = kin_B;
+        ek.endpoint_A   = beam->geometry().map_local_point(std::array{-1.0});
+        ek.endpoint_B   = beam->geometry().map_local_point(std::array{+1.0});
         ek.up_direction = std::array<double,3>{1.0, 0.0, 0.0};
         return ek;
     };
 
-    MultiscaleCoordinator coordinator;
-    for (auto e_idx : crit_elem_ids) {
-        if (!model.elements()[e_idx].as<BeamElemT>()) continue;
-        coordinator.add_critical_element(extract_beam_kinematics(e_idx));
+    // Group critical elements by story range
+    std::map<int, std::vector<std::size_t>> crit_by_range;
+    for (auto eid : crit_elem_ids)
+        crit_by_range[elem_to_range.count(eid) ? elem_to_range.at(eid) : 0].push_back(eid);
+
+    // Build one coordinator per active range
+    std::map<int, MultiscaleCoordinator> coordinators;
+    for (auto& [range, eids] : crit_by_range) {
+        auto& coord = coordinators[range];
+        for (auto eid : eids) {
+            if (!model.elements()[eid].as<BeamElemT>()) continue;
+            coord.add_critical_element(extract_beam_kinematics(eid));
+        }
+        coord.build_sub_models(SubModelSpec{
+            .section_width  = COL_B[range],
+            .section_height = COL_H[range],
+            .nx = SUB_NX,
+            .ny = SUB_NY,
+            .nz = SUB_NZ,
+            .hex_order = HexOrder::Quadratic,
+        });
+        const auto rpt = coord.report();
+        std::println("  Range {} ({}) : {} sub-models, {} nodes, {} hex elements",
+                     range, COL_GROUPS[range],
+                     rpt.num_elements, rpt.total_nodes, rpt.total_elements);
     }
 
-    coordinator.build_sub_models(SubModelSpec{
-        .section_width  = COL_B,
-        .section_height = COL_H,
-        .nx = SUB_NX,
-        .ny = SUB_NY,
-        .nz = SUB_NZ,
-        .hex_order = HexOrder::Quadratic,  // Hex27
-    });
-
-    const auto ms_report = coordinator.report();
-    std::println("  Sub-models built   : {}", ms_report.num_elements);
-    std::println("  Total nodes        : {}", ms_report.total_nodes);
-    std::println("  Total elements     : {}", ms_report.total_elements);
-    std::println("  Element type       : Hex27 (triquadratic Lagrange)");
-
     // ─────────────────────────────────────────────────────────────────────
-    //  12. Create NONLINEAR sub-model evolvers (persistent material state)
+    //  13. Create nonlinear sub-model evolvers
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n[12] Creating nonlinear sub-model evolvers...");
+    std::println("\n[13] Creating nonlinear sub-model evolvers...");
 
     const std::string evol_sub_dir = OUT + "evolution/sub_models";
 
     std::vector<NonlinearSubModelEvolver> nl_evolvers;
-    {
-        auto& subs = coordinator.sub_models();
-        for (auto& sub : subs) {
+    for (auto& [range, coord] : coordinators) {
+        for (auto& sub : coord.sub_models()) {
             nl_evolvers.emplace_back(
-                sub, COL_FPC, evol_sub_dir, EVOL_VTK_INTERVAL);
-            nl_evolvers.back().set_incremental_params(15, 6);
+                sub, COL_FPC[range], evol_sub_dir, EVOL_VTK_INTERVAL);
+            nl_evolvers.back().set_incremental_params(8, 6);
         }
     }
 
     std::println("  Nonlinear evolvers : {}", nl_evolvers.size());
-    std::println("  Constitutive model : KoBatheConcrete3D (f'c={} MPa)", COL_FPC);
-    std::println("  RC treatment       : concrete matrix in 3D, rebar at fiber-section scale");
+    std::println("  Constitutive model : KoBatheConcrete3D (per-range f'c)");
     std::println("  Material state     : PERSISTENT across all time steps");
     std::println("  VTK interval       : every {} steps ({:.2f} s)",
                  EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
 
-    // ── Assemble MultiscaleModel + MultiscaleAnalysis orchestrator ───────
+    // ── Assemble MultiscaleModel + MultiscaleAnalysis ────────────────────
     MultiscaleModel<NonlinearSubModelEvolver> ms_model;
     ms_model.set_kinematics_extractor(extract_beam_kinematics);
     ms_model.set_response_injector(
@@ -595,21 +673,26 @@ int main(int argc, char* argv[]) {
         ms_model.register_local_model(eid, std::move(ev));
     }
 
+    // Section dimensions for homogenization scaling: use first critical element
+    const int first_range = crit_by_range.begin()->first;
+
     MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
         std::move(ms_model),
         std::make_unique<TwoWayStaggered>(MAX_STAGGERED_ITER),
         std::make_unique<FrobeniusConvergence>(STAGGERED_TOL),
         std::make_unique<ConstantRelaxation>(STAGGERED_RELAX));
     analysis.set_coupling_start_step(COUPLING_START_STEP);
-    analysis.set_section_dimensions(COL_B, COL_H);
+    analysis.set_section_dimensions(COL_B[first_range], COL_H[first_range]);
 
     std::println("  MultiscaleAnalysis : max_iter={} tol={:.2f} relax={:.2f}",
                  MAX_STAGGERED_ITER, STAGGERED_TOL, STAGGERED_RELAX);
+    std::println("  Section dims (hom) : {:.2f} × {:.2f} m (range {})",
+                 COL_B[first_range], COL_H[first_range], first_range);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  13. Initial sub-model solve at yield time
+    //  14. Initial sub-model solve at yield time
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[13] Initial nonlinear solve at t={:.4f} s...",
+    std::println("\n[14] Initial nonlinear solve at t={:.4f} s...",
                  transition_report->trigger_time);
 
     for (auto& ev : analysis.model().local_models()) {
@@ -621,24 +704,24 @@ int main(int argc, char* argv[]) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    //  14. Phase 2: Resume global + evolve sub-models step-by-step
+    //  15. Phase 2: Resume global + evolve sub-models step-by-step
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n[14] PHASE 2: Sub-model evolution through the earthquake");
-    std::println("    Evolving global + {} nonlinear sub-models simultaneously...",
+    std::println("\n[15] PHASE 2: Sub-model evolution through the earthquake");
+    std::println("     Evolving global + {} nonlinear sub-models simultaneously...",
                  analysis.model().num_local_models());
 
     const std::string evol_frame_dir = OUT + "evolution";
     PVDWriter pvd_global(evol_frame_dir + "/frame");
 
-    auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
+    auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B[0], COL_H[0]};
     auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<5>{};
 
     int    evol_step       = 0;
     double evol_max_damage = peak_damage_global;
     int    total_cracks    = 0;
 
-    // ── Crack evolution CSV ────────────────────────────────────────────────────
+    // ── Crack evolution CSV ────────────────────────────────────────────
     std::ofstream crack_csv(OUT + "recorders/crack_evolution.csv");
     crack_csv << "time,total_cracked_gps,total_cracks,max_damage,max_opening";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i)
@@ -646,6 +729,21 @@ int main(int argc, char* argv[]) {
                   << ",sub" << i << "_cracks"
                   << ",sub" << i << "_max_damage";
     crack_csv << "\n";
+
+    // Phase 2: reset dt to nominal and disable adaptation for stable FE² coupling.
+    {
+        TS ts = solver.get_ts();
+        TSSetMaxTime(ts, T_MAX);
+        TSSetTimeStep(ts, DT);
+        TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
+        TSAdapt adapt;
+        TSGetAdapt(ts, &adapt);
+        TSAdaptSetType(adapt, TSADAPTNONE);
+        PetscReal dt_current;
+        TSGetTimeStep(ts, &dt_current);
+        std::println("  [TS] Phase 2 dt reset to {:.6f} s", static_cast<double>(dt_current));
+        std::cout << std::flush;
+    }
 
     for (;;) {
         PetscReal t_current;
@@ -665,13 +763,13 @@ int main(int argc, char* argv[]) {
         ++evol_step;
         const double t = static_cast<double>(t_new);
 
-        // ── FE² staggered coupling (delegated to MultiscaleAnalysis) ──
+        // ── FE² staggered coupling ──────────────────────────────────
         analysis.step(t, evol_step);
         const int staggered_iters = analysis.last_staggered_iterations();
 
-        // ── Collect crack summaries (post-step) ──────────────────
-        int step_cracked_gps    = 0;
-        int step_total_cracks   = 0;
+        // ── Collect crack summaries ─────────────────────────────────
+        int    step_cracked_gps      = 0;
+        int    step_total_cracks     = 0;
         double step_max_crack_damage = 0.0;
         double step_max_opening      = 0.0;
         std::vector<CrackSummary> step_summaries;
@@ -685,7 +783,7 @@ int main(int argc, char* argv[]) {
         }
         total_cracks = step_total_cracks;
 
-        // ── Write crack evolution CSV row ────────────────────────
+        // ── Write crack evolution CSV row ────────────────────────────
         crack_csv << std::fixed << std::setprecision(4) << t
                   << "," << step_cracked_gps
                   << "," << step_total_cracks
@@ -696,7 +794,7 @@ int main(int argc, char* argv[]) {
             crack_csv << "," << cs.num_cracked_gps
                       << "," << cs.total_cracks
                       << "," << cs.max_damage;
-        crack_csv << "\n";
+        crack_csv << "\n" << std::flush;
 
         // ── Track peak damage ───────────────────────────────────────
         double step_max_damage = 0.0;
@@ -707,8 +805,8 @@ int main(int argc, char* argv[]) {
         }
         evol_max_damage = std::max(evol_max_damage, step_max_damage);
 
-        // ── Global VTK snapshot ─────────────────────────────────────
-        if (evol_step % EVOL_VTK_INTERVAL == 0) {
+        // ── Global VTK snapshot (expensive; rarely) ────────────────────
+        if (evol_step % FRAME_VTK_INTERVAL == 0) {
             const auto vtm_file = std::format("{}/frame_{:06d}.vtm",
                                               evol_frame_dir, evol_step);
             fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
@@ -718,27 +816,52 @@ int main(int argc, char* argv[]) {
             pvd_global.add_timestep(t, vtm_file);
         }
 
-        // ── Progress ────────────────────────────────────────────────
-        if (evol_step % EVOL_PRINT_INTERVAL == 0) {
-            std::println("  [Evolution] t={:.2f} s  step={:5d}  "
-                         "peak_damage={:.4f}  cracks={}  FE2_iters={}",
-                         t, evol_step, evol_max_damage, total_cracks,
-                         staggered_iters);
+        // ── Global history CSV + progress (Phase 2) ────────────────
+        PetscReal u_norm2 = 0.0;
+        VecNorm(model.state_vector(), NORM_INFINITY, &u_norm2);
+
+        global_csv << std::fixed << std::setprecision(6) << t
+                   << "," << evol_step
+                   << ",2,"
+                   << std::scientific << std::setprecision(6)
+                   << static_cast<double>(u_norm2)
+                   << "," << evol_max_damage
+                   << "\n" << std::flush;
+
+        if (evol_step % EVOL_PRINT_INTERVAL == 0 || evol_step <= 3) {
+            std::println("    [FE²] step={:4d}  t={:.3f} s  |u|={:.3e} m  "
+                         "damage={:.4f}  cracks={}  stag_iter={}",
+                         evol_step, t, static_cast<double>(u_norm2),
+                         evol_max_damage, total_cracks, staggered_iters);
+            std::cout << std::flush;
         }
     }
 
     crack_csv.close();
+    global_csv.close();
 
     // ─────────────────────────────────────────────────────────────────────
-    //  15. Finalize: write PVD files, export recorder CSV files
+    //  16. Final frame VTK + finalize
     // ─────────────────────────────────────────────────────────────────────
+    // One global frame at the final evolution state:
+    {
+        PetscReal t_end;
+        TSGetTime(solver.get_ts(), &t_end);
+        const auto vtm_file = std::format("{}/frame_final.vtm", evol_frame_dir);
+        fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
+        vtm.set_displacement(model.state_vector());
+        vtm.set_yield_strain(EPS_YIELD);
+        vtm.write(vtm_file);
+        pvd_global.add_timestep(static_cast<double>(t_end), vtm_file);
+        std::println("\n  [VTK] Final frame written: {}", vtm_file);
+        std::cout << std::flush;
+    }
+
     pvd_global.write();
     for (auto& ev : analysis.model().local_models())
         ev.finalize();
 
-    // Export recorder data
     const std::string rec_dir = OUT + "recorders/";
-    // CompositeObserver stores: [0]=DamageTracker, [1]=FiberHysteresisRecorder, [2]=NodeRecorder
     composite.template get<2>().write_csv(rec_dir + "roof_displacement.csv");
     composite.template get<1>().write_hysteresis_csv(rec_dir + "fiber_hysteresis");
 
@@ -746,26 +869,40 @@ int main(int argc, char* argv[]) {
     TSGetTime(solver.get_ts(), &t_final);
 
     // ─────────────────────────────────────────────────────────────────────
-    //  16. Summary
+    //  17. Python postprocessing
+    // ─────────────────────────────────────────────────────────────────────
+    std::println("\n[17] Running Python postprocessing...");
+    {
+        fall_n::PythonPlotter plotter(BASE + "scripts/falln_postprocess.py");
+        int rc = plotter.plot(rec_dir, BASE + "doc/figures/lshaped_multiscale_16/");
+        if (rc == 0)
+            std::println("  Plots generated successfully.");
+        else
+            std::println("  [!] Python plotter returned code {}", rc);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    //  18. Summary
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n  L-SHAPED MULTISCALE SEISMIC ANALYSIS — SUMMARY");
+    std::println("\n  16-STORY L-SHAPED MULTISCALE SEISMIC ANALYSIS — SUMMARY");
     sep('-');
-    std::println("  Earthquake:    Tohoku 2011, MYG004 (NS+EW+UD), PGA(NS)={:.3f}g (scale={:.2f})",
-                 eq_scale * eq_ns.pga() / 9.81, eq_scale);
-    std::println("  Structure:     {}-story L-shaped RC frame, {} × {} m plan",
+    std::println("  Earthquake:      Tohoku 2011, MYG004 (NS+EW+UD), scale={:.2f}", eq_scale);
+    std::println("  Structure:       {}-story L-shaped RC frame, {} × {} m plan",
                  NUM_STORIES, X_GRID.back(), Y_GRID.back());
-    std::println("  Columns:       {}×{} m, f'c={} MPa", COL_B, COL_H, COL_FPC);
-    std::println("  Beams:         {}×{} m, f'c={} MPa", BM_B, BM_H, BM_FPC);
-    std::println("  First yield:   t = {:.4f} s  (element {})",
+    std::println("  Height irreg.:   Lower {}×{} / Mid {}×{} / Upper {}×{}",
+                 COL_B[0], COL_H[0], COL_B[1], COL_H[1], COL_B[2], COL_H[2]);
+    std::println("  Beams:           {}×{} m, f'c={} MPa", BM_B, BM_H, BM_FPC);
+    std::println("  First yield:     t = {:.4f} s  (element {})",
                  transition_report->trigger_time,
                  transition_report->critical_element);
-    std::println("  Sub-models:    {} (Hex27, KoBatheConcrete3D)", analysis.model().num_local_models());
-    std::println("  Evolution:     {} steps, {:.1f} s — t_final = {:.4f} s",
+    std::println("  Sub-models:      {} (Hex27, KoBatheConcrete3D, per-range f'c)",
+                 analysis.model().num_local_models());
+    std::println("  Evolution:       {} steps, {:.1f} s — t_final = {:.4f} s",
                  evol_step, evol_step * DT, static_cast<double>(t_final));
-    std::println("  Peak damage:   {:.6f}", evol_max_damage);
-    std::println("  Active cracks: {} (across all sub-models at final step)", total_cracks);
-    std::println("  Output dir:    {}", OUT);
+    std::println("  Peak damage:     {:.6f}", evol_max_damage);
+    std::println("  Active cracks:   {} (across all sub-models at final step)", total_cracks);
+    std::println("  Output dir:      {}", OUT);
     sep('=');
 
     PetscFinalize();

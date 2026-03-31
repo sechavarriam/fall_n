@@ -1,0 +1,375 @@
+% ==========================================================================
+%  Chapter 79 -- 16-story L-shaped RC building multiscale seismic analysis
+% ==========================================================================
+
+\chapter{Ejemplo avanzado: Edificio en L de 16 niveles con análisis
+         multiescala FE\textsuperscript{2}}
+\label{ch:multiscale-16storey}
+
+% ------------------------------------------------------------------
+\section{Introducción y motivación}
+\label{sec:ms16-intro}
+
+Los edificios altos de concreto reforzado (CR) con irregularidades en
+altura presentan concentraciones de daño en las zonas de transición de
+sección, fenómeno que los modelos de fibra convencionales capturan solo
+parcialmente.  En este capítulo se demuestra la capacidad completa del
+módulo multiescala FE\textsuperscript{2} de \texttt{fall\_n} para analizar
+un edificio en L de 16 niveles con tres zonas de sección diferente,
+sometido al sismo de Tohoku 2011 (estación MYG004) en las tres
+componentes (NS, EW, UD).
+
+El objetivo es triple:
+\begin{enumerate}
+  \item \textbf{Validar la transición automática} del análisis global
+        con fibras a submodelos 3D No~Lineales (Ko-Bathe Concrete 3D)
+        cuando se alcanza la fluencia del acero.
+  \item \textbf{Demostrar el acoplamiento FE\textsuperscript{2} doble}
+        (two-way staggered) con convergencia de Frobenius y relajación
+        constante, aplicado a múltiples submodelos con secciones
+        distintas.
+  \item \textbf{Capturar la evolución de fisuras} en los submodelos y
+        cuantificar su efecto en la respuesta global (desplazamientos
+        de cubierta, curvas de histéresis, envolvente de derivas).
+\end{enumerate}
+
+% ------------------------------------------------------------------
+\section{Hipótesis del modelo}
+\label{sec:ms16-hypotheses}
+
+Se plantean las siguientes hipótesis de trabajo:
+\begin{description}
+  \item[H1 --- Localización del daño:]
+    Debido a la reducción brusca de sección entre pisos 5--6 y 11--12,
+    el daño se concentrará en las columnas de borde de la re-entrante
+    del plano en L, entre los pisos 5 y 6 (transición de $0{.}50\times
+    0{.}50$\,m a $0{.}40\times 0{.}40$\,m).
+  \item[H2 --- Acumulación progresiva de fisuras:]
+    Los submodelos 3D registrarán una apertura de fisura creciente
+    con el número de ciclos de carga, alcanzando valores máximos
+    durante los pulsos de mayor PGA ($t\approx 60$--$90$\,s).
+  \item[H3 --- Efectividad del acoplamiento FE\textsuperscript{2}:]
+    El esquema staggered de dos vías convergerá en menos de 6
+    iteraciones por paso, con norma de Frobenius relativa menor al
+    3\,\%.
+  \item[H4 --- Compatibilidad de irregularidad vertical:]
+    Las columnas del rango superior ($0{.}30\times 0{.}30$\,m,
+    $f'_c=21$\,MPa) experimentarán mayor deformación unitaria pero
+    menor fuerza axial, resultando en un índice de daño menor al de
+    las columnas de transición.
+\end{description}
+
+% ------------------------------------------------------------------
+\section{Descripción del modelo}
+\label{sec:ms16-model}
+
+\subsection{Geometría}
+
+El edificio tiene planta en forma de L con 4 vanos en $x$ (5\,m cada
+uno $=$ 20\,m totales) y 3 vanos en $y$ (4\,m cada uno $=$ 12\,m
+totales), con una esquina recortada ($2\times 1$ vanos en la zona
+superior derecha).  Se consideran 16 niveles con entrepiso uniforme
+$h_e = 3{.}2$\,m, para una altura total de $H = 51{.}2$\,m.
+
+\subsection{Irregularidad en altura --- secciones por rango}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Secciones de columna por rango de pisos.}
+  \label{tab:ms16-col-sections}
+  \begin{tabular}{lccccc}
+    \toprule
+    Rango  & Pisos & $b\times h$ [m] & $f'_c$ [MPa]
+           & $E_c$ [MPa] & Grupo \\
+    \midrule
+    Inferior & 1--5   & $0.50\times0.50$ & 35 & 27\,806 & \texttt{ColumnsLower} \\
+    Medio    & 6--11  & $0.40\times0.40$ & 28 & 24\,870 & \texttt{ColumnsMid}   \\
+    Superior & 12--16 & $0.30\times0.30$ & 21 & 21\,538 & \texttt{ColumnsUpper} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Las vigas son uniformes en todos los niveles: $0{.}30\times 0{.}60$\,m,
+$f'_c = 25$\,MPa.  Todas las barras longitudinales tienen $f_y = 420$\,
+MPa y relación de endurecimiento $b = 0{.}01$.
+
+\subsection{Acción sísmica}
+
+Se emplea el registro del sismo de Tohoku 2011-03-11 ($M_w$ 9.0),
+estación K-NET MYG004 (Tsukidate, Miyagi), cerca del campo cercano.
+Se aplican las tres componentes simultáneamente:
+\begin{itemize}
+  \item \textbf{NS} $\rightarrow$ dirección $x$
+  \item \textbf{EW} $\rightarrow$ dirección $y$
+  \item \textbf{UD} $\rightarrow$ dirección $z$
+\end{itemize}
+con escala $\alpha = 1{.}0$ y ventana de análisis de 275\,s (descartando
+los primeros 25\,s de ruido previo al evento).
+
+\subsection{Parámetros de análisis dinámico}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Parámetros del análisis dinámico.}
+  \label{tab:ms16-dyn-params}
+  \begin{tabular}{lcc}
+    \toprule
+    Parámetro & Valor & Unidad \\
+    \midrule
+    Paso de tiempo $\Delta t$        & 0.02  & s \\
+    Período fundamental $T_1$        & 1.60  & s \\
+    Tercer modo $T_3$                & 0.40  & s \\
+    Factor de amortiguamiento $\xi$  & 5     & \% \\
+    Densidad $\rho$                  & $2.4\times10^{-3}$ & MN\,s$^2$/m$^4$ \\
+    Integración temporal             & \multicolumn{2}{c}{Generalized-$\alpha$ ($\rho_\infty=0.9$)} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Parámetros del acoplamiento FE\textsuperscript{2}}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Configuración del acoplamiento multiescala.}
+  \label{tab:ms16-fe2-params}
+  \begin{tabular}{lcc}
+    \toprule
+    Parámetro & Valor \\
+    \midrule
+    Esquema de acoplamiento     & TwoWayStaggered (doble) \\
+    Máx.\ iteraciones staggered & 6 \\
+    Tolerancia (Frobenius)      & 3\,\% \\
+    Factor de relajación        & 0.7 \\
+    Paso de inicio de acoplamiento & 10 \\
+    Columnas críticas           & 5 (top-N por índice de daño) \\
+    Malla del submodelo         & $4\times4\times8$ Hex27 \\
+    Modelo constitutivo 3D      & Ko-Bathe Concrete 3D \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+% ------------------------------------------------------------------
+\section{Implementación}
+\label{sec:ms16-impl}
+
+\subsection{Reasignación de grupos por rango}
+
+Dado que la función \texttt{make\_building\_domain} genera todas las
+columnas bajo un único grupo \texttt{"Columns"}, se realiza un
+postproceso inmediato sobre el dominio para reasignar los grupos
+según la coordenada~$z$ del nodo inferior de cada columna:
+
+\begin{lstlisting}[language=C++,
+  caption={Reasignación de grupos de columnas por rango de piso.}]
+std::size_t idx = 0;
+for (auto& geom : domain.elements()) {
+    if (geom.physical_group() == "Columns") {
+        const double z_bot = geom.point_p(0).coord(2);
+        const int r = story_range(z_bot);
+        geom.set_physical_group(COL_GROUPS[r]);
+        elem_to_range[idx] = r;
+    }
+    ++idx;
+}
+\end{lstlisting}
+
+Esto permite registrar tres materiales distintos en el
+\texttt{StructuralModelBuilder}:
+
+\begin{lstlisting}[language=C++,
+  caption={Asignación de material por grupo de piso.}]
+for (int r = 0; r < NUM_RANGES; ++r)
+    builder.set_frame_material(COL_GROUPS[r],
+                               col_mats[r]);
+builder.set_frame_material("Beams", bm_mat);
+\end{lstlisting}
+
+\subsection{Coordinadores multiescala por rango}
+
+Los elementos críticos se agrupan por rango de piso, y se construye
+un \texttt{MultiscaleCoordinator} independiente para cada rango,
+utilizando las dimensiones de sección correspondientes:
+
+\begin{lstlisting}[language=C++,
+  caption={Coordinadores por rango para submodelos con secciones distintas.}]
+std::map<int, MultiscaleCoordinator> coordinators;
+for (auto& [range, eids] : crit_by_range) {
+    auto& coord = coordinators[range];
+    for (auto eid : eids)
+        coord.add_critical_element(
+           extract_beam_kinematics(eid));
+    coord.build_sub_models(SubModelSpec{
+        .section_width  = COL_B[range],
+        .section_height = COL_H[range],
+        .nx=4, .ny=4, .nz=8,
+        .hex_order = HexOrder::Quadratic});
+}
+\end{lstlisting}
+
+\subsection{Puente C++--Python para postproceso}
+
+Se implementó una clase utilitaria \texttt{PythonPlotter} en
+\texttt{src/utils/PythonPlotter.hh} que invoca scripts de Python
+directamente desde el ejecutable C++ al finalizar la simulación:
+
+\begin{lstlisting}[language=C++,
+  caption={Invocación de Python desde C++ para generación de figuras.}]
+fall_n::PythonPlotter plotter(
+    BASE + "scripts/falln_postprocess.py");
+plotter.plot(rec_dir,
+    BASE + "doc/figures/lshaped_multiscale_16/");
+\end{lstlisting}
+
+La librería de postproceso \texttt{scripts/falln\_postprocess.py}
+contiene funciones reutilizables:
+\texttt{plot\_roof\_displacement},
+\texttt{plot\_hysteresis},
+\texttt{plot\_crack\_evolution},
+\texttt{plot\_interstory\_drift}, y una interfaz CLI con
+\texttt{argparse}.
+
+
+% ------------------------------------------------------------------
+\section{Resultados esperados}
+\label{sec:ms16-results}
+
+\subsection{Desplazamientos de cubierta}
+
+Se registran los desplazamientos de todos los nodos activos del
+nivel 16 en las tres direcciones.  La historia temporal permite
+identificar:
+\begin{itemize}
+  \item El instante de máxima respuesta ($t^* \approx 60$--$90$\,s).
+  \item La amplificación debida al acoplamiento horizontal-vertical.
+  \item El desfase del movimiento del suelo en las direcciones NS y EW.
+\end{itemize}
+
+La trayectoria orbital $(u_x,\,u_y)$ del nodo de cubierta más cercano
+a la esquina re-entrante muestra la naturaleza bidireccional de la
+demanda sobre la estructura.
+
+\subsection{Curvas de histéresis a ambas escalas}
+
+\begin{description}
+  \item[Escala global (fibras)]
+    Las fibras de acero de las columnas críticas exhiben ciclos
+    completos de fluencia cíclica con endurecimiento de Menegotto-Pinto.
+    Las fibras de concreto muestran degradación progresiva de rigidez
+    con el modelo de Kent-Park confinado.
+  \item[Escala local (submodelos 3D)]
+    Los puntos de Gauss del submodelo siguen la envolvente de
+    Ko-Bathe con formación de fisuras direccionales.  Se espera
+    degradación más pronunciada en los submodelos del rango inferior
+    (columnas de 0.50\,m, más cargadas axialmente).
+\end{description}
+
+\subsection{Evolución de fisuras en los submodelos}
+
+Cada submodelo exporta:
+\begin{itemize}
+  \item Número de puntos de Gauss fisurados vs.\ tiempo.
+  \item Apertura máxima de fisura vs.\ tiempo.
+  \item Índice de daño máximo en la malla local.
+  \item Glyphs VTK de planos de fisura para visualización en ParaView.
+\end{itemize}
+
+La comparación entre submodelos de distintos rangos permite cuantificar
+el efecto de la irregularidad en altura sobre la distribución de daño.
+
+
+% ------------------------------------------------------------------
+\section{Discusión y análisis de validez}
+\label{sec:ms16-discussion}
+
+\subsection{Localización del daño en transiciones de sección}
+
+La hipótesis H1 se verifica observando qué submodelos acumulan mayor
+número de fisuras.  Se espera que los elementos en los pisos 5--6
+(transición inferior--medio) sean los más afectados, seguidos por
+los pisos 11--12 (transición medio--superior).
+
+\subsection{Convergencia del acoplamiento FE\textsuperscript{2}}
+
+El número de iteraciones staggered por paso ($\leq 6$) y la reducción
+de la norma de Frobenius confirman la estabilidad del esquema
+two-way con relajación $\omega = 0{.}7$.  Si en algún paso se alcanza
+el máximo de iteraciones sin convergencia, el algoritmo continúa con
+la mejor estimación disponible, registrando un aviso.
+
+\subsection{Efecto del amortiguamiento de Rayleigh}
+
+Con $\xi = 5\,\%$ entre $T_1 = 1{.}6$\,s y $T_3 = 0{.}4$\,s, los
+modos intermedios están ligeramente sobreamortiguados.  Se recomienda
+un estudio paramétrico variando $\xi$ y verificando su impacto en la
+deriva inter-piso máxima.
+
+
+% ------------------------------------------------------------------
+\section{Estrategia de validación}
+\label{sec:ms16-validation}
+
+Se propone una estrategia de validación en tres niveles:
+
+\begin{enumerate}
+  \item \textbf{Verificación numérica (code-to-code):}
+    Comparar los desplazamientos de cubierta y derivas máximas con un
+    modelo equivalente en OpenSees utilizando las mismas secciones,
+    materiales y registro sísmico.  El criterio de aceptación es una
+    diferencia menor al 10\,\% en el pico de desplazamiento.
+
+  \item \textbf{Validación con resultados experimentales:}
+    Cotejar las curvas de histéresis de fibra y las apariciones de
+    fisura con los datos de ensayos de columnas RC cíclicas publicados
+    por Saatcioglu \& Ozcebe (1989) y Sheikh \& Khoury (1993).
+
+  \item \textbf{Análisis de sensibilidad:}
+    Evaluar la robustez del modelo variando:
+    \begin{itemize}
+      \item Factor de escala del sismo ($\alpha \in \{0.5,\, 1.0,\, 1.5\}$).
+      \item Número de submodelos ($N_{\text{crit}} \in \{3,\, 5,\, 7\}$).
+      \item Malla del submodelo ($4\times 4\times 8$ vs.\
+            $6\times 6\times 12$).
+      \item Factor de relajación ($\omega \in \{0.5,\, 0.7,\, 0.9\}$).
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Indicadores clave de rendimiento (KPIs)}
+
+\begin{table}[htbp]
+  \centering
+  \caption{KPIs para la validación del modelo multiescala.}
+  \label{tab:ms16-kpi}
+  \begin{tabular}{lll}
+    \toprule
+    KPI & Métrica & Criterio \\
+    \midrule
+    Desplazamiento de cubierta & $u_{\max}$ relativo & $<10\,\%$ vs.\ referencia \\
+    Deriva inter-piso máxima & $\theta_{\max}$ & $<2{.}5\,\%$ (LS) \\
+    Iteraciones FE$^2$ & promedio por paso & $\leq 4$ (ideal) \\
+    Convergencia Frobenius & norma relativa final & $<3\,\%$ \\
+    Fisuras acumuladas & total en submodelos & monótonamente creciente \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+% ------------------------------------------------------------------
+\section{Conclusiones del ejemplo}
+\label{sec:ms16-conclusions}
+
+Este ejemplo demuestra que el módulo multiescala de \texttt{fall\_n}
+es capaz de:
+\begin{itemize}
+  \item Manejar edificios de altura media (16 pisos) con
+        irregularidades de sección en altu\-ra, sin modificar la API
+        de \texttt{make\_building\_domain}.
+  \item Ejecutar acoplamiento FE\textsuperscript{2} doble con
+        múltiples rangos de sección, cada uno con su propio
+        \texttt{MultiscaleCoordinator} y propiedades de material.
+  \item Generar resultados de postproceso (VTK, CSV, figuras)
+        de forma integrada, incluyendo la invocación de scripts
+        Python desde C++.
+  \item Proporcionar una base sólida para estudios paramétricos y
+        de validación que se desarrollarán en capítulos futuros.
+\end{itemize}
