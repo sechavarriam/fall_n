@@ -191,6 +191,28 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(fall_n_rc_beam_validation PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# ── 4-legged table, MITC16 shell slab, multiscale FE² + embedded rebar ───────
+add_executable(fall_n_table_multiscale main_table_multiscale.cpp)
+target_link_libraries(fall_n_table_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_table_multiscale MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_table_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_table_multiscale PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_table_multiscale PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
+add_executable(fall_n_table_cyclic_validation main_table_cyclic_validation.cpp)
+target_link_libraries(fall_n_table_cyclic_validation PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(TARGETS fall_n_table_cyclic_validation MODULES ${VTK_LIBRARIES})
+target_include_directories(fall_n_table_cyclic_validation PRIVATE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_table_cyclic_validation PRIVATE
+        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_table_cyclic_validation PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
 # ==============================================================================

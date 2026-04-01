@@ -1,0 +1,101 @@
+========================================================================
+  fall_n — 4-Legged Table: MITC16 Shell + RC Multiscale FE²
+  Tohoku 2011 (MYG004 NS+EW+UD) + Fiber Sections + Embedded Rebar
+========================================================================
+
+[1] Loading 3-component earthquake records...
+  Station       : MYG004 (Tsukidate, Miyagi)
+  Event         : Tohoku 2011-03-11 Mw 9.0
+  Window        : [40 s, 42 s]
+  PGA (NS)      : 7.567 m/s² (0.771 g)
+  PGA (EW)      : 3.081 m/s² (0.314 g)
+  PGA (UD)      : 1.825 m/s² (0.186 g)
+  Scale factor  : 50.00
+
+[2] Building 4-legged table domain...
+  Total nodes   : 20
+  Columns       : 4  (2-node beams)
+  Shell slab    : 1  (16-node MITC16)
+  Plan          : 5 × 5 m,  height = 3.2 m
+
+[3] Building RC fiber section (columns)...
+  Section : 0.25×0.25 m, f'c = 30 MPa
+
+[4] Building elastic shell material (slab)...
+  Thickness : 0.2 m,  Ec = 25743 MPa
+
+[5] Assembling structural model...
+  Total structural elements : 5
+  Shell geometries          : 1
+
+[6] Configuring dynamic solver (3-component)...
+  Density          : 0.0024 MN·s²/m⁴
+  Damping          : 5%
+  T₁ (approx.)    : 0.55 s
+  T₃ (approx.)    : 0.15 s
+  Time step        : 0.01 s
+  Duration         : 2 s
+
+[7] Setting up observers...
+  DamageTracker     : top-4, every step
+  FiberHysteresis   : top-4/material, every step
+  NodeRecorder      : 12 channels (roof corners)
+
+[8] Configuring transition director...
+  Criterion  : MaxStrain (ε_ref = 0.002100)
+  Threshold  : damage_index > 0.3
+========================================================================
+
+[9] PHASE 1: Global fiber-section dynamic analysis
+    Running until first steel fiber reaches yield...
+    t=0.0006 s  step=   5  |u|=5.586e-06 m  damage=4.570843e-04
+    t=0.0019 s  step=  10  |u|=5.609e-05 m  damage=2.458605e-03
+    t=0.0033 s  step=  15  |u|=1.748e-04 m  damage=5.508788e-03
+    t=0.0050 s  step=  20  |u|=3.931e-04 m  damage=9.939969e-03
+    t=0.0067 s  step=  25  |u|=7.249e-04 m  damage=1.574360e-02
+    t=0.0085 s  step=  30  |u|=1.143e-03 m  damage=2.228769e-02
+    t=0.0102 s  step=  35  |u|=1.635e-03 m  damage=2.931940e-02
+    t=0.0118 s  step=  40  |u|=2.160e-03 m  damage=3.623143e-02
+    t=0.0134 s  step=  45  |u|=2.723e-03 m  damage=4.304061e-02
+    t=0.0151 s  step=  50  |u|=3.320e-03 m  damage=4.967216e-02
+    t=0.0168 s  step=  55  |u|=3.940e-03 m  damage=5.587854e-02
+    t=0.0187 s  step=  60  |u|=4.567e-03 m  damage=6.133512e-02
+    t=0.0206 s  step=  65  |u|=5.160e-03 m  damage=6.550946e-02
+    t=0.0223 s  step=  70  |u|=5.630e-03 m  damage=6.794671e-02
+    t=0.0241 s  step=  75  |u|=6.031e-03 m  damage=6.897970e-02
+    t=0.0261 s  step=  80  |u|=6.316e-03 m  damage=6.897970e-02
+    t=0.0283 s  step=  85  |u|=6.428e-03 m  damage=6.897970e-02
+    t=0.0306 s  step=  90  |u|=6.316e-03 m  damage=6.897970e-02
+    t=0.0327 s  step=  95  |u|=6.013e-03 m  damage=6.897970e-02
+    t=0.0348 s  step= 100  |u|=5.555e-03 m  damage=6.897970e-02
+    t=0.0367 s  step= 105  |u|=4.981e-03 m  damage=6.897970e-02
+    t=0.0386 s  step= 110  |u|=4.320e-03 m  damage=6.897970e-02
+    t=0.0405 s  step= 115  |u|=3.595e-03 m  damage=6.897970e-02
+    t=0.0424 s  step= 120  |u|=2.854e-03 m  damage=6.897970e-02
+    t=0.0443 s  step= 125  |u|=2.097e-03 m  damage=6.897970e-02
+    t=0.0462 s  step= 130  |u|=1.668e-03 m  damage=6.897970e-02
+    t=0.0483 s  step= 135  |u|=2.140e-03 m  damage=6.897970e-02
+    t=0.0504 s  step= 140  |u|=2.622e-03 m  damage=6.897970e-02
+    t=0.0525 s  step= 145  |u|=2.999e-03 m  damage=6.897970e-02
+    t=0.0546 s  step= 150  |u|=3.246e-03 m  damage=6.897970e-02
+    t=0.0569 s  step= 155  |u|=3.316e-03 m  damage=6.897970e-02
+    t=0.0592 s  step= 160  |u|=3.171e-03 m  damage=6.897970e-02
+    t=0.0612 s  step= 165  |u|=2.867e-03 m  damage=6.897970e-02
+    t=0.0630 s  step= 170  |u|=2.494e-03 m  damage=6.897970e-02
+    t=0.0648 s  step= 175  |u|=2.003e-03 m  damage=6.897970e-02
+    t=0.0665 s  step= 180  |u|=1.409e-03 m  damage=6.897970e-02
+    t=0.0684 s  step= 185  |u|=7.219e-04 m  damage=6.897970e-02
+    t=0.0702 s  step= 190  |u|=6.116e-04 m  damage=6.897970e-02
+    t=0.0720 s  step= 195  |u|=9.387e-04 m  damage=6.897970e-02
+    t=0.0738 s  step= 200  |u|=1.669e-03 m  damage=6.897970e-02
+    t=0.0757 s  step= 205  |u|=2.407e-03 m  damage=6.897970e-02
+    t=0.0776 s  step= 210  |u|=3.085e-03 m  damage=6.897970e-02
+    t=0.0797 s  step= 215  |u|=3.680e-03 m  damage=6.897970e-02
+    t=0.0815 s  step= 220  |u|=4.066e-03 m  damage=6.897970e-02
+    t=0.0832 s  step= 225  |u|=4.278e-03 m  damage=6.897970e-02
+    t=0.0850 s  step= 230  |u|=4.333e-03 m  damage=6.897970e-02
+    t=0.0868 s  step= 235  |u|=4.274e-03 m  damage=6.897970e-02
+    t=0.0887 s  step= 240  |u|=4.027e-03 m  damage=6.897970e-02
+    t=0.0906 s  step= 245  |u|=3.874e-03 m  damage=6.897970e-02
+    t=0.0922 s  step= 250  |u|=4.133e-03 m  damage=6.897970e-02
+    t=0.0939 s  step= 255  |u|=4.312e-03 m  damage=6.897970e-02

@@ -772,3 +772,31 @@
   [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
   [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
   [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+    [FE²] step=  55  t=1.420 s  |u|=2.258e-01 m  damage=4.9271  cracks=1910  stag_iter=6
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+    [FE²] step=  56  t=1.425 s  |u|=2.267e-01 m  damage=4.9817  cracks=1913  stag_iter=6
+  [SubModel 0] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target
+  [SubModel 0] Adaptive sub-stepping FAILED after 0 sub-steps (min frac 7.8e-03)
+  [SubModel 14] Adaptive sub-stepping: 2 sub-steps to reach target

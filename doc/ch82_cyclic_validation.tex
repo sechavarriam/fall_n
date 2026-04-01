@@ -1,0 +1,220 @@
+% =============================================================================
+%  ch82_cyclic_validation.tex — Progressive cyclic validation of FE² pipeline
+% =============================================================================
+
+\chapter{Progressive Cyclic Validation of the FE² Pipeline}
+\label{ch:cyclic-validation}
+
+This chapter documents a progressive validation suite for the
+nonlinear analysis and FE² multiscale pipeline.  Five cases of
+increasing complexity are solved under the same cyclic displacement
+protocol, using a \enquote{4-legged table} geometry as the base
+structure.
+
+%----------------------------------------------------------------------
+\section{Motivation}
+\label{sec:cyclic-motivation}
+
+The seismic table analysis of Chapter~\ref{ch:table-multiscale}
+demonstrated the full FE² pipeline but posed challenges in isolating
+the source of convergence difficulties.  This validation suite
+replaces the dynamic seismic excitation with a quasi-static
+displacement-controlled cyclic protocol, guaranteeing that each
+amplitude level is reached regardless of dynamic effects.  The
+progressive structure isolates complexity layer by layer:
+
+\begin{enumerate}
+  \item \textbf{Case~1} — Single beam element with RC fiber sections,
+    validating the constitutive response at the section level.
+  \item \textbf{Case~2} — Single continuum column with KoBathe
+    concrete and embedded rebar, validating the 3D constitutive model.
+  \item \textbf{Case~3} — Full table structural model (4~beams +
+    MITC16 shell), validating the mixed-element nonlinear solver.
+  \item \textbf{Case~4} — Table with FE² sub-models in one direction
+    (not yet implemented).
+  \item \textbf{Case~5} — Table with FE² sub-models in two directions
+    (not yet implemented).
+\end{enumerate}
+
+
+%----------------------------------------------------------------------
+\section{Shared Geometry and Material Properties}
+\label{sec:cyclic-geometry}
+
+All cases share the same RC column section and material parameters,
+matching the table geometry of Chapter~\ref{ch:table-multiscale}:
+
+\begin{table}[htbp]
+\centering
+\caption{Shared geometric and material parameters.}
+\label{tab:cyclic-params}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Parameter}    & \textbf{Value} & \textbf{Unit} \\
+\midrule
+Plan dimensions       & $5.0 \times 5.0$ & m \\
+Column height $H$     & 3.2        & m \\
+Column section        & $0.25 \times 0.25$ & m \\
+Clear cover           & 0.03       & m \\
+Bar diameter          & 16         & mm \\
+$f'_c$                & 30.0       & MPa \\
+$E_s$                 & 200\,000   & MPa \\
+$f_y$                 & 420        & MPa \\
+$b$ (hardening)       & 0.01       & --- \\
+Slab thickness        & 0.20       & m \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%----------------------------------------------------------------------
+\section{Cyclic Displacement Protocol}
+\label{sec:cyclic-protocol}
+
+The loading protocol is a triangular cyclic displacement with four
+amplitude levels (Figure~\ref{fig:cyclic-protocol}):
+
+\[
+  \delta_k \in \{1, 2, 4, 8\} \times \delta_y
+  \qquad \text{where } \delta_y \approx 0.01 \text{ m}
+\]
+
+Each amplitude level consists of three linear segments:
+$0 \to +\delta_k$, $+\delta_k \to -\delta_k$, and
+$-\delta_k \to 0$, giving 12~segments mapped onto the control
+parameter $p \in [0, 1]$.  With 120~incremental steps and up to
+6~levels of bisection, this provides 10~solver steps per segment.
+
+The displacement protocol function is:
+\begin{equation}
+  d(p) = \begin{cases}
+    f \cdot A_k        & \text{phase 0 (ascending)} \\
+    A_k(1 - 2f)        & \text{phase 1 (descending)} \\
+    -A_k(1 - f)        & \text{phase 2 (return)}
+  \end{cases}
+\end{equation}
+where $A_k$ is the current amplitude, $f$ is the fractional position
+within the current segment, and the segment index is derived from
+$p \times 12$.
+
+
+%----------------------------------------------------------------------
+\section{Case 1: Single Cantilever Beam}
+\label{sec:cyclic-case1}
+
+A single vertical column from $z = 0$ (clamped) to $z = H$
+(displacement-controlled in~$X$) is modelled with
+\texttt{TimoshenkoBeamN<N>} for $N = 2, 3, 4$.  The RC fiber section
+uses Kent--Park confined/unconfined concrete and Menegotto--Pinto
+steel, identical to the table columns.
+
+\begin{itemize}
+  \item \textbf{Case~1a:} $N = 2$ (linear, 1 Gauss point)
+  \item \textbf{Case~1b:} $N = 3$ (quadratic, 2 Gauss points)
+  \item \textbf{Case~1c:} $N = 4$ (cubic, 3 Gauss points)
+\end{itemize}
+
+The hysteresis curves (drift vs.\ base shear) validate convergence
+of the fiber-section response with increasing element order.
+
+
+%----------------------------------------------------------------------
+\section{Case 2: Single Continuum Column}
+\label{sec:cyclic-case2}
+
+A prismatic column ($0.25 \times 0.25 \times 3.2$~m) is meshed with
+$2 \times 2 \times 12$ hexahedral elements plus 8~embedded truss
+rebar bars.  Three element orders are compared:
+
+\begin{itemize}
+  \item \textbf{Case~2a:} Hex8 (trilinear)
+  \item \textbf{Case~2b:} Hex20 (serendipity)
+  \item \textbf{Case~2c:} Hex27 (triquadratic)
+\end{itemize}
+
+The continuum model uses the KoBathe concrete constitutive law
+and Menegotto--Pinto embedded rebar, matching the FE² sub-model
+material configuration.  The bottom face is fully clamped; the top
+face is displacement-controlled in~$X$ with $u_y$ and $u_z$ free.
+
+
+%----------------------------------------------------------------------
+\section{Case 3: Full Table Structural Model}
+\label{sec:cyclic-case3}
+
+The complete 4-legged table is assembled with 4~\texttt{BeamElement}
+columns and 1~MITC16 shell slab (20~nodes, 5~elements).  All four
+base nodes are clamped; the four slab corner nodes are
+displacement-controlled in~$X$ with a uniform drift.
+
+This case validates the mixed beam--shell nonlinear solver under
+cyclic loading, prior to introducing the multiscale sub-models.
+
+
+%----------------------------------------------------------------------
+\section{Comparative Analysis}
+\label{sec:cyclic-comparison}
+
+The hysteresis curves from all cases are plotted on a common
+drift--base-shear axis.  Key observations:
+
+\begin{enumerate}
+  \item \textbf{Beam convergence (Case~1):} The three beam orders
+    should produce similar hysteresis loops, with the quadratic and
+    cubic elements converging faster through the nonlinear regime.
+
+  \item \textbf{Continuum mesh sensitivity (Case~2):} The hex element
+    order affects the crack-band width and post-peak softening.
+    Hex20 and Hex27 capture more distributed cracking than Hex8.
+
+  \item \textbf{Beam vs.\ continuum (Cases 1 vs.\ 2):} The beam
+    fiber-section model produces a smoother hysteresis loop than the
+    KoBathe concrete model, which exhibits localised cracking and
+    potentially asymmetric degradation.
+
+  \item \textbf{Structural model (Case~3):} The full table response
+    should be approximately 4$\times$ the single-column shear
+    (symmetric plan, uniform drift), modulated by the slab stiffness.
+\end{enumerate}
+
+
+%----------------------------------------------------------------------
+\section{FE² Allocation Audit}
+\label{sec:fe2-alloc-audit}
+
+An audit of the PETSc vector allocations in the FE² pipeline
+(\texttt{NonlinearSubModelEvolver}) was performed.  The key findings:
+
+\begin{itemize}
+  \item \texttt{FormResidual}: 2~\texttt{DMGetLocalVector} per SNES
+    iteration (plus corresponding restores).
+  \item \texttt{FormJacobian}: 1~\texttt{DMGetLocalVector} per SNES
+    iteration.
+  \item \texttt{compute\_homogenized\_tangent}: 2~\texttt{VecDuplicate}
+    per call (for saving/restoring the solution).
+  \item \textbf{No memory leak} was found in
+    \texttt{section\_forces\_from\_reactions()} —
+    \texttt{DMRestoreLocalVector} is correctly called.
+  \item \textbf{Optimisation opportunity}: Pre-allocating working
+    vectors as class members would eliminate $\sim$80 allocation/deallocation
+    cycles per global step per sub-model.
+\end{itemize}
+
+
+%----------------------------------------------------------------------
+\section{Implementation}
+\label{sec:cyclic-implementation}
+
+The validation driver is implemented in
+\texttt{main\_table\_cyclic\_validation.cpp} with a CLI dispatch:
+
+\begin{verbatim}
+  ./fall_n_table_cyclic_validation --case 1a   # single case
+  ./fall_n_table_cyclic_validation --case all   # all 7 cases
+\end{verbatim}
+
+Each case produces a \texttt{hysteresis.csv} file and VTK output
+in the subdirectory
+\texttt{data/output/cyclic\_validation/case\{id\}/}.
+A Python plotting script (\texttt{scripts/plot\_cyclic\_validation.py})
+generates comparative PDF figures.

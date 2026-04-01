@@ -390,10 +390,36 @@ inline PrismaticSpec align_to_beam(
 namespace fall_n {
 
 // ── Rebar bar specification (single longitudinal bar) ────────────────
+//
+//  Bars are placed at their exact physical (y, z) coordinates relative
+//  to the section centre — NOT snapped to grid corners.  This gives
+//  physically correct positioning inside the concrete cover.
+//
+//  The PrismaticDomainBuilder creates independent rebar nodes at these
+//  positions (one per z-level of the grid).  The EmbeddingInfo records
+//  which host hex element contains each rebar node and the parent
+//  coordinates (ξ, η) on the cross-section, enabling shape-function
+//  interpolation for the Master-Slave coupling.
+//
 struct RebarBar {
-    int ix, iy;               ///< Grid node position in cross-section
-    double area;              ///< Bar cross-sectional area [length²]
+    double ly{0};             ///< Local y coordinate [m] (section width dir)
+    double lz{0};             ///< Local z coordinate [m] (section height dir)
+    double area{0};           ///< Bar cross-sectional area [length²]
+    double diameter{0};       ///< Bar diameter [m] (for VTK visualisation)
     std::string group = "Rebar";  ///< Physical group label
+};
+
+// ── Embedding info for a single rebar node ───────────────────────────
+//  Maps a rebar-only node to its host hex element so that the
+//  displacement can be interpolated as  u_rebar = Σ N_i(ξ,η,ζ) · u_i.
+struct RebarNodeEmbedding {
+    PetscInt  rebar_node_id{-1};    ///< Node ID in the Domain
+    int       host_elem_ix{0};      ///< Host hex element index (ix in grid)
+    int       host_elem_iy{0};      ///< Host hex element index (iy in grid)
+    int       host_elem_iz{0};      ///< Host hex element index (iz in grid)
+    double    xi{0};                ///< Parent coordinate ξ ∈ [-1,1] in host
+    double    eta{0};               ///< Parent coordinate η ∈ [-1,1] in host
+    double    zeta{0};              ///< Parent coordinate ζ ∈ [-1,1] in host
 };
 
 // ── Rebar specification for a prismatic section ──────────────────────
@@ -402,18 +428,27 @@ struct RebarSpec {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-//  make_reinforced_prismatic_domain — hex8 mesh with embedded rebar
+//  make_reinforced_prismatic_domain — hex mesh with embedded rebar
 // ─────────────────────────────────────────────────────────────────────
 //
-//  Same as make_prismatic_domain but also generates 2-node line elements
-//  along the z-axis (beam axis) at the grid positions specified by the
-//  rebar bars.  Each bar at (ix, iy) produces nz line elements connecting
-//  consecutive z-level nodes.  These line elements share nodes with the
-//  hex8 elements (perfect-bond assumption).
+//  Generates a prismatic hex mesh identical to make_prismatic_domain,
+//  then adds embedded rebar bars at their EXACT physical positions
+//  within the cross-section.
 //
-//  The returned RebarElementRange provides the index range [first, last)
-//  of rebar element geometries within the Domain's element list, so the
-//  caller can construct TrussElements from them.
+//  Each rebar bar at (ly, lz) produces:
+//    - (nz + 1) × step  additional nodes at the physical bar position
+//      along each z-level of the grid.
+//    - nz line elements connecting consecutive rebar nodes.
+//
+//  The rebar nodes do NOT coincide with hex nodes (unless the bar
+//  position happens to match a grid node).  The coupling between
+//  rebar and continuum is provided by the caller via penalty springs
+//  or MPC, using the RebarNodeEmbedding data which records:
+//    - host hex element indices (ix, iy) in the cross-section
+//    - parent coordinates (ξ, η) within the host element
+//
+//  For visualisation, each RebarBar stores its diameter so that VTK
+//  can render tubes with physically correct cross-section size.
 //
 struct RebarElementRange {
     std::size_t first;  ///< First rebar element index in Domain::elements()
@@ -424,6 +459,13 @@ struct ReinforcedDomainResult {
     Domain<3>          domain;
     PrismaticGrid      grid;
     RebarElementRange  rebar_range;
+
+    /// Per-bar embedding info: host hex element + parent coordinates.
+    /// Size = num_bars × (nz + 1) rebar nodes.
+    std::vector<RebarNodeEmbedding> embeddings;
+
+    /// Per-bar diameters: one per bar (same order as RebarSpec::bars).
+    std::vector<double> bar_diameters;
 };
 
 inline ReinforcedDomainResult
@@ -445,9 +487,14 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
 
     Domain<3> domain;
 
-    // ── Nodes (same scheme as make_prismatic_domain) ──────────────
-    const auto total = static_cast<std::size_t>(grid.total_nodes());
-    domain.preallocate_node_capacity(total);
+    // ── Hex nodes (same scheme as make_prismatic_domain) ──────────
+    const auto total_hex_nodes = static_cast<std::size_t>(grid.total_nodes());
+    const auto num_bars = rebar.bars.size();
+    const auto rebar_nodes_per_bar =
+        static_cast<std::size_t>(step * spec.nz + 1);
+    const auto total_rebar_nodes = num_bars * rebar_nodes_per_bar;
+
+    domain.preallocate_node_capacity(total_hex_nodes + total_rebar_nodes);
 
     const double x0 = -spec.width  / 2.0;
     const double y0 = -spec.height / 2.0;
@@ -549,20 +596,90 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
         }
     }
 
-    // ── Rebar line elements ───────────────────────────────────────
-    //  Rebar bars connect corner nodes (at even indices for HO grids).
-    //  For Hex8 (step=1) this reduces to the original logic.
-    const std::size_t rebar_first = domain.num_elements();
+    // ── Rebar: create independent nodes at exact physical positions ──
+    //
+    //  Each bar at local (ly, lz) gets rebar_nodes_per_bar nodes along
+    //  the z-axis.  Node IDs start after the hex grid nodes.
+    //  For each rebar node, we compute:
+    //    - The host hex element (ix_host, iy_host) that contains (ly, lz)
+    //    - The parent coordinates (ξ, η) within that element
+    //
+    PetscInt rebar_base_id = static_cast<PetscInt>(total_hex_nodes);
+    std::vector<RebarNodeEmbedding> embeddings;
+    embeddings.reserve(total_rebar_nodes);
+    std::vector<double> bar_diameters;
+    bar_diameters.reserve(num_bars);
 
-    for (const auto& bar : rebar.bars) {
+    for (std::size_t b = 0; b < num_bars; ++b) {
+        const auto& bar = rebar.bars[b];
+        bar_diameters.push_back(bar.diameter);
+
+        // Map physical (ly, lz) → host hex element in cross-section
+        //   ly ∈ [-width/2, width/2] → X direction
+        //   lz ∈ [-height/2, height/2] → Y direction
+        const double fx = (bar.ly - x0) / dx;  // fractional element index
+        const double fy = (bar.lz - y0) / dy;
+
+        int ix_host = static_cast<int>(std::floor(fx));
+        int iy_host = static_cast<int>(std::floor(fy));
+        ix_host = std::clamp(ix_host, 0, spec.nx - 1);
+        iy_host = std::clamp(iy_host, 0, spec.ny - 1);
+
+        // Parent coordinates (ξ, η) ∈ [-1, 1] within the host element
+        const double xi  = 2.0 * (fx - static_cast<double>(ix_host)) - 1.0;
+        const double eta = 2.0 * (fy - static_cast<double>(iy_host)) - 1.0;
+
+        // Create rebar nodes along the z-axis at each z sub-level
+        for (std::size_t iz = 0; iz < rebar_nodes_per_bar; ++iz) {
+            const PetscInt nid = rebar_base_id++;
+            const double lz_pos = static_cast<double>(iz) * sub_dz;
+
+            const double gx = spec.origin[0]
+                + bar.ly * spec.e_x[0] + bar.lz * spec.e_y[0]
+                + lz_pos * spec.e_z[0];
+            const double gy = spec.origin[1]
+                + bar.ly * spec.e_x[1] + bar.lz * spec.e_y[1]
+                + lz_pos * spec.e_z[1];
+            const double gz = spec.origin[2]
+                + bar.ly * spec.e_x[2] + bar.lz * spec.e_y[2]
+                + lz_pos * spec.e_z[2];
+
+            domain.add_node(nid, gx, gy, gz);
+
+            // Host hex element in the z-direction and parent ζ
+            int iz_elem = static_cast<int>(iz) / step;
+            if (iz_elem >= spec.nz) iz_elem = spec.nz - 1;
+            const double zeta_r = 2.0
+                * static_cast<double>(static_cast<int>(iz) - iz_elem * step)
+                / static_cast<double>(step) - 1.0;
+
+            embeddings.push_back(RebarNodeEmbedding{
+                nid, ix_host, iy_host, iz_elem,
+                xi, eta, zeta_r});
+        }
+    }
+
+    // ── Rebar line elements ───────────────────────────────────────
+    //  Each bar produces nz line elements connecting consecutive
+    //  rebar nodes.  For quadratic (step=2) meshes, line elements
+    //  connect every-other rebar node (corner nodes of each z-layer).
+    const std::size_t rebar_first = domain.num_elements();
+    const PetscInt rebar_nodes_base =
+        static_cast<PetscInt>(total_hex_nodes);
+
+    for (std::size_t b = 0; b < num_bars; ++b) {
+        const PetscInt bar_start =
+            rebar_nodes_base
+            + static_cast<PetscInt>(b * rebar_nodes_per_bar);
+
         for (int iz = 0; iz < spec.nz; ++iz) {
             PetscInt conn[2] = {
-                grid.node_id(step * bar.ix, step * bar.iy, step * iz),
-                grid.node_id(step * bar.ix, step * bar.iy, step * (iz + 1)),
+                bar_start + static_cast<PetscInt>(step * iz),
+                bar_start + static_cast<PetscInt>(step * (iz + 1)),
             };
             auto& geom = domain.make_element<LagrangeElement3D<2>>(
                 GaussLegendreCellIntegrator<2>{}, tag++, conn);
-            geom.set_physical_group(bar.group);
+            geom.set_physical_group(rebar.bars[b].group);
         }
     }
 
@@ -571,7 +688,9 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
     domain.assemble_sieve();
 
     return {std::move(domain), std::move(grid),
-            RebarElementRange{rebar_first, rebar_last}};
+            RebarElementRange{rebar_first, rebar_last},
+            std::move(embeddings),
+            std::move(bar_diameters)};
 }
 
 } // namespace fall_n

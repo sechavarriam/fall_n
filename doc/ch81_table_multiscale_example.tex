@@ -1,0 +1,200 @@
+% =============================================================================
+%  ch81_table_multiscale_example.tex
+%  Ejemplo de mesa de 4 patas: MITC16 shell + FE² multiescala con armadura
+% =============================================================================
+\chapter{Ejemplo «mesa de 4 patas»: shell MITC16 + análisis multiescala F\MakeLowercase{E}²}
+\label{ch:table-multiscale}
+
+\section{Motivación}
+
+Para ilustrar de modo compacto las capacidades del marco de análisis
+---~secciones de fibra a escala global, submodelos 3D con hormigón Ko-Bathe y
+armadura embebida a escala local, y excitación sísmica triaxial---se propone un
+modelo mínimo denominado «mesa de 4 patas».  La geometría reduce a cuatro
+columnas de hormigón armado que sostienen una losa superior modelada con un
+único elemento shell MITC16 bicúbico de 16 nodos.
+
+\section{Geometría y malla}
+
+\subsection{Planta y alzado}
+
+\begin{itemize}
+  \item \textbf{Planta}: $5 \times 5$~m.
+  \item \textbf{Altura}: $H = 3{,}2$~m (una sola planta).
+  \item \textbf{Columnas}: 4 pilares de sección $0{,}40 \times 0{,}40$~m
+        ubicados en las esquinas $(0,0)$, $(5,0)$, $(0,5)$ y $(5,5)$.
+  \item \textbf{Losa}: shell bicúbico MITC16 ($16$ nodos), espesor $t = 0{,}20$~m.
+\end{itemize}
+
+\subsection{Nodos}
+
+La malla contiene $20$ nodos:
+\begin{enumerate}
+  \item Nodos 0--3: bases de columna a $z = 0$.
+  \item Nodos 4--19: cuadrícula $4 \times 4$ a $z = H$, con separación
+        uniforme $L/3$ en cada dirección.  Las esquinas corresponden a
+        los nodos 4, 7, 16 y 19.
+\end{enumerate}
+
+\subsection{Elementos}
+
+\begin{enumerate}
+  \item Elementos 0--3: vigas de 2 nodos (\texttt{BeamElement$<$TimoshenkoBeam3D,3,SmallRotation$>$}),
+        cada una conectando un nodo base al nodo esquina de la losa.
+  \item Elemento 4: shell MITC16
+        (\texttt{MITC16Shell$<>$} $\equiv$ \texttt{MITCShellElement$<$16, MindlinReissnerShell3D, mitc::MITC16, SmallRotation$>$}),
+        con los $16$ nodos de la losa.
+\end{enumerate}
+
+\section{Materiales}
+
+\subsection{Hormigón y acero}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parámetro & Valor & Unidades \\
+\midrule
+$f'_c$ (columnas)       & 30    & MPa \\
+$E_c = 4700\sqrt{f'_c}$ & 25\,743 & MPa \\
+$\nu$                    & 0,20  & --- \\
+$E_s$                    & 200\,000 & MPa \\
+$f_y$                    & 420   & MPa \\
+$b$ (endurecimiento)     & 0,01  & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Secciones de fibra (escala global)}
+
+Cada columna emplea una sección de fibra
+\texttt{make\_rc\_column\_section} con:
+\begin{itemize}
+  \item Ancho/alto: $0{,}40 \times 0{,}40$~m.
+  \item Recubrimiento: $0{,}04$~m.
+  \item Barras $\varnothing 20$~mm con estribo $s = 0{,}10$~m.
+  \item Modelo de confinamiento Mander.
+\end{itemize}
+
+\subsection{Losa (shell elástico)}
+
+La losa emplea un material Mindlin-Reissner elástico:
+$E_c = 25\,743$~MPa, $\nu = 0{,}20$, $t = 0{,}20$~m,
+con factor de corrección de cortante $\kappa = 5/6$.
+La contribución principal de la losa es aportar la masa distribuida
+necesaria para el análisis dinámico.
+
+\section{Carga sísmica}
+
+Se utiliza el registro MYG004 del terremoto de Tohoku 2011
+($M_w\,9{,}0$) con tres componentes (NS, EW, UD).
+Se extrae una ventana de $1{,}0$~s a partir de $t = 40$~s
+(inicio del movimiento fuerte) y se aplica un factor de amplificación
+por defecto de $15{,}0$ para garantizar la plastificación de las
+columnas en esta estructura de baja altura.
+
+La excitación se introduce como pseudo-fuerza:
+\[
+  \mathbf{f}_{\mathrm{pseudo}}(t) \;=\; -\,\mathbf{M}\;\hat{\mathbf{g}}_d\;a_{g,d}(t),
+  \qquad d \in \{X,\,Y,\,Z\}.
+\]
+
+\section{Análisis dinámico}
+
+\subsection{Integrador temporal}
+
+\begin{itemize}
+  \item Esquema $\alpha$-generalizado (PETSc TS) con $\rho_\infty = 0{,}9$.
+  \item Paso de tiempo $\Delta t = 0{,}01$~s.
+  \item Amortiguamiento de Rayleigh al $5\%$ en $T_1 \approx 0{,}32$~s
+        y $T_3 \approx 0{,}10$~s.
+  \item Densidad uniforme $\rho = 2{,}4 \times 10^{-3}$~MN$\cdot$s$^2$/m$^4$.
+\end{itemize}
+
+\subsection{Fase 1: análisis global con fibras}
+
+Se avanza el sistema global paso a paso hasta que el índice de daño
+(máxima deformación de fibra de acero normalizada por $\varepsilon_y$)
+supere $1{,}0$.  Este instante marca la transición a la fase multiescala.
+
+\subsection{Fase 2: evolución multiescala FE²}
+
+Al detectar plastificación:
+\begin{enumerate}
+  \item Se identifican las columnas con mayor daño ($d > 0{,}5$).
+  \item Se extraen las cinemáticas seccionales en los extremos de cada
+        columna crítica.
+  \item Se construyen sub-modelos prismáticos Hex27
+        ($2 \times 2 \times 4$ elementos) con:
+        \begin{itemize}
+          \item Material constitutivo Ko-Bathe Concrete 3D ($f'_c = 30$~MPa).
+          \item 8 barras de armadura embebidas ($\varnothing 20$~mm) con
+                acoplamiento por penalidad $\alpha = 10^6$.
+        \end{itemize}
+  \item Se acapla el esquema escalonado FE² de dos vías:
+        \begin{itemize}
+          \item \textbf{Downscale}: cinemáticas globales $\to$ condiciones de contorno del sub-modelo.
+          \item \textbf{Upscale}: tangente homogenizado $\to$ rigidez seccional del elemento global.
+          \item Convergencia Frobenius (tol $= 0{,}03$), relajación constante ($0{,}7$), máximo 6 iteraciones.
+        \end{itemize}
+\end{enumerate}
+
+\section{Salidas}
+
+\subsection{VTK (ambas escalas)}
+
+\begin{itemize}
+  \item \textbf{Escala global}: archivos \texttt{.vtm} (multi-bloque) con
+        ejes, superficie, secciones, puntos de material y fibras.
+        Animación PVD.
+  \item \textbf{Escala local}: archivos \texttt{.vtu} por sub-modelo
+        (campo de desplazamientos, tensiones, fisuras) y tubos de armadura
+        con radio, deformación axial.
+\end{itemize}
+
+\subsection{CSV y gráficas}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Archivo & Contenido \\
+\midrule
+\texttt{global\_history.csv}   & $t$, paso, fase, $\|u\|_\infty$, daño máximo \\
+\texttt{roof\_displacement.csv}& Desplazamientos $(u_x,u_y,u_z)$ de las 4 esquinas \\
+\texttt{fiber\_hysteresis\_*.csv}& Histéresis $\sigma$--$\varepsilon$ de las fibras más dañadas \\
+\texttt{crack\_evolution.csv}  & GPs fisurados, grietas totales, apertura máxima \\
+\texttt{rebar\_strains.csv}    & Deformación axial media por barra de armadura \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+El script \texttt{scripts/plot\_table\_multiscale.py} genera automáticamente:
+\begin{enumerate}
+  \item Historia temporal de desplazamientos de cubierta (3 componentes).
+  \item Órbita $u_x$--$u_y$ del nodo de esquina.
+  \item Histéresis fibra hormigón/acero (escala global).
+  \item Evolución de fisuras (escala local).
+  \item Deformaciones de armadura embebida (escala local).
+  \item Historia global (desplazamiento + daño).
+\end{enumerate}
+
+\section{Resumen de cambios de código}
+
+\begin{enumerate}
+  \item \texttt{main\_table\_multiscale.cpp}: nuevo driver completo ($\sim 590$ líneas).
+  \item \texttt{CMakeLists.txt}: nuevo target \texttt{fall\_n\_table\_multiscale}.
+  \item \texttt{scripts/plot\_table\_multiscale.py}: script de postproceso dedicado.
+  \item \texttt{NonlinearSubModelEvolver.hh}: \texttt{extract\_rebar\_strains()} movido a sección \texttt{public}.
+\end{enumerate}
+
+\section{Compilación y ejecución}
+
+\begin{verbatim}
+  cd build
+  cmake .. -G Ninja
+  ninja -j8 fall_n_table_multiscale
+  ./fall_n_table_multiscale [scale_factor]
+\end{verbatim}
+
+El factor de amplificación por defecto es $15{,}0$; se puede sobrescribir
+como primer argumento de línea de comandos.
