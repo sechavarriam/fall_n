@@ -1,0 +1,482 @@
+% ==========================================================================
+%  Chapter 80 -- Embedded rebar with penalty coupling and fibre-truss
+%                feedback in sub-models FE²
+% ==========================================================================
+
+\chapter{Acero embebido con acoplamiento por penalidad e interacción
+         fibra-truss en sub-modelos FE\textsuperscript{2}}
+\label{ch:embedded-rebar}
+
+% ------------------------------------------------------------------
+\section{Motivación}
+\label{sec:emb-motivation}
+
+En el esquema multiescala FE\textsuperscript{2} descrito en capítulos
+anteriores (\ref{ch:two-way-fe2}, \ref{ch:multiscale-16storey}),
+las barras de refuerzo dentro de los sub-modelos continuos se
+discretizaban como elementos truss (línea) cuyos nodos coincidían con
+los nodos de esquina de la malla hexaédrica.  Esto producía dos
+problemas:
+
+\begin{enumerate}
+  \item \textbf{Posición no realista:}
+        Para una malla gruesa ($N_x = N_y = 2$), la función
+        \texttt{std::round} mapeaba la coordenada física de la barra
+        al índice de nodo entero más cercano.  Una barra diseñada a
+        $y_0 = -0{.}200$\,m (\textit{cover} + $\phi/2$) con
+        $\Delta x = 0{.}250$\,m se redondeaba a $i_x = 0$, es decir,
+        sobre la cara \emph{exterior} del elemento.  Esto es
+        físicamente incorrecto porque ignora el recubrimiento de
+        concreto y puede representar una condición de contorno
+        diferente a la real.
+
+  \item \textbf{Acoplamiento artificial:}
+        Al compartir nodos con el hexaedro, la barra heredaba la
+        cinemática completa del concreto (3 grados de libertad
+        compartidos), lo que impedía capturar el deslizamiento relativo
+        barra--concreto y la contribución rigidizante correcta del
+        acero.
+\end{enumerate}
+
+La solución implementada consiste en:
+\begin{itemize}
+  \item Crear \emph{nodos independientes} para las barras en sus
+        posiciones físicas exactas dentro de la sección transversal.
+  \item Acoplar los nodos de la barra al continuo hexaédrico mediante
+        \emph{resortes de penalidad} que reproducen la interpolación
+        Master-Slave.
+  \item Incorporar el diámetro real de la barra en la exportación VTK
+        para visualizar tubos con espesor físico en ParaView.
+\end{itemize}
+
+
+% ------------------------------------------------------------------
+\section{Posición física de las barras}
+\label{sec:emb-position}
+
+Cada barra se especifica con sus coordenadas locales $(l_y, l_z)$
+relativas al centroide de la sección, su área $A_b$ y su diámetro
+$\phi_b$.  La estructura \texttt{RebarBar} se define como:
+
+\begin{verbatim}
+struct RebarBar {
+    double ly{0};          // coordenada local y [m]
+    double lz{0};          // coordenada local z [m]
+    double area{0};        // área [m²]
+    double diameter{0};    // diámetro [m]
+    std::string group = "Rebar";
+};
+\end{verbatim}
+
+Para una columna cuadrada de $b = h = 0{.}50$\,m con recubrimiento
+$c = 40$\,mm y barras de $\phi = 20$\,mm, las coordenadas extremas son:
+%
+\begin{equation}
+  y_0 = -\frac{b}{2} + c + \frac{\phi}{2}
+      = -0{.}250 + 0{.}040 + 0{.}010 = -0{.}200\;\text{m}
+\end{equation}
+%
+lo que sitúa la barra a 50\,mm del borde exterior, dentro del acero
+real de la sección.  Las ocho barras (4 esquina + 4 central de cara)
+se posicionan según:
+%
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+Barra & $l_y$ [m] & $l_z$ [m] \\
+\midrule
+1--4 (esquinas) & $\pm 0{.}200$ & $\pm 0{.}200$ \\
+5--6 (caras $z$) & $0{.}000$ & $\pm 0{.}200$ \\
+7--8 (caras $y$) & $\pm 0{.}200$ & $0{.}000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ------------------------------------------------------------------
+\section{Nodos independientes de barra y datos de imbricación}
+\label{sec:emb-nodes}
+
+La función \texttt{make\_reinforced\_prismatic\_domain()} genera la
+malla hexaédrica (idéntica a \texttt{make\_prismatic\_domain()}) y
+luego crea nodos de barra adicionales a lo largo del eje $z$.  Cada
+barra produce $n_z \cdot s + 1$ nodos ($s = 1$ para Hex8, $s = 2$ para
+Hex27), con identificadores que comienzan después de los nodos de la
+malla hex:
+%
+\begin{equation}
+  \text{nid}_{b,k} = N_{\text{hex}} + b \cdot
+    (s \cdot n_z + 1) + k, \qquad k = 0, \ldots, s \cdot n_z,
+\end{equation}
+%
+donde $N_{\text{hex}}$ es el número total de nodos hexaédricos.
+
+Para el caso de la simulación del edificio ($n_z = 8$, Hex27,
+8~barras), se crean $8 \times 17 = 136$ nodos de barra y $8 \times 8
+= 64$ elementos línea (truss).  El total de nodos del sub-modelo pasa
+de 850 (sólo hex) a 986.
+
+\subsection{Elemento huésped y coordenadas padres}
+
+Para cada nodo de barra, se identifica el hexaedro que lo contiene
+(\emph{host element}) y se calculan las coordenadas padres
+$(\xi, \eta, \zeta) \in [-1,1]^3$ mediante:
+%
+\begin{align}
+  i_x^{\text{host}} &= \text{floor}\!\!\bigl((l_y + w/2) / \Delta x\bigr),
+  &\xi  &= 2\,\frac{(l_y + w/2)/\Delta x - i_x^{\text{host}}}{1} - 1, \\[4pt]
+  i_y^{\text{host}} &= \text{floor}\!\!\bigl((l_z + h/2) / \Delta y\bigr),
+  &\eta &= 2\,\frac{(l_z + h/2)/\Delta y - i_y^{\text{host}}}{1} - 1, \\[4pt]
+  i_z^{\text{host}} &= \text{floor}(k_z / s),
+  &\zeta &= 2\,\frac{k_z - i_z^{\text{host}} \cdot s}{s} - 1,
+\end{align}
+%
+donde $k_z$ es el sub-nivel $z$ del nodo de barra ($0 \le k_z \le s
+\cdot n_z$).  Esta información se almacena en la estructura
+\texttt{RebarNodeEmbedding}:
+
+\begin{verbatim}
+struct RebarNodeEmbedding {
+    PetscInt rebar_node_id;
+    int host_elem_ix, host_elem_iy, host_elem_iz;
+    double xi, eta, zeta;
+};
+\end{verbatim}
+
+
+% ------------------------------------------------------------------
+\section{Condiciones de contorno en los extremos de las barras}
+\label{sec:emb-bc}
+
+Los nodos de barra que caen en las caras $z_{\min}$ y $z_{\max}$ del
+sub-modelo reciben condiciones de Dirichlet computadas a partir de la
+cinemática seccional del elemento viga (Timoshenko) en las posiciones
+$(l_y, l_z)$ exactas de la barra:
+%
+\begin{equation}
+  \mathbf{u}_{\text{bar},\text{face}} =
+    \mathbf{u}_c + \boldsymbol{\theta} \times (l_y\,\hat{e}_y +
+      l_z\,\hat{e}_z),
+\end{equation}
+%
+donde $\mathbf{u}_c$ y $\boldsymbol{\theta}$ son el desplazamiento y
+la rotación del centroide de la sección, evaluados en el extremo A
+($z_{\min}$) o B ($z_{\max}$).
+
+Estos nodos se agregan a las listas \texttt{face\_min\_z\_ids} y
+\texttt{face\_max\_z\_ids} en la función
+\texttt{build\_sub\_models()} del \texttt{MultiscaleCoordinator},
+inmediatamente después de \texttt{cache\_face\_nodes()}.
+
+
+% ------------------------------------------------------------------
+\section{Acoplamiento por penalidad (Master-Slave)}
+\label{sec:emb-penalty}
+
+Los nodos interiores de barra (todos excepto los de las caras $z$)
+no están conectados a la malla hexaédrica por el sieve de PETSc.
+Para acoplar su cinemática al continuo se emplea un esquema de
+\emph{penalidad}, equivalente a Master-Slave con interpolación por
+funciones de forma.
+
+\subsection{Formulación}
+
+Sea $r$ un nodo de barra interior con desplazamiento $\mathbf{u}_r$, y
+sea $e$ el hexaedro huésped con nodos $\{i\}$ y funciones de forma
+$N_i(\xi, \eta, \zeta)$.  El desplazamiento interpolado del hexaedro
+en la posición de la barra es:
+%
+\begin{equation}
+  \tilde{\mathbf{u}} = \sum_i N_i\,\mathbf{u}_i.
+\end{equation}
+
+Se define un resorte de penalidad con rigidez $\alpha$ que impone:
+%
+\begin{equation}
+  \mathbf{f}_r^{\text{pen}} =
+    \alpha\,(\mathbf{u}_r - \tilde{\mathbf{u}}),
+  \qquad
+  \mathbf{f}_i^{\text{pen}} =
+    -\alpha\,N_i\,(\mathbf{u}_r - \tilde{\mathbf{u}}).
+\end{equation}
+
+La contribución a la matriz tangente es:
+%
+\begin{equation}
+  \mathbf{K}^{\text{pen}} =
+  \begin{bmatrix}
+    \alpha\,\mathbf{I}_3 & -\alpha\,N_1\,\mathbf{I}_3 &
+      \cdots & -\alpha\,N_n\,\mathbf{I}_3 \\[4pt]
+    -\alpha\,N_1\,\mathbf{I}_3 &
+      \alpha\,N_1 N_1\,\mathbf{I}_3 & \cdots &
+      \alpha\,N_1 N_n\,\mathbf{I}_3 \\
+    \vdots & \vdots & \ddots & \vdots \\
+    -\alpha\,N_n\,\mathbf{I}_3 &
+      \alpha\,N_n N_1\,\mathbf{I}_3 & \cdots &
+      \alpha\,N_n N_n\,\mathbf{I}_3
+  \end{bmatrix},
+  \label{eq:penalty-stiffness}
+\end{equation}
+%
+donde $n$ es el número de nodos del hexaedro (8, 20 o 27) y donde
+sólo se incluyen los pares con $|N_i| > 10^{-15}$.
+
+\subsection{Selección de $\alpha$}
+
+En la formulación de penalidad, el error relativo de acoplamiento es
+del orden de $k_{\text{elem}} / \alpha$, donde $k_{\text{elem}}$ es
+la rigidez diagonal dominante del grado de libertad.  Para los
+parámetros del ejemplo:
+%
+\begin{align}
+  k_{\text{truss}} &= E_s\,A_b / L_e
+    = 200\,000 \times 3{.}14 \times 10^{-4} / 0{.}0625
+    \approx 1\,005\;\text{MPa\,m}, \\[4pt]
+  k_{\text{hex}} &\approx E_c \cdot \Delta x \cdot \Delta y
+    \approx 30\,000 \times 0{.}25^2
+    = 1\,875\;\text{MPa\,m}.
+\end{align}
+
+Con $\alpha = 10^6$ (valor por defecto), el error relativo es
+$\sim 10^{-3}$, suficiente para la precisión de un modelo de
+sub-estructura.
+
+\subsection{Implementación en SNES}
+
+Las contribuciones de penalidad se inyectan directamente en los
+callbacks estáticos de PETSc:
+
+\begin{itemize}
+  \item \textbf{FormResidual}: Los términos $\mathbf{f}^{\text{pen}}$
+        se suman al vector de fuerzas internas en espacio local
+        (\texttt{f\_int\_local}) antes del scatter
+        \texttt{DMLocalToGlobal}.  Los grados de libertad de nodos
+        con Dirichlet se eliminan automáticamente durante el scatter.
+
+  \item \textbf{FormJacobian}: Los términos de
+        $\mathbf{K}^{\text{pen}}$ se insertan en la matriz global
+        $\mathbf{J}$ mediante \texttt{MatSetValues} con modo
+        \texttt{ADD\_VALUES}.  Se utiliza la \emph{global section}
+        para obtener los offsets de cada nodo; los nodos restringidos
+        (con 0~DOF en la sección global) se omiten.  La opción
+        \texttt{MAT\_NEW\_NONZERO\_ALLOCATION\_ERR = PETSC\_FALSE}
+        permite que PETSc asigne las nuevas entradas no-cero sin error.
+\end{itemize}
+
+Los datos de acoplamiento se pre-calculan una sola vez en
+\texttt{compute\_penalty\_couplings()}, invocado después de
+\texttt{model\_->setup()} en \texttt{first\_solve()}.  Para cada
+nodo de barra interior:
+
+\begin{enumerate}
+  \item Se identifica el hexaedro huésped $(i_x, i_y, i_z)$ y las
+        coordenadas padres $(\xi, \eta, \zeta)$ desde
+        \texttt{RebarNodeEmbedding}.
+
+  \item Se evalúan las funciones de forma 1-D de Lagrange (lineales
+        para Hex8, cuadráticas para Hex27) como producto tensorial:
+        \[
+          N_{p,q,r}(\xi,\eta,\zeta) =
+            L_p(\xi) \cdot L_q(\eta) \cdot L_r(\zeta),
+        \]
+        donde para el caso cuadrático:
+        \[
+          L_0(t) = \frac{t(t-1)}{2},\quad
+          L_1(t) = 1 - t^2,\quad
+          L_2(t) = \frac{t(t+1)}{2}.
+        \]
+
+  \item Se almacenan los pares $(\text{sieve\_point}_i, N_i)$ en
+        un vector \texttt{hex\_weights} dentro de
+        \texttt{PenaltyCouplingEntry}.
+\end{enumerate}
+
+
+% ------------------------------------------------------------------
+\section{Feedback Fibra-Truss implícito}
+\label{sec:emb-feedback}
+
+Una pregunta natural de diseño es cómo retroalimentar la respuesta
+del acero del sub-modelo 3D al modelo de fibras de la viga
+estructural.  En el esquema de acoplamiento implementado, esta
+retroalimentación es \emph{implícita}:
+
+\begin{enumerate}
+  \item Las fuerzas seccionales homogeneizadas se calculan mediante
+        \texttt{section\_forces\_from\_reactions()}, que suma las
+        reacciones internas en \textbf{todos} los nodos de la cara
+        $z_{\max}$ (Face~B), incluyendo los nodos de barra que ahora
+        están en las listas de condiciones de contorno.
+
+  \item Las fuerzas de los \texttt{TrussElement} contribuyen
+        directamente al vector de fuerzas internas del sub-modelo.
+        A través del acoplamiento por penalidad, la rigidez del acero
+        también afecta la distribución de desplazamientos de los
+        hexaedros vecinos.
+
+  \item La tangente seccional $\mathbf{D}_{\text{hom}}$ (6$\times$6)
+        se obtiene por perturbación numérica de las componentes
+        cinemáticas (deformación axial, curvaturas, cortes,
+        torsión).  Cada perturbación modifica las condiciones de
+        contorno de las barras de refuerzo en ambas caras, lo cual
+        altera el estado de los \texttt{TrussElement} y se refleja
+        en las reacciones observadas en Face~B.
+\end{enumerate}
+
+Así, el acero del sub-modelo influye tanto en las fuerzas
+seccionales como en la rigidez tangente que la viga emplea para el
+equilibrio global.  No se requiere una transferencia explícita de
+deformaciones del truss a la fibra; el esquema de acoplamiento
+estequiométrico FE\textsuperscript{2} (downscale de cinemática,
+upscale de fuerzas y tangente) captura automáticamente la
+contribución del refuerzo.
+
+\subsection{Extracción de deformaciones axiales del acero}
+
+Para diagnóstico y post-procesamiento, el método
+\texttt{extract\_rebar\_strains()} calcula la deformación axial
+promedio de cada barra:
+%
+\begin{equation}
+  \overline{\varepsilon}_b =
+    \frac{1}{n_z} \sum_{e=1}^{n_z} \varepsilon_{b,e}^{\text{GP}},
+\end{equation}
+%
+donde $\varepsilon_{b,e}^{\text{GP}}$ es la deformación del punto
+de Gauss del $e$-ésimo elemento truss de la barra $b$.  Esto permite
+comparar la deformación del acero del sub-modelo con la del
+correspondiente \emph{fiber} en la sección estructural.
+
+
+% ------------------------------------------------------------------
+\section{Visualización VTK de barras con espesor}
+\label{sec:emb-vtk}
+
+La exportación VTK de las barras se extiende con cuatro campos por
+celda:
+
+\begin{center}
+\begin{tabular}{llp{7cm}}
+\toprule
+Array & Tipo & Descripción \\
+\midrule
+\texttt{axial\_stress} & Cell & Tensión axial $\sigma$ [MPa] del
+  punto de Gauss del \texttt{TrussElement} \\
+\texttt{axial\_strain} & Cell & Deformación axial
+  $\varepsilon$ \\
+\texttt{bar\_area}      & Cell & Área de la barra $A_b$
+  [m$^2$] \\
+\texttt{TubeRadius}     & Cell & Radio del tubo
+  $\phi_b / 2$ [m] para el filtro \emph{Tube} de ParaView \\
+\texttt{displacement}   & Point & Desplazamiento nodal
+  $\mathbf{u}$ [m] (3 componentes) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+En ParaView, al aplicar el filtro \textit{Filters $\to$
+Alphabetical $\to$ Tube}, se selecciona \texttt{TubeRadius} como
+\emph{Scalars} y se activa \emph{Vary Radius by Absolute Scalar}.
+Esto produce tubos cuyo radio coincide con el radio real de la barra,
+permitiendo visualizar la armadura con su geometría física correcta
+superpuesta a la malla de concreto.
+
+
+% ------------------------------------------------------------------
+\section{Optimizaciones de rendimiento acumuladas}
+\label{sec:emb-performance}
+
+A lo largo de las iteraciones previas se implementaron varias
+optimizaciones que mejoran significativamente el rendimiento del
+análisis multiescala:
+
+\begin{description}
+  \item[Cache de nodos de cara:]
+    Los vectores \texttt{face\_min\_z\_ids} y
+    \texttt{face\_max\_z\_ids} se calculan una sola vez con
+    \texttt{cache\_face\_nodes()} y se reutilizan en cada paso
+    global (update\_kinematics y compute\_homogenized\_tangent),
+    evitando ${\sim}6$ evaluaciones de \texttt{nodes\_on\_face()}
+    por paso iterativo.
+
+  \item[Colección diferida de fisuras:]
+    La función \texttt{collect\_crack\_data()} se invoca una sola
+    vez por paso global (\texttt{end\_of\_step()}) en lugar de en
+    cada iteración estancada, eliminando ${\sim}5$ colecciones
+    redundantes por paso.
+
+  \item[Filtro de apertura mínima de fisura:]
+    Las fisuras con apertura inferior a 0{.}5\,mm/m se excluyen de
+    la exportación VTK, reduciendo el número de planos de fisura de
+    $\sim$1264 a $\sim$494 (reducción del 61\%).
+
+  \item[Sub-stepping adaptativo verboso:]
+    El módulo de sub-stepping adaptativo con bisección registra
+    cada sub-paso con tamaño de fracción, número de iteraciones
+    SNES y razón de convergencia, permitiendo diagnóstico en tiempo
+    real.
+
+  \item[$n_z = 8$ sub-divisiones en $z$:]
+    Se aumentó la resolución axial de $n_z = 4$ a 8 para capturar
+    mejor la variación de fisuras a lo largo del elemento viga.
+\end{description}
+
+
+% ------------------------------------------------------------------
+\section{Resumen de los cambios de código}
+\label{sec:emb-code-summary}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+Archivo & Cambio principal \\
+\midrule
+\texttt{PrismaticDomainBuilder.hh} &
+  \texttt{RebarBar} con coordenadas físicas $(l_y, l_z)$ y diámetro.
+  \texttt{RebarNodeEmbedding} con $(i_x, i_y, i_z, \xi, \eta, \zeta)$.
+  Nodos independientes de barra en posiciones exactas. \\[2pt]
+\texttt{MultiscaleCoordinator.hh} &
+  Almacena embeddings y diámetros.  Agrega nodos de barra en caras
+  $z$ a las listas de nodos de contorno. \\[2pt]
+\texttt{FieldTransfer.hh} &
+  \texttt{SubModelSpec::RebarBar} extendido con diámetro. \\[2pt]
+\texttt{NonlinearSubModelEvolver.hh} &
+  \texttt{PenaltyCouplingEntry} y
+  \texttt{compute\_penalty\_couplings()}.
+  Contribuciones de penalidad en \texttt{FormResidual} y
+  \texttt{FormJacobian}.  Exportación VTK con \texttt{TubeRadius},
+  \texttt{axial\_strain}.  Método
+  \texttt{extract\_rebar\_strains()}. \\[2pt]
+\texttt{main\_lshaped\_multiscale\_16storey.cpp} &
+  Barras con diámetro $\phi = 20$\,mm y posiciones dentro del
+  recubrimiento ($c + \phi/2$). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% ------------------------------------------------------------------
+\section{Conclusiones}
+\label{sec:emb-conclusions}
+
+La formulación de acero embebido con acoplamiento por penalidad
+resuelve los dos problemas fundamentales del esquema anterior:
+
+\begin{enumerate}
+  \item Las barras de refuerzo quedan posicionadas en sus ubicaciones
+        físicas reales, respetando el recubrimiento de concreto
+        ($c + \phi/2$ desde el borde de la sección).
+
+  \item El acoplamiento Master-Slave por penalidad permite que los
+        nodos de las barras sigan la cinemática del continuo
+        hexaédrico (perfecta adherencia) sin compartir nodos, lo
+        que habilita futuros desarrollos como modelos de
+        deslizamiento barra--concreto.
+\end{enumerate}
+
+El feedback fibra-truss es implícito: la contribución del acero se
+captura a través de las fuerzas seccionales y la tangente
+homogeneizada.  La visualización con tubos VTK permite verificar
+visualmente la posición y el estado tensional de cada barra dentro
+del sub-modelo de concreto.

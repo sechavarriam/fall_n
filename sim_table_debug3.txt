@@ -1,0 +1,98 @@
+========================================================================
+  fall_n — 4-Legged Table: MITC16 Shell + RC Multiscale FE²
+  Tohoku 2011 (MYG004 NS+EW+UD) + Fiber Sections + Embedded Rebar
+========================================================================
+
+[1] Loading 3-component earthquake records...
+  Station       : MYG004 (Tsukidate, Miyagi)
+  Event         : Tohoku 2011-03-11 Mw 9.0
+  Window        : [40 s, 42 s]
+  PGA (NS)      : 7.567 m/s² (0.771 g)
+  PGA (EW)      : 3.081 m/s² (0.314 g)
+  PGA (UD)      : 1.825 m/s² (0.186 g)
+  Scale factor  : 80.00
+
+[2] Building 4-legged table domain...
+  Total nodes   : 20
+  Columns       : 4  (2-node beams)
+  Shell slab    : 1  (16-node MITC16)
+  Plan          : 5 × 5 m,  height = 3.2 m
+
+[3] Building RC fiber section (columns)...
+  Section : 0.25×0.25 m, f'c = 30 MPa
+
+[4] Building elastic shell material (slab)...
+  Thickness : 0.2 m,  Ec = 25743 MPa
+
+[5] Assembling structural model...
+  Total structural elements : 5
+  Shell geometries          : 1
+
+[6] Configuring dynamic solver (3-component)...
+  Density          : 0.0024 MN·s²/m⁴
+  Damping          : 5%
+  T₁ (approx.)    : 0.55 s
+  T₃ (approx.)    : 0.15 s
+  Time step        : 0.01 s
+  Duration         : 2 s
+
+[7] Setting up observers...
+  DamageTracker     : top-4, every step
+  FiberHysteresis   : top-4/material, every step
+  NodeRecorder      : 12 channels (roof corners)
+
+[8] Configuring transition director...
+  Criterion  : MaxStrain (ε_ref = 0.002100)
+  Threshold  : damage_index > 0.05
+========================================================================
+
+[9] PHASE 1: Global fiber-section dynamic analysis
+    Running until first steel fiber reaches yield...
+    t=0.0005 s  step=   5  |u|=7.301e-06 m  damage=6.239557e-04
+    t=0.0015 s  step=  10  |u|=6.061e-05 m  damage=2.978125e-03
+    t=0.0027 s  step=  15  |u|=1.774e-04 m  damage=6.396208e-03
+    t=0.0039 s  step=  20  |u|=3.851e-04 m  damage=1.109596e-02
+    t=0.0053 s  step=  25  |u|=7.099e-04 m  damage=1.741115e-02
+    t=0.0067 s  step=  30  |u|=1.155e-03 m  damage=2.512177e-02
+    t=0.0082 s  step=  35  |u|=1.692e-03 m  damage=3.361883e-02
+    t=0.0096 s  step=  40  |u|=2.310e-03 m  damage=4.267688e-02
+------------------------------------------------------------------------
+
+[*] YIELDING DETECTED
+    Time of first yield   : 0.0107 s
+    Critical element      : 1
+    Damage index          : 0.050206
+
+[10] Identifying critical column elements...
+  Critical elements (1):
+    element 1 — damage_index = 0.050206
+
+[11] Exporting global frame VTK at first yield...
+  Written: C:/MyLibs/fall_n/data/output/table_multiscale/yield_state.vtm
+
+[12] Extracting kinematics and building sub-models...
+  Sub-models  : 1
+  Nodes/sub   : 225
+  Hex27/sub   : 16
+========================================================================
+
+[13] Creating nonlinear sub-model evolvers...
+  Nonlinear evolvers : 1
+  Constitutive       : KoBatheConcrete3D (f'c = 30 MPa)
+  Embedded rebar     : 8 bars × ∅16 mm, penalty α = 1e6
+  VTK interval       : every 5 steps
+  MultiscaleAnalysis : max_iter=6 tol=0.03 relax=0.70
+
+[14] Initial nonlinear solve at t=0.0107 s...
+  [SubModel 1] Penalty coupling: 56 interior rebar nodes, α = 2.6e+05
+  [first_solve] target ||imposed||_inf = 2.913176e-03
+  [first_solve] N=30 increments, snes_max_it=100, atol=1.00e+00, rtol=1.00e-03
+  [first_solve] k=1/30 p=0.0333 reason=2 iters=88 ||F||=9.9257e-01
+  [first_solve] k=2/30 p=0.0667 reason=2 iters=79 ||F||=9.9591e-01
+  [first_solve] k=3/30 p=0.1000 reason=-5 iters=100 ||F||=1.1355e+00
+  Sub-model elem 1 : converged=NO max|u|=1.974e-01 mm
+========================================================================
+
+[15] PHASE 2: Sub-model evolution through the earthquake
+     Evolving global + 1 nonlinear sub-models simultaneously...
+  [TS] Phase 2 dt = 0.010000 s

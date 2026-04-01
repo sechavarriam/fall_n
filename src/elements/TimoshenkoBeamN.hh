@@ -379,8 +379,9 @@ public:
 
     // ── Nonlinear element operations ─────────────────────────────────────
 
-    void compute_internal_forces(Vec u_local, Vec f_local) {
-        Eigen::VectorXd u_e = extract_element_dofs(u_local);
+    // ── Standalone-vector interface (parallel assembly in NLAnalysis) ───
+
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;
 
@@ -400,15 +401,11 @@ public:
             f_loc += w * ds_dx * (B_gp.transpose() * sigma.components());
         }
 
-        Eigen::Vector<double, total_dofs> f_glob = T.transpose() * f_loc;
-
-        ensure_dof_cache();
-        VecSetValues(f_local, static_cast<PetscInt>(dof_indices_.size()),
-                     dof_indices_.data(), f_glob.data(), ADD_VALUES);
+        return (T.transpose() * f_loc).eval();
     }
 
-    void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
-        Eigen::VectorXd u_e = extract_element_dofs(u_local);
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) {
+        assert(u_e.size() == total_dofs && "compute_tangent_stiffness_matrix: u_e size mismatch");
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;
 
@@ -428,7 +425,28 @@ public:
             K_loc += w * ds_dx * (B_gp.transpose() * C_t * B_gp);
         }
 
-        KMatrixT K_glob = T.transpose() * K_loc * T;
+        return (T.transpose() * K_loc * T).eval();
+    }
+
+    const std::vector<PetscInt>& get_dof_indices() {
+        ensure_dof_cache();
+        return dof_indices_;
+    }
+
+    // ── PETSc-vector interface (direct assembly) ────────────────────────
+
+    void compute_internal_forces(Vec u_local, Vec f_local) {
+        Eigen::VectorXd u_e = extract_element_dofs(u_local);
+        Eigen::VectorXd f_glob = compute_internal_force_vector(u_e);
+
+        ensure_dof_cache();
+        VecSetValues(f_local, static_cast<PetscInt>(dof_indices_.size()),
+                     dof_indices_.data(), f_glob.data(), ADD_VALUES);
+    }
+
+    void inject_tangent_stiffness(Vec u_local, Mat J_mat) {
+        Eigen::VectorXd u_e = extract_element_dofs(u_local);
+        Eigen::MatrixXd K_glob = compute_tangent_stiffness_matrix(u_e);
 
         ensure_dof_cache();
         const auto n = static_cast<PetscInt>(dof_indices_.size());

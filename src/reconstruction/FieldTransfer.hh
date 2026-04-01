@@ -326,6 +326,7 @@ struct SubModelSpec {
         double y{0};          ///< cross-section y coordinate [m]
         double z{0};          ///< cross-section z coordinate [m]
         double area{0};       ///< bar area [m²]
+        double diameter{0};   ///< bar diameter [m] (for VTK visualisation)
     };
 
     /// Rebar bar layout within the section.

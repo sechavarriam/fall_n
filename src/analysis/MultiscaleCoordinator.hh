@@ -86,12 +86,30 @@ struct MultiscaleSubModel {
     std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_min_z;
     std::vector<std::pair<std::size_t, Eigen::Vector3d>> bc_max_z;
 
+    /// Cached face node IDs (constant for the sub-model lifetime).
+    /// Populated once by cache_face_nodes(); avoids repeated allocation
+    /// in update_kinematics() and compute_homogenized_tangent().
+    std::vector<PetscInt> face_min_z_ids;
+    std::vector<PetscInt> face_max_z_ids;
+
+    void cache_face_nodes() {
+        face_min_z_ids = grid.nodes_on_face(PrismFace::MinZ);
+        face_max_z_ids = grid.nodes_on_face(PrismFace::MaxZ);
+    }
+
     /// Rebar element range within Domain::elements().
     /// If first == last, no rebar elements (homogeneous concrete).
     RebarElementRange rebar_range{0, 0};
 
     /// Rebar bar areas — one per RebarBar, in the same order as SubModelSpec.
     std::vector<double> rebar_areas;
+
+    /// Rebar bar diameters — one per bar (for VTK tube visualisation).
+    std::vector<double> rebar_diameters;
+
+    /// Embedding info: maps each rebar node to its host hex element +
+    /// parent coordinates for shape-function interpolation coupling.
+    std::vector<RebarNodeEmbedding> rebar_embeddings;
 
     [[nodiscard]] bool has_rebar() const noexcept {
         return rebar_range.first != rebar_range.last;
@@ -176,31 +194,22 @@ public:
                 "Solid", spec.hex_order);
 
             if (spec.has_rebar()) {
-                // Convert physical (y,z) bar positions to grid indices.
-                // y → X direction (width),  z → Y direction (height).
-                const double dx = spec.section_width  / static_cast<double>(spec.nx);
-                const double dy = spec.section_height / static_cast<double>(spec.ny);
-
+                // Pass physical (y,z) bar positions directly — the rebar
+                // builder creates independent nodes at exact positions.
                 RebarSpec rebar;
                 for (const auto& bar : spec.rebar_bars) {
-                    int ix = static_cast<int>(
-                        std::round((bar.y + spec.section_width  / 2.0) / dx));
-                    int iy = static_cast<int>(
-                        std::round((bar.z + spec.section_height / 2.0) / dy));
-
-                    // Clamp to valid range [0, n_dir]
-                    ix = std::clamp(ix, 0, spec.nx);
-                    iy = std::clamp(iy, 0, spec.ny);
-
                     rebar.bars.push_back(
-                        fall_n::RebarBar{ix, iy, bar.area, "Rebar"});
+                        fall_n::RebarBar{bar.y, bar.z, bar.area,
+                                         bar.diameter, "Rebar"});
                     sub.rebar_areas.push_back(bar.area);
                 }
 
                 auto result = make_reinforced_prismatic_domain(pspec, rebar);
-                sub.domain      = std::move(result.domain);
-                sub.grid        = std::move(result.grid);
-                sub.rebar_range = result.rebar_range;
+                sub.domain          = std::move(result.domain);
+                sub.grid            = std::move(result.grid);
+                sub.rebar_range     = result.rebar_range;
+                sub.rebar_embeddings = std::move(result.embeddings);
+                sub.rebar_diameters  = std::move(result.bar_diameters);
             } else {
                 auto [domain, grid] = make_prismatic_domain(pspec);
                 sub.domain = std::move(domain);
@@ -223,13 +232,27 @@ public:
             const auto& ek  = critical_elements_[i];
             auto&       sub = sub_models_[i];
 
-            auto face_A = sub.grid.nodes_on_face(PrismFace::MinZ);
-            auto face_B = sub.grid.nodes_on_face(PrismFace::MaxZ);
+            // Cache face node IDs once (constant for sub-model lifetime)
+            sub.cache_face_nodes();
+
+            // Append rebar face-end nodes so they receive Dirichlet BCs
+            if (sub.has_rebar() && !sub.rebar_embeddings.empty()) {
+                const std::size_t rpb = static_cast<std::size_t>(
+                    sub.grid.step * sub.grid.nz + 1);
+                const std::size_t nb = sub.rebar_diameters.size();
+                for (std::size_t b = 0; b < nb; ++b) {
+                    const std::size_t base = b * rpb;
+                    sub.face_min_z_ids.push_back(
+                        sub.rebar_embeddings[base].rebar_node_id);
+                    sub.face_max_z_ids.push_back(
+                        sub.rebar_embeddings[base + rpb - 1].rebar_node_id);
+                }
+            }
 
             sub.bc_min_z = compute_boundary_displacements(
-                ek.kin_A, sub.domain, face_A);
+                ek.kin_A, sub.domain, sub.face_min_z_ids);
             sub.bc_max_z = compute_boundary_displacements(
-                ek.kin_B, sub.domain, face_B);
+                ek.kin_B, sub.domain, sub.face_max_z_ids);
         }
 
         built_ = true;
