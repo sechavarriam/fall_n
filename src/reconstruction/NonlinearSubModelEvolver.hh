@@ -154,6 +154,8 @@ class NonlinearSubModelEvolver {
     Vec  R_{nullptr};            ///< residual work vector
     Vec  f_ext_{nullptr};        ///< external forces (zero for sub-model)
     Mat  J_{nullptr};            ///< tangent stiffness
+    Vec  U_work_{nullptr};       ///< pre-allocated work vector (U-sized)
+    Vec  imp_work_{nullptr};     ///< pre-allocated work vector (imposed-sized)
 
     //  VTK output 
     PVDWriter    pvd_mesh_;
@@ -788,12 +790,9 @@ public:
         // ── Baseline section forces (from f_int reactions at Face B) ─
         Eigen::Vector<double, 6> s0_vec = section_forces_from_reactions();
 
-        // ── Save current state vectors ───────────────────────────────
-        Vec U_save, imp_save;
-        VecDuplicate(U_, &U_save);
-        VecCopy(U_, U_save);
-        VecDuplicate(model_->imposed_solution(), &imp_save);
-        VecCopy(model_->imposed_solution(), imp_save);
+        // ── Save current state vectors (pre-allocated work vecs) ─────
+        VecCopy(U_, U_work_);
+        VecCopy(model_->imposed_solution(), imp_work_);
 
         const SectionKinematics kin_A_orig = sub_->kin_A;
         const SectionKinematics kin_B_orig = sub_->kin_B;
@@ -854,8 +853,8 @@ public:
 
             // Revert material state and restore vectors
             revert_state();
-            VecCopy(U_save, U_);
-            VecCopy(imp_save, model_->imposed_solution());
+            VecCopy(U_work_, U_);
+            VecCopy(imp_work_, model_->imposed_solution());
         }
 
         // ── Restore original kinematics ──────────────────────────────
@@ -866,9 +865,6 @@ public:
         sub_->bc_max_z = compute_boundary_displacements(
             kin_B_orig, sub_->domain, sub_->face_max_z_ids);
         write_imposed_values();
-
-        VecDestroy(&U_save);
-        VecDestroy(&imp_save);
 
         // ── Symmetrise & regularise ──────────────────────────────────
         //
@@ -952,9 +948,11 @@ private:
     //  Destroy PETSc objects 
 
     void destroy_petsc_objects() {
-        if (U_)     { VecDestroy(&U_);     U_     = nullptr; }
-        if (R_)     { VecDestroy(&R_);     R_     = nullptr; }
-        if (f_ext_) { VecDestroy(&f_ext_); f_ext_ = nullptr; }
+        if (U_)        { VecDestroy(&U_);        U_        = nullptr; }
+        if (R_)        { VecDestroy(&R_);        R_        = nullptr; }
+        if (f_ext_)    { VecDestroy(&f_ext_);    f_ext_    = nullptr; }
+        if (U_work_)   { VecDestroy(&U_work_);   U_work_   = nullptr; }
+        if (imp_work_) { VecDestroy(&imp_work_); imp_work_ = nullptr; }
         if (J_)     { MatDestroy(&J_);     J_     = nullptr; }
         if (snes_)  { SNESDestroy(&snes_); snes_  = nullptr; }
     }
@@ -1089,6 +1087,8 @@ private:
         DMCreateGlobalVector(dm, &U_);
         VecDuplicate(U_, &R_);
         VecDuplicate(U_, &f_ext_);
+        VecDuplicate(U_, &U_work_);
+        VecDuplicate(model_->imposed_solution(), &imp_work_);
         DMCreateMatrix(dm, &J_);
         MatSetOption(J_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
@@ -1115,6 +1115,18 @@ private:
         SNESSetFunction(snes_, R_, FormResidual, &ctx_);
         SNESSetJacobian(snes_, J_, J_, FormJacobian, &ctx_);
         SNESSetFromOptions(snes_);
+
+        // ── RCM reordering on LU factorizer ──────────────────────────
+        //  Reorders within the direct solver for reduced fill-in.
+        //  ReuseOrdering caches symbolic factorization across steps.
+        {
+            KSP ksp;
+            SNESGetKSP(snes_, &ksp);
+            PC pc;
+            KSPGetPC(ksp, &pc);
+            PCFactorSetMatOrderingType(pc, MATORDERINGRCM);
+            PCFactorSetReuseOrdering(pc, PETSC_TRUE);
+        }
     }
 
 
@@ -1240,17 +1252,13 @@ private:
 
         // ── Standard path: full-step SNES ────────────────────────────
 
-        // Save imposed values from last committed state (before overwrite)
-        Vec imposed_saved;
-        VecDuplicate(model_->imposed_solution(), &imposed_saved);
-        VecCopy(model_->imposed_solution(), imposed_saved);
+        // Save imposed values and U (pre-allocated work vectors)
+        VecCopy(model_->imposed_solution(), imp_work_);
 
         write_imposed_values();
 
         // Save U before SNES attempt so we can restore on failure
-        Vec U_saved;
-        VecDuplicate(U_, &U_saved);
-        VecCopy(U_, U_saved);
+        VecCopy(U_, U_work_);
 
         // Newton from current U (NOT reset to zero)
         SNESSolve(snes_, nullptr, U_);
@@ -1263,8 +1271,8 @@ private:
             commit_state();
             consecutive_divergences_ = 0;
         } else {
-            VecCopy(U_saved, U_);                          // restore displacement vector
-            VecCopy(imposed_saved, model_->imposed_solution()); // restore imposed BCs
+            VecCopy(U_work_, U_);                          // restore displacement vector
+            VecCopy(imp_work_, model_->imposed_solution()); // restore imposed BCs
             revert_state();
 
             // Auto-switch to arc-length after repeated divergences
@@ -1278,8 +1286,6 @@ private:
             }
         }
 
-        VecDestroy(&U_saved);
-        VecDestroy(&imposed_saved);
         return extract_results(converged);
     }
 

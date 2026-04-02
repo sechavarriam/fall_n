@@ -5,14 +5,15 @@
 //  cyclic-loaded "4-legged table" geometry.  Five cases of increasing
 //  complexity:
 //
-//    Case 1a/1b/1c — Single cantilever beam (N=2,3,4 node TimoshenkoBeamN)
+//    Case 0        — Linear elastic reference (N=3 TimoshenkoBeamN)
+//    Case 1a–1i  — Single cantilever beam (N=2..10 node TimoshenkoBeamN)
 //    Case 2a/2b/2c — Single continuum column (Hex8/Hex20/Hex27 + rebar)
 //    Case 3        — Full table structural model (4 beams + MITC16 shell)
 //    Case 4        — Table + FE² sub-models, 1 direction  (TODO)
 //    Case 5        — Table + FE² sub-models, 2 directions (TODO)
 //
-//  All cases use displacement-controlled cyclic loading with increasing
-//  amplitudes: ±1δy, ±2δy, ±4δy, ±8δy (triangular protocol).
+//  All cases use displacement-controlled cyclic loading with geometric
+//  amplitudes: ±2.5, ±5, ±10, ±20 mm (triangular protocol).
 //
 //  Output:
 //    data/output/cyclic_validation/{case_name}/hysteresis.csv
@@ -39,6 +40,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -92,7 +94,6 @@ static constexpr double NU_RC    = 0.20;
 
 // ── Yield & cyclic protocol ──────────────────────────────────────────
 static constexpr double EPS_YIELD = STEEL_FY / STEEL_E;   // ≈ 0.0021
-static constexpr double DELTA_Y   = 0.01;                 // approx. yield drift [m]
 static constexpr int    NUM_STEPS = 120;                   // 10 steps per segment × 12
 static constexpr int    MAX_BISECT = 6;
 
@@ -126,35 +127,10 @@ using ShellElemT   = MITC16Shell<>;
 
 
 // =============================================================================
-//  Cyclic displacement protocol: p ∈ [0,1] → d(p) [m]
+//  Cyclic displacement protocol  (from CyclicProtocol.hh)
 // =============================================================================
-//
-//  Triangular cyclic displacement with 4 amplitude levels:
-//    Level 0: ±1δy    Level 1: ±2δy    Level 2: ±4δy    Level 3: ±8δy
-//
-//  Each level has 3 segments: 0→+A, +A→−A, −A→0.
-//  Total: 12 segments mapped onto p ∈ [0, 1].
 
-static double cyclic_displacement(double p, double delta_y = DELTA_Y)
-{
-    constexpr double amps[] = {1.0, 2.0, 4.0, 8.0};
-    constexpr int N_SEG = 12;   // 3 segments × 4 levels
-
-    const double t   = p * N_SEG;
-    const int    seg = std::clamp(static_cast<int>(t), 0, N_SEG - 1);
-    const double f   = t - static_cast<double>(seg);
-
-    const int level = seg / 3;
-    const int phase = seg % 3;
-    const double A  = amps[level] * delta_y;
-
-    switch (phase) {
-    case 0:  return  f * A;                 // 0 → +A
-    case 1:  return  A * (1.0 - 2.0 * f);  // +A → −A
-    case 2:  return -A * (1.0 - f);         // −A → 0
-    default: return 0.0;
-    }
-}
+using fall_n::cyclic_displacement;
 
 
 // =============================================================================
@@ -217,6 +193,109 @@ double extract_base_shear_x(const ModelT& model,
 
 
 // =============================================================================
+//  Case 0: Linear elastic reference — TimoshenkoBeamN<3>
+// =============================================================================
+//
+//  Same geometry as Case 1b (N=3 quadratic beam) but with a purely elastic
+//  section (E, A, I) — no fiber integration, no material nonlinearity.
+//  Provides an elastic backbone for overlay comparison.
+
+static std::vector<StepRecord> run_case0(const std::string& out_dir)
+{
+    std::println("\n  Case 0: Linear elastic reference (N=3 beam)");
+
+    constexpr std::size_t N = 3;
+    using BeamPolicy = SingleElementPolicy<TimoshenkoBeamN<N>>;
+    using BeamModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, BeamPolicy>;
+
+    // ── Domain: 3 nodes along column axis (Z) ────────────────────
+    Domain<3> domain;
+    PetscInt tag = 0;
+
+    for (std::size_t i = 0; i < N; ++i) {
+        double z = H * static_cast<double>(i) / static_cast<double>(N - 1);
+        domain.add_node(static_cast<PetscInt>(i), 0.0, 0.0, z);
+    }
+
+    PetscInt conn[N];
+    for (std::size_t i = 0; i < N; ++i)
+        conn[i] = static_cast<PetscInt>(i);
+
+    auto& geom = domain.template make_element<LagrangeElement3D<N>>(
+        GaussLegendreCellIntegrator<N - 1>{}, tag++, conn);
+    geom.set_physical_group("Column");
+
+    domain.assemble_sieve();
+
+    // ── Elastic section: E, G, A, Iy, Iz, J ─────────────────────
+    const double Ec  = 4700.0 * std::sqrt(COL_FPC);
+    const double Gc  = Ec / (2.0 * (1.0 + NU_RC));
+    const double A   = COL_B * COL_H;
+    const double Iy  = COL_B * std::pow(COL_H, 3) / 12.0;
+    const double Iz  = COL_H * std::pow(COL_B, 3) / 12.0;
+    const double J   = 0.1406 * COL_B * std::pow(COL_H, 3);
+    const double k   = 5.0 / 6.0;
+
+    TimoshenkoBeamMaterial3D rel{Ec, Gc, A, Iy, Iz, J, k, k};
+    auto col_mat = Material<TimoshenkoBeam3D>{rel, ElasticUpdate{}};
+
+    // ── Build element + model ─────────────────────────────────────
+    TimoshenkoBeamN<N> beam_elem{&geom, col_mat};
+    std::vector<TimoshenkoBeamN<N>> elems;
+    elems.push_back(std::move(beam_elem));
+
+    BeamModel model{domain, std::move(elems)};
+    model.constrain_node(0, {0, 0, 0, 0, 0, 0});
+
+    const std::size_t top_node = N - 1;
+    model.constrain_dof(top_node, 0, 0.0);
+    model.setup();
+
+    // ── Solver ────────────────────────────────────────────────────
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "100");
+    PetscOptionsSetValue(nullptr, "-ksp_type",  "preonly");
+    PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
+
+    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+                      BeamPolicy> nl{&model};
+
+    // ── Recording ─────────────────────────────────────────────────
+    std::vector<StepRecord> records;
+    records.reserve(NUM_STEPS + 1);
+    records.push_back({0, 0.0, 0.0, 0.0});
+
+    const std::vector<std::size_t> base_nodes = {0};
+
+    nl.set_step_callback(
+        [&](int step, double p, const BeamModel& m) {
+            double d     = cyclic_displacement(p);
+            double shear = extract_base_shear_x(m, base_nodes);
+            records.push_back({step, p, d, shear});
+
+            if (step % 20 == 0 || step == NUM_STEPS) {
+                std::println("    step={:3d}  p={:.4f}  d={:+.4e} m  V={:+.4e} MN",
+                             step, p, d, shear);
+            }
+        });
+
+    auto scheme = make_control(
+        [top_node](double p, Vec /*f_full*/, Vec f_ext, BeamModel* m) {
+            VecSet(f_ext, 0.0);
+            m->update_imposed_value(top_node, 0, cyclic_displacement(p));
+        });
+
+    bool ok = nl.solve_incremental(NUM_STEPS, MAX_BISECT, scheme);
+
+    std::println("  Result: {} ({} records)",
+                 ok ? "COMPLETED" : "ABORTED", records.size());
+
+    write_csv(out_dir + "/hysteresis.csv", records);
+    return records;
+}
+
+
+// =============================================================================
 //  Case 1: Single cantilever beam — TimoshenkoBeamN<N>
 // =============================================================================
 //
@@ -229,7 +308,8 @@ double extract_base_shear_x(const ModelT& model,
 template <std::size_t N>
 std::vector<StepRecord> run_case1(const std::string& out_dir)
 {
-    const char sub = (N == 2) ? 'a' : (N == 3) ? 'b' : 'c';
+    static_assert(N >= 2 && N <= 10, "TimoshenkoBeamN supports N=2..10");
+    const char sub = static_cast<char>('a' + (N - 2));   // N=2→a, N=3→b, … N=10→i
     std::println("\n  Case 1{}: TimoshenkoBeamN<{}>  ({}-node beam, {} GPs)",
                  sub, N, N, N - 1);
 
@@ -418,11 +498,33 @@ run_case2(HexOrder order, const std::string& out_dir)
     for (auto nid : face_min)
         base_nodes.push_back(static_cast<std::size_t>(nid));
 
+    // ── PVD time-series setup ────────────────────────────────────
+    std::filesystem::create_directories(out_dir + "/vtk");
+    PVDWriter pvd_mesh{out_dir + "/vtk/mesh"};
+    PVDWriter pvd_gauss{out_dir + "/vtk/gauss"};
+
     nl.set_step_callback(
         [&](int step, double p, const ContModel& m) {
             double d     = cyclic_displacement(p);
             double shear = extract_base_shear_x(m, base_nodes);
             records.push_back({step, p, d, shear});
+
+            // Per-step VTK snapshot
+            {
+                fall_n::vtk::VTKModelExporter exporter{
+                    const_cast<ContModel&>(m)};
+                exporter.set_displacement();
+                exporter.compute_material_fields();
+
+                auto mesh_file  = std::format("{}/vtk/mesh_{:04d}.vtu",
+                                              out_dir, step);
+                auto gauss_file = std::format("{}/vtk/gauss_{:04d}.vtu",
+                                              out_dir, step);
+                exporter.write_mesh(mesh_file);
+                exporter.write_gauss_points(gauss_file);
+                pvd_mesh.add_timestep(p, mesh_file);
+                pvd_gauss.add_timestep(p, gauss_file);
+            }
 
             if (step % 20 == 0 || step == NUM_STEPS) {
                 std::println("    step={:3d}  p={:.4f}  d={:+.4e} m  V={:+.4e} MN",
@@ -449,15 +551,9 @@ run_case2(HexOrder order, const std::string& out_dir)
     std::println("  Result: {} ({} records)",
                  ok ? "COMPLETED" : "ABORTED", records.size());
 
-    // ── VTK ───────────────────────────────────────────────────────
-    {
-        std::filesystem::create_directories(out_dir + "/vtk");
-        fall_n::vtk::VTKModelExporter exporter{model};
-        exporter.set_displacement();
-        exporter.compute_material_fields();
-        exporter.write_mesh(out_dir + "/vtk/final_mesh.vtu");
-        exporter.write_gauss_points(out_dir + "/vtk/final_gauss.vtu");
-    }
+    // ── Finalize PVD time series ─────────────────────────────────
+    pvd_mesh.write();
+    pvd_gauss.write();
 
     write_csv(out_dir + "/hysteresis.csv", records);
     return records;
@@ -576,11 +672,31 @@ static std::vector<StepRecord> run_case3(const std::string& out_dir)
 
     const std::vector<std::size_t> base_nodes = {0, 1, 2, 3};
 
+    // ── PVD time-series setup ────────────────────────────────────
+    std::filesystem::create_directories(out_dir + "/vtk");
+    PVDWriter pvd_table{out_dir + "/vtk/table"};
+
+    auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
+    auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<3>{};
+
     nl.set_step_callback(
         [&](int step, double p, const StructModel& m) {
             double d     = cyclic_displacement(p);
             double shear = extract_base_shear_x(m, base_nodes);
             records.push_back({step, p, d, shear});
+
+            // Per-step VTM snapshot
+            {
+                fall_n::vtk::StructuralVTMExporter vtm{
+                    const_cast<StructModel&>(m),
+                    beam_profile, shell_profile};
+                vtm.set_displacement(m.state_vector());
+                vtm.set_yield_strain(EPS_YIELD);
+                auto vtm_file = std::format("{}/vtk/table_{:04d}.vtm",
+                                            out_dir, step);
+                vtm.write(vtm_file);
+                pvd_table.add_timestep(p, vtm_file);
+            }
 
             if (step % 20 == 0 || step == NUM_STEPS) {
                 std::println("    step={:3d}  p={:.4f}  d={:+.4e} m  V={:+.4e} MN",
@@ -602,17 +718,8 @@ static std::vector<StepRecord> run_case3(const std::string& out_dir)
     std::println("  Result: {} ({} records)",
                  ok ? "COMPLETED" : "ABORTED", records.size());
 
-    // ── VTK ───────────────────────────────────────────────────────
-    {
-        std::filesystem::create_directories(out_dir + "/vtk");
-        fall_n::vtk::StructuralVTMExporter vtm{
-            model,
-            fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H},
-            fall_n::reconstruction::ShellThicknessProfile<3>{}};
-        vtm.set_displacement(model.state_vector());
-        vtm.set_yield_strain(EPS_YIELD);
-        vtm.write(out_dir + "/vtk/final.vtm");
-    }
+    // ── Finalize PVD time series ─────────────────────────────────
+    pvd_table.write();
 
     write_csv(out_dir + "/hysteresis.csv", records);
     return records;
@@ -835,6 +942,13 @@ run_case_fe2(bool two_way, const std::string& out_dir)
     int fe2_step = 0;
     auto t0 = std::chrono::steady_clock::now();
 
+    // ── PVD time-series setup ────────────────────────────────────
+    std::filesystem::create_directories(out_dir + "/vtk");
+    PVDWriter pvd_fe2{out_dir + "/vtk/table_fe2"};
+
+    auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
+    auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<3>{};
+
     nl.set_step_callback(
         [&](int step, double p, const StructModel& /*m*/) {
             double d     = cyclic_displacement(p);
@@ -844,6 +958,18 @@ run_case_fe2(bool two_way, const std::string& out_dir)
             // FE² staggered coupling
             ++fe2_step;
             analysis.step(static_cast<double>(step), fe2_step);
+
+            // Per-step VTM snapshot
+            {
+                fall_n::vtk::StructuralVTMExporter vtm{
+                    model, beam_profile, shell_profile};
+                vtm.set_displacement(model.state_vector());
+                vtm.set_yield_strain(EPS_YIELD);
+                auto vtm_file = std::format("{}/vtk/table_fe2_{:04d}.vtm",
+                                            out_dir, step);
+                vtm.write(vtm_file);
+                pvd_fe2.add_timestep(p, vtm_file);
+            }
 
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - t0).count();
@@ -876,16 +1002,8 @@ run_case_fe2(bool two_way, const std::string& out_dir)
     for (auto& ev : analysis.model().local_models())
         ev.finalize();
 
-    // ── VTK ───────────────────────────────────────────────────────
-    {
-        std::filesystem::create_directories(out_dir + "/vtk");
-        auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
-        auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<3>{};
-        fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
-        vtm.set_displacement(model.state_vector());
-        vtm.set_yield_strain(EPS_YIELD);
-        vtm.write(out_dir + "/vtk/final.vtm");
-    }
+    // ── Finalize PVD time series ─────────────────────────────────
+    pvd_fe2.write();
 
     write_csv(out_dir + "/hysteresis.csv", records);
     return records;
@@ -925,8 +1043,8 @@ int main(int argc, char* argv[])
 
     sep('=');
     std::println("  fall_n — Cyclic Validation of FE² Pipeline");
-    std::println("  Case: {}  |  Protocol: ±1/2/4/8 δy  |  δy = {} m",
-                 case_id, DELTA_Y);
+    std::println("  Case: {}  |  Protocol: ±2.5/5/10/20 mm (geometric)",
+                 case_id);
     std::println("  Steps: {}  |  Max bisection: {}", NUM_STEPS, MAX_BISECT);
     sep('=');
 
@@ -939,21 +1057,35 @@ int main(int argc, char* argv[])
         return case_id == "all" || case_id == id;
     };
 
-    if (should_run("1a")) {
-        auto dir = OUT_ROOT + "case1a";
+    // ── Case 0: Linear elastic reference ────────────────────────
+    if (should_run("0")) {
+        auto dir = OUT_ROOT + "case0";
         std::filesystem::create_directories(dir);
-        results["1a"] = run_case1<2>(dir);
+        results["0"] = run_case0(dir);
     }
-    if (should_run("1b")) {
-        auto dir = OUT_ROOT + "case1b";
-        std::filesystem::create_directories(dir);
-        results["1b"] = run_case1<3>(dir);
-    }
-    if (should_run("1c")) {
-        auto dir = OUT_ROOT + "case1c";
-        std::filesystem::create_directories(dir);
-        results["1c"] = run_case1<4>(dir);
-    }
+
+    // ── Case 1: Timoshenko beams N=2..10 ─────────────────────────
+    //  1a = N=2, 1b = N=3, … 1i = N=10
+    auto run_beam = [&]<std::size_t N>() {
+        std::string sub(1, static_cast<char>('a' + (N - 2)));
+        std::string id = "1" + sub;
+        if (should_run(id)) {
+            auto dir = OUT_ROOT + "case" + id;
+            std::filesystem::create_directories(dir);
+            results[id] = run_case1<N>(dir);
+        }
+    };
+    run_beam.template operator()<2>();
+    run_beam.template operator()<3>();
+    run_beam.template operator()<4>();
+    run_beam.template operator()<5>();
+    run_beam.template operator()<6>();
+    run_beam.template operator()<7>();
+    run_beam.template operator()<8>();
+    run_beam.template operator()<9>();
+    run_beam.template operator()<10>();
+
+    // ── Case 2: Continuum columns ────────────────────────────────
     if (should_run("2a")) {
         auto dir = OUT_ROOT + "case2a";
         std::filesystem::create_directories(dir);
