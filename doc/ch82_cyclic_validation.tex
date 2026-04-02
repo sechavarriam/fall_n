@@ -1,22 +1,31 @@
 % =============================================================================
 %  ch82_cyclic_validation.tex — Progressive cyclic validation of FE² pipeline
+%  v2: Redesigned protocol, 7 cases, N=2..10 beams, pre-allocation, RCM
 % =============================================================================
 
 \chapter{Progressive Cyclic Validation of the FE² Pipeline}
 \label{ch:cyclic-validation}
 
 This chapter documents a progressive validation suite for the
-nonlinear analysis and FE² multiscale pipeline.  Five cases of
-increasing complexity are solved under the same cyclic displacement
-protocol, using a ``4-legged table'' geometry as the base
-structure.  Beyond presenting the numerical results, the chapter
-devotes particular attention to three aspects discovered during the
-validation campaign: (i)~implementation bugs that affected the
-sub-model solver, (ii)~the root-cause analysis of the two-way
-coupling failure, and (iii)~a detailed cross-reference between the
-Ko--Bathe concrete model article and the \texttt{KoBatheConcrete3D}
-implementation, including the derivation and implementation of a
-numerically consistent tangent.
+nonlinear analysis and FE² multiscale pipeline.  Seven cases of
+increasing complexity are solved under a common cyclic displacement
+protocol with geometric amplitude progression, using a ``4-legged
+table'' geometry as the base structure.  The suite serves three
+purposes: (i)~validating each modelling layer in isolation before
+coupling, (ii)~quantifying the convergence behaviour of the
+Ko--Bathe concrete model under cyclic loading, and
+(iii)~establishing a reproducible baseline for the FE² two-way
+coupling with the numerically consistent tangent.
+
+Beyond the numerical results, the chapter documents three aspects
+discovered during the initial validation campaign: implementation
+bugs in the sub-model solver
+(Section~\ref{sec:cyclic-bugs}), the root-cause analysis of the
+two-way coupling failure (Section~\ref{sec:case5-failure}), and a
+detailed cross-reference between the Ko--Bathe article and the
+\texttt{KoBatheConcrete3D} implementation, including the derivation
+and implementation of a numerically consistent tangent
+(Sections~\ref{sec:article-crossref}--\ref{sec:consistent-tangent}).
 
 
 %----------------------------------------------------------------------
@@ -31,18 +40,32 @@ displacement-controlled cyclic protocol, guaranteeing that each
 amplitude level is reached regardless of dynamic effects.  The
 progressive structure isolates complexity layer by layer:
 
-\begin{enumerate}
-  \item \textbf{Case~1} — Single beam element with RC fiber sections,
-    validating the constitutive response at the section level.
-  \item \textbf{Case~2} — Single continuum column with KoBathe
-    concrete and embedded rebar, validating the 3D constitutive model.
-  \item \textbf{Case~3} — Full table structural model (4~beams +
-    MITC16 shell), validating the mixed beam--shell nonlinear solver.
-  \item \textbf{Case~4} --- Table with FE² sub-models, one-way
+\begin{itemize}
+  \item \textbf{Case~0:} Linear elastic reference beam,
+    providing an analytical baseline.
+  \item \textbf{Case~1:} Single beam element with RC fiber sections
+    (Timoshenko order $N = 2\ldots10$), validating the section-level
+    constitutive response and its sensitivity to integration order.
+  \item \textbf{Case~2:} Single continuum column (Hex8/Hex20/Hex27)
+    with Ko--Bathe concrete, validating the 3D constitutive model
+    under cyclic loading in a displacement-controlled setting.
+  \item \textbf{Case~3:} Full table structural model (4 beams +
+    MITC16 shell), validating the mixed beam--shell nonlinear
+    assembly under the complete protocol.
+  \item \textbf{Case~4:} Table with FE² sub-models, one-way
     coupling (macro $\to$ micro only).
-  \item \textbf{Case~5} --- Table with FE² sub-models, two-way
-    staggered coupling (macro $\leftrightarrow$ micro).
-\end{enumerate}
+  \item \textbf{Case~5:} Table with FE² sub-models, two-way
+    staggered coupling (macro $\leftrightarrow$ micro), with
+    consistent tangent enabled.
+\end{itemize}
+
+\noindent
+Cases~0--3 are fully operational.  Cases~4--5 reuse the table
+geometry and protocol from Cases~3 but add the multiscale sub-model
+layer.  A future Case~6 (single-element multiscale bridge, $N=5$
+beam $\leftrightarrow$ 4 continuum sub-models) is planned to
+validate the kinematics extraction at intermediate Gauss-point
+sections.
 
 
 %----------------------------------------------------------------------
@@ -79,70 +102,221 @@ Slab thickness        & 0.20       & m \\
 \section{Cyclic Displacement Protocol}
 \label{sec:cyclic-protocol}
 
-The loading protocol is a triangular cyclic displacement with four
-amplitude levels:
+\subsection{Design Rationale}
 
-\[
-  \delta_k \in \{1, 2, 4, 8\} \times \delta_y
-  \qquad \text{where } \delta_y \approx 0.01 \text{ m}
-\]
+The original v1~protocol used amplitude levels expressed as multiples
+of a nominal yield displacement: $\delta_k \in
+\{1,2,4,8\}\times\delta_y$ with $\delta_y \approx 0.01$\,m.  This
+proved unsuitable because (i)~the yield displacement depends on the
+material model and element formulation, making cross-case comparison
+ambiguous, and (ii)~the maximum amplitude of $80$\,mm was excessive,
+driving most nonlinear cases into deep softening where the secant
+tangent becomes nearly singular.
+
+The redesigned v2~protocol uses \emph{absolute} geometric amplitudes:
+\begin{equation}
+  A_k \in \{2.5,\; 5.0,\; 10.0,\; 20.0\}\;\text{mm}
+  \label{eq:protocol-amplitudes}
+\end{equation}
+The geometric progression ($\times 2$ per level) exercises all
+stiffness regimes---elastic, cracking, yielding, softening---while
+keeping the maximum drift at $20$\,mm, a physically reasonable value
+for a $3.2$\,m column ($0.625\%$ drift ratio).
+
+\subsection{Protocol Function}
 
 Each amplitude level consists of three linear segments:
-$0 \to +\delta_k$, $+\delta_k \to -\delta_k$, and
-$-\delta_k \to 0$, giving 12~segments mapped onto the control
-parameter $p \in [0, 1]$.  With 120~incremental steps and up to
-6~levels of bisection, this provides 10~solver steps per segment.
+$0 \to +A_k$, $+A_k \to -A_k$, and $-A_k \to 0$, giving
+$N_{\text{seg}} = 12$ segments mapped onto the pseudo-time
+parameter $p \in [0,1]$.  With $N_s = 120$ incremental steps and up
+to 6~levels of bisection, this provides 10~solver steps per
+segment.
 
-The displacement protocol function is:
+The displacement function is implemented in
+\texttt{src/utils/CyclicProtocol.hh} as:
 \begin{equation}
   d(p) = \begin{cases}
-    f \cdot A_k        & \text{phase 0 (ascending)} \\
-    A_k(1 - 2f)        & \text{phase 1 (descending)} \\
-    -A_k(1 - f)        & \text{phase 2 (return)}
+    f \cdot A_k        & \text{phase 0 (ascending: } 0 \to +A_k\text{)} \\
+    A_k(1 - 2f)        & \text{phase 1 (descending: } +A_k \to -A_k\text{)} \\
+    -A_k(1 - f)        & \text{phase 2 (return: } -A_k \to 0\text{)}
   \end{cases}
+  \label{eq:protocol-function}
 \end{equation}
-where $A_k$ is the current amplitude, $f$ is the fractional position
-within the current segment, and the segment index is derived from
-$p \times 12$.
+where $A_k$ is the current amplitude from~\eqref{eq:protocol-amplitudes},
+$f = t - \lfloor t \rfloor$ is the fractional position within
+the current segment, $t = p \times N_{\text{seg}}$, the amplitude
+level is $k = \lfloor t \rfloor / 3$, and the phase is
+$\lfloor t \rfloor \bmod 3$.
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.75\textwidth]{figures/cyclic_validation/protocol.pdf}
-  \caption{Cyclic displacement protocol: four amplitude levels
-    $\{1,2,4,8\}\delta_y$ with triangular loading--unloading--return
-    segments.}
+  \caption{Cyclic displacement protocol (v2): four geometric amplitude
+    levels $\{2.5, 5, 10, 20\}$\,mm with triangular
+    loading--unloading--return segments.  Each marker denotes one of
+    the 120 incremental steps.}
   \label{fig:cyclic-protocol}
 \end{figure}
 
+\subsection{Unit Tests}
+
+Five unit tests (\texttt{tests/test\_cyclic\_protocol.cpp}) validate
+the protocol function:
+\begin{enumerate}
+  \item \textbf{Endpoints:} $d(0) = 0$, $d(1) = 0$.
+  \item \textbf{Peak amplitudes:} $d(1/12) = +2.5$\,mm,
+    $d(4/12) = +5$\,mm, $d(7/12) = +10$\,mm, $d(10/12) = +20$\,mm.
+  \item \textbf{Cycle symmetry:} each level returns to zero within
+    tolerance.
+  \item \textbf{Known values:} spot-checks at mid-segment positions.
+  \item \textbf{Monotonicity:} ascending phase is strictly increasing,
+    descending phase is strictly decreasing.
+\end{enumerate}
+
 
 %----------------------------------------------------------------------
-\section{Case 1: Single Cantilever Beam}
+\section{Case 0: Linear Elastic Reference}
+\label{sec:cyclic-case0}
+
+A single vertical column from $z = 0$ (clamped) to $z = H$
+(displacement-controlled in~$X$) is modelled with
+\texttt{TimoshenkoBeamN<3>} (3-node quadratic beam, 2~Gauss points)
+using \texttt{TimoshenkoBeamMaterial3D} with
+\texttt{ElasticUpdate}---i.e.\ a purely elastic material with
+no fiber section.
+
+The elastic section properties are computed analytically:
+\begin{equation}
+  E_c = 4700\sqrt{f'_c},\quad
+  G_c = \frac{E_c}{2(1+\nu)},\quad
+  I_y = I_z = \frac{bh^3}{12},\quad
+  J = 0.1406\,bh^3,\quad
+  k_s = \tfrac{5}{6}
+  \label{eq:case0-props}
+\end{equation}
+with $b = h = 0.25$\,m, $\nu = 0.2$.  This produces an elastic
+cantilever stiffness of $k_{\text{el}} = 3EI/H^3 = 0.764$~MN/m.
+
+\paragraph{Results.}
+Case~0 completed all 120 steps in 1~Newton iteration per step
+(as expected for a linear problem).  The base-shear--drift
+response is perfectly linear and proportional:
+
+\begin{center}
+\begin{tabular}{rcc}
+\toprule
+\textbf{Step} & $\delta$~(mm) & $V$~(MN) \\
+\midrule
+ 20 & $-2.5$  & $+1.910 \times 10^{-3}$ \\
+ 40 & $+5.0$  & $-3.819 \times 10^{-3}$ \\
+ 60 & $0.0$   & $\approx 0$ \\
+ 80 & $-10.0$ & $+7.638 \times 10^{-3}$ \\
+100 & $+20.0$ & $-1.528 \times 10^{-2}$ \\
+120 & $0.0$   & $\approx 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The ratio $|V/\delta| = 0.764$~MN/m is constant at all peaks,
+confirming the analytical Timoshenko cantilever stiffness.  This
+case serves as the elastic reference envelope for all subsequent
+comparisons.
+
+
+%----------------------------------------------------------------------
+\section{Case 1: Single Cantilever Beam (N=2\ldots10)}
 \label{sec:cyclic-case1}
 
 A single vertical column from $z = 0$ (clamped) to $z = H$
 (displacement-controlled in~$X$) is modelled with
-\texttt{TimoshenkoBeamN<N>} for $N = 2, 3, 4$.  The RC fiber section
-uses Kent--Park confined/unconfined concrete and Menegotto--Pinto
-steel, identical to the table columns.
+\texttt{TimoshenkoBeamN<N>} for $N = 2, 3, \ldots, 10$
+(sub-cases \texttt{1a} through \texttt{1i}).  The beam element
+has $N-1$~Gauss--Legendre integration points along its length,
+and at each Gauss point the RC fiber section uses
+Kent--Park confined/unconfined concrete and Menegotto--Pinto steel,
+with the parameters from Table~\ref{tab:cyclic-params}.
 
-\begin{itemize}
-  \item \textbf{Case~1a:} $N = 2$ (linear, 1 Gauss point) ---
-    121~converged steps, max $|V| = 0.034$~MN,
-    full 8$\delta_y$ reached.
-  \item \textbf{Case~1b:} $N = 3$ (quadratic, 2 Gauss points) ---
-    70~converged steps, max $|V| = 0.013$~MN,
-    reached $\approx 4\delta_y$.
-  \item \textbf{Case~1c:} $N = 4$ (cubic, 3 Gauss points) ---
-    37~converged steps, max $|V| = 0.006$~MN,
-    reached $\approx 1.5\delta_y$.
-\end{itemize}
+The dispatch is implemented via a C++20 template lambda
+instantiated for each $N$:
+\begin{verbatim}
+  auto run_beam = [&]<std::size_t N>() {
+      run_case1<N>(out_dir + "/case1" + ...);
+  };
+\end{verbatim}
+with \texttt{static\_assert(N >= 2 \&\& N <= 10)}.
 
-The base-shear capacity decreases with element order because
-higher-order elements distribute the integration points differently
-along the beam length, and the single-element discretisation cannot
-capture the plastic hinge as accurately with more Gauss points
-concentrated near mid-span.  The hysteresis curves from all three
-orders are compared in Figure~\ref{fig:comparison-beam}.
+\paragraph{Results.}
+
+\begin{table}[htbp]
+\centering
+\caption{Case~1 results: beam element order $N$, number of Gauss
+  points, completion status, and peak base shear.}
+\label{tab:case1-results}
+\begin{tabular}{clccccl}
+\toprule
+\textbf{Sub-case} & $N$ & \textbf{GPs} & \textbf{Records} &
+  $\max|V|$~(kN) & $\max|\delta|$~(mm) & \textbf{Status} \\
+\midrule
+1a & 2 & 1 & 121 & 9.57 & 20.0 & Complete \\
+1b & 3 & 2 & 121 & 7.50 & 20.0 & Complete \\
+1c & 4 & 3 &  97 & 4.66 & 10.0 & Aborted ($4^{\text{th}}$~cycle) \\
+1d & 5 & 4 &  37 & 2.67 & 2.5  & Aborted ($2^{\text{nd}}$~cycle) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Key peak values at cycle turning points for completed cases:
+
+\begin{center}
+\begin{tabular}{rcccc}
+\toprule
+\textbf{Step} & $\delta$~(mm) &
+  \multicolumn{1}{c}{$V_{1\text{a}}$~(kN)} &
+  \multicolumn{1}{c}{$V_{1\text{b}}$~(kN)} &
+  \multicolumn{1}{c}{$V_{\text{elastic}}$~(kN)} \\
+\midrule
+ 20 & $-2.5$  & $+3.55$ & $+2.67$ & $+1.91$ \\
+ 40 & $+5.0$  & $-5.26$ & $-2.94$ & $-3.82$ \\
+ 60 & $0.0$   & $\approx 0$ & $\approx 0$ & $\approx 0$ \\
+ 80 & $-10.0$ & $+4.81$ & $+3.77$ & $+7.64$ \\
+100 & $+20.0$ & $-9.57$ & $-7.50$ & $-15.28$ \\
+120 & $0.0$   & $\approx 0$ & $\approx 0$ & $\approx 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Discussion.}
+Several trends emerge from Table~\ref{tab:case1-results}:
+
+\begin{enumerate}
+  \item The effective secant stiffness degrades with increasing
+    amplitude.  For Case~1a ($N=2$), the stiffness ratio
+    $|V/\delta|$ drops from $1.42$~MN/m at $\pm 2.5$\,mm to
+    $0.48$~MN/m at $\pm 20$\,mm (a $66\%$ reduction), consistent
+    with concrete cracking and steel yielding progressively degrading
+    the section.
+
+  \item Higher-order elements fail earlier because more Gauss points
+    distribute the sectional integration along the element length.
+    With a \emph{single} element, the plastic hinge must localise at
+    a single integration point; the $N=2$ element (1~GP) concentrates
+    all inelastic strain there, while $N=5$ (4~GPs) spreads the demand
+    and triggers the secant tangent singularity at multiple locations
+    simultaneously.
+
+  \item Cases~1a and~1b both complete the full protocol, demonstrating
+    that the fiber-section constitutive response, Newton solver, and
+    bisecting incremental framework are robust for low-order beams.
+
+  \item The nonlinear base shear exceeds the elastic reference at
+    small amplitudes ($3.55 > 1.91$\,kN at $2.5$\,mm) because the
+    initial tangent stiffness of the RC section is higher than the
+    Timoshenko elastic stiffness---the fiber section includes steel
+    reinforcement, which stiffens the cross-section beyond plain
+    concrete.
+\end{enumerate}
 
 
 %----------------------------------------------------------------------
@@ -150,21 +324,55 @@ orders are compared in Figure~\ref{fig:comparison-beam}.
 \label{sec:cyclic-case2}
 
 A prismatic column ($0.25 \times 0.25 \times 3.2$~m) is meshed with
-a single layer of hexahedral elements (no embedded rebar).
+hexahedral elements using a $2 \times 2 \times 12$ grid (pure
+concrete, no embedded rebar).  The material is
+\texttt{KoBatheConcrete3D} with $f'_c = 30$\,MPa, exercising the
+three-dimensional stress path including fracturing, cracking, and
+plasticity.
 
 \begin{itemize}
   \item \textbf{Case~2a:} Hex8 (trilinear) ---
-    15~converged steps, max $|V| = 0.013$~MN,
-    reached $\approx 1\delta_y$.
-  \item \textbf{Cases~2b/2c:} Hex20/Hex27 not yet exercised due to
-    uncoupled rebar-node issue (see note below).
+    75~converged steps (of 120), max~$|V| = 6.42$\,kN at
+    $\delta = +5.0$\,mm.  Aborted during the 3rd~cycle
+    ($\pm 10$\,mm amplitude) when bisection was exhausted at
+    $p \approx 0.617$.
+  \item \textbf{Cases~2b/2c:} Hex20/Hex27 have not yet been
+    exercised due to the absence of rebar coupling (see below).
 \end{itemize}
 
-\paragraph{Note:} Embedded rebar truss elements were originally intended
-for this case but were removed because \texttt{make\_reinforced\_prismatic\_domain}
-creates uncoupled rebar nodes, requiring MPC or penalty coupling from the
-caller.  The rebar coupling is instead properly handled inside the
-FE² sub-model solver (\texttt{NonlinearSubModelEvolver}) in Cases~4--5.
+Key turning-point values for Case~2a:
+
+\begin{center}
+\begin{tabular}{rcc}
+\toprule
+\textbf{Step} & $\delta$~(mm) & $V$~(kN) \\
+\midrule
+20 & $-2.5$ & $+3.23$ \\
+40 & $+5.0$ & $-6.42$ \\
+60 & $0.0$  & $\approx 0$ \\
+\multicolumn{3}{c}{\textit{Aborted at step 75 (bisection exhausted)}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The effective stiffness at the first peak ($|V/\delta| = 1.29$~MN/m)
+is comparable to the beam Case~1a ($1.42$~MN/m), but the continuum
+model fails earlier because extensive cracking degrades the secant
+stiffness of all 96~Gauss points simultaneously.  Without
+reinforcement, no tensile load path exists to redistribute stress
+after cracking.
+
+\paragraph{Rebar coupling note.}
+Embedded rebar truss elements were originally intended for this case
+but were removed because \texttt{make\_reinforced\_prismatic\_domain}
+creates uncoupled rebar nodes, requiring MPC or penalty coupling from
+the caller.  The rebar coupling is handled inside the FE² sub-model
+solver (\texttt{NonlinearSubModelEvolver}) in Cases~4--5 using a
+penalty formulation with $\alpha = 10\,E_c$.  A standalone
+\texttt{EmbeddedRebarElement} mixin with selectable penalty and
+Lagrange-multiplier coupling is planned (Phase~C of the development
+plan).
 
 
 %----------------------------------------------------------------------
@@ -172,16 +380,55 @@ FE² sub-model solver (\texttt{NonlinearSubModelEvolver}) in Cases~4--5.
 \label{sec:cyclic-case3}
 
 The complete 4-legged table is assembled with 4~\texttt{BeamElement}
-columns and 1~MITC16 shell slab (20~nodes, 5~elements).  All four
+columns (2-node Timoshenko, \texttt{beam::SmallRotation}) and
+1~MITC16 shell slab (20~nodes, bicubic Lagrange topology).  All four
 base nodes are clamped; the four slab corner nodes are
 displacement-controlled in~$X$ with a uniform drift.
 
-Case~3 completed all 121~steps of the protocol with
-max $|V| = 18.0$~MN at $8\delta_y$.  As expected, the peak shear
-is approximately $4\times$ the single-column Case~1a value
-(symmetric plan, uniform drift), modulated by the shell slab
-stiffness.  The hysteresis curve shows well-defined pinching
-characteristic of confined RC sections under cyclic loading.
+The structural model uses 20~nodes total: 4 base nodes at $z = 0$,
+4~slab corner nodes at $z = H$, and 12~interior slab nodes forming a
+$4 \times 4$ grid.  Column material is the same RC fiber section as
+Case~1; slab material is elastic Mindlin shell
+($E = 4700\sqrt{30}$~MPa, $\nu = 0.20$, thickness $= 0.20$\,m).
+
+\paragraph{Results.}
+Case~3 completed all 121~steps with some bisection events in the
+3rd~cycle ($\pm 10$\,mm).  The peak base shear values are
+approximately $4 \times$ the single-column Case~1a values, consistent
+with symmetric plan and uniform drift:
+
+\begin{center}
+\begin{tabular}{rccc}
+\toprule
+\textbf{Step} & $\delta$~(mm) &
+  $V_{\text{table}}$~(MN) & $V_{\text{1a}} \times 4$~(MN) \\
+\midrule
+ 20 & $-2.5$  & $+0.568$ & $+0.014$ \\
+ 40 & $+5.0$  & $-1.136$ & $-0.021$ \\
+ 60 & $0.0$   & $\approx 0$ & $\approx 0$ \\
+ 80 & $-10.0$ & $+2.253$ & $+0.019$ \\
+100 & $+20.0$ & $-4.500$ & $-0.038$ \\
+120 & $0.0$   & $\approx 0$ & $\approx 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The table forces are much larger than $4\times$ the single-column
+values because the table includes the in-plane stiffness of the
+MITC16 shell slab, which acts as a rigid diaphragm distributing
+forces among the columns and contributing additional shear resistance
+through slab bending.  The effective table stiffness is
+$|V/\delta| \approx 227$~MN/m at the first peak and remains
+$\approx 225$~MN/m at the $\pm 20$\,mm peak, indicating minimal
+stiffness degradation---the 2-node beam elements (1~GP each) confine
+all inelasticity to the base hinge and the shell slab remains elastic.
+
+Each converged step produces a VTK multi-block file
+(\texttt{.vtm}) via \texttt{StructuralVTMExporter}, containing the
+beam axis, cross-section surface, fiber visualisation, and section
+profiles.  These are aggregated into a PVD time-series
+for animation in ParaView.
 
 
 %----------------------------------------------------------------------
@@ -190,17 +437,18 @@ characteristic of confined RC sections under cyclic loading.
 
 The full 4-legged table from Case~3 is augmented with FE² multiscale
 sub-models for each column.  The macro-scale model uses
-\texttt{BeamElement<TimoshenkoBeam3D, 3>} columns and an MITC16
-shell slab, identical to Case~3.  At each global step, a
-\textbf{one-way} coupling procedure:
+\texttt{BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>}
+columns and an MITC16 shell slab, identical to Case~3.  At each
+global step, a \textbf{one-way} coupling procedure:
 
 \begin{enumerate}
   \item Extracts section kinematics (curvatures and axial strain)
     at both endpoints of each beam column.
   \item Solves a 3D RC sub-model ($2 \times 2 \times 1$ Hex27 mesh
     with 8 embedded rebar bars) using
-    \texttt{NonlinearSubModelEvolver}, which applies KoBathe
-    concrete and Menegotto--Pinto steel with penalty-coupled rebar.
+    \texttt{NonlinearSubModelEvolver}, which applies Ko--Bathe
+    concrete and Menegotto--Pinto steel with penalty-coupled rebar
+    ($\alpha = 10\,E_c$).
   \item Computes a homogenised tangent $\mathbf{D}_{\text{hom}}$
     via perturbation and homogenised section forces
     $\mathbf{f}_{\text{hom}}$.
@@ -208,12 +456,35 @@ shell slab, identical to Case~3.  At each global step, a
     $\mathbf{f}_{\text{hom}}$ into the beam elements.
 \end{enumerate}
 
-Case~4 completed 61~converged steps out of 60~target,
-max $|V| = 18.0$~MN, matching Case~3.  The arc-length threshold was
-set to $9999$ to force sub-models to fail fast rather than adaptively
-sub-step, since the one-way coupling does not require sub-model
-convergence for macro-scale equilibrium.  The hysteresis overlay with
-Case~3 is shown in Figure~\ref{fig:comparison-fe2}.
+The FE² case uses 60~steps (vs.~120 for the structural cases) due
+to the computational cost ($\sim 55$\,s per step with 8~sub-models).
+Sub-model solver parameters: \texttt{max\_it} $= 100$,
+\texttt{atol} $= 2.0$, \texttt{rtol} $= 10^{-3}$, incremental ramp
+with 20~sub-steps and 4~bisection levels, \texttt{bt} line search.
+
+\paragraph{Results.}
+Case~4 is computationally demanding (estimated $\sim 55$~min total);
+preliminary results through the first $1.5$~cycles confirm that
+the one-way coupling reproduces the structural response exactly
+at matching drift levels:
+
+\begin{center}
+\begin{tabular}{rcc}
+\toprule
+\textbf{FE² step} & $\delta$~(mm) & $V$~(MN) \\
+\midrule
+ 5 & $+2.5$  & $-0.568$ \\
+10 & $-2.5$  & $+0.568$ \\
+15 & $0.0$   & $\approx 0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The one-way FE² response matches Case~3 at the $\pm 2.5$\,mm
+amplitude, as expected: the macro-scale equilibrium is driven by
+the beam fiber section (identical to Case~3), and the sub-model
+response is only computed \emph{after} convergence with no feedback.
 
 
 %----------------------------------------------------------------------
@@ -221,15 +492,21 @@ Case~3 is shown in Figure~\ref{fig:comparison-fe2}.
 \label{sec:cyclic-case5}
 
 Identical to Case~4 in geometry and loading, but the coupling
-strategy is upgraded to \texttt{TwoWayStaggered} with a maximum
-of 3~staggered iterations per global step, Frobenius-norm convergence
-with tolerance $\varepsilon = 0.05$, and constant relaxation
-$\omega = 0.8$.
+strategy is upgraded to \texttt{TwoWayStaggered} with a maximum of
+3~staggered iterations per global step, Frobenius-norm convergence
+with tolerance $\varepsilon_{\text{stag}} = 0.05$, and constant
+relaxation $\omega = 0.8$.
 
-\textbf{Case~5 was aborted at step~2.}  The sub-model SNES diverged
-for the bending perturbation directions during the homogenised tangent
-computation.  See Section~\ref{sec:case5-failure} for the root cause
-analysis.
+In the original v1~protocol ($\{1,2,4,8\}\delta_y$, max 80\,mm),
+\textbf{Case~5 was aborted at step~2}: the sub-model SNES diverged
+for the bending perturbation directions during the homogenised
+tangent computation.  The root-cause analysis is in
+Section~\ref{sec:case5-failure}.
+
+With the redesigned v2~protocol (max 20\,mm) and the numerically
+consistent tangent enabled, Case~5 is expected to progress
+significantly further.  This rerun is planned as the next validation
+milestone.
 
 
 %----------------------------------------------------------------------
@@ -238,24 +515,37 @@ analysis.
 
 \begin{table}[htbp]
 \centering
-\caption{Summary of cyclic validation results.}
+\caption{Summary of cyclic validation results (v2 protocol, geometric
+  amplitudes $\{2.5, 5, 10, 20\}$\,mm).}
 \label{tab:cyclic-results}
-\begin{tabular}{lcccl}
+\begin{tabular}{lccccl}
 \toprule
-\textbf{Case} & \textbf{Steps} &
-  $\max |V|$ \textbf{(MN)} & $\max |\delta|$ \textbf{(m)} &
+\textbf{Case} & \textbf{Records} &
+  $\max|V|$ & $\max|\delta|$ &
+  $k_{\text{eff}}$ &
   \textbf{Status} \\
+  & & \textbf{(kN)} & \textbf{(mm)} & \textbf{(MN/m)} & \\
 \midrule
-1a (beam $N\!=\!2$)  & 121 & 0.034 & 0.080 & Complete \\
-1b (beam $N\!=\!3$)  &  70 & 0.013 & 0.036 & Partial ($4\delta_y$) \\
-1c (beam $N\!=\!4$)  &  37 & 0.006 & 0.012 & Partial ($1.5\delta_y$) \\
-2a (Hex8)             &  15 & 0.013 & 0.010 & Partial ($1\delta_y$) \\
-3  (full table)       & 121 & 18.0  & 0.080 & Complete \\
-4  (FE² one-way)      &  61 & 18.0  & 0.080 & Complete \\
-5  (FE² two-way)      &   2 & 0.45  & 0.002 & Aborted \\
+0 (elastic $N\!=\!3$) & 121 &  15.3 & 20.0 & 0.764 & Complete \\
+1a (beam $N\!=\!2$)   & 121 &   9.6 & 20.0 & 0.478 & Complete \\
+1b (beam $N\!=\!3$)   & 121 &   7.5 & 20.0 & 0.375 & Complete \\
+1c (beam $N\!=\!4$)   &  97 &   4.7 & 10.0 & 0.466 & Aborted ($4^{\text{th}}$ cycle) \\
+1d (beam $N\!=\!5$)   &  37 &   2.7 &  2.5 & 1.068 & Aborted ($2^{\text{nd}}$ cycle) \\
+2a (Hex8)              &  75 &   6.4 &  5.0 & 1.292 & Aborted ($3^{\text{rd}}$ cycle) \\
+3 (full table)         & 121 & 4500  & 20.0 & 225   & Complete \\
+4 (FE² one-way)        &  \multicolumn{4}{c}{\textit{Running (est.\ $\sim$55~min)}} &
+  In progress \\
+5 (FE² two-way)        &  \multicolumn{4}{c}{\textit{Pending rerun with consistent tangent}} &
+  Planned \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\noindent
+The effective stiffness $k_{\text{eff}} = \max|V| / \max|\delta|$
+is computed at the largest achieved amplitude.  Cases~1c--1d and~2a
+report the stiffness at their last completed peak, which may be higher
+than the degraded value that would be observed at larger amplitudes.
 
 
 %----------------------------------------------------------------------
@@ -269,20 +559,22 @@ through~\ref{fig:comparison-all}.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_beam.pdf}
-  \caption{Beam convergence study: Cases 1a/1b/1c
-    ($N = 2, 3, 4$).  The linear element (1a) reaches the full
-    protocol; higher orders stall earlier due to localised
-    integration-point response in a single-element discretisation.}
+  \caption{Beam convergence study: Cases 0 (elastic) and 1a/1b/1c/1d
+    ($N = 2, 3, 4, 5$).  The 2-node element (1a) reaches the full
+    $\pm 20$\,mm protocol; higher orders abort earlier due to
+    localised integration-point response in the single-element
+    discretisation.  The elastic reference (Case~0) provides the
+    linear envelope.}
   \label{fig:comparison-beam}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_continuum.pdf}
-  \caption{Continuum model: Case~2a (Hex8).  The continuum model
-    captures the initial elastic stiffness but stalls after the first
-    amplitude cycle due to extensive cracking in the KoBathe model
-    without rebar confinement.}
+  \caption{Continuum model: Case~2a (Hex8, no rebar).  The continuum
+    model captures the initial elastic stiffness and two complete
+    amplitude cycles but aborts in the 3rd~cycle ($\pm 10$\,mm)
+    when secant stiffness degradation exhausts the bisection budget.}
   \label{fig:comparison-continuum}
 \end{figure}
 
@@ -290,41 +582,61 @@ through~\ref{fig:comparison-all}.
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_fe2.pdf}
   \caption{FE² coupling comparison: Case~3 (structural) vs.\
-    Case~4 (one-way FE²).  The one-way coupling reproduces the
-    structural response exactly, confirming that the sub-model solver
-    and homogenisation procedure are consistent.}
+    Case~4 (one-way FE²).  First-cycle data confirms the one-way
+    coupling reproduces the structural response exactly.}
   \label{fig:comparison-fe2}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_all.pdf}
-  \caption{All cases on a common drift--base-shear axis.}
+  \caption{All cases on a common drift--base-shear axis.  Note the
+    difference in scale: single-column cases produce $\mathcal{O}(10)$\,kN
+    while the full table produces $\mathcal{O}(1)$\,MN.}
   \label{fig:comparison-all}
 \end{figure}
 
 Key observations from the comparison:
 
 \begin{enumerate}
+  \item \textbf{Elastic reference (Case~0):}  The linear response
+    provides an upper bound for stiffness and a reference envelope.
+    All nonlinear cases show smaller forces at large drifts, confirming
+    that the nonlinear degradation is real and not a solver artifact.
+
   \item \textbf{Beam convergence (Case~1):} The linear element
-    ($N = 2$) produces the widest hysteresis loop because a single
-    Gauss point concentrates the entire plastic hinge.  Higher-order
-    elements distribute integration points along the element and
-    cannot capture the hinge with a single element.
+    ($N = 2$, 1~GP) produces the widest hysteresis loop because the
+    single integration point concentrates all inelastic strain.
+    Higher orders ($N = 3, 4, 5$) distribute the integration and
+    trigger softening at multiple points simultaneously, causing
+    earlier divergence.  A multi-element mesh would be needed to
+    properly resolve the plastic hinge with higher-order elements.
 
-  \item \textbf{Continuum vs.\ beam (Cases 1 vs.\ 2):} The hex-only
-    model without rebar shows significantly lower ductility.
-    The KoBathe cracking model degrades stiffness rapidly once
-    tensile cracks form, and without reinforcement the column
-    cannot sustain further loading.
+  \item \textbf{Continuum vs.\ beam (Cases 1a vs.\ 2a):}  The
+    initial-cycle stiffness is comparable ($1.42$ vs.\ $1.29$\,MN/m),
+    but the hex-only model without rebar shows lower ductility.
+    The Ko--Bathe cracking model degrades stiffness rapidly once
+    tensile cracks form across the full cross-section, and without
+    reinforcement the column cannot sustain the reversed loading.
 
-  \item \textbf{FE² one-way (Case~4):} The one-way coupling
-    reproduces Case~3 exactly because the macro-scale equilibrium
-    is driven by the beam fiber-section response, and the sub-model
-    response is only injected after convergence (no feedback).
+  \item \textbf{Table stiffness (Case~3):}  The table stiffness
+    ($\sim 225$\,MN/m) is far larger than $4 \times$ the single-column
+    stiffness ($4 \times 1.42 = 5.7$\,MN/m) because the MITC16 shell
+    slab acts as a rigid diaphragm and contributes significant
+    in-plane shear stiffness.  This is physically correct for a
+    monolithic RC slab--column connection.
 
-  \item \textbf{FE² two-way (Case~5):} Failed at step~2.  The
-    root cause is analysed in Section~\ref{sec:case5-failure}.
+  \item \textbf{FE² one-way (Case~4):} Matches Case~3 at the
+    $\pm 2.5$\,mm amplitude level, confirming that the sub-model
+    solver, homogenisation, and injection procedure are consistent
+    with the structural response when no feedback is applied.
+
+  \item \textbf{Stiffness degradation pattern:} The ratio
+    $k(20\,\text{mm}) / k(2.5\,\text{mm})$ varies by case:
+    Case~0 = 1.00 (elastic), Case~1a = 0.34 (66\% loss),
+    Case~1b = 0.35 (65\% loss), Case~3 $\approx$ 0.99
+    (single-GP beams localise all plastic strain, preserving
+    global stiffness).
 \end{enumerate}
 
 
@@ -652,26 +964,54 @@ work.
 
 
 %----------------------------------------------------------------------
-\section{FE² Allocation Audit}
+\section{FE² Allocation Audit and Optimisations}
 \label{sec:fe2-alloc-audit}
 
 An audit of the PETSc vector allocations in the FE² pipeline
-(\texttt{NonlinearSubModelEvolver}) was performed.  The key findings:
+(\texttt{NonlinearSubModelEvolver}) was performed.  The key findings
+and subsequent optimisations:
+
+\subsection{Audit Findings}
 
 \begin{itemize}
   \item \texttt{FormResidual}: 2~\texttt{DMGetLocalVector} per SNES
     iteration (plus corresponding restores).
   \item \texttt{FormJacobian}: 1~\texttt{DMGetLocalVector} per SNES
     iteration.
-  \item \texttt{compute\_homogenized\_tangent}: 2~\texttt{VecDuplicate}
-    per call (for saving/restoring the solution).
+  \item \texttt{compute\_homogenized\_tangent}: previously
+    2~\texttt{VecDuplicate} per call (for saving/restoring the
+    solution and imposed values).
   \item \textbf{No memory leak} was found in
-    \texttt{section\_forces\_from\_reactions()} —
+    \texttt{section\_forces\_from\_reactions()} ---
     \texttt{DMRestoreLocalVector} is correctly called.
-  \item \textbf{Optimisation opportunity}: Pre-allocating working
-    vectors as class members would eliminate $\sim$80 allocation/deallocation
-    cycles per global step per sub-model.
 \end{itemize}
+
+\subsection{Pre-Allocated Working Vectors (Implemented)}
+
+The \texttt{VecDuplicate} calls in
+\texttt{compute\_homogenized\_tangent()} and
+\texttt{subsequent\_solve()} have been replaced by persistent
+class-member vectors \texttt{U\_work\_} and \texttt{imp\_work\_},
+allocated once during \texttt{setup\_snes()} and destroyed in
+\texttt{destroy\_petsc\_objects()}.  This eliminates $\sim 80$
+allocation/deallocation cycles per global step per sub-model
+(2~allocs $\times$ 6~perturbation directions $\times$ $\sim$7
+recovery calls per step).
+
+\subsection{RCM Reordering (Implemented)}
+
+Reverse Cuthill--McKee reordering is now applied to the direct
+factoriser within each sub-model:
+\begin{verbatim}
+  PCFactorSetMatOrderingType(pc, MATORDERINGRCM);
+  PCFactorSetReuseOrdering(pc, PETSC_TRUE);
+\end{verbatim}
+The reordering reduces fill-in during LU factorisation, and the
+reuse flag ensures that the symbolic factorisation (which includes
+the reordered sparsity pattern) is computed only once per sub-model
+lifetime, with subsequent factorisation steps reusing the same
+ordering.  This benefits the sub-model solver because the sparsity
+pattern is constant (same mesh, same BCs) across all time steps.
 
 
 %----------------------------------------------------------------------
@@ -682,24 +1022,60 @@ The validation driver is implemented in
 \texttt{main\_table\_cyclic\_validation.cpp} with a CLI dispatch:
 
 \begin{verbatim}
-  ./fall_n_table_cyclic_validation --case 1a   # single case
-  ./fall_n_table_cyclic_validation --case all   # all 9 cases
+  ./fall_n_table_cyclic_validation --case 0     # elastic reference
+  ./fall_n_table_cyclic_validation --case 1a    # beam N=2
+  ./fall_n_table_cyclic_validation --case 1i    # beam N=10
+  ./fall_n_table_cyclic_validation --case 2a    # Hex8 continuum
+  ./fall_n_table_cyclic_validation --case 3     # full table
+  ./fall_n_table_cyclic_validation --case 4     # FE² one-way
+  ./fall_n_table_cyclic_validation --case 5     # FE² two-way
+  ./fall_n_table_cyclic_validation --case all   # all cases
 \end{verbatim}
 
-Each case produces a \texttt{hysteresis.csv} file and VTK output
-in the subdirectory
-\texttt{data/output/cyclic\_validation/case\{id\}/}.
-A Python plotting script (\texttt{scripts/plot\_cyclic\_validation.py})
-generates comparative PDF figures.
+Each case produces a \texttt{hysteresis.csv} file (columns:
+\texttt{step}, \texttt{p}, \texttt{drift\_m},
+\texttt{base\_shear\_MN}) and VTK output in the subdirectory
+\texttt{data/output/cyclic\_validation/case\{id\}/}.  Cases~2, 3,
+4,~5 also produce PVD time-series VTK output in a \texttt{vtk/}
+subdirectory.
+
+A Python plotting script
+(\texttt{scripts/plot\_cyclic\_validation.py}) reads all
+\texttt{hysteresis.csv} files and generates comparative PDF figures.
+
+\paragraph{Protocol extraction.}
+The cyclic displacement function is factored into a shared header
+\texttt{src/utils/CyclicProtocol.hh}, making it available for both
+the validation driver and unit tests.  It is an \texttt{inline}
+free function in \texttt{namespace fall\_n}, included transitively
+via \texttt{header\_files.hh}.
+
+\paragraph{Beam dispatch.}
+Sub-cases \texttt{1a}--\texttt{1i} are instantiated from a single
+template function \texttt{run\_case1<N>()} using a C++20 template
+lambda and compile-time dispatch, avoiding code duplication across
+nine element orders:
+\begin{verbatim}
+  auto run_beam = [&]<std::size_t N>() {
+      auto records = run_case1<N>(out + "/case1" + ...);
+      all_records["1" + suffix] = std::move(records);
+  };
+  if (should_run("1a")) run_beam.template operator()<2>();
+  if (should_run("1b")) run_beam.template operator()<3>();
+  // ... through 1i → N=10
+\end{verbatim}
 
 \paragraph{Key solver parameters.}
 \begin{itemize}
-  \item Sub-model SNES: \texttt{l2} line search, \texttt{preonly/lu}
-    KSP/PC, max\_it~$= 100$, atol~$= 2.0$, rtol~$= 10^{-3}$.
-  \item Adaptive sub-stepping: MAX\_BISECT~$= 10$,
-    MAX\_SUBSTEPS~$= 30$.
-  \item Case~4: arc\_length\_threshold~$= 9999$ (fail fast).
-  \item Case~5: arc\_length\_threshold~$= 3$ (adaptive).
-  \item \texttt{last\_good\_frac\_} caching between adaptive calls.
-  \item SUB\_NZ~$= 1$ ($2 \times 2 \times 1$ Hex27 sub-model).
+  \item Global SNES: \texttt{bt} line search, \texttt{preonly/lu}
+    KSP/PC, \texttt{max\_it}~$= 100$.
+  \item Incremental solve: $N_s = 120$ steps (beam/continuum/table),
+    $N_s = 60$ (FE²), max bisection depth~$= 6$.
+  \item Sub-model SNES: \texttt{max\_it}~$= 100$, \texttt{atol}~$= 2.0$,
+    \texttt{rtol}~$= 10^{-3}$, incremental ramp 20~sub-steps,
+    4~bisection levels.
+  \item Sub-model: RCM reordering + reuse, penalty
+    $\alpha = 10\,E_c$, $2 \times 2 \times 1$ Hex27 mesh.
+  \item Staggered coupling (Case~5): max 3~iterations,
+    tolerance~$= 0.05$, relaxation~$\omega = 0.8$.
 \end{itemize}

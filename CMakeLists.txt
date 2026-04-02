@@ -388,6 +388,10 @@ fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_cyclic_protocol_test
+    NAME cyclic_protocol  SOURCE tests/test_cyclic_protocol.cpp
+    LIBS NONE  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_node_test
     NAME node_dof_storage  SOURCE tests/test_node_dof.cpp
     LIBS CORE  LABEL unit)
