@@ -1,0 +1,2581 @@
+Contents lists available at ScienceDirectComputers and Structuresjournal homepage: www.elsevier.com/locate/compstrucContents lists available at ScienceDirectComputers and Structuresjournal homepage: www.elsevier.com/locate/compstrucComputers and Structures 321 (2026) 108079
+Contents lists available at ScienceDirect
+Computers and Structures
+journal homepage: www.elsevier.com/locate/compstruc
+Contents lists available at ScienceDirect
+Computers and Structures
+journal homepage: www.elsevier.com/locate/compstruc
+A new concrete material model embedded in finite element procedures
+Yeongbin Ko a,*, Klaus-Jürgen Bathe b
+a Bentley Systems, incorporated, Team ADINA, 685 Stockton Drive, Exton, PA 19341, USA
+b Department of Mechanical Engineering, Massachusetts Institute of Technology, Cambridge, MA 02139, USA
+A R T I C L E I N F O
+Keywords:
+Concrete
+Finite element method Compression coordinate system Different failure surfaces
+Coupling of plasticity and fracture Nonlinear solution procedure
+A B S T R A C T
+We present a new strain-based concrete material model that is generally applicable in two- and three- dimensional finite element analyses. The relevant constitutive laws are derived from a theory of plasticity and fracture for concrete, and the nonlinear solution process is described. The nonlinear behavior of the concrete includes crushing, crack opening and closing. The model is based on the use of the principal elastic strain di- rections and a “compression coordinate system” using different failure surfaces for the different “directions” in that system. The plastic-fracturing behavior is represented by a coupling between the plasticity and fracture in the finite element solution. The predictability and performance of the new material model, used with the finite element procedures, is evaluated and compared with results obtained in physical experiments and benchmark problems.
+Introduction
+While finite element analyses are already widely performed, the analysis of concrete structures with models of concrete materials still represents significant difficulties. Concrete materials undergo complex mechanisms involving nonlinear compression, fracture and cracking, and these different characteristics of behavior interact to possibly cause an overall failure of a structure. The finite element solution representing the behavior of concrete should be accurate in correctly representing measured experimental behavior, as well as be stable and show good convergence in nonlinear analyses. These properties can only be reached with an accurate constitutive law which needs to be implemented effectively. Because of the importance of using an accurate and effective finite element representation of concrete structures, research efforts have been expended on this task already for about half a century [1–5]. For the analysis of concrete behavior with softening, notably two frameworks have been developed: namely, the plastic-fracturing theory [6,7] and the damaged plasticity [8]. The plastic-fracturing theory combines incremental plasticity and microcracking theories to obtain general differential relations on stress, strain, and internal plastic strains. The damaged plasticity combines concepts of plasticity and damage mechanics, and the softening behavior is represented with the damage variable. Both frameworks can include micro-plane [9–13] and
+lattice models [14,15] of concrete.
+Although many research advances have been accomplished in
+material models, not many material models are applicable to finite element analysis. Many material models and their frameworks involve stress quantities as unknowns to be solved [6,7,16], whereas the gov- erning unknowns in a finite element analysis are displacements and strains. Another major challenge is the difficulty in obtaining a multi- dimensional constitutive law applicable to a multi-dimensional contin- uum, due to rational and non-polynomial functions describing material behavior [17–20]. The underlying reason is that complex concrete behavior naturally involves rational forms of stress [6] to include fail- ure, including softening, in terms of general plastic-fracturing theory.
+There are further valuable approaches for modeling fracture of cracks and regularizing the behaviors, including non-local models, gradient plasticity, and phase-field models, which sometimes occur in conjunction with a damaged plasticity model. Non-local models utilize strains at integration points that are averaged across different cells outside the finite element [21–23]. Gradient models require the inter- polation of a separate gradient field in addition to the element’s displacement field [23–27]. Our aim is to develop a strategy that utilizes the generic displacement-based finite element procedure as it is, without requiring special modifications for specific material behaviors. Addi- tionally, phase-field models interpolate cracks using a continuous phase variable [28,29]. Although these approaches are accurate, they neces- sitate solving separate interpolation fields. Therefore, we focus on standard methods to address crack behavior and their regularization [22,30,31] based on smeared crack [31] and crack band approaches
+* Corresponding author.
+E-mail address: Yeongbin.Ko@bentley.com (Y. Ko).
+https://doi.org/10.1016/j.compstruc.2025.108079 Received 7 August 2025; Accepted 15 December 2025
+Available online 17 January 2026
+0045-7949/© 2025 Elsevier Ltd. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+Fig. 1. Behavior classification of concrete. (fc compressive strength of concrete,
+tp the tensile to compressive strength ratio, GF fracture energy per unit crack surface).
+The new concrete model based on plasticity, fracture and tensile failure
+Our objective is here to briefly summarize the phenomenological plastic-fracturing theory of concrete, with a view towards the behavior of concrete in compression, tension and cracking.
+In three-dimensional analyses, the volumetric and deviatoric stresses and strains are given by
+ijijσkk = σ11 + σ22 + σ33, σdev = σij — δijσkk /3,(1a)
+ij
+ij
+ijijekk = e11 + e22 + e33, edev = eij — δijekk/3,(1b)
+ij
+ij
+where σij and eij are the global Cartesian components of the stress and strain tensors in indicial notation and δij is the Kronecker delta [34].
+Concrete subjected to compression exhibits nonlinear behavior which can lead to failure, while the tensile behavior or cracking of concrete can be modeled using a judiciously applied linear material behavior, see Fig. 1.
+Whether the material is in tension or compression is decided using
+σo = σkk/3 = (σ11 + σ22 + σ33)/3 with the conditions
+[30].
+if, σo⩾0 then the material is in tension, and if, σo < 0 then the material is in compression
+(2a)
+There have been research efforts in obtaining a general solution scheme, such as given by MD Kotsovos and MN Pavlovi´c [31] and J
+22o =3 =o =3 =Cˇervenka and VK Papanikolaou [32]. MD Kotsovos proposed the finite element solution with experimental moduli as a fracturing step. J
+2
+2
+o =3 =
+o =3 =
+Furthermore, we need to identify when the concrete material is entering the “loading” condition over the complete response calculation. This condition is identified using the J2-invariant
+Cˇervenka provided a finite element solution analysis framework for the multi-surface plasticity utilizing several return mapping steps [32].
+ooHowever, the use of a fracturing step alone would not pass the test of
+o
+o
+τ√̅2̅̅J̅̅̅̅̅
+dev dev
+√̅σ̅̅̅̅̅̅̅σ̅̅̅̅̅̅̅√̅σ̅̅̅̅̅̅̅σ̅̅̅̅̅̅̅ij  ij
+√̅σ̅̅̅̅̅̅̅σ̅̅̅̅̅̅̅
+√̅σ̅̅̅̅̅̅̅σ̅̅̅̅̅̅̅
+3
+ultimate strength, and the method to use at a minimum the plasticity steps [33] from the plastic-fracturing framework is still missing.
+In the present paper, we build upon the ideas of previous researchers
+if, τo > τmax then the material is in loading, and if, τo⩽τmax then the material is in unloading
+(2b)
+ooon modeling concrete materials to arrive at a new simple and generally applicable model based on plasticity and fracture for general finite element analyses. The new solution procedure is based on a theory involving plasticity and fracture of the concrete material using two co- ordinate systems, namely the ‘principal system of the elastic strains’ and the ‘compression system’ of the material compression. These coordinate systems are modified from earlier works [16–18,31] and employed simultaneously and effectively in the finite element solution procedure [33].
+o
+o
+In the following sections we first describe and discuss the new model of concrete with an emphasis on modeling the physical behaviors, then derive the governing equations of the model in three-dimensional ac- tions and thereafter show how the model is “embedded” in the finite element solution process. The concrete model can be used with the traditional finite elements and also novel procedures as long as the constitutive relationship is only evaluated locally at the integration points [34–37]. We finally illustrate the validity and strength of the model and its finite element implementation by solving various physical problems of concrete structures and numerical benchmark problems taken from references.
+Formulation of the material model
+where τmax is the maximum value of τo reached in the complete material history over the converged configurations to time t. In compressive loading, the material will reach a nonlinear behavior, see Fig. 1.
+ooIt is useful to see the overall aim of the Section 2.1 presentations that follow. In Sections 2.1.1 and 2.1.2, the physical assumptions in the theories of plasticity and fracture are reviewed, and a strain and stress decomposition is proposed to include the plasticity and fracture effects in finite element applications. These basic thoughts lead to reach in Section 2.1.3 and 2.1.4 a novel material model for use in finite element analysis. These presentations are followed, in Sections 2.1.5 and 2.1.6, to describe how crack evolutions are modeled and how steel reinforce- ment is included in the analysis.
+o
+o
+The essence of modeling concrete using the theories of plasticity and fracture
+We briefly review a framework of elastic–plastic-fracturing behavior, see also Refs. [6,7]. This framework is useful in modeling the concrete material behavior.
+The formulation uses the following stresses and strains, in differen- tial form,
+dσdevdσ
+dedev =   ij  + dep,dev, dekk =   kk + dep ,(3a)
+In this section we describe the theory used to represent the plastic and fracture behaviors of concrete in general three-dimensional stress
+conditions. We present how the model incorporates compression,
+ij2Gij
+and
+3Kkk
+ijijijkkijijijkkcrushing, tension, cracking with tension softening and briefly mention how the model includes reinforcement.
+ijijijkk
+ijijijkk
+dσdev = 2Gdedev + dσf,dev, dσkk = 3Kdekk + dσf ,(3b)
+ijijijijkkkkdσf,dev = 2edevdG, dσf
+ij
+ij
+ij
+ij
+kk
+kk
+= 3ekkdK,(3c)
+Fig. 2. Schematic framework of elasto-plasticity and fracture in 1D. The framework shows schematically the variables used in the concrete model.
+where G and K are the shear and bulk moduli, and the superscripts e, p
+and f denote the elastic, plastic and fracture quantities.
+For our conceptual study, we consider a one-dimensional (1D) con- dition and use finite increments rather than differential changes, see Fig. 2. Considering only plasticity we have
+EEΔe = Δσ + Δep,(4a)
+E
+E
+and considering only the effects of fracture we have
+Δσ = EΔe + Δσf ,(4b)
+where
+Δσf = eΔE.(4c)
+Here σ and e are the 1D total stress and strain, E is the instantaneous Young’s modulus used to represent the physical behavior of our material model, and ΔE is the change in the Young’s modulus.
+One-dimensional case including plasticity and fracture
+Empirically, we have the following form for the change of the
+where
+σ = Eee.(6b)
+The stress when measured on the strain assuming only elastic de- formations decreases due to plasticity and also due to fracture, see Fig. 2. In classical references, the equations regarding fracture and plas- ticity have largely been derived in terms of decomposing the stress, see
+e.g. [6,7], whereas we will use the strains as the primary drivers of the solution process.
+Another important consideration is that for a finite element solution procedure to be applicable to a multi-dimensional continuum, the so- lution scheme best measures increments in a simple polynomial form [34,36], so that relevant derivatives can be defined without complexity.
+Decomposition of the elastic-fracturing and elastic–plastic effects
+We propose in this section how to measure elastic-fracturing and elasto-plasticity in a multiple-dimensional behavior.
+Three-dimensional idealization
+Consider the three-dimensional (3D) system 1, 2, 3, in which the strains (ee , ee , ee ) and stresses (σ1, σ2, σ3) are defined with the canonical
+1  2  3
+Young’s modulus
+dE = — E⋅γ⋅eedee, γ = E ,(5)
+dependence relations to invariants,
+D1 = ee δij , D2 = ee,devee,dev /2, D3 = ee,devee,devee,dev /3,
+Eeij
+ijji
+ijjkki
+(7a)
+I1 = σijδij , J2 = σdevσdev /2, J3 = σdevσdevσdev /3,
+where Ee is the modulus of elasticity in the initial configuration and E is
+ij  ji
+ij  jk  ki
+the current updated modulus. We note that E decreases as γ decreases, with 0 < γ < 1. This decrease is a consequence of fracture as shown also
+σ1 = σ1(I1), σ2 = σ2(J2, J3), σ3 = σ3(J2, J3),
+ee = ee (D1), ee = ee (D2, D3), ee = ee (D2, D3),
+(7b)
+in Fig. 2.
+Considering the strains, we can decompose the total strain to obtain
+e = ee + ep + ef ,
+112233
+where I1, Jj and Dk are the stress and strain invariants, ‘1′ is the “di- rection” corresponding to the 1st invariant, ‘2’ and ‘3’ are directions
+ee = e — ep — ef ,
+Δe = Δee + Δep + Δef ,
+(6a)
+forming an orthogonal set to the direction ‘1’ and depend upon the 2nd
+and 3rd invariants only. We use 1, 2, and 3 to denote the “directions”
+and the finite element procedures need to establish the change in modulus as well as updating the plastic strain.
+It follows from earlier work, see MD Kotsovos and MN Pavlovi´c [31],
+that the moduli and their changes are given in terms of the current stresses. In fact, the fracture effects in Eq. (8b) can be directly incorpo- rated in the analysis in empirical form by using the new moduli t+ΔtEJ
+(thus not using ΔEJ and Eqs. (5) and (8b)). We shall use this approach.
+The simplified solution process is shown in Fig. 3(a). Fracturing is solved first, and plasticity is solved next: in fracturing we use stress in- crements directly by substituting the new t+ΔtEJ in Eq. (7d) for Eqs. (8b),
+(8d), and in plasticity we keep t+ΔtEJ constant and use this constant
+value to solve the flow equations in Eqs. (8c), (8d). The reason for this order of computations is that fracturing (the change of modulus) is measured elastically, and plastic strain is measured only after the elastic coordinate (Eq. (7)) is set. A different order is possible, resulting in a different accumulation of plastic strains, but our choice is to let plastic strain occur minimally (in the principle of virtual work) with the soft- ened modulus.
+When solving for the effects of plasticity, the stresses and strains are
+t+Δtee = 1
+t+Δtσdev + 1
+t+Δtσ
+δ ,(9a)
+ij2Gs
+ij9Ks
+kk ij
+ijijkkkkt+Δtσij = 2Gs t+Δtee,dev + Ks t+Δtee δij ,(9b) and when solving for the effects of fracture, the stresses and strains are
+ij
+ij
+kk
+kk
+Fig. 3. Solution framework for three-dimensional concrete behaviors. (a)
+t+Δtep,dev
+t+Δt p1  t+Δt p
+t+Δt e
+t+Δt
+t+Δt p
+33ijijkkkkDecomposition of incremental step into phenomena of elastic-fracturing and elasto-plasticity. (b) Evolution of internal state with plastic strain, applied at the
+3
+3
+ij
+ij
+kk
+kk
+ij=
+eij — δij
+ekk,
+eij =
+eij —
+eij ,
+(9c)
+intermediate configuration in Fig. 3(a).
+t+Δtσij = 2Gs t+Δtee,dev + Ks t+Δtee
+— σid )δij ,
+and the associated stress and strain quantities, which are identified with the ‘compression system’ later.
+In elasticity, the bulk and shear moduli relate the stresses to the strains as
+JJσJ = EJee ,(7c)
+J
+J
+where plastic strain is present in both steps, see Fig. 3(b). Here σid is motivated from the volumetric confining effect in the concrete material
+[31] known as the ‘confining pressure’, see Ref. [6].
+We should note that Eqs. (8) and (9) in essence merge two theories, those published by MD Kotsovos and MN Pavlovi´c [31] and ZP Baˇzant and SS Kim [6], to account for ‘fracturing’ and ‘plasticity’. The idea of separating the plastic-only calculation from the fracturing-only solution
+t E1 = Ke, tE2 = Ge, tE3 = Ge,
+t+Δt E1 = Ks , t+Δt E2 = Gs , t+Δt E3 = Gs ,
+(7d)
+used here is useful for obtaining constitutive law effectively, like it is useful in hierarchical modeling [38].
+with tE
+(K and G ) and t+ΔtE
+(K and G ) denoting the original and
+We briefly presented the basic ingredients of our solution procedure
+Jee
+Jss
+to include fracture and plasticity in the equations given above. In the
+updated (bulk and shear) moduli. The solution of the elasto-plastic- fracturing problem is to solve Eq. (6) where Ee is replaced by tEJ, E is replaced by t+ΔtEJ with the 3D setting in Eq. (7).
+Decomposed solution procedure and coupling between plasticity
+and fracture
+We decompose the solution process to obtain the stress increment using Eq. (7c),
+next two sections, we give some details of how we proceed when considering a multi-dimensional strain and stress state.
+Incorporating fracture
+The changes in the material moduli are based upon the stresses and are empirically given as [31]:
+Δ J = t+Δt J — t J , ΔEJ = t+Δt EJ — t EJ ,Δ J = t+Δt J — t J , ΔEJ = t+Δt EJ — t EJ ,σσσ
+Δ J = t+Δt J — t J , ΔEJ = t+Δt EJ — t EJ ,
+Δ J = t+Δt J — t J , ΔEJ = t+Δt EJ — t EJ ,
+[(—σo )b—1 ]
+—σo
+ifif⩽2, Ks⩽2, KsΔee = t+Δtee — tee , Δσ
+if
+if
+⩽2, Ks
+⩽2, Ks
+(8a)
+fpfp= Δσ + Δσ ,
+fp
+fp
+fcfc
+Ks = Ke / 1 + AKs = Ke / 1 + AJJJJJJ
+Ks = Ke / 1 + A
+Ks = Ke / 1 + A
+f
+= Ke /[1 + 2b—1Ab + 2b(b — 1)A
+(σo )—1 ]
+if  —σo
+> 2,(10a)
+JJwhere ΔσJ is the decrease in stress due to fracture with no strain change but a change in the modulus and Δσp is the plastic strain increment with no change in modulus
+J
+J
+JJJJΔσf = ΔEJ⋅ee ,(8b)
+J
+J
+J
+J
+τ  d—1
+cc[( o )][( o )]Gs = Ge/ 1 + c f
+c
+c
+[( o )]
+[( o )]
+fcfc
+(τo )  [(—σo ) ](τo )  [(—σo ) ]nm
+(τo )  [(—σo ) ]
+(τo )  [(—σo ) ]
+cccc, σid = kfc f/ 1 + l  f
+c
+c
+c
+c
+,(10b)
+Δσp = EJ⋅Δee .(8c)
+where σo and τo are obtained using Eq. (2) for the last converged values
+JJof stresses,
+Then we have
+JJJJeJ = ee + ep, ΔeJ = t+ΔteJ — teJ = 0,
+J
+J
+J
+J
+JJJJJJJJJJJJp+Δt pt pp+Δt pt pΔee = t+Δtee — tee and Δe = te — e ,
+J
+J
+J
+J
+J
+J
+J
+J
+J
+J
+J
+J
+p+Δt pt p
+p+Δt pt p
+JJJJJJt+Δtep = tep — Δee ,
+JJJ
+JJJ
+(8d)
+and A,b,c,d,k,l,m,n are coefficients that depend upon the cylindrical compressive strength fc of the concrete material, as discussed in Ap- pendix A. To obtain the constitutive matrix including cracking, also the experimentally measured modulus is used but accounting for the tangential (instantaneous) value instead of the secant value in Eq. (10) [31], that is,
+Fig. 4. Coordinate systems of strain definition. (a) Principal coordinate axes (ee , ee , ee ) and basis (v , v , v ) on elastic strain space. (b) Volumetric-deviatoric
+separation by hydrostatic axis and deviatoric plane of elastic strain. (c) The compression coordinate axes (ee , ee , ee ) and basis (p , p , p ) on elastic strain space.separation by hydrostatic axis and deviatoric plane of elastic strain. (c) The compression coordinate axes (ee , ee , ee ) and basis (p , p , p ) on elastic strain space.1  2  3
+separation by hydrostatic axis and deviatoric plane of elastic strain. (c) The compression coordinate axes (ee , ee , ee ) and basis (p , p , p ) on elastic strain space.
+separation by hydrostatic axis and deviatoric plane of elastic strain. (c) The compression coordinate axes (ee , ee , ee ) and basis (p , p , p ) on elastic strain space.
+̂1 ̂2 ̂3
+1  2  3
+̂1 ̂2 ̂3
+fcfcKc = Ke in tension,
+fc
+fc
+Incorporation of plastic flow
+Kc = Ke /[1 + Ab
+(—σo )b—1 ]
+for
+—σo ⩽2 in compression,
+fc
+(11a)
+We next define two coordinate systems that are key in the develop- ment of the finite element procedure. The two coordinate systems are the ‘principal system of the elastic strain’ and the ‘compression system’
+ccK = Ke
+c
+c
+for —σo > 2 in compression,
+shown in Fig. 4, which are used simultaneously in the finite element
+1 + 2b—1Abfc
+Gc = Ge in tension,
+Gc = Ge/ 1 + cdGc = Ge/ 1 + cdffin compression.in compression.[(τo )d—1 ]
+Gc = Ge/ 1 + cd
+Gc = Ge/ 1 + cd
+f
+f
+in compression.
+in compression.
+(11b)
+solution procedure.
+To describe the plastic flow, we use the coordinate system composed of the current principal directions of the elastic strains
+kkkkkkkkkkkk(13a)(13a)t+Δt ee(0) = t+Δt e — t+Δt ep(0), t+Δtee(0) = t+Δte  — t+Δtep(0),
+kk
+kk
+kk
+kk
+kk
+kk
+(13a)
+(13a)
+ct+Δtee,dev(0) = t+Δtedev — t+Δtep,dev(0), with t+Δtep(0) = tep ,
+These equations are used in the finite element solution. Due to the rational forms of the moduli, using Eq. (7) and differentiating Eqs. (10)
+ij
+1111⎣⎢ + e ( )⎣⎢ + e ( )⎡ t+Δtee(0)
+11
+11
+⎣⎢ + e ( )
+⎣⎢ + e ( )
+12122222t+Δtee(0)
+12
+12
+22
+22
+ijijijij
+131311⎥⎥+ e ( ) ⎥ = + P⎢+ e ( ) ⎥ = + P⎢t+Δtee(0) ⎤⎡ t+Δtee(0)⎤
+13
+13
+1
+1
+⎥
+⎥
++ e ( ) ⎥ = + P⎢
++ e ( ) ⎥ = + P⎢
+and (11), we obtain the empirical form in Eq. (5).
+To obtain the updated stress, the increments in the fracture strain and Young’s modulus (Δef and ΔE) in Eqs. (4c) and (4b) are not used and instead we employ
+t Δt e 0
+323221
+32
+32
+3131t+Δtee(0)
+31
+31
+t+Δtee(0) t+Δtee(0)
+t Δt e 0t Δt
+⎦⎦⎣⎣⎦⎦2223
+⎦
+⎦
+⎣
+⎣
+⎦
+⎦
+2
+2
+3333t+Δtee(0)
+33
+33
+t+Δtee(0)
+33t+Δtee(0)
+3
+3
+t+Δt PT ,
+(13b)
+fpp
+Δσf
+t+Δt P = [ t+Δt v1  t+Δt v2  t+Δt v3 ], vj ⋅vk = δjk ,
+t+Δt EJt+Δt EJt+Δtee(0)⩾ t+Δtee(0)⩾ t+Δtee(0), t+Δt P = t+Δt P(0) = t+Δt P(N).t+Δtee(0)⩾ t+Δtee(0)⩾ t+Δtee(0), t+Δt P = t+Δt P(0) = t+Δt P(N).ΔσJ = — t+Δt EJΔeJ , ΔeJ = —
+t+Δt EJ
+t+Δt EJ
+t+Δtee(0)⩾ t+Δtee(0)⩾ t+Δtee(0), t+Δt P = t+Δt P(0) = t+Δt P(N).
+t+Δtee(0)⩾ t+Δtee(0)⩾ t+Δtee(0), t+Δt P = t+Δt P(0) = t+Δt P(N).
+J .(12)
+̂̂̂̂   ̂
+(13c)
+We note that the inelastic effects of Δef are expressed in Δep, see Fig. 2. Fracture and plasticity are two different phenomena but are coupled through the elastic effects.
+123
+==3/23/2̅̅̅̅̅̅cos3θ 3,3D3 ,(13d)
+=
+=
+3/2
+3/2
+̅̅̅
+̅̅̅
+2(D2)
+Fig. 5. Plastic functions representing failure surfaces. Plastic curves in (a) hydrostatic compression, (b) uniaxial compression, (c) biaxial compression.
+⎡ ee ⎤
+⎡  ⎤  √̅̅̅̅̅̅̅̅̅⎡⎤
+( ee
+ee  eeee p1ee p2 + ee p3,
+111111⎢  ⎥D4D
+1
+1
+1
+1
+1
+1
+cos(θ)
+123123
+) =    ̂   +    ̂̂) =    ̂   +    ̂̂̂̂)
+) =    ̂   +    ̂̂
+) =    ̂   +    ̂̂
+̂
+̂
+ee⎢ e ⎥ =
+e
+e
+⎣ 1 ⎦ +
+⎣ cos(2π/3 — θ) ⎦, e ⩾e ⩾e
+as 0⩽θ⩽ .
+( 111 )
+( 112
+((++))⎣ 2 ⎦31
+(
+(
++
++
+)
+)
+2eee2eeecos 2π 3  θ
+2eee
+2eee
+ππ1  2  33
+π
+π
+p1 =
+,̅̅̅
+,̅̅̅
+,̅̅̅
+, ̂2 =
+,̅̅̅
+,̅̅̅
+—,̅̅̅  ,
+eee/
+e
+e
+3
+(13e)
+pp((3
+p
+p
+(
+(
+pp1
+p
+p
+̂3 =  ,̅2̅̅
+3
+1
+e,dev 2e,dev 2e,dev 2e,dev 2() + () + () + (e,dev 2e,dev 2e,dev 2e,dev 2() + () + () + (—,̅2̅̅
+e,dev 2e,dev 2e,dev 2e,dev 2
+() + () + () + (
+e,dev 2e,dev 2e,dev 2e,dev 2
+() + () + () + (
+3
+0 ),
+666
+(14b)
+where t+Δtee are the principal components (j = 1..3) and the vj form thewhere t+Δtee are the principal components (j = 1..3) and the vj form thê̂j
+where t+Δtee are the principal components (j = 1..3) and the vj form the
+where t+Δtee are the principal components (j = 1..3) and the vj form the
+̂
+̂
+orthonormal basis corresponding to the principal components. This co-orthonormal basis corresponding to the principal components. This co-2D2D==ordinate system describes the directions of the elastic element de-ordinate system describes the directions of the elastic element de-11112222333312 )12 )++13 )13 )++23 )23 )√̅̅̅̅̅̅̅̅̅
+orthonormal basis corresponding to the principal components. This co-
+orthonormal basis corresponding to the principal components. This co-
+2D
+2D
+=
+=
+ordinate system describes the directions of the elastic element de-
+ordinate system describes the directions of the elastic element de-
+11
+11
+22
+22
+33
+33
+12 )
+12 )
++
++
+13 )
+13 )
++
++
+23 )
+23 )
+22
+2
+2
+√̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅̅
+eee2 eeee2 e
+eee2 e
+eee2 e
+2(ee,dev 22(ee,dev 22(ee,dev 22(ee,dev 2formations, see Fig. 4(a). The strain components in this system are given
+2(ee,dev 2
+2(ee,dev 2
+2(ee,dev 2
+2(ee,dev 2
+= √̅(̅e̅̅e̅̅̅)̅2̅̅̅̅+̅̅̅̅(̅̅e̅̅e̅̅)̅̅2̅̅,
+23
+in Eqs. (7a) and (13d) by the three strain invariants and the Lode angle. The second system, as introduced in Eqs. (7) and (8c), is the
+(14c)
+‘compression coordinate system’ which is used to obtain the incremental
+where the ee (j = 1..3) are defined in Eq. (14a) and the three vectors p,
+̂   ̂̂   ̂̂̂j
+̂   ̂
+̂   ̂
+̂
+̂
+strains (Δee and Δep) calculated based on the compression of the ma-
+terial. The two systems are used for quite different purposes – to update the elastic strains in the principal elastic strain directions and to calcu- late the plastic deformations due to the actions of compression. The final
+results at the end of the step are given in the principal elastic strain coordinate system at t + Δt.
+We will use superscripts ‘(0)’ and ‘(N)’ for the stress and strain
+quantities in the trial states and at the end of incorporating the effects of plasticity, see Eqs. (8) and (9).
+112323We now use the directions 1, 2, 3 corresponding to the directions of uniaxial compression (ee ), biaxial compression (ee ) and hydrostatic compression (ee ) defined as follows
+1
+1
+23
+23
+e  ⃒⃒  ,̅̅̅ ⃒⃒  e   √̅̅̅̅̅̅̅̅̅   πe   √̅̅̅̅̅̅̅̅̅   π
+q, r are unit vectors defining the ‘compression coordinate system’ of
+quantities in Eq. (7).
+For the solution process, we need to relate the components in the principal elastic strain axes to the components in the compression axes of strains, hence Eqs. (13c) and (14c) are used for the transformation. Further verification of the equivalence of Eq. (13e) and Eqs. (14a), (14b) is given in Appendix B.
+The plastic strain is decomposed by incremental changes using three separate yield functions corresponding to both the volumetric (first component in compression axes) and the deviatoric (second and third components in compression axes) effects of plastic strain.
+The failure surface functions defined in these directions are denoted
+̂̂using the subscript |(⋅), and the effective strains are defined as ep. To
+̂
+̂
+θ), e3 =2D2sin(3 — θ).(14a)
+e1 = ⃒D1/ 3 ⃒, e2 =2D2cos(3 —
+j
+extend the plasticity to three individual failure surfaces corresponding to the three compressive directions, we introduce
+Fig. 6. Quantities used in the evolution of cracks. (a) Local axes for crack directions and crack-failure surfaces. (b) Projection of principal directions to establish the second direction from the first direction.
+pppp112233112233Δep = —Δee , Δep = —Δee , Δep = —Δee ,
+p
+p
+p
+p
+112233
+112233
+(15a)
+Incorporating cracking – Crack opening and closure and tension softening
+Δep = Δep + Δe  + Δe ,
+j
+p2p
+j|1
+1/2
+p
+j|2
+j|3
+For modeling the cracking of the concrete, we apply two approaches in our model: the approach to describe a crack opening and closure with
+Δ̂Δ̂ej = ((3)Δej Δej )
+Δ̂
+Δ̂
+.(15b)
+a strength envelope, and also the approach of utilizing smeared crack orientations.
+The index j|k denotes the strain contribution in direction j corresponding to the failure surface k.
+The strength envelope used for crack opening is [31,44]
+1111ccp1p1f = ⃒⃒ee ⃒⃒ — f ⋅f ,
+1
+1
+1
+1
+c
+c
+p1
+p1
+g = τo —
+0.944fc
+w
+σ  0.724
+((o )o )cctp — f
+(
+(
+o )
+o )
+c
+c
+, tp ∈ [0.05, 0.10],
+22f2 = ee — fc⋅fp2,
+2
+2
+33f3 = ee — fc⋅fp3.
+3
+3
+(15c)
+w(e) =
+1  e2 cos2θ2e  1 2
+( — )+ (  — )( — )+ (  — )σo 0.133σo 0.1332(1 — e2 )cosθ + (2e — 1)√̅4̅̅(̅̅1̅̅̅̅—̅̅̅̅̅e̅̅2̅̅)̅̅c̅̅o̅̅s̅̅2̅̅θ̅̅̅̅+̅̅̅̅5̅̅̅e̅̅2̅̅̅—̅̅̅̅̅4̅̅̅e̅̅,
+( — )+ (  — )
+( — )+ (  — )
+σo 0.133
+σo 0.133
+(16)
+fp1 =
+cp1(1
+̂ep1 )—ŝ
+ppttccp1,
+p
+p
+t
+t
+c
+c
+e = 0.670551(tp — f ),
++ ae+ aefp2fp2cp2exp[—cp2exp[—]ep2, fp3 = cp3exp[—]ep2, fp3 = cp3exp[—(̂ep2 )m2(̂ep3 )m3
++ ae
++ ae
+fp2
+fp2
+cp2exp[—
+cp2exp[—
+]ep2, fp3 = cp3exp[—
+]ep2, fp3 = cp3exp[—
+(15d)
+where t is the ratio of the tensile to compressive strengths f /f , e is the
+cccccc]ep3,]ep3,=2̂3̂
+c
+c
+c
+c
+c
+c
+]ep3,
+]ep3,
+eccentricity of compression to extension on the deviatoric plane (e =
+̂̂c = (ε )⋅m(1/mj ) with j = 2, 3
+̂
+̂
+τo|θ=0/τo|θ=π/3, see also Fig. 4(b)). We note that w(e) is an elliptic
+jpj   j
+see Fig. 5. The coefficients used in these relations including the exper- imental observations in Refs. [9,39–43] are given in Appendix C. However, with the introduction of the strain-solution process, these functions are defined differently from those in the previous literature.
+function obtained from the strength envelope in Ref. [44]. Eq. (16) governs material failures after either softening in tension or ductile failure in compression, see Fig. 1.
+Considering the possibility of n cracks occurring, n = 1,2,3, we apply
+the smeared crack approach to store the stress orientations as follows
+(n)(n)⎦V,⎦V,⎣ t+Δtσ⎣ t+Δtσ2121t+Δtσt+Δtσ2222t+Δtσt+Δtσ2323⎦ = V ⎣⎦ = V ⎣t+Δtσt+Δtσ22(n)T(n)TThe hydrostatic curve is increasing to match the experimental fits in
+(n)
+(n)
+⎦V,
+⎦V,
+⎣ t+Δtσ
+⎣ t+Δtσ
+21
+21
+t+Δtσ
+t+Δtσ
+22
+22
+t+Δtσ
+t+Δtσ
+23
+23
+⎦ = V ⎣
+⎦ = V ⎣
+t+Δtσ
+t+Δtσ
+2
+2
+(n)T
+(n)T
+Refs. [39,40,43], with its derivative reaching zero as the plastic strainRefs. [39,40,43], with its derivative reaching zero as the plastic strain
+Refs. [39,40,43], with its derivative reaching zero as the plastic strain
+Refs. [39,40,43], with its derivative reaching zero as the plastic strain
+⎡ t+Δtσ11  t+Δtσ12  t+Δtσ13 ⎤
+⎡ t+Δtσ1⎤
+tends to infinity. Secondly, for uniaxial and biaxial curves, the function decreases with a negative slope and then finally the function and the slope approach 0, but the coefficients cj are defined differently from
+t+Δtσ31  t+Δtσ32  t+Δtσ33
+t+Δtσ3
+(17a)
+those given in Ref. [16], see Appendix C for the detailed derivations and
+V(n) = [ v(n)
+v(n)
+v(n) ], v(n)⋅v(n) = δ ,
+reasons.
+can employ similar schemes as used in standard plasticity [33], but howcan employ similar schemes as used in standard plasticity [33], but howTo solve for the plastic flow given by fj = 0 (j = 1..3) in Eq. (15) we
+can employ similar schemes as used in standard plasticity [33], but how
+can employ similar schemes as used in standard plasticity [33], but how
+123jkjk
+t+Δtσ1⩾ t+Δtσ2⩾ t+Δtσ3, n = 1, 2,
+1)(1)(2)(2)
+112233jjjj1111V(n) = [ v(n)  v(n)  v(n) ], V(3) = V(2); v(  = vj = 1, 3, v  = v  ,
+1
+1
+2
+2
+3
+3
+j
+j
+j
+j
+1
+1
+1
+1
+we utilize the converged material solution to establish the global com-
+v(2) = cos(θc)v(2) + sin(θc)v(2), v(2) = —sin(θc)v(2) + cos(θc)v(2),
+2
+ponents (Eqs. (8c) and (13a)) is different due to the introduction of two
+coordinate systems and three additional characteristics in the flow. The complete update procedure and derivation of the constitutive matrix for the finite element solution are given in Section 2.2.
+233
+23
+(17b)
+Table 1
+Overview of concrete material solution process.
+For solution steps:
+Current time = t + Δt, previous time =t, material solution iteration counter k = (0),...I, I + 1, ⋯,(N); crack solution counter m = (0), ..., (1)
+Table 1 (continued )
+For solution steps:
+W(n) tσ,apply tension-softening.
+If the crack is closed, solution progresses with reduced number of crack, or if t+Δtn = 0, go to calculations in 2.1 or 2.2 for the non-cracked state
+1. Trial elastic -fracture (Predictor stage)
+Known quantities are
+t σ, te, tep, t+Δt e, for strain evolution
+ooτmax, tσo , tτo , for solution classification
+o
+o
+Calculate trial strain t+Δt ee(0) = t+Δt e — t ep (Eq.(13)),
+v(1) ⋅v(2)
+tanθc = — 12 , v(n) = v(n)ix , x1 = x, x2 = y, x3 = z,
+v(1) ⋅v(2)j
+jxk  k
+Use new moduli due to fracture (See Section 2.1.3)
+Obtain Ks, Gs, σid with tσo, tτo. (Eq.(10))
+T(n)
+13
+(n)(n)
+(n)
+(n)
+(n)
+t+Δtσ(0) = 2G t+Δt ee,dev(0) + K t+Δtee(0) — σ )δ , (Eq.
+= [TIJ ] = [Tijkl ], W
+= [WIJ ] = [Wijkl ], I = ij, J = kl,
+ij
+(9c))
+sij
+skk
+id  ij
+T(n)
+1  (n) (n)
+(n) (n)
+update current state t+Δt σo , t+Δt τo . (Eq. (2))
+In case there is no compressive loading go to 2–1, if
+otherwise go to 2–2.otherwise go to 2–2.
+otherwise go to 2–2.
+otherwise go to 2–2.
+ijkl = 2 (vkxi vlxj + vlxi vkxj ) for k = l,
+ijklijklkxi lxjkxi lxjlxilxikxjkxjT(n) = (v(n)v(n) + v(n)v(n)) for k /= l,
+ijkl
+ijkl
+kxi lxj
+kxi lxj
+lxi
+lxi
+kxj
+kxj
+(17c)
+2-1. Solution without
+flow
+Calculate stresses (see Section 2.1.2)
+t+Δtσ(N) = tσ(N) + CE ( t+Δtee(0) — tee(0))(Eq.(26))and
+W(n)1 v(n)v(n)v(n) v(n)  for kl
+=  (+)= ,=  (+)= ,ijkl2  ix  jxix  jx
+=  (+)= ,
+=  (+)= ,
+( t+Δtσ ⩾0 or
+ijij
+ijklijij
+k  ll  k
+o
+t+Δt τo ⩽τmax)
+update the internal state, straight from (0) to (N)
+W(n) = (v(n)v(n) + v(n)v(n)) for k =/ l,
+oin this solution step
+t+Δtee(N) = 1 t+Δt σdev(N) + 1 t+Δt σ(N) δij (Eq.(9a))
+ijkl
+ixk jxl
+ixl
+jxk
+ij2Gsij
+9Kskk
+The V(n) give the local orientation of a new crack, the superscript (n)
+2–2. Flow in Compressive loading
+( t+Δtσo < 0 and
+t+Δtep = tep — t+Δt ee(N) + t+Δt ee(0). The constitutive law is
+now Cnow CijijijijijijijijE
+now C
+now C
+ijijijij
+ijijijij
+ijkl
+End of solution to include effects of fracture Apply plastic flow solution (See Section 2.1.4) Initialize the directions t+Δt P and Lode angle θ with
+t+Δt ee(0). (Eq.(13))
+Evaluate
+112233the directions are aligned to be orthogonal to any crack already formed.the directions are aligned to be orthogonal to any crack already formed.π
+1
+1
+2
+2
+3
+3
+the directions are aligned to be orthogonal to any crack already formed.
+the directions are aligned to be orthogonal to any crack already formed.
+denotes the nth crack, V(n) is the rotated orientation for the crack, T and W are the transformation matrices from the local to the global and the global to the local Cartesian systems, respectively, ixk are the ‘global
+axes’  for the global Cartesian coordinates, see Fig. 6. When
+nng( t+Δtσij) > 0, cracking occurs in the direction v(n) of the largest principal stress for the (n)th new crack. In later cracks, with a larger value of (n),
+n
+n
+t+Δt τo > τmax)
+oo
+o
+o
+t+Δtee(0) = |D |/,̅3̅̅, t+Δtee(0) = ,̅2̅̅D̅̅̅̅̅̅cos(
+— θ),
+11ππ22t+Δtee(0) = ,̅2̅̅D̅̅̅2̅̅̅sin( — θ), D1 , D2 with t+Δt ee(0)(Eq.
+1
+1
+π
+π
+2
+2
+In case the attempt is that (n) > 3, see Table 1, crushing occurs
+33
+(14a))
+Iterate
+jjjjjjjjjjt+Δtλ(I+1) = t+Δtλ(I) + Δλj , t+Δtee(I+1) = t+Δtee(I) —Δep ,
+j
+j
+j
+j
+j
+j
+j
+j
+j
+j
+⃦⃦       ⃦⃦⃦⃦       ⃦⃦jjjjjjt+Δt ep(I+1) = t+Δtep(I) + Δep , (Eq. (29c))
+⃦⃦       ⃦⃦
+⃦⃦       ⃦⃦
+j
+j
+j
+j
+j
+j
+iiand solve until f(N) < Tol, where Tol is the convergence tolerance used.
+i
+i
+resulting in zero stress, a constitutive law with all zero entries, and no further history is measured at that material point.
+nnGiven the crack orientations, we update the current crack status
+n
+n
+accounting for the previous history. With the crack strain eC(n) available (n = 1, 2, 3), the crack closure condition is given by
+IIijijt+Δt eC(n) = T(n)T t+Δt ee , eC(n) = [eC(n)] = [eC(n)],(18a)
+I
+I
+ij
+ij
+nn(D1
+n
+n
+,̅3̅̅ t+Δtee(N), √̅2̅̅(̅̅D̅̅̅2̅̅̅̅ʹ̅
+t+Δt ee(N) cos π
+θ) +
+ʹʹAfter convergence calculateAfter convergence calculate) =1
+ʹ
+ʹ
+After convergence calculate
+After convergence calculate
+) =2
+(3 —
+0 < t+ΔteC(n)⩽max( τeC(n)).(18b)
+11ππ⎡ t+Δt ee(N) ⎤ʹ ⎡ 1 ⎤
+1
+1
+π
+π
+τ=0..tn
+⎦⎦t+Δtee(N) sin(
+⎦
+⎦
+— θ), ⎢ t+Δt ee(N) ⎥ = (D1 ) ⎣ 1 ⎦sgn(D1 ) +
+A finite element can contain up to three new cracks at a location, and
+3333⎣
+3
+3
+⎡
+2
+33t+Δt ee(N)1
+3
+3
+⎥⎥, (Eq.(30)), (Eq.(30))⎤
+⎥
+⎥
+, (Eq.(30))
+, (Eq.(30))
+if an orientation in Eq. (17) is the same as previously obtained (V(n) = V(n—1) with n⩾2) or the tensile crack strain does not exceed the
+⎢⎢)  cos( 3 —)  cos( 3 —√̅4̅̅(̅̅D̅̅̅2̅̅̅̅ʹ̅⎢
+⎢
+⎢
+)  cos( 3 —
+)  cos( 3 —
+cos(θ)
+2π
+θ) ⎥
+previous maximum strain as defined in Eq. (18b), the number of cracks is reduced to (n — 1).
+3333⎣⎦⎣⎦⎢ cos(2π + θ) ⎥
+3
+3
+3
+3
+⎣⎦
+⎣⎦
+Evaluate the strains and stresses using the solution (N) in Eq. (9b)
+iiijijijijkkkkt+Δtσ(N) = 2Gs t+Δtee,dev(N) + Ks t+Δt ee(N) δij .(Eq. (9b)) Calculate C = CE —CP with Ks , Gs , corresponding to λ(N) ,
+i
+i
+ij
+ij
+ij
+ij
+kk
+kk
+kkestablish the tangent values  ∂gi , ep(N) =
+k
+k
+With the number of cracks t+Δtn determined for the t +Δt state, the
+following corresponding stresses and constitutive matrices for the cracked state are used (here n = t+Δtn)
+IIijijt+Δt σC(n) = W(n) t σ, σC(n) = [σC(n)] = [σC(n)],(19a)
+I
+I
+ij
+ij
+11113333additionally
+11
+11
+33
+33
+2 ∂g(N) ∂g(N)
+1/2
+∂ee ̂i
+1111t+ΔtσC(1) = 0 if n = 1,
+11
+11
+t+ΔtσC(2) =
+t+ΔtσC(2) = 0 if n = 2,
+kkkkiiii(( )
+k
+k
+k
+k
+i
+i
+i
+i
+) λ(N). (Eq. (27c))
+C(3)
+C(3)
+C(3)
+(19b)
+3 ∂ee  ∂eei
+t+Δtσ11  = t+Δtσ22  = t+Δtσ33  = 0 if n = 3,
+3.
+Cracking (compression or
+End of plastic-fracturing solution Trial Stage (Crack opening)
+ijijIf g( t+Δtσ(N)) > 0 ( t+Δtσo < 0 or t+Δtσo ⩾0) then t+Δtn(0) =
+ij
+ij
+tn + 1. Crushing occurs for t+Δt n(0) > 3 and all stresses
+t+Δt σ = t σ + CC(n)( t+Δt ee — t ee ) if t+Δtn⩽ tn,(20a)
+t+Δt σ(n) t+Δt C(n)C(n) t+Δt et e
+tension)
+(n = t+Δt n(m);
+and the constitutive law are set to zero.
+nn Tn
+= TσC+ C(e — e )
+with CC(n) = T(n)C T(n)T if t+Δtn > tn,
+(20b)
+0 for closure,
+Obtain V( ), T( ) and W( ).
+n = 1, 2, 3 for
+Calculate t+Δt eC = T(n)T t+Δt ee, determine crack closure. (Eq.(18a)).
+with CC(n) = [CC(n)] = [CC(n)],
+cracks,>3 for
+crushing)
+Crack solution
+C(n)
+IJ
+C(n)
+ijkl
+C(n)
+If the crack is open, t+Δt n(1) = t+Δt n(0),
+calculate stresses with t+Δt σ = t σ +CC(n)( t+Δt ee — t ee) or
+t+Δt σ = T(n) t+Δt σC(n) +CC(n)( t+Δt ee — t ee ) and t+Δt σC(n) =
+C= [CIJ  ] = [Cijkl ] with nonzero components for respective the n
+Fig. 7. Determination of the length scale. (a) Global approach, as the effective width of the crack band. (b) Local approach, as the element length.
+Fig. 8. Flow chart of the solution process. (a) Fracture and plasticity coupled solution. (b) Crack solution. Scalar operations are applied to each component of the vector.
+Table 2
+CC(1) = ηNλ , CC(1) = CC(1) = λ , CC(1) = CC(1) = λ ,
+Input parameters for the material model.
+1111
+a2222
+3333
+a2233
+3322c
+ParametersParameters1212121213131313cc23232323ccCC(1) = CC(1) = ηSG , CC(1) = G
+Parameters
+Parameters
+1212
+1212
+1313
+1313
+c
+c
+2323
+2323
+c
+c
+if n = 1;
+Parametersalways given(range)fc compressive strength (fc > 0)
+CC(2) = CC(2) = ηNλ , CC(2) = λ , CC(2) = CC(2) = CC(2) = ηSG
+if n = 2;
+tp ratio of tensile to compressive
+1111
+3333
+a2222
+a1212
+1313
+2323c
+strength (5%⩽t ⩽10%)
+CC(3) = CC(3) = CC(3) = ηNλ , CC(3) = CC(3) = CC(3) = ηSG
+if n = 3;
+p
+GF fracture energy (GF ⩾0) per unit area
+1111
+2222
+3333
+332
+3
+3
+a1212
+1313
+2323c
+Optional parameters(overwriting the built-in parameters)
+E Young’s modulus for initial strength
+ν Poisson’s ratio for initial strength
+lb length scale for fracture energy
+λc = Kc —
+Gc, λa = λc + 2Gc, ηN = 0.0001, ηS = 0.1,
+(21)
+with similar entries given in Ref. [1] for a fixed crack.
+nnLastly, to use the fracture energy GF and tensile crack strain eC(n), Eqs.
+n
+n
+(19b), (21) are modified as
+if εTP ⩽eC(n)⩽εTU  with εTU =  2GF , εTP =   fc ⋅tp  ,
+n
+G1TU
+fc⋅tp⋅lb
+4
+33Ke + Ge
+3
+3
+(22)
+F = 2 (fc⋅tp)(ε
+⋅lb) with length scale lb,
+11111111CC(1) = CTS , t+ΔtσC(1) = t+ΔtσTS  if n = 1;
+11
+11
+11
+11
+1111333311113333(23)(23)CC(2) = CC(2) = CTS , t+ΔtσC(2) = t+ΔtσC(2) = t+ΔtσTS  if n = 2;
+11
+11
+33
+33
+11
+11
+33
+33
+(23)
+(23)
+CTS =   —fc ⋅tp  , t+ΔtσTS =   fc ⋅tp (εTU — t+ΔteC(n)),
+(εTP — εTU )(εTP — εTU )n
+Fig. 9. Stress–strain responses in the uniaxial compression test.
+which is known as a tension-softening effect where the brittle behavior is changed into ductile behavior, see Fig. 1. The ‘length scale’ lb which normalizes tensile strain εTU for crack closure as well as the fracture energy can be given either locally or globally in two different ways. Firstly, it can be given as a material input parameter, applied globally as the effective width of the crack band formed by elements containing the cracks, see Fig. 7(a), by adopting the approach in M Jir´asek and M Bauer
+[45]. Secondly, when it is not specified (lb = 0 from global input), it can
+be locally given as the maximum side length of the element on which the material quantities are evaluated, lb = max(‖x1 — x2‖, ‖x1 — x3‖, ‖x1 — x4‖) where x2, x3, x4 are coordinates of the nodes attached to a corner
+node at x1, see Fig. 7(b). The two methods respectively correspond to the ‘non-local’ or ‘local’ interpretation of crack, see [22].
+Incorporating reinforcement
+We can use two approaches for incorporating reinforcement: In the first approach, 1D truss elements are attached compatibly to solid ele- ments in the mesh in the physical directions of the reinforcement. In the
+second approach, the smeared reinforcement approach, the elements possessing fictitious thickness ρr × t are additionally attached to the solid elements, where ρr is referred as the ‘reinforcement ratio’ for the
+concrete thickness t. See Section 3 for examples of modeling the rein- forcement in these ways.
+The approaches described in this section are applicable in 2D and 3D finite element solutions. In the case of plane stress conditions, the components normal to the plane are statically condensed out.
+The complete solution process
+As described in detail in Ref. [34], the geometric and material non- linearities can be described using the Total Lagrangian formulation given by the governing principle of virtual work
+t+Δt R = ∫
+0 V0 V0000t+Δt Sijδ t+Δtεijd 0V,(24a)
+0 V
+0 V
+0
+0
+0
+0
+where t+ΔtR is the external virtual work, t+ΔtSij and t+Δtεij are the 2nd
+00
+Fig. 10. Stress–strain responses in the biaxial compression test.
+Piola-Kirchhoff stress and Green-Lagrange strain tensors, respectively, and 0V is the domain considered in the reference configuration. The linearization of the governing principle of virtual work about the
+Fig. 11. The concrete panel (W-2) problem. (a) Problem definition (h = 762 mm,w1 = 298.5 mm,w2 = 76.2 mm,l = 0.95 mm,b1 = 864 mm,b2 = 101.6 mm,b3 = 762 mm). (b) Finite element idealization (f1 = 51 mm,f2 = 152 mm,f3 = 154 mm). (c) Zones of smeared reinforcement. Further details are given in Table 4 in [mm, N, MPa].
+Table 3
+Input parameters for the panel.
+Parameters from the present model
+fc, tp (0.05), GF ,lb = 0.0
+configuration at time t gives [34]
+∫Ce δ e d 0V + ∫  t S δ η d 0V = t+Δt R — ∫  t S δ e d 0V,
+∫ CijrsersδeijdV = t+Δt R — ∫ tσijδeijdV,(25a) with
+VVVVdσij = Cijrsders , t+Δtσij = tσij + dσij ,(25b)
+VV
+VV
+where t+Δtσij is the Cauchy stress, eij is the infinitesimally small strain,
+Cijrs is the constitutive law relating the incremental stress to the total
+0 ijrs 0 rs
+0 V
+0 ij
+0 ij
+0 V
+0 ij
+0 ij
+0 V
+0 ij
+(24b)
+incremental strain, and all quantities are measured in the ‘global coor- dinate system’ for the finite element analysis.
+We should note, however, that although we focus on the material-
+where 0eij and 0ηij are the linear and nonlinear parts of the Green- Lagrange strain tensor, respectively, and 0Cijrs is the tangent stress–- strain relation. Eq. (24) is a general relation for small and large strains and large rotations. However, when modeling concrete, we can assume small-strain conditions, which nevertheless may also contain large dis- placements and rotations. Hence, to develop the solution procedure, we can focus on the material-nonlinear-only case of Eq. (24), and use [34]
+nonlinear-only case of Eq. (24), merely to give the solution steps, we need to use the Total Lagrangian formulation of Eq. (24) if we want to include large displacement/ large rotation effects (with the small strain assumption). The material law used in that case is the same as used in Eq. (25), see Ref. [34].
+An overview of the complete solution process is given in Table 1. The strain update from the solution of elastic-fracturing or elasto-plasticity is
+Table 4Modeling details (Concre considered.te andreinforcementproperties)ofthe panelZonesZone 1 (top panel)Zone 2 (top ribs)Zone 3 (bottom panel)Zone 4 (bottom ribs)Table 4Modeling details (Concre considered.te andreinforcementproperties)ofthe panelZonesZone 1 (top panel)Zone 2 (top ribs)Zone 3 (bottom panel)Zone 4 (bottom ribs)11
+Table 4
+Modeling details (Concre considered.
+te and
+rein
+forcement
+properties)
+of
+the pane
+l
+Zones
+Zone 1 (top panel)
+Zone 2 (top ribs)
+Zone 3 (bottom panel)
+Zone 4 (bottom ribs)
+Table 4
+Modeling details (Concre considered.
+te and
+rein
+forcement
+properties)
+of
+the pane
+l
+Zones
+Zone 1 (top panel)
+Zone 2 (top ribs)
+Zone 3 (bottom panel)
+Zone 4 (bottom ribs)
+t+Δtee(N) =  t+Δtσdev(N) +  t+Δtσ(N)δij , t+Δtep
+ij2Gsij9Kskkij
+ijijijijijij= tep — t+Δtee(N) + t+Δtee(0).(26b)
+ij
+ij
+ij
+ij
+ij
+ij
+Concrete properties fcfc = 26.8
+where (N) denotes the final state of the updated stress. Update of plastic strain in Eq. (26b) comes from coupling of plasticity and fracture in elastic medium as introduced in Eqs. (8), (9) with intermediate config-
+EEuration in Fig. 3. The constitutive law in Eq. (25b) is C  = C  in this
+E
+E
+Reinforcement
+Yield strength in y— and z— directions fyy = fzz = 353,
+ijkl
+ijkl
+properties fyy , fzz ,
+Eyy , Ezz .
+Orthotropic Young’s moduli in y— and z— directions Eyy =
+yyyytangent moduli ETtangent moduli ET= 0, Ezz = 0.= 0, Ezz = 0.Ezz = 190000, respectively, and the corresponding
+yy
+yy
+tangent moduli ET
+tangent moduli ET
+= 0, Ezz = 0.
+= 0, Ezz = 0.
+TT
+T
+T
+tensile or unloading state. If cracking occurs, the constitutive law re-
+ijklijklijklijklC(n)flects it using C  = Cin Eq. (20). See Table 1 for details.
+ijkl
+ijkl
+ijkl
+ijkl
+Thicknessts1 = w2ts2 = w1ts3 = w2ts4 = w1
+In loading under compression, the total flow is updated with the
+ρ  =ρ  =ρ  =ρ  =ρ  =ρ  =ρ  =ρ  =Reinforce ratio in y-direction
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+Smeared thickness
+s1 yy
+0.0092
+ρs1 ts1 =
+s2 yy
+0.0023
+ρs2 ts2 =
+s3 yy
+0.0183
+ρs3 ts3 =
+s4 yy
+0.0047
+ρs4 ts4 =
+associated flow rule as follows:
+λ(0) = 0, λ(0) = 0, λ(0) = 0,
+for y-direction
+yy
+0.7010
+yy
+0.6866
+yy
+1.394
+yy
+1.403
+1
+p∂g1
+23
+p∂g2
+p∂g3
+ρ  =ρ  =zzzzReinforce ratios1
+ρ  =
+ρ  =
+zz
+zz
+s2s3s4
+ρ  =ρ  =ρ  =ρ  =ρ  =ρ  =zzzzzz
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+ρ  =
+Δej|1 = ∂ee Δλ1, Δej|2 = ∂ee Δλ2, Δej|3 = ∂ee Δλ3,
+(27a)
+in z-direction
+Smeared thickness
+0.0092
+ρs1 ts1 =
+0.0047
+ρs2 ts2 =
+0.0092
+ρs3 ts3 =
+0.0047
+ρs4 ts4 =
+jjj
+g = f ,
+for z-direction
+zz
+0.7010
+zz
+1.403
+zz
+0.7010
+zzii
+1.403
+ppwhere we note that the total plastic strain increment (in direction j) is a result of all contributions from the three failure surfaces in the compression coordinate system:
+p
+p
+33jjj|kj|kΔep = ∑ Δep
+3
+3
+j
+j
+j|k
+j|k
+k=1k=1
+k=1
+k=1
+= Δe
+ppppj|2j|2j|3j|3+ Δe  + Δe .(27b)
+pp
+pp
+j|2
+j|2
+j|3
+j|3
+j|1j|1pp2 ∂gi ∂gi 1/2
+j|1
+j|1
+p
+p
+kkkke
+k
+k
+k
+k
+λ = Λ Δλ , with Λ2 ∂gi
+∂gi 1/2
+:)  ,(27c)
+Δ̂i = ((3)∂ee ∂ee )  Δ
+3 ∂ee
+∂ee
+ii  ii = (( )ii  ii = (( )Δ̂ =Δ̂ =and the yield function is linearized as
+ii  ii = (( )
+ii  ii = (( )
+Δ̂ =
+Δ̂ =
+f(I+1) = f(I)
+∂fi
+Δee + ∑ ∂fi
+ep0.(27d)
+(I)
+jĵĵjii  + ( ∂ee )  j
+j
+j
+̂j
+̂j
+3
+j=1
+(I)
+∂epj
+With this new incremental equation composed of strains-only (with yield function fi and potential function gi) we derive a process updating the global stresses and the constitutive law.
+Combining Eqs. (8d), (27a), (27b), and using Eqs. (15), (27c) we obtain the terms in Eq. (27d),
+iiiiee∂f(I)∂f(I)ppp
+i
+i
+i
+i
+e
+e
+( ∂ee )Δej = ( ∂ee )(—Δej|1 — Δej|2 — Δej|3),
+j
+eeeeee∂f(I) ∂g(I)
+e
+e
+e
+e
+e
+e
+j
+∂f(I) ∂g(I)
+∂f(I) ∂g(I)
+(28a)
+ii= —( ∂
+i
+i
+) ∂ 1 Δλ1 — ( ∂ i
+) ∂ 2 Δλ2 — ( ∂ i ) ∂ 3 Δλ3,
+Fig. 12. Calculated load–displacement curves.
+e j
+ii∂f(I)
+i
+i
+e j
+ii∂f(I)
+i
+i
+eeee
+eeeeeejjj
+e
+e
+e
+e
+e
+e
+pipi∂f(I)
+pi
+pi
+̂̂̂̂̂̂∂ep = ∂ep δij = —(cpifc)⋅ ∂ep δij,
+̂
+̂
+̂
+̂
+̂
+̂
+denoted using the material counter k = (0), ⋯, I, I +1, ..., (N) and the history of a new crack is denoted using m to account for a change in
+j
+∂f(I)
+i i
+ii∂f(I)2 ∂g(I) ∂g(I) 1/2
+i
+i
+(28b)
+jjiep
+j
+j
+pi
+̂îikkkkcpifc)δij⋅(( ) i
+̂i
+̂i
+k
+k
+k
+k
+)  Δλi.
+crack status.
+In case we have tensile behavior, or the material is in a state of
+∂̂ep Δ̂j = —(
+∂ep3 ∂ee
+∂ee
+oounloading (given by t+Δtτo < τmax in Eq. (2)), we solve for the incre-
+o
+o
+Substituting Eq. (28) into Eq. (27d), we obtain
+mental linear solution of the stress as in Ref. [1], but for the material
+∂f(I) ∂g(I)
+∂f(I) ∂g(I)
+∂f(I) ∂g(I)
+ii( ∂  ) ∂  Δλ1 + ( ∂  ) ∂  Δλ2 + ( ∂  ) ∂  Δλ3( ∂  ) ∂  Δλ1 + ( ∂  ) ∂  Δλ2 + ( ∂  ) ∂  Δλ3state we obtain the new strain using Eq. (9b), and update the internal ‘inelastic strain’ using Eq. (8d).
+i
+i
+( ∂  ) ∂  Δλ1 + ( ∂  ) ∂  Δλ2 + ( ∂  ) ∂  Δλ3
+( ∂  ) ∂  Δλ1 + ( ∂  ) ∂  Δλ2 + ( ∂  ) ∂  Δλ3
+1i2i3
+eeeeeeeeeeeeeeeeee
+e
+e
+e
+e
+e
+e
+e
+e
+e
+e
+e
+e
+kkkkkk
+2 ∂g(I) ∂g(I) 1/22 ∂g(I) ∂g(I) 1/2
+111122t+Δtσ(N) = tσ(N) + CE ( t+Δtee(0) — tee(0)), tee(0) = teij — t—Δtep ,
+1
+1
+1
+1
+2
+2
++ (cp1fc)⋅(( ) ∂∂  )  Δλ1 + (cp2fc)⋅(( ) ∂ 2  ∂  )
+Δλ2
+(29a)
+ijij
+E
+ijklij
+2
+ijijij
+1
+eeee
+eeeeeeee3333kkk
+e
+e
+e
+e
+e
+e
+e
+e
+3
+3
+3
+3
+1/2
+Cijkl = (K —
+G)δijδkl + 2G⋅ (δikδjl + δilδjk),
+2 ∂g(I) ∂g(I)
+32(26a)
+I)
+3333eeee33+ (cp3fc)⋅(( ) ∂∂  )  Δλ3 = f( ,
+3
+3
+3
+3
+e
+e
+e
+e
+3
+3
+K = Ke, G = Ge if tensile state,
+K = Ks, G = Gs if unloading in compression,
+eei
+kk
+A(I)Δλ = F(I), Δλ = [ ΔλΔλΔλ ]T, F(I) = [ f(I)
+f(I)
+f(I) ]T ,
+123
+j pi j pi ∂f(I) ∂g(I)
+j pi
+j pi
+123
+∂f(I)
+(29b)
+A(I) = [A(I)] = [ ∂ i  ∂  ] + [(cpifc)δij⋅Λi],
+eeeêîiijee
+e
+e
+e
+e
+̂i
+̂i
+kk
+∂ep
+Fig. 13. Cracking at limit state of panel. (a) Predicted response with our concrete model. (b) Experimental result obtained by V Cervenka and KH Gerstle [48]. (c) Numerical result given in HG Kwak and DY Kim [50].
+λj + Δλj,λj + Δλj,ej=ej=ej  — Δej ,ej  — Δej ,ejejalong with the updates to the strains and the total magnitude of flow
+λj + Δλj,
+λj + Δλj,
+ej=
+ej=
+ej  — Δej ,
+ej  — Δej ,
+ej
+ej
+⎡ t+Δtee(N)
+t+Δtee(N)
+t+Δtee(N) ⎤
+λj=λj=t+Δt (I+1)
+λj=
+λj=
+t+Δt (I)
+t+Δt e(I+1)
+t+Δt e(I)
+p  t+Δt p(I+1)
+111213
+⎢21⎢21222223 ⎥23 ⎥t+Δtee(N)t+Δtee(N)t+Δtee(N)t+Δtee(N)t+Δtee(N)t+Δtee(N)⎢⎥
+⎢21
+⎢21
+22
+22
+23 ⎥
+23 ⎥
+t+Δtee(N)
+t+Δtee(N)
+t+Δtee(N)
+t+Δtee(N)
+t+Δtee(N)
+t+Δtee(N)
+jjjj= t+Δtep(I) + Δep.(29c)
+j
+j
+j
+j
+Once convergence has been reached using Eqs. (9), (13), (14), the
+⎣ t+Δtee(N)  t+Δtee(N)  t+Δtee(N) ⎦
+313132323333(30c)(30c)⎡ t+Δtee(N)⎤
+31
+31
+32
+32
+33
+33
+(30c)
+(30c)
+stresses and strains in the global coordinate system are obtained by applying the inverse transformations
+(D(Dʹʹ3 t+Δtee(N),3 t+Δtee(N),,̅̅̅
+(D
+(D
+ʹ
+ʹ
+3 t+Δtee(N),
+3 t+Δtee(N),
+= t+Δt P⎢
+1
+⎣⎣22⎥⎥t+Δtee(N)
+⎣
+⎣
+2
+2
+⎥
+⎥
+t+Δt PT ,
+33t+Δtee(N) ⎦
+3
+3
+1) =
+2(D2) =2(D2) =e2  cos(3 — θ) +e2  cos(3 — θ) +e3  sin(3 — θ),e3  sin(3 — θ),√̅̅̅̅̅̅̅̅̅̅̅̅ʹ̅
+2(D2) =
+2(D2) =
+e2  cos(3 — θ) +
+e2  cos(3 — θ) +
+e3  sin(3 — θ),
+e3  sin(3 — θ),
+1
+t+Δt e(N)π
+t+Δt e(N)π
+(30a)
+ij  =ij  =t+Δtσ(N)
+ij  =
+ij  =
+ssij+ij+sskkkkijij2G t+Δtee,dev(N)K t+Δtee(N)δ ,
+s
+s
+ij+
+ij+
+s
+s
+kk
+kk
+ij
+ij
+t Δt e,dev(N)t Δt e(N)1  t Δt e(N)
+(30d)
+⎡⎤⎡ ⎤
+⎡cos(θ)⎤
++ eij= +
+eij  —
+δij +
+3
+ekk .
+11⎢⎥(D1 ʹ⎢⎥(D1 ʹt+Δtee(N)1
+1
+1
+⎢⎥(D1 ʹ
+⎢⎥(D1 ʹ
+t+Δtee(N)  =) ⎢ 1 ⎥sgn(D ) +
+√̅4̅̅(̅̅D̅̅̅2̅̅̅̅ʹ̅⎢ cos 2π — θ) ⎥
+The constitutive matrix is given in the compression coordinate sys- tem using Eqs. (7) and (14),
+⎢2  ⎥
+3 ⎢⎣ ⎥⎦1⎢
+⎥(30b)
+33⎣ t+Δtee(N) ⎦1
+3
+3
+2π
+)( 3,)( 3,cos
+)( 3,
+)( 3,
+θ) ⎥⎦
+∂ σ⎡ Ks⎤
+JJIJIJ∂(ee)∂(ee)ss3( 3 +
+J
+J
+IJ
+IJ
+∂(ee)
+∂(ee)
+s
+s
+G = [G ] = [ ( I )] = ⎣G
+⎦,(31a)
+GsGs
+Gs
+Gs
+⎢⎥⎢⎥⎢⎣⎢⎣t+Δtee(N)⩾ t+Δtee(N)⩾ t+Δtee(N),t+Δtee(N)⩾ t+Δtee(N)⩾ t+Δtee(N),123
+⎢⎥
+⎢⎥
+⎢⎣
+⎢⎣
+t+Δtee(N)⩾ t+Δtee(N)⩾ t+Δtee(N),
+t+Δtee(N)⩾ t+Δtee(N)⩾ t+Δtee(N),
+̂ep(N) = Λ(N)λ(N), M = [ ̂ep(N)
+̂̂TT22,(31c),(31c)ep(N)
+̂
+̂
+T
+T
+2
+2
+,(31c)
+,(31c)
+̂ep(N) ]T ,(31b)
+iiiiii1133Cph =Cph =CIJCIJ= [∂= [∂] =] =TT[ ph ]
+i
+i
+i
+i
+i
+i
+1
+1
+3
+3
+Cph =
+Cph =
+CIJ
+CIJ
+= [∂
+= [∂
+] =
+] =
+T
+T
+∂(σI)
+(eJ)(eJ)
+(eJ)
+(eJ)
+(GM)(GM)
+M GMM GM
+M GM
+M GM
+Fig. 14. Scordelis-Bresler series of reinforced-concrete beams. (a) Problem definition with section profiles and reinforcements. (b) Modeling idealization. (c) Mesh used for A-2 and OA-2 beams (d) Mesh used for A-3 and OA-3 beams. Beam height h, depth d and length L; total center load P. For the OA-2 and OA-3 beams only bottom horizontal (#9) bar stiffeners are used, for the A-2 and A-3 beams, all stiffeners (bottom horizontal (#9) bars, top horizontal (#4) bars and vertical (#2) bars are used. The vertical stiffeners are spaced using l = 210 mm. Further dimensions and properties are given in Tables 6 and 7 in [mm, N, MPa].
+where the plastic contribution to the constitutive matrix in the compression coordinate system is used as a subtraction from the elastic constitutive matrix [33]
+Table 5
+Input parameters for the beam.
+Parameters from the present model
+L =  1 ∂(σ1)⋅sgn(Ie ), N
+= ∂(σ2) cos π
+θ) + ∂(σ3) sin π
+θ),
+fc, tp (0.10), GF (0.46 N/mm); lb = 0.0 or specified
+J,̅3̅̅ ∂(eJ )
+1J∂(eJ)
+(3 —
+∂(eJ)
+(3 —
+∂(σ1) = L + √̅2̅̅
+(θ), ∂(σ2) = L + √̅2̅̅
+2π
+θ),∂ σ
+∂(e )J
+NJcos
+∂(e )J
+NJcos( 3 —
+CCE
+CP CC
+CECECPCP
+( ij)
+J3J3
+=—,
+= [ ijkl],
+= [ ijkl],
+= [ ijkl] = [∂ e  ],
+= ̂= ̂∂(σ3)
+= ̂
+= ̂
+√̅2̅̅2π
+( kl)
+JJ33(31d)(31d)lJlJ1xl ∂(eJ)1xl ∂(eJ)lJlJ2xl ∂(eJ)2xl ∂(eJ)lJlJ3xl ∂(eJ)3xl ∂(eJ)∂(e ) = LJ +
+J
+J
+3
+3
+(31d)
+(31d)
+lJ
+lJ
+1xl ∂(eJ)
+1xl ∂(eJ)
+lJ
+lJ
+2xl ∂(eJ)
+2xl ∂(eJ)
+lJ
+lJ
+3xl ∂(eJ)
+3xl ∂(eJ)
+NJcos( 3 + θ),
+T1v
+∂(σ1) T2 = v
+∂(σ2) T3 = v
+∂(σ3),
+= ̂= ̂K =  1 ∂(σI )⋅sgn(Ie ), S = ∂(σI ) cos π
+= ̂
+= ̂
+θ) + ∂(σI ) sin π
+θ),
+(σ )
+∂(σ )
+∂(σ )
+I,̅3̅̅ ∂(e1 )
+1I∂(e2)
+(3 —
+∂(e3)
+(3 —
+O1mv
+∂ ij  O2mv
+ij  O3mv
+ij ,
+∂(e )∂(e )II∂(σI) = K +
+∂(e )
+∂(e )
+I
+I
+√̅2̅̅
+(θ), ∂(σ2) = K +
+√̅2̅̅
+2π
+,̂,̂,̂,̂θ),
+,̂
+,̂
+,̂
+,̂
+ij
+∂(σij)
+1xm ∂(eJ )ij
+2xm ∂(eJ)
+ij
+v1x T1 + v2x T2 + v3x T3 ,v1x T1 + v2x T2 + v3x T3 ,∂(σij)
+v1x T1 + v2x T2 + v3x T3 ,
+v1x T1 + v2x T2 + v3x T3 ,
+3xm ∂(eJ)
+SIcos 3SIcos 3∂(e )∂(e )IIJJ
+SIcos 3
+SIcos 3
+∂(e )
+∂(e )
+I
+I
+22prpr( I )22prpr( I )∂(σ3) = K +∂(σ3) = K +√̅̅̅
+22prpr( I )
+22prpr( I )
+∂(σ3) = K +
+∂(σ3) = K +
+∂(eJ) = ̂
+j  iJ
+̂ j  iJ
+̂ j  iJ
+∂(ekl)
+̂ l  ij
+̂ l  ij
+̂ l  ij
+π∂ σS cos(+ θ), C = [C ] = [],π∂ σS cos(+ θ), C = [C ] = [],∂(eJ)I
+π∂ σ
+S cos(+ θ), C = [C ] = [],
+π∂ σ
+S cos(+ θ), C = [C ] = [],
+3 I3
+IJ∂(eJ)
+with vi = vix ix in Eq. (13), CE
+is given from Eq. (26) with K = Ks, G =
+,= ̂,= ̂3333SIcos(—SIcos(—(31e)(31e)Gs.   ̂
+,= ̂
+,= ̂
+33
+33
+SIcos(—
+SIcos(—
+(31e)
+(31e)
+̂ i  i
+ijkl
+,= ̂,= ̂1k2k3k1k2k3k= v1x O  + v2x O  + v3x O ,= v1x O  + v2x O  + v3x O ,We should note that the material solution process in Eq. (31) and the
+,= ̂
+,= ̂
+1k2k3k
+1k2k3k
+= v1x O  + v2x O  + v3x O ,
+= v1x O  + v2x O  + v3x O ,
+Table 6
+Modeling details (Geometry and concrete properties) of Scordelis-Bresler beams.
+Beam types
+OA-2OA-3A-2A-3
+Concrete properties fcfc = 23.7fc = 37.6fc = 24.3fc = 35.1
+Section geometries
+b,h
+Effective depth d(idealized location of bar #9)
+,
+effective section area
+A
+b = 305,
+h = 561
+d = 466,
+A = b⋅d
+b = 305,
+h = 561
+d = 466,
+A = b⋅d
+b = 305,
+h = 561
+d = 466,
+A = b⋅d
+b = 305,
+h = 561
+d = 466,
+A = b⋅d
+Half effective length L/2L/2 =
+2286
+L/2 =
+2743
+L/2 =
+2286
+L/2 =
+2743
+Bottom reinforcement. Total section area of reinforcement As
+#9 bars
+As = 3226
+#9 bars
+As = 3894
+#9 bars
+As = 3226
+#9 bars
+As = 3894
+Top reinforcement——2 #4 bars2 #4 bars
+Vertical shear reinforcements
+Reinforcement ratio of bottom bars
+#2 bars, spacing l ρr =
+As /A =
+0.0227
+#2 bars, spacing l ρr =
+As /A =
+0.0274
+#2 bars, spacing l ρr =
+As /A =
+0.0227
+#2 bars, spacing l ρr =
+As /A =
+0.0274
+Table 7
+Modeling details (reinforcement properties) of Scordelis-Bresler beams.
+Reinforcement types
+Fig. 16. Load-displacement curve of the A-3 beam.
+#2 bar#4 bar#9 bar#9 barareaYoung’s modulus32.258189.60 ×125.81201.32 ×658.06217.87 × 103658.06217.87 × 103#2 bar#4 bar#9 bar#9 barareaYoung’s modulus32.258189.60 ×125.81201.32 ×658.06217.87 × 103658.06217.87 × 103E tangent modulus ET
+#2 bar
+#4 bar
+#9 bar
+#9 bar
+area
+Young’s modulus
+32.258
+189.60 ×
+125.81
+201.32 ×
+658.06
+217.87 × 103
+658.06
+217.87 × 103
+#2 bar
+#4 bar
+#9 bar
+#9 bar
+area
+Young’s modulus
+32.258
+189.60 ×
+125.81
+201.32 ×
+658.06
+217.87 × 103
+658.06
+217.87 × 103
+103
+1.8960 ×
+103
+103
+2.0132 ×
+103
+2.1787 × 103
+2.1787 × 103
+Yield strength fyfy =
+325.43
+fy =
+345.43
+fy = 555.028fy = 555.27
+remark——For 2-serie-
+sOA-2,A-2
+only
+For 3-serie- sOA-3,A-3
+only
+Fig. 17. Crack patterns for the shear- compression (A-2) and flexure- compression (A-3) beams at failure. Predictions using our concrete model for the (a) A-2 and (b) A-3 beams. Typical experimental patterns measured for the
+(c) A-2 and (d) A-3 beams (B Bresler and AC Scordelis [51]).
+Fig. 15. Load-displacement curve of the A-2 beam.
+relevant update to the constitutive matrix in Eqs. (30), (31) lead to an efficient solution scheme, see Appendix C for more details. By using the consistent stress–strain matrix, the solution can reach a quadratic convergence rate.
+Fig. 18. Calculated load–displacement curve of the OA-2 beam.
+Fig. 19. Calculated load–displacement curve of the OA-3 beam.
+Fig. 20. Additional sensitivity study on meshes, based on OA-3 beam (GF = 0.46 N/mm). (a) Refined mesh A (lb = 210 mm). (b) Refined mesh B (lb = 255 mm). (c) Refined mesh C (lb = 240 mm).
+Table 8
+Comparison of ultimate loads of Scordelis-Bresler beams.
+Ultimate loads (P) in kN
+BeamsPresent
+Experiment
+Theory
+Pu /Pu—theor
+PuPu—exp[51,52]Pu—theor [51,52](Pu—exp/Pu—theor )
+A-2483.04894231.14 (1.16)
+A-3471.64674141.14 (1.13)
+OA-2363.63562921.25 (1.22)
+OA-3384.03782931.31 (1.29)
+Fig. 21. Sensitivity study to mesh refinement, OA-3 beam.
+Fig. 22. The notched beam in bending. (a) Problem definition (h = 100 mm,t = 100 mm,b = 225.0 mm,l = 5.0 mm). (b) Finite element idealization with lengths of coupling zones (b1 = 157.5 mm,b2 = 22.5 mm,b3 = 12.5 mm,b3 = 30.0 mm) shown with reference mesh.
+The solution procedure tests whether the material is in compression
+Table 9
+Input parameters for the notched beam.
+Parameters from the present model
+fc , tp (0.10), GF = 0.090 N/mm,
+E = 2.0 × 103 MPa, ν = 0.2,lb
+or tension, whether the material is loading or unloading, and whether there are cracks or we have a crushed state, see Table 1. We demonstrate the solution scheme in the analysis of challenging nonlinear problems in Section 3.
+Fig. 23. Reference solution and crack growth patterns for the bending of notched beam. (a) Experimental range of solutions. (b) Localized crack growth.
+Fig. 24. The finite element mesh cases. (a) Horizontal, (b) vertical, (c) regular, (d) type A distorted, (e) type B distorted, (f) vertically distorted meshes. When an edge
+AB having endpoints A and B is subdivided by n with a ratio k, it is divided into n sub-edges having length ratios AB1 : AB2 : … : ABn = 1 : 2 : … : k.
+Implementation of solution procedure
+In this section we consider the implementation of our procedure of the material model as well as its efficiency and stability. The procedure derived in Section 2.2 is presented in a concise flowchart, as shown in Fig. 8.
+The difference with the procedure in [32] is that internal strains are not divided into plastic and fracture components. Instead, we maintain only the plastic strain. The fracturing is included without material iteration but instead using a change in the instantaneous state. Another difference from the conventional stress-based approach is that we do not need to repeatedly compute the stress from the strain during plasticity, as all derivatives and flow directions are measured in terms of strain.
+Regarding the plasticity solution loop, it requires a simple built-in yield function F on the strain space that directly gives all coefficients and renders the procedure to be stable. The local-solution stability (solvability in the material iteration so that an iterative solution is ob- tained for all ranges of strains) can be assessed from the properties of the yield function, see Appendix C. The use of the principal system accounts for all six different states of strain and stress in three equations and hence is efficient.
+The material model and the solution procedures have been imple- mented in ADINA, version 25.0 of Bentley Systems, Inc. [46]. We next give some illustrative solutions using the model and procedures.
+Illustrative solutions
+In this section we illustrate the use of our proposed concrete model. We show the predicted response in basic tests, solve a two-dimensional
+shear wall problem, three-dimensional reinforced concrete beam prob- lems, and a three-dimensional dam problem. The problems considered are chosen to encompass various response possibilities that can occur in practical analyses. We summarize in Table 2 the input parameters for the present material model. Across analyses, 20-node 3D solid or 8-node 2D solid elements are employed for modeling the concrete structures.
+Basic tests of model behavior
+We perform uniaxial and biaxial tests. In both tests a cube is sub- jected to single or two compressive pressure loads with minimum boundary condition to prevent rigid body motion.
+In uniaxial tests, the values obtained in P Desayi and S Krishnan [47] withfc = 21 andfc = 30 are used while the strains are renormalized by a multiplication factor of 2.3 to show strain values using the same scale.
+The problem definition and the response of uniaxial compression are shown in Fig. 9. The present material model exhibits the correct value of critical strength across different cylindrical strengths, a behavior also found in experiments [47]. Our concrete model passes the uniaxial compressive strength test.
+The problem definition and the response in biaxial compression are shown in Fig. 10. In our material model and the reference data, the stress–strain data for biaxial compression withfc = 32 is used. In the
+reference results given by H Kupfer, HK Hilsdorf, and H Rusch [42], we
+used the normalized strain (e/ecrit) where ecrit = 0.0025, in both cases of ratios σzz : σxx = 1 : 1 and σzz : σxx = 1 : 0.
+The calculated values of the critical loads for the biaxial cases are in close agreement with the experimental results in H Kupfer, HK Hilsdorf, and H Rusch. Our material model exhibits approximately a 15 %
+Fig. 25. The response of the notched beam in bending using the horizontally aligned meshes in Fig. 24(a). (a) The load–displacement curves. (b) A comparison of crack evolutions.
+increase in strength in biaxial compression.
+Analysis of concrete panel
+We consider a concrete panel (W-2) subjected to a center load in Fig. 11 [48,49,50]. Half of the panel is modeled, and the reinforcing steel is idealized as rectangular elements with smeared properties and varying thicknesses in the horizontal and vertical directions. Further modeling details are presented in Tables 3 and 4. Smeared reinforce- ment approach is used [48–50]. For this two-dimensional problem we test our material model by using two different values of GF in the local
+(lb = 0.0) formulation to model cracking.
+Fig. 12 shows the load–displacement curves for the W-2 wall, analyzed with monotonically increasing load. The limit load reached by the structure is studied experimentally by V Cervenka and KH Gerstle
+[48] and analytically by D Darwin and DA Pecknold [49]. For both cases of fracture energies, the ultimate load reached by the structure is close to the reference limit load (120 kN). The structural limiting behavior is affected by cracking, so a change is observed for the two different GF values, but the two cases of fracture energy did not produce significantly different results.
+The predicted pattern of cracks presented in Fig. 13 follows closely the experimental results. As a small difference compared to the
+numerical result in [50], we did not obtain crushing at the top left section of the wall but obtained instead multiple cracks at the bottom right corner of the wall.
+Reinforced concrete beam problems
+We present the use of our material model in the analysis of the reinforced concrete beam problems considered by B Bresler and AC Scordelis [51,52]. The ultimate load is defined as the maximum load carrying capacity reached in the nonlinear concrete behavior, cracking, and failure in reinforcements.
+The beams are shown in Fig. 14 [51,52]. The beams supported at their ends are subjected to a center load. According to different geom- etry patterns, material properties and reinforcement conditions, the physical problems are known to exhibit different failure modes: shear- compression for the A-2, flexure-compression for the A-3, and diago- nal tensile failure modes for the OA-2 and OA-3 beams [51,52]. All stiffeners are modeled separately with trusses in addition to the concrete using solid elements. The A-2 and A-3 beams contain vertical stiffeners. Tables 5–7 give details of the modeling and material properties. The analyses are performed with monotonically increasing loading under load-control, using the low-speed dynamics (quasistatic) option [46] to
+solve slightly past the critical point. The fracture energy GF = 0.46 N/
+Fig. 26. The response of the notched beam using the vertically aligned meshes in Fig. 24(b). (a) The load–displacement curves. (b) A comparison of crack evolutions.
+mm per unit area was prescribed, and the local interpretation of the energy on the length scale (lb = 0.0) is initially used.
+For the shear- and flexure-compression failure beams (A-2,A-3),
+Figs. 15–16 give the load–displacement curves, and Fig. 17 shows the crack patterns. These A-2 and A-3 beams reached in the experiments their ultimate load capacities mainly due to cracking, before the load–displacement behavior completely levels off [51,52]. In the solu- tions using our material model, the analyses of the A-2 and A-3 beams continued up to the point of the top reinforcement reaching the yield point and cracks permeated from the bottom, see [51]. The crack pat- terns at the ultimate load, including for the A-2 beam, show more cracks aligned toward the center of the beam near the cracked end, which is in good agreement with the experimental patterns in B Bresler and AC Scordelis [51]. The ultimate loads reached (493.0 kN;471.6 kN) compared well with the experimental reference loads (489 kN;467 kN) given in Refs. [51,52] for the (A-2,A-3) beams, respectively.
+Figs. 18-19 give the load–displacement curves for the beams failing in diagonal tensile failure (OA-2,OA-3). The ultimate loads reached in our analyses (363.6 kN;384.0 kN) are also close to the experimental reference loads (356 kN;378 kN) in Refs. [51,52]. Further comparisons of the ultimate load predictions are given in Table 8 [51,52].
+In addition, we choose the tensile-diagonal failure beam (OA-3) and provide mesh refinement studies in Figs. 20-21. This structure fails in mixed compression and tension, and the ultimate load depends upon not
+just the strength of the material but also the energy absorbed by the crack. For the cracking part, the global manual inputs of lb are given in Eq. (22) in an attempt to regularize the sensitivity. The Fig. 21 shows that for the meshes considered, the attained load–displacement curves are nearly the same. Detailed rules for determining lb are discussed in the next example with a relatively simpler tensile dominant failure.
+Notched beam under bending
+We analyze a notched beam under three-point bending, see Fig. 22 [45,53] and Table 9. A beam of length 2b, height 2h and thickness t is subject to bending load at the top surface above the notched crack of width l and depth h. Concrete beams of this specific size and shape were investigated experimentally by HA Kormeling and HW Reinhardt [53]
+and simulated in [54–57]. To match the material properties, ft = tp ×
+fc = 2.4 MPa with tp = 0.10 and fc = 24 MPa were employed with additional initial modulus E = 2.0 GPa and ν = 0.2.
+The fracture energy GF = 0.090 N/ mm per unit area was normalized
+by characteristic length scale lb, which should be given from the width of the crack band. This depends upon detailed factors such as formulation, problem definition, and the finite element utilized [45]. For testing the global interpretation of crack energy, we initially select the length scale
+to be the same as the width of the notch lb = l = 5 mm from the
+Fig. 27. The response of the notched beam in bending using the regular meshes in Fig. 24(c). (a) The load–displacement curves. (b) A comparison of crack evolutions.
+Fig. 28. The response of the notched beam in bending using the distorted meshes in Fig. 24(d) and 24(e). (a) The calculated load–displacement curves. (b) A comparison of crack evolutions.
+Fig. 29. The response of the notched beam in bending using the vertically aligned meshes with distortions in Fig. 24(e). (a) The calculated load–displacement curves.
+(b) A comparison of crack evolutions.
+∫∫Fig. 30. Gravity dam problem. (a) Problem definition (geometry b1 = 72 mm,b2 = 248 mm,b3 = 1680 mm,d = 300 mm,h1 = 2550 mm,h2 = 600 mm,h3 = 150 mm,w1 = 300 mm,w2 = 150 mm; pressure p = 3.137 N/mm2; concrete properties fc = 36 N/mm2, GF = 0.184 N/mm). (b) Prenotched crack (emanating at B from the shaded section area A). The total applied load is P = ApdA = 1337 N per unit load step. Dimensions in [mm, N, MPa].
+∫
+∫
+Table 10
+Input parameters for the dam.
+Parameters from the present model
+fc , tp (0.05), GF (0.184 N/mm),
+lb = 120 mm
+geometry of the structure.
+The reference range of the load–displacement curves shown in Fig. 23(a) is taken from the experimental results in [53], where we apply the value 1.3 in strain to match the strain on the same scale. The reference peak load occurs at 1.2 to 1.6 kN. The reason for the multi- plication is that our material utilizes specific material constants taken from the literature (as critical strain locations), see Appendix C. Analyses are performed with load–displacement control [36,46] to obtain the response with softening.
+In this problem, the crack grows from the end of the notch and em- anates vertically and also toward the beam ends, forming a crack zone, which is shown by the shaded area in Fig. 22(a). To identify the effect of meshing in the crack zone, we perform convergence studies with the different meshes given in Ref. [45], and also use distorted mesh patterns as given in Refs. [58,59]. Fig. 24 gives an overview of the finite element meshes used. Two potential crack scenarios occur as shown in Fig. 23(b) considering local effects, but the correct global pattern is a single crack band in Mode I failure.
+Fig. 25 presents the load–displacement curves using the horizontally aligned mesh. The results from horizontally refining the mesh gave the same result as obtained without the refinement and were in good agreement with the experimental range.
+Fig. 26 gives the load–displacement curves using the vertically aligned mesh. Unlike when using the horizontally aligned mesh case, the length scale input had to be refined. For the vertically aligned meshes, local effects in Fig. 23(b) dominate, so we apply Fig. 7(b) to determine the crack width lb from the element length,
+Fig. 31. Deformed shape of the dam, also showing the crack opening relative displacement at B.
+lb = l/n(32)
+where n is the number of elements within the notch of width l.
+Then the results lie within the experimental range across different mesh refinements.
+Fig. 32. Meshes used for the dam problem, (a) the coarse mesh, (b) the fine mesh.
+Fig. 27 shows the load–displacement curves when using the regular meshes. To mitigate the effect of the occurrence of two crack bands in Fig. 23(b), the regular mesh cases required lb to be increased. From the crack coalescence experiment in Ref. [65], the percentage of load applied to merge two cracks with low bridging angles in each band is 20
+%–25 %. When two parallel cracks are merged, the fracture energy in the combined crack is reduced to a smaller value of 75 % to 80 %
+model was analyzed extensively in different studies [61]. A section of the dam is subjected to hydrostatic loading and local crack opening and closure can take place, see Fig. 31. The boundary conditions are w = 0 at
+the bottom surface DE, u = 0 at the back surface FE, and u = v = w = 0
+at point D. The coarse and fine meshes used for the response predictions are shown in Fig. 32.
+The crack mouth opening displacement is obtained through a solu-
+gF = GF/lb
+(33)
+tion using the load–displacement control (LDC) scheme with line searches [36,46]. The load–displacement curves are shown in Fig. 33.
+For a normalized facture energy gF, and an initial value lb = 5.5 mm,
+the values of lb to represent the correct reduced crack energy after the coalescing of the two parallel cracks are lb = 6.0 mm to lb = 6.5 mm.
+Using these values, the solutions following the single crack band pattern in Fig. 23(b) showed good agreement with the experimental range.
+Fig. 28 shows the load–displacement curves using the distorted mesh cases in Fig. 24(d) and (e). It is possible to apply the regularization to obtain good responses also when using the distorted meshes with nearly equal side lengths. Using the Type B distorted mesh results in better results than using the Type A mesh, requiring less mesh density in the solution.
+Fig. 29 shows the load–displacement curves using the distorted mesh in the vertically aligned setup. Mesh alignments induce the crack to spread out as in the localized crack growth in Fig. 23(b). With the length scale adjusted again with Eq. (33) to capture the wider crack band growth in the distorted mesh, the response agrees well with the results using the undistorted mesh and is within the experimental range.
+In summary, we applied the crack-band approach to determine the element length [22,30,45] for our solution and performed convergence and mesh sensitivity studies. It is shown that the predicted response can be regularized to a reference solution irrespective of the mesh size, element aspect ratios, or distortions present in the mesh using a single parameter lb.
+Gravity dam problem
+We analyze a gravity dam with an initial crack subjected to hydraulic loading, see Fig. 30 [60,61] and Table 10. The experiment was per- formed by Carpinteri et al. [60] on a 1:40 scaled-down model, and the
+When using the load–displacement control with line searches and the fine mesh, our material model shows excellent agreement with the experimental result. The resulting crack bands are shown in Fig. 34. The crack band occurs in the region beneath the notch, forming a positive angle from the horizontal direction. The tangent angle obtained using for the solution the load–displacement control with line searches is greater than when only using the load–displacement control, and also the resulting band is straighter, demonstrating the better accuracy of the solution. In the converged solution from the mesh refinement, the width of the slanted crack band is shown to be 120 mm, which agrees with our choice of length scale lb described in Fig. 7.
+Concluding remarks
+We proposed a new concrete material model for finite element analysis. The phenomena of fracture and cracking are merged into a new plastic solution procedure (to model the compression effects) with flow rules separately derived and used for three independent failure surfaces used in a compression coordinate system. The coupling between plas- ticity and fracture of the phenomenological behavior of concrete is introduced using the material strains represented in their principal co- ordinates. The concrete material model is embedded in a generally applicable and effective finite element solution procedure, with the only assumption (usually satisfied) that the constitutive relationship is calculated locally at the integration points.
+The proposed material model shows the empirical limiting behaviors following the ultimate strength of the concrete considered and tensile failure with cracking and tension-stiffening effects. The numerical pre- dictions reached illustrate the capability of the material model to
+Fig. 33. Load-displacement curves of the gravity dam, considering (a) LDC with or without line-searches, (b) mesh refinement.
+Fig. 34. Crack bands of the gravity dam, solutions obtained with (a) the coarse mesh, (b) the fine mesh using LDC only, and (c) the fine mesh using both LDC and line searches. The left and right columns indicate the original and magnified deformed configurations, respectively.
+simulate concrete behavior in challenging analysis problems with high nonlinearities that include crushing and cracking of the concrete and the effects of reinforcements.
+While the numerical results illustrated the capability of the material model to represent concrete behavior in some challenging analysis problems with complex nonlinearities, we only used the concrete model in the analyses of some, although varied, problems and employed spe- cific experimental forms and material constants published earlier [31,39–44]. The coefficients from Refs. [39–43] might be outdated. Hence, extending the material input parameters in our material model to
+handle these and the use of different built-in equations and coefficients needs to be studied.
+However, we can conclude that our proposed solution procedure is already valuable and also represents “an avenue” with good potential to reach an “all-encompassing scheme” to simulate complex nonlinear behavior of concrete structures including failure. A study of the wider applicability of our concrete model, in particular, in different modes of failure, e.g. see Refs. [62,63], is envisaged for the future.’
+CRediT authorship contribution statement
+Yeongbin Ko: Writing – review & editing, Writing – original draft, Validation, Methodology, Investigation, Formal analysis, Conceptuali- zation. Klaus-Jürgen Bathe: Writing – review & editing, Supervision.
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+Appendix A. Experimental fits of moduli using fc in Eqs. (9c), (10), (11) and crack strength in Eq. (16)
+When just compressive cylindrical strength fc was specified without E or ν, initial bulk and shear moduli are determined from experimental fit. All data are given in units [MPa].
+Ke = 11000 + 3.2fc
+ccGe = 9224 + 136.0fc + 3296 × 10—15f8.273
+c
+c
+The coefficients used in Eqs. (10), (11) are, if fc⩽31.7
+(A.1)
+A = 0.516, c = 3.573, d = 2.12 + 0.0183fc, m = — 2.415, n = 1.0,(A.2)
+and if fc > 31.7
+A = 0.516/(1 + 0.0027(fc — 31.7)2.397), c = 3.573/(1 + 0.0134(fc — 31.7)1.414),
+d = 2.7, m = — 3.531 + 0.0352fc, n = — 0.3124 + 0.0217fc,(A.3)
+In addition we have for all fc
+ccb = 2 + 1.81 × 10—8f4.461, k = 4/(1 + 1.087(fc — 15)0.23)
+c
+c
+ccl = 0.222 + 0.01086fc — 0.000122f2
+c
+c
+(A.4)
+When calculating the strength envelope for cracking, we use only the three constants fc, tp, and GF in Eq. (16) following Refs. [31,44] and shown in Fig. 1. The tensile strength is given by ft = tp⋅fc ∈ [0.05⋅fc, 0.10⋅fc].
+Appendix B. Equivalence of Eqs. (13e)–(14a), (14b)
+We use the identities
+( 3 —( 3 —( 3 )( 3 )( 3 )( 3 )2222cos 2π  θ) = cos 2π cos(θ) + sin 2π sin(θ) = — 1 cos(θ) + ,̅3̅̅ sin(θ)
+( 3 —
+( 3 —
+( 3 )
+( 3 )
+( 3 )
+( 3 )
+2
+2
+2
+2
+( 3 +( 3 +( 3 )( 3 )( 3 )( 3 )2222cos 2π θ) = cos 2π cos(θ) — sin 2π sin(θ) = — 1 cos(θ) — ,̅3̅̅ sin(θ)(B.1)
+( 3 +
+( 3 +
+( 3 )
+( 3 )
+( 3 )
+( 3 )
+2
+2
+2
+2
+(3 —(3 —(3)(3)(3)(3)2222cos πθ) = cos π cos(θ) + sin π sin(θ) = 1 cos(θ) + ,3̅̅̅ sin(θ)
+(3 —
+(3 —
+(3)
+(3)
+(3)
+(3)
+2
+2
+2
+2
+(3 —(3 —(3)(3)(3)(3)2222sin π θ) = sin π cos(θ) — cos π sin(θ) = ,̅3̅̅ cos(θ) — 1 sin(θ)(B.2)
+(3 —
+(3 —
+(3)
+(3)
+(3)
+(3)
+2
+2
+2
+2
+and also the inverse relations
+22(3 —(3 —22(3 —(3 —cos(θ) = 1 cos πθ) + 1 ,3̅̅̅sin π  θ)
+2
+2
+(3 —
+(3 —
+2
+2
+(3 —
+(3 —
+22(3 —(3 —22(3 —(3 —sin(θ) = 1 ,̅3̅̅cos πθ) — 1 sin πθ)(B.3)
+2
+2
+(3 —
+(3 —
+2
+2
+(3 —
+(3 —
+Thus we have
+⎡ 1 ⎤⎡  0  ⎤
+⎡ 1 ⎤
+⎡ ,̅3̅̅ ⎤
+1122⎢⎥⎢ ,̅3̅̅ ⎥⎢ 2 ⎥π⎢̅̅̅ ⎥π
+1
+1
+2
+2
+⎥⎦⎥⎦3333⎢ —2 ⎥cos(θ) + ⎢ 2 ⎥sin(θ) = ⎢ 1 ⎥cos( — θ) + ⎢ ,3 ⎥sin( — θ)(B.4)
+⎥⎦
+⎥⎦
+3
+3
+3
+3
+2222⎣  0⎣  0⎣  1⎣  1⎢ —2⎢⎣ —,3̅̅̅ ⎦⎥
+2
+2
+2
+2
+⎣  0
+⎣  0
+⎣  1
+⎣  1
+⎢⎣ —1 ⎥⎦
+⎢ — 2 ⎥⎦
+With Eq. (B.1) and Eq. (13e) expanded we also have
+ee
+11⎡  ⎤⎡  ⎤eee3e3⎢ e ⎥
+1
+1
+⎡  ⎤
+⎡  ⎤
+e
+e
+e
+3
+e
+3
+D1 ⎡ 1 ⎤
+√̅4̅̅D̅̅̅2̅̅̅⎡ 1 ⎤
+√̅4̅̅D̅̅̅2̅̅̅⎡
+,̅̅0̅⎤
+θ) +3 ⎣  ,3̅̅̅θ)(B.5)
+⎣⎢ e2 ⎦⎥ = 3 ⎣ 1 ⎦ +3 ⎣ —1/2 ⎦cos(/2 ⎦sin(
+11—1/2—1/2——3 /23 /2Using Eq. (B.4) and Eq. (B.5), and substituting the definition of the coordinates and base vectors in Eq. (14), we obtain
+1
+1
+—1/2
+—1/2
+—
+—
+3 /2
+3 /2
+113 (2)⎣3 (2)⎣—2—2⎦⎦⎦⎦⎡⎡⎡ ee ⎤1/,3̅̅̅ ⎤ √̅ ̅̅̅̅̅2̅̅̅⎡ 1 ⎤π√̅ ̅̅̅̅̅2̅̅̅  ,̅̅̅ ⎡ 1 ⎤π
+1
+1
+3 (2)⎣
+3 (2)⎣
+—2
+—2
+⎦
+⎦
+⎦
+⎦
+⎡
+⎡
+⎣⎢ 2 ⎥⎦⎣⎢ 2 ⎥⎦,̅3̅̅ ⎣,̅3̅̅ ⎣,̅3̅̅ ⎦,̅3̅̅ ⎦3311⎢ ee ⎥ = D
+⎣⎢ 2 ⎥⎦
+⎣⎢ 2 ⎥⎦
+,̅3̅̅ ⎣
+,̅3̅̅ ⎣
+,̅3̅̅ ⎦
+,̅3̅̅ ⎦
+3
+3
+1
+1
+eeee
+ee
+ee
+1/,̅3̅̅  +
+1/1/
+1/
+1/
+4D 1
+1 cos(
+4D3
+33333 ( 2 )⎣ —03 ( 2 )⎣ —0θθ— ) +
+3
+3
+3
+3
+3 ( 2 )⎣ —0
+3 ( 2 )⎣ —0
+θ
+θ
+1 sin(
+— θ)
+1 p1 pD
+1 p
+1 p
+,3,311=   ̅̅̅̂
+,3
+,3
+1
+1
++ √̅4̅̅D̅̅̅2̅̅̅ ,̅3̅̅ )̂p cos π
+θ) + √̅4̅̅D̅̅̅2̅̅̅ ,̅3̅̅ )̂p sin π
+) =    ̂) =    ̂11θee p
+) =    ̂
+) =    ̂
+1
+1
++   ̂+   ̂1122ee p
++   ̂
++   ̂
+1
+1
+2
+2
++   ̂+   ̂2233ee p
++   ̂
++   ̂
+2
+2
+3
+3
+(B.6)
+3 (,̅2̅̅3 (,̅2̅̅22(3 —(3 —3 (,̅2̅̅3 (,̅2̅̅33(3 —(3 —33which verifies the equivalence of Eq. (13e) and Eqs. (14a), (14b).
+3 (,̅2̅̅
+3 (,̅2̅̅
+2
+2
+(3 —
+(3 —
+3 (,̅2̅̅
+3 (,̅2̅̅
+3
+3
+(3 —
+(3 —
+3
+3
+Appendix C. Plastic failure curves used in Eq. (15d) and their boundedness
+We introduce plastic failure curves to use in calculating the strain response.
+The coefficients of the functions were found from an experimental fit of the strength data in Refs. [16,39–43],
+̂̂̂̂m2 = 1/ln(√̅2̅̅/̅̅̅3̅̅⋅α2/(β2⋅εp2)), m3 = 1/ln(1.15/,̅2̅̅⋅α3/(β3⋅εp3))
+̂̂
+̂̂
+εp2 = 0.0012, εp3 = 0.0025
+êcmax 0, Kêep10.45 , ecmax 0, Ke ep12.17 , α21  0.575⋅ ec 0.315
+p2 =(̂  —)  p3 =(̂  —)= +( p2)
+22p2p2p3p333p3p3β = 1 + 8.4⋅(ec )0.25, α3 = 1 + 0.389⋅(ec )0.315, β = 1 + 5.95⋅(ec )0.25, a = 2.5 × 10—5, s = 0.8(C.1)
+2
+2
+p2
+p2
+p3
+p3
+3
+3
+p3
+p3
+See Ref. [16] for a review, and we use in our study
+c2β
+εp2
+m(1/m2 ), c3 = β ⋅εp3 ⋅m(1/m3 )
+(C.2)
+= ( 2⋅̂ )⋅ 2
+3  ̂3
+cp1 = 3.0, cp2 = 36.0, cp3 = 12.0(C.3)
+The forms of the plastic failure curves in Eq. (15d) are similar to those given in H Park and JY Kim [16], derived from the data given in ZP Baˇzant and PC Prat [9]. We modified these functions to have the new Eq. (15d).
+For stability of the solution algorithm, the first-order derivatives of all quantities need to be finite across all values of plastic strains. Also, a property such that uniaxial or biaxial compression curves asymptotically tend to zero, unlike the hydrostatic curve [64], is also maintained in the principal compression coordinate system.
+First, focusing on the hydrostatic curve, differentiating, substituting ep1 = ep1 —a, and taking the limit ep1→ infinity, we obtain
+∂fp1
+∂ep1∂ep1p1( a )p1( a )= c
+∂ep1
+∂ep1
+p1( a )
+p1( a )
+ep1 —s(sa + (1 — s)ep1)
+̃̂̂
+̃̃̃̃̃̃̂  ∂fp1∂fp1
+̃̃
+̃̃
+̃
+̃
+ˆe →∞∂eˆe →∞∂e˜e →∞∂e˜e →∞∂elim= lim
+ˆe →∞∂e
+ˆe →∞∂e
+˜e →∞∂e
+˜e →∞∂e
+ep1ep1
+ep1
+ep1
+esaesa==p1( a )p1( a )[e[ec  ̃p1 —s
+esa
+esa
+=
+=
+p1( a )
+p1( a )
+[e
+[e
++ (+ (1 — s)] = 0(C.4)
++ (
++ (
+p1̂p1p1̂p1̃p1
+jĵ̂p̂̂pProceeding similarly, when considering ∂fpj/∂epj→0 for increasing epj ∈ (0, ∞] with j = 2, 3, all slopes of fpj will be finite as the plastic strains accumulate, see Fig. 5(a). Actually, the values ∂fpj/∂̂epj at ̂epj = 0 are never encountered in the iteration with the finite increment Δe  in Eq. (15b)
+j
+j
+̂̂p
+̂̂p
+̂̂giving epj > 0. Also, plastic flow is invoked only on loading of the material.
+̂
+̂
+Second, focusing on the uniaxial and biaxial compression cases, proper strain location at maximum needs to be included in the coefficients. With
+ec = 0 in (C.1), solving for location of maximum fm for curve fpj (j = 2, 3),
+pj
+∂fpj
+∂epj∂epj[—( cj )[—( cj )= —exp
+∂epj
+∂epj
+[—( cj )
+[—( cj )
+̂epj mj (m ̂epj mj
+pj
+——1) = 0,
+—
+—
+ĉ=̂epj
+̂̂]]j( cj )j( cj )epj
+̂
+̂
+]
+]
+j( cj )
+j( cj )
+=
+(C.5)
+jlnmj
+expexpmm[—( mj )]
+exp
+exp
+m
+m
+—1/mj
+j
+and equating each epj with the experimental values epj = εpj in H Kupfer, HK Hilsdorf, and H Rusch [42], we arrive at cj = (εpj)⋅m(1/mj ). The corre-
+jjsponding maximum̂value shown in Fig. 5(b-c) iŝ̂̂
+j
+j
+) )() )(—1/m2 m2—1/m2
+) )(
+) )(
+pjpjpjpjˆepj =ˆεpjˆepj =ˆεpjjjjjjjfm = f ⃒⃒⃒= exp(—(mm)c
+pj
+pj
+pj
+pj
+ˆepj =ˆεpj
+ˆepj =ˆεpj
+j
+j
+j
+j
+j
+j
+(C.6)
+These strain locations are defined on the plastic counterpart instead of the elastic strain axes.
+Finally, taking the limits of the constitutive matrix entries in Eq. (31c), we prove that the values are bounded
+E epE ep
+IJIJep EI epep EI epCph =
+IJ
+IJ
+ep EI ep
+ep EI ep
+ÎI ĴJ
+(C.7)
+ep E2 ep + ep E3 epep E2 ep + ep E3 ep̂1  ̂1 + ̂2  ̂2̂3  ̂3
+ep E2 ep + ep E3 ep
+ep E2 ep + ep E3 ep
+ˆep →∞ IJˆep →∞ IJˆep →∞ˆep →∞IJIJˆep →0 IJˆep →0 IJˆep →0,ˆep →0ˆep →0,ˆep →0IJIJlim CphδIJ = EI, lim Cph = 0 I /= J, limCphδIJ < EI,lim  Cph = 0 I /= J
+ˆep →∞ IJ
+ˆep →∞ IJ
+ˆep →∞
+ˆep →∞
+IJ
+IJ
+ˆep →0 IJ
+ˆep →0 IJ
+ˆep →0,ˆep →0
+ˆep →0,ˆep →0
+IJ
+IJ
+IIIIJ
+Thus the system will be linearly solvable [34] with Eq. (31). Only 3 × 3 matrix solutions are needed in the flow iteration in Eq. (29b) and plastic constitutive matrix in Eq. (31c).
+Data availability
+Data will be made available on request.
+References
+Bathe KJ, Ramaswamy S. On three-dimensional nonlinear analysis of concrete structures. Nucl Eng Des 1979;52(3):385–409.
+Bathe KJ, Walczak J, Welch A, Mistry N. Nonlinear analysis of concrete structures. Comput Struct 1989;32(3–4):563–90.
+Argyris JH, Faust G, Szimmat J, Warnke EP, Willam KJ. Recent developments in the finite element analysis of prestressed concrete reactor vessels. Nucl Eng Des 1974;28(1):42–75.
+Seible F, Scordelis AC. Nonlinear analysis of multi-cell reinforced concrete box girder bridges. Eng Struct 1983;5(1):45–57.
+Meyer C, Bathe KJ. Nonlinear analysis of R/C structures in practice. J Struct Div 1982;108(7):1605–22.
+Baˇzant ZP, Kim SS. Plastic-fracturing theory for concrete. J Eng Mech Div 1979;105
+(3):407–28.
+Hsieh SS, Ting EC, Chen WF. A plastic-fracture model for concrete. Int J Solids Struct 1982;18(3):181–97.
+Lee J, Fenves GL. Plastic-damage model for cyclic loading of concrete structures. J Eng Mech 1998;124(8):892–900.
+Baˇzant ZP, Xiang Y, Prat PC. Microplane model for concrete. I: Stress-strain
+boundaries and finite strain. J Eng Mech 1996;122(3):245–54.
+Baˇzant ZP, Adley MD, Carol I, Jira´sek M, Akers SA, Rohani B, et al. Large-strain generalization of microplane model for concrete and application. J Eng Mech 2000; 126(9):971–80.
+Kuhl E, Ramm E. Micro plane modeling of cohesive frictional materials. Eur J Mech A/Solids 2000;19:S121–43.
+Peyman F, Sadrnejad SA. Analysis of concrete crack growth based on micro-plane model. Struct Concr 2018;19(3):930–45.
+“A thermodynamically consistent approach to micro plane theory. Part I: Free energy and consistent micro plane stresses.” Int. J. Solids & Structures, 38, 2921- 2931, 2001.
+Cusatis G, Baˇzant ZP, Cedolin L. Confinement-shear lattice model for concrete
+damage in tension and compression: I. Theory. J Eng Mech 2003;129(12):1439–48.
+Grassl P. A lattice approach to model flow in cracked concrete. Cem Concr Compos 2009;31(7):454–60.
+Park H, Kim JY. Plasticity model using multiple failure criteria for concrete in compression. Int J Solids Struct 2005;42(8):2303–22.
+Park HG, Klingner RE. Nonlinear analysis of RC members using plasticity with multiple failure criteria. J Struct Eng 1997;123(5):643–51.
+Park H, Kim JY. Hybrid plasticity model for reinforced concrete in cyclic shear. Eng Struct 2005;27(1):35–48.
+Pirmoradi P, Suiker AS, Poorsolhjouy P. Multi-scale constitutive model for fiber- reinforced concrete with FEM analyses of structural failure. Eng Fract Mech 2025; 111166.
+Grande E, Imbimbo M, Milani G, Tomei V. A 1D-finite element framework for analyzing the cyclic bond response of FRP-strengthened concrete elements.
+In Structures (2025, September) (Vol. 79, p. 109615). Elsevier.
+Jira´sek M, Grassl P. Evaluation of directional mesh bias in concrete fracture simulations using continuum damage models. Eng Fract Mech 2008;75(8): 1921–43.
+Baˇzant ZP, Jir´asek M. Nonlocal integral formulations of plasticity and damage:
+survey of progress. J Eng Mech 2002;128(11):1119–49.
+Gonçalves GF, Lopes IAR, Carneiro AMC, Pires FMA. A critical comparison of gradient and integral nonlocal damage models: formulation, numerical predictions and computational aspects. Finite Elem Anal Des 2025;248:104358.
+Wosatko A, Genikomsou A, Pamin J, Polak MA, Winnicki A. Examination of two regularized damage-plasticity models for concrete with regard to crack closing. Eng Fract Mech 2018;194:190–211.
+Al-Rub RA, Voyiadjis GZ. A direct finite element implementation of the gradient- dependent theory. Int J Numer Meth Eng 2005;63(4):603–29.
+Jouan G, Kotronis P, Collin F. Using a second gradient model to simulate the behaviour of concrete structural elements. Finite Elem Anal Des 2014;90:50–60.
+Zreid I, Kaliske M. A gradient enhanced plasticity–damage microplane model for concrete. Comput Mech 2018;62(5):1239–57.
+Ahmed A, Liu Y, Tafsirojjaman T, Ahmad A, Iqbal M. Phase field model for mixed mode fracture in concrete. Eng Fract Mech 2023;289:109439.
+Zˇivkovi´c J, Duni´c V, Milovanovi´c V, Pavlovi´c A, Zˇivkovi´c M. A modified phase-field
+damage model for metal plasticity at finite strains: Numerical development and experimental validation. Metals 2020;11(1):47.
+Baˇzant ZP, Oh BH. Crack band theory for fracture of concrete. Mat´eriaux et
+construction 1983;16(3):155–77.
+Kotsovos MD, Pavlovi´c MN. Structural concrete: finite-element analysis for limit- state design. Thomas Telford; 1995.
+Cˇervenka J, Papanikolaou VK. Three dimensional combined fracture–plastic
+material model for concrete. Int J Plast 2008;24(12):2192–220.
+Kojic M, Bathe KJ. Inelastic analysis of solids and structures. Berlin: Springer; 2005.
+Bathe KJ. Finite element procedures. Prentice Hall; 1996, 2nd ed. K.J. Bathe, Watertown, MA; 2014 and Higher Education Press, China; 2016. Springer-Verlag, in press.
+Bathe KJ. Finite Element Procedures – En Plus. Springer Verlag, in press.
+Bathe KJ, Dvorkin EN. On the automatic solution of nonlinear finite element equations. Comput Struct 1983;17(5–6):871–9.
+Bathe KJ. The AMORE paradigm for finite element analysis. Adv Eng Softw 2019; 130:1–13.
+Bucalem ML, Bathe KJ. The mechanics of solids and structures-hierarchical modeling and the finite element solution. Springer Science & Business Media; 2011.
+Kotsovos MD, Newman JB. Generalized stress-strain relations for concrete. J Eng Mech Div 1978;104(4):845–56.
+Launay P, Gachon H. Strain and ultimate strength of concrete under triaxial stress. Special Publication 1972;34:269–82.
+Wang CZ, Guo ZH, Zhang XQ. An experimental investigation of biaxial and triaxial compressive concrete strength and deformation. 1987, August. In Transaction of 9th International Conference on Structural Mechanics in Reactor Technology. Lausanne Aug (pp. 193-198).
+Kupfer H, Hilsdorf HK, Rusch H. Behavior of concrete under biaxial stresses. 1969, August. In Journal proceedings (Vol. 66, No. 8, pp. 656-666).
+Green SJ, Swanson SR. Static constitutive relations for concrete, 1973. In: Air Force Weapons Lab. Tech. Rep., AFWL-TR-72-244, Kirtland Air Force Base, Albuquerque,
+N. Mex.
+Menetrey P, Willam KJ. Triaxial failure criterion for concrete and its generalization. Struct J 1995;92(3):311–8.
+Jir´asek M, Bauer M. Numerical aspects of the crack band approach. Comput Struct
+2012;110:60–78.
+Theory and Modeling Guide Volume 1:ADINA, Bentley Systems, Inc., ADINA 25.00.01, Section 3.7, 2025.
+Desayi P, Krishnan S. Equation for the stress-strain curve of concrete. 1964, March. In Journal Proceedings (Vol. 61, No. 3, pp. 345-350).
+Cervenka V, Gerstle KH. Inelastic analysis of reinforced concrete panels. Theory, Publ Int Assoc Bridge Struc Eng 1971;31:31–45.
+Darwin D, Pecknold DA. Analysis of RC shear panels under cyclic loading. J Struct Div 1976;102(2):355–69.
+Kwak HG, Kim DY. Nonlinear analysis of RC shear walls considering tension- stiffening effect. Comput Struct 2001;79(5):499–517.
+Bresler B, Scordelis AC. Shear strength of reinforced concrete beams. 1963, January. In Journal Proceedings (Vol. 60, No. 1, pp. 51-74).
+Vecchio FJ. Analysis of shear-critical reinforced concrete beams. ACI Struct J 2000; 97(1):102–10.
+Kormeling HA, Reinhardt HW. Determination of the fracture energy of normal concrete and epoxy modified concrete. Tech. rep. 5-83-18, Stevin Lab, Delft University of Technology; 1983.
+Carol I, Prat PC. Smeared analysis of concrete fracture using a microplane based multicrack model with static constraints. In: van Mier JGM, Rots JG, Bakker A, editors. Fracture processes in concrete, rock and ceramics. Noordwijk (The Netherlands): E&FN Spon; 1991. p. 619–28.
+Lotfi HR, Shing PB. Embedded representation of fracture in concrete with mixed finite elements. Int J Numer Meth Eng 1995;38:1307–25.
+Bobinski J, Tejchman J. Modelling of concrete behaviour with a non-local continuum damage approach. Arch Hydro-Eng Environ Mech 2005;52:243–63.
+Prasad MVKV, Krishnamoorthy CS. Computational model for discrete crack growth in plain and reinforced concrete. Comput Methods Appl Mech Eng 2002;191: 2699–725.
+++Ko Y, Lee PS, Bathe KJ. A new MITC4 shell element. Comput Struct 2017;182: 404–18.
++
++
+—+—+Ko Y, Bathe KJ, Zhang X. Continuum mechanics-based shell elements with six degrees of freedom at each node the MITC4/D and MITC4 /D elements. Comput Struct 2025;308:107622.
+—+
+—+
+Carpinteri A, Valente S, Ferrara G, Imperato L. Experimental and numerical fracture modelling of a gravity dam. In: Fracture mechanics of concrete structures. CRC Press; 2003. p. 351–60.
+Mukhtar F, El-Tohfa A. A review on fracture propagation in concrete: Models, methods, and benchmark tests. Eng Fract Mech 2023;281:109100.
+Ga´lvez JC, Cˇervenka J, Cendo´n DA, Saouma V. A discrete crack approach to
+normal/shear cracking of concrete. Cem Concr Res 2002;32(10):1567–85.
+Tambusay A, Suprobo P, Suryanto B, Don W. Application of nonlinear finite element analysis on shear-critical reinforced concrete beams. J Eng Technol Sci 2021;53(4):210408.
+Lubliner J, Oliver J, Oller S, Onate E. A plastic-damage model for concrete. Int J Solids Struct 1989;25(3):299–326.
+Morgan SP, Johnson CA, Einstein HH. Cracking processes in Barre granite: fracture process zones and crack coalescence. Int J Fract 2013;180(2):177–204.

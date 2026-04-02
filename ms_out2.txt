@@ -1,2 +1,0 @@
-[1/2] Building CXX object CMakeFiles/fall_n_multiscale.dir/main_multiscale.cpp.obj
-[2/2] Linking CXX executable fall_n_multiscale.exe
