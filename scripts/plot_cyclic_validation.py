@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 plot_cyclic_validation.py — Comparative hysteresis plots for the cyclic
-validation suite (Cases 1a-1c, 2a-2c, 3).
+validation suite (Cases 1a-1c, 2a-2c, 3, 4, 5).
 
 Usage:
     python scripts/plot_cyclic_validation.py [--dir data/output/cyclic_validation]
@@ -9,6 +9,7 @@ Usage:
 Produces:
     {dir}/comparison_beam.pdf       — Cases 1a/1b/1c overlay
     {dir}/comparison_continuum.pdf  — Cases 2a/2b/2c overlay
+    {dir}/comparison_fe2.pdf        — Cases 3/4/5 overlay (structural vs FE²)
     {dir}/comparison_all.pdf        — All cases overlay
     {dir}/protocol.pdf              — Cyclic displacement protocol
 """
@@ -130,22 +131,37 @@ def main():
         case_ids=["2a", "2b", "2c"],
         labels=["Hex8 (linear)", "Hex20 (serendipity)", "Hex27 (quadratic)"],
         colors=["#d62728", "#9467bd", "#8c564b"],
-        title="Case 2: Single continuum column — Hex + embedded rebar",
+        title="Case 2: Single continuum column — Hex only",
         filename="comparison_continuum.pdf")
+
+    # Case 3/4/5: Structural vs FE² comparison
+    plot_group(
+        base,
+        case_ids=["3", "4", "5"],
+        labels=[
+            "3: Table (fiber beams)",
+            "4: Table + FE² (one-way)",
+            "5: Table + FE² (two-way)",
+        ],
+        colors=["#000000", "#e377c2", "#17becf"],
+        title="Structural model vs FE² multiscale coupling",
+        filename="comparison_fe2.pdf")
 
     # All cases overlay
     plot_group(
         base,
-        case_ids=["1a", "1b", "1c", "2a", "2b", "2c", "3"],
+        case_ids=["1a", "1b", "1c", "2a", "2b", "2c", "3", "4", "5"],
         labels=[
             "1a: Beam N=2", "1b: Beam N=3", "1c: Beam N=4",
             "2a: Hex8",     "2b: Hex20",    "2c: Hex27",
-            "3: Full table"
+            "3: Full table",
+            "4: FE² one-way",
+            "5: FE² two-way",
         ],
         colors=[
             "#1f77b4", "#ff7f0e", "#2ca02c",
             "#d62728", "#9467bd", "#8c564b",
-            "#000000"
+            "#000000", "#e377c2", "#17becf",
         ],
         title="Cyclic validation — All cases comparison",
         filename="comparison_all.pdf")

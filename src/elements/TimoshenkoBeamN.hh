@@ -250,6 +250,8 @@ class TimoshenkoBeamN {
         return B;
     }
 
+public:
+
     // ── Extract element DOFs from PETSc vector ──────────────────────────
 
     Eigen::VectorXd extract_element_dofs(Vec u_local) const {
@@ -259,8 +261,6 @@ class TimoshenkoBeamN {
         VecGetValues(u_local, n, dof_indices_.data(), u_e.data());
         return u_e;
     }
-
-public:
 
     // ── Topology queries (FiniteElement interface) ───────────────────────
 

@@ -101,6 +101,7 @@ private:
 
     KoBatheParameters params_;
     KoBatheState3D state_{};
+    bool use_consistent_tangent_{false};
 
     static constexpr double TOL = 1.0e-12;
     static constexpr double SQ2 = 1.4142135623730951;
@@ -730,6 +731,36 @@ private:
 
 
     // =====================================================================
+    //  Numerical consistent tangent  (forward-difference + symmetrisation)
+    // =====================================================================
+    //
+    //  Computes the algorithmic tangent dσ/dε numerically.  This captures
+    //  the full interaction of fracturing, plasticity, and cracking,
+    //  including the plastic return-mapping correction that the analytical
+    //  Kc/Gc tangent omits (article Eq. 31c–d).
+    //
+    //  Cost: 7× evaluate per Gauss point (base + 6 perturbations).
+
+    [[nodiscard]] Mat6 numerical_tangent(
+        const Vec6& eps_total,
+        const KoBatheState3D& state) const
+    {
+        auto base = evaluate(eps_total, state, /*check_new_cracks=*/false);
+        Mat6 C;
+        for (int j = 0; j < 6; ++j) {
+            // Adaptive perturbation size  (√ε_mach ≈ 1.5e-8)
+            const double h = 1.0e-7 * std::max(std::abs(eps_total[j]), 1.0e-6);
+            Vec6 eps_pert = eps_total;
+            eps_pert[j] += h;
+            auto pert = evaluate(eps_pert, state, /*check_new_cracks=*/false);
+            C.col(j) = (pert.stress - base.stress) / h;
+        }
+        // Symmetrise for a positive-definite-friendly tangent
+        return 0.5 * (C + C.transpose());
+    }
+
+
+    // =====================================================================
     //  Full 3D constitutive evaluation
     // =====================================================================
 
@@ -901,6 +932,8 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& alpha) const
     {
+        if (use_consistent_tangent_)
+            return numerical_tangent(strain.components(), alpha);
         return evaluate(strain.components(), alpha, /*check_new_cracks=*/false).tangent;
     }
 
@@ -916,6 +949,8 @@ public:
     }
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
+        if (use_consistent_tangent_)
+            return numerical_tangent(strain.components(), state_);
         return evaluate(strain.components(), state_, /*check_new_cracks=*/false).tangent;
     }
 
@@ -942,6 +977,9 @@ public:
     [[nodiscard]] double compressive_strength() const noexcept { return params_.fc; }
     [[nodiscard]] double young_modulus() const noexcept { return params_.Ee; }
     [[nodiscard]] double poisson_ratio() const noexcept { return params_.nue; }
+
+    void set_consistent_tangent(bool flag) noexcept { use_consistent_tangent_ = flag; }
+    [[nodiscard]] bool consistent_tangent() const noexcept { return use_consistent_tangent_; }
 
     // =====================================================================
     //  Constructors

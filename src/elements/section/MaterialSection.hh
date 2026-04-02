@@ -57,8 +57,14 @@ class MaterialSection {
     // ── Homogenized tangent override (for FE² coupling) ─────────────
     //  When set, tangent() and compute_response() use the override
     //  instead of querying the underlying material.
+    //
+    //  The linearized response is:
+    //    sigma(epsilon) = force_override_ + tangent_override_ * (epsilon - strain_override_)
+    //  where strain_override_ is the section strain at which force_override_
+    //  and tangent_override_ were computed (set together via set_force_override).
     std::optional<TangentMatrixT> tangent_override_{};
     std::optional<Eigen::Vector<double, num_strain_components>> force_override_{};
+    std::optional<Eigen::Vector<double, num_strain_components>> strain_override_{};
     // ↑ Type-erased section constitutive relation (e.g. TimoshenkoBeamSection3D
     //   wrapped in Material<TimoshenkoBeam3D>).  Includes the UpdateStrategy.
 
@@ -93,8 +99,14 @@ public:
 
     [[nodiscard]] auto compute_response(const StateVariableT& k) const {
         if (force_override_) {
+            // Linearized response: sigma = sigma_0 + D_hom * (epsilon - epsilon_0)
+            Eigen::Vector<double, num_strain_components> sigma_vec = *force_override_;
+            if (tangent_override_ && strain_override_) {
+                Eigen::Vector<double, num_strain_components> eps = k.components();
+                sigma_vec += (*tangent_override_) * (eps - *strain_override_);
+            }
             StressT sigma;
-            sigma.set_components(*force_override_);
+            sigma.set_components(sigma_vec);
             return sigma;
         }
         return material_.compute_response(k);
@@ -112,17 +124,31 @@ public:
         tangent_override_ = D_hom;
     }
 
-    /// Set homogenized section forces [N, My, Mz, Vy, Vz, T].
+    /// Set homogenized section forces [N, My, Mz, Vy, Vz, T] and the
+    /// reference strain at which they were computed.  The linearized 
+    /// response sigma_0 + D_hom*(epsilon - epsilon_0) is used during
+    /// the macro Newton–Raphson to keep forces consistent with the tangent.
+    void set_force_override(
+        const Eigen::Vector<double, num_strain_components>& f_hom,
+        const Eigen::Vector<double, num_strain_components>& strain_ref)
+    {
+        force_override_  = f_hom;
+        strain_override_ = strain_ref;
+    }
+
+    /// Legacy overload (no strain reference – constant override).
     void set_force_override(
         const Eigen::Vector<double, num_strain_components>& f_hom)
     {
         force_override_ = f_hom;
+        strain_override_.reset();
     }
 
     /// Clear all overrides — revert to material model.
     void clear_overrides() noexcept {
         tangent_override_.reset();
         force_override_.reset();
+        strain_override_.reset();
     }
 
     /// Check if this section has an active FE² override.

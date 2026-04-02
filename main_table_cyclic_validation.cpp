@@ -34,8 +34,10 @@
 #include <Eigen/Dense>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -98,7 +100,21 @@ static constexpr int    MAX_BISECT = 6;
 static constexpr int C_NX = 2;
 static constexpr int C_NY = 2;
 static constexpr int C_NZ = 12;
+// ── Effective column elastic moduli ─────────────────────────────
+static const double EC_COL = 4700.0 * std::sqrt(COL_FPC);
+static const double GC_COL = EC_COL / (2.0 * (1.0 + NU_RC));
 
+// ── Sub-model mesh (Cases 4, 5) ─────────────────────────────────
+static constexpr int SUB_NX = 2;
+static constexpr int SUB_NY = 2;
+static constexpr int SUB_NZ = 1;
+
+// ── FE² coupling parameters ─────────────────────────────────────
+static constexpr int    FE2_STEPS           = 60;
+static constexpr int    MAX_STAGGERED_ITER  = 3;
+static constexpr double STAGGERED_TOL       = 0.05;
+static constexpr double STAGGERED_RELAX     = 0.8;
+static constexpr int    COUPLING_START_STEP = 1;
 // ── Type aliases ─────────────────────────────────────────────────────
 static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
@@ -323,6 +339,9 @@ std::vector<StepRecord> run_case1(const std::string& out_dir)
 //  Pinto steel.  Bottom face clamped, top face u_x controlled.
 //
 //  2a = Hex8 (linear), 2b = Hex20 (serendipity), 2c = Hex27 (quadratic).
+//
+//  Pure concrete hex column (no embedded rebar — rebar coupling via MPC
+//  is not yet implemented).  Tests the continuum NonlinearAnalysis path.
 
 static std::vector<StepRecord>
 run_case2(HexOrder order, const std::string& out_dir)
@@ -332,10 +351,10 @@ run_case2(HexOrder order, const std::string& out_dir)
     const char sub = (order == HexOrder::Linear)     ? 'a' :
                      (order == HexOrder::Serendipity) ? 'b' : 'c';
 
-    std::println("\n  Case 2{}: {} + embedded rebar  ({}×{}×{} mesh)",
+    std::println("\n  Case 2{}: {} concrete column  ({}×{}×{} mesh)",
                  sub, label, C_NX, C_NY, C_NZ);
 
-    // ── Prismatic domain ──────────────────────────────────────────
+    // ── Prismatic domain (hex only — no rebar) ───────────────────
     PrismaticSpec spec{
         .width  = COL_B,
         .height = COL_H,
@@ -344,56 +363,23 @@ run_case2(HexOrder order, const std::string& out_dir)
         .hex_order = order,
     };
 
-    // 8-bar rebar layout matching the fiber section
-    const double cvr   = COL_CVR;
-    const double bar_d = COL_BAR;
-    const double bar_a = std::numbers::pi / 4.0 * bar_d * bar_d;
-    const double y0    = -COL_B / 2.0 + cvr + bar_d / 2.0;
-    const double y1    =  COL_B / 2.0 - cvr - bar_d / 2.0;
-    const double z0    = -COL_H / 2.0 + cvr + bar_d / 2.0;
-    const double z1    =  COL_H / 2.0 - cvr - bar_d / 2.0;
+    auto [domain, grid] = make_prismatic_domain(spec);
 
-    RebarSpec rebar;
-    rebar.bars = {
-        {y0, z0, bar_a, bar_d}, {y1, z0, bar_a, bar_d},
-        {y0, z1, bar_a, bar_d}, {y1, z1, bar_a, bar_d},
-        {0.0, z0, bar_a, bar_d}, {0.0, z1, bar_a, bar_d},
-        {y0, 0.0, bar_a, bar_d}, {y1, 0.0, bar_a, bar_d},
-    };
-
-    auto rd = make_reinforced_prismatic_domain(spec, rebar);
-    auto& domain      = rd.domain;
-    auto& grid        = rd.grid;
-    auto& rebar_range = rd.rebar_range;
-
-    // ── Build heterogeneous element vector (hex + truss) ──────────
+    // ── Build continuum elements ──────────────────────────────────
     InelasticMaterial<KoBatheConcrete3D> concrete_inst{COL_FPC};
     Material<ThreeDimensionalMaterial> concrete_mat{concrete_inst, InelasticUpdate{}};
 
-    InelasticMaterial<MenegottoPintoSteel> steel_inst{
-        STEEL_E, STEEL_FY, STEEL_B, 20.0, 18.5, 0.15};
-    Material<UniaxialMaterial> rebar_mat{steel_inst, InelasticUpdate{}};
-
     using HexElem = ContinuumElement<ThreeDimensionalMaterial, 3,
                                      continuum::SmallStrain>;
+    using ContPolicy = SingleElementPolicy<HexElem>;
+    using ContModel  = Model<ThreeDimensionalMaterial, continuum::SmallStrain,
+                             3, ContPolicy>;
 
-    std::vector<FEM_Element> elements;
+    std::vector<HexElem> elements;
     elements.reserve(domain.num_elements());
 
-    for (std::size_t i = 0; i < rebar_range.first; ++i) {
+    for (std::size_t i = 0; i < domain.num_elements(); ++i)
         elements.emplace_back(HexElem{&domain.element(i), concrete_mat});
-    }
-
-    const auto nz_sz = static_cast<std::size_t>(C_NZ);
-    for (std::size_t i = rebar_range.first; i < rebar_range.last; ++i) {
-        std::size_t bar_idx = (i - rebar_range.first) / nz_sz;
-        double area = rebar.bars[bar_idx].area;
-        elements.emplace_back(
-            TrussElement<3>{&domain.element(i), rebar_mat, area});
-    }
-
-    using ContModel = Model<ThreeDimensionalMaterial, continuum::SmallStrain,
-                            3, MultiElementPolicy>;
 
     ContModel model{domain, std::move(elements)};
 
@@ -410,11 +396,8 @@ run_case2(HexOrder order, const std::string& out_dir)
 
     model.setup();
 
-    std::println("  Elements: {} hex + {} truss = {} total  ({} nodes)",
-                 rebar_range.first,
-                 rebar_range.last - rebar_range.first,
-                 domain.num_elements(),
-                 domain.num_nodes());
+    std::println("  Elements: {} hex  ({} nodes)",
+                 domain.num_elements(), domain.num_nodes());
 
     // ── Solver ────────────────────────────────────────────────────
     PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
@@ -423,7 +406,7 @@ run_case2(HexOrder order, const std::string& out_dir)
     PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
 
     NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
-                      MultiElementPolicy> nl{&model};
+                      ContPolicy> nl{&model};
 
     // ── Recording ─────────────────────────────────────────────────
     std::vector<StepRecord> records;
@@ -637,6 +620,279 @@ static std::vector<StepRecord> run_case3(const std::string& out_dir)
 
 
 // =============================================================================
+//  Cases 4/5: Full table + FE² sub-models (1-dir / 2-dir)
+// =============================================================================
+//
+//  Same table geometry as Case 3 (4 beams + MITC16 shell), but with
+//  NonlinearSubModelEvolver continuum sub-models at each column.
+//  Global fiber sections provide the initial response; after step 1
+//  the FE² staggered coupling injects homogenised tangent + forces.
+//
+//  Case 4: One-way coupling (macro → micro, no feedback)
+//  Case 5: Two-way staggered coupling (macro ↔ micro)
+
+static std::vector<StepRecord>
+run_case_fe2(bool two_way, const std::string& out_dir)
+{
+    const char* label = two_way ? "5 (FE², two-way)" : "4 (FE², one-way)";
+    std::println("\n  Case {}: Full table + FE² sub-models", label);
+
+    // ── Build table domain (identical to Case 3) ──────────────────
+    Domain<3> domain;
+    PetscInt tag = 0;
+
+    domain.add_node(0, 0.0, 0.0, 0.0);
+    domain.add_node(1,  LX, 0.0, 0.0);
+    domain.add_node(2, 0.0,  LY, 0.0);
+    domain.add_node(3,  LX,  LY, 0.0);
+
+    {
+        PetscInt nid = 4;
+        for (int jy = 0; jy < 4; ++jy)
+            for (int jx = 0; jx < 4; ++jx)
+                domain.add_node(nid++,
+                                LX * jx / 3.0,
+                                LY * jy / 3.0,
+                                H);
+    }
+
+    const std::array<std::pair<PetscInt, PetscInt>, 4> col_pairs = {{
+        {0, 4}, {1, 7}, {2, 16}, {3, 19}
+    }};
+    for (auto [base, top] : col_pairs) {
+        PetscInt conn[2] = {base, top};
+        auto& g = domain.make_element<LagrangeElement3D<2>>(
+            GaussLegendreCellIntegrator<2>{}, tag++, conn);
+        g.set_physical_group("Columns");
+    }
+
+    {
+        PetscInt slab_conn[16];
+        for (int i = 0; i < 16; ++i) slab_conn[i] = 4 + i;
+        auto& g = domain.make_element<LagrangeElement3D<4, 4>>(
+            GaussLegendreCellIntegrator<4, 4>{}, tag++, slab_conn);
+        g.set_physical_group("Slabs");
+    }
+
+    domain.assemble_sieve();
+
+    // ── RC fiber section + elastic shell ──────────────────────────
+    const auto col_mat = make_rc_column_section({
+        .b = COL_B, .h = COL_H, .cover = COL_CVR,
+        .bar_diameter = COL_BAR, .tie_spacing = COL_TIE,
+        .fpc = COL_FPC, .nu = NU_RC,
+        .steel_E = STEEL_E, .steel_fy = STEEL_FY, .steel_b = STEEL_B,
+        .tie_fy = TIE_FY,
+    });
+
+    MindlinShellMaterial slab_relation{SLAB_E, NU_RC, SLAB_T};
+    const auto slab_mat = Material<MindlinReissnerShell3D>{
+        slab_relation, ElasticUpdate{}};
+
+    auto builder = StructuralModelBuilder<
+        BeamElemT2, ShellElemT,
+        TimoshenkoBeam3D, MindlinReissnerShell3D>{};
+    builder.set_frame_material("Columns", col_mat);
+    builder.set_shell_material("Slabs",   slab_mat);
+
+    auto elements = builder.build_elements(domain);
+    StructModel model{domain, std::move(elements)};
+
+    model.fix_z(0.0);
+
+    const std::array<std::size_t, 4> slab_corners = {4, 7, 16, 19};
+    for (auto nid : slab_corners)
+        model.constrain_dof(nid, 0, 0.0);   // u_x controlled
+
+    model.setup();
+
+    std::println("  Nodes: {}  Elements: {}", domain.num_nodes(),
+                 model.elements().size());
+
+    // ── Kinematics extractor ──────────────────────────────────────
+    auto extract_beam_kinematics = [&model](std::size_t e_idx) -> ElementKinematics {
+        const auto& se = model.elements()[e_idx];
+        const auto* beam = se.as<BeamElemT2>();
+        const auto u_e = se.extract_element_dofs(model.state_vector());
+
+        auto kin_A = extract_section_kinematics(*beam, u_e, -1.0);
+        auto kin_B = extract_section_kinematics(*beam, u_e, +1.0);
+        kin_A.E = EC_COL;  kin_A.G = GC_COL;  kin_A.nu = NU_RC;
+        kin_B.E = EC_COL;  kin_B.G = GC_COL;  kin_B.nu = NU_RC;
+
+        ElementKinematics ek;
+        ek.element_id   = e_idx;
+        ek.kin_A        = kin_A;
+        ek.kin_B        = kin_B;
+        ek.endpoint_A   = beam->geometry().map_local_point(std::array{-1.0});
+        ek.endpoint_B   = beam->geometry().map_local_point(std::array{+1.0});
+        ek.up_direction = std::array<double,3>{1.0, 0.0, 0.0};
+        return ek;
+    };
+
+    // ── Build sub-models for all 4 columns ────────────────────────
+    MultiscaleCoordinator coordinator;
+    for (std::size_t eid = 0; eid < 4; ++eid)
+        coordinator.add_critical_element(extract_beam_kinematics(eid));
+
+    const double cvr   = COL_CVR;
+    const double bar_d = COL_BAR;
+    const double bar_a = std::numbers::pi / 4.0 * bar_d * bar_d;
+    const double y0    = -COL_B / 2.0 + cvr + bar_d / 2.0;
+    const double y1    =  COL_B / 2.0 - cvr - bar_d / 2.0;
+    const double z0    = -COL_H / 2.0 + cvr + bar_d / 2.0;
+    const double z1    =  COL_H / 2.0 - cvr - bar_d / 2.0;
+
+    std::vector<SubModelSpec::RebarBar> bars = {
+        {y0, z0, bar_a, bar_d}, {y1, z0, bar_a, bar_d},
+        {y0, z1, bar_a, bar_d}, {y1, z1, bar_a, bar_d},
+        {0.0, z0, bar_a, bar_d}, {0.0, z1, bar_a, bar_d},
+        {y0, 0.0, bar_a, bar_d}, {y1, 0.0, bar_a, bar_d},
+    };
+
+    coordinator.build_sub_models(SubModelSpec{
+        .section_width  = COL_B,
+        .section_height = COL_H,
+        .nx = SUB_NX, .ny = SUB_NY, .nz = SUB_NZ,
+        .hex_order = HexOrder::Quadratic,
+        .rebar_bars = std::move(bars),
+        .rebar_E  = STEEL_E,
+        .rebar_fy = STEEL_FY,
+        .rebar_b  = STEEL_B,
+    });
+
+    {
+        const auto rpt = coordinator.report();
+        std::println("  Sub-models: {}  ({} hex/sub, {} nodes/sub)",
+                     rpt.num_elements, rpt.total_elements, rpt.total_nodes);
+    }
+
+    // ── Nonlinear sub-model evolvers ──────────────────────────────
+    const std::string evol_dir = out_dir + "/sub_models";
+    std::filesystem::create_directories(evol_dir);
+
+    std::vector<NonlinearSubModelEvolver> nl_evolvers;
+    for (auto& sub : coordinator.sub_models()) {
+        nl_evolvers.emplace_back(sub, COL_FPC, evol_dir, 20);
+        nl_evolvers.back().set_incremental_params(20, 4);
+        nl_evolvers.back().set_penalty_alpha(EC_COL * 10.0);
+        nl_evolvers.back().set_snes_params(100, 2.0, 1e-3);
+        if (!two_way)
+            nl_evolvers.back().set_arc_length_threshold(9999);
+    }
+
+    // ── MultiscaleModel + MultiscaleAnalysis ──────────────────────
+    MultiscaleModel<NonlinearSubModelEvolver> ms_model;
+    ms_model.set_kinematics_extractor(extract_beam_kinematics);
+    ms_model.set_response_injector(
+        [&model](std::size_t eid,
+                 const Eigen::Matrix<double,6,6>& D_hom,
+                 const Eigen::Vector<double,6>&   f_hom)
+        {
+            if (auto* beam = model.elements()[eid].as<BeamElemT2>()) {
+                beam->set_homogenized_tangent(D_hom);
+                auto eps_ref = beam->midpoint_strain(model.state_vector());
+                beam->set_homogenized_forces(f_hom, eps_ref);
+            }
+        });
+
+    for (auto& ev : nl_evolvers)
+        ms_model.register_local_model(ev.parent_element_id(), std::move(ev));
+
+    std::unique_ptr<ScaleBridgePolicy> bridge = two_way
+        ? std::unique_ptr<ScaleBridgePolicy>(std::make_unique<TwoWayStaggered>(MAX_STAGGERED_ITER))
+        : std::unique_ptr<ScaleBridgePolicy>(std::make_unique<OneWayCoupling>());
+
+    MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
+        std::move(ms_model),
+        std::move(bridge),
+        std::make_unique<FrobeniusConvergence>(STAGGERED_TOL),
+        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX));
+    analysis.set_coupling_start_step(COUPLING_START_STEP);
+    analysis.set_section_dimensions(COL_B, COL_H);
+
+    // ── Skip trivial zero-displacement initial solve ─────────────
+    // The first coupling step triggers first_solve() (incremental ramp
+    // from zero to actual beam kinematics), avoiding the zero→non-zero
+    // jump that causes SNES divergence in subsequent_solve().
+    std::println("  Sub-models will ramp at first coupling step...");
+
+    // ── Solver ────────────────────────────────────────────────────
+    PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
+    PetscOptionsSetValue(nullptr, "-snes_max_it", "100");
+    PetscOptionsSetValue(nullptr, "-ksp_type",  "preonly");
+    PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
+
+    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+                      StructPolicy> nl{&model};
+
+    // ── Recording ─────────────────────────────────────────────────
+    std::vector<StepRecord> records;
+    records.reserve(FE2_STEPS + 1);
+    records.push_back({0, 0.0, 0.0, 0.0});
+
+    const std::vector<std::size_t> base_nodes = {0, 1, 2, 3};
+    int fe2_step = 0;
+    auto t0 = std::chrono::steady_clock::now();
+
+    nl.set_step_callback(
+        [&](int step, double p, const StructModel& /*m*/) {
+            double d     = cyclic_displacement(p);
+            double shear = extract_base_shear_x(model, base_nodes);
+            records.push_back({step, p, d, shear});
+
+            // FE² staggered coupling
+            ++fe2_step;
+            analysis.step(static_cast<double>(step), fe2_step);
+
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            if (step % 5 == 0 || step == FE2_STEPS) {
+                std::println("    step={:3d}/{:3d}  p={:.4f}  d={:+.4e} m  "
+                             "V={:+.4e} MN  stag={}  t={}s",
+                             step, FE2_STEPS, p, d, shear,
+                             analysis.last_staggered_iterations(),
+                             elapsed);
+                std::fflush(stdout);
+            }
+        });
+
+    // ── Cyclic control scheme ─────────────────────────────────────
+    auto scheme = make_control(
+        [&slab_corners]
+        (double p, Vec /*f_full*/, Vec f_ext, StructModel* m) {
+            VecSet(f_ext, 0.0);
+            double d = cyclic_displacement(p);
+            for (auto nid : slab_corners)
+                m->update_imposed_value(nid, 0, d);          // X
+        });
+
+    bool ok = nl.solve_incremental(FE2_STEPS, MAX_BISECT, scheme);
+
+    std::println("  Result: {} ({} records)",
+                 ok ? "COMPLETED" : "ABORTED", records.size());
+
+    // ── Finalize sub-models ───────────────────────────────────────
+    for (auto& ev : analysis.model().local_models())
+        ev.finalize();
+
+    // ── VTK ───────────────────────────────────────────────────────
+    {
+        std::filesystem::create_directories(out_dir + "/vtk");
+        auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
+        auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<3>{};
+        fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
+        vtm.set_displacement(model.state_vector());
+        vtm.set_yield_strain(EPS_YIELD);
+        vtm.write(out_dir + "/vtk/final.vtm");
+    }
+
+    write_csv(out_dir + "/hysteresis.csv", records);
+    return records;
+}
+
+
+// =============================================================================
 //  Helper: separator
 // =============================================================================
 static void sep(char c = '=', int n = 72) {
@@ -717,6 +973,16 @@ int main(int argc, char* argv[])
         auto dir = OUT_ROOT + "case3";
         std::filesystem::create_directories(dir);
         results["3"] = run_case3(dir);
+    }
+    if (should_run("4")) {
+        auto dir = OUT_ROOT + "case4";
+        std::filesystem::create_directories(dir);
+        results["4"] = run_case_fe2(false, dir);
+    }
+    if (should_run("5")) {
+        auto dir = OUT_ROOT + "case5";
+        std::filesystem::create_directories(dir);
+        results["5"] = run_case_fe2(true, dir);
     }
 
     // ── Summary table ─────────────────────────────────────────────

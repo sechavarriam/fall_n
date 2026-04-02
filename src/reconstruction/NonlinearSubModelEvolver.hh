@@ -172,9 +172,10 @@ class NonlinearSubModelEvolver {
     int first_step_bisect_{6};
 
     //  Arc-length control (Phase 2.3) 
-    bool use_arc_length_{false};
-    int  consecutive_divergences_{0};
-    static constexpr int ARC_LENGTH_SWITCH_THRESHOLD = 3;
+    bool   use_arc_length_{false};
+    int    consecutive_divergences_{0};
+    double last_good_frac_{0.5};   // cache last converged sub-step fraction
+    int    arc_length_threshold_{3}; // switch after this many consecutive divergences
 
     //  Crack VTK filter: minimum opening to include crack plane in output.
     //  Cracks below this threshold (in strain units) are omitted from VTK
@@ -422,6 +423,8 @@ public:
         , first_step_bisect_{o.first_step_bisect_}
         , use_arc_length_{o.use_arc_length_}
         , consecutive_divergences_{o.consecutive_divergences_}
+        , last_good_frac_{o.last_good_frac_}
+        , arc_length_threshold_{o.arc_length_threshold_}
         , min_crack_opening_{o.min_crack_opening_}
         , alpha_penalty_{o.alpha_penalty_}
         , snes_max_it_{o.snes_max_it_}
@@ -459,6 +462,8 @@ public:
             first_step_bisect_     = o.first_step_bisect_;
             use_arc_length_          = o.use_arc_length_;
             consecutive_divergences_ = o.consecutive_divergences_;
+            last_good_frac_          = o.last_good_frac_;
+            arc_length_threshold_    = o.arc_length_threshold_;
             min_crack_opening_       = o.min_crack_opening_;
             alpha_penalty_           = o.alpha_penalty_;
             snes_max_it_             = o.snes_max_it_;
@@ -490,6 +495,7 @@ public:
     }
 
     void enable_arc_length(bool flag = true) { use_arc_length_ = flag; }
+    void set_arc_length_threshold(int t) { arc_length_threshold_ = t; }
     [[nodiscard]] bool arc_length_active() const noexcept { return use_arc_length_; }
 
     /// Set minimum crack opening (strain units) for VTK export filtering.
@@ -864,6 +870,22 @@ public:
         VecDestroy(&U_save);
         VecDestroy(&imp_save);
 
+        // ── Symmetrise & regularise ──────────────────────────────────
+        //
+        //  Ko-Bathe's secant tangent can produce slightly asymmetric
+        //  D_hom columns.  A minor asymmetry in the 6×6 is tolerable,
+        //  but the macro Newton–Raphson requires a usable Jacobian.
+        //  We symmetrise and ensure diagonal dominance as a safeguard.
+        D_hom = 0.5 * (D_hom + D_hom.transpose());
+
+        // If any diagonal entry is non-positive (cracking zeroed a
+        // column or produced a negative pivot), clamp it to a small
+        // positive stiffness so the macro Newton can still proceed.
+        for (int j = 0; j < 6; ++j) {
+            if (D_hom(j, j) <= 0.0)
+                D_hom(j, j) = 1.0;  // minimal stiffness (Pa·m² order)
+        }
+
         return D_hom;
     }
 
@@ -1076,7 +1098,10 @@ private:
         ctx_ = {model_.get(), f_ext_,
                 &penalty_couplings_, alpha_penalty_};
 
-        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
+        // Use l2 line search — minimizes ||F(x + αΔx)||² along the Newton
+        // direction.  bt rejects too many steps with secant tangents (slow),
+        // basic allows NaN-producing overshoots (DIVERGED_FUNCTION_DOMAIN).
+        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "l2");
         PetscOptionsSetValue(nullptr, "-snes_max_it",
                              std::to_string(snes_max_it_).c_str());
         PetscOptionsSetValue(nullptr, "-snes_atol",
@@ -1203,7 +1228,7 @@ private:
 
     //  Subsequent solve: update BCs, Newton from current state 
     //
-    //  If SNES diverges repeatedly (≥ ARC_LENGTH_SWITCH_THRESHOLD consecutive
+    //  If SNES diverges repeatedly (≥ arc_length_threshold_ consecutive
     //  failures), the solver automatically enables arc-length control for
     //  subsequent steps.  Once arc-length is active, the solver uses adaptive
     //  displacement sub-stepping — the BC increment is subdivided and each
@@ -1214,7 +1239,18 @@ private:
             return subsequent_solve_adaptive();
 
         // ── Standard path: full-step SNES ────────────────────────────
+
+        // Save imposed values from last committed state (before overwrite)
+        Vec imposed_saved;
+        VecDuplicate(model_->imposed_solution(), &imposed_saved);
+        VecCopy(model_->imposed_solution(), imposed_saved);
+
         write_imposed_values();
+
+        // Save U before SNES attempt so we can restore on failure
+        Vec U_saved;
+        VecDuplicate(U_, &U_saved);
+        VecCopy(U_, U_saved);
 
         // Newton from current U (NOT reset to zero)
         SNESSolve(snes_, nullptr, U_);
@@ -1227,11 +1263,13 @@ private:
             commit_state();
             consecutive_divergences_ = 0;
         } else {
+            VecCopy(U_saved, U_);                          // restore displacement vector
+            VecCopy(imposed_saved, model_->imposed_solution()); // restore imposed BCs
             revert_state();
 
             // Auto-switch to arc-length after repeated divergences
             ++consecutive_divergences_;
-            if (consecutive_divergences_ >= ARC_LENGTH_SWITCH_THRESHOLD) {
+            if (consecutive_divergences_ >= arc_length_threshold_) {
                 use_arc_length_ = true;
                 std::println("  [SubModel {}] Auto-enabling adaptive sub-stepping "
                              "after {} consecutive SNES divergences",
@@ -1240,6 +1278,8 @@ private:
             }
         }
 
+        VecDestroy(&U_saved);
+        VecDestroy(&imposed_saved);
         return extract_results(converged);
     }
 
@@ -1252,8 +1292,9 @@ private:
     //  The method fails only when the minimum step fraction is reached.
 
     SubModelSolverResult subsequent_solve_adaptive() {
-        static constexpr int    MAX_BISECT = 7;   // 2^7 = 128 minimum sub-steps
-        static constexpr double MIN_FRAC   = 1.0 / (1 << MAX_BISECT);
+        static constexpr int    MAX_BISECT  = 10;   // 2^10 = 1024 minimum sub-steps
+        static constexpr double MIN_FRAC    = 1.0 / (1 << MAX_BISECT);
+        static constexpr int    MAX_SUBSTEPS = 30;  // budget: stop after this many
 
         // 1. Save previous imposed values (last converged step's BCs)
         Vec imp_prev;
@@ -1269,10 +1310,15 @@ private:
 
         // 3. Adaptive sub-stepping loop
         double progress  = 0.0;   // fraction completed [0, 1]
-        double step_frac = 0.5;   // current sub-step fraction
+        double step_frac = last_good_frac_;   // start from cached fraction
         int    total_subs = 0;
         int    total_bisections = 0;
         bool   all_converged = true;
+
+        // Save U at last converged sub-step for restoration on failure
+        Vec U_checkpoint;
+        VecDuplicate(U_, &U_checkpoint);
+        VecCopy(U_, U_checkpoint);
 
         while (progress < 1.0 - 1e-12) {
             double target_p = std::min(progress + step_frac, 1.0);
@@ -1291,6 +1337,8 @@ private:
 
             if (reason > 0) {
                 commit_state();
+                VecCopy(U_, U_checkpoint);  // update checkpoint
+                last_good_frac_ = step_frac;  // cache BEFORE recovery
                 progress = target_p;
                 ++total_subs;
                 std::println("    [SubModel {:2d}] sub-step {:2d}: "
@@ -1303,6 +1351,7 @@ private:
                 // Try to recover step size for next sub-step
                 step_frac = std::min(step_frac * 2.0, 1.0 - progress);
             } else {
+                VecCopy(U_checkpoint, U_);  // restore displacement vector
                 revert_state();
                 ++total_bisections;
                 std::println("    [SubModel {:2d}] BISECT at p={:.1f}%  "
@@ -1317,24 +1366,39 @@ private:
                     break;
                 }
             }
+
+            if (total_subs >= MAX_SUBSTEPS) {
+                all_converged = false;
+                break;
+            }
         }
 
-        // 4. Book-keeping
+        // 4. Book-keeping  (last_good_frac_ is updated inside the loop)
         if (all_converged) {
             consecutive_divergences_ = 0;
             std::println("  [SubModel {}] Adaptive sub-stepping: "
                          "{} sub-steps, {} bisections to reach target",
                          sub_->parent_element_id, total_subs, total_bisections);
         } else {
-            ++consecutive_divergences_;
-            std::println("  [SubModel {}] Adaptive sub-stepping FAILED "
-                         "after {} sub-steps, {} bisections (min frac {:.1e})",
-                         sub_->parent_element_id, total_subs,
-                         total_bisections, MIN_FRAC);
+            if (total_subs > 0) {
+                // Partial progress: keep committed state, reset divergence counter
+                consecutive_divergences_ = 0;
+                std::println("  [SubModel {}] Adaptive sub-stepping PARTIAL: "
+                             "{} sub-steps reached {:.1f}% ({} bisections)",
+                             sub_->parent_element_id, total_subs,
+                             progress * 100.0, total_bisections);
+            } else {
+                ++consecutive_divergences_;
+                std::println("  [SubModel {}] Adaptive sub-stepping FAILED "
+                             "after {} bisections (min frac {:.1e})",
+                             sub_->parent_element_id,
+                             total_bisections, MIN_FRAC);
+            }
         }
 
         VecDestroy(&imp_prev);
         VecDestroy(&imp_target);
+        VecDestroy(&U_checkpoint);
 
         return extract_results(all_converged);
     }

@@ -299,6 +299,18 @@ public:
     }
 
     /// Override section forces at all GPs [N, My, Mz, Vy, Vz, T].
+    /// The reference strain (at which f_hom was computed) is required so
+    /// that the linearized response sigma = f_hom + D_hom*(eps - eps_ref)
+    /// remains consistent with the tangent during the macro Newton.
+    void set_homogenized_forces(
+        const Eigen::Vector<double, num_strains>& f_hom,
+        const Eigen::Vector<double, num_strains>& strain_ref)
+    {
+        for (auto& sec : sections_)
+            sec.set_force_override(f_hom, strain_ref);
+    }
+
+    /// Overload without strain reference (legacy — constant override).
     void set_homogenized_forces(
         const Eigen::Vector<double, num_strains>& f_hom)
     {
@@ -315,6 +327,14 @@ public:
     /// Check if the element has an active FE² override.
     [[nodiscard]] bool has_homogenized_override() const noexcept {
         return !sections_.empty() && sections_[0].has_override();
+    }
+
+    /// Average generalized strain (midpoint ξ=0) from global DOF vector.
+    [[nodiscard]] Eigen::Vector<double, num_strains>
+    midpoint_strain(Vec u_local) const {
+        auto u_loc = local_state_vector(u_local);
+        auto sv = sample_generalized_strain_local(0.0, u_loc);
+        return sv.components();
     }
 
     auto local_state_vector(Vec u_local) const {
