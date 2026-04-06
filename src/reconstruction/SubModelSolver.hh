@@ -44,6 +44,7 @@
 #include <petsc.h>
 
 #include "../analysis/MultiscaleCoordinator.hh"       // MultiscaleSubModel
+#include "../analysis/PenaltyCoupling.hh"
 
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
@@ -341,6 +342,17 @@ public:
 
         M.setup();
 
+        // ── 4b. Penalty coupling for embedded rebar ────────────────
+        PenaltyCoupling penalty;
+        if (!sub.rebar_embeddings.empty()) {
+            const double E_c = 4700.0 * std::sqrt(fc_);
+            const double alpha = 1e4 * E_c;
+            const auto num_bars = sub.rebar_diameters.size();
+            penalty.setup(sub.domain, sub.grid, sub.rebar_embeddings,
+                          num_bars, alpha, /*skip_minz_maxz=*/true,
+                          sub.grid.hex_order);
+        }
+
         // ── 5. Nonlinear incremental solve ─────────────────────────
         PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
         PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
@@ -349,6 +361,13 @@ public:
 
         NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF,
                           MultiElementPolicy> nl{&M};
+
+        if (!sub.rebar_embeddings.empty()) {
+            nl.set_residual_hook(
+                [&penalty](Vec u, Vec f, DM dm){ penalty.add_to_residual(u, f, dm); });
+            nl.set_jacobian_hook(
+                [&penalty](Vec u, Mat J, DM dm){ penalty.add_to_jacobian(u, J, dm); });
+        }
 
         Vec u_full;
         VecDuplicate(M.imposed_solution(), &u_full);

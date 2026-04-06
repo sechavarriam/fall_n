@@ -83,6 +83,7 @@
 #include <vtkSmartPointer.h>
 #include <vtkCellData.h>
 #include <vtkDoubleArray.h>
+#include <vtkInformation.h>
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkUnstructuredGrid.h>
@@ -92,8 +93,27 @@
 
 namespace fall_n::vtk {
 
+// ── Helper: strip InformationKey metadata from VTK arrays ────────────────
+//  vtkXMLWriter serialises internal InformationKeys (e.g. L2_NORM_RANGE)
+//  into <InformationKey> elements inside <DataArray>.  Some reader builds
+//  cannot deserialise all key types, producing parse errors.  Clearing the
+//  information objects before writing removes these optional metadata blocks
+//  without affecting the actual data.
+inline void strip_array_information(vtkDataSetAttributes* dsa) {
+    if (dsa == nullptr) return;
+    for (int i = 0; i < dsa->GetNumberOfArrays(); ++i) {
+        if (auto* arr = dsa->GetAbstractArray(i)) {
+            if (arr->HasInformation()) {
+                arr->GetInformation()->Clear();
+            }
+        }
+    }
+}
+
 // ── Helper: write a vtkUnstructuredGrid to .vtu file ─────────────────────
 inline void write_vtu(vtkUnstructuredGrid* grid, const std::string& filename) {
+    strip_array_information(grid->GetPointData());
+    strip_array_information(grid->GetCellData());
     vtkNew<vtkXMLUnstructuredGridWriter> writer;
     writer->SetFileName(filename.c_str());
     writer->SetInputData(grid);
@@ -967,6 +987,75 @@ private:
         nodal_fields_.push_back(std::move(fb));
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  Volume-weighted averaging using domain geometry directly.
+    //
+    //  Identical to spr_average_to_nodes() but iterates domain.elements()
+    //  (ElementGeometry objects) instead of model_->elements(), which
+    //  requires get_geometry().  This enables nodal projection for the
+    //  type-erased path (MultiElementPolicy / FEM_Element).
+    // ══════════════════════════════════════════════════════════════════════
+
+    void spr_average_to_nodes_via_domain(const std::string& name,
+                                         const std::vector<double>& gauss_data,
+                                         int ncomp)
+    {
+        auto& domain = model_->get_domain();
+        const auto num_nodes = domain.num_nodes();
+
+        std::vector<double> nodal_sum(num_nodes * ncomp, 0.0);
+        std::vector<double> nodal_vol(num_nodes, 0.0);
+
+        std::size_t gp_offset = 0;
+
+        for (const auto& geom : domain.elements()) {
+            const auto nn   = geom.num_nodes();
+            const auto ngp  = geom.num_integration_points();
+
+            double Ve = 0.0;
+            std::vector<double> f_bar(ncomp, 0.0);
+
+            for (std::size_t g = 0; g < ngp; ++g) {
+                auto   xi   = geom.reference_integration_point(g);
+                double w    = geom.weight(g);
+                double Jdet = geom.differential_measure(xi);
+                double wJ   = w * Jdet;
+                Ve += wJ;
+
+                for (int c = 0; c < ncomp; ++c)
+                    f_bar[c] += wJ * gauss_data[(gp_offset + g) * ncomp + c];
+            }
+
+            if (Ve > 0.0) {
+                for (int c = 0; c < ncomp; ++c) f_bar[c] /= Ve;
+            }
+
+            for (std::size_t i = 0; i < nn; ++i) {
+                auto node_id = geom.node(i);
+                nodal_vol[node_id] += Ve;
+                for (int c = 0; c < ncomp; ++c)
+                    nodal_sum[node_id * ncomp + c] += Ve * f_bar[c];
+            }
+
+            gp_offset += ngp;
+        }
+
+        FieldBuffer fb;
+        fb.name = name;
+        fb.num_components = ncomp;
+        fb.data.resize(num_nodes * ncomp, 0.0);
+
+        for (std::size_t n = 0; n < num_nodes; ++n) {
+            if (nodal_vol[n] > 0.0) {
+                for (int c = 0; c < ncomp; ++c)
+                    fb.data[n * ncomp + c] =
+                        nodal_sum[n * ncomp + c] / nodal_vol[n];
+            }
+        }
+
+        nodal_fields_.push_back(std::move(fb));
+    }
+
     void patch_recover_to_nodes(const std::string& name,
                                 const std::vector<double>& gauss_data,
                                 int ncomp)
@@ -1763,10 +1852,61 @@ public:
                     "qp_tau_o_max", std::move(tau_o_max_buf));
             }
 
-            // Note: nodal projection is skipped for the type-erased
-            // path because resolve_material_field_projection requires
-            // get_geometry() on elements.  Gauss-point data is still
-            // written to the *_gauss.vtu cloud.
+            // ── Project raw Gauss-point fields to mesh nodes ─────────
+            //
+            //  Uses domain geometry (ElementGeometry) rather than the
+            //  type-erased model elements, because FEM_Element does not
+            //  expose get_geometry().  Volume-weighted averaging is used
+            //  because it is unconditionally robust (all weights positive)
+            //  and does not require shape-function evaluation, only volume
+            //  integrals and node connectivity.
+            //
+
+            std::vector<std::pair<std::string, std::size_t>>
+                projected_raw_fields;
+
+            for (const auto& gf : gauss_fields_) {
+                const bool is_raw_tensor = gf.name.ends_with("_voigt");
+                const bool is_projectable_scalar =
+                    gf.name == "qp_equivalent_plastic_strain" ||
+                    gf.name == "qp_damage";
+
+                if (!is_raw_tensor && !is_projectable_scalar) {
+                    continue;
+                }
+
+                const auto target_name = nodal_name_for(gf.name);
+                spr_average_to_nodes_via_domain(
+                    target_name, gf.data, gf.num_components);
+
+                if (!nodal_fields_.empty() && is_raw_tensor) {
+                    projected_raw_fields.push_back(
+                        {target_name, nodal_fields_.size() - 1});
+                }
+            }
+
+            for (const auto& [name, field_index] : projected_raw_fields) {
+                if (field_index >= nodal_fields_.size()) continue;
+
+                if (name == "nodal_stress_voigt") {
+                    nodal_fields_.reserve(
+                        nodal_fields_.size() + 2 * nvoigt + 16);
+                    const auto& field = nodal_fields_[field_index];
+                    append_stress_field_views(
+                        nodal_fields_,
+                        field_prefix_from_raw_name(name),
+                        field.data);
+                } else if (name == "nodal_strain_voigt" ||
+                           name == "nodal_plastic_strain_voigt") {
+                    nodal_fields_.reserve(
+                        nodal_fields_.size() + 2 * nvoigt + 8);
+                    const auto& field = nodal_fields_[field_index];
+                    append_strain_field_views(
+                        nodal_fields_,
+                        field_prefix_from_raw_name(name),
+                        field.data);
+                }
+            }
         }
     }
 

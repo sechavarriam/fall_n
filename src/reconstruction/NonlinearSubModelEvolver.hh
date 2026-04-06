@@ -38,6 +38,7 @@
 
 #include "../analysis/MultiscaleCoordinator.hh"
 #include "../analysis/NLAnalysis.hh"
+#include "../analysis/PenaltyCoupling.hh"
 
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
@@ -104,11 +105,10 @@ struct CrackSummary {
 //  of the host hex element, where Nᵢ is the trilinear/triquadratic
 //  shape function evaluated at the rebar node's parent coordinates
 //  (ξ, η, ζ) within the host element.
-
-struct PenaltyCouplingEntry {
-    PetscInt rebar_sieve_pt{-1};
-    std::vector<std::pair<PetscInt, double>> hex_weights;
-};
+//
+//  NOTE: PenaltyCouplingEntry is defined in analysis/PenaltyCoupling.hh
+//        and shared between PenaltyCoupling (standalone) and
+//        NonlinearSubModelEvolver (FE² sub-model).
 
 
 // =============================================================================

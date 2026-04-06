@@ -32,6 +32,9 @@
 
 #include "header_files.hh"
 
+#include "src/analysis/PenaltyCoupling.hh"
+#include "src/elements/TrussElement.hh"
+
 #include <Eigen/Dense>
 
 #include <array>
@@ -420,8 +423,8 @@ std::vector<StepRecord> run_case1(const std::string& out_dir)
 //
 //  2a = Hex8 (linear), 2b = Hex20 (serendipity), 2c = Hex27 (quadratic).
 //
-//  Pure concrete hex column (no embedded rebar — rebar coupling via MPC
-//  is not yet implemented).  Tests the continuum NonlinearAnalysis path.
+//  Uses PenaltyCoupling to enforce displacement compatibility between
+//  rebar nodes and host hex elements (α = 10·Ec).
 
 static std::vector<StepRecord>
 run_case2(HexOrder order, const std::string& out_dir)
@@ -431,10 +434,27 @@ run_case2(HexOrder order, const std::string& out_dir)
     const char sub = (order == HexOrder::Linear)     ? 'a' :
                      (order == HexOrder::Serendipity) ? 'b' : 'c';
 
-    std::println("\n  Case 2{}: {} concrete column  ({}×{}×{} mesh)",
+    std::println("\n  Case 2{}: {} reinforced column  ({}×{}×{} mesh)",
                  sub, label, C_NX, C_NY, C_NZ);
 
-    // ── Prismatic domain (hex only — no rebar) ───────────────────
+    // ── Rebar layout: 8 bars (same as FE² sub-model) ─────────────
+    const double cvr   = COL_CVR;
+    const double bar_d = COL_BAR;
+    const double bar_a = std::numbers::pi / 4.0 * bar_d * bar_d;
+    const double y0    = -COL_B / 2.0 + cvr + bar_d / 2.0;
+    const double y1    =  COL_B / 2.0 - cvr - bar_d / 2.0;
+    const double z0    = -COL_H / 2.0 + cvr + bar_d / 2.0;
+    const double z1    =  COL_H / 2.0 - cvr - bar_d / 2.0;
+
+    RebarSpec rebar_spec;
+    rebar_spec.bars = {
+        {y0, z0, bar_a, bar_d}, {y1, z0, bar_a, bar_d},
+        {y0, z1, bar_a, bar_d}, {y1, z1, bar_a, bar_d},
+        {0.0, z0, bar_a, bar_d}, {0.0, z1, bar_a, bar_d},
+        {y0, 0.0, bar_a, bar_d}, {y1, 0.0, bar_a, bar_d},
+    };
+
+    // ── Reinforced prismatic domain (hex + rebar) ────────────────
     PrismaticSpec spec{
         .width  = COL_B,
         .height = COL_H,
@@ -443,41 +463,91 @@ run_case2(HexOrder order, const std::string& out_dir)
         .hex_order = order,
     };
 
-    auto [domain, grid] = make_prismatic_domain(spec);
+    auto result = make_reinforced_prismatic_domain(spec, rebar_spec);
+    auto& domain = result.domain;
+    auto& grid   = result.grid;
 
-    // ── Build continuum elements ──────────────────────────────────
-    InelasticMaterial<KoBatheConcrete3D> concrete_inst{COL_FPC};
+    // ── Build mixed element vector (hex + truss) ──────────────────
+    KoBatheConcrete3D concrete_impl{COL_FPC};
+    concrete_impl.set_consistent_tangent(true);
+    InelasticMaterial<KoBatheConcrete3D> concrete_inst{std::move(concrete_impl)};
     Material<ThreeDimensionalMaterial> concrete_mat{concrete_inst, InelasticUpdate{}};
+
+    MenegottoPintoSteel steel_impl{STEEL_E, STEEL_FY, STEEL_B};
+    InelasticMaterial<MenegottoPintoSteel> steel_inst{std::move(steel_impl)};
+    Material<UniaxialMaterial> steel_mat{std::move(steel_inst), InelasticUpdate{}};
 
     using HexElem = ContinuumElement<ThreeDimensionalMaterial, 3,
                                      continuum::SmallStrain>;
-    using ContPolicy = SingleElementPolicy<HexElem>;
-    using ContModel  = Model<ThreeDimensionalMaterial, continuum::SmallStrain,
-                             3, ContPolicy>;
+    using MixedModel = Model<ThreeDimensionalMaterial, continuum::SmallStrain,
+                             3, MultiElementPolicy>;
 
-    std::vector<HexElem> elements;
+    std::vector<FEM_Element> elements;
     elements.reserve(domain.num_elements());
 
-    for (std::size_t i = 0; i < domain.num_elements(); ++i)
+    // Hex elements (first N elements, before rebar range)
+    for (std::size_t i = 0; i < result.rebar_range.first; ++i)
         elements.emplace_back(HexElem{&domain.element(i), concrete_mat});
 
-    ContModel model{domain, std::move(elements)};
+    // Truss rebar elements
+    const std::size_t num_bars = rebar_spec.bars.size();
+    const std::size_t nz = static_cast<std::size_t>(grid.nz);
+    for (std::size_t i = result.rebar_range.first; i < result.rebar_range.last; ++i) {
+        std::size_t bar_idx = (i - result.rebar_range.first) / nz;
+        double area = rebar_spec.bars[bar_idx].area;
+        elements.emplace_back(TrussElement<3>{&domain.element(i), steel_mat, area});
+    }
+
+    MixedModel model{domain, std::move(elements)};
 
     // ── BCs ───────────────────────────────────────────────────────
-    // Bottom face: fully clamped
+    // Bottom face: fully clamped (hex + rebar nodes at z=0)
+    // Note: nodes_on_face() returns ALL grid-level nodes including
+    // mid-face-center points that don't exist in serendipity (Hex20)
+    // elements.  Skip nodes with num_dof()==0 to avoid PETSc errors.
     auto face_min = grid.nodes_on_face(PrismFace::MinZ);
-    for (auto nid : face_min)
+    for (auto nid : face_min) {
+        if (domain.node(static_cast<std::size_t>(nid)).num_dof() == 0) continue;
         model.constrain_node(static_cast<std::size_t>(nid), {0.0, 0.0, 0.0});
+    }
+
+    // Rebar nodes at MinZ face: also clamped
+    {
+        const int step = grid.step;
+        const std::size_t rpb = static_cast<std::size_t>(step * grid.nz + 1);
+        for (std::size_t b = 0; b < num_bars; ++b) {
+            // First rebar node of each bar (iz=0)
+            auto rnid = static_cast<std::size_t>(
+                result.embeddings[b * rpb].rebar_node_id);
+            model.constrain_node(rnid, {0.0, 0.0, 0.0});
+            // Last rebar node of each bar (iz=rpb-1, MaxZ face)
+            // Constrain all 3 DOFs: u_x will be driven, u_y=u_z=0.
+            // (Penalty coupling skips boundary faces, so transverse
+            //  rebar DOFs would otherwise have zero stiffness.)
+            auto rnid_top = static_cast<std::size_t>(
+                result.embeddings[b * rpb + rpb - 1].rebar_node_id);
+            model.constrain_node(rnid_top, {0.0, 0.0, 0.0});
+        }
+    }
 
     // Top face: constrain u_x for cyclic control (u_y, u_z free)
     auto face_max = grid.nodes_on_face(PrismFace::MaxZ);
-    for (auto nid : face_max)
+    for (auto nid : face_max) {
+        if (domain.node(static_cast<std::size_t>(nid)).num_dof() == 0) continue;
         model.constrain_dof(static_cast<std::size_t>(nid), 0, 0.0);
+    }
 
     model.setup();
 
-    std::println("  Elements: {} hex  ({} nodes)",
-                 domain.num_elements(), domain.num_nodes());
+    // ── Penalty coupling ──────────────────────────────────────────
+    fall_n::PenaltyCoupling coupling;
+    coupling.setup(domain, grid, result.embeddings, num_bars,
+                   EC_COL * 10.0, /*skip_minz_maxz=*/true, order);
+
+    std::println("  Elements: {} hex + {} truss  ({} nodes)",
+                 result.rebar_range.first,
+                 result.rebar_range.last - result.rebar_range.first,
+                 domain.num_nodes());
 
     // ── Solver ────────────────────────────────────────────────────
     PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
@@ -486,7 +556,14 @@ run_case2(HexOrder order, const std::string& out_dir)
     PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
 
     NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
-                      ContPolicy> nl{&model};
+                      MultiElementPolicy> nl{&model};
+
+    nl.set_residual_hook([&coupling](Vec u, Vec f, DM dm) {
+        coupling.add_to_residual(u, f, dm);
+    });
+    nl.set_jacobian_hook([&coupling](Vec u, Mat J, DM dm) {
+        coupling.add_to_jacobian(u, J, dm);
+    });
 
     // ── Recording ─────────────────────────────────────────────────
     std::vector<StepRecord> records;
@@ -495,8 +572,10 @@ run_case2(HexOrder order, const std::string& out_dir)
 
     std::vector<std::size_t> base_nodes;
     base_nodes.reserve(face_min.size());
-    for (auto nid : face_min)
+    for (auto nid : face_min) {
+        if (domain.node(static_cast<std::size_t>(nid)).num_dof() == 0) continue;
         base_nodes.push_back(static_cast<std::size_t>(nid));
+    }
 
     // ── PVD time-series setup ────────────────────────────────────
     std::filesystem::create_directories(out_dir + "/vtk");
@@ -504,7 +583,7 @@ run_case2(HexOrder order, const std::string& out_dir)
     PVDWriter pvd_gauss{out_dir + "/vtk/gauss"};
 
     nl.set_step_callback(
-        [&](int step, double p, const ContModel& m) {
+        [&](int step, double p, const MixedModel& m) {
             double d     = cyclic_displacement(p);
             double shear = extract_base_shear_x(m, base_nodes);
             records.push_back({step, p, d, shear});
@@ -512,7 +591,7 @@ run_case2(HexOrder order, const std::string& out_dir)
             // Per-step VTK snapshot
             {
                 fall_n::vtk::VTKModelExporter exporter{
-                    const_cast<ContModel&>(m)};
+                    const_cast<MixedModel&>(m)};
                 exporter.set_displacement();
                 exporter.compute_material_fields();
 
@@ -535,11 +614,24 @@ run_case2(HexOrder order, const std::string& out_dir)
     // ── Cyclic control scheme ─────────────────────────────────────
     std::vector<std::size_t> top_nodes;
     top_nodes.reserve(face_max.size());
-    for (auto nid : face_max)
+    for (auto nid : face_max) {
+        if (domain.node(static_cast<std::size_t>(nid)).num_dof() == 0) continue;
         top_nodes.push_back(static_cast<std::size_t>(nid));
+    }
+
+    // Also include rebar nodes at MaxZ face in control set
+    {
+        const int step = grid.step;
+        const std::size_t rpb = static_cast<std::size_t>(step * grid.nz + 1);
+        for (std::size_t b = 0; b < num_bars; ++b) {
+            auto rnid = static_cast<std::size_t>(
+                result.embeddings[b * rpb + rpb - 1].rebar_node_id);
+            top_nodes.push_back(rnid);
+        }
+    }
 
     auto scheme = make_control(
-        [&top_nodes](double p, Vec /*f_full*/, Vec f_ext, ContModel* m) {
+        [&top_nodes](double p, Vec /*f_full*/, Vec f_ext, MixedModel* m) {
             VecSet(f_ext, 0.0);
             double d = cyclic_displacement(p);
             for (auto nid : top_nodes)

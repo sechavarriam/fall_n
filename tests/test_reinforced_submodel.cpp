@@ -55,13 +55,13 @@ static void test_reinforced_domain() {
         .nx = 2, .ny = 3, .nz = 4,
     };
 
-    // 4 corner rebar bars at grid positions
+    // 4 corner rebar bars at section corner positions
     RebarSpec rebar;
     rebar.bars = {
-        {0, 0, 0.0005, "Rebar"},   // corner (0,0)
-        {2, 0, 0.0005, "Rebar"},   // corner (nx,0)
-        {0, 3, 0.0005, "Rebar"},   // corner (0,ny)
-        {2, 3, 0.0005, "Rebar"},   // corner (nx,ny)
+        {-0.20, -0.30, 0.0005, 0.025, "Rebar"},   // corner (-w/2, -h/2)
+        { 0.20, -0.30, 0.0005, 0.025, "Rebar"},   // corner (+w/2, -h/2)
+        {-0.20,  0.30, 0.0005, 0.025, "Rebar"},   // corner (-w/2, +h/2)
+        { 0.20,  0.30, 0.0005, 0.025, "Rebar"},   // corner (+w/2, +h/2)
     };
 
     auto result = make_reinforced_prismatic_domain(spec, rebar);
@@ -91,8 +91,11 @@ static void test_reinforced_domain() {
     check(grid.nx == spec.nx && grid.ny == spec.ny && grid.nz == spec.nz,
           "grid dimensions match spec");
 
-    // Nodes: (nx+1)*(ny+1)*(nz+1) = 3*4*5 = 60
-    check(domain.num_nodes() == 60, "60 nodes");
+    // Nodes: hex (nx+1)(ny+1)(nz+1) = 60 + 4 bars × (nz+1) rebar = 80
+    const std::size_t num_hex_nodes = 60;
+    const std::size_t num_rebar_nodes = 4 * static_cast<std::size_t>(spec.nz + 1);
+    check(domain.num_nodes() == num_hex_nodes + num_rebar_nodes,
+          (std::to_string(num_hex_nodes + num_rebar_nodes) + " nodes").c_str());
 }
 
 // =============================================================================
@@ -152,7 +155,7 @@ static void test_reinforced_solve() {
     // ── Reinforced solve ────────────────────────────────────────────
     RebarSpec rebar;
     rebar.bars = {
-        {1, 1, 0.0002, "Rebar"},   // center bar
+        {0.0, 0.0, 0.0002, 0.016, "Rebar"},   // center bar
     };
 
     auto reinforced = make_reinforced_prismatic_domain(spec, rebar);
@@ -160,9 +163,22 @@ static void test_reinforced_solve() {
     MultiscaleSubModel rc_sub;
     rc_sub.domain = std::move(reinforced.domain);
     rc_sub.grid   = std::move(reinforced.grid);
+    rc_sub.rebar_range      = reinforced.rebar_range;
+    rc_sub.rebar_embeddings = std::move(reinforced.embeddings);
+    rc_sub.rebar_diameters  = std::move(reinforced.bar_diameters);
 
     face_min = rc_sub.grid.nodes_on_face(PrismFace::MinZ);
     face_max = rc_sub.grid.nodes_on_face(PrismFace::MaxZ);
+
+    // Append rebar face-end nodes to BC lists
+    {
+        const std::size_t rpb = static_cast<std::size_t>(
+            rc_sub.grid.step * rc_sub.grid.nz + 1);
+        for (std::size_t b = 0; b < rc_sub.rebar_diameters.size(); ++b) {
+            face_min.push_back(rc_sub.rebar_embeddings[b * rpb].rebar_node_id);
+            face_max.push_back(rc_sub.rebar_embeddings[b * rpb + rpb - 1].rebar_node_id);
+        }
+    }
 
     for (auto nid : face_min)
         rc_sub.bc_min_z.emplace_back(static_cast<std::size_t>(nid),
@@ -172,6 +188,7 @@ static void test_reinforced_solve() {
             Eigen::Vector3d{0.0, 0.0, imposed_disp});
 
     std::vector<double> rebar_areas = {0.0002};
+    rc_sub.rebar_areas = rebar_areas;
 
     auto rc_result = solver.solve_reinforced(
         rc_sub, steel, reinforced.rebar_range, rebar_areas, spec.nz);
@@ -219,13 +236,16 @@ static void test_vtk_crack_export() {
 
     // One center rebar
     RebarSpec rebar;
-    rebar.bars = { {1, 1, 0.0002, "Rebar"} };
+    rebar.bars = { {0.0, 0.0, 0.0002, 0.016, "Rebar"} };
 
     auto rd = make_reinforced_prismatic_domain(spec, rebar);
 
     MultiscaleSubModel sub;
     sub.domain = std::move(rd.domain);
     sub.grid   = std::move(rd.grid);
+    sub.rebar_range      = rd.rebar_range;
+    sub.rebar_embeddings = std::move(rd.embeddings);
+    sub.rebar_diameters  = std::move(rd.bar_diameters);
 
     // Tension: fix min-z face, pull max-z face with ε ≈ 5×10⁻⁴
     // This should exceed the cracking threshold (ft/Ee ≈ 5.6×10⁻⁵)
@@ -233,6 +253,16 @@ static void test_vtk_crack_export() {
 
     auto face_min = sub.grid.nodes_on_face(PrismFace::MinZ);
     auto face_max = sub.grid.nodes_on_face(PrismFace::MaxZ);
+
+    // Append rebar face-end nodes to BC lists
+    {
+        const std::size_t rpb = static_cast<std::size_t>(
+            sub.grid.step * sub.grid.nz + 1);
+        for (std::size_t b = 0; b < sub.rebar_diameters.size(); ++b) {
+            face_min.push_back(sub.rebar_embeddings[b * rpb].rebar_node_id);
+            face_max.push_back(sub.rebar_embeddings[b * rpb + rpb - 1].rebar_node_id);
+        }
+    }
 
     for (auto nid : face_min)
         sub.bc_min_z.emplace_back(static_cast<std::size_t>(nid),
@@ -244,6 +274,7 @@ static void test_vtk_crack_export() {
     SubModelSolver solver(30.0);
     RebarSteelConfig steel{200000.0, 420.0, 0.01};
     std::vector<double> rebar_areas = {0.0002};
+    sub.rebar_areas = rebar_areas;
 
     // Write VTK to temp directory
     auto vtk_prefix = (std::filesystem::temp_directory_path()
