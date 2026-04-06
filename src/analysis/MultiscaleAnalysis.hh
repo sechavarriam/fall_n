@@ -1,103 +1,400 @@
 #ifndef FALL_N_SRC_ANALYSIS_MULTISCALE_ANALYSIS_HH
 #define FALL_N_SRC_ANALYSIS_MULTISCALE_ANALYSIS_HH
 
-// =============================================================================
-//  MultiscaleAnalysis — FE² staggered coupling orchestrator
-// =============================================================================
-//
-//  Encapsulates the staggered iteration loop that couples a macro-scale
-//  (global) solver with one or more meso-scale (local) sub-model solvers.
-//  The class absorbs the ~80 lines of coupling logic currently spread
-//  across main_lshaped_multiscale.cpp, replacing them with a single
-//  call to step().
-//
-//  Design decisions:
-//    - Template on LocalModel to avoid virtual dispatch in the inner loop.
-//    - Strategy objects (CouplingStrategy.hh) are injected via constructor:
-//        * ScaleBridgePolicy     — one-way vs two-way
-//        * CouplingConvergence   — convergence criterion
-//        * RelaxationPolicy      — tangent blending
-//    - The class does NOT own the global solver — it only references the
-//      MultiscaleModel<LocalModel> which provides kinematics extraction
-//      and response injection callbacks.
-//
-//  Usage:
-//    MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
-//        std::move(ms_model),
-//        std::make_unique<TwoWayStaggered>(4),
-//        std::make_unique<FrobeniusConvergence>(0.05),
-//        std::make_unique<ConstantRelaxation>(0.7)
-//    );
-//    analysis.set_coupling_start_step(10);
-//    analysis.set_section_dimensions(0.30, 0.30);
-//
-//    for (int step = 0; step < n_steps; ++step)
-//        analysis.step(t, step);
-//
-// =============================================================================
-
+#include <algorithm>
+#include <chrono>
 #include <cstddef>
-#include <iostream>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
-#include <Eigen/Dense>
-
-#include "MultiscaleModel.hh"
 #include "CouplingStrategy.hh"
-
+#include "MicroSolveExecutor.hh"
+#include "MultiscaleModel.hh"
+#include "SteppableSolver.hh"
 
 namespace fall_n {
 
-
-// =============================================================================
-//  MultiscaleAnalysis
-// =============================================================================
-
-template <LocalModelAdapter LocalModel>
+template <CheckpointableSteppableSolver MacroSolverT,
+          typename MacroBridgeT,
+          LocalModelAdapter LocalModelT,
+          typename ExecutorT = SerialExecutor>
 class MultiscaleAnalysis {
+    using ModelT = MultiscaleModel<MacroBridgeT, LocalModelT>;
+    using MacroCheckpointT = typename std::remove_cvref_t<MacroSolverT>::checkpoint_type;
+    using LocalCheckpointT = typename std::remove_cvref_t<LocalModelT>::checkpoint_type;
 
-    // ── Members ──────────────────────────────────────────────────
+    ModelT model_;
+    MacroSolverT* macro_solver_{nullptr};
+    ExecutorT executor_{};
 
-    MultiscaleModel<LocalModel>             model_;
-
-    std::unique_ptr<ScaleBridgePolicy>      bridge_;
-    std::unique_ptr<CouplingConvergence>    convergence_;
-    std::unique_ptr<RelaxationPolicy>       relaxation_;
+    std::unique_ptr<CouplingAlgorithm>   algorithm_;
+    std::unique_ptr<CouplingConvergence> convergence_;
+    std::unique_ptr<RelaxationPolicy>    relaxation_;
 
     int    coupling_start_step_{0};
     double section_width_{0.30};
     double section_height_{0.30};
     double tangent_perturbation_{1.0e-6};
-    bool   auto_commit_{false};     ///< Call commit_state() after step()?
+    std::size_t analysis_steps_{0};
 
-    /// Tangent history for convergence checking across staggered iterations.
-    std::vector<Eigen::Matrix<double,6,6>> D_prev_;
+    CouplingIterationReport last_report_{};
+    std::vector<SectionHomogenizedResponse> last_converged_responses_{};
 
-    /// Diagnostics from the last step() call.
-    int  last_staggered_iters_{0};
-    bool last_converged_{true};
-
-
-public:
-
-    // ── Construction ─────────────────────────────────────────────
-
-    MultiscaleAnalysis(
-        MultiscaleModel<LocalModel>          model,
-        std::unique_ptr<ScaleBridgePolicy>   bridge,
-        std::unique_ptr<CouplingConvergence> convergence,
-        std::unique_ptr<RelaxationPolicy>    relaxation)
-        : model_{std::move(model)}
-        , bridge_{std::move(bridge)}
-        , convergence_{std::move(convergence)}
-        , relaxation_{std::move(relaxation)}
+    [[nodiscard]] static double relative_norm_(
+        const Eigen::Vector<double, 6>& a,
+        const Eigen::Vector<double, 6>& b)
     {
-        D_prev_.resize(model_.num_local_models(),
-                       Eigen::Matrix<double,6,6>::Zero());
+        const double denom = std::max({1.0, a.norm(), b.norm()});
+        return (a - b).norm() / denom;
     }
 
-    // ── Configuration ────────────────────────────────────────────
+    [[nodiscard]] static double relative_norm_(
+        const Eigen::Matrix<double, 6, 6>& a,
+        const Eigen::Matrix<double, 6, 6>& b)
+    {
+        const double denom = std::max({1.0, a.norm(), b.norm()});
+        return (a - b).norm() / denom;
+    }
+
+    void set_macro_trial_mode_(bool enabled)
+    {
+        if constexpr (TrialControllableSolver<MacroSolverT>) {
+            macro_solver_->set_auto_commit(!enabled);
+        }
+
+        if constexpr (requires(MacroSolverT& solver, bool flag) {
+                          solver.set_observer_notifications(flag);
+                      }) {
+            macro_solver_->set_observer_notifications(!enabled);
+        }
+    }
+
+    void restore_previous_injection_()
+    {
+        if (last_converged_responses_.size() == model_.num_local_models()) {
+            for (const auto& response : last_converged_responses_) {
+                model_.macro_bridge().inject_response(response);
+            }
+            return;
+        }
+
+        for (const auto& site : model_.sites()) {
+            model_.macro_bridge().clear_response(site);
+        }
+    }
+
+    [[nodiscard]] bool should_couple_this_step_() const
+    {
+        return model_.num_local_models() > 0
+            && static_cast<int>(analysis_steps_) + 1 >= coupling_start_step_;
+    }
+
+    void finalize_local_models_(double time)
+    {
+        for (auto& local_model : model_.local_models()) {
+            local_model.commit_trial_state();
+            local_model.set_auto_commit(true);
+            local_model.end_of_step(time);
+        }
+    }
+
+    void solve_locals_once_(double time,
+                            std::vector<SectionHomogenizedResponse>& responses,
+                            int& failed_submodels)
+    {
+        responses.resize(model_.num_local_models());
+        failed_submodels = 0;
+
+        executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
+            auto& local_model = model_.local_models()[i];
+            local_model.set_auto_commit(true);
+
+            const auto ek =
+                model_.macro_bridge().extract_element_kinematics(
+                    model_.site(i).macro_element_id);
+            local_model.update_kinematics(ek.kin_A, ek.kin_B);
+
+            auto result = local_model.solve_step(time);
+            auto response = local_model.section_response(
+                section_width_, section_height_, tangent_perturbation_);
+            response.site = model_.site(i);
+            if constexpr (requires { result.converged; }) {
+                if (!result.converged) {
+                    response.status = ResponseStatus::SolveFailed;
+                }
+            }
+            responses[i] = response;
+        });
+
+        for (const auto& response : responses) {
+            if (response.status != ResponseStatus::Ok) {
+                ++failed_submodels;
+            }
+        }
+    }
+
+    bool perform_macro_only_step_()
+    {
+        set_macro_trial_mode_(false);
+
+        last_report_ = CouplingIterationReport{};
+        last_report_.mode = algorithm_->mode();
+        last_report_.iterations = 1;
+
+        const bool ok = macro_solver_->step();
+        last_report_.converged = ok;
+        if (ok) {
+            ++analysis_steps_;
+        }
+        return ok;
+    }
+
+    bool perform_one_way_downscaling_()
+    {
+        last_report_ = CouplingIterationReport{};
+        last_report_.mode = CouplingMode::OneWayDownscaling;
+        last_report_.iterations = 1;
+
+        set_macro_trial_mode_(false);
+        if (!macro_solver_->step()) {
+            last_report_.converged = false;
+            return false;
+        }
+
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<SectionHomogenizedResponse> responses;
+        solve_locals_once_(macro_solver_->current_time(),
+                           responses,
+                           last_report_.failed_submodels);
+        finalize_local_models_(macro_solver_->current_time());
+        auto t1 = std::chrono::steady_clock::now();
+
+        last_report_.micro_solve_seconds =
+            std::chrono::duration<double>(t1 - t0).count();
+        last_report_.converged = (last_report_.failed_submodels == 0);
+        if (last_report_.converged) {
+            ++analysis_steps_;
+        }
+        return last_report_.converged;
+    }
+
+    bool perform_lagged_feedback_()
+    {
+        last_report_ = CouplingIterationReport{};
+        last_report_.mode = CouplingMode::LaggedFeedbackCoupling;
+        last_report_.iterations = 1;
+
+        set_macro_trial_mode_(false);
+        if (!macro_solver_->step()) {
+            last_report_.converged = false;
+            return false;
+        }
+
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<SectionHomogenizedResponse> responses;
+        solve_locals_once_(macro_solver_->current_time(),
+                           responses,
+                           last_report_.failed_submodels);
+
+        last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
+        last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+
+        for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+            auto macro_state =
+                model_.macro_bridge().extract_section_state(model_.site(i));
+            responses[i].strain_ref = macro_state.strain;
+            model_.macro_bridge().inject_response(responses[i]);
+            last_report_.force_residuals_rel[i] =
+                relative_norm_(macro_state.forces, responses[i].forces);
+            last_report_.max_force_residual_rel =
+                std::max(last_report_.max_force_residual_rel,
+                         last_report_.force_residuals_rel[i]);
+        }
+
+        finalize_local_models_(macro_solver_->current_time());
+        auto t1 = std::chrono::steady_clock::now();
+
+        last_converged_responses_ = responses;
+        last_report_.micro_solve_seconds =
+            std::chrono::duration<double>(t1 - t0).count();
+        last_report_.converged = (last_report_.failed_submodels == 0);
+        if (last_report_.converged) {
+            ++analysis_steps_;
+        }
+        return last_report_.converged;
+    }
+
+    bool perform_iterated_two_way_fe2_()
+    {
+        static_assert(TrialControllableSolver<MacroSolverT>,
+            "IteratedTwoWayFE2 requires a macro solver with trial-commit control");
+
+        last_report_ = CouplingIterationReport{};
+        last_report_.mode = CouplingMode::IteratedTwoWayFE2;
+        last_report_.iterations = 0;
+
+        const auto macro_checkpoint = macro_solver_->capture_checkpoint();
+        std::vector<LocalCheckpointT> local_checkpoints;
+        local_checkpoints.reserve(model_.num_local_models());
+        for (auto& local_model : model_.local_models()) {
+            local_model.set_auto_commit(false);
+            local_checkpoints.push_back(local_model.capture_checkpoint());
+        }
+
+        std::vector<SectionHomogenizedResponse> predictor = last_converged_responses_;
+        std::vector<SectionHomogenizedResponse> current(model_.num_local_models());
+
+        set_macro_trial_mode_(true);
+
+        bool accepted = false;
+        const int max_iter = std::max(2, algorithm_->max_iterations());
+
+        for (int iter = 0; iter < max_iter; ++iter) {
+            last_report_.iterations = iter + 1;
+
+            macro_solver_->restore_checkpoint(macro_checkpoint);
+
+            if (predictor.size() == model_.num_local_models()) {
+                for (const auto& response : predictor) {
+                    model_.macro_bridge().inject_response(response);
+                }
+            } else {
+                for (const auto& site : model_.sites()) {
+                    model_.macro_bridge().clear_response(site);
+                }
+            }
+
+            const auto macro_t0 = std::chrono::steady_clock::now();
+            if (!macro_solver_->step()) {
+                for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                    model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
+                    model_.local_models()[i].set_auto_commit(true);
+                }
+                last_report_.converged = false;
+                restore_previous_injection_();
+                set_macro_trial_mode_(false);
+                return false;
+            }
+            const auto macro_t1 = std::chrono::steady_clock::now();
+            last_report_.macro_solve_seconds +=
+                std::chrono::duration<double>(macro_t1 - macro_t0).count();
+
+            const auto micro_t0 = std::chrono::steady_clock::now();
+            executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
+                auto& local_model = model_.local_models()[i];
+                local_model.restore_checkpoint(local_checkpoints[i]);
+
+                const auto ek =
+                    model_.macro_bridge().extract_element_kinematics(
+                        model_.site(i).macro_element_id);
+                local_model.update_kinematics(ek.kin_A, ek.kin_B);
+
+                auto result = local_model.solve_step(macro_solver_->current_time());
+                current[i] = local_model.section_response(
+                    section_width_, section_height_, tangent_perturbation_);
+                current[i].site = model_.site(i);
+                if constexpr (requires { result.converged; }) {
+                    if (!result.converged) {
+                        current[i].status = ResponseStatus::SolveFailed;
+                    }
+                }
+            });
+            const auto micro_t1 = std::chrono::steady_clock::now();
+            last_report_.micro_solve_seconds +=
+                std::chrono::duration<double>(micro_t1 - micro_t0).count();
+
+            last_report_.failed_submodels = 0;
+            last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
+            last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+            last_report_.max_force_residual_rel = 0.0;
+            last_report_.max_tangent_residual_rel = 0.0;
+
+            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                if (current[i].status != ResponseStatus::Ok) {
+                    ++last_report_.failed_submodels;
+                }
+
+                auto macro_state =
+                    model_.macro_bridge().extract_section_state(model_.site(i));
+                current[i].strain_ref = macro_state.strain;
+                current[i].site.local_frame = macro_state.site.local_frame;
+
+                if (predictor.size() == model_.num_local_models()) {
+                    relaxation_->relax(current[i], predictor[i], iter);
+                    last_report_.tangent_residuals_rel[i] =
+                        relative_norm_(current[i].tangent, predictor[i].tangent);
+                }
+
+                last_report_.force_residuals_rel[i] =
+                    relative_norm_(macro_state.forces, current[i].forces);
+
+                last_report_.max_force_residual_rel =
+                    std::max(last_report_.max_force_residual_rel,
+                             last_report_.force_residuals_rel[i]);
+                last_report_.max_tangent_residual_rel =
+                    std::max(last_report_.max_tangent_residual_rel,
+                             last_report_.tangent_residuals_rel[i]);
+            }
+
+            predictor = current;
+
+            if (iter == 0) {
+                continue;
+            }
+
+            if (last_report_.failed_submodels == 0
+                && convergence_->converged(last_report_))
+            {
+                accepted = true;
+                break;
+            }
+        }
+
+        if (!accepted) {
+            macro_solver_->restore_checkpoint(macro_checkpoint);
+            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
+                model_.local_models()[i].set_auto_commit(true);
+            }
+            restore_previous_injection_();
+            set_macro_trial_mode_(false);
+            last_report_.converged = false;
+            return false;
+        }
+
+        for (const auto& response : current) {
+            model_.macro_bridge().inject_response(response);
+        }
+
+        macro_solver_->commit_trial_state();
+        finalize_local_models_(macro_solver_->current_time());
+        last_converged_responses_ = current;
+
+        set_macro_trial_mode_(false);
+        last_report_.converged = true;
+        ++analysis_steps_;
+        return true;
+    }
+
+public:
+    MultiscaleAnalysis(
+        MacroSolverT& macro_solver,
+        ModelT model,
+        std::unique_ptr<CouplingAlgorithm> algorithm,
+        std::unique_ptr<CouplingConvergence> convergence =
+            std::make_unique<ForceAndTangentConvergence>(),
+        std::unique_ptr<RelaxationPolicy> relaxation =
+            std::make_unique<NoRelaxation>(),
+        ExecutorT executor = {})
+        : model_{std::move(model)}
+        , macro_solver_{&macro_solver}
+        , executor_{std::move(executor)}
+        , algorithm_{std::move(algorithm)}
+        , convergence_{std::move(convergence)}
+        , relaxation_{std::move(relaxation)}
+    {}
 
     void set_coupling_start_step(int step) { coupling_start_step_ = step; }
     void set_section_dimensions(double w, double h) {
@@ -105,110 +402,73 @@ public:
         section_height_ = h;
     }
     void set_tangent_perturbation(double h) { tangent_perturbation_ = h; }
-    void set_auto_commit(bool v) { auto_commit_ = v; }
 
-    // ── Access ───────────────────────────────────────────────────
+    [[nodiscard]] ModelT& model() noexcept { return model_; }
+    [[nodiscard]] const ModelT& model() const noexcept { return model_; }
 
-    [[nodiscard]] MultiscaleModel<LocalModel>&       model()       { return model_; }
-    [[nodiscard]] const MultiscaleModel<LocalModel>& model() const { return model_; }
+    [[nodiscard]] const CouplingIterationReport& last_report() const noexcept {
+        return last_report_;
+    }
 
-    [[nodiscard]] int  last_staggered_iterations() const { return last_staggered_iters_; }
-    [[nodiscard]] bool last_converged()            const { return last_converged_; }
+    [[nodiscard]] int last_staggered_iterations() const noexcept {
+        return last_report_.iterations;
+    }
 
-    // ── Main step: staggered coupling for one global time step ───
-    //
-    //  1. For each sub-model: extract kinematics, update BCs, solve
-    //  2. If two-way coupling is active and step ≥ coupling_start_step:
-    //     a. Compute homogenised tangent D_hom per sub-model
-    //     b. Apply relaxation
-    //     c. Check convergence
-    //     d. Inject D_hom and f_hom into global beam elements
-    //     e. Repeat until converged or max iterations reached
-    //
-    //  Returns true if the staggered loop converged (or one-way coupling).
+    [[nodiscard]] bool last_converged() const noexcept {
+        return last_report_.converged;
+    }
 
-    bool step(double time, int global_step)
+    [[nodiscard]] std::size_t analysis_step() const noexcept {
+        return analysis_steps_;
+    }
+
+    bool initialize_local_models(bool seed_predictor = true)
     {
-        const bool do_coupling =
-            bridge_->requires_feedback() &&
-            global_step >= coupling_start_step_;
+        last_report_ = CouplingIterationReport{};
+        last_report_.mode = algorithm_->mode();
+        last_report_.iterations = 0;
 
-        const int max_iter = do_coupling
-            ? bridge_->max_staggered_iterations()
-            : 1;
+        std::vector<SectionHomogenizedResponse> responses;
+        solve_locals_once_(macro_solver_->current_time(),
+                           responses,
+                           last_report_.failed_submodels);
 
-        bool converged = true;
-        last_staggered_iters_ = 0;
+        for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+            auto macro_state =
+                model_.macro_bridge().extract_section_state(model_.site(i));
+            responses[i].strain_ref = macro_state.strain;
+            responses[i].site.local_frame = macro_state.site.local_frame;
 
-        for (int s_iter = 0; s_iter < max_iter; ++s_iter) {
-
-            // ── (a) Downscale: extract kinematics, solve sub-models ──
-            for (auto& lm : model_.local_models()) {
-                auto ek = model_.extract_kinematics(lm.parent_element_id());
-                lm.update_kinematics(ek.kin_A, ek.kin_B);
-                lm.solve_step(time);
-            }
-
-            if (!do_coupling)
-                break;
-
-            // ── (b) Upscale: tangent + forces + inject ───────────────
-            converged = true;
-            std::vector<Eigen::Matrix<double,6,6>> D_curr(
-                model_.num_local_models());
-
-            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
-                auto& lm = model_.local_models()[i];
-                D_curr[i] = lm.section_tangent(
-                    section_width_, section_height_, tangent_perturbation_);
-
-                // Relaxation
-                if (s_iter > 0) {
-                    relaxation_->relax(D_curr[i], D_prev_[i], s_iter);
-                }
-            }
-
-            // Convergence check
-            if (s_iter > 0) {
-                converged = convergence_->converged(D_prev_, D_curr);
-            }
-
-            // Store for next iteration
-            D_prev_ = D_curr;
-
-            // Inject into global model
-            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
-                auto& lm = model_.local_models()[i];
-                auto f_hom = lm.section_forces(
-                    section_width_, section_height_);
-                model_.inject_response(
-                    lm.parent_element_id(), D_curr[i], f_hom);
-            }
-
-            last_staggered_iters_ = s_iter + 1;
-
-            if (s_iter == 0)
-                continue;   // always do at least 2 iterations
-
-            if (converged) {
-                std::cout << "    [FE²] converged at staggered iter "
-                          << s_iter << std::endl;
-                break;
-            }
+            auto& local_model = model_.local_models()[i];
+            local_model.commit_trial_state();
+            local_model.set_auto_commit(true);
         }
 
-        last_converged_ = converged;
+        last_report_.converged = (last_report_.failed_submodels == 0);
+        if (seed_predictor && last_report_.converged) {
+            last_converged_responses_ = responses;
+        }
+        return last_report_.converged;
+    }
 
-        // ── Optionally commit converged state ────────────────────────
-        if (auto_commit_) {
-            for (auto& lm : model_.local_models())
-                lm.commit_state();
+    bool step()
+    {
+        if (!should_couple_this_step_()) {
+            return perform_macro_only_step_();
         }
 
-        return converged;
+        switch (algorithm_->mode()) {
+            case CouplingMode::OneWayDownscaling:
+                return perform_one_way_downscaling_();
+            case CouplingMode::LaggedFeedbackCoupling:
+                return perform_lagged_feedback_();
+            case CouplingMode::IteratedTwoWayFE2:
+                return perform_iterated_two_way_fe2_();
+        }
+
+        return false;
     }
 };
-
 
 }  // namespace fall_n
 

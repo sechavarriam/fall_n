@@ -150,6 +150,8 @@ class DynamicAnalysis {
     // both report the same converged step.
     PetscInt last_post_step_{-1};
     double   last_post_time_{-std::numeric_limits<double>::infinity()};
+    bool     auto_commit_{true};
+    bool     observer_notifications_enabled_{true};
 
     // Ground motion influence vectors (one per direction with ground motion)
     struct GroundMotionInfo {
@@ -158,6 +160,20 @@ class DynamicAnalysis {
         petsc::OwnedVec influence;   // M·ĝ_dir (precomputed)
     };
     std::vector<GroundMotionInfo> ground_motions_;
+
+public:
+    struct SolverCheckpoint {
+        typename ModelT::checkpoint_type model{};
+        petsc::OwnedVec displacement{};
+        petsc::OwnedVec velocity{};
+        double   time{0.0};
+        PetscInt step{0};
+        double   time_step{0.0};
+    };
+
+    using checkpoint_type = SolverCheckpoint;
+
+private:
 
 
     // ── TS callback context ──────────────────────────────────────────
@@ -357,6 +373,33 @@ class DynamicAnalysis {
         PetscFunctionReturn(PETSC_SUCCESS);
     }
 
+    void sync_model_state_from_solution_(Vec U) {
+        DM dm = model_->get_plex();
+
+        Vec scratch;
+        DMGetLocalVector(dm, &scratch);
+        VecSet(scratch, 0.0);
+        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U, INSERT_VALUES, scratch));
+        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U, INSERT_VALUES, scratch));
+
+        VecAXPY(scratch, 1.0, model_->imposed_solution());
+        VecCopy(scratch, model_->state_vector());
+        DMRestoreLocalVector(dm, &scratch);
+    }
+
+    void commit_material_state_from_solution_(Vec U) {
+        sync_model_state_from_solution_(U);
+        for (auto& element : model_->elements()) {
+            element.commit_material_state(model_->state_vector());
+        }
+    }
+
+    void revert_state_() {
+        for (auto& element : model_->elements()) {
+            element.revert_material_state();
+        }
+    }
+
 
     // =================================================================
     //  post_step_ — extracted core of the post-step pipeline
@@ -377,6 +420,23 @@ class DynamicAnalysis {
 
         last_post_step_ = step;
         last_post_time_ = t;
+
+        sync_model_state_from_solution_(U);
+
+        if (auto_commit_) {
+            commit_material_state_from_solution_(U);
+        }
+
+        if (observer_notifications_enabled_ && observer_callback_.on_step) {
+            fall_n::StepEvent ev{step, t, U, V};
+            observer_callback_.on_step(ev, *model_);
+        }
+
+        if (observer_notifications_enabled_ && monitor_callback_) {
+            monitor_callback_(step, t, U, V);
+        }
+
+        return;
 
         DM dm = model_->get_plex();
 
@@ -833,6 +893,68 @@ public:
     /// Set a persistent StepDirector for step_to() / step_n() calls.
     void set_director(fall_n::StepDirector<ModelT> dir) {
         director_ = std::move(dir);
+    }
+
+    void set_auto_commit(bool enabled) { auto_commit_ = enabled; }
+    [[nodiscard]] bool auto_commit() const noexcept { return auto_commit_; }
+
+    void set_observer_notifications(bool enabled) {
+        observer_notifications_enabled_ = enabled;
+    }
+
+    void commit_trial_state() {
+        Vec U_cur, V_cur;
+        FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+        sync_model_state_from_solution_(U_cur);
+        commit_material_state_from_solution_(U_cur);
+        model_->update_elements_state();
+    }
+
+    [[nodiscard]] checkpoint_type capture_checkpoint() const {
+        checkpoint_type checkpoint;
+
+        if (U_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(U_.get(),
+                                            checkpoint.displacement.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(U_.get(),
+                                       checkpoint.displacement.get()));
+        }
+
+        if (V_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(V_.get(),
+                                            checkpoint.velocity.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(V_.get(),
+                                       checkpoint.velocity.get()));
+        }
+
+        checkpoint.model = model_->capture_checkpoint();
+        checkpoint.time = current_time();
+        checkpoint.step = current_step();
+        checkpoint.time_step = get_time_step();
+        return checkpoint;
+    }
+
+    void restore_checkpoint(const checkpoint_type& checkpoint) {
+        setup();
+        revert_state_();
+        model_->restore_checkpoint(checkpoint.model);
+
+        if (checkpoint.displacement && U_) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.displacement.get(), U_.get()));
+        }
+
+        if (checkpoint.velocity && V_) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.velocity.get(), V_.get()));
+        }
+
+        FALL_N_PETSC_CHECK(TS2SetSolution(ts_, U_, V_));
+        FALL_N_PETSC_CHECK(TSSetTime(ts_, checkpoint.time));
+        FALL_N_PETSC_CHECK(TSSetStepNumber(ts_, checkpoint.step));
+        FALL_N_PETSC_CHECK(TSSetTimeStep(ts_, checkpoint.time_step));
+        FALL_N_PETSC_CHECK(TSSetConvergedReason(ts_, TS_CONVERGED_ITERATING));
+        FALL_N_PETSC_CHECK(TSRestartStep(ts_));
+        last_post_step_ = checkpoint.step - 1;
+        last_post_time_ = checkpoint.time - checkpoint.time_step;
     }
 
 

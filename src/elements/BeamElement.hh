@@ -298,6 +298,14 @@ public:
             sec.set_tangent_override(D_hom);
     }
 
+    /// Override a single section integration point tangent.
+    void set_homogenized_tangent_at_gp(
+        std::size_t gp,
+        const Eigen::Matrix<double, num_strains, num_strains>& D_hom)
+    {
+        sections_.at(gp).set_tangent_override(D_hom);
+    }
+
     /// Override section forces at all GPs [N, My, Mz, Vy, Vz, T].
     /// The reference strain (at which f_hom was computed) is required so
     /// that the linearized response sigma = f_hom + D_hom*(eps - eps_ref)
@@ -310,6 +318,15 @@ public:
             sec.set_force_override(f_hom, strain_ref);
     }
 
+    /// Override section forces at a single integration point with reference strain.
+    void set_homogenized_forces_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, num_strains>& f_hom,
+        const Eigen::Vector<double, num_strains>& strain_ref)
+    {
+        sections_.at(gp).set_force_override(f_hom, strain_ref);
+    }
+
     /// Overload without strain reference (legacy — constant override).
     void set_homogenized_forces(
         const Eigen::Vector<double, num_strains>& f_hom)
@@ -318,15 +335,35 @@ public:
             sec.set_force_override(f_hom);
     }
 
+    /// Legacy single-GP force override without reference strain.
+    void set_homogenized_forces_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, num_strains>& f_hom)
+    {
+        sections_.at(gp).set_force_override(f_hom);
+    }
+
     /// Clear all homogenized overrides — revert to fiber-section response.
     void clear_homogenized_overrides() noexcept {
         for (auto& sec : sections_)
             sec.clear_overrides();
     }
 
+    void clear_homogenized_override_at_gp(std::size_t gp) noexcept {
+        sections_.at(gp).clear_overrides();
+    }
+
     /// Check if the element has an active FE² override.
     [[nodiscard]] bool has_homogenized_override() const noexcept {
         return !sections_.empty() && sections_[0].has_override();
+    }
+
+    [[nodiscard]] bool has_homogenized_override_at_gp(std::size_t gp) const noexcept {
+        return sections_.at(gp).has_override();
+    }
+
+    [[nodiscard]] double section_gp_xi(std::size_t gp) const {
+        return geometry_->reference_integration_point(gp)[0];
     }
 
     /// Average generalized strain (midpoint ξ=0) from global DOF vector.

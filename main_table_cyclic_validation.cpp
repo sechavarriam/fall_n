@@ -825,15 +825,17 @@ static std::vector<StepRecord> run_case3(const std::string& out_dir)
 //  Same table geometry as Case 3 (4 beams + MITC16 shell), but with
 //  NonlinearSubModelEvolver continuum sub-models at each column.
 //  Global fiber sections provide the initial response; after step 1
-//  the FE² staggered coupling injects homogenised tangent + forces.
+//  the multiscale orchestrator injects the selected coupling semantics.
 //
 //  Case 4: One-way coupling (macro → micro, no feedback)
-//  Case 5: Two-way staggered coupling (macro ↔ micro)
+//  Case 5: Iterated two-way FE² coupling (macro ↔ micro)
 
 static std::vector<StepRecord>
 run_case_fe2(bool two_way, const std::string& out_dir)
 {
-    const char* label = two_way ? "5 (FE², two-way)" : "4 (FE², one-way)";
+    const char* label = two_way
+        ? "5 (Iterated two-way FE²)"
+        : "4 (One-way downscaling)";
     std::println("\n  Case {}: Full table + FE² sub-models", label);
 
     // ── Build table domain (identical to Case 3) ──────────────────
@@ -981,34 +983,22 @@ run_case_fe2(bool two_way, const std::string& out_dir)
     }
 
     // ── MultiscaleModel + MultiscaleAnalysis ──────────────────────
-    MultiscaleModel<NonlinearSubModelEvolver> ms_model;
-    ms_model.set_kinematics_extractor(extract_beam_kinematics);
-    ms_model.set_response_injector(
-        [&model](std::size_t eid,
-                 const Eigen::Matrix<double,6,6>& D_hom,
-                 const Eigen::Vector<double,6>&   f_hom)
-        {
-            if (auto* beam = model.elements()[eid].as<BeamElemT2>()) {
-                beam->set_homogenized_tangent(D_hom);
-                auto eps_ref = beam->midpoint_strain(model.state_vector());
-                beam->set_homogenized_forces(f_hom, eps_ref);
-            }
-        });
+    using MacroBridge = BeamMacroBridge<StructModel, BeamElemT2>;
+    MultiscaleModel<MacroBridge, NonlinearSubModelEvolver> ms_model{
+        MacroBridge{model}};
 
-    for (auto& ev : nl_evolvers)
-        ms_model.register_local_model(ev.parent_element_id(), std::move(ev));
+    for (auto& ev : nl_evolvers) {
+        const auto eid = ev.parent_element_id();
+        ms_model.register_local_model(
+            ms_model.macro_bridge().default_site(eid),
+            std::move(ev));
+    }
 
-    std::unique_ptr<ScaleBridgePolicy> bridge = two_way
-        ? std::unique_ptr<ScaleBridgePolicy>(std::make_unique<TwoWayStaggered>(MAX_STAGGERED_ITER))
-        : std::unique_ptr<ScaleBridgePolicy>(std::make_unique<OneWayCoupling>());
-
-    MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
-        std::move(ms_model),
-        std::move(bridge),
-        std::make_unique<FrobeniusConvergence>(STAGGERED_TOL),
-        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX));
-    analysis.set_coupling_start_step(COUPLING_START_STEP);
-    analysis.set_section_dimensions(COL_B, COL_H);
+    std::unique_ptr<CouplingAlgorithm> algorithm = two_way
+        ? std::unique_ptr<CouplingAlgorithm>(
+            std::make_unique<IteratedTwoWayFE2>(MAX_STAGGERED_ITER))
+        : std::unique_ptr<CouplingAlgorithm>(
+            std::make_unique<OneWayDownscaling>());
 
     // ── Skip trivial zero-displacement initial solve ─────────────
     // The first coupling step triggers first_solve() (incremental ramp
@@ -1024,6 +1014,21 @@ run_case_fe2(bool two_way, const std::string& out_dir)
 
     NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                       StructPolicy> nl{&model};
+    MultiscaleAnalysis<
+        NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+                          StructPolicy>,
+        MacroBridge,
+        NonlinearSubModelEvolver,
+        OpenMPExecutor> analysis(
+        nl,
+        std::move(ms_model),
+        std::move(algorithm),
+        std::make_unique<ForceAndTangentConvergence>(
+            STAGGERED_TOL, STAGGERED_TOL),
+        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX),
+        OpenMPExecutor{});
+    analysis.set_coupling_start_step(COUPLING_START_STEP);
+    analysis.set_section_dimensions(COL_B, COL_H);
 
     // ── Recording ─────────────────────────────────────────────────
     std::vector<StepRecord> records;
@@ -1031,7 +1036,6 @@ run_case_fe2(bool two_way, const std::string& out_dir)
     records.push_back({0, 0.0, 0.0, 0.0});
 
     const std::vector<std::size_t> base_nodes = {0, 1, 2, 3};
-    int fe2_step = 0;
     auto t0 = std::chrono::steady_clock::now();
 
     // ── PVD time-series setup ────────────────────────────────────
@@ -1041,39 +1045,8 @@ run_case_fe2(bool two_way, const std::string& out_dir)
     auto beam_profile  = fall_n::reconstruction::RectangularSectionProfile<2>{COL_B, COL_H};
     auto shell_profile = fall_n::reconstruction::ShellThicknessProfile<3>{};
 
-    nl.set_step_callback(
-        [&](int step, double p, const StructModel& /*m*/) {
-            double d     = cyclic_displacement(p);
-            double shear = extract_base_shear_x(model, base_nodes);
-            records.push_back({step, p, d, shear});
-
-            // FE² staggered coupling
-            ++fe2_step;
-            analysis.step(static_cast<double>(step), fe2_step);
-
-            // Per-step VTM snapshot
-            {
-                fall_n::vtk::StructuralVTMExporter vtm{
-                    model, beam_profile, shell_profile};
-                vtm.set_displacement(model.state_vector());
-                vtm.set_yield_strain(EPS_YIELD);
-                auto vtm_file = std::format("{}/vtk/table_fe2_{:04d}.vtm",
-                                            out_dir, step);
-                vtm.write(vtm_file);
-                pvd_fe2.add_timestep(p, vtm_file);
-            }
-
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - t0).count();
-            if (step % 5 == 0 || step == FE2_STEPS) {
-                std::println("    step={:3d}/{:3d}  p={:.4f}  d={:+.4e} m  "
-                             "V={:+.4e} MN  stag={}  t={}s",
-                             step, FE2_STEPS, p, d, shear,
-                             analysis.last_staggered_iterations(),
-                             elapsed);
-                std::fflush(stdout);
-            }
-        });
+    // MultiscaleAnalysis owns the step lifecycle; keep the nonlinear
+    // solver callback disabled to avoid running the legacy path.
 
     // ── Cyclic control scheme ─────────────────────────────────────
     auto scheme = make_control(
@@ -1085,7 +1058,43 @@ run_case_fe2(bool two_way, const std::string& out_dir)
                 m->update_imposed_value(nid, 0, d);          // X
         });
 
-    bool ok = nl.solve_incremental(FE2_STEPS, MAX_BISECT, scheme);
+    nl.set_step_callback({});
+    nl.begin_incremental(FE2_STEPS, MAX_BISECT, scheme);
+
+    bool ok = true;
+    for (int step = 1; step <= FE2_STEPS; ++step) {
+        if (!analysis.step()) {
+            ok = false;
+            break;
+        }
+
+        const double p = nl.current_time();
+        const double d = cyclic_displacement(p);
+        const double shear = extract_base_shear_x(model, base_nodes);
+        records.push_back({step, p, d, shear});
+
+        {
+            fall_n::vtk::StructuralVTMExporter vtm{
+                model, beam_profile, shell_profile};
+            vtm.set_displacement(model.state_vector());
+            vtm.set_yield_strain(EPS_YIELD);
+            auto vtm_file = std::format("{}/vtk/table_fe2_{:04d}.vtm",
+                                        out_dir, step);
+            vtm.write(vtm_file);
+            pvd_fe2.add_timestep(p, vtm_file);
+        }
+
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        if (step % 5 == 0 || step == FE2_STEPS) {
+            std::println("    step={:3d}/{:3d}  p={:.4f}  d={:+.4e} m  "
+                         "V={:+.4e} MN  stag={}  t={}s",
+                         step, FE2_STEPS, p, d, shear,
+                         analysis.last_staggered_iterations(),
+                         elapsed);
+            std::fflush(stdout);
+        }
+    }
 
     std::println("  Result: {} ({} records)",
                  ok ? "COMPLETED" : "ABORTED", records.size());

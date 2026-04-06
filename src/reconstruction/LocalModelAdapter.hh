@@ -23,6 +23,7 @@
 
 #include <Eigen/Dense>
 
+#include "../analysis/MultiscaleTypes.hh"
 #include "FieldTransfer.hh"   // SectionKinematics
 
 
@@ -37,7 +38,9 @@ template <typename T>
 concept LocalModelAdapter = requires(
     T& t,
     const SectionKinematics& kin,
-    double width, double height, double h_pert, double time)
+    double width, double height, double h_pert, double time,
+    bool auto_commit,
+    const typename std::remove_cvref_t<T>::checkpoint_type& checkpoint)
 {
     // Apply new beam kinematics at both ends
     { t.update_kinematics(kin, kin) };
@@ -52,10 +55,20 @@ concept LocalModelAdapter = requires(
     // Upscaled section forces  s = [N, My, Mz, Vy, Vz, Mt]
     { t.section_forces(width, height) }
         -> std::convertible_to<Eigen::Vector<double, 6>>;
+    { t.section_response(width, height, h_pert) }
+        -> std::convertible_to<SectionHomogenizedResponse>;
 
     // Commit / revert material state
     { t.commit_state() };
     { t.revert_state() };
+    { t.commit_trial_state() };
+    { t.end_of_step(time) };
+
+    // Trial solve lifecycle
+    { t.set_auto_commit(auto_commit) };
+    { t.capture_checkpoint() }
+        -> std::same_as<typename std::remove_cvref_t<T>::checkpoint_type>;
+    { t.restore_checkpoint(checkpoint) };
 
     // Owning beam element id in the global model
     { t.parent_element_id() } -> std::convertible_to<std::size_t>;
@@ -81,9 +94,15 @@ class LocalModelHandle {
             section_tangent(double w, double h, double pert) = 0;
         virtual Eigen::Vector<double,6>
             section_forces(double w, double h) = 0;
+        virtual SectionHomogenizedResponse
+            section_response(double w, double h, double pert) = 0;
 
         virtual void commit_state() = 0;
         virtual void revert_state() = 0;
+        virtual void commit_trial_state() = 0;
+        virtual void end_of_step(double time) = 0;
+        virtual void set_auto_commit(bool enabled) = 0;
+        virtual std::unique_ptr<Concept> clone_checkpointed_model() const = 0;
 
         virtual std::size_t parent_element_id() const = 0;
     };
@@ -110,9 +129,18 @@ class LocalModelHandle {
         Eigen::Vector<double,6>
         section_forces(double w, double h) override
         { return adapter_.section_forces(w, h); }
+        SectionHomogenizedResponse
+        section_response(double w, double h, double pert) override
+        { return adapter_.section_response(w, h, pert); }
 
         void commit_state() override { adapter_.commit_state(); }
         void revert_state() override { adapter_.revert_state(); }
+        void commit_trial_state() override { adapter_.commit_trial_state(); }
+        void end_of_step(double time) override { adapter_.end_of_step(time); }
+        void set_auto_commit(bool enabled) override
+        { adapter_.set_auto_commit(enabled); }
+        std::unique_ptr<Concept> clone_checkpointed_model() const override
+        { return nullptr; }
 
         std::size_t parent_element_id() const override
         { return adapter_.parent_element_id(); }
@@ -157,9 +185,15 @@ public:
     auto section_forces(double w, double h)
         -> Eigen::Vector<double,6>
     { return pimpl_->section_forces(w, h); }
+    auto section_response(double w, double h, double pert = 1e-6)
+        -> SectionHomogenizedResponse
+    { return pimpl_->section_response(w, h, pert); }
 
     void commit_state()       { pimpl_->commit_state(); }
     void revert_state()       { pimpl_->revert_state(); }
+    void commit_trial_state() { pimpl_->commit_trial_state(); }
+    void end_of_step(double time) { pimpl_->end_of_step(time); }
+    void set_auto_commit(bool enabled) { pimpl_->set_auto_commit(enabled); }
 
     auto parent_element_id() const -> std::size_t
     { return pimpl_->parent_element_id(); }

@@ -1,0 +1,395 @@
+% ==========================================================================
+%  Chapter 83 -- Normative multiscale publication audit and redesign
+% ==========================================================================
+
+\chapter{Normative Multiscale Publication Audit and Redesign}
+\label{ch:multiscale-publication-audit}
+
+\section{Purpose and Normative Scope}
+\label{sec:ms-pub-purpose}
+
+This chapter is the normative reference for the public multiscale API in
+\texttt{fall\_n}.  It supersedes the terminology and behavioural claims of
+Chapters~\ref{ch:two-way-fe2} and \ref{ch:cyclic-validation} whenever those
+chapters describe an earlier or partially implemented coupling loop.
+
+The goal of the redesign is not merely to rename components, but to align the
+software architecture with three simultaneous requirements:
+\begin{enumerate}
+  \item \textbf{physical coherence:} the public semantics must reflect the
+    actual multiscale algorithm implemented in code;
+  \item \textbf{architectural extensibility:} the hot path must remain
+    zero-overhead while extension points stay explicit and SOLID at the API
+    boundary;
+  \item \textbf{publication readiness:} code, examples, tests, and
+    documentation must tell the same story.
+\end{enumerate}
+
+\section{Official Nomenclature}
+\label{sec:ms-pub-nomenclature}
+
+The multiscale subsystem now exposes three officially distinct coupling modes:
+\begin{description}
+  \item[\texttt{OneWayDownscaling}] macro solve followed by micro solve, with no
+    feedback to the macro model;
+  \item[\texttt{LaggedFeedbackCoupling}] macro solve followed by micro solve and
+    delayed feedback injection for subsequent macro steps;
+  \item[\texttt{IteratedTwoWayFE2}] fixed-point macro--micro iteration with
+    checkpoint/restore and a single accepted commit at the end of the step.
+\end{description}
+
+This separation is implemented in
+\texttt{src/analysis/CouplingStrategy.hh} and reported explicitly through
+\texttt{CouplingMode} in \texttt{src/analysis/MultiscaleTypes.hh}.  The
+previous labels \texttt{OneWayCoupling} and \texttt{TwoWayStaggered} are
+retained only as historical names in older documentation chapters.
+
+\section{Audit of Prior Claims}
+\label{sec:ms-pub-audit}
+
+The redesign began by treating the existing code and documentation as
+hypotheses rather than ground truth.  Table~\ref{tab:ms-defect-ledger}
+records the main findings that motivated the current implementation.
+
+\begin{table}[htb]
+\centering
+\small
+\begin{tabular}{p{0.30\textwidth}p{0.14\textwidth}p{0.42\textwidth}}
+\toprule
+Claim or behaviour & Status & Normative conclusion \\
+\midrule
+The pre-redesign staggered driver was a full FE\textsuperscript{2} loop
+  & incorrect
+  & It was a lagged outer-loop driver: the macro step was solved outside the
+    coupling iteration and was not restored/re-solved inside each fixed-point
+    pass. \\
+Tangents and forces were homogenised by the same operator
+  & incorrect
+  & The tangent came from boundary reactions while forces could be injected via
+    a separate approximate path; the public API now packages both in a single
+    \texttt{SectionHomogenizedResponse}. \\
+Homogenised injection was local to the critical macro site
+  & approximate
+  & Beam elements supported blanket overrides on all section points; the public
+    path is now \emph{site-based} through \texttt{CouplingSite}. \\
+The driver owned no multiscale protocol details
+  & incorrect
+  & Older examples had to orchestrate \texttt{end\_of\_step()}, feedback
+    injection, and convergence externally.  The orchestrator now owns the full
+    lifecycle. \\
+Regularisation was a physical constitutive choice
+  & incorrect
+  & The previous diagonal clamp was an implicit numerical stabiliser; it is now
+    surfaced as an explicit regularisation policy with diagnostics. \\
+All documentation under Chapters~74--82 described the current code
+  & historical
+  & Those chapters remain useful as design records, but this chapter is the
+    authoritative statement of the current implementation. \\
+\bottomrule
+\end{tabular}
+\caption{Defect ledger for the multiscale redesign.}
+\label{tab:ms-defect-ledger}
+\end{table}
+
+\section{Underlying Mathematics and Physical Contract}
+\label{sec:ms-pub-math}
+
+\subsection{Macro generalised variables}
+
+At the beam level, the section deformation vector is
+\begin{equation}
+  \mathbf{e}
+  =
+  \{\varepsilon_0,\kappa_y,\kappa_z,\gamma_y,\gamma_z,\theta'\}^{T},
+\end{equation}
+and the section resultant vector is
+\begin{equation}
+  \mathbf{s}
+  =
+  \{N,M_y,M_z,V_y,V_z,T\}^{T}.
+\end{equation}
+
+The local continuum sub-model is driven by Timoshenko-consistent end
+kinematics extracted from the macro beam.  The current implementation uses the
+kinematic transfer already established in Chapters~\ref{ch:multiscale_seismic}
+and \ref{ch:nl-sub-model-evolver}, but the public contract is no longer
+``beam element to entire sub-model'' in the abstract; it is
+\emph{macro coupling site to local model} through \texttt{CouplingSite}.
+
+\subsection{Normative homogenised response}
+
+The public response object is
+\texttt{SectionHomogenizedResponse}, containing:
+\begin{equation}
+  \mathbf{s}_0, \qquad
+  \mathbf{D}_{\mathrm{hom}} = \frac{\partial \mathbf{s}}{\partial \mathbf{e}},
+  \qquad
+  \mathbf{e}_0.
+\end{equation}
+The macro-scale injection contract is
+\begin{equation}
+  \mathbf{s}(\mathbf{e})
+  =
+  \mathbf{s}_0 + \mathbf{D}_{\mathrm{hom}}(\mathbf{e}-\mathbf{e}_0),
+  \label{eq:ms-pub-linearized-response}
+\end{equation}
+with \(\mathbf{e}_0\) stored as \texttt{strain\_ref}.  This eliminates the
+ambiguity of ``tangent by one operator, forces by another'' in the public API.
+
+\subsection{Boundary-reaction homogenisation}
+
+The default production path in \texttt{NonlinearSubModelEvolver} now computes
+section forces from assembled boundary reactions at the loaded end.  In compact
+form,
+\begin{equation}
+  \mathbf{s}_{\mathrm{hom}}
+  =
+  \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}),
+\end{equation}
+where \(\mathcal{H}_{\mathrm{br}}\) denotes the boundary-reaction operator and
+\(\mathbf{u}_{\mu}\) is the converged micro displacement field.  The tangent is
+obtained by perturbing the generalised deformation components and re-evaluating
+the same reaction-based force operator:
+\begin{equation}
+  \mathbf{D}_{\mathrm{hom}}^{(:,j)}
+  \approx
+  \frac{\mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}^{(j,+)})
+        - \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu})}{h_j}.
+\end{equation}
+
+Volume averaging is retained only as a comparison/validation route and is
+reported through \texttt{HomogenizationOperator::VolumeAverage}; it is not the
+default FE\textsuperscript{2} production operator.
+
+\subsection{Convergence criterion}
+
+The default coupling convergence is no longer defined solely through a tangent
+matrix norm.  The implemented criterion monitors:
+\begin{equation}
+  r_f^{(i)}
+  =
+  \frac{\lVert \mathbf{s}_{\text{macro}}^{(i)}
+  - \mathbf{s}_{\text{micro}}^{(i)} \rVert}
+  {\max\left(1,\lVert \mathbf{s}_{\text{macro}}^{(i)} \rVert,
+                \lVert \mathbf{s}_{\text{micro}}^{(i)} \rVert\right)},
+\end{equation}
+for each coupled site \(i\), together with an analogous relative tangent
+residual.  The default policy in
+\texttt{src/analysis/CouplingStrategy.hh} is
+\texttt{ForceAndTangentConvergence}.
+
+\section{Implemented Architecture}
+\label{sec:ms-pub-architecture}
+
+\subsection{Public data contracts}
+
+The redesign introduces explicit public types:
+\begin{itemize}
+  \item \texttt{CouplingSite}: identifies the exact macro site
+    (\texttt{macro\_element\_id}, section Gauss point, \(\xi\), local frame);
+  \item \texttt{MacroSectionState}: local macro strain/resultant snapshot;
+  \item \texttt{SectionHomogenizedResponse}: homogenised forces, tangent,
+    reference strain, operator provenance, and regularisation diagnostics;
+  \item \texttt{CouplingIterationReport}: mode, iteration count, residuals,
+    failure count, and macro/micro timing;
+  \item \texttt{ModelCheckpoint} and solver-specific
+    \texttt{checkpoint\_type}: exact rollback state for FE\textsuperscript{2}
+    iteration.
+\end{itemize}
+
+\subsection{SOLID without sacrificing the hot path}
+
+The multiscale orchestration now follows the design principle ``static in the
+kernel, explicit at the boundary'':
+\begin{itemize}
+  \item \textbf{Single Responsibility Principle.}
+    \texttt{BeamMacroBridge} is responsible for macro extraction/injection;
+    \texttt{MultiscaleModel} aggregates coupling sites and local models;
+    \texttt{MultiscaleAnalysis} owns the protocol; the local solver owns local
+    constitutive evolution.
+  \item \textbf{Open/Closed Principle.}
+    Coupling algorithms, convergence criteria, relaxation policies, and
+    executors are all pluggable through small interfaces.
+  \item \textbf{Liskov Substitution Principle.}
+    Macro solvers participate through the
+    \texttt{CheckpointableSteppableSolver} concept rather than through ad hoc
+    assumptions about \texttt{DynamicAnalysis} or \texttt{NonlinearAnalysis}.
+  \item \textbf{Interface Segregation Principle.}
+    The local-model concept requires only what the multiscale loop actually
+    needs: kinematics update, solve, homogenised response, commit/revert, and
+    checkpoint control.
+  \item \textbf{Dependency Inversion Principle.}
+    \texttt{MultiscaleAnalysis} depends on abstract coupling policies and on
+    concepts, not on concrete drivers.
+\end{itemize}
+
+These abstractions are intentionally placed at the orchestration layer.  The
+inner loop remains template-based and avoids virtual dispatch in the hot path.
+This preserves the original performance philosophy of \texttt{fall\_n} while
+making the multiscale subsystem externally reusable.
+
+\subsection{Macro and local rollback}
+
+The FE\textsuperscript{2} loop is only meaningful if the macro and micro
+states can both be restored exactly.  The current implementation provides:
+\begin{itemize}
+  \item model-level snapshots through \texttt{ModelCheckpoint};
+  \item solver-level snapshots in \texttt{DynamicAnalysis} and
+    \texttt{NonlinearAnalysis};
+  \item local-model snapshots in \texttt{NonlinearSubModelEvolver};
+  \item explicit trial/commit control via \texttt{set\_auto\_commit(false)}
+    during iteration and a single \texttt{commit\_trial\_state()} after
+    acceptance.
+\end{itemize}
+
+\section{Implemented Iterated Two-Way FE\textsuperscript{2} Algorithm}
+\label{sec:ms-pub-algorithm}
+
+Algorithm~\ref{alg:iterated-two-way-fe2} summarises the implemented
+orchestrator semantics.
+
+\begin{algorithm}[htb]
+\DontPrintSemicolon
+\caption{Implemented \texttt{IteratedTwoWayFE2} protocol}
+\label{alg:iterated-two-way-fe2}
+\KwIn{macro solver \(S_M\), multiscale model \(\mathcal{M}\),
+      predictor response \(\mathbf{R}^{(0)}\)}
+\KwOut{accepted macro step and committed local states}
+\BlankLine
+capture macro checkpoint \(C_M\)\;
+capture one checkpoint \(C_\mu^{(i)}\) for each local model\;
+disable automatic macro and local commit\;
+\For{\(k = 0,1,\dots,k_{\max}-1\)}{
+  restore \(C_M\) and all \(C_\mu^{(i)}\)\;
+  inject predictor response at each \texttt{CouplingSite}\;
+  advance one macro step\;
+  extract local beam kinematics for each site\;
+  solve local models in parallel\;
+  build \texttt{SectionHomogenizedResponse} for each site\;
+  compute force and tangent residuals\;
+  apply relaxation policy if configured\;
+  \If{\(k \ge 1\) and all convergence criteria are satisfied}{
+    accept current iteration\;
+    \textbf{break}\;
+  }
+  set predictor \(\leftarrow\) current response\;
+}
+inject accepted response at each site\;
+commit macro trial state\;
+commit local trial states and call \texttt{end\_of\_step()} once\;
+\end{algorithm}
+
+Two implementation decisions are deliberate:
+\begin{enumerate}
+  \item the first iteration is always treated as a predictor pass and is never
+    accepted immediately;
+  \item \texttt{end\_of\_step()} is owned by the orchestrator, not by the
+    driver.
+\end{enumerate}
+
+\section{HPC and Build Surface}
+\label{sec:ms-pub-hpc}
+
+The first publication-ready HPC layer focuses on robust shared-memory
+parallelism:
+\begin{itemize}
+  \item \texttt{SerialExecutor} provides the reference path;
+  \item \texttt{OpenMPExecutor} parallelises local-model solves over coupling
+    sites;
+  \item \texttt{CouplingCommunicators} makes the future MPI ownership explicit
+    without pretending that a distributed FE\textsuperscript{2} engine is
+    already complete.
+\end{itemize}
+
+The build system now exposes a dedicated public CMake target:
+\begin{center}
+\texttt{fall\_n::multiscale\_api}
+\end{center}
+and a slim public umbrella header:
+\begin{center}
+\texttt{src/analysis/MultiscaleAPI.hh}
+\end{center}
+which gathers the multiscale-specific headers without routing users through the
+project-wide \texttt{header\_files.hh} umbrella.
+
+\section{Verification and Test Matrix}
+\label{sec:ms-pub-tests}
+
+The current redesign is supported by the following regression and contract
+tests:
+\begin{itemize}
+  \item \texttt{tests/test\_multiscale\_analysis\_api.cpp}:
+    semantic separation of coupling modes, ownership of local lifecycle,
+    analysis-local coupling start, and accepted FE\textsuperscript{2} commit;
+  \item \texttt{tests/test\_micro\_solve\_executor.cpp}:
+    serial/OpenMP executor contract and communicator defaults;
+  \item \texttt{tests/test\_beam.cpp}:
+    section-level beam behaviour, including the element path touched by local
+    homogenised injection;
+  \item \texttt{tests/test\_steppable\_solver.cpp} and
+    \texttt{tests/test\_steppable\_dynamic.cpp}:
+    solver contracts relied upon by the orchestrator;
+  \item \texttt{tests/test\_evolver\_advanced.cpp}:
+    persistent local-model evolution and homogenisation path.
+\end{itemize}
+
+In addition, the heavy executable targets
+\texttt{fall\_n\_lshaped\_multiscale},
+\texttt{fall\_n\_lshaped\_multiscale\_16},
+\texttt{fall\_n\_table\_multiscale}, and
+\texttt{fall\_n\_table\_cyclic\_validation}
+serve as integration-level build checks of the public multiscale surface.
+
+\section{Known Limitations}
+\label{sec:ms-pub-limitations}
+
+The redesign closes the most serious semantic gaps, but several publication
+limitations remain explicit:
+\begin{itemize}
+  \item the default tangent is still obtained by one-sided perturbation, not by
+    a fully consistent algorithmic linearisation;
+  \item the accepted FE\textsuperscript{2} step is a fixed-point iteration, not
+    a monolithic multilevel Newton solve;
+  \item MPI-distributed local-model execution is not yet implemented beyond the
+    communicator contract;
+  \item \texttt{NonlinearSubModelEvolver} still contains several responsibilities
+    internally, even though the external API now isolates the required ones;
+  \item historical chapters still contain earlier design narratives and should
+    be read as provenance, not as the normative behavioural specification.
+\end{itemize}
+
+\section{Future Work}
+\label{sec:ms-pub-future}
+
+The next publication-strength milestones are:
+\begin{enumerate}
+  \item replace the forward-difference tangent by a central-difference or
+    consistent algorithmic tangent, while retaining the same public response
+    contract;
+  \item finish the internal split of \texttt{NonlinearSubModelEvolver} into
+    solver core, boundary-condition applicator, homogeniser, diagnostics, and
+    output services;
+  \item add energy-consistency benchmarks and distributed MPI execution of
+    local models;
+  \item package installable public headers for the multiscale target instead of
+    exposing the source-tree include path;
+  \item extend the coupling-site abstraction beyond beam sections to shell or
+    continuum macro sites.
+\end{enumerate}
+
+\section{Conclusion}
+\label{sec:ms-pub-conclusion}
+
+The multiscale subsystem of \texttt{fall\_n} is now documented and exposed as a
+library feature rather than as a driver convention.  The redesign does not
+claim that every research-grade FE\textsuperscript{2} feature is complete; it
+does claim, and the current code supports, that:
+\begin{enumerate}
+  \item the coupling modes are semantically distinct and named honestly;
+  \item iterated two-way FE\textsuperscript{2} performs real macro/micro
+    checkpointed iteration;
+  \item forces, tangents, and reference strain are injected through one public
+    response object;
+  \item the lifecycle no longer leaks into the examples;
+  \item the documentation now states these facts explicitly.
+\end{enumerate}
