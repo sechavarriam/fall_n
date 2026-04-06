@@ -1,62 +1,63 @@
 #ifndef FALL_N_SRC_ANALYSIS_COUPLING_STRATEGY_HH
 #define FALL_N_SRC_ANALYSIS_COUPLING_STRATEGY_HH
 
-// =============================================================================
-//  CouplingStrategy — Strategy interfaces for FE² staggered coupling
-// =============================================================================
-//
-//  - ScaleBridgePolicy   : one-way vs two-way coupling selection
-//  - CouplingConvergence : staggered iteration convergence criterion
-//  - RelaxationPolicy    : tangent relaxation between staggered iterations
-//
-// =============================================================================
-
 #include <algorithm>
-#include <cmath>
-#include <cstddef>
 #include <memory>
-#include <span>
 
-#include <Eigen/Dense>
-
+#include "MultiscaleTypes.hh"
 
 namespace fall_n {
 
-
-// =============================================================================
-//  ScaleBridgePolicy — coupling direction
-// =============================================================================
-
-struct ScaleBridgePolicy {
-    virtual ~ScaleBridgePolicy() = default;
-    virtual bool requires_feedback() const = 0;
-    virtual int  max_staggered_iterations() const = 0;
+struct CouplingAlgorithm {
+    virtual ~CouplingAlgorithm() = default;
+    virtual CouplingMode mode() const = 0;
+    virtual int max_iterations() const = 0;
 };
 
-class OneWayCoupling final : public ScaleBridgePolicy {
+class OneWayDownscaling final : public CouplingAlgorithm {
 public:
-    bool requires_feedback() const override { return false; }
-    int  max_staggered_iterations() const override { return 1; }
+    CouplingMode mode() const override {
+        return CouplingMode::OneWayDownscaling;
+    }
+    int max_iterations() const override { return 1; }
 };
 
-class TwoWayStaggered final : public ScaleBridgePolicy {
+class LaggedFeedbackCoupling final : public CouplingAlgorithm {
+public:
+    CouplingMode mode() const override {
+        return CouplingMode::LaggedFeedbackCoupling;
+    }
+    int max_iterations() const override { return 1; }
+};
+
+class IteratedTwoWayFE2 final : public CouplingAlgorithm {
     int max_iter_;
 public:
-    explicit TwoWayStaggered(int max_iter = 4) : max_iter_{max_iter} {}
-    bool requires_feedback() const override { return true; }
-    int  max_staggered_iterations() const override { return max_iter_; }
+    explicit IteratedTwoWayFE2(int max_iter = 4) : max_iter_{max_iter} {}
+    CouplingMode mode() const override {
+        return CouplingMode::IteratedTwoWayFE2;
+    }
+    int max_iterations() const override { return max_iter_; }
 };
-
-
-// =============================================================================
-//  CouplingConvergence — convergence criterion for staggered iterations
-// =============================================================================
 
 struct CouplingConvergence {
     virtual ~CouplingConvergence() = default;
-    virtual bool converged(
-        std::span<const Eigen::Matrix<double,6,6>> D_prev,
-        std::span<const Eigen::Matrix<double,6,6>> D_curr) const = 0;
+    virtual bool converged(const CouplingIterationReport& report) const = 0;
+};
+
+class ForceAndTangentConvergence final : public CouplingConvergence {
+    double force_tol_;
+    double tangent_tol_;
+public:
+    ForceAndTangentConvergence(double force_tol = 0.05,
+                               double tangent_tol = 0.05)
+        : force_tol_{force_tol}, tangent_tol_{tangent_tol} {}
+
+    bool converged(const CouplingIterationReport& report) const override
+    {
+        return report.max_force_residual_rel <= force_tol_
+            && report.max_tangent_residual_rel <= tangent_tol_;
+    }
 };
 
 class FrobeniusConvergence final : public CouplingConvergence {
@@ -64,31 +65,17 @@ class FrobeniusConvergence final : public CouplingConvergence {
 public:
     explicit FrobeniusConvergence(double tol = 0.05) : tol_{tol} {}
 
-    bool converged(
-        std::span<const Eigen::Matrix<double,6,6>> D_prev,
-        std::span<const Eigen::Matrix<double,6,6>> D_curr) const override
+    bool converged(const CouplingIterationReport& report) const override
     {
-        for (std::size_t i = 0; i < D_prev.size(); ++i) {
-            double d_norm = D_curr[i].norm();
-            double delta  = (D_curr[i] - D_prev[i]).norm();
-            if (d_norm > 1e-14 && delta / d_norm > tol_)
-                return false;
-        }
-        return true;
+        return report.max_tangent_residual_rel <= tol_;
     }
 };
 
-
-// =============================================================================
-//  RelaxationPolicy — tangent relaxation
-// =============================================================================
-
 struct RelaxationPolicy {
     virtual ~RelaxationPolicy() = default;
-    virtual void relax(
-        Eigen::Matrix<double,6,6>& D_new,
-        const Eigen::Matrix<double,6,6>& D_prev,
-        int iteration) = 0;
+    virtual void relax(SectionHomogenizedResponse& current,
+                       const SectionHomogenizedResponse& previous,
+                       int iteration) = 0;
 };
 
 class ConstantRelaxation final : public RelaxationPolicy {
@@ -96,24 +83,24 @@ class ConstantRelaxation final : public RelaxationPolicy {
 public:
     explicit ConstantRelaxation(double omega = 0.7) : omega_{omega} {}
 
-    void relax(
-        Eigen::Matrix<double,6,6>& D_new,
-        const Eigen::Matrix<double,6,6>& D_prev,
-        [[maybe_unused]] int iteration) override
+    void relax(SectionHomogenizedResponse& current,
+               const SectionHomogenizedResponse& previous,
+               [[maybe_unused]] int iteration) override
     {
-        D_new = omega_ * D_new + (1.0 - omega_) * D_prev;
+        current.tangent =
+            omega_ * current.tangent + (1.0 - omega_) * previous.tangent;
+        current.forces =
+            omega_ * current.forces + (1.0 - omega_) * previous.forces;
     }
 };
 
 class NoRelaxation final : public RelaxationPolicy {
 public:
-    void relax(
-        Eigen::Matrix<double,6,6>& /*D_new*/,
-        const Eigen::Matrix<double,6,6>& /*D_prev*/,
-        [[maybe_unused]] int iteration) override
+    void relax(SectionHomogenizedResponse&,
+               const SectionHomogenizedResponse&,
+               [[maybe_unused]] int iteration) override
     {}
 };
-
 
 }  // namespace fall_n
 

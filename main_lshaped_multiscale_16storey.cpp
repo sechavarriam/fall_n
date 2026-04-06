@@ -8,7 +8,7 @@
 //  This example extends the 4-story reference to demonstrate:
 //    - Height irregularity: three column-section ranges reducing with height
 //      (0.50×0.50 base, 0.40×0.40 mid, 0.30×0.30 top); different f'c per range.
-//    - Full FE² two-way staggered coupling on ALL critical sub-models.
+//    - Full iterated two-way FE² coupling on ALL critical sub-models.
 //    - Per-range Hex27 sub-models with KoBatheConcrete3D.
 //    - Parallel sub-model solving via OpenMP (within MultiscaleAnalysis).
 //    - VTK evolution series (global frame + per-sub-model crack glyphs).
@@ -678,36 +678,37 @@ int main(int argc, char* argv[]) {
                  EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
 
     // ── Assemble MultiscaleModel + MultiscaleAnalysis ────────────────────
-    MultiscaleModel<NonlinearSubModelEvolver> ms_model;
-    ms_model.set_kinematics_extractor(extract_beam_kinematics);
-    ms_model.set_response_injector(
-        [&model](std::size_t eid,
-                 const Eigen::Matrix<double,6,6>& D_hom,
-                 const Eigen::Vector<double,6>&   f_hom)
-        {
-            if (auto* beam = model.elements()[eid].as<BeamElemT>()) {
-                beam->set_homogenized_tangent(D_hom);
-                beam->set_homogenized_forces(f_hom);
-            }
-        });
+    using MacroBridge = BeamMacroBridge<StructModel, BeamElemT>;
+    MultiscaleModel<MacroBridge, NonlinearSubModelEvolver> ms_model{
+        MacroBridge{model}};
 
     for (auto& ev : nl_evolvers) {
         const auto eid = ev.parent_element_id();
-        ms_model.register_local_model(eid, std::move(ev));
+        ms_model.register_local_model(
+            ms_model.macro_bridge().default_site(eid),
+            std::move(ev));
     }
 
     // Section dimensions for homogenization scaling: use first critical element
     const int first_range = crit_by_range.begin()->first;
 
-    MultiscaleAnalysis<NonlinearSubModelEvolver> analysis(
+    MultiscaleAnalysis<
+        DynSolver,
+        MacroBridge,
+        NonlinearSubModelEvolver,
+        OpenMPExecutor> analysis(
+        solver,
         std::move(ms_model),
-        std::make_unique<TwoWayStaggered>(MAX_STAGGERED_ITER),
-        std::make_unique<FrobeniusConvergence>(STAGGERED_TOL),
-        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX));
+        std::make_unique<IteratedTwoWayFE2>(MAX_STAGGERED_ITER),
+        std::make_unique<ForceAndTangentConvergence>(
+            STAGGERED_TOL, STAGGERED_TOL),
+        std::make_unique<ConstantRelaxation>(STAGGERED_RELAX),
+        OpenMPExecutor{});
     analysis.set_coupling_start_step(COUPLING_START_STEP);
     analysis.set_section_dimensions(COL_B[first_range], COL_H[first_range]);
 
-    std::println("  MultiscaleAnalysis : max_iter={} tol={:.2f} relax={:.2f}",
+    std::println("  MultiscaleAnalysis : IteratedTwoWayFE2, max_iter={}, "
+                 "force/tangent tol={:.2f}, relax={:.2f}",
                  MAX_STAGGERED_ITER, STAGGERED_TOL, STAGGERED_RELAX);
     std::println("  Section dims (hom) : {:.2f} × {:.2f} m (range {})",
                  COL_B[first_range], COL_H[first_range], first_range);
@@ -718,12 +719,13 @@ int main(int argc, char* argv[]) {
     std::println("\n[14] Initial nonlinear solve at t={:.4f} s...",
                  transition_report->trigger_time);
 
-    for (auto& ev : analysis.model().local_models()) {
-        auto result = ev.solve_step(transition_report->trigger_time);
-        std::println("  Sub-model elem {} : converged={} max|u|={:.3e} mm",
-                     ev.parent_element_id(),
-                     result.converged ? "YES" : "NO",
-                     result.max_displacement * 1e3);
+    const bool init_ok = analysis.initialize_local_models();
+    std::println("  Local-state initialization : {} (failed sub-models = {})",
+                 init_ok ? "READY" : "FAILED",
+                 analysis.last_report().failed_submodels);
+    if (!init_ok) {
+        PetscFinalize();
+        return 1;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -774,25 +776,19 @@ int main(int argc, char* argv[]) {
         if (static_cast<double>(t_current) >= T_MAX - 1e-14) break;
 
         // Advance one global step
-        auto verdict = solver.step_n(1, fall_n::StepDirector<StructModel>{});
-        if (verdict == fall_n::StepVerdict::Stop) {
-            std::println("  [!] Global solver stopped at t={:.4f} s",
-                         static_cast<double>(t_current));
+        if (!analysis.step()) {
+            std::println("  [!] Multiscale step failed at t={:.4f} s",
+                         solver.current_time());
             break;
         }
 
-        PetscReal t_new;
-        TSGetTime(solver.get_ts(), &t_new);
         ++evol_step;
-        const double t = static_cast<double>(t_new);
+        const double t = solver.current_time();
 
-        // ── FE² staggered coupling ──────────────────────────────────
-        analysis.step(t, evol_step);
+        // ── Iterated two-way FE² coupling ───────────────────────────
         const int staggered_iters = analysis.last_staggered_iterations();
 
         // ── End-of-step: crack collection + VTK (once per global step) ─
-        for (auto& ev : analysis.model().local_models())
-            ev.end_of_step(t);
 
         // ── Collect crack summaries ─────────────────────────────────
         int    step_cracked_gps      = 0;

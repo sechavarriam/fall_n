@@ -102,7 +102,24 @@ class NonlinearAnalysis {
     double        dp_{0.0};
     int           max_bisections_{4};
     bool          incremental_active_{false};
+    bool          auto_commit_{true};
     fall_n::StepDirector<ModelT> director_{};
+
+public:
+    struct SolverCheckpoint {
+        typename ModelT::checkpoint_type model{};
+        petsc::OwnedVec displacement{};
+        petsc::OwnedVec external_force{};
+        double p_done{0.0};
+        int    step_count{0};
+        double dp{0.0};
+        int    max_bisections{0};
+        bool   incremental_active{false};
+    };
+
+    using checkpoint_type = SolverCheckpoint;
+
+private:
 
     // ─── Penalty coupling hooks (optional) ────────────────────────
     //  Called after standard element assembly in FormResidual / FormJacobian
@@ -274,6 +291,21 @@ class NonlinearAnalysis {
 
     // ─── Commit material state after global convergence ─────────
 
+    void sync_model_state_from_solution_() {
+        DM dm = model_->get_plex();
+
+        Vec u_local;
+        DMGetLocalVector(dm, &u_local);
+        VecSet(u_local, 0.0);
+        DMGlobalToLocal(dm, U, INSERT_VALUES, u_local);
+        VecAXPY(u_local, 1.0, model_->imposed_solution());
+
+        VecSet(model_->state_vector(), 0.0);
+        VecCopy(u_local, model_->state_vector());
+
+        DMRestoreLocalVector(dm, &u_local);
+    }
+
     void commit_state() {
         DM dm = model_->get_plex();
 
@@ -287,12 +319,9 @@ class NonlinearAnalysis {
             element.commit_material_state(u_local);
         }
 
-        DMRestoreLocalVector(dm, &u_local);
-
-        // Update model's current_state for post-processing
         VecSet(model_->state_vector(), 0.0);
-        DMGlobalToLocal(dm, U, INSERT_VALUES, model_->state_vector());
-        VecAXPY(model_->state_vector(), 1.0, model_->imposed_solution());
+        VecCopy(u_local, model_->state_vector());
+        DMRestoreLocalVector(dm, &u_local);
     }
 
     // ─── Revert material state after diverged step ───────────────
@@ -313,6 +342,61 @@ class NonlinearAnalysis {
 public:
 
     auto get_model() const { return model_; }
+    void set_auto_commit(bool enabled) { auto_commit_ = enabled; }
+    [[nodiscard]] bool auto_commit() const noexcept { return auto_commit_; }
+
+    void commit_trial_state() {
+        commit_state();
+        model_->update_elements_state();
+    }
+
+    [[nodiscard]] checkpoint_type capture_checkpoint() const {
+        checkpoint_type checkpoint;
+
+        if (U) {
+            FALL_N_PETSC_CHECK(VecDuplicate(U.get(),
+                                            checkpoint.displacement.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(U.get(),
+                                       checkpoint.displacement.get()));
+        }
+
+        if (f_ext) {
+            FALL_N_PETSC_CHECK(VecDuplicate(f_ext.get(),
+                                            checkpoint.external_force.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(f_ext.get(),
+                                       checkpoint.external_force.get()));
+        }
+
+        checkpoint.model = model_->capture_checkpoint();
+        checkpoint.p_done = p_done_;
+        checkpoint.step_count = step_count_;
+        checkpoint.dp = dp_;
+        checkpoint.max_bisections = max_bisections_;
+        checkpoint.incremental_active = incremental_active_;
+        return checkpoint;
+    }
+
+    void restore_checkpoint(const checkpoint_type& checkpoint) {
+        setup();
+        revert_state();
+
+        if (checkpoint.displacement && U) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.displacement.get(), U.get()));
+        }
+
+        if (checkpoint.external_force && f_ext) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.external_force.get(),
+                                       f_ext.get()));
+        }
+
+        ctx_.f_ext = f_ext;
+        p_done_ = checkpoint.p_done;
+        step_count_ = checkpoint.step_count;
+        dp_ = checkpoint.dp;
+        max_bisections_ = checkpoint.max_bisections;
+        incremental_active_ = checkpoint.incremental_active;
+        model_->restore_checkpoint(checkpoint.model);
+    }
 
     /// Register a callback invoked after each converged load step.
     /// Signature: void(int step, double lambda, const ModelT& model).
@@ -410,7 +494,10 @@ public:
         if (reason > 0) {
             // Converged — safe to commit
             timer_.start("commit");
-            commit_state();
+            if (auto_commit_)
+                commit_state();
+            else
+                sync_model_state_from_solution_();
             timer_.stop("commit");
             model_->update_elements_state();
             return true;
@@ -504,8 +591,9 @@ public:
             if (ok) {
                 p_done = p_target;
                 ++steps_done;
-                if (step_callback_) step_callback_(step, p_done, *model_);
-                if (observer_.on_step) {
+                if (auto_commit_ && step_callback_)
+                    step_callback_(step, p_done, *model_);
+                if (auto_commit_ && observer_.on_step) {
                     fall_n::StepEvent ev{step, p_done, U.get(), nullptr};
                     observer_.on_step(ev, *model_);
                 }
@@ -577,7 +665,10 @@ private:
 
         // ── 3. Converged? Commit and return ──────────────────────
         if (reason > 0) {
-            commit_state();
+            if (auto_commit_)
+                commit_state();
+            else
+                sync_model_state_from_solution_();
 
             PetscPrintf(PETSC_COMM_WORLD,
                 "    p=%.6f  converged  (reason=%d, %d iterations)\n",
@@ -655,7 +746,10 @@ private:
         SNESGetIterationNumber(snes_, &its);
 
         if (reason > 0) {
-            commit_state();
+            if (auto_commit_)
+                commit_state();
+            else
+                sync_model_state_from_solution_();
             PetscPrintf(PETSC_COMM_WORLD,
                 "    p=%.6f  converged  (reason=%d, %d iterations)\n",
                 p_target,
@@ -772,8 +866,9 @@ public:
         if (ok) {
             p_done_ = p_target;
             ++step_count_;
-            if (step_callback_) step_callback_(step_count_, p_done_, *model_);
-            if (observer_.on_step) {
+            if (auto_commit_ && step_callback_)
+                step_callback_(step_count_, p_done_, *model_);
+            if (auto_commit_ && observer_.on_step) {
                 fall_n::StepEvent ev{step_count_, p_done_, U.get(), nullptr};
                 observer_.on_step(ev, *model_);
             }

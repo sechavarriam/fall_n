@@ -21,6 +21,7 @@
 
 #include "MaterialPoint.hh"
 #include "NodeSelector.hh"
+#include "ModelCheckpoint.hh"
 #include "ModelState.hh"
 
 #include "../petsc/PetscRaii.hh"
@@ -50,6 +51,7 @@ public:
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
+    using checkpoint_type   = ModelCheckpoint<dim>;
 
     // ── Explicitly non-copyable, movable ─────────────────────────────
     Model(const Model&)            = delete;
@@ -89,6 +91,52 @@ public:
     auto& get_domain()       { return *domain_; }
     const auto& get_domain() const { return *domain_; }
     auto  get_plex()         { return domain_->mesh.dm; };
+
+    [[nodiscard]] checkpoint_type capture_checkpoint() const {
+        checkpoint_type checkpoint;
+
+        if (current_state_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(current_state_.get(),
+                                            checkpoint.state_vector.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(current_state_.get(),
+                                       checkpoint.state_vector.get()));
+        }
+
+        if (global_imposed_solution_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(global_imposed_solution_.get(),
+                                            checkpoint.imposed_solution.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(global_imposed_solution_.get(),
+                                       checkpoint.imposed_solution.get()));
+        }
+
+        if (nodal_forces_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(nodal_forces_.get(),
+                                            checkpoint.force_vector.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(nodal_forces_.get(),
+                                       checkpoint.force_vector.get()));
+        }
+
+        return checkpoint;
+    }
+
+    void restore_checkpoint(const checkpoint_type& checkpoint) {
+        if (checkpoint.state_vector && current_state_) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.state_vector.get(),
+                                       current_state_.get()));
+        }
+
+        if (checkpoint.imposed_solution && global_imposed_solution_) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.imposed_solution.get(),
+                                       global_imposed_solution_.get()));
+        }
+
+        if (checkpoint.force_vector && nodal_forces_) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.force_vector.get(),
+                                       nodal_forces_.get()));
+        }
+
+        update_elements_state();
+    }
 
 private:
 

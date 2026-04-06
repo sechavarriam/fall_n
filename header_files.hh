@@ -167,6 +167,7 @@
 #include "src/model/DoFStorage.hh"
 #include "src/model/DoF.hh"       // Legacy — kept for transition (see DoFStorage.hh)
 #include "src/model/NodeSelector.hh"
+#include "src/model/ModelCheckpoint.hh"
 #include "src/model/ModelState.hh"
 #include "src/model/Model.hh"
 #include "src/model/ModelBuilder.hh"
@@ -215,6 +216,9 @@
 
 // --- Multiscale coordinator (Phase 5) ---
 #include "src/analysis/MultiscaleCoordinator.hh"
+#include "src/analysis/MultiscaleTypes.hh"
+#include "src/analysis/MicroSolveExecutor.hh"
+#include "src/analysis/BeamMacroBridge.hh"
 #include "src/analysis/CouplingStrategy.hh"
 #include "src/analysis/MultiscaleModel.hh"
 #include "src/analysis/MultiscaleAnalysis.hh"

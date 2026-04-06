@@ -32,6 +32,7 @@
 
 #include <concepts>
 #include <petsc.h>
+#include <type_traits>
 
 #include "StepDirector.hh"
 
@@ -47,6 +48,28 @@ concept SteppableSolver = requires(S& solver, const S& csolver,
     { solver.step_n(n)       } -> std::same_as<StepVerdict>;
     { csolver.current_time() } -> std::convertible_to<double>;
     { csolver.current_step() } -> std::convertible_to<PetscInt>;
+};
+
+template <typename S>
+concept CheckpointableSteppableSolver =
+    SteppableSolver<S> &&
+    requires(
+        S& solver,
+        const S& csolver,
+        const typename std::remove_cvref_t<S>::checkpoint_type& checkpoint)
+{
+    typename std::remove_cvref_t<S>::checkpoint_type;
+    { csolver.capture_checkpoint() }
+        -> std::same_as<typename std::remove_cvref_t<S>::checkpoint_type>;
+    { solver.restore_checkpoint(checkpoint) } -> std::same_as<void>;
+};
+
+template <typename S>
+concept TrialControllableSolver =
+    requires(S& solver, bool enabled)
+{
+    { solver.set_auto_commit(enabled) } -> std::same_as<void>;
+    { solver.commit_trial_state() } -> std::same_as<void>;
 };
 
 

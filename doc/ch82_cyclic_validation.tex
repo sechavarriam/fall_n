@@ -6,6 +6,11 @@
 \chapter{Progressive Cyclic Validation of the FE² Pipeline}
 \label{ch:cyclic-validation}
 
+\paragraph{Normative status.}
+This chapter remains an application and validation record.  The authoritative
+definition of the current coupling modes and public multiscale contracts is
+Chapter~\ref{ch:multiscale-publication-audit}.
+
 This chapter documents a progressive validation suite for the
 nonlinear analysis and FE² multiscale pipeline.  Seven cases of
 increasing complexity are solved under a common cyclic displacement
@@ -588,10 +593,10 @@ indistinguishable.
 \label{sec:cyclic-case5}
 
 Identical to Case~4 in geometry and loading, but the coupling
-strategy is upgraded to \texttt{TwoWayStaggered} with a maximum of
-3~staggered iterations per global step, Frobenius-norm convergence
-with tolerance $\varepsilon_{\text{stag}} = 0.05$, and constant
-relaxation $\omega = 0.8$.
+strategy is upgraded to \texttt{IteratedTwoWayFE2} with a maximum of
+3 fixed-point iterations per global step, force-and-tangent
+convergence with tolerance $\varepsilon_{\text{stag}} = 0.05$, and
+constant relaxation $\omega = 0.8$.
 
 In the original v1~protocol ($\{1,2,4,8\}\delta_y$, max 80\,mm),
 \textbf{Case~5 was aborted at step~2}: the sub-model SNES diverged

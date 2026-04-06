@@ -124,50 +124,49 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(fall_n_seismic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+# ==============================================================================
+# ============== Public Multiscale API target ==================================
+# ==============================================================================
+
+add_library(fall_n_multiscale_api INTERFACE)
+add_library(fall_n::multiscale_api ALIAS fall_n_multiscale_api)
+
+target_include_directories(fall_n_multiscale_api INTERFACE ${CMAKE_SOURCE_DIR})
+target_compile_definitions(fall_n_multiscale_api INTERFACE
+  FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(fall_n_multiscale_api INTERFACE
+  MPI::MPI_CXX
+  PkgConfig::PETSC
+  Eigen3::Eigen
+  ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(fall_n_multiscale_api INTERFACE OpenMP::OpenMP_CXX)
+endif()
+
+function(fall_n_use_multiscale_api target_name)
+  target_link_libraries(${target_name} PUBLIC fall_n::multiscale_api)
+  target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR})
+  vtk_module_autoinit(TARGETS ${target_name} MODULES ${VTK_LIBRARIES})
+endfunction()
+
 # ── Seismic executable links (same as fall_n) ────────────────────────────────
 target_link_libraries(fall_n_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
 vtk_module_autoinit(TARGETS fall_n_seismic MODULES ${VTK_LIBRARIES})
 target_include_directories(fall_n_seismic PRIVATE ${CMAKE_SOURCE_DIR})
 
 # ── Multiscale example (same library tier as fall_n_seismic) ─────────────────
-target_link_libraries(fall_n_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_multiscale MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_multiscale PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_multiscale)
 
 # ── Seismic multiscale example (fiber sections + Japan 2011) ─────────────────
-target_link_libraries(fall_n_multiscale_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_multiscale_seismic MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_multiscale_seismic PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(fall_n_multiscale_seismic PRIVATE
-    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_multiscale_seismic PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_multiscale_seismic)
 
 # ── L-shaped building multiscale seismic (3-component, Hex20, nonlinear) ─────
 add_executable(fall_n_lshaped_multiscale main_lshaped_multiscale.cpp)
-target_link_libraries(fall_n_lshaped_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_lshaped_multiscale MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_lshaped_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(fall_n_lshaped_multiscale PRIVATE
-    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_lshaped_multiscale PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_lshaped_multiscale)
 
 # ── L-shaped 16-story building, height-irregular, multiscale FE² ──────────────
 add_executable(fall_n_lshaped_multiscale_16 main_lshaped_multiscale_16storey.cpp)
-target_link_libraries(fall_n_lshaped_multiscale_16 PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_lshaped_multiscale_16 MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_lshaped_multiscale_16 PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(fall_n_lshaped_multiscale_16 PRIVATE
-    FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(fall_n_lshaped_multiscale_16 PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_lshaped_multiscale_16)
 
 # ── L-shaped RC building, bidirectional seismic, reinforced multiscale ────────
 add_executable(fall_n_lshaped_rc main_lshaped_rc.cpp)
@@ -193,25 +192,11 @@ endif()
 
 # ── 4-legged table, MITC16 shell slab, multiscale FE² + embedded rebar ───────
 add_executable(fall_n_table_multiscale main_table_multiscale.cpp)
-target_link_libraries(fall_n_table_multiscale PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_table_multiscale MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_table_multiscale PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(fall_n_table_multiscale PRIVATE
-        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(fall_n_table_multiscale PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_table_multiscale)
 
 # ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
 add_executable(fall_n_table_cyclic_validation main_table_cyclic_validation.cpp)
-target_link_libraries(fall_n_table_cyclic_validation PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
-vtk_module_autoinit(TARGETS fall_n_table_cyclic_validation MODULES ${VTK_LIBRARIES})
-target_include_directories(fall_n_table_cyclic_validation PRIVATE ${CMAKE_SOURCE_DIR})
-target_compile_definitions(fall_n_table_cyclic_validation PRIVATE
-        FALL_N_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(fall_n_table_cyclic_validation PUBLIC OpenMP::OpenMP_CXX)
-endif()
+fall_n_use_multiscale_api(fall_n_table_cyclic_validation)
 
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
@@ -355,6 +340,14 @@ fall_n_add_test(TARGET fall_n_field_transfer_test
 fall_n_add_test(TARGET fall_n_multiscale_coordinator_test
     NAME multiscale_coordinator  SOURCE tests/test_multiscale_coordinator.cpp
     LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_multiscale_api_test
+    NAME multiscale_analysis_api  SOURCE tests/test_multiscale_analysis_api.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_micro_solve_executor_test
+    NAME micro_solve_executor  SOURCE tests/test_micro_solve_executor.cpp
+    LIBS CORE  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_strategy_test
     NAME material_strategy  SOURCE tests/test_material_strategy.cpp

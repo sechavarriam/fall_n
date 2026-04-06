@@ -37,6 +37,7 @@
 #include <petsc.h>
 
 #include "../analysis/MultiscaleCoordinator.hh"
+#include "../analysis/MultiscaleTypes.hh"
 #include "../analysis/NLAnalysis.hh"
 #include "../analysis/PenaltyCoupling.hh"
 
@@ -165,6 +166,7 @@ class NonlinearSubModelEvolver {
     std::string  output_dir_;
     int          vtk_interval_;
     int          step_count_{0};
+    bool         auto_commit_{true};
 
     //  Crack history 
     std::vector<CrackRecord> latest_cracks_;
@@ -190,6 +192,9 @@ class NonlinearSubModelEvolver {
     int    snes_max_it_{50};
     double snes_atol_{1e-6};
     double snes_rtol_{1e-2};
+    RegularizationPolicyKind regularization_policy_{
+        RegularizationPolicyKind::DiagonalFloor};
+    double diagonal_floor_{1.0};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
 
 
@@ -420,6 +425,7 @@ public:
         , output_dir_{std::move(o.output_dir_)}
         , vtk_interval_{o.vtk_interval_}
         , step_count_{o.step_count_}
+        , auto_commit_{o.auto_commit_}
         , latest_cracks_{std::move(o.latest_cracks_)}
         , first_step_increments_{o.first_step_increments_}
         , first_step_bisect_{o.first_step_bisect_}
@@ -432,6 +438,8 @@ public:
         , snes_max_it_{o.snes_max_it_}
         , snes_atol_{o.snes_atol_}
         , snes_rtol_{o.snes_rtol_}
+        , regularization_policy_{o.regularization_policy_}
+        , diagonal_floor_{o.diagonal_floor_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
     {
         ctx_ = {model_.get(), f_ext_,
@@ -459,6 +467,7 @@ public:
             output_dir_ = std::move(o.output_dir_);
             vtk_interval_ = o.vtk_interval_;
             step_count_    = o.step_count_;
+            auto_commit_   = o.auto_commit_;
             latest_cracks_ = std::move(o.latest_cracks_);
             first_step_increments_ = o.first_step_increments_;
             first_step_bisect_     = o.first_step_bisect_;
@@ -471,12 +480,24 @@ public:
             snes_max_it_             = o.snes_max_it_;
             snes_atol_               = o.snes_atol_;
             snes_rtol_               = o.snes_rtol_;
+            regularization_policy_   = o.regularization_policy_;
+            diagonal_floor_          = o.diagonal_floor_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             ctx_ = {model_.get(), f_ext_,
                     &penalty_couplings_, alpha_penalty_};
         }
         return *this;
     }
+
+    struct SolverCheckpoint {
+        petsc::OwnedVec displacement{};
+        petsc::OwnedVec imposed_solution{};
+        SectionKinematics kin_A{};
+        SectionKinematics kin_B{};
+        bool model_initialized{false};
+    };
+
+    using checkpoint_type = SolverCheckpoint;
 
 
     //  Configuration 
@@ -511,6 +532,71 @@ public:
         snes_max_it_ = max_it;
         snes_atol_   = atol;
         snes_rtol_   = rtol;
+    }
+
+    void set_auto_commit(bool enabled) noexcept { auto_commit_ = enabled; }
+    [[nodiscard]] bool auto_commit() const noexcept { return auto_commit_; }
+
+    void set_regularization_policy(
+        RegularizationPolicyKind policy,
+        double diagonal_floor = 1.0) noexcept
+    {
+        regularization_policy_ = policy;
+        diagonal_floor_ = diagonal_floor;
+    }
+
+    void commit_trial_state() {
+        commit_state();
+    }
+
+    [[nodiscard]] checkpoint_type capture_checkpoint() const {
+        checkpoint_type checkpoint;
+        checkpoint.kin_A = sub_->kin_A;
+        checkpoint.kin_B = sub_->kin_B;
+        checkpoint.model_initialized = model_ready_;
+
+        if (model_ready_ && U_ && model_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(U_,
+                                            checkpoint.displacement.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(U_,
+                                       checkpoint.displacement.get()));
+            FALL_N_PETSC_CHECK(VecDuplicate(model_->imposed_solution(),
+                                            checkpoint.imposed_solution.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(model_->imposed_solution(),
+                                       checkpoint.imposed_solution.get()));
+        }
+
+        return checkpoint;
+    }
+
+    void restore_checkpoint(const checkpoint_type& checkpoint) {
+        sub_->kin_A = checkpoint.kin_A;
+        sub_->kin_B = checkpoint.kin_B;
+        sub_->bc_min_z = compute_boundary_displacements(
+            sub_->kin_A, sub_->domain, sub_->face_min_z_ids);
+        sub_->bc_max_z = compute_boundary_displacements(
+            sub_->kin_B, sub_->domain, sub_->face_max_z_ids);
+
+        if (!model_ || !U_) {
+            return;
+        }
+
+        revert_state();
+
+        if (checkpoint.displacement) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.displacement.get(), U_));
+        } else {
+            FALL_N_PETSC_CHECK(VecSet(U_, 0.0));
+        }
+
+        if (checkpoint.imposed_solution) {
+            FALL_N_PETSC_CHECK(VecCopy(checkpoint.imposed_solution.get(),
+                                       model_->imposed_solution()));
+        } else {
+            write_imposed_values();
+        }
+
+        sync_state_vector_();
     }
 
 
@@ -866,20 +952,28 @@ public:
             kin_B_orig, sub_->domain, sub_->face_max_z_ids);
         write_imposed_values();
 
-        // ── Symmetrise & regularise ──────────────────────────────────
-        //
-        //  Ko-Bathe's secant tangent can produce slightly asymmetric
-        //  D_hom columns.  A minor asymmetry in the 6×6 is tolerable,
-        //  but the macro Newton–Raphson requires a usable Jacobian.
-        //  We symmetrise and ensure diagonal dominance as a safeguard.
         D_hom = 0.5 * (D_hom + D_hom.transpose());
 
-        // If any diagonal entry is non-positive (cracking zeroed a
-        // column or produced a negative pivot), clamp it to a small
-        // positive stiffness so the macro Newton can still proceed.
-        for (int j = 0; j < 6; ++j) {
-            if (D_hom(j, j) <= 0.0)
-                D_hom(j, j) = 1.0;  // minimal stiffness (Pa·m² order)
+        if (regularization_policy_ == RegularizationPolicyKind::SPDProjection) {
+            Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig{
+                D_hom};
+            if (eig.info() == Eigen::Success) {
+                auto evals = eig.eigenvalues();
+                for (int i = 0; i < evals.size(); ++i) {
+                    evals[i] = std::max(evals[i], diagonal_floor_);
+                }
+                D_hom = eig.eigenvectors()
+                      * evals.asDiagonal()
+                      * eig.eigenvectors().transpose();
+            }
+        } else if (regularization_policy_
+                == RegularizationPolicyKind::DiagonalFloor)
+        {
+            for (int j = 0; j < 6; ++j) {
+                if (D_hom(j, j) < diagonal_floor_) {
+                    D_hom(j, j) = diagonal_floor_;
+                }
+            }
         }
 
         return D_hom;
@@ -890,12 +984,19 @@ public:
     //  Homogenised section forces from current sub-model state
     // ═══════════════════════════════════════════════════════════════════
     //
-    //  Returns a 6-component vector [N, My, Mz, Vy, Vz, Mt] obtained
-    //  from the HomogenizedBeamSection (uniform-stress integration).
-    //  This can be injected into the beam element via set_homogenized_forces().
+    //  Returns a 6-component vector [N, My, Mz, Vy, Vz, Mt] from the
+    //  boundary-reaction operator, keeping forces consistent with the
+    //  tangent extracted from the same physical quantity.
 
     [[nodiscard]] Eigen::Vector<double, 6>
-    compute_homogenized_forces(double width, double height) {
+    compute_homogenized_forces([[maybe_unused]] double width,
+                               [[maybe_unused]] double height) {
+        if (!model_ready_) return Eigen::Vector<double, 6>::Zero();
+        return section_forces_from_reactions();
+    }
+
+    [[nodiscard]] Eigen::Vector<double, 6>
+    compute_volume_average_forces(double width, double height) {
         if (!model_ready_) return Eigen::Vector<double, 6>::Zero();
 
         SubModelSolverResult result = extract_results(true);
@@ -919,6 +1020,46 @@ public:
     [[nodiscard]] Eigen::Vector<double, 6>
     section_forces(double width, double height) {
         return compute_homogenized_forces(width, height);
+    }
+
+    [[nodiscard]] SectionHomogenizedResponse
+    section_response(double width, double height, double h_pert = 1.0e-6) {
+        SectionHomogenizedResponse response;
+        response.operator_used = HomogenizationOperator::BoundaryReaction;
+        response.regularization = regularization_policy_;
+        response.diagonal_floor = diagonal_floor_;
+
+        if (!model_ready_) {
+            response.status = ResponseStatus::NotReady;
+            return response;
+        }
+
+        response.forces = compute_homogenized_forces(width, height);
+        response.tangent = compute_homogenized_tangent(width, height, h_pert);
+        response.tangent_symmetry_error =
+            (response.tangent - response.tangent.transpose()).norm();
+        response.tangent_regularized =
+            (regularization_policy_ != RegularizationPolicyKind::None);
+        response.status =
+            (response.tangent.norm() > 0.0 || response.forces.norm() > 0.0)
+            ? ResponseStatus::Ok
+            : ResponseStatus::SolveFailed;
+        return response;
+    }
+
+    void sync_state_vector_() {
+        if (!model_ || !U_) return;
+
+        DM dm = model_->get_plex();
+
+        Vec u_local;
+        DMGetLocalVector(dm, &u_local);
+        VecSet(u_local, 0.0);
+        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
+        VecAXPY(u_local, 1.0, model_->imposed_solution());
+
+        VecCopy(u_local, model_->state_vector());
+        DMRestoreLocalVector(dm, &u_local);
     }
 
     void commit_state() {
@@ -1183,6 +1324,25 @@ private:
         // 3. Set up persistent SNES + allocate U, R, J
         setup_snes();
 
+        if (!auto_commit_) {
+            SNESSolve(snes_, nullptr, U_);
+
+            SNESConvergedReason reason;
+            SNESGetConvergedReason(snes_, &reason);
+
+            const bool converged = (reason > 0);
+            if (converged) {
+                sync_state_vector_();
+            } else {
+                revert_state();
+                VecSet(U_, 0.0);
+                sync_state_vector_();
+            }
+
+            model_ready_ = true;
+            return extract_results(converged);
+        }
+
         // 4. Save target imposed values, then do incremental loading
         Vec target;
         VecDuplicate(model_->imposed_solution(), &target);
@@ -1223,7 +1383,10 @@ private:
                          k, N, p, static_cast<int>(reason), nits, fnorm);
 
             if (reason > 0) {
-                commit_state();
+                if (auto_commit_)
+                    commit_state();
+                else
+                    sync_state_vector_();
             } else {
                 revert_state();
                 converged = false;
@@ -1247,7 +1410,7 @@ private:
     //  sub-step is solved by Newton; on failure the step size is bisected.
 
     SubModelSolverResult subsequent_solve() {
-        if (use_arc_length_)
+        if (use_arc_length_ && auto_commit_)
             return subsequent_solve_adaptive();
 
         // ── Standard path: full-step SNES ────────────────────────────
@@ -1268,7 +1431,10 @@ private:
 
         bool converged = (reason > 0);
         if (converged) {
-            commit_state();
+            if (auto_commit_)
+                commit_state();
+            else
+                sync_state_vector_();
             consecutive_divergences_ = 0;
         } else {
             VecCopy(U_work_, U_);                          // restore displacement vector
