@@ -154,10 +154,15 @@ def main():
     # Case 2: Continuum comparison
     plot_group(
         base,
-        case_ids=["0", "2a"],
-        labels=["Case 0: Elastic reference", "Case 2a: Hex8 (no rebar)"],
-        colors=["#7f7f7f", "#d62728"],
-        title="Continuum column: Hex8 vs elastic reference",
+        case_ids=["0", "2a", "2b", "2c"],
+        labels=[
+            "Case 0: Elastic reference",
+            "Case 2a: Hex8 (reinforced)",
+            "Case 2b: Hex20 (reinforced)",
+            "Case 2c: Hex27 (reinforced)",
+        ],
+        colors=["#7f7f7f", "#d62728", "#9467bd", "#8c564b"],
+        title="Reinforced continuum column: hex order comparison",
         filename="comparison_continuum.pdf")
 
     # Case 3/4/5: Structural vs FE² comparison
@@ -176,14 +181,17 @@ def main():
     # All cases overlay (split by scale)
     plot_group(
         base,
-        case_ids=["0", "1a", "1b", "1c", "1d", "2a"],
+        case_ids=["0", "1a", "1b", "1c", "1d", "2a", "2b", "2c"],
         labels=[
             "0: Elastic", "1a: Beam N=2", "1b: Beam N=3",
-            "1c: Beam N=4", "1d: Beam N=5", "2a: Hex8",
+            "1c: Beam N=4", "1d: Beam N=5",
+            "2a: Hex8 (reinforced)", "2b: Hex20 (reinforced)",
+            "2c: Hex27 (reinforced)",
         ],
         colors=[
             "#7f7f7f", "#1f77b4", "#ff7f0e",
-            "#2ca02c", "#d62728", "#9467bd",
+            "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+            "#e377c2",
         ],
         title="Single-column cases comparison",
         filename="comparison_all.pdf")

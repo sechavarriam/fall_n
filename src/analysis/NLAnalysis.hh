@@ -104,11 +104,23 @@ class NonlinearAnalysis {
     bool          incremental_active_{false};
     fall_n::StepDirector<ModelT> director_{};
 
+    // ─── Penalty coupling hooks (optional) ────────────────────────
+    //  Called after standard element assembly in FormResidual / FormJacobian
+    //  to inject additional coupling terms (e.g. penalty rebar coupling).
+    //    residual_hook_(u_local, f_int_local, dm)
+    //    jacobian_hook_(u_local, J_mat, dm)
+    using ResidualHook = std::function<void(Vec, Vec, DM)>;
+    using JacobianHook = std::function<void(Vec, Mat, DM)>;
+    ResidualHook residual_hook_{};
+    JacobianHook jacobian_hook_{};
+
     // ─── SNES callback context ────────────────────────────────────
 
     struct Context {
         ModelT* model;
         Vec     f_ext;
+        ResidualHook* residual_hook;
+        JacobianHook* jacobian_hook;
     } ctx_{};
 
     // ─── SNES callback: Residual  R(u) = f_int(u) − f_ext ────────
@@ -172,6 +184,10 @@ class NonlinearAnalysis {
                 element.compute_internal_forces(u_local, f_int_local);
             }
         }
+
+        // Penalty coupling hook (e.g. embedded rebar)
+        if (ctx->residual_hook && *ctx->residual_hook)
+            (*ctx->residual_hook)(u_local, f_int_local, dm);
 
         // Scatter local f_int → global residual
         VecSet(R_out, 0.0);
@@ -244,6 +260,10 @@ class NonlinearAnalysis {
             }
         }
 
+        // Penalty coupling hook (e.g. embedded rebar)
+        if (ctx->jacobian_hook && *ctx->jacobian_hook)
+            (*ctx->jacobian_hook)(u_local, J_mat, dm);
+
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd(J_mat, MAT_FINAL_ASSEMBLY);
 
@@ -298,6 +318,10 @@ public:
     /// Signature: void(int step, double lambda, const ModelT& model).
     void set_step_callback(StepCallback cb) { step_callback_ = std::move(cb); }
 
+    /// Register penalty coupling hooks called after standard element assembly.
+    void set_residual_hook(ResidualHook hook) { residual_hook_ = std::move(hook); }
+    void set_jacobian_hook(JacobianHook hook) { jacobian_hook_ = std::move(hook); }
+
     /// Register a structured observer (start/step/end lifecycle).
     /// Accepts any observer-like object (CompositeObserver, DynamicObserverList, etc.)
     template <typename Obs>
@@ -344,7 +368,7 @@ public:
         VecSet(f_ext, 0.0);
         DMLocalToGlobal(dm, model_->force_vector(), ADD_VALUES, f_ext);
 
-        ctx_ = {model_, f_ext};
+        ctx_ = {model_, f_ext, &residual_hook_, &jacobian_hook_};
 
         SNESSetFunction(snes_, R_vec, FormResidual, &ctx_);
         SNESSetJacobian(snes_, J, J, FormJacobian, &ctx_);

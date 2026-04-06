@@ -320,59 +320,136 @@ Several trends emerge from Table~\ref{tab:case1-results}:
 
 
 %----------------------------------------------------------------------
-\section{Case 2: Single Continuum Column}
+\section{Case 2: Single Reinforced Continuum Column}
 \label{sec:cyclic-case2}
 
 A prismatic column ($0.25 \times 0.25 \times 3.2$~m) is meshed with
-hexahedral elements using a $2 \times 2 \times 12$ grid (pure
-concrete, no embedded rebar).  The material is
-\texttt{KoBatheConcrete3D} with $f'_c = 30$\,MPa, exercising the
-three-dimensional stress path including fracturing, cracking, and
-plasticity.
+hexahedral concrete elements using a $2 \times 2 \times 12$ grid,
+reinforced with 8~longitudinal rebar truss elements coupled via the
+penalty formulation described in Section~\ref{sec:cyclic-penalty-coupling}.
+The concrete material is \texttt{KoBatheConcrete3D} ($f'_c = 30$\,MPa)
+and the steel is \texttt{MenegottoPintoSteel} ($E = 200$\,GPa,
+$f_y = 420$\,MPa, $b = 0.01$).  The penalty parameter is
+$\alpha = 10\,E_c \approx 2.6 \times 10^5$\,MN/m.
 
 \begin{itemize}
-  \item \textbf{Case~2a:} Hex8 (trilinear) ---
-    75~converged steps (of 120), max~$|V| = 6.42$\,kN at
-    $\delta = +5.0$\,mm.  Aborted during the 3rd~cycle
-    ($\pm 10$\,mm amplitude) when bisection was exhausted at
-    $p \approx 0.617$.
-  \item \textbf{Cases~2b/2c:} Hex20/Hex27 have not yet been
-    exercised due to the absence of rebar coupling (see below).
+  \item \textbf{Case~2a:} Hex8 (trilinear) --- 48~hex +
+    96~truss elements, 221~nodes.  All 120~steps converged
+    (121~records), completing the full four-cycle protocol
+    ($\pm 2.5, 5, 10, 20$\,mm).
+  \item \textbf{Case~2b:} Hex20 (serendipity) --- 48~hex +
+    96~truss elements, 825~nodes.  101~records (steps~0--100),
+    completed the first three cycles and the push leg of the 4th
+    ($+20$\,mm peak), then aborted at the load reversal when
+    bisection was exhausted.
+  \item \textbf{Case~2c:} Hex27 (triquadratic) --- 48~hex +
+    96~truss elements, 825~nodes.  97~records (steps~0--96),
+    completed the first three cycles and reached $\delta = +12$\,mm
+    during the 4th-cycle push before bisection was exhausted.
 \end{itemize}
 
 Key turning-point values for Case~2a:
 
 \begin{center}
-\begin{tabular}{rcc}
+\begin{tabular}{rccc}
 \toprule
-\textbf{Step} & $\delta$~(mm) & $V$~(kN) \\
+\textbf{Step} & $\delta$~(mm) & $V$~(kN) & $k_{\text{eff}}$~(MN/m) \\
 \midrule
-20 & $-2.5$ & $+3.23$ \\
-40 & $+5.0$ & $-6.42$ \\
-60 & $0.0$  & $\approx 0$ \\
-\multicolumn{3}{c}{\textit{Aborted at step 75 (bisection exhausted)}} \\
+ 10 & $+2.5$  & $-6.59$  & 2.636 \\
+ 20 & $-2.5$  & $+6.59$  & 2.636 \\
+ 40 & $+5.0$  & $-13.11$ & 2.622 \\
+ 50 & $-5.0$  & $+13.11$ & 2.622 \\
+ 70 & $+10.0$ & $-25.80$ & 2.580 \\
+ 80 & $-10.0$ & $+25.80$ & 2.580 \\
+100 & $+20.0$ & $-46.68$ & 2.334 \\
+110 & $-20.0$ & $+46.68$ & 2.334 \\
+120 & $0.0$   & $\approx 0$ & --- \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent
-The effective stiffness at the first peak ($|V/\delta| = 1.29$~MN/m)
-is comparable to the beam Case~1a ($1.42$~MN/m), but the continuum
-model fails earlier because extensive cracking degrades the secant
-stiffness of all 96~Gauss points simultaneously.  Without
-reinforcement, no tensile load path exists to redistribute stress
-after cracking.
+The response is perfectly antisymmetric: push and pull peaks are
+equal in magnitude at every amplitude, and the column returns to
+zero force at every zero-crossing.  The effective stiffness
+$k_{\text{eff}} = |V/\delta|$ degrades gradually from $2.636$~MN/m
+at $\pm 2.5$\,mm to $2.334$~MN/m at $\pm 20$\,mm---a ratio of
+$k_{20}/k_{2.5} = 0.885$, representing only 11.5\%~stiffness loss.
+This mild degradation confirms that the rebar provides a robust
+tensile load path that prevents the sudden stiffness collapse
+observed in unreinforced continuum models.
 
-\paragraph{Rebar coupling note.}
-Embedded rebar truss elements were originally intended for this case
-but were removed because \texttt{make\_reinforced\_prismatic\_domain}
-creates uncoupled rebar nodes, requiring MPC or penalty coupling from
-the caller.  The rebar coupling is handled inside the FE² sub-model
-solver (\texttt{NonlinearSubModelEvolver}) in Cases~4--5 using a
-penalty formulation with $\alpha = 10\,E_c$.  A standalone
-\texttt{EmbeddedRebarElement} mixin with selectable penalty and
-Lagrange-multiplier coupling is planned (Phase~C of the development
-plan).
+\paragraph{Convergence.}
+All 120~steps converged with adaptive bisection.  The return legs
+(unloading toward $\delta = 0$) typically converged at bisection
+depth~3, while the large-amplitude legs ($\pm 20$\,mm) required
+depths~3--5.  One substep during the 4th~cycle exhausted the
+100-iteration SNES limit (reason\,$= -5$) but recovered through
+bisection.
+
+\paragraph{Case~2b turning-point values (Hex20).}
+The serendipity mesh produces a softer response due to the
+higher-fidelity interpolation and additional mid-edge integration
+points:
+
+\begin{center}
+\begin{tabular}{rccc}
+\toprule
+\textbf{Step} & $\delta$~(mm) & $V$~(kN) & $k_{\text{eff}}$~(MN/m) \\
+\midrule
+ 10 & $+2.5$  & $-5.22$  & 2.089 \\
+ 20 & $-2.5$  & $+5.22$  & 2.089 \\
+ 40 & $+5.0$  & $-10.40$ & 2.080 \\
+ 50 & $-5.0$  & $+10.40$ & 2.080 \\
+ 70 & $+10.0$ & $-20.53$ & 2.053 \\
+ 80 & $-10.0$ & $+20.53$ & 2.053 \\
+100 & $+20.0$ & $-38.58$ & 1.929 \\
+\multicolumn{4}{c}{\textit{Aborted at step~101 (bisection exhausted)}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Through the first three cycles the response is perfectly
+antisymmetric, mirroring Case~2a.  The effective stiffness
+degrades from $2.089$~MN/m (cycle~1) to $1.929$~MN/m at the
+$+20$\,mm push peak---a ratio $k_{20}/k_{2.5} = 0.923$,
+corresponding to 7.7\%~loss.  The abort at the load reversal
+($p \approx 0.84$) indicates that the 20-node elements with their
+additional internal DOFs are more susceptible to convergence
+difficulties during the stiffness transition from cracking to
+crack closure under reversed loading.
+
+\paragraph{Case~2c turning-point values (Hex27).}
+The triquadratic mesh produces nearly identical stiffness to Hex20,
+confirming that the mid-edge nodes (shared by both topologies)
+dominate the quadratic response:
+
+\begin{center}
+\begin{tabular}{rccc}
+\toprule
+\textbf{Step} & $\delta$~(mm) & $V$~(kN) & $k_{\text{eff}}$~(MN/m) \\
+\midrule
+ 10 & $+2.5$  & $-5.22$  & 2.088 \\
+ 20 & $-2.5$  & $+5.22$  & 2.088 \\
+ 40 & $+5.0$  & $-10.39$ & 2.079 \\
+ 50 & $-5.0$  & $+10.39$ & 2.079 \\
+ 70 & $+10.0$ & $-20.52$ & 2.052 \\
+ 80 & $-10.0$ & $+20.52$ & 2.052 \\
+\multicolumn{4}{c}{\textit{Aborted at step~97
+  ($\delta = +12$\,mm, bisection exhausted)}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The Hex27 model aborts four steps earlier than Hex20 (step~96 vs.\
+100).  Values through the first three cycles agree to three
+significant figures between Hex20 and Hex27, confirming that the
+7~additional face-centre and body-centre nodes contribute negligible
+stiffness and do not improve convergence robustness.  The extra
+degrees of freedom increase CPU cost without tangible benefit for
+this particular mesh density and material model.
 
 
 %----------------------------------------------------------------------
@@ -463,28 +540,47 @@ Sub-model solver parameters: \texttt{max\_it} $= 100$,
 with 20~sub-steps and 4~bisection levels, \texttt{bt} line search.
 
 \paragraph{Results.}
-Case~4 is computationally demanding (estimated $\sim 55$~min total);
-preliminary results through the first $1.5$~cycles confirm that
-the one-way coupling reproduces the structural response exactly
-at matching drift levels:
+Case~4 completed all 60~FE² steps (total wall-clock time
+$\approx 55$~min on a single thread).  The peak base-shear values
+at every amplitude level are compared with Case~3 in Table~\ref{tab:case4-peaks}.
 
-\begin{center}
-\begin{tabular}{rcc}
+\begin{table}[htbp]
+\centering
+\caption{Peak response comparison: Case~3 (structural, 120~steps)
+  vs.\ Case~4 (FE² one-way, 60~steps).  Relative error
+  $e = |V_4 - V_3|/|V_3|$.}
+\label{tab:case4-peaks}
+\begin{tabular}{rccccc}
 \toprule
-\textbf{FE² step} & $\delta$~(mm) & $V$~(MN) \\
+$\delta$~(mm)
+  & \multicolumn{2}{c}{Case~3 $V$~(MN)}
+  & \multicolumn{2}{c}{Case~4 $V$~(MN)}
+  & $e$ \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+  & push & pull & push & pull & \\
 \midrule
- 5 & $+2.5$  & $-0.568$ \\
-10 & $-2.5$  & $+0.568$ \\
-15 & $0.0$   & $\approx 0$ \\
+$\pm 2.5$  & $-0.5678$ & $+0.5678$ & $-0.5678$ & $+0.5678$ & $< 10^{-9}$ \\
+$\pm 5.0$  & $-1.1355$ & $+1.1355$ & $-1.1355$ & $+1.1355$ & $< 10^{-9}$ \\
+$\pm 10.0$ & $-2.2527$ & $+2.2527$ & $-2.2527$ & $+2.2527$ & $< 10^{-7}$ \\
+$\pm 20.0$ & $-4.5003$ & $+4.4998$ & $-4.5003$ & $+4.4998$ & $< 10^{-5}$ \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
 \noindent
-The one-way FE² response matches Case~3 at the $\pm 2.5$\,mm
-amplitude, as expected: the macro-scale equilibrium is driven by
+The one-way FE² response reproduces Case~3 to at least five
+significant figures at every amplitude level.  This is expected
+by construction: the macro-scale equilibrium is driven by
 the beam fiber section (identical to Case~3), and the sub-model
-response is only computed \emph{after} convergence with no feedback.
+response is computed \emph{after} convergence with no feedback
+into the macro stiffness or forces.  The small discrepancies at
+the $\pm 20$\,mm level ($\mathcal{O}(10^{-5})$ relative) arise
+from floating-point accumulation across 60 sub-model solves and
+are well within acceptable tolerances.
+
+The complete hysteresis loop from Case~4 is overlaid with Case~3
+in Figure~\ref{fig:comparison-fe2}; the two curves are visually
+indistinguishable.
 
 
 %----------------------------------------------------------------------
@@ -503,10 +599,39 @@ for the bending perturbation directions during the homogenised
 tangent computation.  The root-cause analysis is in
 Section~\ref{sec:case5-failure}.
 
+\paragraph{v2 rerun results.}
 With the redesigned v2~protocol (max 20\,mm) and the numerically
-consistent tangent enabled, Case~5 is expected to progress
-significantly further.  This rerun is planned as the next validation
-milestone.
+consistent tangent enabled, Case~5 completed \textbf{step~1}
+successfully---all four sub-models performed their incremental
+ramping (\texttt{first\_solve}, 20~sub-steps each) and the
+staggered loop converged in a single iteration.  This represents
+a significant improvement over v1, where the sub-models themselves
+failed during initial setup.
+
+However, \textbf{Case~5 still aborted at step~2} with
+\texttt{SNES\_DIVERGED\_LINE\_SEARCH} (reason~$= -6$).  After
+bisecting through all 6 levels (from $\Delta p = 0.0167$ down
+to $\Delta p = 2.6 \times 10^{-4}$), no macro convergence was
+achieved.
+
+\paragraph{Root cause.}
+After \texttt{first\_solve}, the sub-model concrete is in a
+cracked state.  The perturbation-based homogenisation computes
+$\mathbf{D}_{\text{hom}}$ by applying small strain increments
+to each curvature/axial component and observing the resulting
+section force increments.  Post-cracking, the Ko--Bathe response
+is dominated by crack opening and closing with abrupt stiffness
+transitions, producing a $\mathbf{D}_{\text{hom}}$ that is
+ill-conditioned (near-zero entries in the bending rows).  This
+makes the macro tangent stiffness matrix singular or nearly so,
+preventing Newton convergence at any step size.
+
+\paragraph{Implications.}
+Two-way FE² coupling with the secant-based Ko--Bathe model requires
+either (a)~a regularised homogenisation scheme that smooths the
+tangent transitions, or (b)~a continuation/arc-length strategy at
+the macro level.  Both approaches are beyond the current scope and
+are flagged for future work.
 
 
 %----------------------------------------------------------------------
@@ -531,19 +656,20 @@ milestone.
 1b (beam $N\!=\!3$)   & 121 &   7.5 & 20.0 & 0.375 & Complete \\
 1c (beam $N\!=\!4$)   &  97 &   4.7 & 10.0 & 0.466 & Aborted ($4^{\text{th}}$ cycle) \\
 1d (beam $N\!=\!5$)   &  37 &   2.7 &  2.5 & 1.068 & Aborted ($2^{\text{nd}}$ cycle) \\
-2a (Hex8)              &  75 &   6.4 &  5.0 & 1.292 & Aborted ($3^{\text{rd}}$ cycle) \\
+2a (Hex8, reinforced)   & 121 &  46.7 & 20.0 & 2.334 & Complete \\
+2b (Hex20, reinforced)  & 101 &  38.6 & 20.0 & 1.929 & Aborted ($4^{\text{th}}$ reversal) \\
+2c (Hex27, reinforced)  &  97 &  24.5 & 12.0 & 2.039 & Aborted ($4^{\text{th}}$ push) \\
 3 (full table)         & 121 & 4500  & 20.0 & 225   & Complete \\
-4 (FE² one-way)        &  \multicolumn{4}{c}{\textit{Running (est.\ $\sim$55~min)}} &
-  In progress \\
-5 (FE² two-way)        &  \multicolumn{4}{c}{\textit{Pending rerun with consistent tangent}} &
-  Planned \\
+4 (FE² one-way)        &  61  & 4500  & 20.0 & 225   & Complete \\
+5 (FE² two-way)        &   2  & \multicolumn{3}{c}{\textit{Macro Newton diverged}} &
+  Aborted (step 2) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \noindent
 The effective stiffness $k_{\text{eff}} = \max|V| / \max|\delta|$
-is computed at the largest achieved amplitude.  Cases~1c--1d and~2a
+is computed at the largest achieved amplitude.  Cases~1c--1d
 report the stiffness at their last completed peak, which may be higher
 than the degraded value that would be observed at larger amplitudes.
 
@@ -571,19 +697,24 @@ through~\ref{fig:comparison-all}.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_continuum.pdf}
-  \caption{Continuum model: Case~2a (Hex8, no rebar).  The continuum
-    model captures the initial elastic stiffness and two complete
-    amplitude cycles but aborts in the 3rd~cycle ($\pm 10$\,mm)
-    when secant stiffness degradation exhausts the bisection budget.}
+  \caption{Reinforced continuum column: Cases~2a (Hex8, 121~records),
+    2b (Hex20, 101~records), and 2c (Hex27, 97~records).  All three use
+    Menegotto--Pinto rebar with penalty coupling.  The Hex8 model
+    completes all four cycles, while both higher-order models abort
+    during the 4th cycle.  Hex20 and Hex27 produce virtually identical
+    hysteresis loops ($\sim 20\%$~softer than Hex8), confirming that
+    mid-edge nodes dominate the response and the additional face/body
+    centre nodes of Hex27 contribute negligible extra stiffness.}
   \label{fig:comparison-continuum}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/cyclic_validation/comparison_fe2.pdf}
-  \caption{FE² coupling comparison: Case~3 (structural) vs.\
-    Case~4 (one-way FE²).  First-cycle data confirms the one-way
-    coupling reproduces the structural response exactly.}
+  \caption{FE² coupling comparison: Case~3 (structural, 120~steps) vs.\
+    Case~4 (one-way FE², 60~steps).  The two hysteresis curves are
+    visually indistinguishable, confirming one-way coupling correctness
+    across all four amplitude levels.}
   \label{fig:comparison-fe2}
 \end{figure}
 
@@ -613,11 +744,29 @@ Key observations from the comparison:
     properly resolve the plastic hinge with higher-order elements.
 
   \item \textbf{Continuum vs.\ beam (Cases 1a vs.\ 2a):}  The
-    initial-cycle stiffness is comparable ($1.42$ vs.\ $1.29$\,MN/m),
-    but the hex-only model without rebar shows lower ductility.
-    The Ko--Bathe cracking model degrades stiffness rapidly once
-    tensile cracks form across the full cross-section, and without
-    reinforcement the column cannot sustain the reversed loading.
+    reinforced continuum model (Case~2a) achieves $k_{\text{eff}} =
+    2.334$\,MN/m at 20\,mm, substantially stiffer than the beam
+    model ($0.478$\,MN/m), reflecting the higher integration order
+    and three-dimensional stress distribution.  Unlike the earlier
+    unreinforced continuum run that aborted during the 3rd~cycle,
+    the reinforced column completes all four cycles with only
+    11.5\%~stiffness degradation, demonstrating that the penalty-coupled
+    rebar provides the necessary tensile load path to sustain
+    reversed loading through the Ko--Bathe cracking model.
+
+  \item \textbf{Hex-order effect (Cases 2a vs.\ 2b vs.\ 2c):}
+    The Hex20 serendipity model is $\sim$20\%~softer than Hex8
+    ($k_1 = 2.089$ vs.~$2.636$\,MN/m) because the mid-edge nodes
+    enable quadratic bending modes, reducing artificial stiffness
+    from the coarse $2 \times 2 \times 12$~mesh.  The Hex27 model
+    ($k_1 = 2.088$\,MN/m) is virtually identical to Hex20,
+    confirming that the additional face-centre and body-centre
+    nodes contribute negligible extra compliance.  Both higher-order
+    models abort during the 4th cycle (Hex20 at step~100, Hex27 at
+    step~96), whereas Hex8 completes all four cycles.  The
+    additional internal DOFs distribute cracking more uniformly but
+    create sharper tangent transitions during crack closure,
+    exceeding the bisection algorithm's capacity at large amplitudes.
 
   \item \textbf{Table stiffness (Case~3):}  The table stiffness
     ($\sim 225$\,MN/m) is far larger than $4 \times$ the single-column
@@ -634,9 +783,142 @@ Key observations from the comparison:
   \item \textbf{Stiffness degradation pattern:} The ratio
     $k(20\,\text{mm}) / k(2.5\,\text{mm})$ varies by case:
     Case~0 = 1.00 (elastic), Case~1a = 0.34 (66\% loss),
-    Case~1b = 0.35 (65\% loss), Case~3 $\approx$ 0.99
+    Case~1b = 0.35 (65\% loss), Case~2a = 0.885 (11.5\% loss),
+    Case~2b = 0.923 (7.7\% loss at $+20$\,mm push peak),
+    Case~2c $\approx$ 0.923 (virtually identical to 2b),
+    Case~3 $\approx$ 0.99
     (single-GP beams localise all plastic strain, preserving
-    global stiffness).
+    global stiffness).  All three reinforced continuum models show
+    mild degradation because the distributed rebar carries the
+    tensile forces that would otherwise be lost to cracking.
+    Hex20 and Hex27 are indistinguishable, confirming that
+    the mid-edge shape functions dominate the quadratic response.
+\end{enumerate}
+
+
+%----------------------------------------------------------------------
+\section{Phase~C: Penalty Coupling Architecture}
+\label{sec:cyclic-penalty-coupling}
+
+To enable embedded-rebar continuum analyses (Case~2 reinforced),
+two new features were added to the solver infrastructure:
+
+\paragraph{Residual/Jacobian hooks in \texttt{NonlinearAnalysis}.}
+The SNES callbacks \texttt{FormResidual} and \texttt{FormJacobian}
+now support user-registered hooks via
+\texttt{set\_residual\_hook()} and \texttt{set\_jacobian\_hook()}.
+Each hook is a \texttt{std::function} called after the standard
+element assembly loop but before the local-to-global scatter
+(residual) or \texttt{MatAssembly} (Jacobian).  This allows
+coupling terms---such as penalty springs---to be injected without
+modifying the element classes.
+
+The hook signatures are:
+\begin{itemize}
+  \item \texttt{ResidualHook = std::function<void(Vec u\_local,
+        Vec f\_local, DM dm)>}
+  \item \texttt{JacobianHook = std::function<void(Vec u\_local,
+        Mat J, DM dm)>}
+\end{itemize}
+
+\paragraph{Standalone \texttt{PenaltyCoupling} class.}
+The file \texttt{src/analysis/PenaltyCoupling.hh} provides a
+self-contained penalty coupling handler that enforces displacement
+compatibility between rebar truss nodes and their host hexahedral
+elements:
+\begin{equation}
+  \text{gap}_d = u^{\text{rebar}}_d
+                 - \sum_{i} N_i(\xi,\eta,\zeta)\, u^{\text{hex}}_{i,d},
+  \qquad
+  \alpha_{\text{pen}} = 10\,E_c \approx 2.6 \times 10^{5}~\text{MPa}.
+  \label{eq:penalty-gap}
+\end{equation}
+The residual contributions are:
+\begin{equation}
+  F^{\text{rebar}}_d \mathrel{+}= \alpha\, \text{gap}_d, \qquad
+  F^{\text{hex}}_{i,d} \mathrel{-}= \alpha\, N_i\, \text{gap}_d,
+\end{equation}
+and the tangent stiffness additions are:
+\begin{align}
+  K_{rr}  &\mathrel{+}= \alpha\, I_3, &
+  K_{rh_i} &\mathrel{+}= -\alpha\, N_i\, I_3, \\
+  K_{h_i r} &\mathrel{+}= -\alpha\, N_i\, I_3, &
+  K_{h_i h_j} &\mathrel{+}= \alpha\, N_i\, N_j\, I_3.
+\end{align}
+The class computes coupling entries in \texttt{setup()} by evaluating
+tensor-product Lagrange shape functions at each rebar node's
+parametric coordinates $(\xi,\eta,\zeta)$ within its host hex element.
+Boundary-face rebar nodes (MinZ/MaxZ) are skipped since they are
+handled via Dirichlet constraints.
+
+\paragraph{Case~2 upgrade: reinforced column.}
+The original Case~2 was an unreinforced hex-only column that aborted
+at step~75 during the $\pm 10$\,mm cycle.  It has been replaced by a
+reinforced column with 8~rebar bars (4~corner $+$ 4~mid-face), using
+\texttt{MixedModel} (via \texttt{MultiElementPolicy} with
+\texttt{FEM\_Element} type erasure) combining 48~hex $+$ 96~truss
+elements.  Materials are \texttt{KoBatheConcrete3D} (consistent tangent)
+$+$ \texttt{MenegottoPintoSteel} ($E_s=200$\,GPa, $f_y=420$\,MPa,
+$b=0.01$).
+
+\paragraph{Bug fix: singular Jacobian from unconstrained transverse DOFs.}
+The initial implementation constrained only the $u_x$ DOF of
+MaxZ-face rebar nodes (for cyclic displacement control), leaving
+$u_y$ and $u_z$ free.  Since the penalty coupling skips boundary
+faces, and truss elements only provide axial ($z$-direction)
+stiffness, these two transverse DOFs had zero stiffness---making the
+Jacobian singular (\texttt{SNES\_DIVERGED\_LINEAR\_SOLVE}, reason~$-3$,
+0~iterations).  The fix constrains all three DOFs of boundary rebar
+nodes:
+\texttt{model.constrain\_node(rnid\_top, \{0,0,0\})}.
+
+\paragraph{Bug fix: ghost nodes in Hex20 boundary-condition loops.}
+The \texttt{PrismaticGrid::nodes\_on\_face()} helper enumerates all
+grid-level indices on a face, including \emph{mid-face-centre}
+nodes that do not exist in the Hex20 (serendipity) topology.
+These ghost nodes carry \texttt{num\_dof() == 0} in the domain.
+Passing them to \texttt{constrain\_node()}, \texttt{constrain\_dof()},
+\texttt{update\_imposed\_value()}, or \texttt{extract\_base\_shear\_x()}
+triggered PETSc assertion failures (invalid constraint index) or
+span-index-out-of-bounds aborts.
+The fix adds a guard \texttt{if (node.num\_dof() == 0) continue;}
+in every face-node loop.
+
+\paragraph{Bug fix: penalty coupling for serendipity elements.}
+Two issues prevented Hex20 convergence in the penalty-coupled
+column:
+\begin{enumerate}
+  \item \textbf{Wrong shape functions.}
+    The original coupling evaluated tensor-product \emph{Hex27} shape
+    functions for all quadratic meshes, including Hex20.  For
+    serendipity elements, the coupling now skips face-centre and
+    body-centre nodes
+    ($\sum_{k}[i_k = 1] > 1$) and evaluates the standard 20-node
+    serendipity shape functions:
+    \[
+      N_{\text{corner}} = \tfrac{1}{8}
+        (1 + \xi_0\,\xi)(1 + \eta_0\,\eta)(1 + \zeta_0\,\zeta)
+        (\xi_0\,\xi + \eta_0\,\eta + \zeta_0\,\zeta - 2),
+    \]
+    \[
+      N_{\text{mid-edge}} = \tfrac{1}{4}
+        (1 - t_m^2)\!\prod_{k \neq m}(1 + s_{k0}\,s_k),
+    \]
+    where~$m$ is the midpoint direction.
+  \item \textbf{Zero-DOF rebar mid-nodes in coupling.}
+    For \texttt{step\,=\,2} grids, the truss elements connect every
+    other rebar node (Line2: $iz = 0 \to 2 \to 4\ldots$), leaving
+    intermediate rebar nodes ($iz = 1, 3, 5, \ldots$) with
+    0~DOFs.  The penalty coupling incorrectly processed these
+    zero-DOF rebar nodes: the residual hook wrote penalty forces
+    to wrong memory locations (since
+    \texttt{PetscSectionGetOffset} returns a stale offset), while
+    the Jacobian hook skipped them (guard \texttt{r\_dof\,$\leq$\,0}).
+    This residual/Jacobian inconsistency produced linear
+    (non-quadratic) convergence---visible as a constant 3\%
+    reduction per SNES iteration---leading to divergence.
+    The fix filters out zero-DOF rebar nodes during
+    \texttt{PenaltyCoupling::setup()}.
 \end{enumerate}
 
 

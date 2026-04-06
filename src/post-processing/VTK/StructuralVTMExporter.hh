@@ -231,6 +231,16 @@ inline void write_multiblock_index(
     for (const auto& [name, poly] : blocks) {
         const fs::path sidecar = vtm_path.parent_path()
             / (stem + "_" + sanitize_block_suffix(name) + ".vtp");
+        // Strip InformationKey metadata (L2_NORM_RANGE) that causes
+        // parse errors in some VTK reader builds.
+        for (auto* dsa : {static_cast<vtkDataSetAttributes*>(poly->GetPointData()),
+                          static_cast<vtkDataSetAttributes*>(poly->GetCellData())}) {
+            if (dsa == nullptr) continue;
+            for (int i = 0; i < dsa->GetNumberOfArrays(); ++i)
+                if (auto* arr = dsa->GetAbstractArray(i))
+                    if (arr->HasInformation())
+                        arr->GetInformation()->Clear();
+        }
         vtkNew<vtkXMLPolyDataWriter> writer;
         writer->SetFileName(sidecar.string().c_str());
         writer->SetInputData(poly);

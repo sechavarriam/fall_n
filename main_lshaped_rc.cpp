@@ -199,18 +199,18 @@ static std::vector<MultiscaleSubModel> build_reinforced_sub_models(
     subs.reserve(critical_elements.size());
 
     // RebarSpec: 8 bars in a 4×4 grid
-    // Corners: (1,1), (1,3), (3,1), (3,3)
-    // Mid-face: (2,1), (2,3), (1,2), (3,2)
+    // Corners: (1,1), (1,3), (3,1), (3,3)  → physical ±0.1125 m from centre
+    // Mid-face: (2,1), (2,3), (1,2), (3,2) → physical 0 / ±0.1125 m
     RebarSpec rebar_spec;
     rebar_spec.bars = {
-        {1, 1, REBAR_AREA, "Rebar"},
-        {1, 3, REBAR_AREA, "Rebar"},
-        {3, 1, REBAR_AREA, "Rebar"},
-        {3, 3, REBAR_AREA, "Rebar"},
-        {2, 1, REBAR_AREA, "Rebar"},
-        {2, 3, REBAR_AREA, "Rebar"},
-        {1, 2, REBAR_AREA, "Rebar"},
-        {3, 2, REBAR_AREA, "Rebar"},
+        {-0.1125, -0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        {-0.1125,  0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        { 0.1125, -0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        { 0.1125,  0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        { 0.0,    -0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        { 0.0,     0.1125, REBAR_AREA, COL_BAR, "Rebar"},
+        {-0.1125,  0.0,    REBAR_AREA, COL_BAR, "Rebar"},
+        { 0.1125,  0.0,    REBAR_AREA, COL_BAR, "Rebar"},
     };
 
     // Phase 1 (sequential): build reinforced prismatic domains
@@ -219,13 +219,13 @@ static std::vector<MultiscaleSubModel> build_reinforced_sub_models(
             ek.endpoint_A, ek.endpoint_B, ek.up_direction,
             COL_B, COL_H, SUB_NX, SUB_NY, SUB_NZ);
 
-        auto [domain, grid, rebar_range] =
+        auto rd =
             make_reinforced_prismatic_domain(pspec, rebar_spec);
 
         MultiscaleSubModel sub;
         sub.parent_element_id = ek.element_id;
-        sub.domain = std::move(domain);
-        sub.grid   = std::move(grid);
+        sub.domain = std::move(rd.domain);
+        sub.grid   = std::move(rd.grid);
         sub.kin_A  = ek.kin_A;
         sub.kin_B  = ek.kin_B;
         subs.push_back(std::move(sub));
