@@ -39,19 +39,29 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -G Ninja
 
-      - name: Build multiscale stability targets
-        run: >
-          ninja -C build -j1
-          fall_n_multiscale_api_test
-          fall_n_micro_solve_executor_test
-          fall_n_evolver_advanced_test
-          fall_n_beam_test
-          fall_n_steppable_solver_test
-          fall_n_steppable_dynamic_test
-          fall_n_lshaped_multiscale
-          fall_n_lshaped_multiscale_16
-          fall_n_table_multiscale
-          fall_n_table_cyclic_validation
+      - name: Build multiscale regression targets
+        run: |
+          for target in \
+            fall_n_multiscale_api_test \
+            fall_n_micro_solve_executor_test \
+            fall_n_evolver_advanced_test \
+            fall_n_beam_test \
+            fall_n_steppable_solver_test \
+            fall_n_steppable_dynamic_test
+          do
+            ninja -C build -j1 "$target"
+          done
+
+      - name: Build heavy multiscale examples
+        run: |
+          for target in \
+            fall_n_lshaped_multiscale \
+            fall_n_lshaped_multiscale_16 \
+            fall_n_table_multiscale \
+            fall_n_table_cyclic_validation
+          do
+            ninja -C build -j1 "$target"
+          done
 
       - name: Run multiscale regression tests
         run: |

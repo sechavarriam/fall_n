@@ -65,8 +65,8 @@ FE\textsuperscript{2} extension mechanism. \\
 Local tangent extraction in
 \texttt{NonlinearSubModelEvolver} &
 fragile &
-Replaced by adaptive finite differences with central preference, one-sided
-fallback, and explicit diagnostics. \\
+Replaced by sparse linearized condensation with explicit validation-mode
+fallback and explicit diagnostics. \\
 Macro rollback on trial-step failure inside FE\textsuperscript{2} &
 incorrect &
 Explicit checkpoint restoration added to the failure path. \\
@@ -110,7 +110,7 @@ implementation:
 
 The production operator remains the boundary-reaction operator, but the
 stabilization no longer treats finite differences as the primary tangent path.
-The current normative implementation first assembles the full local tangent
+The current normative implementation first assembles the sparse local tangent
 operator at the converged micro state, including the embedded-rebar penalty
 terms, partitions it into free and constrained blocks, and condenses it
 against the boundary kinematics.  With constrained increments
@@ -131,7 +131,10 @@ tangent is
 \end{equation}
 This is the first version of the multiscale operator in the repository that is
 explicitly built from the linearised micro equilibrium equations rather than
-from perturb-and-observe solves.
+from perturb-and-observe solves.  In the follow-up hardening pass, the
+implementation was further upgraded from a dense prototype to a sparse solve of
+the six required right-hand sides, which removed the need to materialise the
+full dense Schur complement.
 
 Adaptive finite differences are retained only as a documented fallback.  When
 the condensed operator cannot be formed---for example because a mixed element
@@ -158,7 +161,10 @@ the two perturbation solves fails.
 
 The public response object now records:
 \begin{itemize}
+  \item the tangent computation mode requested;
   \item the tangent scheme used;
+  \item the status of the condensed operator attempt;
+  \item the sparse condensed solve residual when that path is attempted;
   \item the perturbation size used for each column;
   \item whether each column is valid;
   \item whether each column used the central stencil;
@@ -200,7 +206,7 @@ components:
 This split was intentionally implemented as lightweight header-only helpers
 composed through pointers and templates, so the hot path still avoids virtual
 dispatch and heap churn.  Architecturally, this matters because it creates a
-single explicit seam where the current dense condensation / finite-difference
+single explicit seam where the current sparse condensation / validation
 fallback pair can later be upgraded again without changing the public
 \texttt{SectionHomogenizedResponse} contract or the typed local model API.
 
@@ -299,14 +305,31 @@ execution used for this chapter:
 These are sufficiently small for the intended stabilization gate and, more
 importantly, provide a reproducible numerical baseline for future refactors.
 
+After the scientific-hardening follow-up, the local gate also compares the
+production condensed tangent with a deliberately forced adaptive
+finite-difference tangent on the same elastic mixed-mode state.  The measured
+comparison on the audited execution was
+\begin{align}
+  \text{tangent\_gap} &= 4.60221\times 10^{-2}, \\
+  \text{force\_gap} &= 0.
+\end{align}
+This result is intentionally not presented as exact equality.  Its role in the
+stabilization gate is to show that the production condensed operator and the
+validation fallback remain close on a coupled elastic state while still making
+their non-zero discrepancy explicit.
+
 \subsection{Executed regression targets}
 
 The following focused executables were rebuilt and executed locally after the
 stabilization changes:
 \begin{itemize}
   \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 39 passed, 0 failed;
-  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 80 passed, 0 failed;
-  \item \texttt{fall\_n\_heterogeneity\_test.exe}: 26 passed, 0 failed.
+  \item \texttt{fall\_n\_micro\_solve\_executor\_test.exe}: 6 passed, 0 failed;
+  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 90 passed, 0 failed;
+  \item \texttt{fall\_n\_heterogeneity\_test.exe}: 26 passed, 0 failed;
+  \item \texttt{fall\_n\_beam\_test.exe}: 21 passed, 0 failed;
+  \item \texttt{fall\_n\_steppable\_solver\_test.exe}: 48 passed, 0 failed;
+  \item \texttt{fall\_n\_steppable\_dynamic\_test.exe}: 32 passed, 0 failed.
 \end{itemize}
 
 \section{Phase 4: Release Hardening and CI Surface}
@@ -317,7 +340,10 @@ stabilization changes:
 The repository now contains
 \texttt{scripts/ci\_multiscale\_stabilization.ps1}, which configures the build
 directory if needed, builds the multiscale release gate, executes the key
-regression tests, and compiles the PDF.  The script covers:
+regression tests, and compiles the PDF.  In the current stabilized form, the
+script builds each target individually rather than issuing a single monolithic
+\texttt{ninja} invocation; that change was introduced specifically to expose
+which heavy target is consuming or blocking the local gate.  The script covers:
 \begin{itemize}
   \item \texttt{fall\_n\_multiscale\_api\_test};
   \item \texttt{fall\_n\_micro\_solve\_executor\_test};
@@ -346,9 +372,16 @@ in the audit environment to verify the release surface.
 For this follow-up execution cycle, the focused regression executables and the
 \LaTeX{} document were revalidated again after the condensed tangent
 implementation.  A fresh rebuild of the heavy example targets was also
-attempted, but the harness hit its wall-clock timeout before completion; this
-is therefore recorded as an incomplete integration check rather than silently
-reported as green.
+attempted, including separate launches for the main multiscale examples, and
+the target-by-target gate ultimately completed successfully.  In the audited
+environment the full local stabilization script rebuilt
+\texttt{fall\_n\_lshaped\_multiscale},
+\texttt{fall\_n\_lshaped\_multiscale\_16},
+\texttt{fall\_n\_table\_multiscale}, and
+\texttt{fall\_n\_table\_cyclic\_validation}, reran the regression executables,
+and regenerated \texttt{main.pdf}.  The wall-clock cost is still high, but the
+important point for release readiness is that the gate now finishes end-to-end
+instead of being left as an unverified partial build.
 
 \subsection{Repository workflow}
 
@@ -360,7 +393,8 @@ release gate in repository form:
   \item configure an MSYS2 UCRT64 environment on Windows;
   \item install the numerical dependencies used by the project;
   \item configure CMake with Ninja;
-  \item build the multiscale stability target set;
+  \item build the regression executables one by one;
+  \item build the heavy multiscale examples one by one;
   \item run the focused regression executables;
   \item compile the \LaTeX{} document.
 \end{enumerate}
@@ -380,12 +414,18 @@ execution.
 \toprule
 Residual item & Severity & Current disposition \\
 \midrule
-Dense condensed tangent still depends on explicit element-level local
+Sparse condensed tangent still depends on explicit element-level local
 linearisation support and keeps a finite-difference fallback &
 high &
 Documented explicitly; the primary path is now the condensed operator, but the
 fallback remains necessary for unsupported local elements or singular free
 blocks. \\
+Validation against forced adaptive finite differences shows a non-zero but
+bounded tangent gap on mixed elastic states &
+medium/high &
+Documented explicitly through the new scientific regression; the current state
+is honest and useful, but it is not yet a proof of exact algebraic identity
+between the condensed operator and the perturbation fallback. \\
 \texttt{NonlinearSubModelEvolver} still owns several responsibilities &
 medium &
 Improved in this cycle by extracting boundary-condition, state, and

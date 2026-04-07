@@ -304,6 +304,70 @@ void test_linearized_consistency_energy_and_operator_comparison()
           "macro axial power and micro average power remain consistent");
 }
 
+void test_condensed_operator_matches_forced_fd()
+{
+    std::cout << "\n== Condensed operator versus forced FD ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    const auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 2.5e-5, -1.5e-5},
+        Eigen::Vector3d{2.0e-5, 1.0e-5, -1.5e-5});
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "mixed elastic reference case converges before operator comparison");
+
+    const auto condensed = ev.section_response(W, H, 1.0e-6);
+    check(condensed.tangent_scheme
+              == TangentLinearizationScheme::LinearizedCondensation,
+          "production path uses linearized condensation in the comparison case");
+    check(condensed.tangent_mode_requested
+              == TangentComputationMode::PreferLinearizedCondensation,
+          "production path reports the preferred tangent computation mode");
+    check(condensed.condensed_tangent_status
+              == CondensedTangentStatus::Success,
+          "production path reports a successful condensed operator");
+
+    ev.set_tangent_computation_mode(
+        TangentComputationMode::ForceAdaptiveFiniteDifference);
+    const auto forced_fd = ev.section_response(W, H, 1.0e-6);
+
+    check(forced_fd.tangent_scheme
+              == TangentLinearizationScheme::AdaptiveFiniteDifference,
+          "validation path can force the adaptive finite-difference tangent");
+    check(forced_fd.tangent_mode_requested
+              == TangentComputationMode::ForceAdaptiveFiniteDifference,
+          "forced validation path reports the requested tangent mode");
+    check(forced_fd.condensed_tangent_status
+              == CondensedTangentStatus::ForcedAdaptiveFiniteDifference,
+          "forced validation path records that condensation was intentionally skipped");
+    check(forced_fd.failed_perturbations == 0,
+          "forced FD comparison case resolves all perturbations");
+
+    const double tangent_gap =
+        (condensed.tangent - forced_fd.tangent).norm()
+        / std::max({1.0, condensed.tangent.norm(), forced_fd.tangent.norm()});
+    const double force_gap =
+        relative_norm(condensed.forces, forced_fd.forces);
+
+    std::cout << std::setprecision(6)
+              << "  tangent_gap        = " << tangent_gap << "\n"
+              << "  force_gap          = " << force_gap << "\n";
+
+    check(tangent_gap < 6.0e-2,
+          "condensed tangent stays close to forced adaptive FD in the elastic case");
+    check(force_gap < 1.0e-12,
+          "condensed and forced FD paths read the same boundary forces");
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -320,6 +384,7 @@ int main(int argc, char** argv)
     test_adaptive_substepping();
     test_mode_specific_homogenized_responses();
     test_linearized_consistency_energy_and_operator_comparison();
+    test_condensed_operator_matches_forced_fd();
 
     std::cout << "\n" << std::string(72, '=') << "\n"
               << "  Summary: " << g_pass << " passed, " << g_fail

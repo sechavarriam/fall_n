@@ -206,6 +206,8 @@ class NonlinearSubModelEvolver {
     RegularizationPolicyKind regularization_policy_{
         RegularizationPolicyKind::DiagonalFloor};
     double diagonal_floor_{1.0};
+    TangentComputationMode tangent_mode_{
+        TangentComputationMode::PreferLinearizedCondensation};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
 
     [[nodiscard]] StateOps make_state_ops_() noexcept
@@ -229,6 +231,7 @@ class NonlinearSubModelEvolver {
             snes_,
             regularization_policy_,
             diagonal_floor_,
+            tangent_mode_,
             &penalty_couplings_,
             alpha_penalty_,
             make_bc_applicator_(),
@@ -478,6 +481,7 @@ public:
         , snes_rtol_{o.snes_rtol_}
         , regularization_policy_{o.regularization_policy_}
         , diagonal_floor_{o.diagonal_floor_}
+        , tangent_mode_{o.tangent_mode_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
     {
         ctx_ = {model_.get(), f_ext_,
@@ -520,6 +524,7 @@ public:
             snes_rtol_               = o.snes_rtol_;
             regularization_policy_   = o.regularization_policy_;
             diagonal_floor_          = o.diagonal_floor_;
+            tangent_mode_            = o.tangent_mode_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             ctx_ = {model_.get(), f_ext_,
                     &penalty_couplings_, alpha_penalty_};
@@ -581,6 +586,18 @@ public:
     {
         regularization_policy_ = policy;
         diagonal_floor_ = diagonal_floor;
+    }
+
+    void set_tangent_computation_mode(
+        TangentComputationMode mode) noexcept
+    {
+        tangent_mode_ = mode;
+    }
+
+    [[nodiscard]] TangentComputationMode tangent_computation_mode()
+        const noexcept
+    {
+        return tangent_mode_;
     }
 
     void commit_trial_state() {

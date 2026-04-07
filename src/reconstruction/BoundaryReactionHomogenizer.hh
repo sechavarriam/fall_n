@@ -4,11 +4,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <vector>
 
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
+#include <Eigen/SparseLU>
 #include <petsc.h>
 
 #include "../analysis/PenaltyCoupling.hh"
@@ -21,6 +24,8 @@ namespace fall_n {
 template <typename ModelT, typename SubModelT>
 class BoundaryReactionHomogenizer {
 public:
+    using SparseMatrixT = Eigen::SparseMatrix<double>;
+
     struct TangentDiagnostics {
         Eigen::Matrix<double, 6, 6> tangent{
             Eigen::Matrix<double, 6, 6>::Zero()};
@@ -28,13 +33,25 @@ public:
         std::array<bool, 6> column_valid{};
         std::array<bool, 6> column_central{};
         double symmetry_error_before_regularization{0.0};
+        double condensed_solve_residual{0.0};
         int failed_perturbations{0};
         bool tangent_regularized{false};
         TangentLinearizationScheme scheme{
             TangentLinearizationScheme::Unknown};
+        TangentComputationMode requested_mode{
+            TangentComputationMode::PreferLinearizedCondensation};
+        CondensedTangentStatus condensed_status{
+            CondensedTangentStatus::NotAttempted};
     };
 
 private:
+    struct CondensedAttemptResult {
+        std::optional<TangentDiagnostics> diagnostics{};
+        CondensedTangentStatus status{
+            CondensedTangentStatus::NotAttempted};
+        double solve_residual{0.0};
+    };
+
     ModelT* model_{nullptr};
     SubModelT* sub_{nullptr};
     Vec displacement_{nullptr};
@@ -44,6 +61,8 @@ private:
     RegularizationPolicyKind regularization_policy_{
         RegularizationPolicyKind::DiagonalFloor};
     double diagonal_floor_{1.0};
+    TangentComputationMode tangent_mode_{
+        TangentComputationMode::PreferLinearizedCondensation};
     const std::vector<PenaltyCouplingEntry>* penalty_couplings_{nullptr};
     double alpha_penalty_{0.0};
     LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator_{};
@@ -118,6 +137,7 @@ private:
     struct ConstraintPartition {
         std::vector<Eigen::Index> free_dofs{};
         std::vector<Eigen::Index> constrained_dofs{};
+        std::vector<int> local_to_free{};
         std::vector<int> local_to_constrained{};
     };
 
@@ -145,6 +165,8 @@ private:
 
         partition.local_to_constrained.assign(
             static_cast<std::size_t>(n_local), -1);
+        partition.local_to_free.assign(
+            static_cast<std::size_t>(n_local), -1);
 
         for (const auto& node : sub_->domain.nodes()) {
             const auto dofs = node.dof_index();
@@ -163,6 +185,8 @@ private:
                         static_cast<int>(partition.constrained_dofs.size());
                     partition.constrained_dofs.push_back(idx);
                 } else {
+                    partition.local_to_free[static_cast<std::size_t>(idx)] =
+                        static_cast<int>(partition.free_dofs.size());
                     partition.free_dofs.push_back(idx);
                 }
             }
@@ -242,7 +266,19 @@ private:
         return T;
     }
 
-    void add_penalty_coupling_to_tangent_(Eigen::MatrixXd& tangent) const
+    static void append_triplet_(std::vector<Eigen::Triplet<double>>& triplets,
+                                Eigen::Index row,
+                                Eigen::Index col,
+                                double value)
+    {
+        if (std::abs(value) > 0.0) {
+            triplets.emplace_back(row, col, value);
+        }
+    }
+
+    void append_penalty_coupling_triplets_(
+        std::vector<Eigen::Triplet<double>>& triplets,
+        Eigen::Index local_size) const
     {
         if (!model_ || !penalty_couplings_ || penalty_couplings_->empty()) {
             return;
@@ -260,12 +296,12 @@ private:
 
             PetscInt r_off = 0;
             PetscSectionGetOffset(section, pc.rebar_sieve_pt, &r_off);
-            if (!valid_local_range_(r_off, 3, tangent.rows())) {
+            if (!valid_local_range_(r_off, 3, local_size)) {
                 continue;
             }
 
             for (int d = 0; d < 3; ++d) {
-                tangent(r_off + d, r_off + d) += alpha_penalty_;
+                append_triplet_(triplets, r_off + d, r_off + d, alpha_penalty_);
             }
 
             for (const auto& [sp, Ni] : pc.hex_weights) {
@@ -277,14 +313,14 @@ private:
 
                 PetscInt h_off = 0;
                 PetscSectionGetOffset(section, sp, &h_off);
-                if (!valid_local_range_(h_off, 3, tangent.rows())) {
+                if (!valid_local_range_(h_off, 3, local_size)) {
                     continue;
                 }
 
                 for (int d = 0; d < 3; ++d) {
                     const double v = -alpha_penalty_ * Ni;
-                    tangent(r_off + d, h_off + d) += v;
-                    tangent(h_off + d, r_off + d) += v;
+                    append_triplet_(triplets, r_off + d, h_off + d, v);
+                    append_triplet_(triplets, h_off + d, r_off + d, v);
                 }
             }
 
@@ -297,7 +333,7 @@ private:
 
                 PetscInt gi_off = 0;
                 PetscSectionGetOffset(section, si, &gi_off);
-                if (!valid_local_range_(gi_off, 3, tangent.rows())) {
+                if (!valid_local_range_(gi_off, 3, local_size)) {
                     continue;
                 }
 
@@ -310,21 +346,24 @@ private:
 
                     PetscInt gj_off = 0;
                     PetscSectionGetOffset(section, sj, &gj_off);
-                    if (!valid_local_range_(gj_off, 3, tangent.rows())) {
+                    if (!valid_local_range_(gj_off, 3, local_size)) {
                         continue;
                     }
 
                     for (int d = 0; d < 3; ++d) {
-                        tangent(gi_off + d, gj_off + d) +=
-                            alpha_penalty_ * Ni * Nj;
+                        append_triplet_(
+                            triplets,
+                            gi_off + d,
+                            gj_off + d,
+                            alpha_penalty_ * Ni * Nj);
                     }
                 }
             }
         }
     }
 
-    [[nodiscard]] std::optional<Eigen::MatrixXd>
-    assemble_full_local_tangent_() const
+    [[nodiscard]] std::optional<SparseMatrixT>
+    assemble_sparse_local_tangent_() const
     {
         if (!model_) {
             return std::nullopt;
@@ -338,7 +377,7 @@ private:
             return std::nullopt;
         }
 
-        Eigen::MatrixXd tangent = Eigen::MatrixXd::Zero(n_local, n_local);
+        std::vector<Eigen::Triplet<double>> triplets;
         Vec u_local = model_->state_vector();
 
         for (auto& elem : model_->elements()) {
@@ -357,36 +396,27 @@ private:
             for (Eigen::Index i = 0; i < K_e.rows(); ++i) {
                 const auto row = static_cast<Eigen::Index>(
                     dofs[static_cast<std::size_t>(i)]);
-                if (row < 0 || row >= tangent.rows()) {
+                if (row < 0 || row >= static_cast<Eigen::Index>(n_local)) {
                     return std::nullopt;
                 }
                 for (Eigen::Index j = 0; j < K_e.cols(); ++j) {
                     const auto col = static_cast<Eigen::Index>(
                         dofs[static_cast<std::size_t>(j)]);
-                    if (col < 0 || col >= tangent.cols()) {
+                    if (col < 0 || col >= static_cast<Eigen::Index>(n_local)) {
                         return std::nullopt;
                     }
-                    tangent(row, col) += K_e(i, j);
+                    append_triplet_(triplets, row, col, K_e(i, j));
                 }
             }
         }
 
-        add_penalty_coupling_to_tangent_(tangent);
-        return tangent;
-    }
+        append_penalty_coupling_triplets_(triplets, n_local);
 
-    static void apply_block_(Eigen::MatrixXd& block,
-                             const Eigen::MatrixXd& full,
-                             const std::vector<Eigen::Index>& rows,
-                             const std::vector<Eigen::Index>& cols)
-    {
-        for (Eigen::Index i = 0; i < block.rows(); ++i) {
-            for (Eigen::Index j = 0; j < block.cols(); ++j) {
-                block(i, j) =
-                    full(rows[static_cast<std::size_t>(i)],
-                         cols[static_cast<std::size_t>(j)]);
-            }
-        }
+        SparseMatrixT tangent(n_local, n_local);
+        tangent.setFromTriplets(
+            triplets.begin(), triplets.end(), std::plus<double>{});
+        tangent.makeCompressed();
+        return tangent;
     }
 
     void finalize_tangent_(TangentDiagnostics& diagnostics) const
@@ -426,76 +456,124 @@ private:
             > 1.0e-12;
     }
 
-    [[nodiscard]] std::optional<TangentDiagnostics>
+    [[nodiscard]] CondensedAttemptResult
     compute_linearized_condensed_tangent_() const
     {
-        auto tangent_full = assemble_full_local_tangent_();
+        CondensedAttemptResult attempt;
+        if (!model_ || !sub_ || !displacement_) {
+            attempt.status = CondensedTangentStatus::MissingModel;
+            return attempt;
+        }
+
+        attempt.status = CondensedTangentStatus::AssemblyFailed;
+
+        auto tangent_full = assemble_sparse_local_tangent_();
         if (!tangent_full) {
-            return std::nullopt;
+            return attempt;
         }
 
         const auto partition = build_constraint_partition_();
         if (partition.constrained_dofs.empty()) {
-            return std::nullopt;
+            attempt.status = CondensedTangentStatus::NoConstrainedDofs;
+            return attempt;
         }
 
         const Eigen::MatrixXd transfer = build_max_face_transfer_(partition);
         if (transfer.rows() == 0 || transfer.norm() == 0.0) {
-            return std::nullopt;
+            attempt.status = CondensedTangentStatus::ZeroTransfer;
+            return attempt;
         }
 
-        Eigen::MatrixXd K_eff_cc;
-        if (partition.free_dofs.empty()) {
-            K_eff_cc.resize(
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
-            apply_block_(
-                K_eff_cc, *tangent_full,
-                partition.constrained_dofs, partition.constrained_dofs);
-        } else {
-            Eigen::MatrixXd K_ff(
+        Eigen::MatrixXd k_cc_times_t = Eigen::MatrixXd::Zero(
+            static_cast<Eigen::Index>(partition.constrained_dofs.size()), 6);
+        Eigen::MatrixXd k_fc_times_t = Eigen::MatrixXd::Zero(
+            static_cast<Eigen::Index>(partition.free_dofs.size()), 6);
+        std::vector<Eigen::Triplet<double>> ff_triplets;
+        std::vector<Eigen::Triplet<double>> cf_triplets;
+
+        for (Eigen::Index outer = 0; outer < tangent_full->outerSize(); ++outer) {
+            for (typename SparseMatrixT::InnerIterator it(*tangent_full, outer);
+                 it; ++it)
+            {
+                const auto row = it.row();
+                const auto col = it.col();
+                const double value = it.value();
+
+                const int row_free =
+                    partition.local_to_free[static_cast<std::size_t>(row)];
+                const int row_constrained =
+                    partition.local_to_constrained[static_cast<std::size_t>(row)];
+                const int col_free =
+                    partition.local_to_free[static_cast<std::size_t>(col)];
+                const int col_constrained =
+                    partition.local_to_constrained[static_cast<std::size_t>(col)];
+
+                if (row_free >= 0 && col_free >= 0) {
+                    append_triplet_(ff_triplets, row_free, col_free, value);
+                }
+
+                if (col_constrained >= 0) {
+                    if (row_free >= 0) {
+                        k_fc_times_t.row(row_free).noalias() +=
+                            value * transfer.row(col_constrained);
+                    } else if (row_constrained >= 0) {
+                        k_cc_times_t.row(row_constrained).noalias() +=
+                            value * transfer.row(col_constrained);
+                    }
+                }
+
+                if (row_constrained >= 0 && col_free >= 0) {
+                    append_triplet_(cf_triplets, row_constrained, col_free, value);
+                }
+            }
+        }
+
+        Eigen::MatrixXd condensed_boundary = k_cc_times_t;
+        if (!partition.free_dofs.empty()) {
+            SparseMatrixT K_ff(
                 static_cast<Eigen::Index>(partition.free_dofs.size()),
                 static_cast<Eigen::Index>(partition.free_dofs.size()));
-            Eigen::MatrixXd K_fc(
-                static_cast<Eigen::Index>(partition.free_dofs.size()),
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
-            Eigen::MatrixXd K_cf(
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
-                static_cast<Eigen::Index>(partition.free_dofs.size()));
-            Eigen::MatrixXd K_cc(
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
-                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
+            K_ff.setFromTriplets(
+                ff_triplets.begin(), ff_triplets.end(), std::plus<double>{});
+            K_ff.makeCompressed();
 
-            apply_block_(K_ff, *tangent_full,
-                         partition.free_dofs, partition.free_dofs);
-            apply_block_(K_fc, *tangent_full,
-                         partition.free_dofs, partition.constrained_dofs);
-            apply_block_(K_cf, *tangent_full,
-                         partition.constrained_dofs, partition.free_dofs);
-            apply_block_(K_cc, *tangent_full,
-                         partition.constrained_dofs, partition.constrained_dofs);
-
-            Eigen::FullPivLU<Eigen::MatrixXd> lu(K_ff);
-            if (!lu.isInvertible()) {
-                return std::nullopt;
+            Eigen::SparseLU<SparseMatrixT> solver;
+            solver.analyzePattern(K_ff);
+            solver.factorize(K_ff);
+            if (solver.info() != Eigen::Success) {
+                attempt.status = CondensedTangentStatus::FactorizationFailed;
+                return attempt;
             }
 
-            const Eigen::MatrixXd K_ff_inv_K_fc = lu.solve(K_fc);
+            const Eigen::MatrixXd free_response = solver.solve(k_fc_times_t);
+            if (solver.info() != Eigen::Success || !free_response.allFinite()) {
+                attempt.status = CondensedTangentStatus::SolveFailed;
+                return attempt;
+            }
+
             const double solve_residual =
-                (K_ff * K_ff_inv_K_fc - K_fc).norm()
-                / std::max(1.0, K_fc.norm());
+                (K_ff * free_response - k_fc_times_t).norm()
+                / std::max(1.0, k_fc_times_t.norm());
+            attempt.solve_residual = solve_residual;
             if (!std::isfinite(solve_residual) || solve_residual > 1.0e-8) {
-                return std::nullopt;
+                attempt.status = CondensedTangentStatus::ResidualTooLarge;
+                return attempt;
             }
 
-            K_eff_cc = K_cc - K_cf * K_ff_inv_K_fc;
+            for (const auto& triplet : cf_triplets) {
+                condensed_boundary.row(triplet.row()).noalias() -=
+                    triplet.value() * free_response.row(triplet.col());
+            }
         }
 
         TangentDiagnostics diagnostics;
         diagnostics.scheme =
             TangentLinearizationScheme::LinearizedCondensation;
+        diagnostics.requested_mode = tangent_mode_;
+        diagnostics.condensed_status = CondensedTangentStatus::Success;
+        diagnostics.condensed_solve_residual = attempt.solve_residual;
         diagnostics.tangent =
-            transfer.transpose() * K_eff_cc * transfer;
+            transfer.transpose() * condensed_boundary;
 
         for (int j = 0; j < 6; ++j) {
             const bool column_nontrivial =
@@ -508,7 +586,9 @@ private:
         }
 
         finalize_tangent_(diagnostics);
-        return diagnostics;
+        attempt.status = CondensedTangentStatus::Success;
+        attempt.diagnostics = diagnostics;
+        return attempt;
     }
 
     [[nodiscard]] TangentDiagnostics
@@ -517,10 +597,13 @@ private:
         TangentDiagnostics diagnostics;
         diagnostics.scheme =
             TangentLinearizationScheme::AdaptiveFiniteDifference;
+        diagnostics.requested_mode = tangent_mode_;
 
         if (!model_ || !sub_ || !displacement_ || !displacement_work_
             || !imposed_work_ || !snes_)
         {
+            diagnostics.condensed_status =
+                CondensedTangentStatus::MissingModel;
             return diagnostics;
         }
 
@@ -608,6 +691,7 @@ public:
         SNES snes,
         RegularizationPolicyKind regularization_policy,
         double diagonal_floor,
+        TangentComputationMode tangent_mode,
         const std::vector<PenaltyCouplingEntry>* penalty_couplings,
         double alpha_penalty,
         LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
@@ -620,6 +704,7 @@ public:
         , snes_{snes}
         , regularization_policy_{regularization_policy}
         , diagonal_floor_{diagonal_floor}
+        , tangent_mode_{tangent_mode}
         , penalty_couplings_{penalty_couplings}
         , alpha_penalty_{alpha_penalty}
         , bc_applicator_{bc_applicator}
@@ -691,10 +776,24 @@ public:
 
     [[nodiscard]] TangentDiagnostics compute_tangent(double h_pert) const
     {
-        if (auto condensed = compute_linearized_condensed_tangent_()) {
-            return *condensed;
+        if (tangent_mode_
+            == TangentComputationMode::ForceAdaptiveFiniteDifference)
+        {
+            auto diagnostics = compute_adaptive_fd_tangent_(h_pert);
+            diagnostics.condensed_status =
+                CondensedTangentStatus::ForcedAdaptiveFiniteDifference;
+            return diagnostics;
         }
-        return compute_adaptive_fd_tangent_(h_pert);
+
+        const auto condensed = compute_linearized_condensed_tangent_();
+        if (condensed.diagnostics) {
+            return *condensed.diagnostics;
+        }
+
+        auto diagnostics = compute_adaptive_fd_tangent_(h_pert);
+        diagnostics.condensed_status = condensed.status;
+        diagnostics.condensed_solve_residual = condensed.solve_residual;
+        return diagnostics;
     }
 
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
@@ -728,6 +827,10 @@ public:
             diagnostics.symmetry_error_before_regularization;
         response.tangent_regularized = diagnostics.tangent_regularized;
         response.tangent_scheme = diagnostics.scheme;
+        response.tangent_mode_requested = diagnostics.requested_mode;
+        response.condensed_tangent_status = diagnostics.condensed_status;
+        response.condensed_solve_residual =
+            diagnostics.condensed_solve_residual;
         response.perturbation_sizes = diagnostics.perturbation_sizes;
         response.tangent_column_valid = diagnostics.column_valid;
         response.tangent_column_central = diagnostics.column_central;
