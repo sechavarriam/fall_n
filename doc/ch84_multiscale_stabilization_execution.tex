@@ -399,6 +399,174 @@ release gate in repository form:
   \item compile the \LaTeX{} document.
 \end{enumerate}
 
+\section{Post-Stabilization Merge Audit with \texttt{origin/master}}
+\label{sec:ms-stab-merge-audit}
+
+Once the stabilization gate was green locally, the branch was not merged
+blindly with \texttt{origin/master}.  Instead, the integration was treated as
+another audit phase: every conflicting file was reviewed under the same rule
+used throughout this stabilization cycle, namely that older or semantically
+weaker code is not accepted just because it came from the remote default
+branch.
+
+\subsection{Audit hypothesis}
+
+The initial hypothesis was that the merge could reintroduce one of three
+classes of defects:
+\begin{enumerate}
+  \item semantic regression, where the remote side reintroduced placeholder or
+    legacy code that weakens the now-documented public API;
+  \item architectural regression, where a low-level header would be coupled
+    again to non-normative concerns;
+  \item numerical regression, where a geometry or constitutive alias would
+    silently change the behaviour of multiscale builds.
+\end{enumerate}
+
+\subsection{Conflict classification}
+
+Table~\ref{tab:ms-stab-merge-conflicts} records the files that required
+explicit judgment during the merge.
+
+\begin{table}[htb]
+\centering
+\small
+\begin{tabular}{p{0.28\textwidth}p{0.16\textwidth}p{0.40\textwidth}}
+\toprule
+File & Resolution & Rationale \\
+\midrule
+\texttt{src/analysis/Analysis.hh} &
+kept stabilized branch version &
+the remote side only carried a placeholder ``analysis concept'' comment,
+whereas the stabilized branch already exposed the complete analysis aggregator
+surface (\texttt{DynamicAnalysis}, \texttt{AnalysisDirector},
+\texttt{TransitionDirector}, observers). \\
+\texttt{src/elements/element\_geometry/LagrangeElement.hh} &
+kept stabilized branch version &
+the remote side appended stale duplicated geometry/member code after the class
+definition.  Accepting it would have reintroduced ambiguity and maintainability
+debt. \\
+\texttt{src/geometry/Cell.hh} &
+kept stabilized branch version &
+the remote side tried to embed VTK-specific cell metadata directly in the core
+geometry descriptor.  That coupling was rejected because VTK translation is
+already owned by the post-processing layer. \\
+\texttt{src/materials/MaterialPolicy.hh} &
+kept stabilized branch version &
+the remote side only preserved historical comments and omitted the explicit
+constitutive-space aliases now required by the stabilized public API. \\
+\texttt{src/materials/Strain.hh} &
+kept stabilized branch version &
+the stabilized branch already uses \texttt{set\_components()}, which is the
+current normative vocabulary. \\
+\texttt{src/materials/VoigtVector.hh} &
+merged with compatibility shim &
+the stabilized branch kept the stronger \texttt{components()} /
+\texttt{set\_components()} semantics, but the legacy \texttt{set\_vector()}
+entry point was reintroduced as a thin alias for backward compatibility. \\
+\texttt{src/mesh/gmsh/GmshDomainBuilder.hh} &
+kept stabilized branch version &
+the remote side attempted to map HEX8 elements through a lower-order geometry
+and under-integrated rule, which would have been a genuine numerical
+regression. \\
+\texttt{src/model/Model.hh} &
+kept stabilized branch version &
+the extra remote \texttt{friend class Analysis;} declaration was not required
+by the current architecture and would only preserve dead coupling. \\
+\bottomrule
+\end{tabular}
+\caption{Conflict-by-conflict resolution during the merge with \texttt{origin/master}.}
+\label{tab:ms-stab-merge-conflicts}
+\end{table}
+
+\subsection{Compatibility retained intentionally}
+
+Not every remote change was rejected.  The merge kept small, safe compatibility
+improvements that do not weaken the stabilized architecture:
+\begin{itemize}
+  \item \texttt{VoigtVector} now exposes a compatibility
+    \texttt{set\_vector(...)} alias that forwards to
+    \texttt{set\_components(...)}; this preserves old call sites without making
+    the legacy name normative again;
+  \item the non-conflicting edits in \texttt{ReadGmsh.hh} and \texttt{DoF.hh}
+    were audited and accepted because they do not alter the multiscale
+    semantics or the release gate.
+\end{itemize}
+
+\subsection{Merge-preserved dependency surface}
+
+The purpose of the merge was not to maximize line retention; it was to preserve
+the dependency surface that the stabilization cycle had already validated.  The
+resulting local architecture around the merged headers is summarised in
+Figure~\ref{fig:ms-stab-merge-class-diagram}.
+
+\begin{figure}[htb]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, minimum width=3.1cm, minimum height=1.0cm},
+  arrow/.style={-{Latex[length=2.2mm]}, thick}
+]
+  \node[box] (analysis) {\texttt{Analysis.hh}\\aggregator surface};
+  \node[box, below left=1.7cm and 2.0cm of analysis] (solver) {\texttt{DynamicAnalysis.hh}\\\texttt{NLAnalysis.hh}};
+  \node[box, below right=1.7cm and 2.0cm of analysis] (director) {\texttt{AnalysisDirector.hh}\\\texttt{TransitionDirector.hh}};
+  \node[box, below=3.5cm of analysis] (model) {\texttt{Model.hh}};
+  \node[box, left=4.2cm of model] (material) {\texttt{MaterialPolicy.hh}\\\texttt{Strain.hh}\\\texttt{VoigtVector.hh}};
+  \node[box, right=4.2cm of model] (mesh) {\texttt{ReadGmsh.hh}\\\texttt{GmshDomainBuilder.hh}\\\texttt{LagrangeElement.hh}};
+
+  \draw[arrow] (analysis) -- (solver);
+  \draw[arrow] (analysis) -- (director);
+  \draw[arrow] (solver) -- (model);
+  \draw[arrow] (director) -- (model);
+  \draw[arrow] (material) -- (model);
+  \draw[arrow] (mesh) -- (model);
+\end{tikzpicture}
+\caption{Merged header surface intentionally preserved after the stabilization audit.}
+\label{fig:ms-stab-merge-class-diagram}
+\end{figure}
+
+\subsection{Decision}
+
+The merge decision was therefore conditional rather than automatic: the branch
+was considered mergeable with \texttt{origin/master} only after the stabilized
+surface survived conflict resolution \emph{and} the regression gate was
+revalidated.  In other words, the merge itself became part of the release
+readiness proof.
+
+\subsection{Post-merge gate evidence}
+
+After the conflict audit, the local release gate was rerun through
+\texttt{scripts/ci\_multiscale\_stabilization.ps1 -SkipConfigure}.  The
+post-merge execution completed successfully and covered the full public release
+surface already defined in this chapter:
+\begin{itemize}
+  \item regression executables:
+    \texttt{fall\_n\_multiscale\_api\_test},
+    \texttt{fall\_n\_micro\_solve\_executor\_test},
+    \texttt{fall\_n\_evolver\_advanced\_test},
+    \texttt{fall\_n\_beam\_test},
+    \texttt{fall\_n\_steppable\_solver\_test}, and
+    \texttt{fall\_n\_steppable\_dynamic\_test};
+  \item heavy example builds:
+    \texttt{fall\_n\_lshaped\_multiscale},
+    \texttt{fall\_n\_lshaped\_multiscale\_16},
+    \texttt{fall\_n\_table\_multiscale}, and
+    \texttt{fall\_n\_table\_cyclic\_validation};
+  \item document compilation:
+    \texttt{latexmk -pdf}, producing the updated \texttt{main.pdf}.
+\end{itemize}
+
+The important technical result is not merely that the code compiled, but that
+the merge did not alter the observed multiscale semantics:
+\begin{enumerate}
+  \item the FE\textsuperscript{2} API regressions still passed with zero
+    failures;
+  \item the advanced local-evolver matrix still passed after the merge,
+    including the condensed-versus-forced-FD scientific comparison;
+  \item the heavy multiscale examples still linked successfully from the merged
+    header surface;
+  \item the \LaTeX{} document still compiled, while preserving the explicit
+    warning ledger for pre-existing bibliography/reference debt.
+\end{enumerate}
+
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}
 

@@ -32,21 +32,17 @@ class DoF_Handler {
   // conditions that you don’t want represented in the matrix.
 
   DoF_Handler() = default;
-
 };
 
-
 class DoF_Interface{
-  
-  private:
-  public:
 
+  public:
     std::shared_ptr<DoF_Handler> handler_;// Node copy constructor forbids the use of unique_ptr in the way it is used here.
                                           // Beeng shared_pts has its advantages. It can be used to share the same handler 
                                           // between nodes, that is, manage the same dofs for two or more nodes.                                               
 
     //constexpr void set_num_dof(std::size_t num_dof){handler_->set_size(num_dof);};
-    
+
     //constexpr void set_dofs(std::ranges::range auto&& dofs){
     //  //if(!handler_) set_handler();
     //  handler_->set_dofs(dofs);
@@ -76,17 +72,6 @@ class DoF_Interface{
     ~DoF_Interface(){};
 
 };
-
-
-
-
-
-
-
-
-
-
-
 
 } // namespace domain
 
