@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <iostream>
 #include <optional>
@@ -37,6 +38,7 @@ struct FakeSolverCheckpoint {
     double committed_time{0.0};
     double trial_time{0.0};
     bool auto_commit{true};
+    int step_calls{0};
 };
 
 struct FakeSolver {
@@ -49,6 +51,9 @@ struct FakeSolver {
     bool auto_commit{true};
     bool observer_notifications{true};
     int commit_calls{0};
+    int step_calls{0};
+    bool fail_next_step{false};
+    bool dirty_trial_on_failure{true};
 
     void set_auto_commit(bool enabled) {
         auto_commit = enabled;
@@ -64,6 +69,16 @@ struct FakeSolver {
 
     bool step()
     {
+        ++step_calls;
+        if (fail_next_step) {
+            fail_next_step = false;
+            if (dirty_trial_on_failure) {
+                trial_step = committed_step + 17;
+                trial_time = committed_time + 17.0;
+            }
+            return false;
+        }
+
         if (auto_commit) {
             ++committed_step;
             committed_time += 1.0;
@@ -110,7 +125,8 @@ struct FakeSolver {
             trial_step,
             committed_time,
             trial_time,
-            auto_commit
+            auto_commit,
+            step_calls
         };
     }
 
@@ -121,6 +137,7 @@ struct FakeSolver {
         committed_time = checkpoint.committed_time;
         trial_time = checkpoint.trial_time;
         auto_commit = checkpoint.auto_commit;
+        step_calls = checkpoint.step_calls;
     }
 
     [[nodiscard]] double current_time() const noexcept
@@ -141,7 +158,13 @@ struct FakeSolver {
 
 struct FakeBridge {
     FakeSolver* solver{nullptr};
-    std::vector<std::optional<SectionHomogenizedResponse>> injected{1};
+    std::vector<std::optional<SectionHomogenizedResponse>> injected{};
+
+    explicit FakeBridge(FakeSolver* solver_in = nullptr,
+                        std::size_t num_sites = 1)
+        : solver{solver_in}
+        , injected(num_sites)
+    {}
 
     [[nodiscard]] ElementKinematics
     extract_element_kinematics(std::size_t element_id) const
@@ -192,13 +215,21 @@ struct FakeLocalModel {
     int commit_trial_calls{0};
     int end_calls{0};
     bool auto_commit{true};
+    bool solve_converged{true};
+    ResponseStatus response_status{ResponseStatus::Ok};
+    bool tangent_regularized{false};
+    int failed_perturbations{0};
+    std::array<bool, 6> tangent_column_valid{
+        {true, true, true, true, true, true}};
+    std::array<bool, 6> tangent_column_central{
+        {true, true, true, true, true, true}};
 
     void update_kinematics(const SectionKinematics&, const SectionKinematics&) {}
 
     [[nodiscard]] FakeLocalResult solve_step(double)
     {
         ++solve_calls;
-        return {};
+        return {.converged = solve_converged};
     }
 
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
@@ -219,7 +250,13 @@ struct FakeLocalModel {
         SectionHomogenizedResponse response;
         response.forces = section_forces(0.0, 0.0);
         response.tangent = section_tangent(0.0, 0.0, 0.0);
-        response.status = ResponseStatus::Ok;
+        response.status = response_status;
+        response.tangent_regularized = tangent_regularized;
+        response.failed_perturbations = failed_perturbations;
+        response.tangent_scheme =
+            TangentLinearizationScheme::AdaptiveFiniteDifference;
+        response.tangent_column_valid = tangent_column_valid;
+        response.tangent_column_central = tangent_column_central;
         return response;
     }
 
@@ -256,7 +293,7 @@ void test_iterated_two_way_uses_local_step_counter()
     using AnalysisT =
         MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
 
-    ModelT model{BridgeT{&solver}};
+    ModelT model{BridgeT{&solver, 1}};
     model.register_local_model(
         CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
         FakeLocalModel{&solver, 0});
@@ -305,7 +342,7 @@ void test_lagged_feedback_injects_site_response()
     using AnalysisT =
         MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
 
-    ModelT model{BridgeT{&solver}};
+    ModelT model{BridgeT{&solver, 1}};
     model.register_local_model(
         CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.25},
         FakeLocalModel{&solver, 0});
@@ -331,6 +368,216 @@ void test_lagged_feedback_injects_site_response()
     CHECK_TRUE(
         analysis.model().local_models()[0].end_calls == 1,
         "lagged feedback owns end_of_step for the local model");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::LaggedStepCompleted,
+        "lagged feedback report exposes an explicit termination reason");
+}
+
+void test_iterated_two_way_rolls_back_on_macro_failure()
+{
+    FakeSolver solver;
+    solver.fail_next_step = true;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        FakeLocalModel{&solver, 0});
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    CHECK_TRUE(analysis.initialize_local_models(false),
+               "initialize_local_models succeeds before macro failure test");
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(!ok, "iterated FE2 reports failure when macro step fails");
+    CHECK_TRUE(analysis.last_report().rollback_performed,
+               "macro failure triggers rollback in the coupling report");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::MacroSolveFailed,
+        "macro failure is reported with explicit termination semantics");
+    CHECK_TRUE(solver.committed_step == 0 && solver.committed_time == 0.0,
+               "macro rollback restores the committed macro state");
+    CHECK_TRUE(analysis.model().macro_bridge().injected[0] == std::nullopt,
+               "macro failure restores the previous injection state");
+}
+
+void test_iterated_two_way_rolls_back_on_micro_failure()
+{
+    FakeSolver solver;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.solve_converged = false;
+    local.response_status = ResponseStatus::SolveFailed;
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(!ok, "iterated FE2 fails when a micro solve fails");
+    CHECK_TRUE(analysis.last_report().rollback_performed,
+               "micro failure also restores the previous macro/micro state");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::MicroSolveFailed,
+        "micro failure is distinguished from macro failure");
+    CHECK_TRUE(!analysis.last_report().failed_sites.empty(),
+               "micro failure records the failed coupling site");
+    CHECK_TRUE(analysis.model().macro_bridge().injected[0] == std::nullopt,
+               "micro failure restores the previous injection state");
+}
+
+void test_lagged_feedback_reports_regularized_response_without_hard_failure()
+{
+    FakeSolver solver;
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_status = ResponseStatus::Degraded;
+    local.tangent_regularized = true;
+    local.failed_perturbations = 2;
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.25},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok, "degraded-but-available lagged response does not count as hard failure");
+    CHECK_TRUE(analysis.last_report().regularization_detected,
+               "lagged feedback report surfaces detected regularization");
+    CHECK_TRUE(analysis.last_report().regularized_submodels == 1,
+               "lagged feedback counts degraded regularized submodels");
+    CHECK_TRUE(analysis.last_report().failed_submodels == 0,
+               "degraded responses are not misclassified as hard failures");
+}
+
+void test_invalid_operator_counts_as_hard_failure()
+{
+    FakeSolver solver;
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_status = ResponseStatus::InvalidOperator;
+    local.tangent_column_valid = {true, true, false, true, true, true};
+    local.tangent_column_central = {true, true, false, true, true, true};
+
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        local);
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(!ok, "invalid local section operators fail the coupled step");
+    CHECK_TRUE(analysis.last_report().failed_submodels == 1,
+               "invalid operators count as hard micro failures");
+    CHECK_TRUE(analysis.last_report().failed_sites.size() == 1,
+               "invalid operators record the failed coupling site");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::MicroSolveFailed,
+        "invalid operators report an explicit micro failure reason");
+}
+
+void test_iterated_two_way_matches_between_serial_and_openmp_executors()
+{
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using SerialAnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel, SerialExecutor>;
+    using OpenMPAnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel, OpenMPExecutor>;
+
+    auto build_model = [](FakeSolver& solver) {
+        ModelT model{BridgeT{&solver, 4}};
+        for (std::size_t i = 0; i < 4; ++i) {
+            model.register_local_model(
+                CouplingSite{.macro_element_id = i, .section_gp = i, .xi = 0.0},
+                FakeLocalModel{&solver, i});
+        }
+        return model;
+    };
+
+    FakeSolver serial_solver;
+    SerialAnalysisT serial_analysis(
+        serial_solver,
+        build_model(serial_solver),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(1.0e-12, 1.0e-12),
+        std::make_unique<NoRelaxation>(),
+        SerialExecutor{});
+    serial_analysis.set_coupling_start_step(1);
+
+    FakeSolver omp_solver;
+    OpenMPAnalysisT omp_analysis(
+        omp_solver,
+        build_model(omp_solver),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(1.0e-12, 1.0e-12),
+        std::make_unique<NoRelaxation>(),
+        OpenMPExecutor{2});
+    omp_analysis.set_coupling_start_step(1);
+
+    const bool serial_ok = serial_analysis.step();
+    const bool omp_ok = omp_analysis.step();
+
+    CHECK_TRUE(serial_ok && omp_ok,
+               "serial and OpenMP FE2 pipelines both converge on the API harness");
+    CHECK_TRUE(
+        serial_analysis.last_report().max_force_residual_rel
+            == omp_analysis.last_report().max_force_residual_rel,
+        "serial and OpenMP report the same force residual on the API harness");
+    CHECK_TRUE(
+        serial_analysis.model().macro_bridge().injected[3]->forces
+            == omp_analysis.model().macro_bridge().injected[3]->forces,
+        "serial and OpenMP inject the same accepted homogenized response");
 }
 
 }  // namespace
@@ -339,6 +586,11 @@ int main()
 {
     test_iterated_two_way_uses_local_step_counter();
     test_lagged_feedback_injects_site_response();
+    test_iterated_two_way_rolls_back_on_macro_failure();
+    test_iterated_two_way_rolls_back_on_micro_failure();
+    test_lagged_feedback_reports_regularized_response_without_hard_failure();
+    test_invalid_operator_counts_as_hard_failure();
+    test_iterated_two_way_matches_between_serial_and_openmp_executors();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return (g_fail == 0) ? 0 : 1;

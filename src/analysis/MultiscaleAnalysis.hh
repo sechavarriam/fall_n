@@ -58,6 +58,28 @@ class MultiscaleAnalysis {
         return (a - b).norm() / denom;
     }
 
+    [[nodiscard]] static bool is_hard_failure_(ResponseStatus status)
+    {
+        return status == ResponseStatus::NotReady
+            || status == ResponseStatus::SolveFailed
+            || status == ResponseStatus::InvalidOperator;
+    }
+
+    static void accumulate_response_diagnostics_(
+        CouplingIterationReport& report,
+        const SectionHomogenizedResponse& response)
+    {
+        if (is_hard_failure_(response.status)) {
+            ++report.failed_submodels;
+            report.failed_sites.push_back(response.site);
+        }
+
+        if (response.tangent_regularized) {
+            ++report.regularized_submodels;
+            report.regularization_detected = true;
+        }
+    }
+
     void set_macro_trial_mode_(bool enabled)
     {
         if constexpr (TrialControllableSolver<MacroSolverT>) {
@@ -106,6 +128,7 @@ class MultiscaleAnalysis {
     {
         responses.resize(model_.num_local_models());
         failed_submodels = 0;
+        last_report_.failed_submodels = 0;
 
         executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
             auto& local_model = model_.local_models()[i];
@@ -128,11 +151,13 @@ class MultiscaleAnalysis {
             responses[i] = response;
         });
 
+        last_report_.failed_sites.clear();
+        last_report_.regularized_submodels = 0;
+        last_report_.regularization_detected = false;
         for (const auto& response : responses) {
-            if (response.status != ResponseStatus::Ok) {
-                ++failed_submodels;
-            }
+            accumulate_response_diagnostics_(last_report_, response);
         }
+        failed_submodels = last_report_.failed_submodels;
     }
 
     bool perform_macro_only_step_()
@@ -142,9 +167,15 @@ class MultiscaleAnalysis {
         last_report_ = CouplingIterationReport{};
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 1;
+        last_report_.termination_reason =
+            CouplingTerminationReason::UncoupledMacroStep;
 
         const bool ok = macro_solver_->step();
         last_report_.converged = ok;
+        if (!ok) {
+            last_report_.termination_reason =
+                CouplingTerminationReason::MacroSolveFailed;
+        }
         if (ok) {
             ++analysis_steps_;
         }
@@ -156,10 +187,14 @@ class MultiscaleAnalysis {
         last_report_ = CouplingIterationReport{};
         last_report_.mode = CouplingMode::OneWayDownscaling;
         last_report_.iterations = 1;
+        last_report_.termination_reason =
+            CouplingTerminationReason::OneWayStepCompleted;
 
         set_macro_trial_mode_(false);
         if (!macro_solver_->step()) {
             last_report_.converged = false;
+            last_report_.termination_reason =
+                CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
 
@@ -174,6 +209,10 @@ class MultiscaleAnalysis {
         last_report_.micro_solve_seconds =
             std::chrono::duration<double>(t1 - t0).count();
         last_report_.converged = (last_report_.failed_submodels == 0);
+        if (!last_report_.converged) {
+            last_report_.termination_reason =
+                CouplingTerminationReason::MicroSolveFailed;
+        }
         if (last_report_.converged) {
             ++analysis_steps_;
         }
@@ -185,10 +224,14 @@ class MultiscaleAnalysis {
         last_report_ = CouplingIterationReport{};
         last_report_.mode = CouplingMode::LaggedFeedbackCoupling;
         last_report_.iterations = 1;
+        last_report_.termination_reason =
+            CouplingTerminationReason::LaggedStepCompleted;
 
         set_macro_trial_mode_(false);
         if (!macro_solver_->step()) {
             last_report_.converged = false;
+            last_report_.termination_reason =
+                CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
 
@@ -220,6 +263,10 @@ class MultiscaleAnalysis {
         last_report_.micro_solve_seconds =
             std::chrono::duration<double>(t1 - t0).count();
         last_report_.converged = (last_report_.failed_submodels == 0);
+        if (!last_report_.converged) {
+            last_report_.termination_reason =
+                CouplingTerminationReason::MicroSolveFailed;
+        }
         if (last_report_.converged) {
             ++analysis_steps_;
         }
@@ -234,6 +281,7 @@ class MultiscaleAnalysis {
         last_report_ = CouplingIterationReport{};
         last_report_.mode = CouplingMode::IteratedTwoWayFE2;
         last_report_.iterations = 0;
+        last_report_.termination_reason = CouplingTerminationReason::NotRun;
 
         const auto macro_checkpoint = macro_solver_->capture_checkpoint();
         std::vector<LocalCheckpointT> local_checkpoints;
@@ -268,11 +316,15 @@ class MultiscaleAnalysis {
 
             const auto macro_t0 = std::chrono::steady_clock::now();
             if (!macro_solver_->step()) {
+                macro_solver_->restore_checkpoint(macro_checkpoint);
                 for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                     model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
                     model_.local_models()[i].set_auto_commit(true);
                 }
                 last_report_.converged = false;
+                last_report_.rollback_performed = true;
+                last_report_.termination_reason =
+                    CouplingTerminationReason::MacroSolveFailed;
                 restore_previous_injection_();
                 set_macro_trial_mode_(false);
                 return false;
@@ -306,29 +358,37 @@ class MultiscaleAnalysis {
                 std::chrono::duration<double>(micro_t1 - micro_t0).count();
 
             last_report_.failed_submodels = 0;
+            last_report_.regularized_submodels = 0;
+            last_report_.regularization_detected = false;
+            last_report_.failed_sites.clear();
             last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
             last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
             last_report_.max_force_residual_rel = 0.0;
             last_report_.max_tangent_residual_rel = 0.0;
 
             for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
-                if (current[i].status != ResponseStatus::Ok) {
-                    ++last_report_.failed_submodels;
-                }
-
                 auto macro_state =
                     model_.macro_bridge().extract_section_state(model_.site(i));
                 current[i].strain_ref = macro_state.strain;
                 current[i].site.local_frame = macro_state.site.local_frame;
 
                 if (predictor.size() == model_.num_local_models()) {
+                    const auto tangent_before = current[i].tangent;
+                    const auto force_before = current[i].forces;
                     relaxation_->relax(current[i], predictor[i], iter);
+                    if ((current[i].tangent - tangent_before).norm() > 0.0
+                        || (current[i].forces - force_before).norm() > 0.0)
+                    {
+                        last_report_.relaxation_applied = true;
+                    }
                     last_report_.tangent_residuals_rel[i] =
                         relative_norm_(current[i].tangent, predictor[i].tangent);
                 }
 
                 last_report_.force_residuals_rel[i] =
                     relative_norm_(macro_state.forces, current[i].forces);
+
+                accumulate_response_diagnostics_(last_report_, current[i]);
 
                 last_report_.max_force_residual_rel =
                     std::max(last_report_.max_force_residual_rel,
@@ -361,6 +421,11 @@ class MultiscaleAnalysis {
             restore_previous_injection_();
             set_macro_trial_mode_(false);
             last_report_.converged = false;
+            last_report_.rollback_performed = true;
+            last_report_.termination_reason =
+                (last_report_.failed_submodels > 0)
+                    ? CouplingTerminationReason::MicroSolveFailed
+                    : CouplingTerminationReason::MaxIterationsReached;
             return false;
         }
 
@@ -374,6 +439,7 @@ class MultiscaleAnalysis {
 
         set_macro_trial_mode_(false);
         last_report_.converged = true;
+        last_report_.termination_reason = CouplingTerminationReason::Converged;
         ++analysis_steps_;
         return true;
     }
@@ -427,6 +493,7 @@ public:
         last_report_ = CouplingIterationReport{};
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 0;
+        last_report_.termination_reason = CouplingTerminationReason::NotRun;
 
         std::vector<SectionHomogenizedResponse> responses;
         solve_locals_once_(macro_solver_->current_time(),
@@ -445,6 +512,10 @@ public:
         }
 
         last_report_.converged = (last_report_.failed_submodels == 0);
+        if (!last_report_.converged) {
+            last_report_.termination_reason =
+                CouplingTerminationReason::InitializationFailed;
+        }
         if (seed_predictor && last_report_.converged) {
             last_converged_responses_ = responses;
         }

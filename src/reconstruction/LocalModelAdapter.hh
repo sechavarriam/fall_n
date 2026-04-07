@@ -9,8 +9,13 @@
 //  in order to participate in a MultiscaleAnalysis coupling loop.
 //
 //  Concrete models (NonlinearSubModelEvolver, future LinearSubModel, etc.)
-//  satisfy the concept directly.  When heterogeneous storage is needed
-//  (std::vector<LocalModelHandle>), use the type-erased LocalModelHandle.
+//  satisfy the concept directly.  The typed path is the normative public
+//  surface used by the publication-ready multiscale API.
+//
+//  When heterogeneous storage is needed (std::vector<LocalModelHandle>),
+//  the type-erased handle below is available as an experimental utility.
+//  It is intentionally kept out of the normative public API until exact
+//  checkpoint/restore semantics are completed for the erased path.
 //
 //  Pattern follows FEM_Element (Concept/Model/Handle) — see FEM_Element.hh.
 //
@@ -76,7 +81,8 @@ concept LocalModelAdapter = requires(
 
 
 // =============================================================================
-//  LocalModelHandle — type-erased wrapper (value semantics, move-only)
+//  LocalModelHandle — experimental type-erased wrapper (value semantics,
+//  move-only)
 // =============================================================================
 
 class LocalModelHandle {

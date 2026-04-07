@@ -1,0 +1,71 @@
+name: multiscale-stability
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  windows-msys2:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-openmpi
+            mingw-w64-ucrt-x86_64-eigen3
+            mingw-w64-ucrt-x86_64-vtk
+            mingw-w64-ucrt-x86_64-petsc
+            texlive
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build multiscale stability targets
+        run: >
+          ninja -C build -j1
+          fall_n_multiscale_api_test
+          fall_n_micro_solve_executor_test
+          fall_n_evolver_advanced_test
+          fall_n_beam_test
+          fall_n_steppable_solver_test
+          fall_n_steppable_dynamic_test
+          fall_n_lshaped_multiscale
+          fall_n_lshaped_multiscale_16
+          fall_n_table_multiscale
+          fall_n_table_cyclic_validation
+
+      - name: Run multiscale regression tests
+        run: |
+          ./build/fall_n_multiscale_api_test.exe
+          ./build/fall_n_micro_solve_executor_test.exe
+          ./build/fall_n_evolver_advanced_test.exe
+          ./build/fall_n_beam_test.exe
+          ./build/fall_n_steppable_solver_test.exe
+          ./build/fall_n_steppable_dynamic_test.exe
+
+      - name: Compile documentation
+        working-directory: doc
+        run: |
+          latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex || {
+            pdflatex -interaction=nonstopmode -halt-on-error main.tex
+            pdflatex -interaction=nonstopmode -halt-on-error main.tex
+          }

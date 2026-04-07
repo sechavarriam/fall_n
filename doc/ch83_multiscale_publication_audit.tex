@@ -189,13 +189,23 @@ The redesign introduces explicit public types:
     (\texttt{macro\_element\_id}, section Gauss point, \(\xi\), local frame);
   \item \texttt{MacroSectionState}: local macro strain/resultant snapshot;
   \item \texttt{SectionHomogenizedResponse}: homogenised forces, tangent,
-    reference strain, operator provenance, and regularisation diagnostics;
-  \item \texttt{CouplingIterationReport}: mode, iteration count, residuals,
-    failure count, and macro/micro timing;
+    reference strain, operator provenance, regularisation diagnostics,
+    perturbation sizes, tangent-column validity, and finite-difference
+    provenance;
+  \item \texttt{CouplingIterationReport}: mode, termination reason,
+    iteration count, residuals, hard-failure sites, rollback state,
+    regularisation presence, and macro/micro timing;
   \item \texttt{ModelCheckpoint} and solver-specific
     \texttt{checkpoint\_type}: exact rollback state for FE\textsuperscript{2}
     iteration.
 \end{itemize}
+
+The typed path through \texttt{MultiscaleModel<MacroBridgeT, LocalModelT>} is
+the normative public surface.  The type-erased
+\texttt{LocalModelHandle} remains available only as an experimental utility
+until erased checkpoint/restore semantics are completed.  Likewise,
+\texttt{src/reconstruction/HomogenisationStrategy.hh} is retained as an
+internal validation utility rather than a recommended public extension point.
 
 \subsection{SOLID without sacrificing the hot path}
 
@@ -206,7 +216,9 @@ kernel, explicit at the boundary'':
     \texttt{BeamMacroBridge} is responsible for macro extraction/injection;
     \texttt{MultiscaleModel} aggregates coupling sites and local models;
     \texttt{MultiscaleAnalysis} owns the protocol; the local solver owns local
-    constitutive evolution.
+    constitutive evolution.  Internally, the nonlinear sub-model path now
+    isolates boundary-condition application, persistent state lifecycle, and
+    boundary-reaction homogenisation into dedicated header-only components.
   \item \textbf{Open/Closed Principle.}
     Coupling algorithms, convergence criteria, relaxation policies, and
     executors are all pluggable through small interfaces.
@@ -227,6 +239,20 @@ These abstractions are intentionally placed at the orchestration layer.  The
 inner loop remains template-based and avoids virtual dispatch in the hot path.
 This preserves the original performance philosophy of \texttt{fall\_n} while
 making the multiscale subsystem externally reusable.
+
+At the local-solver level, the same principle is now applied internally:
+\begin{itemize}
+  \item \texttt{LocalBoundaryConditionApplicator} owns beam-to-continuum
+    kinematic updates and writes the imposed boundary vector;
+  \item \texttt{PersistentLocalStateOps} owns synchronisation,
+    commit, and revert of the persistent continuum state;
+  \item \texttt{BoundaryReactionHomogenizer} owns the section-force extraction,
+    tangent diagnostics, and response classification.
+\end{itemize}
+These components are value-type, header-only helpers with pointer-based
+composition; they add no virtual dispatch to the micro hot path while creating
+an explicit seam for future replacement of the finite-difference tangent by a
+more rigorous consistent linearisation.
 
 \subsection{Macro and local rollback}
 
@@ -320,7 +346,9 @@ tests:
 \begin{itemize}
   \item \texttt{tests/test\_multiscale\_analysis\_api.cpp}:
     semantic separation of coupling modes, ownership of local lifecycle,
-    analysis-local coupling start, and accepted FE\textsuperscript{2} commit;
+    analysis-local coupling start, accepted FE\textsuperscript{2} commit,
+    explicit rollback semantics, hard-failure classification, and parity
+    between serial and OpenMP execution on the API harness;
   \item \texttt{tests/test\_micro\_solve\_executor.cpp}:
     serial/OpenMP executor contract and communicator defaults;
   \item \texttt{tests/test\_beam.cpp}:
@@ -330,7 +358,10 @@ tests:
     \texttt{tests/test\_steppable\_dynamic.cpp}:
     solver contracts relied upon by the orchestrator;
   \item \texttt{tests/test\_evolver\_advanced.cpp}:
-    persistent local-model evolution and homogenisation path.
+    persistent local-model evolution, adaptive finite-difference tangent
+    diagnostics, pure axial/flexural/shear/torsional regression cases,
+    linearised consistency, reaction-versus-volume operator comparison, and
+    axial power consistency.
 \end{itemize}
 
 In addition, the heavy executable targets
@@ -346,14 +377,19 @@ serve as integration-level build checks of the public multiscale surface.
 The redesign closes the most serious semantic gaps, but several publication
 limitations remain explicit:
 \begin{itemize}
-  \item the default tangent is still obtained by one-sided perturbation, not by
-    a fully consistent algorithmic linearisation;
+  \item the default tangent is now obtained by adaptive finite differences with
+    a central-difference preference and one-sided fallback, not by a fully
+    consistent algorithmic linearisation;
   \item the accepted FE\textsuperscript{2} step is a fixed-point iteration, not
     a monolithic multilevel Newton solve;
   \item MPI-distributed local-model execution is not yet implemented beyond the
     communicator contract;
   \item \texttt{NonlinearSubModelEvolver} still contains several responsibilities
-    internally, even though the external API now isolates the required ones;
+    internally, but the boundary-condition, state-lifecycle, and
+    homogenisation concerns have already been split from the main class body;
+  \item the GitHub Actions workflow added for multiscale stability has been
+    authored and documented, but only the local PowerShell gate has been
+    executed in this audit cycle;
   \item historical chapters still contain earlier design narratives and should
     be read as provenance, not as the normative behavioural specification.
 \end{itemize}
@@ -363,12 +399,12 @@ limitations remain explicit:
 
 The next publication-strength milestones are:
 \begin{enumerate}
-  \item replace the forward-difference tangent by a central-difference or
-    consistent algorithmic tangent, while retaining the same public response
-    contract;
-  \item finish the internal split of \texttt{NonlinearSubModelEvolver} into
-    solver core, boundary-condition applicator, homogeniser, diagnostics, and
-    output services;
+  \item replace the adaptive finite-difference tangent by a fully consistent
+    algorithmic tangent while retaining the same public response contract;
+  \item finish the internal split of \texttt{NonlinearSubModelEvolver} from
+    the current state into a solver core, diagnostics service, and output
+    service, reusing the already extracted boundary-condition, state, and
+    homogenisation helpers;
   \item add energy-consistency benchmarks and distributed MPI execution of
     local models;
   \item package installable public headers for the multiscale target instead of
