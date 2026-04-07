@@ -135,6 +135,10 @@ The macro-scale injection contract is
 \end{equation}
 with \(\mathbf{e}_0\) stored as \texttt{strain\_ref}.  This eliminates the
 ambiguity of ``tangent by one operator, forces by another'' in the public API.
+The same response object also records the requested tangent mode
+(\texttt{TangentComputationMode}), the outcome of the condensed operator
+attempt (\texttt{CondensedTangentStatus}), and the residual of the sparse free
+solve whenever linearized condensation is attempted.
 
 \subsection{Boundary-reaction homogenisation}
 
@@ -147,15 +151,37 @@ form,
   \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}),
 \end{equation}
 where \(\mathcal{H}_{\mathrm{br}}\) denotes the boundary-reaction operator and
-\(\mathbf{u}_{\mu}\) is the converged micro displacement field.  The tangent is
-obtained by perturbing the generalised deformation components and re-evaluating
-the same reaction-based force operator:
+\(\mathbf{u}_{\mu}\) is the converged micro displacement field.  The
+publication-path tangent is obtained primarily from the linearised micro
+equilibrium equations.  With the free/constrained partition
+\(\{f,c\}\) and constrained increments
+\(\delta \mathbf{u}_c = \mathbf{T}\,\delta \mathbf{q}\), the condensed
+section operator is
+\begin{equation}
+  \mathbf{D}_{\mathrm{hom}}
+  =
+  \mathbf{T}^{\mathsf T}
+  \left(
+    \mathbf{K}_{cc}
+    -
+    \mathbf{K}_{cf}\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}
+  \right)\mathbf{T}.
+\end{equation}
+The implementation evaluates this operator through a sparse solve of the six
+right-hand sides in \(\mathbf{K}_{fc}\mathbf{T}\), not by materialising a full
+dense Schur complement.
+
+Adaptive finite differences remain available as an explicit validation and
+fallback path:
 \begin{equation}
   \mathbf{D}_{\mathrm{hom}}^{(:,j)}
   \approx
   \frac{\mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}^{(j,+)})
-        - \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu})}{h_j}.
+        - \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}^{(j,-)})}{2h_j},
 \end{equation}
+with one-sided fallback only when one perturbation fails.  The public API can
+force this route through
+\texttt{TangentComputationMode::ForceAdaptiveFiniteDifference} for validation.
 
 Volume averaging is retained only as a comparison/validation route and is
 reported through \texttt{HomogenizationOperator::VolumeAverage}; it is not the
@@ -190,8 +216,9 @@ The redesign introduces explicit public types:
   \item \texttt{MacroSectionState}: local macro strain/resultant snapshot;
   \item \texttt{SectionHomogenizedResponse}: homogenised forces, tangent,
     reference strain, operator provenance, regularisation diagnostics,
-    linearisation provenance, tangent-column validity, and perturbation
-    sizes when the finite-difference fallback is actually used;
+    linearisation provenance, condensed-attempt diagnostics,
+    tangent-column validity, and perturbation sizes when the
+    finite-difference fallback is actually used;
   \item \texttt{CouplingIterationReport}: mode, termination reason,
     iteration count, residuals, hard-failure sites, rollback state,
     regularisation presence, and macro/micro timing;
@@ -252,8 +279,8 @@ At the local-solver level, the same principle is now applied internally:
 \end{itemize}
 These components are value-type, header-only helpers with pointer-based
 composition; they add no virtual dispatch to the micro hot path while creating
-an explicit seam for future replacement of the current dense condensation /
-finite-difference fallback pair by even more advanced local linearisation
+an explicit seam for future replacement of the current sparse condensation /
+validation-fallback pair by even more advanced local linearisation
 strategies.
 
 This cycle also extended \texttt{FEM\_Element} to mirror the explicit local
@@ -263,6 +290,93 @@ linearisation API already present in \texttt{StructuralElement}
 \texttt{get\_dof\_indices}).  That architectural change matters because the
 publication-ready local operator now depends on mixed-model assembly through
 type erasure without losing access to the element-level tangent information.
+
+\subsection{Local multiscale class diagram}
+
+Figure~\ref{fig:ms-local-class-diagram} summarises the current publication-path
+architecture for the local multiscale operator.
+
+\begin{figure}[htb]
+\centering
+\begin{tikzpicture}[
+  node distance=10mm and 10mm,
+  box/.style={draw, rounded corners, align=center, minimum width=34mm, minimum height=9mm},
+  smallbox/.style={draw, rounded corners, align=center, minimum width=30mm, minimum height=8mm},
+  >=Latex
+]
+  \node[box] (analysis) {\texttt{MultiscaleAnalysis}\\protocol owner};
+  \node[box, right=of analysis] (model) {\texttt{MultiscaleModel}\\sites + local models};
+  \node[box, right=of model] (bridge) {\texttt{BeamMacroBridge}\\macro extraction/injection};
+
+  \node[box, below=of model] (evolver) {\texttt{NonlinearSubModelEvolver}\\persistent local facade};
+  \node[smallbox, below left=of evolver] (bc) {\texttt{LocalBoundaryConditionApplicator}};
+  \node[smallbox, below=of evolver] (state) {\texttt{PersistentLocalStateOps}};
+  \node[smallbox, below right=of evolver] (hom) {\texttt{BoundaryReactionHomogenizer}};
+  \node[smallbox, below=of hom] (elem) {\texttt{FEM\_Element}\\explicit local linearisation API};
+
+  \draw[->] (analysis) -- (model);
+  \draw[->] (model) -- (bridge);
+  \draw[->] (model) -- (evolver);
+  \draw[->] (evolver) -- (bc);
+  \draw[->] (evolver) -- (state);
+  \draw[->] (evolver) -- (hom);
+  \draw[->] (hom) -- node[right, align=left] {assembles tangent\\and condenses} (elem);
+  \draw[->] (bridge) |- node[pos=0.75, above, align=center] {kinematics /\\homogenised response} (evolver);
+\end{tikzpicture}
+\caption{Current local multiscale architecture on the publication path.}
+\label{fig:ms-local-class-diagram}
+\end{figure}
+
+\subsection{Condensed operator implementation}
+
+The current primary local operator is no longer assembled as a dense
+micro-tangent followed by dense Schur complements.  Instead, the implementation
+builds a sparse local tangent from the mixed element set, adds the embedded
+penalty coupling contributions, and solves only the six right-hand sides needed
+to evaluate
+\begin{equation}
+  \mathbf{D}_{\mathrm{hom}}
+  =
+  \mathbf{T}^{\mathsf T}
+  \left(
+    \mathbf{K}_{cc}
+    -
+    \mathbf{K}_{cf}\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}
+  \right)\mathbf{T}.
+\end{equation}
+Operationally, this is implemented as a sparse solve for
+\(\mathbf{X} = \mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}\mathbf{T}\), followed by
+the boundary contraction
+\(\mathbf{T}^{\mathsf T}(\mathbf{K}_{cc}\mathbf{T}-\mathbf{K}_{cf}\mathbf{X})\).
+This keeps the physics of static condensation while reducing memory pressure
+and making the scalability story substantially more honest than the previous
+dense prototype.
+
+\subsection{Validation and fallback diagnostics}
+
+The current public contract does not hide whether the condensed operator was
+actually available.  Instead, the response records:
+\begin{itemize}
+  \item the requested tangent mode;
+  \item the realised tangent scheme;
+  \item the condensed operator status;
+  \item the sparse solve residual when the condensed path is attempted.
+\end{itemize}
+The intended semantics are:
+\begin{description}
+  \item[\texttt{PreferLinearizedCondensation}] production mode; use the sparse
+    condensed operator first and fall back only if it cannot be formed;
+  \item[\texttt{ForceAdaptiveFiniteDifference}] validation mode; skip
+    condensation intentionally and compute the tangent through adaptive
+    perturbations;
+  \item[\texttt{CondensedTangentStatus}] explicit reason code for the
+    condensed attempt, including \texttt{Success},
+    \texttt{AssemblyFailed}, \texttt{FactorizationFailed},
+    \texttt{ResidualTooLarge}, and
+    \texttt{ForcedAdaptiveFiniteDifference}.
+\end{description}
+This additional provenance is important for publication because it makes the
+scientific debt visible in the API instead of burying it inside solver logs.
 
 \subsection{Macro and local rollback}
 

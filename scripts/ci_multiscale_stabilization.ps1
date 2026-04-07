@@ -20,24 +20,40 @@ function Invoke-Step {
     }
 }
 
+function Invoke-BuildTargets {
+    param(
+        [string[]]$Targets,
+        [string]$Label
+    )
+
+    Write-Host "==> Building $Label"
+    foreach ($target in $Targets) {
+        Invoke-Step ("ninja -C `"$buildPath`" -j1 " + $target)
+    }
+}
+
 if (-not $SkipConfigure) {
     Invoke-Step "cmake -S `"$repoRoot`" -B `"$buildPath`" -G Ninja"
 }
 
-$targets = @(
+$regressionTargets = @(
     "fall_n_multiscale_api_test",
     "fall_n_micro_solve_executor_test",
     "fall_n_evolver_advanced_test",
     "fall_n_beam_test",
     "fall_n_steppable_solver_test",
-    "fall_n_steppable_dynamic_test",
+    "fall_n_steppable_dynamic_test"
+)
+
+$heavyExampleTargets = @(
     "fall_n_lshaped_multiscale",
     "fall_n_lshaped_multiscale_16",
     "fall_n_table_multiscale",
     "fall_n_table_cyclic_validation"
 )
 
-Invoke-Step ("ninja -C `"$buildPath`" -j1 " + ($targets -join " "))
+Invoke-BuildTargets -Targets $regressionTargets -Label "multiscale regression targets"
+Invoke-BuildTargets -Targets $heavyExampleTargets -Label "heavy multiscale examples"
 
 $executables = @(
     "fall_n_multiscale_api_test.exe",

@@ -35,6 +35,24 @@ enum class TangentLinearizationScheme {
     AdaptiveFiniteDifference
 };
 
+enum class TangentComputationMode {
+    PreferLinearizedCondensation,
+    ForceAdaptiveFiniteDifference
+};
+
+enum class CondensedTangentStatus {
+    NotAttempted,
+    Success,
+    MissingModel,
+    AssemblyFailed,
+    NoConstrainedDofs,
+    ZeroTransfer,
+    FactorizationFailed,
+    SolveFailed,
+    ResidualTooLarge,
+    ForcedAdaptiveFiniteDifference
+};
+
 enum class CouplingTerminationReason {
     NotRun,
     UncoupledMacroStep,
@@ -85,6 +103,11 @@ struct SectionHomogenizedResponse {
     bool   forces_consistent_with_tangent{true};
     TangentLinearizationScheme tangent_scheme{
         TangentLinearizationScheme::Unknown};
+    TangentComputationMode tangent_mode_requested{
+        TangentComputationMode::PreferLinearizedCondensation};
+    CondensedTangentStatus condensed_tangent_status{
+        CondensedTangentStatus::NotAttempted};
+    double condensed_solve_residual{0.0};
     std::array<double, 6> perturbation_sizes{};
     std::array<bool, 6> tangent_column_valid{};
     std::array<bool, 6> tangent_column_central{};
@@ -168,6 +191,46 @@ to_string(TangentLinearizationScheme scheme)
             return "AdaptiveFiniteDifference";
     }
     return "UnknownTangentLinearizationScheme";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(TangentComputationMode mode)
+{
+    switch (mode) {
+        case TangentComputationMode::PreferLinearizedCondensation:
+            return "PreferLinearizedCondensation";
+        case TangentComputationMode::ForceAdaptiveFiniteDifference:
+            return "ForceAdaptiveFiniteDifference";
+    }
+    return "UnknownTangentComputationMode";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(CondensedTangentStatus status)
+{
+    switch (status) {
+        case CondensedTangentStatus::NotAttempted:
+            return "NotAttempted";
+        case CondensedTangentStatus::Success:
+            return "Success";
+        case CondensedTangentStatus::MissingModel:
+            return "MissingModel";
+        case CondensedTangentStatus::AssemblyFailed:
+            return "AssemblyFailed";
+        case CondensedTangentStatus::NoConstrainedDofs:
+            return "NoConstrainedDofs";
+        case CondensedTangentStatus::ZeroTransfer:
+            return "ZeroTransfer";
+        case CondensedTangentStatus::FactorizationFailed:
+            return "FactorizationFailed";
+        case CondensedTangentStatus::SolveFailed:
+            return "SolveFailed";
+        case CondensedTangentStatus::ResidualTooLarge:
+            return "ResidualTooLarge";
+        case CondensedTangentStatus::ForcedAdaptiveFiniteDifference:
+            return "ForcedAdaptiveFiniteDifference";
+    }
+    return "UnknownCondensedTangentStatus";
 }
 
 [[nodiscard]] inline constexpr std::string_view
