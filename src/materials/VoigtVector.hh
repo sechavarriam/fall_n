@@ -66,6 +66,9 @@ class VoigtVector{
 
     template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
     constexpr void set_components(const Eigen::MatrixBase<Derived> &v) { components_ = v; }
+
+    template <typename Derived> //requires std::same_as<Derived, Eigen::Matrix<double, N, 1>>
+    constexpr void set_vector(const Eigen::MatrixBase<Derived> &v) { set_components(v); }
     
     constexpr VoigtVector(const VoigtVector<N>  &e) : components_{          e.components_ } {}; //Copy constructor
     constexpr VoigtVector(      VoigtVector<N> &&e) : components_{std::move(e.components_)} {}; //Move constructor
@@ -101,9 +104,11 @@ class VoigtVector<1>{
     constexpr double& operator[](std::size_t i [[maybe_unused]])       { return component_; }
     constexpr double  operator[](std::size_t i [[maybe_unused]]) const { return component_; }
     constexpr double  components() const { return component_; }
+    constexpr double  vector() const { return component_; }
     const double* data() const & { return &component_; }
     const double* data() const && = delete;
     constexpr void set_components(double v) { component_ = v; };
+    constexpr void set_vector(double v) { set_components(v); };
 
 
     // Constructors    

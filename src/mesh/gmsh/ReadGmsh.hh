@@ -183,7 +183,6 @@ namespace gmsh
 
 #endif // FALL_N_MESH_INTERFACE
 
-
 /*
 //RAW TO TEST IN MAIN
     std::cout <<  reader.view_MeshFormat() << std::endl;
