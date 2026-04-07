@@ -126,6 +126,36 @@ struct TrackingElement {
     PetscInt    sieve_id()               const { return 0; }
 };
 
+struct LinearizationElement {
+    std::vector<PetscInt> dofs{0, 1};
+
+    void set_num_dof_in_nodes()                {}
+    void inject_K(Mat)                         {}
+    void compute_internal_forces(Vec, Vec)     {}
+    void inject_tangent_stiffness(Vec, Mat)    {}
+    void commit_material_state(Vec)            {}
+    void revert_material_state()               {}
+
+    std::size_t num_nodes()              const { return 2; }
+    std::size_t num_integration_points() const { return 1; }
+    PetscInt    sieve_id()               const { return 1; }
+
+    Eigen::VectorXd extract_element_dofs(Vec) {
+        Eigen::VectorXd u(2);
+        u << 1.0, 2.0;
+        return u;
+    }
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
+        return 2.0 * u_e;
+    }
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd&) {
+        return Eigen::Matrix2d::Identity();
+    }
+    const std::vector<PetscInt>& get_dof_indices() {
+        return dofs;
+    }
+};
+
 void test_fem_element_wrapper_revert() {
     std::cout << "\nTest 2: FEM_Element forwards revert_material_state\n";
 
@@ -143,6 +173,27 @@ void test_fem_element_wrapper_revert() {
     se.commit_material_state(nullptr);
     se.revert_material_state();
     check(true, "StructuralElement::revert_material_state() callable");
+}
+
+void test_fem_element_wrapper_local_linearization_api() {
+    std::cout << "\nTest 2b: FEM_Element forwards local linearization API\n";
+
+    FEM_Element fe(LinearizationElement{});
+
+    const auto u_e = fe.extract_element_dofs(nullptr);
+    const auto f_e = fe.compute_internal_force_vector(u_e);
+    const auto K_e = fe.compute_tangent_stiffness_matrix(u_e);
+    const auto& dofs = fe.get_dof_indices();
+
+    check(u_e.size() == 2 && std::abs(u_e[0] - 1.0) < 1.0e-14,
+          "FEM_Element exposes extract_element_dofs()");
+    check(f_e.size() == 2 && std::abs(f_e[1] - 4.0) < 1.0e-14,
+          "FEM_Element exposes compute_internal_force_vector()");
+    check(K_e.rows() == 2 && K_e.cols() == 2
+              && std::abs(K_e(0, 0) - 1.0) < 1.0e-14,
+          "FEM_Element exposes compute_tangent_stiffness_matrix()");
+    check(dofs.size() == 2 && dofs[1] == 1,
+          "FEM_Element exposes get_dof_indices()");
 }
 
 // =============================================================================
@@ -365,6 +416,7 @@ int main(int argc, char** argv) {
 
     test_concept_includes_revert();
     test_fem_element_wrapper_revert();
+    test_fem_element_wrapper_local_linearization_api();
     test_multi_element_policy();
     test_material_revert_type_erased();
     test_elastic_revert_noop();

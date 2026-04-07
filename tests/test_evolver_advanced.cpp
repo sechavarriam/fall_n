@@ -210,12 +210,12 @@ void test_mode_specific_homogenized_responses()
         check(solved.response.status != ResponseStatus::SolveFailed,
               "homogenized response is available");
         check(solved.response.tangent_scheme
-                  == TangentLinearizationScheme::AdaptiveFiniteDifference,
-              "response reports the adaptive finite-difference tangent scheme");
+                  == TangentLinearizationScheme::LinearizedCondensation,
+              "elastic reference cases use the condensed linearized tangent");
         check(std::all_of(solved.response.perturbation_sizes.begin(),
                           solved.response.perturbation_sizes.end(),
-                          [](double h) { return h > 0.0; }),
-              "every tangent column reports a positive perturbation size");
+                          [](double h) { return h == 0.0; }),
+              "condensed linearisation leaves perturbation sizes at zero");
         check(std::all_of(solved.response.tangent_column_valid.begin(),
                           solved.response.tangent_column_valid.end(),
                           [](bool valid) { return valid; }),
@@ -223,9 +223,9 @@ void test_mode_specific_homogenized_responses()
         check(std::all_of(solved.response.tangent_column_central.begin(),
                           solved.response.tangent_column_central.end(),
                           [](bool central) { return central; }),
-              "elastic reference cases use the central stencil for every tangent column");
+              "condensed tangent marks every generalized direction as directly resolved");
         check(solved.response.failed_perturbations == 0,
-              "elastic reference cases require no perturbation fallbacks");
+              "condensed linearisation requires no perturbation solves");
         check(solved.response.forces_consistent_with_tangent,
               "elastic reference cases expose a force/tangent pair flagged as consistent");
         check(solved.response.tangent(load_case.tangent_diag, load_case.tangent_diag) > 0.0,

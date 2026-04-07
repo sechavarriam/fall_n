@@ -229,6 +229,8 @@ class NonlinearSubModelEvolver {
             snes_,
             regularization_policy_,
             diagonal_floor_,
+            &penalty_couplings_,
+            alpha_penalty_,
             make_bc_applicator_(),
             make_state_ops_()};
     }

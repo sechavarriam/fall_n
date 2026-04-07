@@ -3,11 +3,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
+#include <optional>
+#include <vector>
 
 #include <Eigen/Dense>
 #include <petsc.h>
 
+#include "../analysis/PenaltyCoupling.hh"
 #include "../analysis/MultiscaleTypes.hh"
 #include "LocalBoundaryConditionApplicator.hh"
 #include "PersistentLocalStateOps.hh"
@@ -26,6 +30,8 @@ public:
         double symmetry_error_before_regularization{0.0};
         int failed_perturbations{0};
         bool tangent_regularized{false};
+        TangentLinearizationScheme scheme{
+            TangentLinearizationScheme::Unknown};
     };
 
 private:
@@ -38,6 +44,8 @@ private:
     RegularizationPolicyKind regularization_policy_{
         RegularizationPolicyKind::DiagonalFloor};
     double diagonal_floor_{1.0};
+    const std::vector<PenaltyCouplingEntry>* penalty_couplings_{nullptr};
+    double alpha_penalty_{0.0};
     LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator_{};
     PersistentLocalStateOps<ModelT> state_ops_{};
 
@@ -107,98 +115,409 @@ private:
         state_ops_.sync_state_vector();
     }
 
-public:
-    BoundaryReactionHomogenizer() = default;
+    struct ConstraintPartition {
+        std::vector<Eigen::Index> free_dofs{};
+        std::vector<Eigen::Index> constrained_dofs{};
+        std::vector<int> local_to_constrained{};
+    };
 
-    BoundaryReactionHomogenizer(
-        ModelT* model,
-        SubModelT* sub,
-        Vec displacement,
-        Vec displacement_work,
-        Vec imposed_work,
-        SNES snes,
-        RegularizationPolicyKind regularization_policy,
-        double diagonal_floor,
-        LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
-        PersistentLocalStateOps<ModelT> state_ops) noexcept
-        : model_{model}
-        , sub_{sub}
-        , displacement_{displacement}
-        , displacement_work_{displacement_work}
-        , imposed_work_{imposed_work}
-        , snes_{snes}
-        , regularization_policy_{regularization_policy}
-        , diagonal_floor_{diagonal_floor}
-        , bc_applicator_{bc_applicator}
-        , state_ops_{state_ops}
-    {}
-
-    [[nodiscard]] Eigen::Vector<double, 6> section_forces_from_reactions() const
+    [[nodiscard]] static bool valid_local_range_(PetscInt offset,
+                                                 PetscInt width,
+                                                 Eigen::Index size)
     {
-        if (!model_ || !sub_ || !displacement_) {
-            return Eigen::Vector<double, 6>::Zero();
-        }
-
-        DM dm = model_->get_plex();
-
-        Vec u_loc;
-        DMGetLocalVector(dm, &u_loc);
-        VecSet(u_loc, 0.0);
-        DMGlobalToLocal(dm, displacement_, INSERT_VALUES, u_loc);
-        VecAXPY(u_loc, 1.0, model_->imposed_solution());
-
-        Vec f_loc;
-        DMGetLocalVector(dm, &f_loc);
-        VecSet(f_loc, 0.0);
-        for (auto& elem : model_->elements()) {
-            elem.compute_internal_forces(u_loc, f_loc);
-        }
-
-        DMRestoreLocalVector(dm, &u_loc);
-
-        PetscSection sec;
-        DMGetLocalSection(dm, &sec);
-
-        const Eigen::Matrix3d& rotation = sub_->kin_B.R;
-        const Eigen::Vector3d& centroid = sub_->kin_B.centroid;
-
-        Eigen::Vector3d F_sum = Eigen::Vector3d::Zero();
-        Eigen::Vector3d M_sum = Eigen::Vector3d::Zero();
-
-        const PetscScalar* f_arr;
-        VecGetArrayRead(f_loc, &f_arr);
-
-        for (const auto& [nid, ignored_u] : sub_->bc_max_z) {
-            (void)ignored_u;
-            const PetscInt plex_pt = sub_->domain.node(nid).sieve_id.value();
-            PetscInt off;
-            PetscSectionGetOffset(sec, plex_pt, &off);
-
-            const Eigen::Vector3d f_g{f_arr[off], f_arr[off + 1], f_arr[off + 2]};
-
-            const auto& nd = sub_->domain.node(nid);
-            const Eigen::Vector3d pos{nd.coord(0), nd.coord(1), nd.coord(2)};
-            const Eigen::Vector3d r = pos - centroid;
-
-            F_sum += f_g;
-            M_sum += r.cross(f_g);
-        }
-
-        VecRestoreArrayRead(f_loc, &f_arr);
-        DMRestoreLocalVector(dm, &f_loc);
-
-        const Eigen::Vector3d F_local = rotation * F_sum;
-        const Eigen::Vector3d M_local = rotation * M_sum;
-
-        Eigen::Vector<double, 6> section_forces;
-        section_forces << F_local[0], M_local[1], M_local[2],
-            F_local[1], F_local[2], M_local[0];
-        return section_forces;
+        return offset >= 0
+            && width >= 0
+            && static_cast<Eigen::Index>(offset + width) <= size;
     }
 
-    [[nodiscard]] TangentDiagnostics compute_tangent(double h_pert) const
+    [[nodiscard]] ConstraintPartition build_constraint_partition_() const
+    {
+        ConstraintPartition partition;
+        if (!model_) {
+            return partition;
+        }
+
+        PetscInt n_local = 0;
+        VecGetLocalSize(model_->state_vector(), &n_local);
+        if (n_local <= 0) {
+            return partition;
+        }
+
+        partition.local_to_constrained.assign(
+            static_cast<std::size_t>(n_local), -1);
+
+        for (const auto& node : sub_->domain.nodes()) {
+            const auto dofs = node.dof_index();
+            for (std::size_t local_dof = 0;
+                 local_dof < dofs.size() && local_dof < node.num_dof();
+                 ++local_dof)
+            {
+                const auto idx =
+                    static_cast<Eigen::Index>(dofs[local_dof]);
+                if (idx < 0 || idx >= static_cast<Eigen::Index>(n_local)) {
+                    continue;
+                }
+
+                if (model_->is_dof_constrained(node.id(), local_dof)) {
+                    partition.local_to_constrained[static_cast<std::size_t>(idx)] =
+                        static_cast<int>(partition.constrained_dofs.size());
+                    partition.constrained_dofs.push_back(idx);
+                } else {
+                    partition.free_dofs.push_back(idx);
+                }
+            }
+        }
+
+        return partition;
+    }
+
+    [[nodiscard]] Eigen::MatrixXd
+    build_max_face_transfer_(const ConstraintPartition& partition) const
+    {
+        Eigen::MatrixXd T = Eigen::MatrixXd::Zero(
+            static_cast<Eigen::Index>(partition.constrained_dofs.size()), 6);
+
+        if (!sub_) {
+            return T;
+        }
+
+        const Eigen::Matrix3d rotation_T = sub_->kin_B.R.transpose();
+        const Eigen::Vector3d& centroid = sub_->kin_B.centroid;
+
+        for (const auto nid_raw : sub_->face_max_z_ids) {
+            const auto nid = static_cast<std::size_t>(nid_raw);
+            const auto& node = sub_->domain.node(nid);
+            if (node.num_dof() == 0) {
+                continue;
+            }
+
+            const Eigen::Vector3d pos{
+                node.coord(0), node.coord(1), node.coord(2)};
+            const Eigen::Vector3d offset_local =
+                sub_->kin_B.R * (pos - centroid);
+            const double y = offset_local[1];
+            const double z = offset_local[2];
+
+            const std::array<Eigen::Vector3d, 6> delta_local{{
+                Eigen::Vector3d{1.0, 0.0, 0.0},
+                Eigen::Vector3d{z,   0.0, 0.0},
+                Eigen::Vector3d{-y,  0.0, 0.0},
+                Eigen::Vector3d{0.0, 1.0, 0.0},
+                Eigen::Vector3d{0.0, 0.0, 1.0},
+                Eigen::Vector3d{0.0, -z,   y  },
+            }};
+
+            const auto dofs = node.dof_index();
+            for (std::size_t local_dof = 0;
+                 local_dof < dofs.size() && local_dof < 3;
+                 ++local_dof)
+            {
+                if (!model_->is_dof_constrained(nid, local_dof)) {
+                    continue;
+                }
+
+                const auto idx =
+                    static_cast<Eigen::Index>(dofs[local_dof]);
+                if (idx < 0 || idx >= static_cast<Eigen::Index>(
+                        partition.local_to_constrained.size()))
+                {
+                    continue;
+                }
+
+                const int constrained_pos =
+                    partition.local_to_constrained[static_cast<std::size_t>(idx)];
+                if (constrained_pos < 0) {
+                    continue;
+                }
+
+                for (int j = 0; j < 6; ++j) {
+                    const Eigen::Vector3d delta_global =
+                        rotation_T * delta_local[static_cast<std::size_t>(j)];
+                    T(constrained_pos, j) =
+                        delta_global[static_cast<Eigen::Index>(local_dof)];
+                }
+            }
+        }
+
+        return T;
+    }
+
+    void add_penalty_coupling_to_tangent_(Eigen::MatrixXd& tangent) const
+    {
+        if (!model_ || !penalty_couplings_ || penalty_couplings_->empty()) {
+            return;
+        }
+
+        PetscSection section;
+        DMGetLocalSection(model_->get_plex(), &section);
+
+        for (const auto& pc : *penalty_couplings_) {
+            PetscInt r_dof = 0;
+            PetscSectionGetDof(section, pc.rebar_sieve_pt, &r_dof);
+            if (r_dof <= 0) {
+                continue;
+            }
+
+            PetscInt r_off = 0;
+            PetscSectionGetOffset(section, pc.rebar_sieve_pt, &r_off);
+            if (!valid_local_range_(r_off, 3, tangent.rows())) {
+                continue;
+            }
+
+            for (int d = 0; d < 3; ++d) {
+                tangent(r_off + d, r_off + d) += alpha_penalty_;
+            }
+
+            for (const auto& [sp, Ni] : pc.hex_weights) {
+                PetscInt h_dof = 0;
+                PetscSectionGetDof(section, sp, &h_dof);
+                if (h_dof <= 0) {
+                    continue;
+                }
+
+                PetscInt h_off = 0;
+                PetscSectionGetOffset(section, sp, &h_off);
+                if (!valid_local_range_(h_off, 3, tangent.rows())) {
+                    continue;
+                }
+
+                for (int d = 0; d < 3; ++d) {
+                    const double v = -alpha_penalty_ * Ni;
+                    tangent(r_off + d, h_off + d) += v;
+                    tangent(h_off + d, r_off + d) += v;
+                }
+            }
+
+            for (const auto& [si, Ni] : pc.hex_weights) {
+                PetscInt gi_dof = 0;
+                PetscSectionGetDof(section, si, &gi_dof);
+                if (gi_dof <= 0) {
+                    continue;
+                }
+
+                PetscInt gi_off = 0;
+                PetscSectionGetOffset(section, si, &gi_off);
+                if (!valid_local_range_(gi_off, 3, tangent.rows())) {
+                    continue;
+                }
+
+                for (const auto& [sj, Nj] : pc.hex_weights) {
+                    PetscInt gj_dof = 0;
+                    PetscSectionGetDof(section, sj, &gj_dof);
+                    if (gj_dof <= 0) {
+                        continue;
+                    }
+
+                    PetscInt gj_off = 0;
+                    PetscSectionGetOffset(section, sj, &gj_off);
+                    if (!valid_local_range_(gj_off, 3, tangent.rows())) {
+                        continue;
+                    }
+
+                    for (int d = 0; d < 3; ++d) {
+                        tangent(gi_off + d, gj_off + d) +=
+                            alpha_penalty_ * Ni * Nj;
+                    }
+                }
+            }
+        }
+    }
+
+    [[nodiscard]] std::optional<Eigen::MatrixXd>
+    assemble_full_local_tangent_() const
+    {
+        if (!model_) {
+            return std::nullopt;
+        }
+
+        state_ops_.sync_state_vector();
+
+        PetscInt n_local = 0;
+        VecGetLocalSize(model_->state_vector(), &n_local);
+        if (n_local <= 0) {
+            return std::nullopt;
+        }
+
+        Eigen::MatrixXd tangent = Eigen::MatrixXd::Zero(n_local, n_local);
+        Vec u_local = model_->state_vector();
+
+        for (auto& elem : model_->elements()) {
+            auto u_e = elem.extract_element_dofs(u_local);
+            auto K_e = elem.compute_tangent_stiffness_matrix(u_e);
+            const auto& dofs = elem.get_dof_indices();
+
+            if (u_e.size() == 0 || K_e.rows() == 0 || K_e.cols() == 0
+                || dofs.empty()
+                || K_e.rows() != static_cast<Eigen::Index>(dofs.size())
+                || K_e.cols() != static_cast<Eigen::Index>(dofs.size()))
+            {
+                return std::nullopt;
+            }
+
+            for (Eigen::Index i = 0; i < K_e.rows(); ++i) {
+                const auto row = static_cast<Eigen::Index>(
+                    dofs[static_cast<std::size_t>(i)]);
+                if (row < 0 || row >= tangent.rows()) {
+                    return std::nullopt;
+                }
+                for (Eigen::Index j = 0; j < K_e.cols(); ++j) {
+                    const auto col = static_cast<Eigen::Index>(
+                        dofs[static_cast<std::size_t>(j)]);
+                    if (col < 0 || col >= tangent.cols()) {
+                        return std::nullopt;
+                    }
+                    tangent(row, col) += K_e(i, j);
+                }
+            }
+        }
+
+        add_penalty_coupling_to_tangent_(tangent);
+        return tangent;
+    }
+
+    static void apply_block_(Eigen::MatrixXd& block,
+                             const Eigen::MatrixXd& full,
+                             const std::vector<Eigen::Index>& rows,
+                             const std::vector<Eigen::Index>& cols)
+    {
+        for (Eigen::Index i = 0; i < block.rows(); ++i) {
+            for (Eigen::Index j = 0; j < block.cols(); ++j) {
+                block(i, j) =
+                    full(rows[static_cast<std::size_t>(i)],
+                         cols[static_cast<std::size_t>(j)]);
+            }
+        }
+    }
+
+    void finalize_tangent_(TangentDiagnostics& diagnostics) const
+    {
+        diagnostics.symmetry_error_before_regularization =
+            (diagnostics.tangent - diagnostics.tangent.transpose()).norm();
+
+        diagnostics.tangent =
+            0.5 * (diagnostics.tangent + diagnostics.tangent.transpose());
+
+        const auto tangent_before_regularization = diagnostics.tangent;
+
+        if (regularization_policy_ == RegularizationPolicyKind::SPDProjection) {
+            Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig{
+                diagnostics.tangent};
+            if (eig.info() == Eigen::Success) {
+                auto evals = eig.eigenvalues();
+                for (int i = 0; i < evals.size(); ++i) {
+                    evals[i] = std::max(evals[i], diagonal_floor_);
+                }
+                diagnostics.tangent =
+                    eig.eigenvectors() * evals.asDiagonal()
+                    * eig.eigenvectors().transpose();
+            }
+        } else if (regularization_policy_
+                   == RegularizationPolicyKind::DiagonalFloor)
+        {
+            for (int j = 0; j < 6; ++j) {
+                if (diagnostics.tangent(j, j) < diagonal_floor_) {
+                    diagnostics.tangent(j, j) = diagonal_floor_;
+                }
+            }
+        }
+
+        diagnostics.tangent_regularized =
+            (diagnostics.tangent - tangent_before_regularization).norm()
+            > 1.0e-12;
+    }
+
+    [[nodiscard]] std::optional<TangentDiagnostics>
+    compute_linearized_condensed_tangent_() const
+    {
+        auto tangent_full = assemble_full_local_tangent_();
+        if (!tangent_full) {
+            return std::nullopt;
+        }
+
+        const auto partition = build_constraint_partition_();
+        if (partition.constrained_dofs.empty()) {
+            return std::nullopt;
+        }
+
+        const Eigen::MatrixXd transfer = build_max_face_transfer_(partition);
+        if (transfer.rows() == 0 || transfer.norm() == 0.0) {
+            return std::nullopt;
+        }
+
+        Eigen::MatrixXd K_eff_cc;
+        if (partition.free_dofs.empty()) {
+            K_eff_cc.resize(
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
+            apply_block_(
+                K_eff_cc, *tangent_full,
+                partition.constrained_dofs, partition.constrained_dofs);
+        } else {
+            Eigen::MatrixXd K_ff(
+                static_cast<Eigen::Index>(partition.free_dofs.size()),
+                static_cast<Eigen::Index>(partition.free_dofs.size()));
+            Eigen::MatrixXd K_fc(
+                static_cast<Eigen::Index>(partition.free_dofs.size()),
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
+            Eigen::MatrixXd K_cf(
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
+                static_cast<Eigen::Index>(partition.free_dofs.size()));
+            Eigen::MatrixXd K_cc(
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()));
+
+            apply_block_(K_ff, *tangent_full,
+                         partition.free_dofs, partition.free_dofs);
+            apply_block_(K_fc, *tangent_full,
+                         partition.free_dofs, partition.constrained_dofs);
+            apply_block_(K_cf, *tangent_full,
+                         partition.constrained_dofs, partition.free_dofs);
+            apply_block_(K_cc, *tangent_full,
+                         partition.constrained_dofs, partition.constrained_dofs);
+
+            Eigen::FullPivLU<Eigen::MatrixXd> lu(K_ff);
+            if (!lu.isInvertible()) {
+                return std::nullopt;
+            }
+
+            const Eigen::MatrixXd K_ff_inv_K_fc = lu.solve(K_fc);
+            const double solve_residual =
+                (K_ff * K_ff_inv_K_fc - K_fc).norm()
+                / std::max(1.0, K_fc.norm());
+            if (!std::isfinite(solve_residual) || solve_residual > 1.0e-8) {
+                return std::nullopt;
+            }
+
+            K_eff_cc = K_cc - K_cf * K_ff_inv_K_fc;
+        }
+
+        TangentDiagnostics diagnostics;
+        diagnostics.scheme =
+            TangentLinearizationScheme::LinearizedCondensation;
+        diagnostics.tangent =
+            transfer.transpose() * K_eff_cc * transfer;
+
+        for (int j = 0; j < 6; ++j) {
+            const bool column_nontrivial =
+                transfer.col(j).norm() > 1.0e-14
+                && diagnostics.tangent.col(j).allFinite();
+            diagnostics.column_valid[static_cast<std::size_t>(j)] =
+                column_nontrivial;
+            diagnostics.column_central[static_cast<std::size_t>(j)] =
+                column_nontrivial;
+        }
+
+        finalize_tangent_(diagnostics);
+        return diagnostics;
+    }
+
+    [[nodiscard]] TangentDiagnostics
+    compute_adaptive_fd_tangent_(double h_pert) const
     {
         TangentDiagnostics diagnostics;
+        diagnostics.scheme =
+            TangentLinearizationScheme::AdaptiveFiniteDifference;
+
         if (!model_ || !sub_ || !displacement_ || !displacement_work_
             || !imposed_work_ || !snes_)
         {
@@ -273,41 +592,109 @@ public:
         bc_applicator_.write_imposed_values();
         state_ops_.sync_state_vector();
 
-        diagnostics.symmetry_error_before_regularization =
-            (diagnostics.tangent - diagnostics.tangent.transpose()).norm();
+        finalize_tangent_(diagnostics);
+        return diagnostics;
+    }
 
-        diagnostics.tangent =
-            0.5 * (diagnostics.tangent + diagnostics.tangent.transpose());
+public:
+    BoundaryReactionHomogenizer() = default;
 
-        const auto tangent_before_regularization = diagnostics.tangent;
+    BoundaryReactionHomogenizer(
+        ModelT* model,
+        SubModelT* sub,
+        Vec displacement,
+        Vec displacement_work,
+        Vec imposed_work,
+        SNES snes,
+        RegularizationPolicyKind regularization_policy,
+        double diagonal_floor,
+        const std::vector<PenaltyCouplingEntry>* penalty_couplings,
+        double alpha_penalty,
+        LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
+        PersistentLocalStateOps<ModelT> state_ops) noexcept
+        : model_{model}
+        , sub_{sub}
+        , displacement_{displacement}
+        , displacement_work_{displacement_work}
+        , imposed_work_{imposed_work}
+        , snes_{snes}
+        , regularization_policy_{regularization_policy}
+        , diagonal_floor_{diagonal_floor}
+        , penalty_couplings_{penalty_couplings}
+        , alpha_penalty_{alpha_penalty}
+        , bc_applicator_{bc_applicator}
+        , state_ops_{state_ops}
+    {}
 
-        if (regularization_policy_ == RegularizationPolicyKind::SPDProjection) {
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig{
-                diagnostics.tangent};
-            if (eig.info() == Eigen::Success) {
-                auto evals = eig.eigenvalues();
-                for (int i = 0; i < evals.size(); ++i) {
-                    evals[i] = std::max(evals[i], diagonal_floor_);
-                }
-                diagnostics.tangent =
-                    eig.eigenvectors() * evals.asDiagonal()
-                    * eig.eigenvectors().transpose();
-            }
-        } else if (regularization_policy_
-                   == RegularizationPolicyKind::DiagonalFloor)
-        {
-            for (int j = 0; j < 6; ++j) {
-                if (diagnostics.tangent(j, j) < diagonal_floor_) {
-                    diagnostics.tangent(j, j) = diagonal_floor_;
-                }
-            }
+    [[nodiscard]] Eigen::Vector<double, 6> section_forces_from_reactions() const
+    {
+        if (!model_ || !sub_ || !displacement_) {
+            return Eigen::Vector<double, 6>::Zero();
         }
 
-        diagnostics.tangent_regularized =
-            (diagnostics.tangent - tangent_before_regularization).norm()
-            > 1.0e-12;
+        DM dm = model_->get_plex();
 
-        return diagnostics;
+        Vec u_loc;
+        DMGetLocalVector(dm, &u_loc);
+        VecSet(u_loc, 0.0);
+        DMGlobalToLocal(dm, displacement_, INSERT_VALUES, u_loc);
+        VecAXPY(u_loc, 1.0, model_->imposed_solution());
+
+        Vec f_loc;
+        DMGetLocalVector(dm, &f_loc);
+        VecSet(f_loc, 0.0);
+        for (auto& elem : model_->elements()) {
+            elem.compute_internal_forces(u_loc, f_loc);
+        }
+
+        DMRestoreLocalVector(dm, &u_loc);
+
+        PetscSection sec;
+        DMGetLocalSection(dm, &sec);
+
+        const Eigen::Matrix3d& rotation = sub_->kin_B.R;
+        const Eigen::Vector3d& centroid = sub_->kin_B.centroid;
+
+        Eigen::Vector3d F_sum = Eigen::Vector3d::Zero();
+        Eigen::Vector3d M_sum = Eigen::Vector3d::Zero();
+
+        const PetscScalar* f_arr;
+        VecGetArrayRead(f_loc, &f_arr);
+
+        for (const auto& [nid, ignored_u] : sub_->bc_max_z) {
+            (void)ignored_u;
+            const PetscInt plex_pt = sub_->domain.node(nid).sieve_id.value();
+            PetscInt off;
+            PetscSectionGetOffset(sec, plex_pt, &off);
+
+            const Eigen::Vector3d f_g{f_arr[off], f_arr[off + 1], f_arr[off + 2]};
+
+            const auto& nd = sub_->domain.node(nid);
+            const Eigen::Vector3d pos{nd.coord(0), nd.coord(1), nd.coord(2)};
+            const Eigen::Vector3d r = pos - centroid;
+
+            F_sum += f_g;
+            M_sum += r.cross(f_g);
+        }
+
+        VecRestoreArrayRead(f_loc, &f_arr);
+        DMRestoreLocalVector(dm, &f_loc);
+
+        const Eigen::Vector3d F_local = rotation * F_sum;
+        const Eigen::Vector3d M_local = rotation * M_sum;
+
+        Eigen::Vector<double, 6> section_forces;
+        section_forces << F_local[0], M_local[1], M_local[2],
+            F_local[1], F_local[2], M_local[0];
+        return section_forces;
+    }
+
+    [[nodiscard]] TangentDiagnostics compute_tangent(double h_pert) const
+    {
+        if (auto condensed = compute_linearized_condensed_tangent_()) {
+            return *condensed;
+        }
+        return compute_adaptive_fd_tangent_(h_pert);
     }
 
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
@@ -340,8 +727,7 @@ public:
         response.tangent_symmetry_error =
             diagnostics.symmetry_error_before_regularization;
         response.tangent_regularized = diagnostics.tangent_regularized;
-        response.tangent_scheme =
-            TangentLinearizationScheme::AdaptiveFiniteDifference;
+        response.tangent_scheme = diagnostics.scheme;
         response.perturbation_sizes = diagnostics.perturbation_sizes;
         response.tangent_column_valid = diagnostics.column_valid;
         response.tangent_column_central = diagnostics.column_central;
@@ -357,15 +743,18 @@ public:
             [](bool central) { return central; });
 
         response.forces_consistent_with_tangent =
-            all_columns_valid && all_columns_central
-            && !diagnostics.tangent_regularized;
+            all_columns_valid
+            && !diagnostics.tangent_regularized
+            && (diagnostics.scheme
+                    == TangentLinearizationScheme::LinearizedCondensation
+                || all_columns_central);
 
         if (response.tangent.norm() == 0.0 && response.forces.norm() == 0.0) {
             response.status = ResponseStatus::SolveFailed;
         } else if (!all_columns_valid) {
             response.status = ResponseStatus::InvalidOperator;
-        } else if (all_columns_central
-                   && diagnostics.failed_perturbations == 0
+        } else if (diagnostics.scheme
+                       == TangentLinearizationScheme::LinearizedCondensation
                    && !diagnostics.tangent_regularized)
         {
             response.status = ResponseStatus::Ok;
