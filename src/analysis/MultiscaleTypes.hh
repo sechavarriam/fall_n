@@ -31,6 +31,7 @@ enum class ResponseStatus {
 
 enum class TangentLinearizationScheme {
     Unknown,
+    LinearizedCondensation,
     AdaptiveFiniteDifference
 };
 
@@ -161,6 +162,8 @@ to_string(TangentLinearizationScheme scheme)
     switch (scheme) {
         case TangentLinearizationScheme::Unknown:
             return "Unknown";
+        case TangentLinearizationScheme::LinearizedCondensation:
+            return "LinearizedCondensation";
         case TangentLinearizationScheme::AdaptiveFiniteDifference:
             return "AdaptiveFiniteDifference";
     }

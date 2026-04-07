@@ -108,9 +108,36 @@ implementation:
 
 \subsection{Implemented change}
 
-The production operator remains the boundary-reaction operator, but the tangent
-is now computed by an adaptive finite-difference scheme.  For each generalized
-component \(e_j\), the implementation uses
+The production operator remains the boundary-reaction operator, but the
+stabilization no longer treats finite differences as the primary tangent path.
+The current normative implementation first assembles the full local tangent
+operator at the converged micro state, including the embedded-rebar penalty
+terms, partitions it into free and constrained blocks, and condenses it
+against the boundary kinematics.  With constrained increments
+\(\delta \mathbf{u}_c = \mathbf{T}\,\delta \mathbf{q}\), the returned section
+tangent is
+\begin{equation}
+  \mathbf{D}_{\mathrm{hom}}
+  =
+  \mathbf{T}^{\mathsf T}
+  \mathbf{K}_{\mathrm{eff}}
+  \mathbf{T},
+  \qquad
+  \mathbf{K}_{\mathrm{eff}}
+  =
+  \mathbf{K}_{cc}
+  -
+  \mathbf{K}_{cf}\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}.
+\end{equation}
+This is the first version of the multiscale operator in the repository that is
+explicitly built from the linearised micro equilibrium equations rather than
+from perturb-and-observe solves.
+
+Adaptive finite differences are retained only as a documented fallback.  When
+the condensed operator cannot be formed---for example because a mixed element
+does not expose explicit local tangent data or because the free block is
+numerically singular---the implementation falls back to the adaptive scheme.
+For each generalized component \(e_j\), the fallback uses
 \begin{equation}
   h_j
   =
@@ -144,10 +171,10 @@ The public response object now records:
 The stabilization deliberately stopped calling every non-perfect response
 ``successful''.  The public status contract is now:
 \begin{description}
-  \item[\texttt{Ok}] all tangent columns are valid and no actual
-    regularisation was applied;
+  \item[\texttt{Ok}] the condensed operator was assembled successfully, all
+    tangent columns are valid, and no actual regularisation was applied;
   \item[\texttt{Degraded}] a usable response exists, but at least one
-    perturbation fallback or actual tangent regularisation occurred;
+    fallback to finite differences or actual tangent regularisation occurred;
   \item[\texttt{SolveFailed}] the response is not usable as a section operator;
   \item[\texttt{NotReady}/\texttt{InvalidOperator}] explicit non-solution
     states.
@@ -166,16 +193,22 @@ components:
   \item \texttt{LocalBoundaryConditionApplicator}: update of section-end
     kinematics and writing of the imposed boundary vector;
   \item \texttt{BoundaryReactionHomogenizer}: section forces from reactions,
-    tangent extraction, diagnostics, and response classification.
+    condensed tangent extraction, finite-difference fallback, diagnostics, and
+    response classification.
 \end{itemize}
 
 This split was intentionally implemented as lightweight header-only helpers
 composed through pointers and templates, so the hot path still avoids virtual
 dispatch and heap churn.  Architecturally, this matters because it creates a
-single explicit seam where the current adaptive finite-difference tangent can
-later be replaced by a more rigorous consistent linearisation without changing
-the public \texttt{SectionHomogenizedResponse} contract or the typed local
-model API.
+single explicit seam where the current dense condensation / finite-difference
+fallback pair can later be upgraded again without changing the public
+\texttt{SectionHomogenizedResponse} contract or the typed local model API.
+
+The same cycle also extended \texttt{FEM\_Element} with the explicit local
+linearisation API already present in \texttt{StructuralElement}.  This closes
+an architectural gap in the mixed-element path: the condensed local operator
+now sees the element DOF map and the element tangent even when the micro model
+is stored behind \texttt{MultiElementPolicy} type erasure.
 
 The same cycle also hardened the semantics of operator validity.  A local
 response is now classified as \texttt{InvalidOperator} if any tangent column is
@@ -245,7 +278,7 @@ The tests check:
   \item availability of the homogenised response;
   \item positivity of the expected tangent diagonal;
   \item completion of the tangent diagnostics;
-  \item use of the central stencil and the
+  \item use of \texttt{LinearizedCondensation} and the
     \texttt{forces\_consistent\_with\_tangent} flag in the elastic cases;
   \item dominance or mode-consistent prominence of the expected resultant;
   \item linearised consistency in the elastic axial case;
@@ -272,7 +305,8 @@ The following focused executables were rebuilt and executed locally after the
 stabilization changes:
 \begin{itemize}
   \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 39 passed, 0 failed;
-  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 80 passed, 0 failed.
+  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 80 passed, 0 failed;
+  \item \texttt{fall\_n\_heterogeneity\_test.exe}: 26 passed, 0 failed.
 \end{itemize}
 
 \section{Phase 4: Release Hardening and CI Surface}
@@ -309,6 +343,13 @@ During this execution cycle, the script itself exposed two practical issues:
 After those corrections, the equivalent gate commands were executed explicitly
 in the audit environment to verify the release surface.
 
+For this follow-up execution cycle, the focused regression executables and the
+\LaTeX{} document were revalidated again after the condensed tangent
+implementation.  A fresh rebuild of the heavy example targets was also
+attempted, but the harness hit its wall-clock timeout before completion; this
+is therefore recorded as an incomplete integration check rather than silently
+reported as green.
+
 \subsection{Repository workflow}
 
 The repository now also contains the workflow
@@ -339,11 +380,12 @@ execution.
 \toprule
 Residual item & Severity & Current disposition \\
 \midrule
-Adaptive finite-difference tangent is still not a fully consistent algorithmic
-tangent &
+Dense condensed tangent still depends on explicit element-level local
+linearisation support and keeps a finite-difference fallback &
 high &
-Documented explicitly; future work remains to derive the exact consistent
-linearisation. \\
+Documented explicitly; the primary path is now the condensed operator, but the
+fallback remains necessary for unsupported local elements or singular free
+blocks. \\
 \texttt{NonlinearSubModelEvolver} still owns several responsibilities &
 medium &
 Improved in this cycle by extracting boundary-condition, state, and

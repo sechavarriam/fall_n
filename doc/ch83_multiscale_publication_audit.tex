@@ -190,8 +190,8 @@ The redesign introduces explicit public types:
   \item \texttt{MacroSectionState}: local macro strain/resultant snapshot;
   \item \texttt{SectionHomogenizedResponse}: homogenised forces, tangent,
     reference strain, operator provenance, regularisation diagnostics,
-    perturbation sizes, tangent-column validity, and finite-difference
-    provenance;
+    linearisation provenance, tangent-column validity, and perturbation
+    sizes when the finite-difference fallback is actually used;
   \item \texttt{CouplingIterationReport}: mode, termination reason,
     iteration count, residuals, hard-failure sites, rollback state,
     regularisation presence, and macro/micro timing;
@@ -247,12 +247,22 @@ At the local-solver level, the same principle is now applied internally:
   \item \texttt{PersistentLocalStateOps} owns synchronisation,
     commit, and revert of the persistent continuum state;
   \item \texttt{BoundaryReactionHomogenizer} owns the section-force extraction,
-    tangent diagnostics, and response classification.
+    tangent diagnostics, linearized static condensation, finite-difference
+    fallback, and response classification.
 \end{itemize}
 These components are value-type, header-only helpers with pointer-based
 composition; they add no virtual dispatch to the micro hot path while creating
-an explicit seam for future replacement of the finite-difference tangent by a
-more rigorous consistent linearisation.
+an explicit seam for future replacement of the current dense condensation /
+finite-difference fallback pair by even more advanced local linearisation
+strategies.
+
+This cycle also extended \texttt{FEM\_Element} to mirror the explicit local
+linearisation API already present in \texttt{StructuralElement}
+(\texttt{extract\_element\_dofs}, \texttt{compute\_internal\_force\_vector},
+\texttt{compute\_tangent\_stiffness\_matrix}, and
+\texttt{get\_dof\_indices}).  That architectural change matters because the
+publication-ready local operator now depends on mixed-model assembly through
+type erasure without losing access to the element-level tangent information.
 
 \subsection{Macro and local rollback}
 
@@ -351,6 +361,9 @@ tests:
     between serial and OpenMP execution on the API harness;
   \item \texttt{tests/test\_micro\_solve\_executor.cpp}:
     serial/OpenMP executor contract and communicator defaults;
+  \item \texttt{tests/test\_element\_heterogeneity.cpp}:
+    heterogeneous element-container contract, including the explicit local
+    linearisation API now forwarded by \texttt{FEM\_Element};
   \item \texttt{tests/test\_beam.cpp}:
     section-level beam behaviour, including the element path touched by local
     homogenised injection;
@@ -358,10 +371,10 @@ tests:
     \texttt{tests/test\_steppable\_dynamic.cpp}:
     solver contracts relied upon by the orchestrator;
   \item \texttt{tests/test\_evolver\_advanced.cpp}:
-    persistent local-model evolution, adaptive finite-difference tangent
-    diagnostics, pure axial/flexural/shear/torsional regression cases,
-    linearised consistency, reaction-versus-volume operator comparison, and
-    axial power consistency.
+    persistent local-model evolution, condensed local tangent extraction with
+    finite-difference fallback diagnostics, pure axial/flexural/shear/torsional
+    regression cases, linearised consistency, reaction-versus-volume operator
+    comparison, and axial power consistency.
 \end{itemize}
 
 In addition, the heavy executable targets
@@ -377,9 +390,13 @@ serve as integration-level build checks of the public multiscale surface.
 The redesign closes the most serious semantic gaps, but several publication
 limitations remain explicit:
 \begin{itemize}
-  \item the default tangent is now obtained by adaptive finite differences with
-    a central-difference preference and one-sided fallback, not by a fully
-    consistent algorithmic linearisation;
+  \item the default section tangent is now obtained by linearized static
+    condensation of the assembled local tangent operator
+    \(\mathbf{D}_{\mathrm{hom}} = \mathbf{T}^{\mathsf T}
+    \mathbf{K}_{\mathrm{eff}} \mathbf{T}\), but the implementation is still a
+    dense local condensation and falls back to adaptive finite differences when
+    mixed-element local linearisation is unavailable or the free block becomes
+    numerically singular;
   \item the accepted FE\textsuperscript{2} step is a fixed-point iteration, not
     a monolithic multilevel Newton solve;
   \item MPI-distributed local-model execution is not yet implemented beyond the
@@ -399,8 +416,10 @@ limitations remain explicit:
 
 The next publication-strength milestones are:
 \begin{enumerate}
-  \item replace the adaptive finite-difference tangent by a fully consistent
-    algorithmic tangent while retaining the same public response contract;
+  \item generalise the current condensed local tangent into a fully systematic
+    algorithmic linearisation path that covers every local hook and minimises
+    the need for the finite-difference fallback while retaining the same
+    public response contract;
   \item finish the internal split of \texttt{NonlinearSubModelEvolver} from
     the current state into a solver core, diagnostics service, and output
     service, reusing the already extracted boundary-condition, state, and

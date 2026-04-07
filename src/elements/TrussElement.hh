@@ -96,7 +96,7 @@ class TrussElement {
     }
 
     // ── Extract element DOFs from a local PETSc vector ────────────────
-    FVectorT extract_element_dofs(Vec u_local) {
+    FVectorT extract_element_dofs_fixed_(Vec u_local) {
         ensure_dof_cache();
         FVectorT u_e;
         VecGetValues(u_local, static_cast<PetscInt>(total_dofs_),
@@ -139,6 +139,13 @@ public:
     const std::string& physical_group() const noexcept { return geometry_->physical_group(); }
     bool has_physical_group() const noexcept { return geometry_->has_physical_group(); }
 
+    Eigen::VectorXd extract_element_dofs(Vec u_local) {
+        const auto u_e_fixed = extract_element_dofs_fixed_(u_local);
+        Eigen::VectorXd u_e(total_dofs_);
+        u_e = u_e_fixed;
+        return u_e;
+    }
+
     // ── DOF setup (FiniteElement concept) ─────────────────────────────
     void set_num_dof_in_nodes() noexcept {
         for (std::size_t i = 0; i < num_nodes_; ++i)
@@ -168,7 +175,7 @@ public:
     //  f_e = A · L · Bᵀ · σ(ε)
     //
     void compute_internal_forces(Vec u_local, Vec f_local) {
-        FVectorT u_e = extract_element_dofs(u_local);
+        FVectorT u_e = extract_element_dofs_fixed_(u_local);
 
         double eps = B_.dot(u_e);
         Strain<1> strain(eps);
@@ -183,12 +190,31 @@ public:
                      dof_indices_.data(), f_e.data(), ADD_VALUES);
     }
 
+    Eigen::VectorXd
+    compute_internal_force_vector(const Eigen::VectorXd& u_e_dyn) {
+        if (u_e_dyn.size() != TD) {
+            return {};
+        }
+
+        const FVectorT u_e = u_e_dyn;
+        const double eps = B_.dot(u_e);
+        Strain<1> strain(eps);
+
+        const auto sigma = material_.compute_response(strain);
+        const double sig = sigma.components();
+
+        const FVectorT f_e = (area_ * L_ * sig) * B_.transpose();
+        Eigen::VectorXd out(total_dofs_);
+        out = f_e;
+        return out;
+    }
+
     // ── Nonlinear tangent stiffness (FiniteElement concept) ───────────
     //
     //  K_t = A · L · Bᵀ · E_t(ε) · B
     //
     void inject_tangent_stiffness(Vec u_local, Mat K) {
-        FVectorT u_e = extract_element_dofs(u_local);
+        FVectorT u_e = extract_element_dofs_fixed_(u_local);
 
         double eps = B_.dot(u_e);
         Strain<1> strain(eps);
@@ -204,10 +230,33 @@ public:
                           K_e.data(), ADD_VALUES);
     }
 
+    Eigen::MatrixXd
+    compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e_dyn) {
+        if (u_e_dyn.size() != TD) {
+            return {};
+        }
+
+        const FVectorT u_e = u_e_dyn;
+        const double eps = B_.dot(u_e);
+        Strain<1> strain(eps);
+
+        const double Et = material_.tangent(strain)(0, 0);
+        const KMatrixT K_e = (area_ * L_ * Et) * (B_.transpose() * B_);
+
+        Eigen::MatrixXd out(total_dofs_, total_dofs_);
+        out = K_e;
+        return out;
+    }
+
+    const std::vector<PetscInt>& get_dof_indices() {
+        ensure_dof_cache();
+        return dof_indices_;
+    }
+
     // ── Material state management (FiniteElement concept) ─────────────
 
     void commit_material_state(Vec u_local) {
-        FVectorT u_e = extract_element_dofs(u_local);
+        FVectorT u_e = extract_element_dofs_fixed_(u_local);
         double eps = B_.dot(u_e);
         Strain<1> strain(eps);
 
@@ -230,7 +279,7 @@ public:
     std::vector<GaussFieldRecord> collect_gauss_fields(Vec u_local) const {
         // Need mutable access to extract element DOFs (dof cache)
         auto& self = const_cast<TrussElement&>(*this);
-        FVectorT u_e = self.extract_element_dofs(u_local);
+        FVectorT u_e = self.extract_element_dofs_fixed_(u_local);
 
         double eps = B_.dot(u_e);
         Strain<1> strain_val(eps);
