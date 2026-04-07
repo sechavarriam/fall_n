@@ -25,8 +25,11 @@
 //
 // =============================================================================
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <format>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -45,9 +48,12 @@
 #include "../materials/Material.hh"
 #include "../materials/InternalFieldSnapshot.hh"
 
+#include "BoundaryReactionHomogenizer.hh"
 #include "HomogenizedSection.hh"
+#include "LocalBoundaryConditionApplicator.hh"
 #include "LocalModelAdapter.hh"
 #include "MaterialFactory.hh"
+#include "PersistentLocalStateOps.hh"
 #include "../analysis/ArcLengthSolver.hh"
 
 #include "../model/Model.hh"
@@ -122,6 +128,11 @@ class NonlinearSubModelEvolver {
     static constexpr std::size_t NDOF = 3;
     using ContElem   = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
     using MixedModel = Model<Policy, continuum::SmallStrain, NDOF, MultiElementPolicy>;
+    using StateOps = PersistentLocalStateOps<MixedModel>;
+    using BoundaryConditionApplicator =
+        LocalBoundaryConditionApplicator<MixedModel, MultiscaleSubModel>;
+    using LocalHomogenizer =
+        BoundaryReactionHomogenizer<MixedModel, MultiscaleSubModel>;
 
     //  Sub-model reference 
     MultiscaleSubModel* sub_;
@@ -196,6 +207,31 @@ class NonlinearSubModelEvolver {
         RegularizationPolicyKind::DiagonalFloor};
     double diagonal_floor_{1.0};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
+
+    [[nodiscard]] StateOps make_state_ops_() noexcept
+    {
+        return StateOps{model_.get(), U_};
+    }
+
+    [[nodiscard]] BoundaryConditionApplicator make_bc_applicator_() noexcept
+    {
+        return BoundaryConditionApplicator{model_.get(), sub_};
+    }
+
+    [[nodiscard]] LocalHomogenizer make_local_homogenizer_() noexcept
+    {
+        return LocalHomogenizer{
+            model_.get(),
+            sub_,
+            U_,
+            U_work_,
+            imp_work_,
+            snes_,
+            regularization_policy_,
+            diagonal_floor_,
+            make_bc_applicator_(),
+            make_state_ops_()};
+    }
 
 
     //  SNES callbacks 
@@ -570,18 +606,14 @@ public:
     }
 
     void restore_checkpoint(const checkpoint_type& checkpoint) {
-        sub_->kin_A = checkpoint.kin_A;
-        sub_->kin_B = checkpoint.kin_B;
-        sub_->bc_min_z = compute_boundary_displacements(
-            sub_->kin_A, sub_->domain, sub_->face_min_z_ids);
-        sub_->bc_max_z = compute_boundary_displacements(
-            sub_->kin_B, sub_->domain, sub_->face_max_z_ids);
+        make_bc_applicator_().update_kinematics(
+            checkpoint.kin_A, checkpoint.kin_B);
 
         if (!model_ || !U_) {
             return;
         }
 
-        revert_state();
+        make_state_ops_().revert_state();
 
         if (checkpoint.displacement) {
             FALL_N_PETSC_CHECK(VecCopy(checkpoint.displacement.get(), U_));
@@ -593,10 +625,10 @@ public:
             FALL_N_PETSC_CHECK(VecCopy(checkpoint.imposed_solution.get(),
                                        model_->imposed_solution()));
         } else {
-            write_imposed_values();
+            make_bc_applicator_().write_imposed_values();
         }
 
-        sync_state_vector_();
+        make_state_ops_().sync_state_vector();
     }
 
 
@@ -605,13 +637,7 @@ public:
     void update_kinematics(const SectionKinematics& kin_A,
                            const SectionKinematics& kin_B)
     {
-        sub_->kin_A = kin_A;
-        sub_->kin_B = kin_B;
-
-        sub_->bc_min_z = compute_boundary_displacements(
-            kin_A, sub_->domain, sub_->face_min_z_ids);
-        sub_->bc_max_z = compute_boundary_displacements(
-            kin_B, sub_->domain, sub_->face_max_z_ids);
+        make_bc_applicator_().update_kinematics(kin_A, kin_B);
     }
 
 
@@ -784,199 +810,12 @@ public:
     //
     //  Returns [N, My, Mz, Vy, Vz, Mt] in beam local frame.
 
-    [[nodiscard]] Eigen::Vector<double, 6>
-    section_forces_from_reactions()
-    {
-        DM dm = model_->get_plex();
-
-        // Total displacement in DM-local space
-        Vec u_loc;
-        DMGetLocalVector(dm, &u_loc);
-        VecSet(u_loc, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_loc);
-        VecAXPY(u_loc, 1.0, model_->imposed_solution());
-
-        // Assemble internal force vector
-        Vec f_loc;
-        DMGetLocalVector(dm, &f_loc);
-        VecSet(f_loc, 0.0);
-        for (auto& elem : model_->elements())
-            elem.compute_internal_forces(u_loc, f_loc);
-
-        DMRestoreLocalVector(dm, &u_loc);
-
-        // Read reactions at Face B nodes
-        PetscSection sec;
-        DMGetLocalSection(dm, &sec);
-
-        const Eigen::Matrix3d& R = sub_->kin_B.R;
-        const Eigen::Vector3d& centroid = sub_->kin_B.centroid;
-
-        Eigen::Vector3d F_sum = Eigen::Vector3d::Zero();
-        Eigen::Vector3d M_sum = Eigen::Vector3d::Zero();
-
-        const PetscScalar* f_arr;
-        VecGetArrayRead(f_loc, &f_arr);
-
-        for (const auto& [nid, u_imp] : sub_->bc_max_z) {
-            PetscInt plex_pt =
-                sub_->domain.node(nid).sieve_id.value();
-            PetscInt off;
-            PetscSectionGetOffset(sec, plex_pt, &off);
-
-            Eigen::Vector3d f_g{f_arr[off], f_arr[off+1], f_arr[off+2]};
-
-            const auto& nd = sub_->domain.node(nid);
-            Eigen::Vector3d pos{nd.coord(0), nd.coord(1), nd.coord(2)};
-            Eigen::Vector3d r = pos - centroid;
-
-            F_sum += f_g;
-            M_sum += r.cross(f_g);
-        }
-
-        VecRestoreArrayRead(f_loc, &f_arr);
-        DMRestoreLocalVector(dm, &f_loc);
-
-        // Transform to beam local frame
-        Eigen::Vector3d F_local = R * F_sum;
-        Eigen::Vector3d M_local = R * M_sum;
-
-        Eigen::Vector<double, 6> s;
-        s << F_local[0], M_local[1], M_local[2],
-             F_local[1], F_local[2], M_local[0];
-        return s;
-    }
-
-
-    //  Computes the 6×6 tangent D_hom = ∂s/∂e by forward-difference
-    //  perturbation of the section deformation components at BOTH ends.
-    //
-    //  For each direction j = 0..5:
-    //    1. Perturb kin_B displacement/rotation by +h·L
-    //    2. Recompute boundary displacements
-    //    3. Write perturbed BCs into imposed_solution
-    //    4. One SNES solve from current state (small perturbation → 1–2 iters)
-    //    5. Assemble f_int and extract Face B reactions
-    //    6. D_hom(:,j) = (s_perturbed - s0) / h
-    //    7. Revert material state and restore U, imposed_solution
-    //
-    //  Returns the 6×6 matrix with ordering:
-    //    [0] = N, [1] = My, [2] = Mz, [3] = Vy, [4] = Vz, [5] = Mt
-    //  versus
-    //    [0] = ε₀, [1] = κ_y, [2] = κ_z, [3] = γ_y, [4] = γ_z, [5] = θ'
-    //
-
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
     compute_homogenized_tangent([[maybe_unused]] double width,
                                 [[maybe_unused]] double height,
                                 double h_pert = 1.0e-6)
     {
-        if (!model_ready_) return Eigen::Matrix<double, 6, 6>::Zero();
-
-        // ── Baseline section forces (from f_int reactions at Face B) ─
-        Eigen::Vector<double, 6> s0_vec = section_forces_from_reactions();
-
-        // ── Save current state vectors (pre-allocated work vecs) ─────
-        VecCopy(U_, U_work_);
-        VecCopy(model_->imposed_solution(), imp_work_);
-
-        const SectionKinematics kin_A_orig = sub_->kin_A;
-        const SectionKinematics kin_B_orig = sub_->kin_B;
-
-        Eigen::Matrix<double, 6, 6> D_hom =
-            Eigen::Matrix<double, 6, 6>::Zero();
-
-        // ── Perturbation loop ────────────────────────────────────────
-        //
-        //  For each section deformation component j, we perturb the
-        //  displacement/rotation fields (u_local, theta_local) at end B
-        //  which drives the Dirichlet BCs via compute_boundary_displacements().
-        //  Section forces are extracted from the assembled f_int at Face B,
-        //  which correctly evaluates constitutive response from the
-        //  displacement field (not stored material state).
-
-        const double L_beam =
-            (kin_B_orig.centroid - kin_A_orig.centroid).norm();
-
-        for (int j = 0; j < 6; ++j) {
-            SectionKinematics kin_B_p = kin_B_orig;
-
-            // Perturb displacement/rotation at end B only
-            //   (end A stays as reference / clamped end)
-            //   Linearised Timoshenko: Δε → Δu_x = h·L, Δκ → Δθ = h·L, etc.
-            const double dL = h_pert * L_beam;
-            switch (j) {
-                case 0: kin_B_p.u_local[0]     += dL; break; // axial
-                case 1: kin_B_p.theta_local[1]  += dL; break; // θ_y → κ_y
-                case 2: kin_B_p.theta_local[2]  += dL; break; // θ_z → κ_z
-                case 3: kin_B_p.u_local[1]      += dL; break; // transverse y
-                case 4: kin_B_p.u_local[2]      += dL; break; // transverse z
-                case 5: kin_B_p.theta_local[0]  += dL; break; // twist θ_x
-            }
-
-            // Recompute boundary displacements with perturbed kinematics
-            sub_->kin_B = kin_B_p;
-            sub_->bc_min_z = compute_boundary_displacements(
-                kin_A_orig, sub_->domain, sub_->face_min_z_ids);
-            sub_->bc_max_z = compute_boundary_displacements(
-                kin_B_p, sub_->domain, sub_->face_max_z_ids);
-            write_imposed_values();
-
-            // Solve from current state (small perturbation → fast convergence)
-            SNESSolve(snes_, nullptr, U_);
-
-            SNESConvergedReason reason;
-            SNESGetConvergedReason(snes_, &reason);
-
-            if (reason > 0) {
-                // Section forces from f_int reactions at Face B
-                Eigen::Vector<double, 6> sp_vec =
-                    section_forces_from_reactions();
-
-                D_hom.col(j) = (sp_vec - s0_vec) / h_pert;
-            }
-            // else: column stays zero (perturbation failed)
-
-            // Revert material state and restore vectors
-            revert_state();
-            VecCopy(U_work_, U_);
-            VecCopy(imp_work_, model_->imposed_solution());
-        }
-
-        // ── Restore original kinematics ──────────────────────────────
-        sub_->kin_A = kin_A_orig;
-        sub_->kin_B = kin_B_orig;
-        sub_->bc_min_z = compute_boundary_displacements(
-            kin_A_orig, sub_->domain, sub_->face_min_z_ids);
-        sub_->bc_max_z = compute_boundary_displacements(
-            kin_B_orig, sub_->domain, sub_->face_max_z_ids);
-        write_imposed_values();
-
-        D_hom = 0.5 * (D_hom + D_hom.transpose());
-
-        if (regularization_policy_ == RegularizationPolicyKind::SPDProjection) {
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig{
-                D_hom};
-            if (eig.info() == Eigen::Success) {
-                auto evals = eig.eigenvalues();
-                for (int i = 0; i < evals.size(); ++i) {
-                    evals[i] = std::max(evals[i], diagonal_floor_);
-                }
-                D_hom = eig.eigenvectors()
-                      * evals.asDiagonal()
-                      * eig.eigenvectors().transpose();
-            }
-        } else if (regularization_policy_
-                == RegularizationPolicyKind::DiagonalFloor)
-        {
-            for (int j = 0; j < 6; ++j) {
-                if (D_hom(j, j) < diagonal_floor_) {
-                    D_hom(j, j) = diagonal_floor_;
-                }
-            }
-        }
-
-        return D_hom;
+        return make_local_homogenizer_().compute_homogenized_tangent(h_pert);
     }
 
 
@@ -992,7 +831,7 @@ public:
     compute_homogenized_forces([[maybe_unused]] double width,
                                [[maybe_unused]] double height) {
         if (!model_ready_) return Eigen::Vector<double, 6>::Zero();
-        return section_forces_from_reactions();
+        return make_local_homogenizer_().compute_homogenized_forces();
     }
 
     [[nodiscard]] Eigen::Vector<double, 6>
@@ -1024,63 +863,21 @@ public:
 
     [[nodiscard]] SectionHomogenizedResponse
     section_response(double width, double height, double h_pert = 1.0e-6) {
-        SectionHomogenizedResponse response;
-        response.operator_used = HomogenizationOperator::BoundaryReaction;
-        response.regularization = regularization_policy_;
-        response.diagonal_floor = diagonal_floor_;
-
-        if (!model_ready_) {
-            response.status = ResponseStatus::NotReady;
-            return response;
-        }
-
-        response.forces = compute_homogenized_forces(width, height);
-        response.tangent = compute_homogenized_tangent(width, height, h_pert);
-        response.tangent_symmetry_error =
-            (response.tangent - response.tangent.transpose()).norm();
-        response.tangent_regularized =
-            (regularization_policy_ != RegularizationPolicyKind::None);
-        response.status =
-            (response.tangent.norm() > 0.0 || response.forces.norm() > 0.0)
-            ? ResponseStatus::Ok
-            : ResponseStatus::SolveFailed;
-        return response;
+        (void)width;
+        (void)height;
+        return make_local_homogenizer_().section_response(h_pert);
     }
 
     void sync_state_vector_() {
-        if (!model_ || !U_) return;
-
-        DM dm = model_->get_plex();
-
-        Vec u_local;
-        DMGetLocalVector(dm, &u_local);
-        VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->imposed_solution());
-
-        VecCopy(u_local, model_->state_vector());
-        DMRestoreLocalVector(dm, &u_local);
+        make_state_ops_().sync_state_vector();
     }
 
     void commit_state() {
-        DM dm = model_->get_plex();
-
-        Vec u_local;
-        DMGetLocalVector(dm, &u_local);
-        VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->imposed_solution());
-
-        for (auto& elem : model_->elements())
-            elem.commit_material_state(u_local);
-
-        VecCopy(u_local, model_->state_vector());
-        DMRestoreLocalVector(dm, &u_local);
+        make_state_ops_().commit_state();
     }
 
     void revert_state() {
-        for (auto& elem : model_->elements())
-            elem.revert_material_state();
+        make_state_ops_().revert_state();
     }
 
 
@@ -1102,32 +899,7 @@ private:
     //  Write BC values into imposed_solution 
 
     void write_imposed_values() {
-        Vec imposed = model_->imposed_solution();
-        DM  dm      = model_->get_plex();
-
-        PetscSection section;
-        DMGetLocalSection(dm, &section);
-
-        VecSet(imposed, 0.0);
-
-        PetscScalar* arr;
-        VecGetArray(imposed, &arr);
-
-        auto write_bc = [&](const auto& bc_list) {
-            for (const auto& [nid, u] : bc_list) {
-                PetscInt plex_pt = sub_->domain.node(nid).sieve_id.value();
-                PetscInt offset;
-                PetscSectionGetOffset(section, plex_pt, &offset);
-                arr[offset]     = u[0];
-                arr[offset + 1] = u[1];
-                arr[offset + 2] = u[2];
-            }
-        };
-
-        write_bc(sub_->bc_min_z);
-        write_bc(sub_->bc_max_z);
-
-        VecRestoreArray(imposed, &arr);
+        make_bc_applicator_().write_imposed_values();
     }
 
 

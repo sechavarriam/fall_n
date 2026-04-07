@@ -1,59 +1,44 @@
-// =============================================================================
-//  test_evolver_advanced.cpp
-//
-//  Integration tests for the three advanced directions:
-//
-//    Phase 1.5 — Reinforced mixed sub-model via NonlinearSubModelEvolver
-//                (MixedModel + MenegottoPintoSteel truss rebar)
-//
-//    Phase 2.5 — Adaptive displacement sub-stepping (arc-length mode)
-//                Verifies that enabling arc-length on the evolver produces
-//                convergence via sub-incrementation even for large steps.
-//
-//    Phase 3.6 — FE² coupling round-trip: homogenized tangent is SPD,
-//                homogenized forces are consistent with tangent × strain.
-//
-//  All tests require PETSc runtime (Hex27 sub-model + SNES solve).
-//
-// =============================================================================
-
 #include "header_files.hh"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 #include <Eigen/Dense>
 #include <petsc.h>
 
 using namespace fall_n;
 
+namespace {
 
-// ── Test harness ──────────────────────────────────────────────────────────────
+int g_pass = 0;
+int g_fail = 0;
 
-static int passed = 0;
-static int failed = 0;
-
-static void check(bool cond, const char* msg) {
+void check(bool cond, const char* msg)
+{
     if (cond) {
-        ++passed;
+        ++g_pass;
         std::cout << "  [PASS] " << msg << "\n";
     } else {
-        ++failed;
+        ++g_fail;
         std::cout << "  [FAIL] " << msg << "\n";
     }
 }
 
-static constexpr double tol       = 1e-4;
-static constexpr double tol_tight = 1e-6;
+[[nodiscard]] double relative_norm(const Eigen::Vector<double, 6>& a,
+                                   const Eigen::Vector<double, 6>& b)
+{
+    const double denom = std::max({1.0, a.norm(), b.norm()});
+    return (a - b).norm() / denom;
+}
 
-
-// ── Helper: build axis-aligned ElementKinematics ─────────────────────────────
-
-static ElementKinematics make_ek(
+[[nodiscard]] ElementKinematics make_ek(
     std::size_t id,
-    double u_axial_B, double theta_B = 0.0)
+    const Eigen::Vector3d& u_B,
+    const Eigen::Vector3d& theta_B)
 {
     ElementKinematics ek;
     ek.element_id = id;
@@ -61,242 +46,286 @@ static ElementKinematics make_ek(
     ek.endpoint_B = {1.0, 0.0, 0.0};
     ek.up_direction = {0.0, 1.0, 0.0};
 
-    Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+    const Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
 
-    ek.kin_A.centroid     = Eigen::Vector3d{0.0, 0.0, 0.0};
-    ek.kin_A.R            = R;
-    ek.kin_A.u_local      = Eigen::Vector3d::Zero();
-    ek.kin_A.theta_local  = Eigen::Vector3d::Zero();
-    ek.kin_A.E = 200.0;  ek.kin_A.G = 80.0;  ek.kin_A.nu = 0.25;
+    ek.kin_A.centroid = Eigen::Vector3d{0.0, 0.0, 0.0};
+    ek.kin_A.R = R;
+    ek.kin_A.u_local = Eigen::Vector3d::Zero();
+    ek.kin_A.theta_local = Eigen::Vector3d::Zero();
+    ek.kin_A.E = 200.0;
+    ek.kin_A.G = 80.0;
+    ek.kin_A.nu = 0.25;
 
-    ek.kin_B.centroid     = Eigen::Vector3d{1.0, 0.0, 0.0};
-    ek.kin_B.R            = R;
-    ek.kin_B.u_local      = Eigen::Vector3d{u_axial_B, 0.0, 0.0};
-    ek.kin_B.theta_local  = Eigen::Vector3d{0.0, 0.0, theta_B};
-    ek.kin_B.E = 200.0;  ek.kin_B.G = 80.0;  ek.kin_B.nu = 0.25;
+    ek.kin_B.centroid = Eigen::Vector3d{1.0, 0.0, 0.0};
+    ek.kin_B.R = R;
+    ek.kin_B.u_local = u_B;
+    ek.kin_B.theta_local = theta_B;
+    ek.kin_B.E = 200.0;
+    ek.kin_B.G = 80.0;
+    ek.kin_B.nu = 0.25;
 
     return ek;
 }
 
+struct SolvedCase {
+    SubModelSolverResult result{};
+    SectionHomogenizedResponse response{};
+    Eigen::Vector<double, 6> volume_average{
+        Eigen::Vector<double, 6>::Zero()};
+};
 
-// =============================================================================
-//  Test 1 (Phase 1.5): Reinforced mixed sub-model convergence
-// =============================================================================
-//
-//  Creates a NonlinearSubModelEvolver with a SubModelSpec that includes
-//  embedded rebar bars.  Verifies that first_solve() converges and produces
-//  a stiffer response than the unreinforced case.
+[[nodiscard]] SolvedCase solve_case(const Eigen::Vector3d& u_B,
+                                    const Eigen::Vector3d& theta_B,
+                                    double width,
+                                    double height,
+                                    double h_pert = 1.0e-6)
+{
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(make_ek(0, u_B, theta_B));
+    coord.build_sub_models(SubModelSpec{width, height, 2, 2, 4});
 
-void test_reinforced_evolver() {
-    std::cout << "\n── Phase 1.5: Reinforced evolver ──\n";
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
 
-    const double fc   = 30.0;
-    const double W    = 0.30;
-    const double H    = 0.40;
-    const double eps  = 1.0e-4;
+    SolvedCase solved;
+    solved.result = ev.solve_step(0.0);
+    solved.response = ev.section_response(width, height, h_pert);
+    solved.volume_average = ev.compute_volume_average_forces(width, height);
+    return solved;
+}
 
-    auto ek = make_ek(0, eps);
+void test_reinforced_evolver()
+{
+    std::cout << "\n== Reinforced evolver ==\n";
 
-    // ── Unreinforced coordinator ──
+    const double fc = 30.0;
+    const double W = 0.30;
+    const double H = 0.40;
+    const double eps = 1.0e-4;
+
+    auto ek = make_ek(0, Eigen::Vector3d{eps, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
     MultiscaleCoordinator coord_plain;
     coord_plain.add_critical_element(ElementKinematics{ek});
     coord_plain.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
 
-    NonlinearSubModelEvolver plain_ev(
-        coord_plain.sub_models()[0], fc, ".", 9999);
-    auto r_plain = plain_ev.solve_step(0.0);
-    check(r_plain.converged, "plain evolver converges (first_solve)");
+    NonlinearSubModelEvolver plain_ev(coord_plain.sub_models()[0], fc, ".", 9999);
+    plain_ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    const auto r_plain = plain_ev.solve_step(0.0);
+    check(r_plain.converged, "plain evolver converges");
 
-    // ── Reinforced coordinator ──
     MultiscaleCoordinator coord_rebar;
     coord_rebar.add_critical_element(ElementKinematics{ek});
 
     SubModelSpec spec{W, H, 2, 2, 4};
     spec.rebar_bars = {
-        {-W/2 + 0.04, -H/2 + 0.04, 3.14e-4},   // corner bar
-        { W/2 - 0.04, -H/2 + 0.04, 3.14e-4},
-        {-W/2 + 0.04,  H/2 - 0.04, 3.14e-4},
-        { W/2 - 0.04,  H/2 - 0.04, 3.14e-4},
+        {-W / 2 + 0.04, -H / 2 + 0.04, 3.14e-4},
+        { W / 2 - 0.04, -H / 2 + 0.04, 3.14e-4},
+        {-W / 2 + 0.04,  H / 2 - 0.04, 3.14e-4},
+        { W / 2 - 0.04,  H / 2 - 0.04, 3.14e-4},
     };
     coord_rebar.build_sub_models(spec);
 
-    NonlinearSubModelEvolver rebar_ev(
-        coord_rebar.sub_models()[0], fc, ".", 9999);
+    NonlinearSubModelEvolver rebar_ev(coord_rebar.sub_models()[0], fc, ".", 9999);
     rebar_ev.set_rebar_material(200000.0, 420.0, 0.01);
-    auto r_rebar = rebar_ev.solve_step(0.0);
+    rebar_ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    const auto r_rebar = rebar_ev.solve_step(0.0);
 
-    check(r_rebar.converged, "reinforced evolver converges (first_solve)");
-
-    // Reinforced E_eff should be larger
+    check(r_rebar.converged, "reinforced evolver converges");
     check(r_rebar.E_eff > r_plain.E_eff,
-          "reinforced E_eff > plain E_eff (rebar stiffens)");
-    check(r_rebar.E_eff > 0.0, "reinforced E_eff is positive");
+          "reinforcement increases the apparent axial stiffness");
+    check(r_rebar.E_eff > 0.0, "reinforced axial stiffness stays positive");
 }
 
+void test_adaptive_substepping()
+{
+    std::cout << "\n== Adaptive sub-stepping ==\n";
 
-// =============================================================================
-//  Test 2 (Phase 2.5): Adaptive sub-stepping convergence
-// =============================================================================
-//
-//  Applies a moderate axial strain via first_solve(), then applies a LARGE
-//  subsequent displacement increment with arc-length enabled.  The adaptive
-//  sub-stepping should sub-divide the step and converge even though a
-//  single full-step Newton would likely struggle.
+    const double W = 0.20;
+    const double H = 0.20;
 
-void test_adaptive_substepping() {
-    std::cout << "\n── Phase 2.5: Adaptive sub-stepping ──\n";
-
-    const double fc  = 30.0;
-    const double W   = 0.20;
-    const double H   = 0.20;
-
-    // Start with a small elastic strain
-    auto ek = make_ek(0, 1.0e-4);
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
 
     MultiscaleCoordinator coord;
     coord.add_critical_element(ElementKinematics{ek});
     coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
 
-    NonlinearSubModelEvolver ev(coord.sub_models()[0], fc, ".", 9999);
-    auto r0 = ev.solve_step(0.0);
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    const auto r0 = ev.solve_step(0.0);
     check(r0.converged, "initial solve converges");
 
-    // Enable arc-length (adaptive sub-stepping)
     ev.enable_arc_length(true);
-    check(ev.arc_length_active(), "arc_length_active() returns true after enable");
+    check(ev.arc_length_active(), "arc-length mode can be enabled");
 
-    // Apply a larger strain increment (5× the initial)
     SectionKinematics kin_B = coord.sub_models()[0].kin_B;
-    kin_B.u_local[0] = 5.0e-4;   // 5× the original
+    kin_B.u_local[0] = 5.0e-4;
     ev.update_kinematics(coord.sub_models()[0].kin_A, kin_B);
 
-    auto r1 = ev.solve_step(0.02);
-    check(r1.converged, "adaptive sub-stepping converges for large increment");
+    const auto r1 = ev.solve_step(0.02);
+    check(r1.converged, "adaptive sub-stepping converges for a larger increment");
     check(r1.max_displacement > r0.max_displacement,
-          "displacement increased after larger loading");
+          "displacement grows after the larger increment");
 
-    // Apply another increment (still in arc-length mode)
     kin_B.u_local[0] = 8.0e-4;
     ev.update_kinematics(coord.sub_models()[0].kin_A, kin_B);
 
-    auto r2 = ev.solve_step(0.04);
-    check(r2.converged, "second adaptive step converges");
+    const auto r2 = ev.solve_step(0.04);
+    check(r2.converged, "a second adaptive increment also converges");
     check(r2.max_displacement > r1.max_displacement,
-          "displacement monotonically increases");
+          "displacement continues to grow monotonically");
 }
 
+void test_mode_specific_homogenized_responses()
+{
+    std::cout << "\n== Mode-specific homogenized responses ==\n";
 
-// =============================================================================
-//  Test 3 (Phase 3.6): FE² coupling — tangent SPD + force consistency
-// =============================================================================
-//
-//  After a converged solve, compute_homogenized_tangent() and
-//  compute_homogenized_forces() should return:
-//    - D_hom: symmetric positive-definite (all eigenvalues > 0)
-//    - f_hom: consistent signs (axial force > 0 for tension)
-//    - Tangent–force consistency: Δf ≈ D_hom · Δε for small Δε
+    struct LoadCase {
+        const char* name;
+        Eigen::Vector3d u_B;
+        Eigen::Vector3d theta_B;
+        int dominant_force;
+        int tangent_diag;
+        double dominance_ratio;
+    };
 
-void test_fe2_coupling_consistency() {
-    std::cout << "\n── Phase 3.6: FE² coupling consistency ──\n";
+    const double W = 0.20;
+    const double H = 0.20;
+    const std::array<LoadCase, 6> cases{{
+        {"axial",   Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero(), 0, 0, 2.0},
+        {"bend_y",  Eigen::Vector3d::Zero(),            Eigen::Vector3d{0.0, 1.0e-4, 0.0}, 1, 1, 1.05},
+        {"bend_z",  Eigen::Vector3d::Zero(),            Eigen::Vector3d{0.0, 0.0, 1.0e-4}, 2, 2, 1.05},
+        {"shear_y", Eigen::Vector3d{0.0, 1.0e-4, 0.0},  Eigen::Vector3d::Zero(), 3, 3, 2.0},
+        {"shear_z", Eigen::Vector3d{0.0, 0.0, 1.0e-4},  Eigen::Vector3d::Zero(), 4, 4, 2.0},
+        {"torsion", Eigen::Vector3d::Zero(),            Eigen::Vector3d{1.0e-4, 0.0, 0.0}, 5, 5, 2.0},
+    }};
 
-    const double fc  = 30.0;
-    const double W   = 0.20;
-    const double H   = 0.20;
-    const double eps = 1.0e-4;
+    for (const auto& load_case : cases) {
+        std::cout << "  case: " << load_case.name << "\n";
+        const auto solved = solve_case(
+            load_case.u_B, load_case.theta_B, W, H, 1.0e-6);
 
-    auto ek = make_ek(0, eps);
+        check(solved.result.converged, "sub-model converges for the pure load case");
+        check(solved.response.status != ResponseStatus::SolveFailed,
+              "homogenized response is available");
+        check(solved.response.tangent_scheme
+                  == TangentLinearizationScheme::AdaptiveFiniteDifference,
+              "response reports the adaptive finite-difference tangent scheme");
+        check(std::all_of(solved.response.perturbation_sizes.begin(),
+                          solved.response.perturbation_sizes.end(),
+                          [](double h) { return h > 0.0; }),
+              "every tangent column reports a positive perturbation size");
+        check(std::all_of(solved.response.tangent_column_valid.begin(),
+                          solved.response.tangent_column_valid.end(),
+                          [](bool valid) { return valid; }),
+              "all tangent columns are valid in the elastic reference cases");
+        check(std::all_of(solved.response.tangent_column_central.begin(),
+                          solved.response.tangent_column_central.end(),
+                          [](bool central) { return central; }),
+              "elastic reference cases use the central stencil for every tangent column");
+        check(solved.response.failed_perturbations == 0,
+              "elastic reference cases require no perturbation fallbacks");
+        check(solved.response.forces_consistent_with_tangent,
+              "elastic reference cases expose a force/tangent pair flagged as consistent");
+        check(solved.response.tangent(load_case.tangent_diag, load_case.tangent_diag) > 0.0,
+              "the tangent diagonal of the excited mode stays positive");
 
-    MultiscaleCoordinator coord;
-    coord.add_critical_element(ElementKinematics{ek});
-    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+        const double dominant = std::abs(
+            solved.response.forces[load_case.dominant_force]);
+        double runner_up = 0.0;
+        for (int i = 0; i < 6; ++i) {
+            if (i == load_case.dominant_force) {
+                continue;
+            }
+            runner_up = std::max(runner_up, std::abs(solved.response.forces[i]));
+        }
 
-    NonlinearSubModelEvolver ev(coord.sub_models()[0], fc, ".", 9999);
-    auto r0 = ev.solve_step(0.0);
-    check(r0.converged, "base solve converges");
-
-    // ── Homogenized tangent ──
-    auto D_hom = ev.compute_homogenized_tangent(W, H);
-
-    // Diagnostic: print D_hom diagonal
-    std::cout << "  D_hom diagonal: ["
-              << D_hom(0,0) << ", "
-              << D_hom(1,1) << ", "
-              << D_hom(2,2) << ", "
-              << D_hom(3,3) << ", "
-              << D_hom(4,4) << ", "
-              << D_hom(5,5) << "]\n";
-
-    // D_hom should be approximately symmetric
-    Eigen::Matrix<double, 6, 6> D_sym = 0.5 * (D_hom + D_hom.transpose());
-    double asym = (D_hom - D_sym).norm();
-    double sym_scale = D_sym.norm();
-    check(sym_scale > 0.0, "D_hom has non-zero norm");
-    check(asym / sym_scale < 0.10,
-          "D_hom approximately symmetric (asymmetry < 10%)");
-
-    // Check leading diagonal — all section stiffnesses should be positive
-    int pos_diag = 0;
-    for (int i = 0; i < 6; ++i)
-        if (D_hom(i,i) > 0.0) ++pos_diag;
-    check(pos_diag >= 5,
-          "at least 5 diagonal entries of D_hom are positive");
-
-    check(D_hom(0, 0) > 0.0, "D_hom(0,0) > 0 (axial stiffness positive)");
-    check(D_hom(1, 1) > 0.0, "D_hom(1,1) > 0 (bending stiffness My positive)");
-    check(D_hom(2, 2) > 0.0, "D_hom(2,2) > 0 (bending stiffness Mz positive)");
-
-    // ── Homogenized forces ──
-    auto f_hom = ev.compute_homogenized_forces(W, H);
-
-    // Diagnostic: print force vector
-    std::cout << "  f_hom: ["
-              << f_hom(0) << ", "
-              << f_hom(1) << ", "
-              << f_hom(2) << ", "
-              << f_hom(3) << ", "
-              << f_hom(4) << ", "
-              << f_hom(5) << "]\n";
-
-    // For tension: N > 0
-    check(f_hom(0) > 0.0, "N > 0 for tensile loading");
-
-    // For small elastic axial loading, My, Mz, Vy, Vz should be near zero
-    check(std::abs(f_hom(1)) < std::abs(f_hom(0)) * 0.1,
-          "My << N (nearly pure axial)");
-    check(std::abs(f_hom(2)) < std::abs(f_hom(0)) * 0.1,
-          "Mz << N (nearly pure axial)");
-
-    // ── Tangent–force consistency ──
-    // For small strain the relationship f = D * e should hold approximately.
-    // We check that the tangent magnitude is in the right ballpark.
-    double D_norm = D_hom.norm();
-    double f_norm = f_hom.norm();
-    check(D_norm > 0.0 && f_norm > 0.0,
-          "tangent and force norms are non-zero (FE2 coupling functional)");
+        check(dominant > 0.0, "the expected resultant is non-zero");
+        if (load_case.dominant_force == 1 || load_case.dominant_force == 2) {
+            const int cross_bending =
+                (load_case.dominant_force == 1) ? 2 : 1;
+            check(dominant > std::abs(solved.response.forces[cross_bending]),
+                  "the expected bending moment exceeds the cross-bending coupling");
+        } else {
+            check(dominant > load_case.dominance_ratio * runner_up,
+                  "the expected resultant dominates the force vector");
+        }
+    }
 }
 
+void test_linearized_consistency_energy_and_operator_comparison()
+{
+    std::cout << "\n== Linearized consistency and energy ==\n";
 
-// =============================================================================
-//  main
-// =============================================================================
+    const double W = 0.20;
+    const double H = 0.20;
+    const double eps0 = 1.0e-4;
+    const double eps1 = 1.2e-4;
 
-int main(int argc, char** argv) {
+    const auto base = solve_case(
+        Eigen::Vector3d{eps0, 0.0, 0.0}, Eigen::Vector3d::Zero(), W, H, 1.0e-6);
+    const auto perturbed = solve_case(
+        Eigen::Vector3d{eps1, 0.0, 0.0}, Eigen::Vector3d::Zero(), W, H, 1.0e-6);
+
+    check(base.result.converged && perturbed.result.converged,
+          "base and perturbed axial reference cases converge");
+
+    Eigen::Vector<double, 6> delta_e = Eigen::Vector<double, 6>::Zero();
+    delta_e[0] = eps1 - eps0;
+
+    const Eigen::Vector<double, 6> delta_s_actual =
+        perturbed.response.forces - base.response.forces;
+    const Eigen::Vector<double, 6> delta_s_pred =
+        base.response.tangent * delta_e;
+
+    const double linearization_error =
+        relative_norm(delta_s_actual, delta_s_pred);
+    check(linearization_error < 0.20,
+          "boundary-reaction tangent predicts the axial force increment");
+
+    const double operator_gap =
+        relative_norm(base.response.forces, base.volume_average);
+    check(operator_gap < 0.10,
+          "boundary reactions and volume averaging stay close in the elastic axial case");
+
+    const double macro_power = base.response.forces[0] * eps0;
+    const double micro_power =
+        base.result.avg_stress[0] * base.result.avg_strain[0] * W * H;
+    const double power_gap = std::abs(macro_power - micro_power)
+        / std::max({1.0, std::abs(macro_power), std::abs(micro_power)});
+
+    std::cout << std::setprecision(6)
+              << "  linearization_error = " << linearization_error << "\n"
+              << "  operator_gap        = " << operator_gap << "\n"
+              << "  power_gap           = " << power_gap << "\n";
+
+    check(power_gap < 0.15,
+          "macro axial power and micro average power remain consistent");
+}
+
+}  // namespace
+
+int main(int argc, char** argv)
+{
     PetscInitialize(&argc, &argv, nullptr, nullptr);
     PetscOptionsSetValue(nullptr, "-snes_monitor_cancel", "");
-    PetscOptionsSetValue(nullptr, "-ksp_monitor_cancel",  "");
+    PetscOptionsSetValue(nullptr, "-ksp_monitor_cancel", "");
 
-    std::cout << std::string(60, '=') << "\n"
-              << "  Advanced verification: MixedModel + Arc-Length + FE²\n"
-              << std::string(60, '=') << "\n";
+    std::cout << std::string(72, '=') << "\n"
+              << "  Advanced multiscale evolver verification\n"
+              << std::string(72, '=') << "\n";
 
     test_reinforced_evolver();
     test_adaptive_substepping();
-    test_fe2_coupling_consistency();
+    test_mode_specific_homogenized_responses();
+    test_linearized_consistency_energy_and_operator_comparison();
 
-    std::cout << "\n" << std::string(60, '=') << "\n"
-              << "  Summary: " << passed << " passed, " << failed << " failed\n"
-              << std::string(60, '=') << "\n";
+    std::cout << "\n" << std::string(72, '=') << "\n"
+              << "  Summary: " << g_pass << " passed, " << g_fail
+              << " failed\n"
+              << std::string(72, '=') << "\n";
 
     PetscFinalize();
-    return (failed > 0) ? EXIT_FAILURE : EXIT_SUCCESS;
+    return (g_fail == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
