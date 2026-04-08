@@ -312,7 +312,8 @@ architecture for the local multiscale operator.
   \node[smallbox, below left=of evolver] (bc) {\texttt{LocalBoundaryConditionApplicator}};
   \node[smallbox, below=of evolver] (state) {\texttt{PersistentLocalStateOps}};
   \node[smallbox, below right=of evolver] (hom) {\texttt{BoundaryReactionHomogenizer}};
-  \node[smallbox, below=of hom] (elem) {\texttt{FEM\_Element}\\explicit local linearisation API};
+  \node[smallbox, below=of hom] (schur) {\texttt{SparseSchurComplementWorkspace}\\symbolic reuse + multi-RHS solve};
+  \node[smallbox, below left=of schur] (elem) {\texttt{FEM\_Element}\\explicit local linearisation API};
 
   \draw[->] (analysis) -- (model);
   \draw[->] (model) -- (bridge);
@@ -320,7 +321,8 @@ architecture for the local multiscale operator.
   \draw[->] (evolver) -- (bc);
   \draw[->] (evolver) -- (state);
   \draw[->] (evolver) -- (hom);
-  \draw[->] (hom) -- node[right, align=left] {assembles tangent\\and condenses} (elem);
+  \draw[->] (hom) -- node[left, align=left] {assembles tangent\\from mixed elements} (elem);
+  \draw[->] (hom) -- node[right, align=left] {Schur solve\\and cache reuse} (schur);
   \draw[->] (bridge) |- node[pos=0.75, above, align=center] {kinematics /\\homogenised response} (evolver);
 \end{tikzpicture}
 \caption{Current local multiscale architecture on the publication path.}
@@ -350,7 +352,12 @@ the boundary contraction
 \(\mathbf{T}^{\mathsf T}(\mathbf{K}_{cc}\mathbf{T}-\mathbf{K}_{cf}\mathbf{X})\).
 This keeps the physics of static condensation while reducing memory pressure
 and making the scalability story substantially more honest than the previous
-dense prototype.
+dense prototype.  The current stabilized implementation goes one step further:
+the sparse Schur solve is now factored into a reusable workspace that caches
+the symbolic factorisation pattern of \(\mathbf{K}_{ff}\) across repeated local
+operator evaluations.  That distinction matters for HPC honesty because it
+separates topology-dependent symbolic work from state-dependent numerical
+factorisation.
 
 \subsection{Validation and fallback diagnostics}
 
@@ -360,7 +367,10 @@ actually available.  Instead, the response records:
   \item the requested tangent mode;
   \item the realised tangent scheme;
   \item the condensed operator status;
-  \item the sparse solve residual when the condensed path is attempted.
+  \item the sparse solve residual when the condensed path is attempted;
+  \item whether the symbolic factorisation pattern was reused;
+  \item how many symbolic pattern analyses have been performed by the active
+    sparse Schur workspace.
 \end{itemize}
 The intended semantics are:
 \begin{description}

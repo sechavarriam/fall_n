@@ -40,6 +40,7 @@ class MultiscaleAnalysis {
     std::size_t analysis_steps_{0};
 
     CouplingIterationReport last_report_{};
+    std::vector<SectionHomogenizedResponse> last_responses_{};
     std::vector<SectionHomogenizedResponse> last_converged_responses_{};
 
     [[nodiscard]] static double relative_norm_(
@@ -165,6 +166,7 @@ class MultiscaleAnalysis {
         set_macro_trial_mode_(false);
 
         last_report_ = CouplingIterationReport{};
+        last_responses_.clear();
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 1;
         last_report_.termination_reason =
@@ -185,6 +187,7 @@ class MultiscaleAnalysis {
     bool perform_one_way_downscaling_()
     {
         last_report_ = CouplingIterationReport{};
+        last_responses_.clear();
         last_report_.mode = CouplingMode::OneWayDownscaling;
         last_report_.iterations = 1;
         last_report_.termination_reason =
@@ -203,6 +206,7 @@ class MultiscaleAnalysis {
         solve_locals_once_(macro_solver_->current_time(),
                            responses,
                            last_report_.failed_submodels);
+        last_responses_ = responses;
         finalize_local_models_(macro_solver_->current_time());
         auto t1 = std::chrono::steady_clock::now();
 
@@ -222,6 +226,7 @@ class MultiscaleAnalysis {
     bool perform_lagged_feedback_()
     {
         last_report_ = CouplingIterationReport{};
+        last_responses_.clear();
         last_report_.mode = CouplingMode::LaggedFeedbackCoupling;
         last_report_.iterations = 1;
         last_report_.termination_reason =
@@ -240,6 +245,7 @@ class MultiscaleAnalysis {
         solve_locals_once_(macro_solver_->current_time(),
                            responses,
                            last_report_.failed_submodels);
+        last_responses_ = responses;
 
         last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
         last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
@@ -279,6 +285,7 @@ class MultiscaleAnalysis {
             "IteratedTwoWayFE2 requires a macro solver with trial-commit control");
 
         last_report_ = CouplingIterationReport{};
+        last_responses_.clear();
         last_report_.mode = CouplingMode::IteratedTwoWayFE2;
         last_report_.iterations = 0;
         last_report_.termination_reason = CouplingTerminationReason::NotRun;
@@ -353,6 +360,7 @@ class MultiscaleAnalysis {
                     }
                 }
             });
+            last_responses_ = current;
             const auto micro_t1 = std::chrono::steady_clock::now();
             last_report_.micro_solve_seconds +=
                 std::chrono::duration<double>(micro_t1 - micro_t0).count();
@@ -476,6 +484,11 @@ public:
         return last_report_;
     }
 
+    [[nodiscard]] const std::vector<SectionHomogenizedResponse>&
+    last_responses() const noexcept {
+        return last_responses_;
+    }
+
     [[nodiscard]] int last_staggered_iterations() const noexcept {
         return last_report_.iterations;
     }
@@ -491,6 +504,7 @@ public:
     bool initialize_local_models(bool seed_predictor = true)
     {
         last_report_ = CouplingIterationReport{};
+        last_responses_.clear();
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 0;
         last_report_.termination_reason = CouplingTerminationReason::NotRun;
@@ -519,6 +533,7 @@ public:
         if (seed_predictor && last_report_.converged) {
             last_converged_responses_ = responses;
         }
+        last_responses_ = responses;
         return last_report_.converged;
     }
 

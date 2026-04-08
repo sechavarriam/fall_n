@@ -125,6 +125,31 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # ==============================================================================
+# ============== Precompiled headers ===========================================
+# ==============================================================================
+
+option(FALL_N_ENABLE_COMMON_PCH
+  "Enable shared precompiled headers for heavy fall_n targets" ON)
+
+function(fall_n_enable_common_pch target_name)
+  if(NOT FALL_N_ENABLE_COMMON_PCH)
+    return()
+  endif()
+
+  target_precompile_headers(${target_name} PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/header_files.hh>")
+endfunction()
+
+function(fall_n_enable_cyclic_validation_pch target_name)
+  if(NOT FALL_N_ENABLE_COMMON_PCH)
+    return()
+  endif()
+
+  target_precompile_headers(${target_name} PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/src/validation/TableCyclicValidationPch.hh>")
+endfunction()
+
+# ==============================================================================
 # ============== Public Multiscale API target ==================================
 # ==============================================================================
 
@@ -147,12 +172,15 @@ function(fall_n_use_multiscale_api target_name)
   target_link_libraries(${target_name} PUBLIC fall_n::multiscale_api)
   target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR})
   vtk_module_autoinit(TARGETS ${target_name} MODULES ${VTK_LIBRARIES})
+  fall_n_enable_common_pch(${target_name})
 endfunction()
 
 # ── Seismic executable links (same as fall_n) ────────────────────────────────
 target_link_libraries(fall_n_seismic PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
 vtk_module_autoinit(TARGETS fall_n_seismic MODULES ${VTK_LIBRARIES})
 target_include_directories(fall_n_seismic PRIVATE ${CMAKE_SOURCE_DIR})
+fall_n_enable_common_pch(fall_n)
+fall_n_enable_common_pch(fall_n_seismic)
 
 # ── Multiscale example (same library tier as fall_n_seismic) ─────────────────
 fall_n_use_multiscale_api(fall_n_multiscale)
@@ -178,6 +206,7 @@ target_compile_definitions(fall_n_lshaped_rc PRIVATE
 if(OpenMP_CXX_FOUND)
     target_link_libraries(fall_n_lshaped_rc PUBLIC OpenMP::OpenMP_CXX)
 endif()
+fall_n_enable_common_pch(fall_n_lshaped_rc)
 
 # ── RC beam 3D validation (Ko-Bathe + rebar, imposed rotation) ────────────────
 add_executable(fall_n_rc_beam_validation main_rc_beam_validation.cpp)
@@ -189,14 +218,24 @@ target_compile_definitions(fall_n_rc_beam_validation PRIVATE
 if(OpenMP_CXX_FOUND)
     target_link_libraries(fall_n_rc_beam_validation PUBLIC OpenMP::OpenMP_CXX)
 endif()
+fall_n_enable_common_pch(fall_n_rc_beam_validation)
 
 # ── 4-legged table, MITC16 shell slab, multiscale FE² + embedded rebar ───────
 add_executable(fall_n_table_multiscale main_table_multiscale.cpp)
 fall_n_use_multiscale_api(fall_n_table_multiscale)
 
 # ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
-add_executable(fall_n_table_cyclic_validation main_table_cyclic_validation.cpp)
+add_executable(fall_n_table_cyclic_validation
+    main_table_cyclic_validation.cpp
+    src/validation/TableCyclicValidationStructural.cpp
+    src/validation/TableCyclicValidationFE2.cpp)
 fall_n_use_multiscale_api(fall_n_table_cyclic_validation)
+# Use a validation-specific PCH instead of the global umbrella so edits to the
+# thin CLI or one implementation TU do not keep invalidating an oversized
+# project-wide precompiled header.
+fall_n_enable_cyclic_validation_pch(fall_n_table_cyclic_validation)
+set_source_files_properties(main_table_cyclic_validation.cpp PROPERTIES
+  SKIP_PRECOMPILE_HEADERS ON)
 
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
@@ -252,6 +291,10 @@ function(fall_n_add_test)
     # OpenMP is harmless if unused; link everywhere if available
     if(OpenMP_CXX_FOUND AND NOT ARG_LIBS STREQUAL "NONE")
         target_link_libraries(${ARG_TARGET} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+
+    if(ARG_LIBS STREQUAL "FULL" OR ARG_LIBS STREQUAL "CORE")
+        fall_n_enable_common_pch(${ARG_TARGET})
     endif()
 
     # ── Register CTest ──────────────────────────────────────────────────
@@ -383,6 +426,10 @@ fall_n_add_test(TARGET fall_n_point_test
 
 fall_n_add_test(TARGET fall_n_cyclic_protocol_test
     NAME cyclic_protocol  SOURCE tests/test_cyclic_protocol.cpp
+    LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_cyclic_validation_api_test
+    NAME cyclic_validation_api  SOURCE tests/test_cyclic_validation_api.cpp
     LIBS NONE  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_node_test

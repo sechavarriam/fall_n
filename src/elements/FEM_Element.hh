@@ -60,7 +60,11 @@ struct GaussPointSnapshot {
     Eigen::Vector<double, 6> strain{Eigen::Vector<double, 6>::Zero()};
 
     double damage{0.0};
+    bool damage_scalar_available{false};
     int    num_cracks{0};
+    bool fracture_history_available{false};
+    double sigma_o_max{0.0};
+    double tau_o_max{0.0};
 
     std::array<Eigen::Vector3d, 3> crack_normals{
         Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};
@@ -243,7 +247,12 @@ class FEM_Element {
                     // Crack/damage from internal field snapshot
                     auto ifs = mp.internal_field_snapshot();
                     snap.damage     = ifs.damage.value_or(0.0);
+                    snap.damage_scalar_available = ifs.has_damage();
                     snap.num_cracks = ifs.num_cracks.value_or(0);
+                    snap.fracture_history_available =
+                        ifs.has_fracture_history();
+                    snap.sigma_o_max = ifs.sigma_o_max.value_or(0.0);
+                    snap.tau_o_max   = ifs.tau_o_max.value_or(0.0);
 
                     auto to_vec = [](const auto& opt) -> Eigen::Vector3d {
                         if (!opt) return Eigen::Vector3d::Zero();

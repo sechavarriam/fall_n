@@ -177,6 +177,43 @@ void test_adaptive_substepping()
           "displacement continues to grow monotonically");
 }
 
+void test_adaptive_substepping_accepts_exact_budget_completion()
+{
+    std::cout << "\n== Adaptive sub-stepping budget completion ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    const auto r0 = ev.solve_step(0.0);
+    check(r0.converged, "initial solve converges");
+
+    ev.enable_arc_length(true);
+    ev.set_adaptive_substepping_limits(2, 10);
+
+    SectionKinematics kin_B = coord.sub_models()[0].kin_B;
+    kin_B.u_local[0] = 5.0e-4;
+    ev.update_kinematics(coord.sub_models()[0].kin_A, kin_B);
+
+    const auto r1 = ev.solve_step(0.02);
+    check(r1.converged,
+          "adaptive solve that reaches the target at the substep budget stays converged");
+    check(r1.used_arc_length,
+          "budget-completion regression exercises the adaptive path");
+    check(r1.adaptive_substeps == 2,
+          "the target is reached exactly at the configured adaptive substep budget");
+    check(std::abs(r1.achieved_fraction - 1.0) < 1.0e-12,
+          "achieved fraction reports full completion");
+}
+
 void test_mode_specific_homogenized_responses()
 {
     std::cout << "\n== Mode-specific homogenized responses ==\n";
@@ -304,6 +341,43 @@ void test_linearized_consistency_energy_and_operator_comparison()
           "macro axial power and micro average power remain consistent");
 }
 
+void test_crack_summary_keeps_missing_damage_scalar_honest()
+{
+    std::cout << "\n== Crack summary semantics ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    auto ek = make_ek(
+        0, Eigen::Vector3d{8.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_min_crack_opening(0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    ev.end_of_step(0.0);
+    const auto summary = ev.crack_summary();
+
+    check(solve.converged, "cracking reference case converges");
+    check(!summary.damage_scalar_available,
+          "crack summary does not invent a scalar damage metric for Ko-Bathe 3D");
+    check(std::isnan(summary.max_damage_scalar),
+          "missing scalar damage is encoded as NaN rather than zero");
+    if (summary.total_cracks > 0) {
+        check(summary.fracture_history_available,
+              "when cracks are recorded, crack summary exposes fracture-history invariants");
+        check(summary.max_tau_o_max >= 0.0,
+              "fracture-history shear invariant remains non-negative");
+    } else {
+        check(!summary.fracture_history_available,
+              "without recorded cracks, fracture-history aggregates stay absent");
+    }
+}
+
 void test_condensed_operator_matches_forced_fd()
 {
     std::cout << "\n== Condensed operator versus forced FD ==\n";
@@ -368,6 +442,48 @@ void test_condensed_operator_matches_forced_fd()
           "condensed and forced FD paths read the same boundary forces");
 }
 
+void test_condensed_operator_reuses_symbolic_pattern()
+{
+    std::cout << "\n== Condensed operator pattern reuse ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    const auto ek = make_ek(
+        0, Eigen::Vector3d{8.0e-5, -1.5e-5, 1.0e-5},
+        Eigen::Vector3d{1.0e-5, -2.0e-5, 1.5e-5});
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "mixed elastic reference case converges before pattern reuse audit");
+
+    const auto first = ev.section_response(W, H, 1.0e-6);
+    const auto second = ev.section_response(W, H, 1.0e-6);
+
+    check(first.condensed_tangent_status == CondensedTangentStatus::Success,
+          "first condensed response is available");
+    check(second.condensed_tangent_status == CondensedTangentStatus::Success,
+          "second condensed response is available");
+    check(!first.condensed_pattern_reused,
+          "first condensed call performs the initial symbolic analysis");
+    check(second.condensed_pattern_reused,
+          "second condensed call reuses the symbolic factorization pattern");
+    check(first.condensed_symbolic_factorizations == 1,
+          "first condensed call reports one symbolic factorization");
+    check(second.condensed_symbolic_factorizations == 1,
+          "second condensed call does not trigger a second symbolic factorization");
+    check((first.tangent - second.tangent).norm()
+              / std::max({1.0, first.tangent.norm(), second.tangent.norm()})
+          < 1.0e-14,
+          "pattern reuse leaves the condensed tangent unchanged");
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -382,9 +498,12 @@ int main(int argc, char** argv)
 
     test_reinforced_evolver();
     test_adaptive_substepping();
+    test_adaptive_substepping_accepts_exact_budget_completion();
     test_mode_specific_homogenized_responses();
     test_linearized_consistency_energy_and_operator_comparison();
+    test_crack_summary_keeps_missing_damage_scalar_honest();
     test_condensed_operator_matches_forced_fd();
+    test_condensed_operator_reuses_symbolic_pattern();
 
     std::cout << "\n" << std::string(72, '=') << "\n"
               << "  Summary: " << g_pass << " passed, " << g_fail

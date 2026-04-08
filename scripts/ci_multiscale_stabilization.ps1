@@ -1,5 +1,6 @@
 param(
     [string]$BuildDir = "build",
+    [int]$Jobs = [Math]::Max([Environment]::ProcessorCount, 1),
     [switch]$SkipConfigure,
     [switch]$SkipDocs
 )
@@ -28,7 +29,7 @@ function Invoke-BuildTargets {
 
     Write-Host "==> Building $Label"
     foreach ($target in $Targets) {
-        Invoke-Step ("ninja -C `"$buildPath`" -j1 " + $target)
+        Invoke-Step ("ninja -C `"$buildPath`" -j$Jobs " + $target)
     }
 }
 

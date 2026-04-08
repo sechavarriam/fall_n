@@ -108,6 +108,8 @@ struct SectionHomogenizedResponse {
     CondensedTangentStatus condensed_tangent_status{
         CondensedTangentStatus::NotAttempted};
     double condensed_solve_residual{0.0};
+    bool condensed_pattern_reused{false};
+    std::size_t condensed_symbolic_factorizations{0};
     std::array<double, 6> perturbation_sizes{};
     std::array<bool, 6> tangent_column_valid{};
     std::array<bool, 6> tangent_column_central{};

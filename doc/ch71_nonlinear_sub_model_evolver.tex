@@ -35,7 +35,8 @@ integration point, storing:
         $\varepsilon_{\mathrm{cr},1}, \varepsilon_{\mathrm{cr},2},
          \varepsilon_{\mathrm{cr},3}$,
   \item open/closed status flags,
-  \item a scalar damage index $d \in [0,1]$.
+  \item fracture-history invariants such as the octahedral normal and shear
+        envelopes \(\sigma_{o,\max}\) and \(\tau_{o,\max}\).
 \end{itemize}
 Resetting these variables at each step would allow the same crack to
 form repeatedly without accumulating irrecoverable damage, yielding
@@ -408,9 +409,13 @@ the sub-model.  In the multi-scale context, the model captures:
         compression, the model uses a Drucker--Prager-type yield
         surface with hardening/softening.
 
-  \item \textbf{Damage accumulation.}  A scalar damage index $d$
-        monotonically increases as the material degrades, reducing the
-        effective stiffness.
+  \item \textbf{Fracture-history accumulation.}  The current
+        \texttt{KoBatheConcrete3D} implementation exposes persistent crack
+        geometry, opening/closing state, and octahedral fracture-history
+        invariants.  These quantities evolve monotonically enough to diagnose
+        cracking and stiffness degradation even though the public
+        \texttt{InternalFieldSnapshot} path does not currently provide a single
+        scalar damage channel for this law.
 \end{enumerate}
 
 Because these internal variables persist across time steps in the
@@ -479,8 +484,9 @@ primarily axial-plus-bending deformation mode of a column.
 
 A key output of the persistent sub-model analysis is the temporal
 evolution of cracking: how many Gauss points have cracked, the total
-number of individual crack planes, the maximum damage, and the maximum
-crack opening---all as functions of the earthquake time.
+number of individual crack planes, the available fracture-history
+envelopes, and the maximum crack opening---all as functions of the
+earthquake time.
 
 \subsection{CrackSummary Aggregation}
 
@@ -492,7 +498,10 @@ A \texttt{CrackSummary} structure aggregates the statistics:
   \bigl\{
     n_{\mathrm{GP, cracked}},\;
     n_{\mathrm{cracks,total}},\;
+    \chi_d,\;
     d_{\max},\;
+    \sigma_{o,\min},\;
+    \tau_{o,\max},\;
     \varepsilon_{\mathrm{cr,max}}
   \bigr\},
   \label{eq:nlevo-crack-summary}
@@ -503,25 +512,44 @@ where:
         at least one crack,
   \item $n_{\mathrm{cracks,total}}$ = total crack planes across all
         cracked Gauss points (each GP can contribute 1--3),
-  \item $d_{\max}$ = maximum scalar damage index among all GPs,
+  \item \(\chi_d \in \{0,1\}\) = availability flag for a constitutive-law
+        scalar damage channel in the snapshot path,
+  \item $d_{\max}$ = maximum scalar damage index among all GPs only when
+        \(\chi_d = 1\); otherwise the field is written as \texttt{NaN},
+  \item $\sigma_{o,\min}$ = most compressive octahedral normal envelope among
+        cracked points,
+  \item $\tau_{o,\max}$ = maximum octahedral shear envelope among cracked
+        points,
   \item $\varepsilon_{\mathrm{cr,max}}$ = maximum crack opening strain.
 \end{itemize}
+
+For the present \texttt{KoBatheConcrete3D} path, the scientifically honest
+interpretation is therefore:
+\begin{equation}
+  \chi_d = 0
+  \quad\Longrightarrow\quad
+  \text{use }
+  \{n_{\mathrm{GP, cracked}}, n_{\mathrm{cracks,total}},
+    \sigma_{o,\min}, \tau_{o,\max}, \varepsilon_{\mathrm{cr,max}}\}
+  \text{ as the fracture indicators.}
+\end{equation}
 
 \subsection{CSV Output Format}
 
 At each evolution step, a row is written to
 \texttt{crack\_evolution.csv}:
 \begin{verbatim}
-time,total_cracked_gps,total_cracks,max_damage,max_opening,
-  sub0_cracked_gps,sub0_cracks,sub0_max_damage,
-  sub1_cracked_gps,sub1_cracks,sub1_max_damage,...
+time,total_cracked_gps,total_cracks,damage_scalar_available,
+peak_damage_scalar,most_compressive_sigma_o_max,max_tau_o_max,max_opening,...
 \end{verbatim}
 This allows post-processing scripts to plot:
 \begin{itemize}
   \item Crack count vs.\ time: visualising the onset and progression
         of cracking with respect to ground motion intensity.
-  \item Damage evolution: monitoring the growth of $d_{\max}$ and
-        identifying the instant of peak damage.
+  \item Fracture-history evolution: monitoring
+        \(\sigma_{o,\min}\), \(\tau_{o,\max}\), and
+        \(\varepsilon_{\mathrm{cr,max}}\) whenever no scalar damage channel is
+        available.
   \item Per-sub-model comparison: comparing crack evolution across
         different column elements to identify the most vulnerable
         structural member.
