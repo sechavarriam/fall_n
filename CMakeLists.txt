@@ -390,7 +390,7 @@ fall_n_add_test(TARGET fall_n_multiscale_api_test
 
 fall_n_add_test(TARGET fall_n_micro_solve_executor_test
     NAME micro_solve_executor  SOURCE tests/test_micro_solve_executor.cpp
-    LIBS CORE  LABEL unit)
+    LIBS FULL  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_strategy_test
     NAME material_strategy  SOURCE tests/test_material_strategy.cpp
