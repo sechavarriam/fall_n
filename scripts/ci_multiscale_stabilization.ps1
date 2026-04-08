@@ -42,6 +42,7 @@ $regressionTargets = @(
     "fall_n_micro_solve_executor_test",
     "fall_n_evolver_advanced_test",
     "fall_n_tangent_validation_benchmark_test",
+    "fall_n_coupling_residual_benchmark_test",
     "fall_n_beam_test",
     "fall_n_steppable_solver_test",
     "fall_n_steppable_dynamic_test"
@@ -62,6 +63,7 @@ $executables = @(
     "fall_n_micro_solve_executor_test.exe",
     "fall_n_evolver_advanced_test.exe",
     "fall_n_tangent_validation_benchmark_test.exe",
+    "fall_n_coupling_residual_benchmark_test.exe",
     "fall_n_beam_test.exe",
     "fall_n_steppable_solver_test.exe",
     "fall_n_steppable_dynamic_test.exe"

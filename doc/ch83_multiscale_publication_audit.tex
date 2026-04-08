@@ -386,20 +386,98 @@ default FE\textsuperscript{2} production operator.
 
 \subsection{Convergence criterion}
 
-The default coupling convergence is no longer defined solely through a tangent
-matrix norm.  The implemented criterion monitors:
+The implemented FE\textsuperscript{2} loop now uses the same norm family for
+outer fixed-point residuals that is already used to validate the condensed
+operator.  For coupling site \(i\), let
+\(\mathbf{e}_{\mathrm{ref}}^{(i)}\) denote the current macro generalized-strain
+state extracted at that site and let \(\mathbf{W}_q^{(i)}\) and
+\(\mathbf{W}_s^{(i)}\) be the state-weighting and force-equivalent row-scaling
+operators defined in \eqref{eq:ms-pub-state-weighted-columns} and
+\eqref{eq:ms-pub-section-power-row-scaling}.  The legacy raw force residual is
 \begin{equation}
-  r_f^{(i)}
+  r_{f,F}^{(i)}
   =
   \frac{\lVert \mathbf{s}_{\text{macro}}^{(i)}
-  - \mathbf{s}_{\text{micro}}^{(i)} \rVert}
-  {\max\left(1,\lVert \mathbf{s}_{\text{macro}}^{(i)} \rVert,
-                \lVert \mathbf{s}_{\text{micro}}^{(i)} \rVert\right)},
+  - \mathbf{s}_{\text{micro}}^{(i)} \rVert_2}
+  {\max\!\left(1,
+    \lVert \mathbf{s}_{\text{macro}}^{(i)} \rVert_2,
+    \lVert \mathbf{s}_{\text{micro}}^{(i)} \rVert_2\right)},
+  \label{eq:ms-pub-force-residual-raw}
 \end{equation}
-for each coupled site \(i\), together with an analogous relative tangent
-residual.  The default policy in
-\texttt{src/analysis/CouplingStrategy.hh} is
-\texttt{ForceAndTangentConvergence}.
+while the legacy raw tangent residual between two consecutive FE\textsuperscript{2}
+iterates, \(\mathbf{D}^{(i,k)}\) and \(\mathbf{D}^{(i,k-1)}\), is
+\begin{equation}
+  r_{D,F}^{(i,k)}
+  =
+  \frac{\lVert \mathbf{D}^{(i,k)} - \mathbf{D}^{(i,k-1)} \rVert_F}
+  {\max\!\left(1,
+    \lVert \mathbf{D}^{(i,k)} \rVert_F,
+    \lVert \mathbf{D}^{(i,k-1)} \rVert_F\right)}.
+  \label{eq:ms-pub-tangent-residual-raw}
+\end{equation}
+
+The state-weighted force residual now used on the publication path is
+\begin{equation}
+  r_{f,\mathrm{sw}}^{(i)}
+  =
+  \frac{\lVert \mathbf{W}_q^{(i)}
+    (\mathbf{s}_{\text{macro}}^{(i)}-\mathbf{s}_{\text{micro}}^{(i)})
+  \rVert_2}
+  {\max\!\left(1,
+    \lVert \mathbf{W}_q^{(i)}\mathbf{s}_{\text{macro}}^{(i)} \rVert_2,
+    \lVert \mathbf{W}_q^{(i)}\mathbf{s}_{\text{micro}}^{(i)} \rVert_2\right)},
+  \label{eq:ms-pub-force-residual-state-weighted}
+\end{equation}
+and the corresponding state-weighted tangent residual is
+\begin{equation}
+  r_{D,\mathrm{sw}}^{(i,k)}
+  =
+  \frac{\lVert
+    (\mathbf{D}^{(i,k)}-\mathbf{D}^{(i,k-1)})\mathbf{W}_q^{(i)}
+  \rVert_F}
+  {\max\!\left(1,
+    \lVert \mathbf{D}^{(i,k)}\mathbf{W}_q^{(i)} \rVert_F,
+    \lVert \mathbf{D}^{(i,k-1)}\mathbf{W}_q^{(i)} \rVert_F\right)}.
+  \label{eq:ms-pub-tangent-residual-state-weighted}
+\end{equation}
+Finally, the conservative section-power-scaled family available for audit
+campaigns is
+\begin{equation}
+  r_{f,\mathrm{sp}}^{(i)}
+  =
+  \frac{\lVert \mathbf{W}_s^{(i)}\mathbf{W}_q^{(i)}
+    (\mathbf{s}_{\text{macro}}^{(i)}-\mathbf{s}_{\text{micro}}^{(i)})
+  \rVert_2}
+  {\max\!\left(1,
+    \lVert \mathbf{W}_s^{(i)}\mathbf{W}_q^{(i)}
+      \mathbf{s}_{\text{macro}}^{(i)} \rVert_2,
+    \lVert \mathbf{W}_s^{(i)}\mathbf{W}_q^{(i)}
+      \mathbf{s}_{\text{micro}}^{(i)} \rVert_2\right)},
+  \label{eq:ms-pub-force-residual-section-power}
+\end{equation}
+and
+\begin{equation}
+  r_{D,\mathrm{sp}}^{(i,k)}
+  =
+  \frac{\lVert
+    \mathbf{W}_s^{(i)}(\mathbf{D}^{(i,k)}-\mathbf{D}^{(i,k-1)})
+    \mathbf{W}_q^{(i)}
+  \rVert_F}
+  {\max\!\left(1,
+    \lVert \mathbf{W}_s^{(i)}\mathbf{D}^{(i,k)}\mathbf{W}_q^{(i)} \rVert_F,
+    \lVert \mathbf{W}_s^{(i)}\mathbf{D}^{(i,k-1)}\mathbf{W}_q^{(i)}
+    \rVert_F\right)}.
+  \label{eq:ms-pub-tangent-residual-section-power}
+\end{equation}
+
+The important architectural consequence is that
+\texttt{ForceAndTangentConvergence} remains a small tolerance policy, but the
+meaning of the residuals it consumes is now configurable and physically
+observable through \texttt{CouplingIterationReport}.  The default
+\texttt{MultiscaleAnalysis} configuration uses
+\texttt{StateWeightedFrobenius} for both force and tangent residuals, while the
+report records the chosen norm family together with the effective component or
+row/column scales applied at each site.
 
 \section{Implemented Architecture}
 \label{sec:ms-pub-architecture}
@@ -417,7 +495,8 @@ The redesign introduces explicit public types:
     tangent-column validity, and perturbation sizes when the
     finite-difference fallback is actually used;
   \item \texttt{CouplingIterationReport}: mode, termination reason,
-    iteration count, residuals, hard-failure sites, rollback state,
+    iteration count, norm-aware force/tangent residuals, the residual norm
+    kinds and effective residual scales, hard-failure sites, rollback state,
     regularisation presence, and macro/micro timing;
   \item \texttt{ModelCheckpoint} and solver-specific
     \texttt{checkpoint\_type}: exact rollback state for FE\textsuperscript{2}
@@ -740,11 +819,11 @@ limitations remain explicit:
     a monolithic multilevel Newton solve;
   \item MPI-distributed local-model execution is not yet implemented beyond the
     communicator contract;
-  \item the default validation norm is now state-weighted, which is a much
-    better convergence proxy than raw Frobenius in the current beam-driven
-    setting, but it is still built from the generalized strain coordinates of
-    the present transfer operator rather than from a fully systematic dual
-    energy norm over the microproblem;
+  \item the default validation and FE\textsuperscript{2} residual norms are now
+    state-weighted, which is a much better convergence proxy than raw
+    Frobenius in the current beam-driven setting, but they are still built from
+    the generalized strain coordinates of the present transfer operator rather
+    than from a fully systematic dual energy norm over the microproblem;
   \item the section-power-scaled norm is intentionally conservative and may
     reject operators that the state-weighted norm accepts; this is a feature
     for audit campaigns, not a proof that the condensed operator is
@@ -773,8 +852,9 @@ The next publication-strength milestones are:
     public response contract;
   \item replace the present generalized-strain proxy weights by a genuinely
     dual work norm derived from the local incremental variational problem, so
-    that validation and FE\textsuperscript{2} convergence use the same
-    underlying energetic metric;
+    that the already aligned validation and FE\textsuperscript{2} convergence
+    paths use a truly energetic metric rather than the present kinematics-based
+    proxy;
   \item finish the internal split of \texttt{NonlinearSubModelEvolver} from
     the current state into a solver core, diagnostics service, and output
     service, reusing the already extracted boundary-condition, state, and

@@ -425,6 +425,11 @@ fall_n_add_test(TARGET fall_n_tangent_validation_benchmark_test
     SOURCE tests/test_tangent_validation_benchmark.cpp
     LIBS FULL  LABEL integration)
 
+fall_n_add_test(TARGET fall_n_coupling_residual_benchmark_test
+    NAME coupling_residual_benchmark
+    SOURCE tests/test_coupling_residual_benchmark.cpp
+    LIBS FULL  LABEL integration)
+
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)
