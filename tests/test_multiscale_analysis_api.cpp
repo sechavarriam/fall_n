@@ -674,6 +674,60 @@ void test_lagged_feedback_force_residual_norms_change_reported_gap()
         "weighted force residual reports a sub-unit scale for the dormant bending component");
 }
 
+void test_restart_bundle_restores_macro_micro_and_injection_state()
+{
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    FakeSolver solver;
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_forces_override = (Eigen::Vector<double, 6>()
+        << 3.0, 0.0, 0.0, 0.0, 0.0, 0.0).finished();
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.25},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    const bool first_ok = analysis.step();
+    CHECK_TRUE(first_ok, "baseline lagged step converges before restart capture");
+
+    const auto bundle = analysis.capture_restart_bundle();
+    CHECK_TRUE(bundle.valid, "restart bundle is marked valid after capture");
+
+    solver.committed_step = 99;
+    solver.trial_step = 99;
+    solver.committed_time = 99.0;
+    solver.trial_time = 99.0;
+    analysis.model().local_models()[0].solve_calls = 42;
+    analysis.model().macro_bridge().clear_response(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.25});
+
+    analysis.restore_restart_bundle(bundle);
+
+    CHECK_TRUE(solver.committed_step == 1 && solver.committed_time == 1.0,
+               "restart bundle restores the committed macro state");
+    CHECK_TRUE(analysis.model().local_models()[0].solve_calls == 1,
+               "restart bundle restores the local model checkpoint");
+    CHECK_TRUE(analysis.model().macro_bridge().injected[0].has_value(),
+               "restart bundle restores the accepted injected response");
+    CHECK_TRUE(
+        std::abs(analysis.model().macro_bridge().injected[0]->forces[0] - 3.0)
+            < 1.0e-12,
+        "restart bundle restores the accepted homogenized force state");
+    CHECK_TRUE(analysis.analysis_step() == 1,
+               "restart bundle restores the multiscale analysis step counter");
+}
+
 }  // namespace
 
 int main()
@@ -686,6 +740,7 @@ int main()
     test_invalid_operator_counts_as_hard_failure();
     test_iterated_two_way_matches_between_serial_and_openmp_executors();
     test_lagged_feedback_force_residual_norms_change_reported_gap();
+    test_restart_bundle_restores_macro_micro_and_injection_state();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return (g_fail == 0) ? 0 : 1;

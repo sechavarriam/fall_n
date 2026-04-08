@@ -69,10 +69,13 @@ struct BenchmarkResult {
     double fd_time_s{0.0};
     double frobenius_gap{0.0};
     double state_weighted_gap{0.0};
+    double dual_energy_gap{0.0};
     bool frobenius_accepted{false};
     bool state_weighted_accepted{false};
+    bool dual_energy_accepted{false};
     double projected_frobenius_time_s{0.0};
     double projected_state_weighted_time_s{0.0};
+    double projected_dual_energy_time_s{0.0};
 };
 
 template <typename Fn>
@@ -145,18 +148,27 @@ template <typename Fn>
         TangentValidationNormKind::StateWeightedFrobenius);
     const auto state_weighted = ev.section_response(width, height, 1.0e-6);
 
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::DualEnergyScaled);
+    ev.set_tangent_validation_max_column_tolerance(0.75);
+    const auto dual_energy = ev.section_response(width, height, 1.0e-6);
+
     BenchmarkResult result;
     result.name = load_case.name;
     result.condensed_time_s = condensed_time;
     result.fd_time_s = fd_time;
     result.frobenius_gap = frobenius.tangent_validation_relative_gap;
     result.state_weighted_gap = state_weighted.tangent_validation_relative_gap;
+    result.dual_energy_gap = dual_energy.tangent_validation_relative_gap;
     result.frobenius_accepted = accepted_condensed_response(frobenius);
     result.state_weighted_accepted = accepted_condensed_response(state_weighted);
+    result.dual_energy_accepted = accepted_condensed_response(dual_energy);
     result.projected_frobenius_time_s =
         result.frobenius_accepted ? condensed_time : fd_time;
     result.projected_state_weighted_time_s =
         result.state_weighted_accepted ? condensed_time : fd_time;
+    result.projected_dual_energy_time_s =
+        result.dual_energy_accepted ? condensed_time : fd_time;
     return result;
 }
 
@@ -187,19 +199,24 @@ void test_validation_norm_benchmark()
 
     int frobenius_accepts = 0;
     int state_weighted_accepts = 0;
+    int dual_energy_accepts = 0;
     double projected_frobenius_time = 0.0;
     double projected_state_weighted_time = 0.0;
+    double projected_dual_energy_time = 0.0;
 
     std::cout << std::left
               << std::setw(10) << "case"
               << std::setw(14) << "gap_F"
               << std::setw(14) << "gap_SW"
+              << std::setw(14) << "gap_DE"
               << std::setw(10) << "acc_F"
               << std::setw(10) << "acc_SW"
+              << std::setw(10) << "acc_DE"
               << std::setw(14) << "t_cond[s]"
               << std::setw(14) << "t_fd[s]"
               << std::setw(16) << "proj_F[s]"
               << std::setw(16) << "proj_SW[s]"
+              << std::setw(16) << "proj_DE[s]"
               << "\n";
 
     for (const auto& load_case : cases) {
@@ -207,20 +224,25 @@ void test_validation_norm_benchmark()
         results.push_back(result);
         frobenius_accepts += result.frobenius_accepted ? 1 : 0;
         state_weighted_accepts += result.state_weighted_accepted ? 1 : 0;
+        dual_energy_accepts += result.dual_energy_accepted ? 1 : 0;
         projected_frobenius_time += result.projected_frobenius_time_s;
         projected_state_weighted_time += result.projected_state_weighted_time_s;
+        projected_dual_energy_time += result.projected_dual_energy_time_s;
 
         std::cout << std::left
                   << std::setw(10) << result.name
                   << std::setw(14) << std::setprecision(6)
                   << result.frobenius_gap
                   << std::setw(14) << result.state_weighted_gap
+                  << std::setw(14) << result.dual_energy_gap
                   << std::setw(10) << (result.frobenius_accepted ? "yes" : "no")
                   << std::setw(10) << (result.state_weighted_accepted ? "yes" : "no")
+                  << std::setw(10) << (result.dual_energy_accepted ? "yes" : "no")
                   << std::setw(14) << result.condensed_time_s
                   << std::setw(14) << result.fd_time_s
                   << std::setw(16) << result.projected_frobenius_time_s
                   << std::setw(16) << result.projected_state_weighted_time_s
+                  << std::setw(16) << result.projected_dual_energy_time_s
                   << "\n";
     }
 
@@ -232,10 +254,13 @@ void test_validation_norm_benchmark()
     std::cout << "  tolerance = " << tolerance << "\n"
               << "  frobenius_accepts = " << frobenius_accepts << "\n"
               << "  state_weighted_accepts = " << state_weighted_accepts << "\n"
+              << "  dual_energy_accepts = " << dual_energy_accepts << "\n"
               << "  projected_frobenius_time = "
               << projected_frobenius_time << " s\n"
               << "  projected_state_weighted_time = "
               << projected_state_weighted_time << " s\n"
+              << "  projected_dual_energy_time = "
+              << projected_dual_energy_time << " s\n"
               << "  projected_speedup = "
               << projected_speedup << "x\n";
 
@@ -244,6 +269,11 @@ void test_validation_norm_benchmark()
     check(projected_state_weighted_time
               <= projected_frobenius_time + 1.0e-12,
           "state-weighted norm does not worsen the projected production tangent cost");
+    check(dual_energy_accepts >= frobenius_accepts,
+          "dual-energy norm does not reduce accepted condensed operators relative to legacy Frobenius");
+    check(projected_dual_energy_time
+              <= projected_frobenius_time + 1.0e-12,
+          "dual-energy norm does not worsen the projected production tangent cost relative to legacy Frobenius");
     check(projected_speedup >= 1.0,
           "state-weighted norm benchmark reports a non-degrading projected speedup");
 }

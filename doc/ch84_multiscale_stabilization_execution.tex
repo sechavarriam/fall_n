@@ -181,12 +181,14 @@ local solver can now request
 builds the sparse condensed tangent and then computes an adaptive
 finite-difference reference on the same converged state.  What changed in this
 execution pass is that the validation is no longer hard-wired to a single raw
-Frobenius norm.  The code now exposes three norm families through
+Frobenius norm.  The code now exposes four norm families through
 \texttt{TangentValidationNormKind}:
 \begin{itemize}
   \item \texttt{RelativeFrobenius}, kept as the exact legacy metric;
   \item \texttt{StateWeightedFrobenius}, now the default publication-path
     acceptance norm;
+  \item \texttt{DualEnergyScaled}, which combines the current generalized
+    strain activity with the current generalized force activity;
   \item \texttt{SectionPowerScaledFrobenius}, a conservative audit norm that
     additionally scales moment rows into force-equivalent units.
 \end{itemize}
@@ -208,6 +210,23 @@ norm therefore measures
 \end{equation}
 where \(\mathbf{W}_q\) is built from the currently active generalized strain
 amplitudes.  The conservative audit norm adds a row scaling
+\(\mathbf{W}_s\) and measures
+\begin{equation}
+  \eta_{\mathrm{de}}
+  =
+  \frac{\lVert
+      \mathbf{W}_d(\mathbf{D}_{\mathrm{cond}}-\mathbf{D}_{\mathrm{fd}})
+      \mathbf{W}_q
+    \rVert_F}
+       {\max\!\left(
+          1,
+          \lVert \mathbf{W}_d \mathbf{D}_{\mathrm{cond}}\mathbf{W}_q \rVert_F,
+          \lVert \mathbf{W}_d \mathbf{D}_{\mathrm{fd}}\mathbf{W}_q \rVert_F
+       \right)},
+\end{equation}
+where \(\mathbf{W}_d\) is built from the currently active generalized force
+state and the same strain-activity proxy used by \(\mathbf{W}_q\).  The more
+conservative section-power audit adds the geometry-based row scaling
 \(\mathbf{W}_s\) and measures
 \begin{equation}
   \eta_{\mathrm{sp}}
@@ -239,14 +258,17 @@ measured metrics were
 \begin{align}
   \eta_{F} &= 4.60221\times 10^{-2}, \\
   \eta_{\mathrm{sw}} &= 7.00812\times 10^{-3}, \\
+  \eta_{\mathrm{de}} &= 7.00812\times 10^{-3}, \\
   \eta_{\mathrm{sp}} &= 6.94017\times 10^{-2}, \\
   \eta_{\max,\mathrm{sw}} &= 3.78672\times 10^{-1}, \\
+  \eta_{\max,\mathrm{de}} &= 3.67884\times 10^{-1}, \\
   \eta_{\max,\mathrm{sp}} &= 7.36699\times 10^{-1}.
 \end{align}
 These numbers clarify the role of the new norms.  The state-weighted metric is
 far smaller than the raw Frobenius gap because the discrepancy sits largely in
-weakly active columns, whereas the section-power-scaled metric is deliberately
-more conservative.
+weakly active columns, the dual-energy metric preserves that global reduction
+while slightly reducing the worst column mismatch on the audited state, and the
+section-power-scaled metric is deliberately more conservative.
 
 The public response object now records:
 \begin{itemize}
@@ -359,6 +381,21 @@ is reported as \texttt{Ok}.  This change is small in code volume, but
 scientifically important because it prevents an incomplete section operator
 from being treated as merely ``low quality'' and then entering the FE\textsuperscript{2}
 loop as if it were usable.
+
+The subsequent hardening pass extended that same split to the observability
+side of the local solver.  Two additional helpers were extracted from the
+facade:
+\begin{itemize}
+  \item \texttt{LocalCrackDiagnostics}: owns the reduction from constitutive
+    fracture fields to the public \texttt{CrackSummary} and the optional
+    detailed \texttt{CrackRecord} cloud;
+  \item \texttt{LocalVTKOutputWriter}: owns PVD bookkeeping and VTK emission
+    for mesh, Gauss-point, crack-plane, and embedded-rebar outputs.
+\end{itemize}
+This matters architecturally for the same reason as the earlier split: the
+local facade is now closer to a true coordinator of specialized components than
+to a monolithic ``do everything'' object, while the hot numerical path still
+stays template-based and free of virtual dispatch.
 
 \subsection{Verification added in the current pass}
 
@@ -495,15 +532,19 @@ audited runtime validation metrics were
 \begin{align}
   \eta_{F} &= 4.60221\times 10^{-2}, \\
   \eta_{\mathrm{sw}} &= 7.00812\times 10^{-3}, \\
+  \eta_{\mathrm{de}} &= 7.00812\times 10^{-3}, \\
   \eta_{\mathrm{sp}} &= 6.94017\times 10^{-2}, \\
   \eta_{\max,\mathrm{sw}} &= 3.78672\times 10^{-1}, \\
+  \eta_{\max,\mathrm{de}} &= 3.67884\times 10^{-1}, \\
   \eta_{\max,\mathrm{sp}} &= 7.36699\times 10^{-1}.
 \end{align}
 The stabilization outcome is now much easier to interpret.  The legacy
 Frobenius metric still captures the raw discrepancy, the new
 state-weighted norm drops that discrepancy by roughly one order of magnitude on
-the active mixed state, and the section-power-scaled audit remains available as
-a conservative check when moment resultants must be emphasised explicitly.
+the active mixed state, the dual-energy variant preserves that global
+improvement while slightly reducing the worst column gap on the audited state,
+and the section-power-scaled audit remains available as a conservative check
+when moment resultants must be emphasised explicitly.
 With a validation tolerance of \(7.5\times 10^{-2}\), the runtime audit keeps
 the sparse condensed operator on the production path when
 \texttt{StateWeightedFrobenius} is selected and reports
@@ -521,16 +562,23 @@ tolerance \(4.5\times 10^{-2}\), the measured projected tangent-delivery costs
 were
 \begin{align}
   N_{\mathrm{accept},F} &= 0/4, &
-  T_{\mathrm{proj},F} &= 8.64244~\mathrm{s}, \\
-  N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
-  T_{\mathrm{proj},\mathrm{sw}} &= 0.345097~\mathrm{s},
+  T_{\mathrm{proj},F} &= 9.96994~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{sw}} &= 1/4, &
+  T_{\mathrm{proj},\mathrm{sw}} &= 7.21834~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{de}} &= 4/4, &
+  T_{\mathrm{proj},\mathrm{de}} &= 0.499380~\mathrm{s},
 \end{align}
-which corresponds to a projected speedup of \(25.04\times\) for the tangent
-delivery stage of the outer FE\textsuperscript{2} loop on this benchmark.  The
-word \emph{projected} matters here: the validation mode still computes both the
-condensed and FD operators, so the benchmark estimates the expected production
-benefit of the acceptance criterion rather than claiming that the validation
-mode itself became \(25.04\times\) faster.
+which corresponds to a projected speedup of \(1.38\times\) for the
+state-weighted gate relative to pure Frobenius and
+\(19.96\times\) for the dual-energy gate on the same benchmark.  The result is
+scientifically important because it is not monotone across all weighted norms:
+the strain-only weighting is already a better physical proxy than pure
+Frobenius, but on this particular four-state family it still rejects three
+cases that the dual-energy metric accepts.  The word \emph{projected} matters
+here: the validation mode still computes both the condensed and FD operators,
+so the benchmark estimates the expected production benefit of the acceptance
+criterion rather than claiming that the validation mode itself became faster by
+that factor.
 
 \subsection{Coupling residual norms and projected outer-iteration cost}
 
@@ -571,7 +619,9 @@ and the tangent residual between two fixed-point iterates is
 The same code path can still be switched back to
 \texttt{RelativeFrobenius} for exact historical reproduction or to
 \texttt{SectionPowerScaledFrobenius} for conservative audit campaigns.  The
-important part is that the selected norm family is now stored explicitly in
+dual-energy family is also available and reuses the same generalized-force and
+generalized-strain reference state employed by the condensed-operator audit.
+The important part is that the selected norm family is now stored explicitly in
 \texttt{CouplingIterationReport}, together with the effective component scales
 for force residuals and the row/column scales used for tangent residuals.
 
@@ -584,9 +634,11 @@ if the outer criterion rejected the iterate.  The measured results at
 tangent tolerance \(4.5\times 10^{-2}\) were
 \begin{align}
   N_{\mathrm{accept},F} &= 0/4, &
-  T_{\mathrm{proj},F} &= 0.652498~\mathrm{s}, \\
+  T_{\mathrm{proj},F} &= 0.795333~\mathrm{s}, \\
   N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
-  T_{\mathrm{proj},\mathrm{sw}} &= 0.326249~\mathrm{s},
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.397666~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{de}} &= 4/4, &
+  T_{\mathrm{proj},\mathrm{de}} &= 0.397666~\mathrm{s},
 \end{align}
 for a projected outer-iteration speedup of exactly \(2.0\times\) on this
 surrogate benchmark.  Again, the word \emph{projected} is deliberate: the test
@@ -599,12 +651,14 @@ iteration on the benchmarked mixed states.
 The following focused executables were rebuilt and executed locally after the
 runtime-validation extension of the stabilization changes:
 \begin{itemize}
-  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 48 passed, 0 failed;
+  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 55 passed, 0 failed;
   \item \texttt{fall\_n\_micro\_solve\_executor\_test.exe}: 6 passed, 0 failed;
-  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 135 passed, 0 failed;
-  \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe}: 3 passed,
+  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 144 passed, 0 failed;
+  \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe}: 5 passed,
     0 failed;
-  \item \texttt{fall\_n\_coupling\_residual\_benchmark\_test.exe}: 3 passed,
+  \item \texttt{fall\_n\_coupling\_residual\_benchmark\_test.exe}: 5 passed,
+    0 failed;
+  \item \texttt{fall\_n\_cyclic\_validation\_api\_test.exe}: 2 passed,
     0 failed;
   \item \texttt{fall\_n\_beam\_test.exe}: 21 passed, 0 failed;
   \item \texttt{fall\_n\_steppable\_solver\_test.exe}: 48 passed, 0 failed;
@@ -1099,6 +1153,49 @@ This is still expensive, but it is a materially better frontier than the
 post-split/no-PCH state, and it preserves the fast feedback of the thin CLI
 layer.
 
+\paragraph{Fourth pass: local dependency umbrella instead of \texttt{header\_files.hh}.}
+The next compile-time-oriented pass targeted a different problem: even after
+the TU split and the validation-specific PCH, the heavy cyclic-validation path
+still entered the build through the repository-wide umbrella
+\texttt{header\_files.hh}.  That was architecturally weak for two reasons:
+\begin{enumerate}
+  \item it forced the cyclic-validation support layer to depend on a
+    near-global transitive include surface instead of a clearly delimited local
+    dependency set;
+  \item it made the target-specific PCH conceptually misleading, because the
+    supposedly local PCH still started from the global umbrella.
+\end{enumerate}
+
+The implementation therefore introduced
+\texttt{src/validation/TableCyclicValidationDeps.hh} as a local umbrella for
+the cyclic-validation suite and changed
+\texttt{TableCyclicValidationSupport.hh} to include that header instead of
+\texttt{header\_files.hh}.  In the same pass,
+\texttt{TableCyclicValidationPch.hh} was changed to include only the stable
+driver API and the new local dependency umbrella, not the support header
+itself.  The implementation criterion was explicit: edits to support logic
+should no longer invalidate the PCH solely because the PCH re-included the
+support header transitively.
+
+The measured result of that pass is scientifically useful precisely because it
+was mixed:
+\begin{itemize}
+  \item touching \texttt{main\_table\_cyclic\_validation.cpp} rebuilt in
+    15.277~s, preserving fast CLI feedback;
+  \item touching \texttt{TableCyclicValidationFE2.cpp} rebuilt in
+    457.552~s in the audited environment.
+\end{itemize}
+This is not presented as an unconditional compile-time success.  The local
+umbrella clearly improved dependency hygiene and made the build surface more
+honest, but it did \emph{not} close the heavy-TU frontier.  In fact, on the
+audited machine the latest FE\textsuperscript{2} TU measurement was slower than
+the earlier 332.621~s best-case figure.  The correct conclusion is therefore
+not that the refactor ``made compilation faster'', but that it removed a
+global architectural smell while preserving fast feedback for the thin CLI.
+The remaining compile-time debt still lives in the FE\textsuperscript{2}
+translation unit itself, which continues to instantiate a very large fraction
+of the multiscale and nonlinear local-solver surface.
+
 \paragraph{Adaptive continuation in the cyclic FE\textsuperscript{2} path.}
 The first exploratory one-way FE\textsuperscript{2} run with an
 8-substep \texttt{FirstSolveRamp} reached \(+2.5\)\,mm but still failed at the
@@ -1212,6 +1309,79 @@ Scientifically, that is a better state than before this pass: the validation
 campaign now has a clear full-amplitude structural reference and an honest
 partial FE\textsuperscript{2} frontier, both reproducible from the same driver.
 
+\paragraph{Predefinitive physical-validation matrix.}
+To make that frontier reproducible as an execution artifact rather than only as
+a narrative claim, the repository now contains
+\texttt{scripts/run\_predefinitive\_physical\_validation.ps1}.  The script:
+\begin{enumerate}
+  \item optionally rebuilds the focused multiscale and cyclic-validation
+    executables;
+  \item reruns the regression executables that define the stabilized
+    multiscale surface;
+  \item launches one short one-way FE\textsuperscript{2} run
+    (Case~4, one protocol point);
+  \item launches one short iterated two-way FE\textsuperscript{2} run
+    (Case~5, one protocol point);
+  \item stores per-step logs under
+    \texttt{data/output/cyclic\_validation/predefinitive\_validation/logs};
+  \item writes a machine-readable summary CSV at
+    \texttt{data/output/cyclic\_validation/predefinitive\_validation/summary.csv}.
+\end{enumerate}
+
+The audited execution of that script produced the summary shown in
+Table~\ref{tab:ms-stab-predefinitive-summary}.
+
+\begin{table}[htb]
+\centering
+\small
+\begin{tabular}{p{0.22\textwidth}p{0.16\textwidth}p{0.11\textwidth}p{0.33\textwidth}}
+\toprule
+Entry & Outcome & Duration [s] & Key observation \\
+\midrule
+\texttt{multiscale\_api\_test} &
+\texttt{PASS} &
+0.309 &
+Typed API regression surface remains green. \\
+\texttt{evolver\_advanced\_test} &
+\texttt{PASS} &
+84.396 &
+Local operator, norms, and diagnostics remain green. \\
+\texttt{tangent\_validation\_benchmark} &
+\texttt{PASS} &
+66.288 &
+Condensed-vs-FD acceptance benchmark remains reproducible. \\
+\texttt{coupling\_residual\_benchmark} &
+\texttt{PASS} &
+24.979 &
+Residual-norm benchmark remains reproducible. \\
+\texttt{cyclic\_validation\_api\_test} &
+\texttt{PASS} &
+0.283 &
+Driver API and protocol plumbing remain green. \\
+\texttt{case4\_one\_way\_step1} &
+\texttt{TRUNCATED\_OK} &
+342.371 &
+Reached \(d=2.5\times 10^{-3}\)~m with
+\(V=-0.5678\)~MN, 1080 cracks, and
+\(9.88515\times 10^{-4}\) maximum opening. \\
+\texttt{case5\_two\_way\_step1} &
+\texttt{KNOWN\_FRONTIER} &
+590.173 &
+Aborted at the first cracked point with
+\texttt{MicroSolveFailed}, explicit rollback, and four failed coupling sites. \\
+\bottomrule
+\end{tabular}
+\caption{Predefinitive physical-validation summary produced by the current
+short-run campaign.}
+\label{tab:ms-stab-predefinitive-summary}
+\end{table}
+
+The outcome vocabulary is deliberate.  \texttt{TRUNCATED\_OK} means that the
+run was intentionally capped at one protocol point and still produced valid
+recorders.  \texttt{KNOWN\_FRONTIER} means that the run terminated at the
+currently documented scientific frontier with the expected failure semantics,
+not that the result is being silently treated as a success.
+
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}
 
@@ -1251,11 +1421,11 @@ currently use \texttt{SerialExecutor} because the threaded path triggered
 wrong-state failures in the audited environment. \\
 Compile time of \texttt{fall\_n\_table\_cyclic\_validation} &
 medium/high &
-Partially mitigated.  The final measured state uses a dedicated validation PCH
-for the heavy TUs and skips it for the thin CLI entrypoint, yielding
-approximately 19.3~s for \texttt{main\_table\_cyclic\_validation.cpp},
-332.6~s for \texttt{TableCyclicValidationFE2.cpp}, and 577.2~s for the
-structural TU in the audited environment. \\
+Partially mitigated, but not closed.  The validation path now uses a dedicated
+local dependency umbrella and keeps the support header out of the target PCH,
+which preserves a fast 15.3~s rebuild of the thin CLI entrypoint.  However,
+the FE\textsuperscript{2} translation unit still rebuilt in 457.6~s in the
+latest audited pass, so the heavy-TU compile frontier remains open. \\
 One-way cyclic FE\textsuperscript{2} runtime beyond the first crack reversal &
 medium/high &
 Mitigated further by the \texttt{fe2\_crack50} execution profile, VTK-free

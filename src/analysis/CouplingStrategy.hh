@@ -48,15 +48,27 @@ struct CouplingConvergence {
 class ForceAndTangentConvergence final : public CouplingConvergence {
     double force_tol_;
     double tangent_tol_;
+    double force_component_tol_;
+    double tangent_column_tol_;
 public:
     ForceAndTangentConvergence(double force_tol = 0.05,
-                               double tangent_tol = 0.05)
-        : force_tol_{force_tol}, tangent_tol_{tangent_tol} {}
+                               double tangent_tol = 0.05,
+                               double force_component_tol = -1.0,
+                               double tangent_column_tol = -1.0)
+        : force_tol_{force_tol}
+        , tangent_tol_{tangent_tol}
+        , force_component_tol_{
+              force_component_tol >= 0.0 ? force_component_tol : force_tol}
+        , tangent_column_tol_{
+              tangent_column_tol >= 0.0 ? tangent_column_tol : tangent_tol}
+    {}
 
     bool converged(const CouplingIterationReport& report) const override
     {
         return report.max_force_residual_rel <= force_tol_
-            && report.max_tangent_residual_rel <= tangent_tol_;
+            && report.max_force_component_residual_rel <= force_component_tol_
+            && report.max_tangent_residual_rel <= tangent_tol_
+            && report.max_tangent_column_residual_rel <= tangent_column_tol_;
     }
 };
 

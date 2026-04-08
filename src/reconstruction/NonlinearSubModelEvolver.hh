@@ -51,7 +51,10 @@
 #include "BoundaryReactionHomogenizer.hh"
 #include "HomogenizedSection.hh"
 #include "LocalBoundaryConditionApplicator.hh"
+#include "LocalCrackData.hh"
+#include "LocalCrackDiagnostics.hh"
 #include "LocalModelAdapter.hh"
+#include "LocalVTKOutputWriter.hh"
 #include "MaterialFactory.hh"
 #include "PersistentLocalStateOps.hh"
 #include "../analysis/ArcLengthSolver.hh"
@@ -69,43 +72,6 @@
 
 
 namespace fall_n {
-
-
-// =============================================================================
-//  CrackRecord  crack data for a single Gauss point (for VTK export)
-// =============================================================================
-
-struct CrackRecord {
-    Eigen::Vector3d position;
-    Eigen::Vector3d displacement{Eigen::Vector3d::Zero()};  ///< for Warp by Vector
-    int             num_cracks{0};
-    Eigen::Vector3d normal_1{Eigen::Vector3d::Zero()};
-    Eigen::Vector3d normal_2{Eigen::Vector3d::Zero()};
-    Eigen::Vector3d normal_3{Eigen::Vector3d::Zero()};
-    double          opening_1{0}, opening_2{0}, opening_3{0};
-    bool            closed_1{true}, closed_2{true}, closed_3{true};
-    double          damage{0};
-    bool            damage_scalar_available{false};
-    bool            fracture_history_available{false};
-    double          sigma_o_max{0.0};
-    double          tau_o_max{0.0};
-};
-
-
-// =============================================================================
-//  CrackSummary  aggregate crack statistics for one sub-model
-// =============================================================================
-
-struct CrackSummary {
-    int    num_cracked_gps{0};   ///< Gauss points with ≥1 crack
-    int    total_cracks{0};      ///< sum of num_cracks across all cracked GPs
-    bool   damage_scalar_available{false};
-    double max_damage_scalar{std::numeric_limits<double>::quiet_NaN()};
-    bool   fracture_history_available{false};
-    double most_compressive_sigma_o_max{0.0};
-    double max_tau_o_max{0.0};
-    double max_opening{0.0};     ///< maximum crack opening strain
-};
 
 
 // =============================================================================
@@ -180,11 +146,7 @@ class NonlinearSubModelEvolver {
     Vec  imp_work_{nullptr};     ///< pre-allocated work vector (imposed-sized)
 
     //  VTK output 
-    PVDWriter    pvd_mesh_;
-    PVDWriter    pvd_gauss_;
-    PVDWriter    pvd_cracks_;
-    PVDWriter    pvd_rebar_;
-    std::string  output_dir_;
+    LocalVTKOutputWriter output_writer_{};
     int          vtk_interval_;
     int          step_count_{0};
     bool         auto_commit_{true};
@@ -223,6 +185,7 @@ class NonlinearSubModelEvolver {
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
     double tangent_validation_relative_tolerance_{1.0e-1};
+    double tangent_validation_max_column_tolerance_{5.0e-1};
     TangentValidationNormKind tangent_validation_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
@@ -254,6 +217,7 @@ class NonlinearSubModelEvolver {
             diagonal_floor_,
             tangent_mode_,
             tangent_validation_relative_tolerance_,
+            tangent_validation_max_column_tolerance_,
             tangent_validation_norm_,
             section_width,
             section_height,
@@ -433,15 +397,7 @@ public:
         , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(
               fc_MPa, std::cbrt(sub.grid.dx * sub.grid.dy * sub.grid.dz) * 1e3)}
         , rebar_factory_{std::make_unique<MenegottoPintoRebarFactory>(200000.0, 420.0, 0.01)}
-        , pvd_mesh_{output_dir + "/nlsub_" +
-                    std::to_string(sub.parent_element_id) + "_mesh"}
-        , pvd_gauss_{output_dir + "/nlsub_" +
-                     std::to_string(sub.parent_element_id) + "_gauss"}
-        , pvd_cracks_{output_dir + "/nlsub_" +
-                      std::to_string(sub.parent_element_id) + "_cracks"}
-        , pvd_rebar_{output_dir + "/nlsub_" +
-                     std::to_string(sub.parent_element_id) + "_rebar"}
-        , output_dir_{std::move(output_dir)}
+        , output_writer_{std::move(output_dir), sub.parent_element_id}
         , vtk_interval_{vtk_interval}
     {}
 
@@ -453,15 +409,7 @@ public:
         , fc_{fc_MPa}
         , concrete_factory_{std::move(concrete_factory)}
         , rebar_factory_{std::move(rebar_factory)}
-        , pvd_mesh_{output_dir + "/nlsub_" +
-                    std::to_string(sub.parent_element_id) + "_mesh"}
-        , pvd_gauss_{output_dir + "/nlsub_" +
-                     std::to_string(sub.parent_element_id) + "_gauss"}
-        , pvd_cracks_{output_dir + "/nlsub_" +
-                      std::to_string(sub.parent_element_id) + "_cracks"}
-        , pvd_rebar_{output_dir + "/nlsub_" +
-                     std::to_string(sub.parent_element_id) + "_rebar"}
-        , output_dir_{std::move(output_dir)}
+        , output_writer_{std::move(output_dir), sub.parent_element_id}
         , vtk_interval_{vtk_interval}
     {}
 
@@ -485,11 +433,7 @@ public:
         , R_{std::exchange(o.R_, nullptr)}
         , f_ext_{std::exchange(o.f_ext_, nullptr)}
         , J_{std::exchange(o.J_, nullptr)}
-        , pvd_mesh_{std::move(o.pvd_mesh_)}
-        , pvd_gauss_{std::move(o.pvd_gauss_)}
-        , pvd_cracks_{std::move(o.pvd_cracks_)}
-        , pvd_rebar_{std::move(o.pvd_rebar_)}
-        , output_dir_{std::move(o.output_dir_)}
+        , output_writer_{std::move(o.output_writer_)}
         , vtk_interval_{o.vtk_interval_}
         , step_count_{o.step_count_}
         , auto_commit_{o.auto_commit_}
@@ -514,6 +458,8 @@ public:
         , tangent_mode_{o.tangent_mode_}
         , tangent_validation_relative_tolerance_{
               o.tangent_validation_relative_tolerance_}
+        , tangent_validation_max_column_tolerance_{
+              o.tangent_validation_max_column_tolerance_}
         , tangent_validation_norm_{o.tangent_validation_norm_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
@@ -539,11 +485,7 @@ public:
             R_     = std::exchange(o.R_, nullptr);
             f_ext_ = std::exchange(o.f_ext_, nullptr);
             J_     = std::exchange(o.J_, nullptr);
-            pvd_mesh_   = std::move(o.pvd_mesh_);
-            pvd_gauss_  = std::move(o.pvd_gauss_);
-            pvd_cracks_ = std::move(o.pvd_cracks_);
-            pvd_rebar_  = std::move(o.pvd_rebar_);
-            output_dir_ = std::move(o.output_dir_);
+            output_writer_ = std::move(o.output_writer_);
             vtk_interval_ = o.vtk_interval_;
             step_count_    = o.step_count_;
             auto_commit_   = o.auto_commit_;
@@ -568,6 +510,8 @@ public:
             tangent_mode_            = o.tangent_mode_;
             tangent_validation_relative_tolerance_ =
                 o.tangent_validation_relative_tolerance_;
+            tangent_validation_max_column_tolerance_ =
+                o.tangent_validation_max_column_tolerance_;
             tangent_validation_norm_ = o.tangent_validation_norm_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             condensed_workspace_     = std::move(o.condensed_workspace_);
@@ -655,6 +599,12 @@ public:
         tangent_validation_relative_tolerance_ = std::max(0.0, tolerance);
     }
 
+    void set_tangent_validation_max_column_tolerance(
+        double tolerance) noexcept
+    {
+        tangent_validation_max_column_tolerance_ = std::max(0.0, tolerance);
+    }
+
     void set_tangent_validation_norm(
         TangentValidationNormKind norm) noexcept
     {
@@ -671,6 +621,12 @@ public:
         const noexcept
     {
         return tangent_validation_relative_tolerance_;
+    }
+
+    [[nodiscard]] double tangent_validation_max_column_tolerance()
+        const noexcept
+    {
+        return tangent_validation_max_column_tolerance_;
     }
 
     [[nodiscard]] TangentValidationNormKind tangent_validation_norm()
@@ -772,101 +728,13 @@ public:
         ++step_count_;
     }
 
-
-    //  VTK crack plane export 
-
-    void write_crack_planes_vtu(const std::string& filename) const {
-        const double half = 0.4 * std::min({sub_->grid.dx,
-                                             sub_->grid.dy,
-                                             sub_->grid.dz}) / 2.0;
-
-        vtkNew<vtkPoints> pts;
-        vtkNew<vtkUnstructuredGrid> grid;
-        vtkNew<vtkDoubleArray> openingArr;
-        openingArr->SetName("crack_opening");
-        openingArr->SetNumberOfComponents(1);
-
-        vtkNew<vtkDoubleArray> normalArr;
-        normalArr->SetName("crack_normal");
-        normalArr->SetNumberOfComponents(3);
-
-        vtkNew<vtkDoubleArray> stateArr;
-        stateArr->SetName("crack_state");
-        stateArr->SetNumberOfComponents(1);
-
-        vtkNew<vtkDoubleArray> dispArr;
-        dispArr->SetName("displacement");
-        dispArr->SetNumberOfComponents(3);
-
-        for (const auto& cr : latest_cracks_) {
-            auto add_quad = [&](const Eigen::Vector3d& n_vec,
-                                double opening, bool closed) {
-                if (n_vec.squaredNorm() < 1e-20) return;
-
-                // Skip cracks below the minimum opening threshold
-                if (std::abs(opening) < min_crack_opening_) return;
-
-                Eigen::Vector3d t1, t2;
-                if (std::abs(n_vec[0]) < 0.9)
-                    t1 = n_vec.cross(Eigen::Vector3d::UnitX()).normalized();
-                else
-                    t1 = n_vec.cross(Eigen::Vector3d::UnitY()).normalized();
-                t2 = n_vec.cross(t1).normalized();
-
-                const auto& c = cr.position;
-                Eigen::Vector3d corners[4] = {
-                    c - half*t1 - half*t2,
-                    c + half*t1 - half*t2,
-                    c + half*t1 + half*t2,
-                    c - half*t1 + half*t2,
-                };
-
-                vtkIdType ids[4];
-                for (int k = 0; k < 4; ++k) {
-                    ids[k] = pts->InsertNextPoint(
-                        corners[k][0], corners[k][1], corners[k][2]);
-                    dispArr->InsertNextTuple3(
-                        cr.displacement[0], cr.displacement[1], cr.displacement[2]);
-                }
-
-                grid->InsertNextCell(VTK_QUAD, 4, ids);
-                openingArr->InsertNextValue(opening);
-                normalArr->InsertNextTuple3(n_vec[0], n_vec[1], n_vec[2]);
-                stateArr->InsertNextValue(closed ? 0.0 : 1.0);
-            };
-
-            if (cr.num_cracks >= 1)
-                add_quad(cr.normal_1, cr.opening_1, cr.closed_1);
-            if (cr.num_cracks >= 2)
-                add_quad(cr.normal_2, cr.opening_2, cr.closed_2);
-            if (cr.num_cracks >= 3)
-                add_quad(cr.normal_3, cr.opening_3, cr.closed_3);
-        }
-
-        grid->SetPoints(pts);
-        if (openingArr->GetNumberOfTuples() > 0) {
-            grid->GetCellData()->AddArray(openingArr);
-            grid->GetCellData()->AddArray(normalArr);
-            grid->GetCellData()->AddArray(stateArr);
-        }
-        if (dispArr->GetNumberOfTuples() > 0) {
-            grid->GetPointData()->AddArray(dispArr);
-            grid->GetPointData()->SetActiveVectors("displacement");
-        }
-        fall_n::vtk::write_vtu(grid, filename);
-    }
-
-
     //  Finalize 
 
     void finalize() {
         if (vtk_interval_ <= 0) {
             return;
         }
-        pvd_mesh_.write();
-        pvd_gauss_.write();
-        pvd_cracks_.write();
-        pvd_rebar_.write();
+        output_writer_.finalize();
     }
 
     //  Accessors 
@@ -1580,273 +1448,34 @@ private:
     //  Crack data collection 
 
     void collect_crack_data() {
-        latest_cracks_.clear();
-        latest_crack_summary_ = {};
-        if (!model_) return;
+        if (!model_) {
+            latest_cracks_.clear();
+            latest_crack_summary_ = {};
+            return;
+        }
         const bool retain_detail = vtk_interval_ > 0;
-
-        DM dm = model_->get_plex();
-        Vec u_local;
-        DMGetLocalVector(dm, &u_local);
-        VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->imposed_solution());
-
-        // Build flat lists of physical GP positions and displacements from domain
-        // (same source as VTKModelExporter — proven correct for gauss VTU).
-        auto& domain = model_->get_domain();
-        const std::size_t rebar_first = sub_->has_rebar()
-            ? sub_->rebar_range.first : domain.num_elements();
-
-        struct GaussInfo { Eigen::Vector3d pos, disp; };
-        std::vector<GaussInfo> gp_info;
-
-        if (retain_detail) {
-            const PetscScalar* u_arr;
-            VecGetArrayRead(u_local, &u_arr);
-
-            for (std::size_t ei = 0; ei < rebar_first; ++ei) {
-                auto& geom = domain.elements()[ei];
-                const auto nn  = geom.num_nodes();
-                const auto ngp = geom.num_integration_points();
-
-                for (std::size_t g = 0; g < ngp; ++g) {
-                    const auto& ip = geom.integration_points()[g];
-                    Eigen::Vector3d pos{ip.coord(0), ip.coord(1), ip.coord(2)};
-
-                    // Interpolate displacement at this GP
-                    const auto xi = geom.reference_integration_point(g);
-                    Eigen::Vector3d disp = Eigen::Vector3d::Zero();
-                    for (std::size_t i = 0; i < nn; ++i) {
-                        const double Ni = geom.H(i, xi);
-                        const auto& nd = domain.node(geom.node(i));
-                        for (std::size_t d = 0; d < 3; ++d)
-                            disp[d] += Ni * u_arr[nd.dof_index()[d]];
-                    }
-                    gp_info.push_back({pos, disp});
-                }
-            }
-            VecRestoreArrayRead(u_local, &u_arr);
-        }
-
-        // Iterate over ContinuumElement model elements (same order as domain 0..rebar_first)
-        std::size_t flat_gp = 0;
-        for (auto& elem : model_->elements()) {
-            auto snaps = elem.gauss_point_snapshots(u_local);
-            if (snaps.empty()) continue;  // skip truss elements (no material_points)
-
-            for (const auto& snap : snaps) {
-                if (snap.num_cracks > 0) {
-                    // Filter: skip GPs where all crack openings are below threshold
-                    double max_open = snap.crack_openings[0];
-                    if (snap.num_cracks >= 2) max_open = std::max(max_open, snap.crack_openings[1]);
-                    if (snap.num_cracks >= 3) max_open = std::max(max_open, snap.crack_openings[2]);
-
-                    if (max_open >= min_crack_opening_) {
-                        ++latest_crack_summary_.num_cracked_gps;
-                        latest_crack_summary_.total_cracks += snap.num_cracks;
-                        latest_crack_summary_.max_opening =
-                            std::max(latest_crack_summary_.max_opening, max_open);
-
-                        if (snap.damage_scalar_available) {
-                            if (!latest_crack_summary_.damage_scalar_available) {
-                                latest_crack_summary_.max_damage_scalar =
-                                    snap.damage;
-                            } else {
-                                latest_crack_summary_.max_damage_scalar =
-                                    std::max(latest_crack_summary_.max_damage_scalar,
-                                             snap.damage);
-                            }
-                            latest_crack_summary_.damage_scalar_available = true;
-                        }
-                        if (snap.fracture_history_available) {
-                            if (!latest_crack_summary_.fracture_history_available) {
-                                latest_crack_summary_.most_compressive_sigma_o_max =
-                                    snap.sigma_o_max;
-                            } else {
-                                latest_crack_summary_.most_compressive_sigma_o_max =
-                                    std::min(latest_crack_summary_.most_compressive_sigma_o_max,
-                                             snap.sigma_o_max);
-                            }
-                            latest_crack_summary_.max_tau_o_max =
-                                std::max(latest_crack_summary_.max_tau_o_max,
-                                         snap.tau_o_max);
-                            latest_crack_summary_.fracture_history_available = true;
-                        }
-
-                        if (retain_detail && flat_gp < gp_info.size()) {
-                            CrackRecord cr;
-                            cr.position     = gp_info[flat_gp].pos;
-                            cr.displacement = gp_info[flat_gp].disp;
-                            cr.num_cracks   = snap.num_cracks;
-                            cr.damage       = snap.damage;
-                            cr.damage_scalar_available = snap.damage_scalar_available;
-                            cr.fracture_history_available =
-                                snap.fracture_history_available;
-                            cr.sigma_o_max = snap.sigma_o_max;
-                            cr.tau_o_max   = snap.tau_o_max;
-
-                            cr.normal_1  = snap.crack_normals[0];
-                            cr.opening_1 = snap.crack_openings[0];
-                            cr.closed_1  = snap.crack_closed[0];
-
-                            if (cr.num_cracks >= 2) {
-                                cr.normal_2  = snap.crack_normals[1];
-                                cr.opening_2 = snap.crack_openings[1];
-                                cr.closed_2  = snap.crack_closed[1];
-                            }
-                            if (cr.num_cracks >= 3) {
-                                cr.normal_3  = snap.crack_normals[2];
-                                cr.opening_3 = snap.crack_openings[2];
-                                cr.closed_3  = snap.crack_closed[2];
-                            }
-                            latest_cracks_.push_back(cr);
-                        }
-                    }
-                }
-                ++flat_gp;
-            }
-        }
-
-        DMRestoreLocalVector(dm, &u_local);
+        const auto crack_state =
+            LocalCrackDiagnostics<MixedModel>::collect(
+                *model_, *sub_, U_, min_crack_opening_, retain_detail);
+        latest_cracks_ = crack_state.cracks;
+        latest_crack_summary_ = crack_state.summary;
     }
 
 
     //  VTK snapshot 
 
     void write_vtk_snapshot(double time) {
-        const auto prefix = std::format("{}/nlsub_{}_step_{:06d}",
-                                        output_dir_,
-                                        sub_->parent_element_id,
-                                        step_count_);
-
-        fall_n::vtk::VTKModelExporter exporter{*model_};
-        exporter.set_displacement();
-        exporter.compute_material_fields();
-        exporter.set_local_axes(local_ex_, local_ey_, local_ez_);
-        exporter.write_mesh(prefix + "_mesh.vtu");
-        exporter.write_gauss_points(prefix + "_gauss.vtu");
-
-        pvd_mesh_.add_timestep(time,  prefix + "_mesh.vtu");
-        pvd_gauss_.add_timestep(time, prefix + "_gauss.vtu");
-
-        if (!latest_cracks_.empty()) {
-            write_crack_planes_vtu(prefix + "_cracks.vtu");
-            pvd_cracks_.add_timestep(time, prefix + "_cracks.vtu");
-        }
-
-        if (sub_->has_rebar()) {
-            write_rebar_vtu(prefix + "_rebar.vtu");
-            pvd_rebar_.add_timestep(time, prefix + "_rebar.vtu");
-        }
-    }
-
-
-    //  Rebar VTK export (line elements with displacement + axial stress) 
-
-    void write_rebar_vtu(const std::string& filename) const {
-        if (!sub_->has_rebar() || !model_) return;
-
-        DM dm = model_->get_plex();
-        Vec u_local;
-        DMGetLocalVector(dm, &u_local);
-        VecSet(u_local, 0.0);
-        DMGlobalToLocal(dm, U_, INSERT_VALUES, u_local);
-        VecAXPY(u_local, 1.0, model_->imposed_solution());
-
-        const PetscScalar* u_arr;
-        VecGetArrayRead(u_local, &u_arr);
-
-        auto& domain = model_->get_domain();
-
-        vtkNew<vtkPoints>            pts;
-        vtkNew<vtkUnstructuredGrid>  grid;
-
-        vtkNew<vtkDoubleArray> dispArr;
-        dispArr->SetName("displacement");
-        dispArr->SetNumberOfComponents(3);
-
-        vtkNew<vtkDoubleArray> stressArr;
-        stressArr->SetName("axial_stress");
-        stressArr->SetNumberOfComponents(1);
-
-        vtkNew<vtkDoubleArray> areaArr;
-        areaArr->SetName("bar_area");
-        areaArr->SetNumberOfComponents(1);
-
-        vtkNew<vtkDoubleArray> tubeRadArr;
-        tubeRadArr->SetName("TubeRadius");
-        tubeRadArr->SetNumberOfComponents(1);
-
-        vtkNew<vtkDoubleArray> strainArr;
-        strainArr->SetName("axial_strain");
-        strainArr->SetNumberOfComponents(1);
-
-        const int nz = sub_->grid.nz;
-        std::size_t bar_idx = 0;
-        for (std::size_t i = sub_->rebar_range.first;
-             i < sub_->rebar_range.last; ++i, ++bar_idx)
-        {
-            auto& geom = domain.elements()[i];
-            const std::size_t nn = geom.num_nodes();
-            double area = sub_->rebar_areas[bar_idx / static_cast<std::size_t>(nz)];
-
-            // Insert nodes and build connectivity
-            vtkIdType ids[2];
-            for (std::size_t k = 0; k < nn && k < 2; ++k) {
-                auto& nd = domain.node(geom.node(k));
-                ids[k] = pts->InsertNextPoint(
-                    nd.coord(0), nd.coord(1), nd.coord(2));
-
-                // Displacement at this node
-                Eigen::Vector3d disp = Eigen::Vector3d::Zero();
-                for (std::size_t d = 0; d < 3; ++d)
-                    disp[d] = u_arr[nd.dof_index()[d]];
-                dispArr->InsertNextTuple3(disp[0], disp[1], disp[2]);
-            }
-
-            grid->InsertNextCell(VTK_LINE, 2, ids);
-            areaArr->InsertNextValue(area);
-
-            // Extract axial stress via collect_gauss_fields (works through
-            // type erasure for TrussElement, unlike gauss_point_snapshots
-            // which requires material_points()).
-            auto& elem = model_->elements()[i];
-            auto gf = elem.collect_gauss_fields(u_local);
-            double axial_sigma = 0.0;
-            if (!gf.empty() && !gf[0].stress.empty())
-                axial_sigma = gf[0].stress[0];  // uniaxial σ
-            stressArr->InsertNextValue(axial_sigma);
-
-            // Tube radius for ParaView Tube filter
-            double diam = 0.0;
-            const std::size_t bar_b = bar_idx / static_cast<std::size_t>(nz);
-            if (bar_b < sub_->rebar_diameters.size())
-                diam = sub_->rebar_diameters[bar_b];
-            tubeRadArr->InsertNextValue(diam / 2.0);
-
-            // Axial strain
-            double axial_eps = 0.0;
-            if (!gf.empty() && !gf[0].strain.empty())
-                axial_eps = gf[0].strain[0];
-            strainArr->InsertNextValue(axial_eps);
-        }
-
-        VecRestoreArrayRead(u_local, &u_arr);
-        DMRestoreLocalVector(dm, &u_local);
-
-        grid->SetPoints(pts);
-        if (dispArr->GetNumberOfTuples() > 0) {
-            grid->GetPointData()->AddArray(dispArr);
-            grid->GetPointData()->SetActiveVectors("displacement");
-        }
-        if (stressArr->GetNumberOfTuples() > 0) {
-            grid->GetCellData()->AddArray(stressArr);
-            grid->GetCellData()->AddArray(areaArr);
-            grid->GetCellData()->AddArray(tubeRadArr);
-            grid->GetCellData()->AddArray(strainArr);
-        }
-        fall_n::vtk::write_vtu(grid, filename);
+        output_writer_.write_snapshot(
+            time,
+            step_count_,
+            *model_,
+            U_,
+            *sub_,
+            local_ex_,
+            local_ey_,
+            local_ez_,
+            latest_cracks_,
+            min_crack_opening_);
     }
 
 public:

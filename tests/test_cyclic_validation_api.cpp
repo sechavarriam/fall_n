@@ -15,9 +15,13 @@ static void test_default_config_preserves_extended50_contract()
     assert(cfg.protocol_name == "extended50");
     assert(cfg.execution_profile_name == "default");
     assert(cfg.steps_per_segment == 10);
+    assert(cfg.enable_turning_point_checkpoints);
+    assert(cfg.max_turning_point_restarts == 2);
     assert(cfg.global_output_interval == 1);
     assert(cfg.submodel_output_interval == 10);
     assert(cfg.max_amplitude_m() == 0.050);
+    assert(cfg.is_turning_point_step(10));
+    assert(!cfg.is_turning_point_step(9));
     std::cout << "[PASS] test_default_config_preserves_extended50_contract\n";
 }
 
@@ -34,6 +38,9 @@ static void test_fe2_crack50_profile_applies_runtime_tuning()
     assert(cfg.submodel_arc_length_threshold == 1);
     assert(cfg.submodel_adaptive_max_substeps == 48);
     assert(cfg.submodel_adaptive_max_bisections == 12);
+    assert(cfg.enable_turning_point_checkpoints);
+    assert(cfg.max_turning_point_restarts == 3);
+    assert(cfg.restart_snes_max_it_bonus == 50);
     assert(cfg.submodel_output_interval == 0);
     assert(cfg.global_output_interval == 0);
     assert(cfg.min_crack_opening == 0.0);

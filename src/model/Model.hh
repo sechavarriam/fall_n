@@ -51,7 +51,7 @@ public:
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
-    using checkpoint_type   = ModelCheckpoint<dim>;
+    using checkpoint_type   = ModelCheckpoint<dim, container_type>;
 
     // ── Explicitly non-copyable, movable ─────────────────────────────
     Model(const Model&)            = delete;
@@ -116,10 +116,16 @@ public:
                                        checkpoint.force_vector.get()));
         }
 
+        checkpoint.elements = elements_;
+
         return checkpoint;
     }
 
     void restore_checkpoint(const checkpoint_type& checkpoint) {
+        if (checkpoint.elements) {
+            elements_ = *checkpoint.elements;
+        }
+
         if (checkpoint.state_vector && current_state_) {
             FALL_N_PETSC_CHECK(VecCopy(checkpoint.state_vector.get(),
                                        current_state_.get()));

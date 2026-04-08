@@ -66,13 +66,17 @@ struct BenchmarkResult {
     std::string_view name;
     double force_gap_f{0.0};
     double force_gap_sw{0.0};
+    double force_gap_de{0.0};
     double tangent_gap_f{0.0};
     double tangent_gap_sw{0.0};
+    double tangent_gap_de{0.0};
     bool accepted_f{false};
     bool accepted_sw{false};
+    bool accepted_de{false};
     double iteration_cost_s{0.0};
     double projected_f_time_s{0.0};
     double projected_sw_time_s{0.0};
+    double projected_de_time_s{0.0};
 };
 
 template <typename Fn>
@@ -139,16 +143,27 @@ reference_generalized_state(const BenchmarkCase& load_case)
         TangentValidationNormKind::StateWeightedFrobenius,
         width,
         height,
-        e_ref);
+        e_ref,
+        current.forces);
+    const auto scales_de = make_section_operator_validation_scales(
+        TangentValidationNormKind::DualEnergyScaled,
+        width,
+        height,
+        e_ref,
+        current.forces);
 
     const auto force_metrics_f = compute_section_vector_validation_metrics(
         current.forces, previous.forces, scales_f);
     const auto force_metrics_sw = compute_section_vector_validation_metrics(
         current.forces, previous.forces, scales_sw);
+    const auto force_metrics_de = compute_section_vector_validation_metrics(
+        current.forces, previous.forces, scales_de);
     const auto tangent_metrics_f = compute_section_operator_validation_metrics(
         current.tangent, previous.tangent, scales_f);
     const auto tangent_metrics_sw = compute_section_operator_validation_metrics(
         current.tangent, previous.tangent, scales_sw);
+    const auto tangent_metrics_de = compute_section_operator_validation_metrics(
+        current.tangent, previous.tangent, scales_de);
 
     ev.set_tangent_computation_mode(
         TangentComputationMode::PreferLinearizedCondensation);
@@ -161,18 +176,25 @@ reference_generalized_state(const BenchmarkCase& load_case)
     result.name = load_case.name;
     result.force_gap_f = force_metrics_f.relative_gap;
     result.force_gap_sw = force_metrics_sw.relative_gap;
+    result.force_gap_de = force_metrics_de.relative_gap;
     result.tangent_gap_f = tangent_metrics_f.relative_gap;
     result.tangent_gap_sw = tangent_metrics_sw.relative_gap;
+    result.tangent_gap_de = tangent_metrics_de.relative_gap;
     result.accepted_f =
         result.force_gap_f <= force_tol && result.tangent_gap_f <= tangent_tol;
     result.accepted_sw =
         result.force_gap_sw <= force_tol
         && result.tangent_gap_sw <= tangent_tol;
+    result.accepted_de =
+        result.force_gap_de <= force_tol
+        && result.tangent_gap_de <= tangent_tol;
     result.iteration_cost_s = iteration_cost;
     result.projected_f_time_s =
         result.accepted_f ? iteration_cost : 2.0 * iteration_cost;
     result.projected_sw_time_s =
         result.accepted_sw ? iteration_cost : 2.0 * iteration_cost;
+    result.projected_de_time_s =
+        result.accepted_de ? iteration_cost : 2.0 * iteration_cost;
     return result;
 }
 
@@ -201,20 +223,26 @@ void test_coupling_residual_benchmark()
 
     int accepts_f = 0;
     int accepts_sw = 0;
+    int accepts_de = 0;
     double projected_f_time = 0.0;
     double projected_sw_time = 0.0;
+    double projected_de_time = 0.0;
 
     std::cout << std::left
               << std::setw(10) << "case"
               << std::setw(14) << "rf_F"
               << std::setw(14) << "rf_SW"
+              << std::setw(14) << "rf_DE"
               << std::setw(14) << "rD_F"
               << std::setw(14) << "rD_SW"
+              << std::setw(14) << "rD_DE"
               << std::setw(10) << "acc_F"
               << std::setw(10) << "acc_SW"
+              << std::setw(10) << "acc_DE"
               << std::setw(14) << "t_iter[s]"
               << std::setw(16) << "proj_F[s]"
               << std::setw(16) << "proj_SW[s]"
+              << std::setw(16) << "proj_DE[s]"
               << "\n";
 
     for (const auto& load_case : cases) {
@@ -222,21 +250,27 @@ void test_coupling_residual_benchmark()
             load_case, W, H, force_tol, tangent_tol);
         accepts_f += result.accepted_f ? 1 : 0;
         accepts_sw += result.accepted_sw ? 1 : 0;
+        accepts_de += result.accepted_de ? 1 : 0;
         projected_f_time += result.projected_f_time_s;
         projected_sw_time += result.projected_sw_time_s;
+        projected_de_time += result.projected_de_time_s;
 
         std::cout << std::left
                   << std::setw(10) << result.name
                   << std::setw(14) << std::setprecision(6)
                   << result.force_gap_f
                   << std::setw(14) << result.force_gap_sw
+                  << std::setw(14) << result.force_gap_de
                   << std::setw(14) << result.tangent_gap_f
                   << std::setw(14) << result.tangent_gap_sw
+                  << std::setw(14) << result.tangent_gap_de
                   << std::setw(10) << (result.accepted_f ? "yes" : "no")
                   << std::setw(10) << (result.accepted_sw ? "yes" : "no")
+                  << std::setw(10) << (result.accepted_de ? "yes" : "no")
                   << std::setw(14) << result.iteration_cost_s
                   << std::setw(16) << result.projected_f_time_s
                   << std::setw(16) << result.projected_sw_time_s
+                  << std::setw(16) << result.projected_de_time_s
                   << "\n";
     }
 
@@ -247,14 +281,20 @@ void test_coupling_residual_benchmark()
               << "  tangent_tol = " << tangent_tol << "\n"
               << "  accepts_f = " << accepts_f << "\n"
               << "  accepts_sw = " << accepts_sw << "\n"
+              << "  accepts_de = " << accepts_de << "\n"
               << "  projected_f_time = " << projected_f_time << " s\n"
               << "  projected_sw_time = " << projected_sw_time << " s\n"
+              << "  projected_de_time = " << projected_de_time << " s\n"
               << "  projected_speedup = " << projected_speedup << "x\n";
 
     check(accepts_sw >= accepts_f,
           "state-weighted residual norm does not reduce accepted FE2 surrogate states");
     check(projected_sw_time <= projected_f_time + 1.0e-12,
           "state-weighted residual norm does not worsen projected outer-iteration cost");
+    check(accepts_de >= accepts_f,
+          "dual-energy residual norm does not reduce accepted FE2 surrogate states relative to legacy Frobenius");
+    check(projected_de_time <= projected_f_time + 1.0e-12,
+          "dual-energy residual norm does not worsen projected outer-iteration cost relative to legacy Frobenius");
     check(projected_speedup >= 1.0,
           "residual benchmark reports a non-degrading projected speedup");
 }

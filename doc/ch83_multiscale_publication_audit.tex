@@ -278,9 +278,12 @@ given converged state, and the raw matrix entries mix force and moment outputs.
 Consequently, a pure Frobenius norm may reject a condensed tangent because of
 errors in columns that are nearly dormant in the current macro state, even when
 the operator action along the actually active directions is already accurate
-enough for the next FE\textsuperscript{2} fixed-point iteration.
+enough for the next FE\textsuperscript{2} fixed-point iteration.  This is the
+main scientific limitation of \(\eta_F\): it is algebraically legitimate, but
+it is blind to the current work-conjugate state of the section.
 
-To address that gap, the current implementation adds two weighted alternatives.
+To address that gap, the current implementation adds three weighted
+alternatives.
 The default publication-path metric is
 \texttt{TangentValidationNormKind::StateWeightedFrobenius}.  Let
 \((b,h)\) denote the local rectangular section dimensions and define the
@@ -340,6 +343,66 @@ operator action along the directions that are actually active in the current
 increment.  That makes it a materially better proxy for FE\textsuperscript{2}
 fixed-point convergence than a raw all-columns-equal matrix norm.
 
+The next option,
+\texttt{TangentValidationNormKind::DualEnergyScaled}, augments the same
+activity-weighted column operator \(\mathbf{W}_q\) with a row scaling extracted
+from the current generalized force state
+\(\mathbf{s}_{\mathrm{ref}}=
+\{N,M_y,M_z,V_y,V_z,T\}^{T}\).  Define
+\begin{equation}
+  \widehat{\mathbf{s}}_{\mathrm{ref}}
+  =
+  \left\{
+    |N|, |M_y|, |M_z|, |V_y|, |V_z|, |T|
+  \right\}^{T},
+\end{equation}
+the state floor
+\(\epsilon_e = 10^{-3}\),
+the force floor
+\(\epsilon_s = 10^{-3}\max_i \widehat s_{\mathrm{ref},i}\),
+and the reference power scale
+\begin{equation}
+  P_{\mathrm{ref}}
+  =
+  \sum_{i=1}^{6}
+  \max(\widehat s_{\mathrm{ref},i}, \epsilon_s)\,
+  \max(\widehat e_{\mathrm{ref},i}, \epsilon_e).
+  \label{eq:ms-pub-dual-energy-scale}
+\end{equation}
+The dual row operator is then
+\begin{equation}
+  \mathbf{W}_d
+  =
+  \mathrm{diag}(d_1,\dots,d_6),
+  \qquad
+  d_i
+  =
+  \frac{\max_j \widehat s_{\mathrm{ref},j}\,
+        \max(\widehat e_{\mathrm{ref},i}, \epsilon_e)}
+       {P_{\mathrm{ref}}}.
+  \label{eq:ms-pub-dual-energy-rows}
+\end{equation}
+The corresponding runtime validation metric becomes
+\begin{equation}
+  \eta_{\mathrm{de}}
+  =
+  \frac{\lVert
+      \mathbf{W}_d(\mathbf{D}_{\mathrm{cond}}-\mathbf{D}_{\mathrm{fd}})
+      \mathbf{W}_q
+    \rVert_F}
+       {\max\!\left(
+          1,
+          \lVert \mathbf{W}_d \mathbf{D}_{\mathrm{cond}}\mathbf{W}_q \rVert_F,
+          \lVert \mathbf{W}_d \mathbf{D}_{\mathrm{fd}}\mathbf{W}_q \rVert_F
+       \right)}.
+  \label{eq:ms-pub-dual-energy-gap}
+\end{equation}
+This metric is not presented as a proof of exact energetic equivalence.  Its
+purpose is more modest and more practical: it penalizes discrepancies that are
+simultaneously aligned with the currently active generalized strains and the
+currently active generalized forces, making it a better proxy for whether the
+accepted operator will materially change the next generalized work increment.
+
 The second weighted option,
 \texttt{TangentValidationNormKind::SectionPowerScaledFrobenius}, is a more
 conservative audit metric.  It keeps the same state-weighted column operator
@@ -376,9 +439,12 @@ auditing option rather than as the default production gate.
 The API now records the selected norm kind, the row scales, and the column
 weights in every \texttt{SectionHomogenizedResponse}.  The automatic
 accept/reject decision uses whichever metric is requested by
-\texttt{TangentValidationNormKind}; \(\max_j \eta_j\) remains visible as a
-diagnostic rather than a hard gate because per-column maxima are still more
-useful as an interpretive tool than as a standalone production criterion.
+\texttt{TangentValidationNormKind}
+(\texttt{RelativeFrobenius}, \texttt{StateWeightedFrobenius},
+\texttt{DualEnergyScaled}, or \texttt{SectionPowerScaledFrobenius});
+\(\max_j \eta_j\) remains visible as a diagnostic rather than a hard gate
+because per-column maxima are still more useful as an interpretive tool than
+as a standalone production criterion.
 
 Volume averaging is retained only as a comparison/validation route and is
 reported through \texttt{HomogenizationOperator::VolumeAverage}; it is not the
@@ -440,6 +506,32 @@ and the corresponding state-weighted tangent residual is
     \lVert \mathbf{D}^{(i,k-1)}\mathbf{W}_q^{(i)} \rVert_F\right)}.
   \label{eq:ms-pub-tangent-residual-state-weighted}
 \end{equation}
+The dual-energy alternative available in the same family is
+\begin{equation}
+  r_{f,\mathrm{de}}^{(i)}
+  =
+  \frac{\lVert \mathbf{W}_d^{(i)}
+    (\mathbf{s}_{\text{macro}}^{(i)}-\mathbf{s}_{\text{micro}}^{(i)})
+  \rVert_2}
+  {\max\!\left(1,
+    \lVert \mathbf{W}_d^{(i)}\mathbf{s}_{\text{macro}}^{(i)} \rVert_2,
+    \lVert \mathbf{W}_d^{(i)}\mathbf{s}_{\text{micro}}^{(i)} \rVert_2\right)},
+  \label{eq:ms-pub-force-residual-dual-energy}
+\end{equation}
+and
+\begin{equation}
+  r_{D,\mathrm{de}}^{(i,k)}
+  =
+  \frac{\lVert
+    \mathbf{W}_d^{(i)}(\mathbf{D}^{(i,k)}-\mathbf{D}^{(i,k-1)})
+    \mathbf{W}_q^{(i)}
+  \rVert_F}
+  {\max\!\left(1,
+    \lVert \mathbf{W}_d^{(i)}\mathbf{D}^{(i,k)}\mathbf{W}_q^{(i)} \rVert_F,
+    \lVert \mathbf{W}_d^{(i)}\mathbf{D}^{(i,k-1)}\mathbf{W}_q^{(i)}
+    \rVert_F\right)}.
+  \label{eq:ms-pub-tangent-residual-dual-energy}
+\end{equation}
 Finally, the conservative section-power-scaled family available for audit
 campaigns is
 \begin{equation}
@@ -477,7 +569,10 @@ observable through \texttt{CouplingIterationReport}.  The default
 \texttt{MultiscaleAnalysis} configuration uses
 \texttt{StateWeightedFrobenius} for both force and tangent residuals, while the
 report records the chosen norm family together with the effective component or
-row/column scales applied at each site.
+row/column scales applied at each site.  The runtime-benchmarked
+\texttt{DualEnergyScaled} alternative remains available for campaigns where the
+acceptance criterion should track the current generalized work content more
+closely than a strain-only weighting.
 
 \section{Implemented Architecture}
 \label{sec:ms-pub-architecture}
@@ -551,7 +646,13 @@ At the local-solver level, the same principle is now applied internally:
     commit, and revert of the persistent continuum state;
   \item \texttt{BoundaryReactionHomogenizer} owns the section-force extraction,
     tangent diagnostics, linearized static condensation, finite-difference
-    fallback, and response classification.
+    fallback, and response classification;
+  \item \texttt{LocalCrackDiagnostics} owns the reduction from constitutive
+    fracture fields to the stable public \texttt{CrackSummary} and, when
+    requested, the detailed \texttt{CrackRecord} geometry;
+  \item \texttt{LocalVTKOutputWriter} owns PVD/VTK emission so that the local
+    solver lifecycle and the local visualization lifecycle are no longer
+    entangled.
 \end{itemize}
 These components are value-type, header-only helpers with pointer-based
 composition; they add no virtual dispatch to the micro hot path while creating
@@ -588,6 +689,8 @@ architecture for the local multiscale operator.
   \node[smallbox, below left=of evolver] (bc) {\texttt{LocalBoundaryConditionApplicator}};
   \node[smallbox, below=of evolver] (state) {\texttt{PersistentLocalStateOps}};
   \node[smallbox, below right=of evolver] (hom) {\texttt{BoundaryReactionHomogenizer}};
+  \node[smallbox, left=of bc] (crack) {\texttt{LocalCrackDiagnostics}};
+  \node[smallbox, right=of hom] (vtk) {\texttt{LocalVTKOutputWriter}};
   \node[smallbox, below=of hom] (schur) {\texttt{SparseSchurComplementWorkspace}\\symbolic reuse + multi-RHS solve};
   \node[smallbox, below left=of schur] (elem) {\texttt{FEM\_Element}\\explicit local linearisation API};
 
@@ -597,6 +700,8 @@ architecture for the local multiscale operator.
   \draw[->] (evolver) -- (bc);
   \draw[->] (evolver) -- (state);
   \draw[->] (evolver) -- (hom);
+  \draw[->] (evolver) -- (crack);
+  \draw[->] (evolver) -- (vtk);
   \draw[->] (hom) -- node[left, align=left] {assembles tangent\\from mixed elements} (elem);
   \draw[->] (hom) -- node[right, align=left] {Schur solve\\and cache reuse} (schur);
   \draw[->] (bridge) |- node[pos=0.75, above, align=center] {kinematics /\\homogenised response} (evolver);
@@ -659,7 +764,8 @@ The intended semantics are:
   \item[\texttt{ValidateCondensationAgainstAdaptiveFiniteDifference}] audit
     mode; compute the condensed operator, compare it against an adaptive
     finite-difference reference, evaluate the selected validation norm
-    (\texttt{RelativeFrobenius}, \texttt{StateWeightedFrobenius}, or
+    (\texttt{RelativeFrobenius}, \texttt{StateWeightedFrobenius},
+    \texttt{DualEnergyScaled}, or
     \texttt{SectionPowerScaledFrobenius}), accept the condensed operator if the
     measured gap stays below the configured tolerance, otherwise fall back
     explicitly to the finite-difference tangent;

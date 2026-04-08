@@ -49,6 +49,9 @@ enum class CondensedTangentStatus {
     NoConstrainedDofs,
     ZeroTransfer,
     FactorizationFailed,
+    MissingElementTangent,
+    ElementTangentSizeMismatch,
+    InvalidElementDofIndex,
     SolveFailed,
     ResidualTooLarge,
     ValidationRejected,
@@ -65,7 +68,8 @@ enum class TangentValidationStatus {
 enum class TangentValidationNormKind {
     RelativeFrobenius,
     StateWeightedFrobenius,
-    SectionPowerScaledFrobenius
+    SectionPowerScaledFrobenius,
+    DualEnergyScaled
 };
 
 enum class CouplingTerminationReason {
@@ -130,6 +134,7 @@ struct SectionHomogenizedResponse {
     bool condensed_pattern_reused{false};
     std::size_t condensed_symbolic_factorizations{0};
     double tangent_validation_relative_tolerance{0.0};
+    double tangent_validation_max_column_tolerance{0.0};
     double tangent_validation_relative_gap{0.0};
     double tangent_validation_max_column_gap{0.0};
     std::array<double, 6> tangent_validation_column_gaps{};
@@ -157,7 +162,9 @@ struct CouplingIterationReport {
         TangentValidationNormKind::StateWeightedFrobenius};
 
     double max_force_residual_rel{0.0};
+    double max_force_component_residual_rel{0.0};
     double max_tangent_residual_rel{0.0};
+    double max_tangent_column_residual_rel{0.0};
     double macro_solve_seconds{0.0};
     double micro_solve_seconds{0.0};
     bool rollback_performed{false};
@@ -165,7 +172,9 @@ struct CouplingIterationReport {
     bool regularization_detected{false};
 
     std::vector<double> force_residuals_rel{};
+    std::vector<double> force_component_residuals_rel{};
     std::vector<double> tangent_residuals_rel{};
+    std::vector<double> tangent_column_residuals_rel{};
     std::vector<std::array<double, 6>> force_residual_component_scales{};
     std::vector<std::array<double, 6>> tangent_residual_row_scales{};
     std::vector<std::array<double, 6>> tangent_residual_column_scales{};
@@ -262,6 +271,12 @@ to_string(CondensedTangentStatus status)
             return "ZeroTransfer";
         case CondensedTangentStatus::FactorizationFailed:
             return "FactorizationFailed";
+        case CondensedTangentStatus::MissingElementTangent:
+            return "MissingElementTangent";
+        case CondensedTangentStatus::ElementTangentSizeMismatch:
+            return "ElementTangentSizeMismatch";
+        case CondensedTangentStatus::InvalidElementDofIndex:
+            return "InvalidElementDofIndex";
         case CondensedTangentStatus::SolveFailed:
             return "SolveFailed";
         case CondensedTangentStatus::ResidualTooLarge:
@@ -300,6 +315,8 @@ to_string(TangentValidationNormKind kind)
             return "StateWeightedFrobenius";
         case TangentValidationNormKind::SectionPowerScaledFrobenius:
             return "SectionPowerScaledFrobenius";
+        case TangentValidationNormKind::DualEnergyScaled:
+            return "DualEnergyScaled";
     }
     return "UnknownTangentValidationNormKind";
 }

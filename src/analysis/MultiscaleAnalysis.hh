@@ -26,6 +26,17 @@ class MultiscaleAnalysis {
     using MacroCheckpointT = typename std::remove_cvref_t<MacroSolverT>::checkpoint_type;
     using LocalCheckpointT = typename std::remove_cvref_t<LocalModelT>::checkpoint_type;
 
+public:
+    struct RestartBundle {
+        MacroCheckpointT macro_checkpoint{};
+        std::vector<LocalCheckpointT> local_checkpoints{};
+        std::vector<SectionHomogenizedResponse> last_responses{};
+        std::vector<SectionHomogenizedResponse> last_converged_responses{};
+        std::size_t analysis_steps{0};
+        bool valid{false};
+    };
+
+private:
     ModelT model_;
     MacroSolverT* macro_solver_{nullptr};
     ExecutorT executor_{};
@@ -61,7 +72,11 @@ class MultiscaleAnalysis {
         const MacroSectionState& macro_state) const
     {
         return make_section_operator_validation_scales(
-            norm, section_width_, section_height_, macro_state.strain);
+            norm,
+            section_width_,
+            section_height_,
+            macro_state.strain,
+            macro_state.forces);
     }
 
     static void initialize_report_norms_(CouplingIterationReport& report,
@@ -75,13 +90,17 @@ class MultiscaleAnalysis {
     [[nodiscard]] double force_residual_metric_(
         const MacroSectionState& macro_state,
         const SectionHomogenizedResponse& response,
-        std::array<double, 6>* component_scales = nullptr) const
+        std::array<double, 6>* component_scales = nullptr,
+        double* max_component_gap = nullptr) const
     {
         const auto scales = residual_scales_(force_residual_norm_, macro_state);
         const auto metrics = compute_section_vector_validation_metrics(
             macro_state.forces, response.forces, scales);
         if (component_scales) {
             *component_scales = metrics.component_scales;
+        }
+        if (max_component_gap) {
+            *max_component_gap = metrics.max_component_gap;
         }
         return metrics.relative_gap;
     }
@@ -91,7 +110,8 @@ class MultiscaleAnalysis {
         const SectionHomogenizedResponse& current,
         const SectionHomogenizedResponse& previous,
         std::array<double, 6>* row_scales = nullptr,
-        std::array<double, 6>* column_scales = nullptr) const
+        std::array<double, 6>* column_scales = nullptr,
+        double* max_column_gap = nullptr) const
     {
         const auto scales =
             residual_scales_(tangent_residual_norm_, macro_state);
@@ -102,6 +122,9 @@ class MultiscaleAnalysis {
         }
         if (column_scales) {
             *column_scales = metrics.column_scales;
+        }
+        if (max_column_gap) {
+            *max_column_gap = metrics.max_column_gap;
         }
         return metrics.relative_gap;
     }
@@ -309,7 +332,11 @@ class MultiscaleAnalysis {
         last_responses_ = responses;
 
         last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
+        last_report_.force_component_residuals_rel.assign(
+            model_.num_local_models(), 0.0);
         last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+        last_report_.tangent_column_residuals_rel.assign(
+            model_.num_local_models(), 0.0);
         last_report_.force_residual_component_scales.assign(
             model_.num_local_models(),
             std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
@@ -328,10 +355,14 @@ class MultiscaleAnalysis {
             last_report_.force_residuals_rel[i] = force_residual_metric_(
                 macro_state,
                 responses[i],
-                &last_report_.force_residual_component_scales[i]);
+                &last_report_.force_residual_component_scales[i],
+                &last_report_.force_component_residuals_rel[i]);
             last_report_.max_force_residual_rel =
                 std::max(last_report_.max_force_residual_rel,
                          last_report_.force_residuals_rel[i]);
+            last_report_.max_force_component_residual_rel =
+                std::max(last_report_.max_force_component_residual_rel,
+                         last_report_.force_component_residuals_rel[i]);
         }
 
         finalize_local_models_(macro_solver_->current_time());
@@ -444,7 +475,11 @@ class MultiscaleAnalysis {
             last_report_.regularization_detected = false;
             last_report_.failed_sites.clear();
             last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
+            last_report_.force_component_residuals_rel.assign(
+                model_.num_local_models(), 0.0);
             last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+            last_report_.tangent_column_residuals_rel.assign(
+                model_.num_local_models(), 0.0);
             last_report_.force_residual_component_scales.assign(
                 model_.num_local_models(),
                 std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
@@ -455,7 +490,9 @@ class MultiscaleAnalysis {
                 model_.num_local_models(),
                 std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
             last_report_.max_force_residual_rel = 0.0;
+            last_report_.max_force_component_residual_rel = 0.0;
             last_report_.max_tangent_residual_rel = 0.0;
+            last_report_.max_tangent_column_residual_rel = 0.0;
 
             for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                 auto macro_state =
@@ -478,22 +515,30 @@ class MultiscaleAnalysis {
                             current[i],
                             predictor[i],
                             &last_report_.tangent_residual_row_scales[i],
-                            &last_report_.tangent_residual_column_scales[i]);
+                            &last_report_.tangent_residual_column_scales[i],
+                            &last_report_.tangent_column_residuals_rel[i]);
                 }
 
                 last_report_.force_residuals_rel[i] = force_residual_metric_(
                     macro_state,
                     current[i],
-                    &last_report_.force_residual_component_scales[i]);
+                    &last_report_.force_residual_component_scales[i],
+                    &last_report_.force_component_residuals_rel[i]);
 
                 accumulate_response_diagnostics_(last_report_, current[i]);
 
                 last_report_.max_force_residual_rel =
                     std::max(last_report_.max_force_residual_rel,
                              last_report_.force_residuals_rel[i]);
+                last_report_.max_force_component_residual_rel =
+                    std::max(last_report_.max_force_component_residual_rel,
+                             last_report_.force_component_residuals_rel[i]);
                 last_report_.max_tangent_residual_rel =
                     std::max(last_report_.max_tangent_residual_rel,
                              last_report_.tangent_residuals_rel[i]);
+                last_report_.max_tangent_column_residual_rel =
+                    std::max(last_report_.max_tangent_column_residual_rel,
+                             last_report_.tangent_column_residuals_rel[i]);
             }
 
             predictor = current;
@@ -606,6 +651,48 @@ public:
 
     [[nodiscard]] std::size_t analysis_step() const noexcept {
         return analysis_steps_;
+    }
+
+    [[nodiscard]] RestartBundle capture_restart_bundle() const
+    {
+        RestartBundle bundle;
+        bundle.macro_checkpoint = macro_solver_->capture_checkpoint();
+        bundle.local_checkpoints.reserve(model_.num_local_models());
+        for (const auto& local_model : model_.local_models()) {
+            bundle.local_checkpoints.push_back(
+                local_model.capture_checkpoint());
+        }
+        bundle.last_responses = last_responses_;
+        bundle.last_converged_responses = last_converged_responses_;
+        bundle.analysis_steps = analysis_steps_;
+        bundle.valid = true;
+        return bundle;
+    }
+
+    void restore_restart_bundle(const RestartBundle& bundle)
+    {
+        if (!bundle.valid) {
+            return;
+        }
+
+        macro_solver_->restore_checkpoint(bundle.macro_checkpoint);
+        for (std::size_t i = 0;
+             i < model_.num_local_models() && i < bundle.local_checkpoints.size();
+             ++i)
+        {
+            model_.local_models()[i].restore_checkpoint(
+                bundle.local_checkpoints[i]);
+            model_.local_models()[i].set_auto_commit(true);
+        }
+
+        last_responses_ = bundle.last_responses;
+        last_converged_responses_ = bundle.last_converged_responses;
+        analysis_steps_ = bundle.analysis_steps;
+        restore_previous_injection_();
+        set_macro_trial_mode_(false);
+        last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
     }
 
     bool initialize_local_models(bool seed_predictor = true)

@@ -1,7 +1,8 @@
 #ifndef FALL_N_SRC_VALIDATION_TABLE_CYCLIC_VALIDATION_PCH_HH
 #define FALL_N_SRC_VALIDATION_TABLE_CYCLIC_VALIDATION_PCH_HH
 
-#include "src/validation/TableCyclicValidationSupport.hh"
+#include "src/validation/TableCyclicValidationAPI.hh"
+#include "src/validation/TableCyclicValidationDeps.hh"
 
 #include <petsc.h>
 

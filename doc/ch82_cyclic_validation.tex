@@ -298,6 +298,32 @@ Therefore the current evidence frontier is now explicit:
     the audited environment.
 \end{itemize}
 
+To make that frontier executable rather than merely narrative, the repository
+now contains the script
+\texttt{scripts/run\_predefinitive\_physical\_validation.ps1}.  The script
+reruns the focused regression surface, executes one short one-way
+FE\textsuperscript{2} campaign (Case~4, one protocol point), executes one
+short iterated two-way FE\textsuperscript{2} campaign (Case~5, one protocol
+point), stores the raw logs, and writes a machine-readable summary CSV.  The
+summary vocabulary is intentionally explicit:
+\begin{itemize}
+  \item \texttt{TRUNCATED\_OK} means that the run was intentionally capped but
+    still produced scientifically usable recorders;
+  \item \texttt{KNOWN\_FRONTIER} means that the run stopped at the currently
+    documented failure frontier with the expected rollback and failed-site
+    semantics.
+\end{itemize}
+On the audited short-run matrix, Case~4 produced
+\(d = 2.5\times 10^{-3}\)~m,
+\(V=-0.5678\)~MN, 1080 cracks, and
+\(9.88515\times 10^{-4}\) peak opening in 342.371~s, while Case~5 terminated
+in 590.173~s with \texttt{MicroSolveFailed} and the failed sites
+\texttt{eid=0/gp=0/xi=-0.57735},
+\texttt{eid=1/gp=0/xi=-0.57735},
+\texttt{eid=2/gp=0/xi=-0.57735}, and
+\texttt{eid=3/gp=0/xi=-0.57735}.  This does not close the physical validation
+campaign, but it does make the predefinitive state reproducible and auditable.
+
 \paragraph{Historical note.}
 The remaining paragraphs of this section preserve the earlier v2 campaign for
 comparison only.  They do \emph{not} describe the current stabilized status of

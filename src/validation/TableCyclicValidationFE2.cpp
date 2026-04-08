@@ -211,12 +211,13 @@ run_case_fe2(bool two_way, const std::string& out_dir,
     NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                       StructPolicy> nl{&model};
     using ValidationMicroExecutor = SerialExecutor;
-    MultiscaleAnalysis<
+    using ValidationAnalysisT = MultiscaleAnalysis<
         NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                           StructPolicy>,
         MacroBridge,
         NonlinearSubModelEvolver,
-        ValidationMicroExecutor> analysis(
+        ValidationMicroExecutor>;
+    ValidationAnalysisT analysis(
         nl,
         std::move(ms_model),
         std::move(algorithm),
@@ -247,28 +248,61 @@ run_case_fe2(bool two_way, const std::string& out_dir,
     MaxStrainDamageCriterion damage_crit{EPS_YIELD};
     FiberHysteresisRecorder<StructModel> hysteresis_rec{
         damage_crit, classify_table_fiber, {}, 5, 1};
-    std::ofstream global_csv(out_dir + "/recorders/global_history.csv");
-    std::ofstream hysteresis_csv(out_dir + "/hysteresis.csv");
-    global_csv
-        << "step,p,drift_m,base_shear_MN,peak_damage,"
-           "submodel_damage_scalar_available,peak_submodel_damage_scalar,"
-           "most_compressive_submodel_sigma_o_max,max_submodel_tau_o_max,"
-           "total_cracked_gps,total_cracks,max_opening,fe2_iterations,"
-           "max_force_residual_rel,max_tangent_residual_rel\n";
-    hysteresis_csv << "step,p,drift_m,base_shear_MN\n";
-    hysteresis_csv << std::scientific << std::setprecision(8);
-    hysteresis_csv << 0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << "\n";
-    std::ofstream crack_csv(out_dir + "/recorders/crack_evolution.csv");
-    crack_csv
+    const std::string global_history_path =
+        out_dir + "/recorders/global_history.csv";
+    const std::string hysteresis_path = out_dir + "/hysteresis.csv";
+    const std::string crack_path =
+        out_dir + "/recorders/crack_evolution.csv";
+    const std::string solver_path =
+        out_dir + "/recorders/solver_diagnostics.csv";
+
+    const std::string global_header =
+        "step,p,drift_m,base_shear_MN,peak_damage,"
+        "submodel_damage_scalar_available,peak_submodel_damage_scalar,"
+        "most_compressive_submodel_sigma_o_max,max_submodel_tau_o_max,"
+        "total_cracked_gps,total_cracks,max_opening,fe2_iterations,"
+        "max_force_residual_rel,max_force_component_residual_rel,"
+        "max_tangent_residual_rel,max_tangent_column_residual_rel\n";
+    const std::string hysteresis_header = "step,p,drift_m,base_shear_MN\n";
+    std::ostringstream crack_header;
+    crack_header
         << "step,p,drift_m,total_cracked_gps,total_cracks,"
            "damage_scalar_available,peak_damage_scalar,"
            "most_compressive_sigma_o_max,max_tau_o_max,max_opening";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
-        crack_csv << ",sub" << i << "_cracks";
+        crack_header << ",sub" << i << "_cracks";
     }
-    crack_csv << "\n";
-    std::ofstream solver_csv(out_dir + "/recorders/solver_diagnostics.csv");
-    write_fe2_solver_diagnostics_header(solver_csv, analysis);
+    crack_header << "\n";
+    std::ostringstream solver_header;
+    write_fe2_solver_diagnostics_header(solver_header, analysis);
+
+    auto rewrite_buffer = [](
+        const std::string& path,
+        const std::string& header,
+        const std::vector<std::string>& rows)
+    {
+        std::ofstream os(path, std::ios::trunc);
+        os << header;
+        for (const auto& row : rows) {
+            os << row;
+        }
+    };
+
+    std::vector<std::string> global_rows;
+    std::vector<std::string> hysteresis_rows;
+    std::vector<std::string> crack_rows;
+    std::vector<std::string> solver_rows;
+    {
+        std::ostringstream oss;
+        oss << std::scientific << std::setprecision(8)
+            << 0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << "\n";
+        hysteresis_rows.push_back(oss.str());
+    }
+
+    rewrite_buffer(global_history_path, global_header, global_rows);
+    rewrite_buffer(hysteresis_path, hysteresis_header, hysteresis_rows);
+    rewrite_buffer(crack_path, crack_header.str(), crack_rows);
+    rewrite_buffer(solver_path, solver_header.str(), solver_rows);
     PVDWriter pvd_fe2{out_dir + "/vtk/table_fe2"};
 
     auto beam_profile =
@@ -290,14 +324,100 @@ run_case_fe2(bool two_way, const std::string& out_dir,
     hysteresis_rec.on_analysis_start(model);
     nl.begin_incremental(protocol_steps, cfg.max_bisections, scheme);
 
+    auto retune_local_models = [&](int restart_attempt) {
+        const int increment_steps =
+            cfg.submodel_increment_steps
+            + restart_attempt * cfg.restart_submodel_increment_step_bonus;
+        const int max_bisections =
+            cfg.submodel_max_bisections
+            + restart_attempt * cfg.restart_submodel_bisection_bonus;
+        const int adaptive_substeps =
+            cfg.submodel_adaptive_max_substeps
+            + restart_attempt * cfg.restart_adaptive_substep_bonus;
+        const int adaptive_bisections =
+            cfg.submodel_adaptive_max_bisections
+            + restart_attempt * cfg.restart_adaptive_bisection_bonus;
+        const int snes_max_it =
+            cfg.submodel_snes_max_it
+            + restart_attempt * cfg.restart_snes_max_it_bonus;
+
+        for (auto& ev : analysis.model().local_models()) {
+            ev.set_incremental_params(increment_steps, max_bisections);
+            ev.set_adaptive_substepping_limits(
+                adaptive_substeps, adaptive_bisections);
+            ev.set_snes_params(
+                snes_max_it,
+                cfg.submodel_snes_atol,
+                cfg.submodel_snes_rtol);
+        }
+    };
+
+    struct TurningPointFrame {
+        typename ValidationAnalysisT::RestartBundle analysis{};
+        int step{0};
+        std::size_t record_count{0};
+        std::size_t global_rows_count{0};
+        std::size_t hysteresis_rows_count{0};
+        std::size_t crack_rows_count{0};
+        std::size_t solver_rows_count{0};
+        int restart_attempts{0};
+        bool valid{false};
+    } last_turning_point;
+
+    const bool restart_capable =
+        cfg.enable_turning_point_checkpoints && !write_global_vtk;
+
     bool ok = true;
-    for (int step = 1; step <= executed_steps; ++step) {
+    int step = 1;
+    while (step <= executed_steps) {
         if (!analysis.step()) {
             const auto& report = analysis.last_report();
             const double p = nl.current_time();
             const double d = cfg.displacement(p);
-            write_fe2_solver_diagnostics_row(solver_csv, step, p, d, analysis);
-            solver_csv.flush();
+            if (restart_capable
+                && last_turning_point.valid
+                && last_turning_point.step < step
+                && last_turning_point.restart_attempts
+                       < cfg.max_turning_point_restarts)
+            {
+                ++last_turning_point.restart_attempts;
+                std::println(
+                    "    FE2 step {} failed after turning point {}. "
+                    "Restarting from checkpoint (attempt {}/{}) with tighter "
+                    "local budgets.",
+                    step,
+                    last_turning_point.step,
+                    last_turning_point.restart_attempts,
+                    cfg.max_turning_point_restarts);
+
+                analysis.restore_restart_bundle(last_turning_point.analysis);
+                retune_local_models(last_turning_point.restart_attempts);
+
+                records.resize(last_turning_point.record_count);
+                global_rows.resize(last_turning_point.global_rows_count);
+                hysteresis_rows.resize(last_turning_point.hysteresis_rows_count);
+                crack_rows.resize(last_turning_point.crack_rows_count);
+                solver_rows.resize(last_turning_point.solver_rows_count);
+                rewrite_buffer(
+                    global_history_path, global_header, global_rows);
+                rewrite_buffer(
+                    hysteresis_path, hysteresis_header, hysteresis_rows);
+                rewrite_buffer(
+                    crack_path, crack_header.str(), crack_rows);
+                rewrite_buffer(
+                    solver_path, solver_header.str(), solver_rows);
+
+                step = last_turning_point.step + 1;
+                continue;
+            }
+
+            {
+                std::ostringstream solver_row;
+                write_fe2_solver_diagnostics_row(
+                    solver_row, step, p, d, analysis);
+                solver_rows.push_back(solver_row.str());
+                rewrite_buffer(solver_path, solver_header.str(), solver_rows);
+            }
             std::println(
                 "    FE2 step {} aborted: reason={} failed_submodels={} "
                 "rollback={} failed_sites={}",
@@ -359,44 +479,64 @@ run_case_fe2(bool two_way, const std::string& out_dir,
         }
         const double peak_damage = peak_structural_damage(model, damage_crit);
         const auto& report = analysis.last_report();
-        global_csv << step << "," << p << "," << d << "," << shear << ","
-                   << peak_damage << ","
-                   << (damage_scalar_available ? 1 : 0) << ","
-                   << csv_scalar_or_nan(
-                          damage_scalar_available, peak_submodel_damage_scalar)
-                   << ","
-                   << csv_scalar_or_nan(fracture_history_available,
-                                        most_compressive_submodel_sigma_o_max)
-                   << ","
-                   << csv_scalar_or_nan(fracture_history_available,
-                                        max_submodel_tau_o_max)
-                   << "," << total_cracked_gps << "," << total_cracks << ","
-                   << max_opening << ","
-                   << analysis.last_staggered_iterations() << ","
-                   << report.max_force_residual_rel << ","
-                   << report.max_tangent_residual_rel << "\n";
-        hysteresis_csv << step << "," << p << "," << d << "," << shear << "\n";
-        write_fe2_solver_diagnostics_row(solver_csv, step, p, d, analysis);
-        crack_csv << step << "," << p << "," << d << ","
-                  << total_cracked_gps << "," << total_cracks << ","
-                  << (damage_scalar_available ? 1 : 0) << ","
-                  << csv_scalar_or_nan(
-                         damage_scalar_available, peak_submodel_damage_scalar)
-                  << ","
-                  << csv_scalar_or_nan(fracture_history_available,
-                                       most_compressive_submodel_sigma_o_max)
-                  << ","
-                  << csv_scalar_or_nan(fracture_history_available,
-                                       max_submodel_tau_o_max)
-                  << "," << max_opening;
-        for (int count : submodel_cracks) {
-            crack_csv << "," << count;
+        {
+            std::ostringstream row;
+            row << step << "," << p << "," << d << "," << shear << ","
+                << peak_damage << ","
+                << (damage_scalar_available ? 1 : 0) << ","
+                << csv_scalar_or_nan(
+                       damage_scalar_available, peak_submodel_damage_scalar)
+                << ","
+                << csv_scalar_or_nan(fracture_history_available,
+                                     most_compressive_submodel_sigma_o_max)
+                << ","
+                << csv_scalar_or_nan(fracture_history_available,
+                                     max_submodel_tau_o_max)
+                << "," << total_cracked_gps << "," << total_cracks << ","
+                << max_opening << ","
+                << analysis.last_staggered_iterations() << ","
+                << report.max_force_residual_rel << ","
+                << report.max_force_component_residual_rel << ","
+                << report.max_tangent_residual_rel << ","
+                << report.max_tangent_column_residual_rel << "\n";
+            global_rows.push_back(row.str());
         }
-        crack_csv << "\n";
-        global_csv.flush();
-        hysteresis_csv.flush();
-        crack_csv.flush();
-        solver_csv.flush();
+        {
+            std::ostringstream row;
+            row << std::scientific << std::setprecision(8)
+                << step << "," << p << "," << d << "," << shear << "\n";
+            hysteresis_rows.push_back(row.str());
+        }
+        {
+            std::ostringstream row;
+            row << step << "," << p << "," << d << ","
+                << total_cracked_gps << "," << total_cracks << ","
+                << (damage_scalar_available ? 1 : 0) << ","
+                << csv_scalar_or_nan(
+                       damage_scalar_available, peak_submodel_damage_scalar)
+                << ","
+                << csv_scalar_or_nan(fracture_history_available,
+                                     most_compressive_submodel_sigma_o_max)
+                << ","
+                << csv_scalar_or_nan(fracture_history_available,
+                                     max_submodel_tau_o_max)
+                << "," << max_opening;
+            for (int count : submodel_cracks) {
+                row << "," << count;
+            }
+            row << "\n";
+            crack_rows.push_back(row.str());
+        }
+        {
+            std::ostringstream row;
+            write_fe2_solver_diagnostics_row(row, step, p, d, analysis);
+            solver_rows.push_back(row.str());
+        }
+
+        rewrite_buffer(global_history_path, global_header, global_rows);
+        rewrite_buffer(hysteresis_path, hysteresis_header, hysteresis_rows);
+        rewrite_buffer(crack_path, crack_header.str(), crack_rows);
+        rewrite_buffer(solver_path, solver_header.str(), solver_rows);
 
         if (write_global_vtk
             && ((step - 1) % cfg.global_output_interval == 0))
@@ -422,6 +562,20 @@ run_case_fe2(bool two_way, const std::string& out_dir,
                 analysis.last_staggered_iterations(), elapsed);
             std::fflush(stdout);
         }
+
+        if (restart_capable && cfg.is_turning_point_step(step)) {
+            last_turning_point.analysis = analysis.capture_restart_bundle();
+            last_turning_point.step = step;
+            last_turning_point.record_count = records.size();
+            last_turning_point.global_rows_count = global_rows.size();
+            last_turning_point.hysteresis_rows_count = hysteresis_rows.size();
+            last_turning_point.crack_rows_count = crack_rows.size();
+            last_turning_point.solver_rows_count = solver_rows.size();
+            last_turning_point.restart_attempts = 0;
+            last_turning_point.valid = true;
+        }
+
+        ++step;
     }
 
     std::println("  Result: {} ({} records)",
