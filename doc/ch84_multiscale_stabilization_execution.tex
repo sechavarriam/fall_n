@@ -30,10 +30,16 @@ The main files audited and modified during this cycle were:
   \item \texttt{src/analysis/MultiscaleTypes.hh};
   \item \texttt{src/analysis/MultiscaleAnalysis.hh};
   \item \texttt{src/reconstruction/NonlinearSubModelEvolver.hh};
+  \item \texttt{src/numerics/SparseSchurComplement.hh};
   \item \texttt{src/reconstruction/LocalModelAdapter.hh};
   \item \texttt{src/reconstruction/HomogenisationStrategy.hh};
+  \item \texttt{src/utils/CyclicProtocol.hh};
+  \item \texttt{main\_table\_cyclic\_validation.cpp};
+  \item \texttt{scripts/plot\_cyclic\_validation.py};
   \item \texttt{tests/test\_multiscale\_analysis\_api.cpp};
   \item \texttt{tests/test\_evolver\_advanced.cpp};
+  \item \texttt{tests/test\_condensation.cpp};
+  \item \texttt{tests/test\_cyclic\_protocol.cpp};
   \item \texttt{scripts/ci\_multiscale\_stabilization.ps1};
   \item \texttt{.github/workflows/multiscale-stability.yml}.
 \end{itemize}
@@ -136,6 +142,16 @@ implementation was further upgraded from a dense prototype to a sparse solve of
 the six required right-hand sides, which removed the need to materialise the
 full dense Schur complement.
 
+The present execution pass tightened that sparse route again by factoring the
+Schur solve into a dedicated reusable utility and by adding a symbolic-pattern
+workspace cache.  In practical terms, repeated calls to the local condensed
+operator now reuse the symbolic factorisation pattern of the free block
+\(\mathbf{K}_{ff}\) whenever the local topology is unchanged, while still
+re-factorising the current numerical values at the converged state.  This is a
+small but important architectural improvement: the code now makes the
+performance boundary explicit instead of hiding symbolic-analysis cost inside
+each operator evaluation.
+
 Adaptive finite differences are retained only as a documented fallback.  When
 the condensed operator cannot be formed---for example because a mixed element
 does not expose explicit local tangent data or because the free block is
@@ -224,6 +240,34 @@ is reported as \texttt{Ok}.  This change is small in code volume, but
 scientifically important because it prevents an incomplete section operator
 from being treated as merely ``low quality'' and then entering the FE\textsuperscript{2}
 loop as if it were usable.
+
+\subsection{Verification added in the current pass}
+
+This execution pass added three focused checks on top of the previous
+stabilization matrix:
+\begin{itemize}
+  \item \texttt{test\_sparse\_schur\_operator\_matches\_dense\_reference}:
+    verifies that the reusable sparse Schur utility reproduces the dense
+    reference contraction on a hand-auditable block system;
+  \item \texttt{test\_sparse\_schur\_workspace\_reuses\_symbolic\_pattern}:
+    verifies that repeated calls with unchanged sparsity reuse the symbolic
+    factorisation pattern instead of analysing it again;
+  \item \texttt{test\_condensed\_operator\_reuses\_symbolic\_pattern}:
+    verifies the same reuse property through the full
+    \texttt{NonlinearSubModelEvolver} path, not only in the low-level utility.
+\end{itemize}
+
+The purpose of this extra layer is architectural as much as numerical.  The
+code now proves, through tests, that the reusable sparse Schur module is not a
+hidden refactor-only detail: its semantics propagate all the way to the public
+\texttt{SectionHomogenizedResponse}.
+
+After this pass, the full local release gate was rerun again through
+\texttt{scripts/ci\_multiscale\_stabilization.ps1 -SkipConfigure}.  The gate
+completed successfully, including the heavy multiscale example builds and the
+\LaTeX{} document compilation, so the sparse Schur workspace refactor is not
+only locally correct in isolation but also stable on the current release
+surface.
 
 \section{Phase 2: Protocol Hardening for Macro--Micro Iteration}
 \label{sec:ms-stab-phase2}
@@ -567,6 +611,369 @@ the merge did not alter the observed multiscale semantics:
     warning ledger for pre-existing bibliography/reference debt.
 \end{enumerate}
 
+\section{Follow-up: Cyclic Validation Extension and Build Audit}
+\label{sec:ms-stab-cyclic-followup}
+
+\subsection{Intent}
+
+After the core multiscale stabilization and merge audit were completed, the
+next objective was to stress the current implementation in a way that is both
+scientifically revealing and operationally honest:
+\begin{enumerate}
+  \item extend the cyclic validation protocol so that cracking and hysteresis
+    become visible at the table scale;
+  \item improve observability of the FE\textsuperscript{2} cases without
+    depending on debugger-only output;
+  \item audit the true compile-time cost of the current validation executable
+    rather than assuming that the earlier PCH/CI work had already solved it.
+\end{enumerate}
+
+\subsection{Architecture of the current validation driver}
+
+Figure~\ref{fig:ms-stab-cyclic-driver} summarises the current
+\texttt{main\_table\_cyclic\_validation.cpp} execution surface after the
+follow-up changes.
+
+\begin{figure}[htb]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, minimum width=3.3cm, minimum height=1.0cm},
+  arrow/.style={-{Latex[length=2.2mm]}, thick}
+]
+  \node[box] (cli) {\texttt{main\_table\_cyclic\_validation.cpp}\\CLI + protocol configuration};
+  \node[box, below left=1.8cm and 2.3cm of cli] (case3) {Case 3\\\texttt{NonlinearAnalysis}\\beam + shell table};
+  \node[box, below right=1.8cm and 2.3cm of cli] (fe2) {Cases 4/5\\\texttt{MultiscaleAnalysis}\\table + local sub-models};
+  \node[box, below=1.8cm of case3] (rec3) {\texttt{global\_history.csv}\\fiber hysteresis\\VTM/PVD output};
+  \node[box, below=1.8cm of fe2] (rec45) {\texttt{global\_history.csv}\\\texttt{crack\_evolution.csv}\\\texttt{solver\_diagnostics.csv}};
+  \node[box, below=2.0cm of $(rec3)!0.5!(rec45)$] (plot) {\texttt{plot\_cyclic\_validation.py}\\comparisons + recorder plots};
+
+  \draw[arrow] (cli) -- (case3);
+  \draw[arrow] (cli) -- (fe2);
+  \draw[arrow] (case3) -- (rec3);
+  \draw[arrow] (fe2) -- (rec45);
+  \draw[arrow] (rec3) -- (plot);
+  \draw[arrow] (rec45) -- (plot);
+\end{tikzpicture}
+\caption{Current cyclic validation driver surface after the stabilization follow-up.}
+\label{fig:ms-stab-cyclic-driver}
+\end{figure}
+
+The important architectural point is that the validation driver no longer only
+emits a global hysteresis loop.  The FE\textsuperscript{2} cases now persist
+step-level local response status, tangent scheme, condensed-operator status,
+local SNES data, crack counts, and crack openings.  This matters because the
+current scientific bottleneck is not a simple binary ``converged/failed''
+question; it is a mixture of cost, cracking onset, and operator availability.
+
+\subsection{Implemented changes}
+
+The follow-up changes touched three areas:
+\begin{itemize}
+  \item \textbf{Protocol extension.}  The cyclic protocol utility now exposes
+    both \texttt{legacy20} and \texttt{extended50}, with dedicated unit tests
+    for each preset.
+  \item \textbf{Driver observability.}  The table cyclic validation driver now
+    writes \texttt{solver\_diagnostics.csv} for the FE\textsuperscript{2}
+    cases, supports CLI overrides for local-ramp parameters and SNES tolerances,
+    and exposes a manual FE\textsuperscript{2} step cap that preserves the
+    protocol parametrization instead of rescaling it.
+  \item \textbf{Plotting support.}  The plotting script was extended so that,
+    when the CSV files are present, it can produce not only the classical
+    hysteresis overlays but also recorder-based plots for global damage, crack
+    evolution, and solver diagnostics.
+\end{itemize}
+
+\subsection{Observed numerical evidence}
+
+Two short but decisive runs were used as the current evidence baseline.
+
+\paragraph{Case 3, structural-only table, extended protocol.}
+The structural table completed the full \texttt{extended50} protocol in the
+audited coarse run (one solver step per segment).  The recorder values at the
+positive peaks were:
+\begin{center}
+\begin{tabular}{rcc}
+\toprule
+Peak drift & Base shear (MN) & Peak structural damage \\
+\midrule
+\(+2.5\)\,mm & 0.5678 & 0.0217 \\
+\(+5.0\)\,mm & 1.1355 & 0.0435 \\
+\(+10.0\)\,mm & 2.2527 & 0.1236 \\
+\(+20.0\)\,mm & 4.5003 & 0.2650--0.2777 \\
+\(+35.0\)\,mm & 7.8742 & 0.4857 \\
+\(+50.0\)\,mm & 11.2483 & 0.6934 \\
+\bottomrule
+\end{tabular}
+\end{center}
+The macro solver needed multiple bisections in the \(\pm 10\)\,mm cycle, so
+the extended protocol is already non-trivial even before FE\textsuperscript{2}
+feedback is introduced.
+
+\paragraph{Case 4, one-way FE\textsuperscript{2}, first physical point.}
+The first physical point of the same protocol, namely the step to
+\(+2.5\)\,mm drift, required approximately 579~s in the audited environment.
+The recorder values were:
+\begin{itemize}
+  \item macro base shear \(= -0.5678\)~MN;
+  \item structural peak damage \(= 0.0217028\);
+  \item total cracked Gauss points \(= 360\);
+  \item total cracks \(= 1080\);
+  \item peak crack opening \(= 9.75991\times 10^{-4}\).
+\end{itemize}
+The accompanying \texttt{solver\_diagnostics.csv} also showed that all four
+sub-models:
+\begin{itemize}
+  \item finished \texttt{FirstSolveRamp} successfully;
+  \item reported positive SNES convergence reasons;
+  \item used \texttt{LinearizedCondensation};
+  \item reported \texttt{CondensedTangentStatus::Success};
+  \item did not require tangent regularization.
+\end{itemize}
+
+This observation is scientifically useful because it rules out a tempting but
+incorrect diagnosis.  The one-way FE\textsuperscript{2} path is not currently
+limited by immediate operator unavailability at the first cracked point.  It is
+limited by \emph{cost} and by a \emph{response mismatch}: the continuum
+sub-models accumulate many cracks at the same global drift level where the
+structural-only model still reports relatively modest macro damage.
+
+\subsection{Executor caveat}
+
+One explicit caveat emerged from the audit and is now part of the documented
+truth baseline: the cyclic FE\textsuperscript{2} driver must not currently be
+run with \texttt{OpenMPExecutor}.  In the audited environment, that path caused
+PETSc wrong-state failures associated with interleaved norm begin/end calls.
+The code now therefore hardwires the cyclic FE\textsuperscript{2} validation
+driver to \texttt{SerialExecutor}.  This is not a theoretical objection to
+threaded micro execution in general; it is a concrete statement that this
+specific PETSc-backed path is not yet validated for threaded execution.
+
+\subsection{Compile-time evidence}
+
+The compile-time audit also remained deliberately empirical.  After the earlier
+PCH enablement and the move to parallel per-target builds in the CI script and
+workflow, the heavy validation target still showed large rebuild costs in the
+current environment:
+\begin{itemize}
+  \item rebuild of \texttt{fall\_n\_table\_cyclic\_validation} after the
+    follow-up instrumentation changes: approximately 889~s;
+  \item rebuild after the protocol-preserving FE\textsuperscript{2} step-cap
+    correction: approximately 947~s.
+\end{itemize}
+
+This is important because it keeps the compile-time narrative honest.  PCH and
+parallel target builds improved the gate and reduced redundant work, but they
+did \emph{not} solve the underlying translation-unit size problem of
+\texttt{main\_table\_cyclic\_validation.cpp}.  The next credible compile-time
+improvement remains the one already identified during the audit: split this
+driver into multiple translation units so that rebuilds of the FE\textsuperscript{2}
+cases do not force recompilation of the entire validation suite.
+
+\subsection{Second pass: recorder semantics, driver split, and adaptive continuation}
+
+The next execution pass addressed three coupled problems that had become clear
+only after the first exploratory FE\textsuperscript{2} cyclic runs:
+\begin{enumerate}
+  \item the cyclic recorders were semantically dishonest for constitutive laws
+    that do not expose a scalar damage channel;
+  \item the validation executable still hid too much compile-time cost behind a
+    monolithic entrypoint;
+  \item the first load reversal and the first \(+5\)\,mm excursion required
+    adaptive continuation in the local sub-models, and the existing adaptive
+    solver still contained an exact-budget classification bug.
+\end{enumerate}
+
+\paragraph{Recorder semantic correction.}
+The audit of \texttt{KoBatheConcrete3D}, \texttt{Material.hh},
+\texttt{FEM\_Element.hh}, and the cyclic FE\textsuperscript{2} driver confirmed
+that the earlier recorder path silently mapped ``no scalar damage field
+available'' to zero.  The stabilized execution now keeps that distinction
+explicit:
+\begin{equation}
+  \texttt{damage\_scalar\_available} = 0
+  \quad\Longrightarrow\quad
+  \texttt{peak\_submodel\_damage\_scalar} = \texttt{NaN}.
+\end{equation}
+For the present cyclic FE\textsuperscript{2} path, the trustworthy fracture
+channels are therefore the crack counts, crack opening envelope, and the
+octahedral invariants \(\sigma_{o,\min}\) and \(\tau_{o,\max}\).  This matters
+scientifically because it prevents a heavily cracked sub-model from being
+misread as an undamaged one purely because the constitutive snapshot did not
+expose a scalar damage index.
+
+\paragraph{Driver split and measured compile-time improvement.}
+The validation executable was then split into a thin CLI entrypoint
+(\texttt{main\_table\_cyclic\_validation.cpp}), a lightweight public driver API
+(\texttt{TableCyclicValidationAPI.hh}), a structural implementation TU
+(\texttt{TableCyclicValidationStructural.cpp}), and the FE\textsuperscript{2}
+implementation TU (\texttt{TableCyclicValidationFE2.cpp}).  The resulting
+translation-unit structure is shown in Figure~\ref{fig:ms-stab-cyclic-split}.
+
+\begin{figure}[htb]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, minimum width=3.3cm, minimum height=0.95cm},
+  arrow/.style={-{Latex[length=2.2mm]}, thick}
+]
+  \node[box] (main) {\texttt{main\_table\_cyclic\_validation.cpp}\\thin CLI entrypoint};
+  \node[box, below=1.6cm of main] (api) {\texttt{TableCyclicValidationAPI.hh}\\lightweight driver surface};
+  \node[box, below left=1.8cm and 2.6cm of api] (struct) {\texttt{TableCyclicValidationStructural.cpp}\\Cases 0--3};
+  \node[box, below right=1.8cm and 2.6cm of api] (fe2) {\texttt{TableCyclicValidationFE2.cpp}\\Cases 4--5};
+  \node[box, below=1.8cm of fe2] (support) {\texttt{TableCyclicValidationSupport.hh}\\heavy internal helpers};
+
+  \draw[arrow] (main) -- (api);
+  \draw[arrow] (api) -- (struct);
+  \draw[arrow] (api) -- (fe2);
+  \draw[arrow] (fe2) -- (support);
+  \draw[arrow] (struct) -- (support);
+\end{tikzpicture}
+\caption{Translation-unit split introduced in the second cyclic-validation stabilization pass.}
+\label{fig:ms-stab-cyclic-split}
+\end{figure}
+
+The compile-time audit was then repeated after regenerating the corrupted
+Ninja dependency database (\texttt{build/.ninja\_deps}), because the broken
+depfile state had been forcing spurious rebuilds of every object in the target.
+With valid dependency tracking restored, the measured incremental rebuild costs
+after the TU split alone were:
+\begin{itemize}
+  \item touching \texttt{main\_table\_cyclic\_validation.cpp}: 13.667~s;
+  \item touching \texttt{TableCyclicValidationFE2.cpp}: 444.167~s;
+  \item touching \texttt{TableCyclicValidationStructural.cpp}: 745.102~s.
+\end{itemize}
+
+A third pass then introduced a dedicated target-local precompiled header,
+\texttt{TableCyclicValidationPch.hh}, instead of the earlier project-wide
+\texttt{header\_files.hh} umbrella.  Applying that PCH to every translation
+unit lowered the heavy incremental rebuilds to 338.699~s
+(\texttt{FE2.cpp}) and 577.183~s (\texttt{Structural.cpp}), but it also
+inflated the thin CLI rebuild to 50.365~s.  The final configuration therefore
+keeps the dedicated PCH for the heavy validation implementation TUs while
+marking \texttt{main\_table\_cyclic\_validation.cpp} with
+\texttt{SKIP\_PRECOMPILE\_HEADERS}.  The resulting final measured costs are:
+\begin{itemize}
+  \item touching \texttt{main\_table\_cyclic\_validation.cpp}: 19.288~s;
+  \item touching \texttt{TableCyclicValidationFE2.cpp}: 332.621~s;
+  \item touching \texttt{TableCyclicValidationStructural.cpp}:
+    577.183~s in the immediately preceding all-PCH measurement.
+\end{itemize}
+This is still expensive, but it is a materially better frontier than the
+post-split/no-PCH state, and it preserves the fast feedback of the thin CLI
+layer.
+
+\paragraph{Adaptive continuation in the cyclic FE\textsuperscript{2} path.}
+The first exploratory one-way FE\textsuperscript{2} run with an
+8-substep \texttt{FirstSolveRamp} reached \(+2.5\)\,mm but still failed at the
+first reversal \(-2.5\)\,mm.  The reason was not the initial ramp; it was the
+fact that the subsequent solve path still attempted a full post-cracking step
+without adaptive continuation.  The driver was therefore extended with
+explicit controls for:
+\begin{itemize}
+  \item enabling adaptive sub-stepping from the first post-ramp step;
+  \item choosing the arc-length activation threshold;
+  \item choosing the adaptive substep and bisection budgets.
+\end{itemize}
+With adaptive continuation enabled from the start, the one-way cyclic
+FE\textsuperscript{2} path completed the first reversal and the return to zero.
+The \(-2.5\)\,mm reversal required exactly two adaptive substeps in every
+sub-model; the zero-return step also required two adaptive substeps in every
+sub-model.
+
+\paragraph{Exact-budget bug and scientific consequence.}
+The first attempt at the \(+5\)\,mm excursion then exposed a more subtle issue:
+one sub-model reached \(\texttt{achieved\_fraction}=1.0\) at the same time it
+hit the hardcoded 30-substep budget, but the solver still returned failure
+because the budget check was executed after the successful update and did not
+distinguish ``budget exhausted before completion'' from ``budget exhausted
+exactly at completion''.  That was a real correctness defect, not merely a
+tuning issue.
+
+The fix had two parts:
+\begin{enumerate}
+  \item classify the adaptive step as failed only when the budget is exhausted
+    \emph{and} the progress fraction remains \(< 1\);
+  \item expose the adaptive substep/bisection budgets as explicit evolver and
+    CLI configuration rather than hidden constants.
+\end{enumerate}
+
+This correction was locked by a dedicated regression test,
+\texttt{test\_adaptive\_substepping\_accepts\_exact\_budget\_completion},
+which constructs a case that converges in exactly two adaptive substeps and
+verifies that the solver remains classified as converged.
+
+\paragraph{Observed cyclic FE\textsuperscript{2} result after the fix.}
+After the exact-budget bug was fixed, the same truncated
+\texttt{extended50} one-way FE\textsuperscript{2} campaign completed the first
+four protocol points:
+\[
+  +2.5\text{ mm},\quad -2.5\text{ mm},\quad 0,\quad +5.0\text{ mm}.
+\]
+The \(+5\)\,mm point required substantial local continuation:
+the four sub-models completed \((21,23)\), \((26,28)\), \((30,32)\), and
+\((15,15)\) adaptive substeps/bisections, respectively.  The resulting
+global/crack recorders reported:
+\begin{itemize}
+  \item base shear \(V = -1.13555\)~MN;
+  \item peak structural damage \(= 0.0434864\);
+  \item 426 cracked Gauss points and 1268 crack planes;
+  \item maximum crack opening \(= 1.82279\times 10^{-3}\);
+  \item \(\sigma_{o,\min} = -2.23149\) and
+    \(\tau_{o,\max} = 12.2076\).
+\end{itemize}
+
+Scientifically, this is a meaningful milestone: the current one-way
+FE\textsuperscript{2} validation now exhibits both the first loop reversal and
+the first higher-amplitude excursion with explicit crack-history observability.
+The runtime is still very high, but the failure mode is no longer hidden and
+the recorders no longer lie about the local damage semantics.
+
+\paragraph{Execution profile and interruption-safe FE\textsuperscript{2} runs.}
+The next stabilization pass focused on making the long
+\texttt{extended50} cyclic FE\textsuperscript{2} campaign both cheaper and
+more observable.  Three implementation changes were introduced together:
+\begin{enumerate}
+  \item a dedicated execution profile, \texttt{fe2\_crack50}, was added to the
+    driver API/CLI to bundle the empirically useful settings for exploratory
+    one-way FE\textsuperscript{2} runs
+    (\(1\) step/segment, 8-substep ramp, adaptive continuation from the first
+    reversal, enlarged adaptive budgets, and disabled VTK output);
+  \item when sub-model VTK is disabled, \texttt{NonlinearSubModelEvolver} now
+    caches only a \texttt{CrackSummary} instead of rebuilding the detailed
+    crack-plane geometry that is needed solely for VTK export;
+  \item the FE\textsuperscript{2} \texttt{hysteresis.csv} file is now streamed
+    incrementally, step by step, in the same spirit as
+    \texttt{global\_history.csv} and \texttt{solver\_diagnostics.csv}.
+\end{enumerate}
+
+This combination does not magically solve the runtime problem, but it changes
+the failure semantics in an important way: partial long runs are now
+diagnostically useful instead of losing the global hysteresis curve at the
+point of interruption.
+
+\paragraph{Observed frontier after the execution-profile update.}
+A fresh one-way Case~4 run was launched with
+\texttt{--protocol extended50 --fe2-profile crack50 --max-steps 5}.  The run
+was allowed to execute for two hours in the audited environment.  It still did
+not complete the \(-5\)\,mm reversal within that wall-clock budget, so the
+runtime debt remains open.  However, the streamed recorders confirmed again
+that the stabilized FE\textsuperscript{2} path completed the first four
+protocol points through \(+5\)\,mm without losing any hysteresis or crack
+history data.  The new summary-only plotting mode in
+\texttt{scripts/plot\_cyclic\_validation.py} also confirmed, from the same
+output directory, the broader status of the validation campaign:
+\begin{itemize}
+  \item Case~3 currently reaches the full \(50\)\,mm
+    \texttt{extended50} envelope with structural damage
+    \(= 0.69342\) and \(\max |V| = 11248.308\)~kN;
+  \item Case~4 currently reaches \(+5\)\,mm with streamed FE\textsuperscript{2}
+    hysteresis, \(\max |V| = 1135.55\)~kN, peak structural damage
+    \(= 0.04349\), 1268 crack planes, and a maximum crack opening of
+    \(1.8228\)~mm.
+\end{itemize}
+Scientifically, that is a better state than before this pass: the validation
+campaign now has a clear full-amplitude structural reference and an honest
+partial FE\textsuperscript{2} frontier, both reproducible from the same driver.
+
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}
 
@@ -584,10 +991,10 @@ Residual item & Severity & Current disposition \\
 \midrule
 Sparse condensed tangent still depends on explicit element-level local
 linearisation support and keeps a finite-difference fallback &
-high &
-Documented explicitly; the primary path is now the condensed operator, but the
-fallback remains necessary for unsupported local elements or singular free
-blocks. \\
+medium/high &
+Mitigated further in this cycle by extracting the sparse Schur solve into a
+reusable workspace with symbolic-pattern caching; the fallback remains
+necessary for unsupported local elements or singular free blocks. \\
 Validation against forced adaptive finite differences shows a non-zero but
 bounded tangent gap on mixed elastic states &
 medium/high &
@@ -599,6 +1006,25 @@ medium &
 Improved in this cycle by extracting boundary-condition, state, and
 homogenisation helpers; solver-core, diagnostics, and output concerns still
 need separation. \\
+Threaded cyclic FE\textsuperscript{2} validation path &
+medium/high &
+Documented explicitly as non-validated: the PETSc-backed cyclic driver must
+currently use \texttt{SerialExecutor} because the threaded path triggered
+wrong-state failures in the audited environment. \\
+Compile time of \texttt{fall\_n\_table\_cyclic\_validation} &
+medium/high &
+Partially mitigated.  The final measured state uses a dedicated validation PCH
+for the heavy TUs and skips it for the thin CLI entrypoint, yielding
+approximately 19.3~s for \texttt{main\_table\_cyclic\_validation.cpp},
+332.6~s for \texttt{TableCyclicValidationFE2.cpp}, and 577.2~s for the
+structural TU in the audited environment. \\
+One-way cyclic FE\textsuperscript{2} runtime beyond the first crack reversal &
+medium/high &
+Mitigated further by the \texttt{fe2\_crack50} execution profile, VTK-free
+crack-summary caching, and streamed hysteresis output.  Even so, a two-hour
+audited run still reached only the first four protocol points through
+\(+5\)\,mm; the \(-5\)\,mm reversal remains beyond the current wall-clock
+budget. \\
 MPI-distributed micro execution &
 medium &
 Communicator ownership is explicit, but the distributed execution engine is not

@@ -1,10 +1,7 @@
 // =============================================================================
 //  test_cyclic_protocol.cpp
 //
-//  Unit tests for the geometric cyclic displacement protocol.
-//
-//  Protocol: 4 levels × 3 segments = 12 segments over p ∈ [0,1].
-//    Level 0: ±2.5 mm   Level 1: ±5 mm   Level 2: ±10 mm   Level 3: ±20 mm
+//  Unit tests for the parameterised triangular cyclic displacement protocol.
 //
 //  Build:  cmake --build build --target fall_n_cyclic_protocol_test
 //  Run:    ctest -R cyclic_protocol
@@ -15,127 +12,146 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <span>
+#include <string_view>
 
 static bool approx(double a, double b, double tol = 1e-10) {
     return std::abs(a - b) < tol;
 }
 
-// ── Test: protocol starts and ends at zero ───────────────────────────────
-static void test_endpoints() {
-    assert(approx(fall_n::cyclic_displacement(0.0), 0.0));
-    assert(approx(fall_n::cyclic_displacement(1.0), 0.0));
-    std::cout << "[PASS] test_endpoints\n";
+template <typename Fn>
+static void test_endpoints(std::string_view label, Fn&& fn) {
+    assert(approx(fn(0.0), 0.0));
+    assert(approx(fn(1.0), 0.0));
+    std::cout << "[PASS] test_endpoints(" << label << ")\n";
 }
 
-// ── Test: peak amplitudes at exact segment fractions ─────────────────────
-//  Each level k occupies p ∈ [k/4, (k+1)/4].  Within each level:
-//    segment 0: 0 → +A        peak at p = (3k+1)/12
-//    segment 1: +A → −A       zero crossing midway, −A at p = (3k+2)/12
-//    segment 2: −A → 0        returns to zero at p = (3k+3)/12
-static void test_peak_amplitudes() {
-    constexpr double amps[] = {0.0025, 0.005, 0.010, 0.020};
-
-    for (int k = 0; k < 4; ++k) {
+template <typename Fn>
+static void test_peak_amplitudes(std::string_view label,
+                                 std::span<const double> amps,
+                                 Fn&& fn)
+{
+    const int n_seg = fall_n::cyclic_segment_count(amps.size());
+    for (std::size_t k = 0; k < amps.size(); ++k) {
         const double A = amps[k];
+        const double p_pos =
+            static_cast<double>(3 * static_cast<int>(k) + 1) / n_seg;
+        const double p_neg =
+            static_cast<double>(3 * static_cast<int>(k) + 2) / n_seg;
+        const double p_zero =
+            static_cast<double>(3 * static_cast<int>(k) + 3) / n_seg;
 
-        // Positive peak: end of segment 0 = start of segment 1
-        //   p = (3*k + 1) / 12
-        double p_pos = static_cast<double>(3 * k + 1) / 12.0;
-        double val   = fall_n::cyclic_displacement(p_pos);
-        assert(approx(val, +A, 1e-12));
-
-        // Negative peak: end of segment 1 = start of segment 2
-        //   p = (3*k + 2) / 12
-        double p_neg = static_cast<double>(3 * k + 2) / 12.0;
-        val = fall_n::cyclic_displacement(p_neg);
-        assert(approx(val, -A, 1e-12));
-
-        // Return to zero: end of segment 2
-        //   p = (3*k + 3) / 12  = (k+1)/4
-        double p_zero = static_cast<double>(k + 1) / 4.0;
-        val = fall_n::cyclic_displacement(p_zero);
-        assert(approx(val, 0.0, 1e-12));
+        assert(approx(fn(p_pos), +A, 1e-12));
+        assert(approx(fn(p_neg), -A, 1e-12));
+        assert(approx(fn(p_zero), 0.0, 1e-12));
     }
-    std::cout << "[PASS] test_peak_amplitudes\n";
+    std::cout << "[PASS] test_peak_amplitudes(" << label << ")\n";
 }
 
-// ── Test: symmetry within each cycle ─────────────────────────────────────
-//  For each level k, the displacement at (start+Δ) should equal
-//  −displacement at (peak+Δ) within the descending half.
-static void test_cycle_symmetry() {
-    for (int k = 0; k < 4; ++k) {
-        // midpoint of ascending phase (segment 0)
-        double p_asc = (3.0 * k + 0.5) / 12.0;
-        // midpoint of descending phase, first half (segment 1, first quarter)
-        double p_desc = (3.0 * k + 1.25) / 12.0;
-
-        double v_asc  = fall_n::cyclic_displacement(p_asc);
-        double v_desc = fall_n::cyclic_displacement(p_desc);
-
-        // At p_asc = half segment 0: val = A/2
-        // At p_desc = segment 1 at f=0.25: val = A*(1-0.5) = A/2
-        assert(approx(v_asc, v_desc, 1e-12));
+template <typename Fn>
+static void test_cycle_symmetry(std::string_view label,
+                                std::span<const double> amps,
+                                Fn&& fn)
+{
+    const int n_seg = fall_n::cyclic_segment_count(amps.size());
+    for (std::size_t k = 0; k < amps.size(); ++k) {
+        const double p_asc =
+            (3.0 * static_cast<double>(k) + 0.5) / static_cast<double>(n_seg);
+        const double p_desc =
+            (3.0 * static_cast<double>(k) + 1.25) / static_cast<double>(n_seg);
+        assert(approx(fn(p_asc), fn(p_desc), 1e-12));
     }
-    std::cout << "[PASS] test_cycle_symmetry\n";
+    std::cout << "[PASS] test_cycle_symmetry(" << label << ")\n";
 }
 
-// ── Test: specific known values ──────────────────────────────────────────
+template <typename Fn>
+static void test_monotonicity(std::string_view label,
+                              std::span<const double> amps,
+                              Fn&& fn)
+{
+    constexpr int N = 4000;
+    const int n_seg = fall_n::cyclic_segment_count(amps.size());
+    for (std::size_t k = 0; k < amps.size(); ++k) {
+        for (int i = 0; i < N; ++i) {
+            const double p0 = (3.0 * static_cast<double>(k)
+                             + static_cast<double>(i) / N)
+                            / static_cast<double>(n_seg);
+            const double p1 = (3.0 * static_cast<double>(k)
+                             + static_cast<double>(i + 1) / N)
+                            / static_cast<double>(n_seg);
+            assert(fn(p1) > fn(p0) - 1e-15);
+        }
+        for (int i = 0; i < N; ++i) {
+            const double p0 = (3.0 * static_cast<double>(k) + 1.0
+                             + static_cast<double>(i) / N)
+                            / static_cast<double>(n_seg);
+            const double p1 = (3.0 * static_cast<double>(k) + 1.0
+                             + static_cast<double>(i + 1) / N)
+                            / static_cast<double>(n_seg);
+            assert(fn(p1) < fn(p0) + 1e-15);
+        }
+        for (int i = 0; i < N; ++i) {
+            const double p0 = (3.0 * static_cast<double>(k) + 2.0
+                             + static_cast<double>(i) / N)
+                            / static_cast<double>(n_seg);
+            const double p1 = (3.0 * static_cast<double>(k) + 2.0
+                             + static_cast<double>(i + 1) / N)
+                            / static_cast<double>(n_seg);
+            assert(fn(p1) > fn(p0) - 1e-15);
+        }
+    }
+    std::cout << "[PASS] test_monotonicity(" << label << ")\n";
+}
+
+static void test_default_overload_matches_legacy() {
+    constexpr auto legacy = std::span<const double>{fall_n::kLegacyCyclicAmplitudesM};
+    for (int i = 0; i <= 200; ++i) {
+        const double p = static_cast<double>(i) / 200.0;
+        assert(approx(fall_n::cyclic_displacement(p),
+                      fall_n::cyclic_displacement(p, legacy),
+                      1e-15));
+    }
+    std::cout << "[PASS] test_default_overload_matches_legacy\n";
+}
+
 static void test_known_values() {
-    // p = 0         → 0
-    assert(approx(fall_n::cyclic_displacement(0.0), 0.0));
-
-    // p = 1/24      → mid of first ascending segment → +1.25 mm
     assert(approx(fall_n::cyclic_displacement(1.0 / 24.0), 0.00125));
-
-    // p = 1/12      → +2.5 mm
     assert(approx(fall_n::cyclic_displacement(1.0 / 12.0), 0.0025));
-
-    // p = 0.25      → end of level 0, back to zero
-    assert(approx(fall_n::cyclic_displacement(0.25), 0.0));
-
-    // p = 11/12     → negative peak of level 3 = −20 mm
-    //   Actually 11/12 is (3*3+2)/12, end of seg 1 of level 3
     assert(approx(fall_n::cyclic_displacement(11.0 / 12.0), -0.020));
+
+    constexpr auto extended =
+        std::span<const double>{fall_n::kExtendedValidationAmplitudesM};
+    const int n_seg = fall_n::cyclic_segment_count(extended.size());
+    const double p_pos_50 = static_cast<double>(3 * 5 + 1) / n_seg;
+    const double p_neg_50 = static_cast<double>(3 * 5 + 2) / n_seg;
+    assert(approx(fall_n::cyclic_displacement(p_pos_50, extended), 0.050));
+    assert(approx(fall_n::cyclic_displacement(p_neg_50, extended), -0.050));
 
     std::cout << "[PASS] test_known_values\n";
 }
 
-// ── Test: monotonicity within each segment ───────────────────────────────
-static void test_monotonicity() {
-    constexpr int N = 10000;
-    for (int k = 0; k < 4; ++k) {
-        // Segment 0: strictly increasing
-        for (int i = 0; i < N; ++i) {
-            double p0 = (3.0 * k + static_cast<double>(i) / N) / 12.0;
-            double p1 = (3.0 * k + static_cast<double>(i + 1) / N) / 12.0;
-            assert(fall_n::cyclic_displacement(p1) >
-                   fall_n::cyclic_displacement(p0) - 1e-15);
-        }
-        // Segment 1: strictly decreasing
-        for (int i = 0; i < N; ++i) {
-            double p0 = (3.0 * k + 1.0 + static_cast<double>(i) / N) / 12.0;
-            double p1 = (3.0 * k + 1.0 + static_cast<double>(i + 1) / N) / 12.0;
-            assert(fall_n::cyclic_displacement(p1) <
-                   fall_n::cyclic_displacement(p0) + 1e-15);
-        }
-        // Segment 2: strictly increasing (−A → 0)
-        for (int i = 0; i < N; ++i) {
-            double p0 = (3.0 * k + 2.0 + static_cast<double>(i) / N) / 12.0;
-            double p1 = (3.0 * k + 2.0 + static_cast<double>(i + 1) / N) / 12.0;
-            assert(fall_n::cyclic_displacement(p1) >
-                   fall_n::cyclic_displacement(p0) - 1e-15);
-        }
-    }
-    std::cout << "[PASS] test_monotonicity\n";
-}
-
-
 int main() {
-    test_endpoints();
-    test_peak_amplitudes();
-    test_cycle_symmetry();
+    constexpr auto legacy = std::span<const double>{fall_n::kLegacyCyclicAmplitudesM};
+    constexpr auto extended =
+        std::span<const double>{fall_n::kExtendedValidationAmplitudesM};
+
+    auto legacy_fn = [](double p) { return fall_n::cyclic_displacement(p); };
+    auto extended_fn = [](double p) {
+        return fall_n::cyclic_displacement(
+            p, std::span<const double>{fall_n::kExtendedValidationAmplitudesM});
+    };
+
+    test_default_overload_matches_legacy();
+    test_endpoints("legacy20", legacy_fn);
+    test_peak_amplitudes("legacy20", legacy, legacy_fn);
+    test_cycle_symmetry("legacy20", legacy, legacy_fn);
+    test_monotonicity("legacy20", legacy, legacy_fn);
+
+    test_endpoints("extended50", extended_fn);
+    test_peak_amplitudes("extended50", extended, extended_fn);
+    test_cycle_symmetry("extended50", extended, extended_fn);
+    test_monotonicity("extended50", extended, extended_fn);
     test_known_values();
-    test_monotonicity();
 
     std::cout << "\n=== All cyclic protocol tests PASSED ===\n";
     return 0;

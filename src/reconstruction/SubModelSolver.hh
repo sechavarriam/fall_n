@@ -39,6 +39,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <string_view>
 
 #include <Eigen/Dense>
 #include <petsc.h>
@@ -74,8 +75,42 @@ namespace fall_n {
 //  SubModelSolverResult — output of SubModelSolver::solve()
 // =============================================================================
 
+enum class SubModelSolveStage {
+    NotRun,
+    FirstSolveRamp,
+    FirstSolveSingleStep,
+    SubsequentFullStep,
+    SubsequentAdaptiveStep
+};
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(SubModelSolveStage stage)
+{
+    switch (stage) {
+        case SubModelSolveStage::NotRun:
+            return "NotRun";
+        case SubModelSolveStage::FirstSolveRamp:
+            return "FirstSolveRamp";
+        case SubModelSolveStage::FirstSolveSingleStep:
+            return "FirstSolveSingleStep";
+        case SubModelSolveStage::SubsequentFullStep:
+            return "SubsequentFullStep";
+        case SubModelSolveStage::SubsequentAdaptiveStep:
+            return "SubsequentAdaptiveStep";
+    }
+    return "UnknownSubModelSolveStage";
+}
+
 struct SubModelSolverResult {
     bool converged{false};
+    SubModelSolveStage stage{SubModelSolveStage::NotRun};
+    int snes_reason{0};
+    PetscInt snes_iterations{0};
+    double function_norm{0.0};
+    int adaptive_substeps{0};
+    int adaptive_bisections{0};
+    double achieved_fraction{0.0};
+    bool used_arc_length{false};
 
     /// Maximum absolute value of any displacement DOF in the state vector.
     double max_displacement{0.0};

@@ -41,6 +41,7 @@ jobs:
 
       - name: Build multiscale regression targets
         run: |
+          JOBS="$(nproc)"
           for target in \
             fall_n_multiscale_api_test \
             fall_n_micro_solve_executor_test \
@@ -49,18 +50,19 @@ jobs:
             fall_n_steppable_solver_test \
             fall_n_steppable_dynamic_test
           do
-            ninja -C build -j1 "$target"
+            ninja -C build -j"$JOBS" "$target"
           done
 
       - name: Build heavy multiscale examples
         run: |
+          JOBS="$(nproc)"
           for target in \
             fall_n_lshaped_multiscale \
             fall_n_lshaped_multiscale_16 \
             fall_n_table_multiscale \
             fall_n_table_cyclic_validation
           do
-            ninja -C build -j1 "$target"
+            ninja -C build -j"$JOBS" "$target"
           done
 
       - name: Run multiscale regression tests

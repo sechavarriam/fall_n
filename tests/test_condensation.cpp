@@ -13,7 +13,9 @@
 #include <stdexcept>
 
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 
+#include "src/numerics/SparseSchurComplement.hh"
 #include "src/numerics/StaticCondensation.hh"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -81,6 +83,26 @@ static int  g_fail = 0;
         }                                                                      \
     } while (0)
 
+#define ASSERT_TRUE(expr)                                                      \
+    do {                                                                       \
+        if (!(expr)) {                                                         \
+            std::cerr << "  FAIL  " << __FILE__ << ":" << __LINE__             \
+                      << "  expected true: " << #expr << "\n";                 \
+            ++g_fail;                                                          \
+            return;                                                            \
+        }                                                                      \
+    } while (0)
+
+#define ASSERT_FALSE(expr)                                                     \
+    do {                                                                       \
+        if ((expr)) {                                                          \
+            std::cerr << "  FAIL  " << __FILE__ << ":" << __LINE__             \
+                      << "  expected false: " << #expr << "\n";                \
+            ++g_fail;                                                          \
+            return;                                                            \
+        }                                                                      \
+    } while (0)
+
 #define RUN_TEST(fn)                                                           \
     do {                                                                       \
         int _before = g_fail;                                                  \
@@ -88,6 +110,14 @@ static int  g_fail = 0;
         if (g_fail == _before) { ++g_pass; std::cout << "  PASS  " << #fn << "\n"; } \
         else                   { std::cout << "  FAIL  " << #fn << "\n"; }     \
     } while (0)
+
+static auto sparse_from_dense(const Eigen::MatrixXd& A)
+    -> Eigen::SparseMatrix<double>
+{
+    Eigen::SparseMatrix<double> sparse = A.sparseView(0.0, 0.0);
+    sparse.makeCompressed();
+    return sparse;
+}
 
 // ============================================================================
 //  Test 1 — 3×3 system: 2 external + 1 internal
@@ -431,6 +461,100 @@ void test_2x2_minimal() {
 }
 
 // ============================================================================
+//  Test 14 — Sparse Schur operator matches dense reference contraction
+// ============================================================================
+
+void test_sparse_schur_operator_matches_dense_reference() {
+    Eigen::MatrixXd K_ff(3, 3);
+    K_ff << 6.0, -1.0, 0.5,
+            -1.0, 5.0, -1.5,
+             0.5, -1.5, 4.5;
+
+    Eigen::MatrixXd K_cf(2, 3);
+    K_cf << 0.8, -0.4, 0.2,
+           -0.1,  0.6, 0.5;
+
+    Eigen::MatrixXd K_fc = K_cf.transpose();
+
+    Eigen::MatrixXd T(2, 2);
+    T << 1.0, 0.0,
+         0.25, 1.0;
+
+    Eigen::MatrixXd K_cc(2, 2);
+    K_cc << 7.0, 1.2,
+            1.2, 6.0;
+
+    const Eigen::MatrixXd expected =
+        K_cc * T - K_cf * K_ff.ldlt().solve(K_fc * T);
+
+    auto sparse_result = condensation::apply_condensed_operator(
+        sparse_from_dense(K_ff),
+        sparse_from_dense(K_cf),
+        K_fc * T,
+        K_cc * T);
+
+    ASSERT_TRUE(
+        sparse_result.status == condensation::SparseSchurStatus::Success);
+    ASSERT_MATRIX_NEAR(sparse_result.condensed_times_transfer, expected, 1e-12);
+    ASSERT_NEAR(sparse_result.solve_residual, 0.0, 1e-12);
+}
+
+// ============================================================================
+//  Test 15 — Sparse Schur workspace reuses symbolic factorization pattern
+// ============================================================================
+
+void test_sparse_schur_workspace_reuses_symbolic_pattern() {
+    Eigen::MatrixXd K_ff_1(3, 3);
+    K_ff_1 << 5.0, -1.0,  0.0,
+             -1.0, 4.5, -0.8,
+              0.0, -0.8, 3.8;
+
+    Eigen::MatrixXd K_ff_2 = K_ff_1;
+    K_ff_2(0, 0) += 0.4;
+    K_ff_2(1, 1) += 0.2;
+    K_ff_2(2, 2) += 0.1;
+
+    Eigen::MatrixXd K_cf(2, 3);
+    K_cf << 0.7, 0.0, -0.3,
+            0.2, 0.4,  0.1;
+
+    Eigen::MatrixXd K_fc_times_T(3, 2);
+    K_fc_times_T << 0.7,  0.2,
+                    0.0,  0.4,
+                   -0.25, 0.05;
+
+    Eigen::MatrixXd K_cc_times_T(2, 2);
+    K_cc_times_T << 3.5, 0.2,
+                    0.2, 2.8;
+
+    condensation::SparseSchurComplementWorkspace<Eigen::SparseMatrix<double>>
+        workspace;
+
+    const auto first = condensation::apply_condensed_operator(
+        sparse_from_dense(K_ff_1),
+        sparse_from_dense(K_cf),
+        K_fc_times_T,
+        K_cc_times_T,
+        1.0e-8,
+        &workspace);
+    const auto second = condensation::apply_condensed_operator(
+        sparse_from_dense(K_ff_2),
+        sparse_from_dense(K_cf),
+        K_fc_times_T,
+        K_cc_times_T,
+        1.0e-8,
+        &workspace);
+
+    ASSERT_TRUE(first.status == condensation::SparseSchurStatus::Success);
+    ASSERT_TRUE(second.status == condensation::SparseSchurStatus::Success);
+    ASSERT_FALSE(first.pattern_reused);
+    ASSERT_TRUE(second.pattern_reused);
+    ASSERT_TRUE(first.symbolic_factorizations == 1);
+    ASSERT_TRUE(second.symbolic_factorizations == 1);
+    ASSERT_NEAR(second.solve_residual, 0.0, 1e-12);
+}
+
+// ============================================================================
 
 int main() {
     std::cout << "=== Static Condensation Tests ===\n";
@@ -448,6 +572,8 @@ int main() {
     RUN_TEST(test_error_singular_Kii);
     RUN_TEST(test_error_recover_wrong_size);
     RUN_TEST(test_2x2_minimal);
+    RUN_TEST(test_sparse_schur_operator_matches_dense_reference);
+    RUN_TEST(test_sparse_schur_workspace_reuses_symbolic_pattern);
 
     std::cout << "\n=== " << g_pass << " PASSED, " << g_fail << " FAILED ===\n";
     return g_fail == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -328,6 +328,10 @@ void test_iterated_two_way_uses_local_step_counter()
                "report mode is IteratedTwoWayFE2");
     CHECK_TRUE(analysis.last_report().iterations >= 2,
                "iterated FE2 performs at least two fixed-point iterations");
+    CHECK_TRUE(analysis.last_responses().size() == 1,
+               "iterated FE2 exposes the accepted local response for diagnostics");
+    CHECK_TRUE(analysis.last_responses()[0].status == ResponseStatus::Ok,
+               "accepted iterated FE2 response keeps its response status");
     CHECK_TRUE(analysis.model().local_models()[0].end_calls == 1,
                "local lifecycle finalizes exactly once after accepted step");
     CHECK_TRUE(solver.commit_calls == 1,
@@ -524,6 +528,10 @@ void test_invalid_operator_counts_as_hard_failure()
         analysis.last_report().termination_reason
             == CouplingTerminationReason::MicroSolveFailed,
         "invalid operators report an explicit micro failure reason");
+    CHECK_TRUE(analysis.last_responses().size() == 1,
+               "failed coupled step still exposes the last attempted local response");
+    CHECK_TRUE(analysis.last_responses()[0].status == ResponseStatus::InvalidOperator,
+               "last attempted local response preserves invalid-operator status");
 }
 
 void test_iterated_two_way_matches_between_serial_and_openmp_executors()

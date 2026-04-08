@@ -16,6 +16,7 @@
 
 #include "../analysis/PenaltyCoupling.hh"
 #include "../analysis/MultiscaleTypes.hh"
+#include "../numerics/SparseSchurComplement.hh"
 #include "LocalBoundaryConditionApplicator.hh"
 #include "PersistentLocalStateOps.hh"
 
@@ -34,6 +35,8 @@ public:
         std::array<bool, 6> column_central{};
         double symmetry_error_before_regularization{0.0};
         double condensed_solve_residual{0.0};
+        bool condensed_pattern_reused{false};
+        std::size_t condensed_symbolic_factorizations{0};
         int failed_perturbations{0};
         bool tangent_regularized{false};
         TangentLinearizationScheme scheme{
@@ -67,6 +70,8 @@ private:
     double alpha_penalty_{0.0};
     LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator_{};
     PersistentLocalStateOps<ModelT> state_ops_{};
+    condensation::SparseSchurComplementWorkspace<SparseMatrixT>*
+        condensed_workspace_{nullptr};
 
     [[nodiscard]] static Eigen::Vector<double, 6>
     relative_generalized_dofs_(const SectionKinematics& kin_A,
@@ -456,6 +461,25 @@ private:
             > 1.0e-12;
     }
 
+    [[nodiscard]] static CondensedTangentStatus
+    condensed_status_from_sparse_schur_(
+        condensation::SparseSchurStatus status)
+    {
+        switch (status) {
+            case condensation::SparseSchurStatus::Success:
+                return CondensedTangentStatus::Success;
+            case condensation::SparseSchurStatus::FactorizationFailed:
+                return CondensedTangentStatus::FactorizationFailed;
+            case condensation::SparseSchurStatus::SolveFailed:
+                return CondensedTangentStatus::SolveFailed;
+            case condensation::SparseSchurStatus::ResidualTooLarge:
+                return CondensedTangentStatus::ResidualTooLarge;
+            case condensation::SparseSchurStatus::InvalidArguments:
+                return CondensedTangentStatus::AssemblyFailed;
+        }
+        return CondensedTangentStatus::AssemblyFailed;
+    }
+
     [[nodiscard]] CondensedAttemptResult
     compute_linearized_condensed_tangent_() const
     {
@@ -536,37 +560,47 @@ private:
             K_ff.setFromTriplets(
                 ff_triplets.begin(), ff_triplets.end(), std::plus<double>{});
             K_ff.makeCompressed();
+            SparseMatrixT K_cf(
+                static_cast<Eigen::Index>(partition.constrained_dofs.size()),
+                static_cast<Eigen::Index>(partition.free_dofs.size()));
+            K_cf.setFromTriplets(
+                cf_triplets.begin(), cf_triplets.end(), std::plus<double>{});
+            K_cf.makeCompressed();
 
-            Eigen::SparseLU<SparseMatrixT> solver;
-            solver.analyzePattern(K_ff);
-            solver.factorize(K_ff);
-            if (solver.info() != Eigen::Success) {
-                attempt.status = CondensedTangentStatus::FactorizationFailed;
+            const auto condensed =
+                condensation::apply_condensed_operator(
+                    K_ff,
+                    K_cf,
+                    k_fc_times_t,
+                    k_cc_times_t,
+                    1.0e-8,
+                    condensed_workspace_);
+            attempt.solve_residual = condensed.solve_residual;
+            if (condensed.status != condensation::SparseSchurStatus::Success) {
+                attempt.status =
+                    condensed_status_from_sparse_schur_(condensed.status);
                 return attempt;
             }
 
-            const Eigen::MatrixXd free_response = solver.solve(k_fc_times_t);
-            if (solver.info() != Eigen::Success || !free_response.allFinite()) {
-                attempt.status = CondensedTangentStatus::SolveFailed;
-                return attempt;
-            }
-
-            const double solve_residual =
-                (K_ff * free_response - k_fc_times_t).norm()
-                / std::max(1.0, k_fc_times_t.norm());
-            attempt.solve_residual = solve_residual;
-            if (!std::isfinite(solve_residual) || solve_residual > 1.0e-8) {
-                attempt.status = CondensedTangentStatus::ResidualTooLarge;
-                return attempt;
-            }
-
-            for (const auto& triplet : cf_triplets) {
-                condensed_boundary.row(triplet.row()).noalias() -=
-                    triplet.value() * free_response.row(triplet.col());
-            }
+            condensed_boundary = std::move(condensed.condensed_times_transfer);
+            attempt.solve_residual = condensed.solve_residual;
+            attempt.diagnostics.emplace();
+            attempt.diagnostics->condensed_pattern_reused =
+                condensed.pattern_reused;
+            attempt.diagnostics->condensed_symbolic_factorizations =
+                condensed.symbolic_factorizations;
         }
 
         TangentDiagnostics diagnostics;
+        if (attempt.diagnostics) {
+            diagnostics.condensed_pattern_reused =
+                attempt.diagnostics->condensed_pattern_reused;
+            diagnostics.condensed_symbolic_factorizations =
+                attempt.diagnostics->condensed_symbolic_factorizations;
+        } else if (condensed_workspace_) {
+            diagnostics.condensed_symbolic_factorizations =
+                condensed_workspace_->symbolic_factorizations();
+        }
         diagnostics.scheme =
             TangentLinearizationScheme::LinearizedCondensation;
         diagnostics.requested_mode = tangent_mode_;
@@ -695,7 +729,9 @@ public:
         const std::vector<PenaltyCouplingEntry>* penalty_couplings,
         double alpha_penalty,
         LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
-        PersistentLocalStateOps<ModelT> state_ops) noexcept
+        PersistentLocalStateOps<ModelT> state_ops,
+        condensation::SparseSchurComplementWorkspace<SparseMatrixT>*
+            condensed_workspace) noexcept
         : model_{model}
         , sub_{sub}
         , displacement_{displacement}
@@ -709,6 +745,7 @@ public:
         , alpha_penalty_{alpha_penalty}
         , bc_applicator_{bc_applicator}
         , state_ops_{state_ops}
+        , condensed_workspace_{condensed_workspace}
     {}
 
     [[nodiscard]] Eigen::Vector<double, 6> section_forces_from_reactions() const
@@ -831,6 +868,10 @@ public:
         response.condensed_tangent_status = diagnostics.condensed_status;
         response.condensed_solve_residual =
             diagnostics.condensed_solve_residual;
+        response.condensed_pattern_reused =
+            diagnostics.condensed_pattern_reused;
+        response.condensed_symbolic_factorizations =
+            diagnostics.condensed_symbolic_factorizations;
         response.perturbation_sizes = diagnostics.perturbation_sizes;
         response.tangent_column_valid = diagnostics.column_valid;
         response.tangent_column_central = diagnostics.column_central;

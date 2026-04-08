@@ -85,6 +85,10 @@ struct CrackRecord {
     double          opening_1{0}, opening_2{0}, opening_3{0};
     bool            closed_1{true}, closed_2{true}, closed_3{true};
     double          damage{0};
+    bool            damage_scalar_available{false};
+    bool            fracture_history_available{false};
+    double          sigma_o_max{0.0};
+    double          tau_o_max{0.0};
 };
 
 
@@ -95,7 +99,11 @@ struct CrackRecord {
 struct CrackSummary {
     int    num_cracked_gps{0};   ///< Gauss points with ≥1 crack
     int    total_cracks{0};      ///< sum of num_cracks across all cracked GPs
-    double max_damage{0.0};      ///< maximum scalar damage among all GPs
+    bool   damage_scalar_available{false};
+    double max_damage_scalar{std::numeric_limits<double>::quiet_NaN()};
+    bool   fracture_history_available{false};
+    double most_compressive_sigma_o_max{0.0};
+    double max_tau_o_max{0.0};
     double max_opening{0.0};     ///< maximum crack opening strain
 };
 
@@ -133,6 +141,8 @@ class NonlinearSubModelEvolver {
         LocalBoundaryConditionApplicator<MixedModel, MultiscaleSubModel>;
     using LocalHomogenizer =
         BoundaryReactionHomogenizer<MixedModel, MultiscaleSubModel>;
+    using CondensationWorkspace =
+        condensation::SparseSchurComplementWorkspace<Eigen::SparseMatrix<double>>;
 
     //  Sub-model reference 
     MultiscaleSubModel* sub_;
@@ -181,6 +191,8 @@ class NonlinearSubModelEvolver {
 
     //  Crack history 
     std::vector<CrackRecord> latest_cracks_;
+    CrackSummary latest_crack_summary_{};
+    SubModelSolverResult last_solve_result_{};
 
     //  NL solver parameters 
     int first_step_increments_{15};
@@ -191,6 +203,8 @@ class NonlinearSubModelEvolver {
     int    consecutive_divergences_{0};
     double last_good_frac_{0.5};   // cache last converged sub-step fraction
     int    arc_length_threshold_{3}; // switch after this many consecutive divergences
+    int    adaptive_max_substeps_{30};
+    int    adaptive_max_bisections_{10};
 
     //  Crack VTK filter: minimum opening to include crack plane in output.
     //  Cracks below this threshold (in strain units) are omitted from VTK
@@ -209,6 +223,8 @@ class NonlinearSubModelEvolver {
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
+    std::unique_ptr<CondensationWorkspace> condensed_workspace_{
+        std::make_unique<CondensationWorkspace>()};
 
     [[nodiscard]] StateOps make_state_ops_() noexcept
     {
@@ -235,7 +251,8 @@ class NonlinearSubModelEvolver {
             &penalty_couplings_,
             alpha_penalty_,
             make_bc_applicator_(),
-            make_state_ops_()};
+            make_state_ops_(),
+            condensed_workspace_.get()};
     }
 
 
@@ -468,12 +485,16 @@ public:
         , step_count_{o.step_count_}
         , auto_commit_{o.auto_commit_}
         , latest_cracks_{std::move(o.latest_cracks_)}
+        , latest_crack_summary_{o.latest_crack_summary_}
+        , last_solve_result_{o.last_solve_result_}
         , first_step_increments_{o.first_step_increments_}
         , first_step_bisect_{o.first_step_bisect_}
         , use_arc_length_{o.use_arc_length_}
         , consecutive_divergences_{o.consecutive_divergences_}
         , last_good_frac_{o.last_good_frac_}
         , arc_length_threshold_{o.arc_length_threshold_}
+        , adaptive_max_substeps_{o.adaptive_max_substeps_}
+        , adaptive_max_bisections_{o.adaptive_max_bisections_}
         , min_crack_opening_{o.min_crack_opening_}
         , alpha_penalty_{o.alpha_penalty_}
         , snes_max_it_{o.snes_max_it_}
@@ -483,7 +504,11 @@ public:
         , diagonal_floor_{o.diagonal_floor_}
         , tangent_mode_{o.tangent_mode_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
+        , condensed_workspace_{std::move(o.condensed_workspace_)}
     {
+        if (!condensed_workspace_) {
+            condensed_workspace_ = std::make_unique<CondensationWorkspace>();
+        }
         ctx_ = {model_.get(), f_ext_,
                 &penalty_couplings_, alpha_penalty_};
     }
@@ -511,12 +536,16 @@ public:
             step_count_    = o.step_count_;
             auto_commit_   = o.auto_commit_;
             latest_cracks_ = std::move(o.latest_cracks_);
+            latest_crack_summary_ = o.latest_crack_summary_;
+            last_solve_result_ = o.last_solve_result_;
             first_step_increments_ = o.first_step_increments_;
             first_step_bisect_     = o.first_step_bisect_;
             use_arc_length_          = o.use_arc_length_;
             consecutive_divergences_ = o.consecutive_divergences_;
             last_good_frac_          = o.last_good_frac_;
             arc_length_threshold_    = o.arc_length_threshold_;
+            adaptive_max_substeps_   = o.adaptive_max_substeps_;
+            adaptive_max_bisections_ = o.adaptive_max_bisections_;
             min_crack_opening_       = o.min_crack_opening_;
             alpha_penalty_           = o.alpha_penalty_;
             snes_max_it_             = o.snes_max_it_;
@@ -526,6 +555,11 @@ public:
             diagonal_floor_          = o.diagonal_floor_;
             tangent_mode_            = o.tangent_mode_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
+            condensed_workspace_     = std::move(o.condensed_workspace_);
+            if (!condensed_workspace_) {
+                condensed_workspace_ =
+                    std::make_unique<CondensationWorkspace>();
+            }
             ctx_ = {model_.get(), f_ext_,
                     &penalty_couplings_, alpha_penalty_};
         }
@@ -562,6 +596,12 @@ public:
 
     void enable_arc_length(bool flag = true) { use_arc_length_ = flag; }
     void set_arc_length_threshold(int t) { arc_length_threshold_ = t; }
+    void set_adaptive_substepping_limits(int max_substeps,
+                                         int max_bisections) noexcept
+    {
+        adaptive_max_substeps_ = std::max(1, max_substeps);
+        adaptive_max_bisections_ = std::max(1, max_bisections);
+    }
     [[nodiscard]] bool arc_length_active() const noexcept { return use_arc_length_; }
 
     /// Set minimum crack opening (strain units) for VTK export filtering.
@@ -671,6 +711,8 @@ public:
         else
             result = subsequent_solve();
 
+        last_solve_result_ = result;
+
         // Crack data & VTK output are NOT performed here during staggered
         // iterations — the caller should use end_of_step() once per global
         // time step after the staggered loop converges.  This avoids
@@ -685,7 +727,7 @@ public:
     void end_of_step(double time) {
         collect_crack_data();
 
-        if (step_count_ % vtk_interval_ == 0)
+        if (vtk_interval_ > 0 && step_count_ % vtk_interval_ == 0)
             write_vtk_snapshot(time);
 
         ++step_count_;
@@ -779,6 +821,9 @@ public:
     //  Finalize 
 
     void finalize() {
+        if (vtk_interval_ <= 0) {
+            return;
+        }
         pvd_mesh_.write();
         pvd_gauss_.write();
         pvd_cracks_.write();
@@ -798,17 +843,12 @@ public:
     [[nodiscard]] const std::vector<CrackRecord>& latest_cracks() const noexcept {
         return latest_cracks_;
     }
+    [[nodiscard]] const SubModelSolverResult& last_solve_result() const noexcept {
+        return last_solve_result_;
+    }
 
     [[nodiscard]] CrackSummary crack_summary() const noexcept {
-        CrackSummary s;
-        for (const auto& cr : latest_cracks_) {
-            ++s.num_cracked_gps;
-            s.total_cracks += cr.num_cracks;
-            s.max_damage    = std::max(s.max_damage, cr.damage);
-            s.max_opening   = std::max({s.max_opening,
-                                        cr.opening_1, cr.opening_2, cr.opening_3});
-        }
-        return s;
+        return latest_crack_summary_;
     }
 
 
@@ -1065,6 +1105,9 @@ private:
     //  First solve: build model + incremental loading from zero 
 
     SubModelSolverResult first_solve() {
+        SubModelSolverResult diagnostics;
+        diagnostics.used_arc_length = false;
+
         // 1. Build material + model (via injectable factories)
         Material<Policy> mat = concrete_factory_->create();
 
@@ -1111,6 +1154,7 @@ private:
 
         // 2.5. Pre-compute penalty coupling for embedded rebar
         compute_penalty_couplings();
+        condensed_workspace_->reset();
 
         // 3. Set up persistent SNES + allocate U, R, J
         setup_snes();
@@ -1120,8 +1164,18 @@ private:
 
             SNESConvergedReason reason;
             SNESGetConvergedReason(snes_, &reason);
+            PetscInt nits = 0;
+            SNESGetIterationNumber(snes_, &nits);
+            PetscReal fnorm = 0.0;
+            SNESGetFunctionNorm(snes_, &fnorm);
 
             const bool converged = (reason > 0);
+            diagnostics.stage = SubModelSolveStage::FirstSolveSingleStep;
+            diagnostics.converged = converged;
+            diagnostics.snes_reason = static_cast<int>(reason);
+            diagnostics.snes_iterations = nits;
+            diagnostics.function_norm = static_cast<double>(fnorm);
+            diagnostics.achieved_fraction = converged ? 1.0 : 0.0;
             if (converged) {
                 sync_state_vector_();
             } else {
@@ -1131,7 +1185,14 @@ private:
             }
 
             model_ready_ = true;
-            return extract_results(converged);
+            auto result = extract_results(converged);
+            result.stage = diagnostics.stage;
+            result.snes_reason = diagnostics.snes_reason;
+            result.snes_iterations = diagnostics.snes_iterations;
+            result.function_norm = diagnostics.function_norm;
+            result.achieved_fraction = diagnostics.achieved_fraction;
+            result.used_arc_length = diagnostics.used_arc_length;
+            return result;
         }
 
         // 4. Save target imposed values, then do incremental loading
@@ -1141,6 +1202,10 @@ private:
 
         bool converged = true;
         const int N = first_step_increments_;
+        int completed_substeps = 0;
+        int last_reason = 0;
+        PetscInt last_nits = 0;
+        double last_fnorm = 0.0;
 
         // Debug: check target BC norm
         {
@@ -1169,6 +1234,9 @@ private:
 
             PetscReal fnorm;
             SNESGetFunctionNorm(snes_, &fnorm);
+            last_reason = static_cast<int>(reason);
+            last_nits = nits;
+            last_fnorm = static_cast<double>(fnorm);
 
             std::println("  [first_solve] k={}/{} p={:.4f} reason={} iters={} ||F||={:.4e}",
                          k, N, p, static_cast<int>(reason), nits, fnorm);
@@ -1178,6 +1246,7 @@ private:
                     commit_state();
                 else
                     sync_state_vector_();
+                completed_substeps = k;
             } else {
                 revert_state();
                 converged = false;
@@ -1188,7 +1257,17 @@ private:
         VecDestroy(&target);
         model_ready_ = true;
 
-        return extract_results(converged);
+        auto result = extract_results(converged);
+        result.stage = SubModelSolveStage::FirstSolveRamp;
+        result.snes_reason = last_reason;
+        result.snes_iterations = last_nits;
+        result.function_norm = last_fnorm;
+        result.adaptive_substeps = completed_substeps;
+        result.achieved_fraction =
+            (N > 0) ? static_cast<double>(completed_substeps) / static_cast<double>(N)
+                    : 0.0;
+        result.used_arc_length = false;
+        return result;
     }
 
 
@@ -1219,6 +1298,10 @@ private:
 
         SNESConvergedReason reason;
         SNESGetConvergedReason(snes_, &reason);
+        PetscInt nits = 0;
+        SNESGetIterationNumber(snes_, &nits);
+        PetscReal fnorm = 0.0;
+        SNESGetFunctionNorm(snes_, &fnorm);
 
         bool converged = (reason > 0);
         if (converged) {
@@ -1243,7 +1326,14 @@ private:
             }
         }
 
-        return extract_results(converged);
+        auto result = extract_results(converged);
+        result.stage = SubModelSolveStage::SubsequentFullStep;
+        result.snes_reason = static_cast<int>(reason);
+        result.snes_iterations = nits;
+        result.function_norm = static_cast<double>(fnorm);
+        result.achieved_fraction = converged ? 1.0 : 0.0;
+        result.used_arc_length = false;
+        return result;
     }
 
 
@@ -1255,9 +1345,9 @@ private:
     //  The method fails only when the minimum step fraction is reached.
 
     SubModelSolverResult subsequent_solve_adaptive() {
-        static constexpr int    MAX_BISECT  = 10;   // 2^10 = 1024 minimum sub-steps
-        static constexpr double MIN_FRAC    = 1.0 / (1 << MAX_BISECT);
-        static constexpr int    MAX_SUBSTEPS = 30;  // budget: stop after this many
+        const int MAX_BISECT = adaptive_max_bisections_;
+        const double MIN_FRAC = std::ldexp(1.0, -MAX_BISECT);
+        const int MAX_SUBSTEPS = adaptive_max_substeps_;
 
         // 1. Save previous imposed values (last converged step's BCs)
         Vec imp_prev;
@@ -1277,6 +1367,9 @@ private:
         int    total_subs = 0;
         int    total_bisections = 0;
         bool   all_converged = true;
+        int    last_reason = 0;
+        PetscInt last_snes_iters = 0;
+        double last_fnorm = 0.0;
 
         // Save U at last converged sub-step for restoration on failure
         Vec U_checkpoint;
@@ -1297,6 +1390,11 @@ private:
             SNESGetConvergedReason(snes_, &reason);
             PetscInt snes_iters;
             SNESGetIterationNumber(snes_, &snes_iters);
+            PetscReal fnorm = 0.0;
+            SNESGetFunctionNorm(snes_, &fnorm);
+            last_reason = static_cast<int>(reason);
+            last_snes_iters = snes_iters;
+            last_fnorm = static_cast<double>(fnorm);
 
             if (reason > 0) {
                 commit_state();
@@ -1330,7 +1428,7 @@ private:
                 }
             }
 
-            if (total_subs >= MAX_SUBSTEPS) {
+            if (total_subs >= MAX_SUBSTEPS && progress < 1.0 - 1e-12) {
                 all_converged = false;
                 break;
             }
@@ -1363,7 +1461,16 @@ private:
         VecDestroy(&imp_target);
         VecDestroy(&U_checkpoint);
 
-        return extract_results(all_converged);
+        auto result = extract_results(all_converged);
+        result.stage = SubModelSolveStage::SubsequentAdaptiveStep;
+        result.snes_reason = last_reason;
+        result.snes_iterations = last_snes_iters;
+        result.function_norm = last_fnorm;
+        result.adaptive_substeps = total_subs;
+        result.adaptive_bisections = total_bisections;
+        result.achieved_fraction = progress;
+        result.used_arc_length = true;
+        return result;
     }
 
 
@@ -1435,7 +1542,9 @@ private:
 
     void collect_crack_data() {
         latest_cracks_.clear();
+        latest_crack_summary_ = {};
         if (!model_) return;
+        const bool retain_detail = vtk_interval_ > 0;
 
         DM dm = model_->get_plex();
         Vec u_local;
@@ -1453,32 +1562,33 @@ private:
         struct GaussInfo { Eigen::Vector3d pos, disp; };
         std::vector<GaussInfo> gp_info;
 
-        const PetscScalar* u_arr;
-        VecGetArrayRead(u_local, &u_arr);
+        if (retain_detail) {
+            const PetscScalar* u_arr;
+            VecGetArrayRead(u_local, &u_arr);
 
-        for (std::size_t ei = 0; ei < rebar_first; ++ei) {
-            auto& geom = domain.elements()[ei];
-            const auto nn  = geom.num_nodes();
-            const auto ngp = geom.num_integration_points();
+            for (std::size_t ei = 0; ei < rebar_first; ++ei) {
+                auto& geom = domain.elements()[ei];
+                const auto nn  = geom.num_nodes();
+                const auto ngp = geom.num_integration_points();
 
-            for (std::size_t g = 0; g < ngp; ++g) {
-                const auto& ip = geom.integration_points()[g];
-                Eigen::Vector3d pos{ip.coord(0), ip.coord(1), ip.coord(2)};
+                for (std::size_t g = 0; g < ngp; ++g) {
+                    const auto& ip = geom.integration_points()[g];
+                    Eigen::Vector3d pos{ip.coord(0), ip.coord(1), ip.coord(2)};
 
-                // Interpolate displacement at this GP
-                const auto xi = geom.reference_integration_point(g);
-                Eigen::Vector3d disp = Eigen::Vector3d::Zero();
-                for (std::size_t i = 0; i < nn; ++i) {
-                    const double Ni = geom.H(i, xi);
-                    const auto& nd = domain.node(geom.node(i));
-                    for (std::size_t d = 0; d < 3; ++d)
-                        disp[d] += Ni * u_arr[nd.dof_index()[d]];
+                    // Interpolate displacement at this GP
+                    const auto xi = geom.reference_integration_point(g);
+                    Eigen::Vector3d disp = Eigen::Vector3d::Zero();
+                    for (std::size_t i = 0; i < nn; ++i) {
+                        const double Ni = geom.H(i, xi);
+                        const auto& nd = domain.node(geom.node(i));
+                        for (std::size_t d = 0; d < 3; ++d)
+                            disp[d] += Ni * u_arr[nd.dof_index()[d]];
+                    }
+                    gp_info.push_back({pos, disp});
                 }
-                gp_info.push_back({pos, disp});
             }
+            VecRestoreArrayRead(u_local, &u_arr);
         }
-
-        VecRestoreArrayRead(u_local, &u_arr);
 
         // Iterate over ContinuumElement model elements (same order as domain 0..rebar_first)
         std::size_t flat_gp = 0;
@@ -1487,34 +1597,72 @@ private:
             if (snaps.empty()) continue;  // skip truss elements (no material_points)
 
             for (const auto& snap : snaps) {
-                if (snap.num_cracks > 0 && flat_gp < gp_info.size()) {
+                if (snap.num_cracks > 0) {
                     // Filter: skip GPs where all crack openings are below threshold
                     double max_open = snap.crack_openings[0];
                     if (snap.num_cracks >= 2) max_open = std::max(max_open, snap.crack_openings[1]);
                     if (snap.num_cracks >= 3) max_open = std::max(max_open, snap.crack_openings[2]);
 
                     if (max_open >= min_crack_opening_) {
-                        CrackRecord cr;
-                        cr.position     = gp_info[flat_gp].pos;
-                        cr.displacement = gp_info[flat_gp].disp;
-                        cr.num_cracks   = snap.num_cracks;
-                        cr.damage       = snap.damage;
+                        ++latest_crack_summary_.num_cracked_gps;
+                        latest_crack_summary_.total_cracks += snap.num_cracks;
+                        latest_crack_summary_.max_opening =
+                            std::max(latest_crack_summary_.max_opening, max_open);
 
-                        cr.normal_1  = snap.crack_normals[0];
-                        cr.opening_1 = snap.crack_openings[0];
-                        cr.closed_1  = snap.crack_closed[0];
+                        if (snap.damage_scalar_available) {
+                            if (!latest_crack_summary_.damage_scalar_available) {
+                                latest_crack_summary_.max_damage_scalar =
+                                    snap.damage;
+                            } else {
+                                latest_crack_summary_.max_damage_scalar =
+                                    std::max(latest_crack_summary_.max_damage_scalar,
+                                             snap.damage);
+                            }
+                            latest_crack_summary_.damage_scalar_available = true;
+                        }
+                        if (snap.fracture_history_available) {
+                            if (!latest_crack_summary_.fracture_history_available) {
+                                latest_crack_summary_.most_compressive_sigma_o_max =
+                                    snap.sigma_o_max;
+                            } else {
+                                latest_crack_summary_.most_compressive_sigma_o_max =
+                                    std::min(latest_crack_summary_.most_compressive_sigma_o_max,
+                                             snap.sigma_o_max);
+                            }
+                            latest_crack_summary_.max_tau_o_max =
+                                std::max(latest_crack_summary_.max_tau_o_max,
+                                         snap.tau_o_max);
+                            latest_crack_summary_.fracture_history_available = true;
+                        }
 
-                        if (cr.num_cracks >= 2) {
-                            cr.normal_2  = snap.crack_normals[1];
-                            cr.opening_2 = snap.crack_openings[1];
-                            cr.closed_2  = snap.crack_closed[1];
+                        if (retain_detail && flat_gp < gp_info.size()) {
+                            CrackRecord cr;
+                            cr.position     = gp_info[flat_gp].pos;
+                            cr.displacement = gp_info[flat_gp].disp;
+                            cr.num_cracks   = snap.num_cracks;
+                            cr.damage       = snap.damage;
+                            cr.damage_scalar_available = snap.damage_scalar_available;
+                            cr.fracture_history_available =
+                                snap.fracture_history_available;
+                            cr.sigma_o_max = snap.sigma_o_max;
+                            cr.tau_o_max   = snap.tau_o_max;
+
+                            cr.normal_1  = snap.crack_normals[0];
+                            cr.opening_1 = snap.crack_openings[0];
+                            cr.closed_1  = snap.crack_closed[0];
+
+                            if (cr.num_cracks >= 2) {
+                                cr.normal_2  = snap.crack_normals[1];
+                                cr.opening_2 = snap.crack_openings[1];
+                                cr.closed_2  = snap.crack_closed[1];
+                            }
+                            if (cr.num_cracks >= 3) {
+                                cr.normal_3  = snap.crack_normals[2];
+                                cr.opening_3 = snap.crack_openings[2];
+                                cr.closed_3  = snap.crack_closed[2];
+                            }
+                            latest_cracks_.push_back(cr);
                         }
-                        if (cr.num_cracks >= 3) {
-                            cr.normal_3  = snap.crack_normals[2];
-                            cr.opening_3 = snap.crack_openings[2];
-                            cr.closed_3  = snap.crack_closed[2];
-                        }
-                        latest_cracks_.push_back(cr);
                     }
                 }
                 ++flat_gp;

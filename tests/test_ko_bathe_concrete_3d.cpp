@@ -23,6 +23,7 @@
 
 #include "../src/materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
 #include "../src/materials/ConstitutiveRelation.hh"
+#include "../src/materials/Material.hh"
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -272,6 +273,39 @@ void test_tension_cracking_3d() {
 
 
 // =============================================================================
+//  Test 5b: Internal-field snapshot semantics remain honest in 3D
+// =============================================================================
+
+void test_internal_field_snapshot_semantics_3d() {
+    std::cout << "\nâ”€â”€ Test 5b: 3D internal-field snapshot semantics â”€â”€â”€â”€â”€â”€\n";
+
+    KoBatheConcrete3D model(30.0);
+    constexpr int n_steps = 64;
+    for (int i = 1; i <= n_steps; ++i) {
+        Strain<6> eps;
+        Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+        v[0] = 1.2e-3 * static_cast<double>(i) / static_cast<double>(n_steps);
+        eps.set_components(v);
+        model.update(eps);
+        if (model.internal_state().num_cracks > 0) {
+            break;
+        }
+    }
+    const auto snap = impl::make_internal_field_snapshot(model);
+
+    check(snap.has_cracks(), "Snapshot reports smeared-crack metadata");
+    check(!snap.has_damage(),
+          "Snapshot does not fabricate a scalar damage variable for Ko-Bathe 3D");
+    check(snap.has_fracture_history(),
+          "Snapshot exposes fracture-history invariants");
+    check(snap.num_cracks.has_value(),
+          "Snapshot carries an explicit crack-count channel even when the count stays zero");
+    check(snap.tau_o_max.value_or(0.0) >= 0.0,
+          "Snapshot reports non-negative tau_o_max");
+}
+
+
+// =============================================================================
 //  Test 6: Mandel rotation matrix orthogonality
 // =============================================================================
 
@@ -497,6 +531,7 @@ int main() {
     test_uniaxial_compression_3d();
     test_triaxial_compression_3d();
     test_tension_cracking_3d();
+    test_internal_field_snapshot_semantics_3d();
     test_mandel_rotation();
     test_biaxial_compression_3d();
     test_commit_cycle_3d();
