@@ -5,6 +5,7 @@
 #include <petscksp.h>
 
 #include "../model/Model.hh"
+#include "../petsc/KspCompatibility.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
 
@@ -67,7 +68,7 @@ public:
     void setup_solver(){
         FALL_N_PETSC_CHECK(KSPSetDM(solver_.get(), model_->get_plex()));
         FALL_N_PETSC_CHECK(KSPSetFromOptions(solver_.get()));
-        FALL_N_PETSC_CHECK(KSPSetDMActive(solver_.get(), PETSC_FALSE));
+        FALL_N_PETSC_CHECK(petsc::disable_dm_activity_for_manual_linear_solve(solver_.get()));
     }
 
     void commit_model_state(){
