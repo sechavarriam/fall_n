@@ -30,11 +30,19 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-pkgconf
-            mingw-w64-ucrt-x86_64-openmpi
+            mingw-w64-ucrt-x86_64-msmpi
             mingw-w64-ucrt-x86_64-eigen3
             mingw-w64-ucrt-x86_64-vtk
             mingw-w64-ucrt-x86_64-petsc
-            texlive
+            mingw-w64-ucrt-x86_64-texlive-core
+            mingw-w64-ucrt-x86_64-texlive-latex-recommended
+            mingw-w64-ucrt-x86_64-texlive-latex-extra
+            mingw-w64-ucrt-x86_64-texlive-pictures
+            mingw-w64-ucrt-x86_64-texlive-science
+            mingw-w64-ucrt-x86_64-texlive-fonts-recommended
+            mingw-w64-ucrt-x86_64-texlive-plain-generic
+            mingw-w64-ucrt-x86_64-texlive-extra-utils
+            mingw-w64-ucrt-x86_64-texlive-lang-english
 
       - name: Configure
         run: cmake -S . -B build -G Ninja
