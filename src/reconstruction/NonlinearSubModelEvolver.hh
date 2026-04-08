@@ -223,6 +223,8 @@ class NonlinearSubModelEvolver {
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
     double tangent_validation_relative_tolerance_{1.0e-1};
+    TangentValidationNormKind tangent_validation_norm_{
+        TangentValidationNormKind::StateWeightedFrobenius};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
     std::unique_ptr<CondensationWorkspace> condensed_workspace_{
         std::make_unique<CondensationWorkspace>()};
@@ -237,7 +239,9 @@ class NonlinearSubModelEvolver {
         return BoundaryConditionApplicator{model_.get(), sub_};
     }
 
-    [[nodiscard]] LocalHomogenizer make_local_homogenizer_() noexcept
+    [[nodiscard]] LocalHomogenizer make_local_homogenizer_(
+        double section_width = 0.0,
+        double section_height = 0.0) noexcept
     {
         return LocalHomogenizer{
             model_.get(),
@@ -250,6 +254,9 @@ class NonlinearSubModelEvolver {
             diagonal_floor_,
             tangent_mode_,
             tangent_validation_relative_tolerance_,
+            tangent_validation_norm_,
+            section_width,
+            section_height,
             &penalty_couplings_,
             alpha_penalty_,
             make_bc_applicator_(),
@@ -507,6 +514,7 @@ public:
         , tangent_mode_{o.tangent_mode_}
         , tangent_validation_relative_tolerance_{
               o.tangent_validation_relative_tolerance_}
+        , tangent_validation_norm_{o.tangent_validation_norm_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
     {
@@ -560,6 +568,7 @@ public:
             tangent_mode_            = o.tangent_mode_;
             tangent_validation_relative_tolerance_ =
                 o.tangent_validation_relative_tolerance_;
+            tangent_validation_norm_ = o.tangent_validation_norm_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             condensed_workspace_     = std::move(o.condensed_workspace_);
             if (!condensed_workspace_) {
@@ -646,6 +655,12 @@ public:
         tangent_validation_relative_tolerance_ = std::max(0.0, tolerance);
     }
 
+    void set_tangent_validation_norm(
+        TangentValidationNormKind norm) noexcept
+    {
+        tangent_validation_norm_ = norm;
+    }
+
     [[nodiscard]] TangentComputationMode tangent_computation_mode()
         const noexcept
     {
@@ -656,6 +671,12 @@ public:
         const noexcept
     {
         return tangent_validation_relative_tolerance_;
+    }
+
+    [[nodiscard]] TangentValidationNormKind tangent_validation_norm()
+        const noexcept
+    {
+        return tangent_validation_norm_;
     }
 
     void commit_trial_state() {
@@ -892,7 +913,8 @@ public:
                                 [[maybe_unused]] double height,
                                 double h_pert = 1.0e-6)
     {
-        return make_local_homogenizer_().compute_homogenized_tangent(h_pert);
+        return make_local_homogenizer_(width, height)
+            .compute_homogenized_tangent(h_pert);
     }
 
 
@@ -908,7 +930,8 @@ public:
     compute_homogenized_forces([[maybe_unused]] double width,
                                [[maybe_unused]] double height) {
         if (!model_ready_) return Eigen::Vector<double, 6>::Zero();
-        return make_local_homogenizer_().compute_homogenized_forces();
+        return make_local_homogenizer_(width, height)
+            .compute_homogenized_forces();
     }
 
     [[nodiscard]] Eigen::Vector<double, 6>
@@ -940,9 +963,7 @@ public:
 
     [[nodiscard]] SectionHomogenizedResponse
     section_response(double width, double height, double h_pert = 1.0e-6) {
-        (void)width;
-        (void)height;
-        return make_local_homogenizer_().section_response(h_pert);
+        return make_local_homogenizer_(width, height).section_response(h_pert);
     }
 
     void sync_state_vector_() {
