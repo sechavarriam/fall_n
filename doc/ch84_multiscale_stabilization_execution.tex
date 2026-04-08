@@ -175,11 +175,40 @@ is
 and the implementation falls back to one-sided differentiation only when one of
 the two perturbation solves fails.
 
+The present pass extended that fallback story into a runtime audit mode.  The
+local solver can now request
+\texttt{ValidateCondensationAgainstAdaptiveFiniteDifference}, which first
+builds the sparse condensed tangent and then computes an adaptive
+finite-difference reference on the same converged state.  The implementation
+reports the global operator gap
+\begin{equation}
+  \eta_{\mathbf{D}}
+  =
+  \frac{\lVert \mathbf{D}_{\mathrm{cond}}
+         - \mathbf{D}_{\mathrm{fd}} \rVert_F}
+       {\max\!\left(1,
+           \lVert \mathbf{D}_{\mathrm{cond}} \rVert_F,
+           \lVert \mathbf{D}_{\mathrm{fd}} \rVert_F\right)}
+\end{equation}
+and the worst per-column diagnostic
+\begin{equation}
+  \eta_{\max} = \max_j \eta_j.
+\end{equation}
+The automatic acceptance gate currently uses \(\eta_{\mathbf{D}}\), while
+\(\eta_{\max}\) is retained as a visible diagnostic only.  That choice was
+made after the audit showed that raw columnwise Euclidean gaps can be dominated
+by the mixed units of section operators (forces and moments in the same
+column), which makes them useful as warnings but not yet mature enough to act
+as the sole production gate.
+
 The public response object now records:
 \begin{itemize}
   \item the tangent computation mode requested;
   \item the tangent scheme used;
   \item the status of the condensed operator attempt;
+  \item the runtime validation status of the condensed operator;
+  \item the configured validation tolerance;
+  \item the measured global and per-column validation gaps;
   \item the sparse condensed solve residual when that path is attempted;
   \item the perturbation size used for each column;
   \item whether each column is valid;
@@ -194,9 +223,11 @@ The stabilization deliberately stopped calling every non-perfect response
 ``successful''.  The public status contract is now:
 \begin{description}
   \item[\texttt{Ok}] the condensed operator was assembled successfully, all
-    tangent columns are valid, and no actual regularisation was applied;
+    tangent columns are valid, no actual regularisation was applied, and any
+    requested runtime validation either passed or was not requested;
   \item[\texttt{Degraded}] a usable response exists, but at least one
-    fallback to finite differences or actual tangent regularisation occurred;
+    fallback to finite differences, actual tangent regularisation, or
+    unavailable runtime validation reference occurred;
   \item[\texttt{SolveFailed}] the response is not usable as a section operator;
   \item[\texttt{NotReady}/\texttt{InvalidOperator}] explicit non-solution
     states.
@@ -255,6 +286,14 @@ stabilization matrix:
   \item \texttt{test\_condensed\_operator\_reuses\_symbolic\_pattern}:
     verifies the same reuse property through the full
     \texttt{NonlinearSubModelEvolver} path, not only in the low-level utility.
+  \item \texttt{test\_validated\_condensed\_operator\_accepts\_elastic\_case}:
+    verifies that the runtime audit mode keeps the sparse condensed tangent on
+    the production path when the measured global operator gap stays below the
+    configured tolerance.
+  \item \texttt{test\_validated\_condensed\_operator\_rejects\_with\_strict\_tolerance}:
+    verifies that the same runtime audit mode falls back explicitly to adaptive
+    finite differences and reports \texttt{ValidationRejected} when the
+    tolerance is made artificially strict.
 \end{itemize}
 
 The purpose of this extra layer is architectural as much as numerical.  The
@@ -362,14 +401,31 @@ stabilization gate is to show that the production condensed operator and the
 validation fallback remain close on a coupled elastic state while still making
 their non-zero discrepancy explicit.
 
+The new runtime audit mode made that comparison part of the API itself rather
+than a test-only post-mortem.  On the same elastic mixed-mode state, the
+audited runtime validation metrics were
+\begin{align}
+  \eta_{\mathbf{D}} &= 4.60221\times 10^{-2}, \\
+  \eta_{\max} &= 5.82414\times 10^{-1}.
+\end{align}
+With a validation tolerance of \(7.5\times 10^{-2}\), the runtime audit keeps
+the sparse condensed operator on the production path and reports
+\texttt{TangentValidationStatus::Accepted}.  With a deliberately strict
+tolerance of \(10^{-8}\), the same case falls back to adaptive finite
+differences and reports
+\texttt{CondensedTangentStatus::ValidationRejected}.  This pair of tests is
+important because it closes the scientific-observability gap: the code now
+proves both branches of the runtime decision, not just the existence of a
+numerical discrepancy.
+
 \subsection{Executed regression targets}
 
 The following focused executables were rebuilt and executed locally after the
-stabilization changes:
+runtime-validation extension of the stabilization changes:
 \begin{itemize}
-  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 39 passed, 0 failed;
+  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 43 passed, 0 failed;
   \item \texttt{fall\_n\_micro\_solve\_executor\_test.exe}: 6 passed, 0 failed;
-  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 90 passed, 0 failed;
+  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 123 passed, 0 failed;
   \item \texttt{fall\_n\_heterogeneity\_test.exe}: 26 passed, 0 failed;
   \item \texttt{fall\_n\_beam\_test.exe}: 21 passed, 0 failed;
   \item \texttt{fall\_n\_steppable\_solver\_test.exe}: 48 passed, 0 failed;

@@ -35,6 +35,13 @@ void check(bool cond, const char* msg)
     return (a - b).norm() / denom;
 }
 
+[[nodiscard]] double relative_norm(const Eigen::Matrix<double, 6, 6>& a,
+                                   const Eigen::Matrix<double, 6, 6>& b)
+{
+    const double denom = std::max({1.0, a.norm(), b.norm()});
+    return (a - b).norm() / denom;
+}
+
 [[nodiscard]] ElementKinematics make_ek(
     std::size_t id,
     const Eigen::Vector3d& u_B,
@@ -442,6 +449,120 @@ void test_condensed_operator_matches_forced_fd()
           "condensed and forced FD paths read the same boundary forces");
 }
 
+void test_validated_condensed_operator_accepts_elastic_case()
+{
+    std::cout << "\n== Validated condensed operator acceptance ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    const auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 2.5e-5, -1.5e-5},
+        Eigen::Vector3d{2.0e-5, 1.0e-5, -1.5e-5});
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "mixed elastic reference case converges before validated acceptance");
+
+    ev.set_tangent_computation_mode(
+        TangentComputationMode::
+            ValidateCondensationAgainstAdaptiveFiniteDifference);
+    ev.set_tangent_validation_relative_tolerance(7.5e-2);
+    const auto validated = ev.section_response(W, H, 1.0e-6);
+
+    std::cout << std::setprecision(6)
+              << "  validation_relative_gap = "
+              << validated.tangent_validation_relative_gap << "\n"
+              << "  validation_max_column_gap = "
+              << validated.tangent_validation_max_column_gap << "\n";
+
+    check(validated.tangent_mode_requested
+              == TangentComputationMode::
+                  ValidateCondensationAgainstAdaptiveFiniteDifference,
+          "validated path reports the requested runtime audit mode");
+    check(validated.tangent_scheme
+              == TangentLinearizationScheme::LinearizedCondensation,
+          "accepted runtime audit keeps the condensed tangent in production");
+    check(validated.condensed_tangent_status
+              == CondensedTangentStatus::Success,
+          "accepted runtime audit preserves the condensed success status");
+    check(validated.tangent_validation_status
+              == TangentValidationStatus::Accepted,
+          "accepted runtime audit reports a successful FD validation");
+    check(validated.status == ResponseStatus::Ok,
+          "accepted runtime audit remains a production-quality response");
+    check(validated.tangent_validation_relative_gap
+              <= validated.tangent_validation_relative_tolerance,
+          "validated condensed operator satisfies the matrix-gap tolerance");
+    check(validated.tangent_validation_max_column_gap
+              >= validated.tangent_validation_relative_gap,
+          "validated runtime audit exposes the worst per-column gap as a diagnostic");
+}
+
+void test_validated_condensed_operator_rejects_with_strict_tolerance()
+{
+    std::cout << "\n== Validated condensed operator rejection ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    const auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 2.5e-5, -1.5e-5},
+        Eigen::Vector3d{2.0e-5, 1.0e-5, -1.5e-5});
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "mixed elastic reference case converges before validated rejection");
+
+    ev.set_tangent_computation_mode(
+        TangentComputationMode::
+            ValidateCondensationAgainstAdaptiveFiniteDifference);
+    ev.set_tangent_validation_relative_tolerance(1.0e-8);
+    const auto validated = ev.section_response(W, H, 1.0e-6);
+
+    ev.set_tangent_computation_mode(
+        TangentComputationMode::ForceAdaptiveFiniteDifference);
+    const auto forced_fd = ev.section_response(W, H, 1.0e-6);
+
+    const double tangent_gap =
+        relative_norm(validated.tangent, forced_fd.tangent);
+
+    std::cout << std::setprecision(6)
+              << "  rejected_validation_relative_gap = "
+              << validated.tangent_validation_relative_gap << "\n"
+              << "  rejected_validation_max_column_gap = "
+              << validated.tangent_validation_max_column_gap << "\n";
+
+    check(validated.tangent_scheme
+              == TangentLinearizationScheme::AdaptiveFiniteDifference,
+          "rejected runtime audit falls back to adaptive finite differences");
+    check(validated.condensed_tangent_status
+              == CondensedTangentStatus::ValidationRejected,
+          "rejected runtime audit exposes validation rejection explicitly");
+    check(validated.tangent_validation_status
+              == TangentValidationStatus::Rejected,
+          "rejected runtime audit reports the failed validation");
+    check(validated.status == ResponseStatus::Degraded,
+          "rejected runtime audit degrades the response instead of hiding the fallback");
+    check(validated.tangent_validation_relative_gap
+              > validated.tangent_validation_relative_tolerance,
+          "strict runtime audit rejects because the measured gap exceeds tolerance");
+    check(tangent_gap < 1.0e-12,
+          "rejected runtime audit returns the same tangent as the forced FD reference");
+}
+
 void test_condensed_operator_reuses_symbolic_pattern()
 {
     std::cout << "\n== Condensed operator pattern reuse ==\n";
@@ -503,6 +624,8 @@ int main(int argc, char** argv)
     test_linearized_consistency_energy_and_operator_comparison();
     test_crack_summary_keeps_missing_damage_scalar_honest();
     test_condensed_operator_matches_forced_fd();
+    test_validated_condensed_operator_accepts_elastic_case();
+    test_validated_condensed_operator_rejects_with_strict_tolerance();
     test_condensed_operator_reuses_symbolic_pattern();
 
     std::cout << "\n" << std::string(72, '=') << "\n"

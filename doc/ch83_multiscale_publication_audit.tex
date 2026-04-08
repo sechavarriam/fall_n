@@ -135,6 +135,10 @@ The macro-scale injection contract is
 \end{equation}
 with \(\mathbf{e}_0\) stored as \texttt{strain\_ref}.  This eliminates the
 ambiguity of ``tangent by one operator, forces by another'' in the public API.
+It also keeps the public contract aligned with the Hill--Mandel spirit of
+energetic consistency used in computational homogenization
+\cite{Hill1963,Feyel1999,Geers2010}: macro section work is represented by one
+linearised operator, not by unrelated force and tangent paths.
 The same response object also records the requested tangent mode
 (\texttt{TangentComputationMode}), the outcome of the condensed operator
 attempt (\texttt{CondensedTangentStatus}), and the residual of the sparse free
@@ -155,8 +159,44 @@ where \(\mathcal{H}_{\mathrm{br}}\) denotes the boundary-reaction operator and
 publication-path tangent is obtained primarily from the linearised micro
 equilibrium equations.  With the free/constrained partition
 \(\{f,c\}\) and constrained increments
-\(\delta \mathbf{u}_c = \mathbf{T}\,\delta \mathbf{q}\), the condensed
-section operator is
+\(\delta \mathbf{u}_c = \mathbf{T}\,\delta \mathbf{q}\), the partitioned micro
+equilibrium problem is
+\begin{equation}
+  \begin{bmatrix}
+    \mathbf{K}_{ff} & \mathbf{K}_{fc} \\
+    \mathbf{K}_{cf} & \mathbf{K}_{cc}
+  \end{bmatrix}
+  \begin{Bmatrix}
+    \delta \mathbf{u}_f \\
+    \delta \mathbf{u}_c
+  \end{Bmatrix}
+  =
+  \begin{Bmatrix}
+    \mathbf{0} \\
+    \delta \mathbf{r}_c
+  \end{Bmatrix},
+  \label{eq:ms-pub-partitioned-micro-equilibrium}
+\end{equation}
+so that the free increment is
+\begin{equation}
+  \delta \mathbf{u}_f
+  =
+  -\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}\mathbf{T}\,\delta \mathbf{q},
+  \label{eq:ms-pub-free-increment}
+\end{equation}
+and the constrained reaction increment becomes
+\begin{equation}
+  \delta \mathbf{r}_c
+  =
+  \left(
+    \mathbf{K}_{cc}
+    -
+    \mathbf{K}_{cf}\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}
+  \right)\mathbf{T}\,\delta \mathbf{q}.
+  \label{eq:ms-pub-constrained-reaction}
+\end{equation}
+Projecting those reactions back to the section basis yields the condensed
+section operator
 \begin{equation}
   \mathbf{D}_{\mathrm{hom}}
   =
@@ -166,22 +206,78 @@ section operator is
     -
     \mathbf{K}_{cf}\mathbf{K}_{ff}^{-1}\mathbf{K}_{fc}
   \right)\mathbf{T}.
+  \label{eq:ms-pub-condensed-section-operator}
 \end{equation}
-The implementation evaluates this operator through a sparse solve of the six
+This is the static-condensation identity that underlies Guyan reduction and
+later component-mode substructuring
+\cite{Guyan1965,CraigBampton1968}.  In matrix-analysis terms, the elimination
+of the interior block is the Schur complement of \(\mathbf{K}_{ff}\)
+\cite{Zhang2005Schur}.  The implementation evaluates
+\eqref{eq:ms-pub-condensed-section-operator} through a sparse solve of the six
 right-hand sides in \(\mathbf{K}_{fc}\mathbf{T}\), not by materialising a full
-dense Schur complement.
+dense Schur complement, and reuses the symbolic sparsity pattern whenever the
+micro topology is unchanged in the usual sparse-direct sense
+\cite{Davis2006Sparse}.
 
 Adaptive finite differences remain available as an explicit validation and
-fallback path:
+fallback path.  The perturbation length for generalized component \(j\) is
+chosen as
+\begin{equation}
+  h_j
+  =
+  \frac{\max\!\left(h_{\mathrm{pert}}L,\;
+    10^{-3}\max(|q_j|, h_{\mathrm{pert}}L)\right)}{L},
+  \label{eq:ms-pub-adaptive-step}
+\end{equation}
+where \(L\) is the beam characteristic length and \(q_j\) is the corresponding
+relative end degree of freedom.  This is not claimed to be an optimal
+finite-difference step rule; it is a pragmatic scale-aware heuristic inspired
+by the step-size balance arguments discussed by
+Gill et al.~\cite{GillMurraySaundersWright1983}.  The preferred tangent
+estimate is then
 \begin{equation}
   \mathbf{D}_{\mathrm{hom}}^{(:,j)}
   \approx
   \frac{\mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}^{(j,+)})
         - \mathcal{H}_{\mathrm{br}}(\mathbf{u}_{\mu}^{(j,-)})}{2h_j},
+  \label{eq:ms-pub-central-fd}
 \end{equation}
 with one-sided fallback only when one perturbation fails.  The public API can
 force this route through
 \texttt{TangentComputationMode::ForceAdaptiveFiniteDifference} for validation.
+
+The runtime audit mode
+\texttt{ValidateCondensationAgainstAdaptiveFiniteDifference} compares the
+condensed operator against the adaptive finite-difference reference using the
+global gap
+\begin{equation}
+  \eta_{\mathbf{D}}
+  =
+  \frac{\lVert \mathbf{D}_{\mathrm{cond}}
+         - \mathbf{D}_{\mathrm{fd}} \rVert_F}
+       {\max\!\left(1,
+           \lVert \mathbf{D}_{\mathrm{cond}} \rVert_F,
+           \lVert \mathbf{D}_{\mathrm{fd}} \rVert_F\right)},
+  \label{eq:ms-pub-validation-gap}
+\end{equation}
+and reports the per-column diagnostics
+\begin{equation}
+  \eta_j
+  =
+  \frac{\lVert \mathbf{D}_{\mathrm{cond}}^{(:,j)}
+         - \mathbf{D}_{\mathrm{fd}}^{(:,j)} \rVert_2}
+       {\max\!\left(1,
+           \lVert \mathbf{D}_{\mathrm{cond}}^{(:,j)} \rVert_2,
+           \lVert \mathbf{D}_{\mathrm{fd}}^{(:,j)} \rVert_2\right)}.
+  \label{eq:ms-pub-validation-column-gap}
+\end{equation}
+At present, the automatic accept/reject decision uses the global metric
+\(\eta_{\mathbf{D}}\), while \(\max_j \eta_j\) is retained as a visible
+diagnostic.  This is intentional: raw section-operator columns mix axial
+forces, shear forces, bending moments, and torsional moments, so a naive
+columnwise Euclidean norm is informative for auditing but not yet mature enough
+to be treated as the sole production acceptance norm.  A weighted,
+dimensionally cleaner operator metric remains future work.
 
 Volume averaging is retained only as a comparison/validation route and is
 reported through \texttt{HomogenizationOperator::VolumeAverage}; it is not the
@@ -367,6 +463,10 @@ actually available.  Instead, the response records:
   \item the requested tangent mode;
   \item the realised tangent scheme;
   \item the condensed operator status;
+  \item the runtime validation status of the condensed operator against the
+    adaptive finite-difference reference;
+  \item the validation tolerance together with the measured global and
+    per-column gaps;
   \item the sparse solve residual when the condensed path is attempted;
   \item whether the symbolic factorisation pattern was reused;
   \item how many symbolic pattern analyses have been performed by the active
@@ -376,13 +476,21 @@ The intended semantics are:
 \begin{description}
   \item[\texttt{PreferLinearizedCondensation}] production mode; use the sparse
     condensed operator first and fall back only if it cannot be formed;
+  \item[\texttt{ValidateCondensationAgainstAdaptiveFiniteDifference}] audit
+    mode; compute the condensed operator, compare it against an adaptive
+    finite-difference reference, accept it if the measured global operator gap
+    stays below the configured tolerance, otherwise fall back explicitly to the
+    finite-difference tangent;
   \item[\texttt{ForceAdaptiveFiniteDifference}] validation mode; skip
     condensation intentionally and compute the tangent through adaptive
     perturbations;
+  \item[\texttt{TangentValidationStatus}] explicit result of the runtime audit:
+    \texttt{Accepted}, \texttt{Rejected}, or
+    \texttt{ReferenceUnavailable};
   \item[\texttt{CondensedTangentStatus}] explicit reason code for the
     condensed attempt, including \texttt{Success},
     \texttt{AssemblyFailed}, \texttt{FactorizationFailed},
-    \texttt{ResidualTooLarge}, and
+    \texttt{ResidualTooLarge}, \texttt{ValidationRejected}, and
     \texttt{ForcedAdaptiveFiniteDifference}.
 \end{description}
 This additional provenance is important for publication because it makes the

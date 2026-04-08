@@ -37,6 +37,7 @@ enum class TangentLinearizationScheme {
 
 enum class TangentComputationMode {
     PreferLinearizedCondensation,
+    ValidateCondensationAgainstAdaptiveFiniteDifference,
     ForceAdaptiveFiniteDifference
 };
 
@@ -50,7 +51,15 @@ enum class CondensedTangentStatus {
     FactorizationFailed,
     SolveFailed,
     ResidualTooLarge,
+    ValidationRejected,
     ForcedAdaptiveFiniteDifference
+};
+
+enum class TangentValidationStatus {
+    NotRequested,
+    ReferenceUnavailable,
+    Accepted,
+    Rejected
 };
 
 enum class CouplingTerminationReason {
@@ -107,9 +116,15 @@ struct SectionHomogenizedResponse {
         TangentComputationMode::PreferLinearizedCondensation};
     CondensedTangentStatus condensed_tangent_status{
         CondensedTangentStatus::NotAttempted};
+    TangentValidationStatus tangent_validation_status{
+        TangentValidationStatus::NotRequested};
     double condensed_solve_residual{0.0};
     bool condensed_pattern_reused{false};
     std::size_t condensed_symbolic_factorizations{0};
+    double tangent_validation_relative_tolerance{0.0};
+    double tangent_validation_relative_gap{0.0};
+    double tangent_validation_max_column_gap{0.0};
+    std::array<double, 6> tangent_validation_column_gaps{};
     std::array<double, 6> perturbation_sizes{};
     std::array<bool, 6> tangent_column_valid{};
     std::array<bool, 6> tangent_column_central{};
@@ -201,6 +216,9 @@ to_string(TangentComputationMode mode)
     switch (mode) {
         case TangentComputationMode::PreferLinearizedCondensation:
             return "PreferLinearizedCondensation";
+        case TangentComputationMode::
+            ValidateCondensationAgainstAdaptiveFiniteDifference:
+            return "ValidateCondensationAgainstAdaptiveFiniteDifference";
         case TangentComputationMode::ForceAdaptiveFiniteDifference:
             return "ForceAdaptiveFiniteDifference";
     }
@@ -229,10 +247,28 @@ to_string(CondensedTangentStatus status)
             return "SolveFailed";
         case CondensedTangentStatus::ResidualTooLarge:
             return "ResidualTooLarge";
+        case CondensedTangentStatus::ValidationRejected:
+            return "ValidationRejected";
         case CondensedTangentStatus::ForcedAdaptiveFiniteDifference:
             return "ForcedAdaptiveFiniteDifference";
     }
     return "UnknownCondensedTangentStatus";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(TangentValidationStatus status)
+{
+    switch (status) {
+        case TangentValidationStatus::NotRequested:
+            return "NotRequested";
+        case TangentValidationStatus::ReferenceUnavailable:
+            return "ReferenceUnavailable";
+        case TangentValidationStatus::Accepted:
+            return "Accepted";
+        case TangentValidationStatus::Rejected:
+            return "Rejected";
+    }
+    return "UnknownTangentValidationStatus";
 }
 
 [[nodiscard]] inline constexpr std::string_view
