@@ -420,6 +420,11 @@ fall_n_add_test(TARGET fall_n_evolver_advanced_test
     NAME evolver_advanced  SOURCE tests/test_evolver_advanced.cpp
     LIBS FULL  LABEL integration)
 
+fall_n_add_test(TARGET fall_n_tangent_validation_benchmark_test
+    NAME tangent_validation_benchmark
+    SOURCE tests/test_tangent_validation_benchmark.cpp
+    LIBS FULL  LABEL integration)
+
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)

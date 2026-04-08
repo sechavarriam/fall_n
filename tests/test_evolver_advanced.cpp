@@ -473,10 +473,14 @@ void test_validated_condensed_operator_accepts_elastic_case()
     ev.set_tangent_computation_mode(
         TangentComputationMode::
             ValidateCondensationAgainstAdaptiveFiniteDifference);
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::StateWeightedFrobenius);
     ev.set_tangent_validation_relative_tolerance(7.5e-2);
     const auto validated = ev.section_response(W, H, 1.0e-6);
 
     std::cout << std::setprecision(6)
+              << "  validation_norm = "
+              << to_string(validated.tangent_validation_norm) << "\n"
               << "  validation_relative_gap = "
               << validated.tangent_validation_relative_gap << "\n"
               << "  validation_max_column_gap = "
@@ -486,6 +490,9 @@ void test_validated_condensed_operator_accepts_elastic_case()
               == TangentComputationMode::
                   ValidateCondensationAgainstAdaptiveFiniteDifference,
           "validated path reports the requested runtime audit mode");
+    check(validated.tangent_validation_norm
+              == TangentValidationNormKind::StateWeightedFrobenius,
+          "validated path reports the state-weighted norm");
     check(validated.tangent_scheme
               == TangentLinearizationScheme::LinearizedCondensation,
           "accepted runtime audit keeps the condensed tangent in production");
@@ -503,6 +510,10 @@ void test_validated_condensed_operator_accepts_elastic_case()
     check(validated.tangent_validation_max_column_gap
               >= validated.tangent_validation_relative_gap,
           "validated runtime audit exposes the worst per-column gap as a diagnostic");
+    check(validated.tangent_validation_row_scales[1] == 1.0,
+          "state-weighted norm keeps identity output scaling");
+    check(validated.tangent_validation_column_scales[1] < 1.0,
+          "state-weighted norm downweights less active generalized directions");
 }
 
 void test_validated_condensed_operator_rejects_with_strict_tolerance()
@@ -529,6 +540,8 @@ void test_validated_condensed_operator_rejects_with_strict_tolerance()
     ev.set_tangent_computation_mode(
         TangentComputationMode::
             ValidateCondensationAgainstAdaptiveFiniteDifference);
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::RelativeFrobenius);
     ev.set_tangent_validation_relative_tolerance(1.0e-8);
     const auto validated = ev.section_response(W, H, 1.0e-6);
 
@@ -548,6 +561,9 @@ void test_validated_condensed_operator_rejects_with_strict_tolerance()
     check(validated.tangent_scheme
               == TangentLinearizationScheme::AdaptiveFiniteDifference,
           "rejected runtime audit falls back to adaptive finite differences");
+    check(validated.tangent_validation_norm
+              == TangentValidationNormKind::RelativeFrobenius,
+          "strict rejection regression keeps the legacy Frobenius norm available");
     check(validated.condensed_tangent_status
               == CondensedTangentStatus::ValidationRejected,
           "rejected runtime audit exposes validation rejection explicitly");
@@ -561,6 +577,81 @@ void test_validated_condensed_operator_rejects_with_strict_tolerance()
           "strict runtime audit rejects because the measured gap exceeds tolerance");
     check(tangent_gap < 1.0e-12,
           "rejected runtime audit returns the same tangent as the forced FD reference");
+}
+
+void test_validation_norm_family_exposes_gap_tradeoffs()
+{
+    std::cout << "\n== Validation norm family ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    const auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 2.5e-5, -1.5e-5},
+        Eigen::Vector3d{2.0e-5, 1.0e-5, -1.5e-5});
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "mixed elastic reference case converges before norm comparison");
+
+    ev.set_tangent_computation_mode(
+        TangentComputationMode::
+            ValidateCondensationAgainstAdaptiveFiniteDifference);
+    ev.set_tangent_validation_relative_tolerance(1.0);
+
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::RelativeFrobenius);
+    const auto frobenius = ev.section_response(W, H, 1.0e-6);
+
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::StateWeightedFrobenius);
+    const auto state_weighted = ev.section_response(W, H, 1.0e-6);
+
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::SectionPowerScaledFrobenius);
+    const auto section_power = ev.section_response(W, H, 1.0e-6);
+
+    std::cout << std::setprecision(6)
+              << "  frobenius_gap      = "
+              << frobenius.tangent_validation_relative_gap << "\n"
+              << "  state_weighted_gap = "
+              << state_weighted.tangent_validation_relative_gap << "\n"
+              << "  section_power_gap  = "
+              << section_power.tangent_validation_relative_gap << "\n"
+              << "  frobenius_max_col  = "
+              << frobenius.tangent_validation_max_column_gap << "\n"
+              << "  state_weighted_max = "
+              << state_weighted.tangent_validation_max_column_gap << "\n"
+              << "  section_power_max  = "
+              << section_power.tangent_validation_max_column_gap << "\n";
+
+    check(frobenius.tangent_validation_norm
+              == TangentValidationNormKind::RelativeFrobenius,
+          "legacy Frobenius path reports its norm kind");
+    check(state_weighted.tangent_validation_norm
+              == TangentValidationNormKind::StateWeightedFrobenius,
+          "state-weighted path reports its norm kind");
+    check(section_power.tangent_validation_norm
+              == TangentValidationNormKind::SectionPowerScaledFrobenius,
+          "section-power path reports its norm kind");
+    check(std::all_of(frobenius.tangent_validation_row_scales.begin(),
+                      frobenius.tangent_validation_row_scales.end(),
+                      [](double x) { return std::abs(x - 1.0) < 1.0e-14; }),
+          "legacy Frobenius keeps identity row scaling");
+    check(state_weighted.tangent_validation_relative_gap
+              <= frobenius.tangent_validation_relative_gap,
+          "state-weighted norm does not increase the mixed-state validation gap");
+    check(section_power.tangent_validation_relative_gap
+              >= state_weighted.tangent_validation_relative_gap,
+          "section-power audit remains more conservative than the state-weighted norm");
+    check(section_power.tangent_validation_row_scales[1] > 1.0,
+          "section-power audit exposes force-equivalent scaling on bending resultants");
 }
 
 void test_condensed_operator_reuses_symbolic_pattern()
@@ -626,6 +717,7 @@ int main(int argc, char** argv)
     test_condensed_operator_matches_forced_fd();
     test_validated_condensed_operator_accepts_elastic_case();
     test_validated_condensed_operator_rejects_with_strict_tolerance();
+    test_validation_norm_family_exposes_gap_tradeoffs();
     test_condensed_operator_reuses_symbolic_pattern();
 
     std::cout << "\n" << std::string(72, '=') << "\n"

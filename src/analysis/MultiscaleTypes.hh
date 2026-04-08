@@ -62,6 +62,12 @@ enum class TangentValidationStatus {
     Rejected
 };
 
+enum class TangentValidationNormKind {
+    RelativeFrobenius,
+    StateWeightedFrobenius,
+    SectionPowerScaledFrobenius
+};
+
 enum class CouplingTerminationReason {
     NotRun,
     UncoupledMacroStep,
@@ -118,6 +124,8 @@ struct SectionHomogenizedResponse {
         CondensedTangentStatus::NotAttempted};
     TangentValidationStatus tangent_validation_status{
         TangentValidationStatus::NotRequested};
+    TangentValidationNormKind tangent_validation_norm{
+        TangentValidationNormKind::StateWeightedFrobenius};
     double condensed_solve_residual{0.0};
     bool condensed_pattern_reused{false};
     std::size_t condensed_symbolic_factorizations{0};
@@ -125,6 +133,10 @@ struct SectionHomogenizedResponse {
     double tangent_validation_relative_gap{0.0};
     double tangent_validation_max_column_gap{0.0};
     std::array<double, 6> tangent_validation_column_gaps{};
+    std::array<double, 6> tangent_validation_row_scales{
+        {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+    std::array<double, 6> tangent_validation_column_scales{
+        {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
     std::array<double, 6> perturbation_sizes{};
     std::array<bool, 6> tangent_column_valid{};
     std::array<bool, 6> tangent_column_central{};
@@ -269,6 +281,20 @@ to_string(TangentValidationStatus status)
             return "Rejected";
     }
     return "UnknownTangentValidationStatus";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(TangentValidationNormKind kind)
+{
+    switch (kind) {
+        case TangentValidationNormKind::RelativeFrobenius:
+            return "RelativeFrobenius";
+        case TangentValidationNormKind::StateWeightedFrobenius:
+            return "StateWeightedFrobenius";
+        case TangentValidationNormKind::SectionPowerScaledFrobenius:
+            return "SectionPowerScaledFrobenius";
+    }
+    return "UnknownTangentValidationNormKind";
 }
 
 [[nodiscard]] inline constexpr std::string_view

@@ -179,10 +179,52 @@ The present pass extended that fallback story into a runtime audit mode.  The
 local solver can now request
 \texttt{ValidateCondensationAgainstAdaptiveFiniteDifference}, which first
 builds the sparse condensed tangent and then computes an adaptive
-finite-difference reference on the same converged state.  The implementation
-reports the global operator gap
+finite-difference reference on the same converged state.  What changed in this
+execution pass is that the validation is no longer hard-wired to a single raw
+Frobenius norm.  The code now exposes three norm families through
+\texttt{TangentValidationNormKind}:
+\begin{itemize}
+  \item \texttt{RelativeFrobenius}, kept as the exact legacy metric;
+  \item \texttt{StateWeightedFrobenius}, now the default publication-path
+    acceptance norm;
+  \item \texttt{SectionPowerScaledFrobenius}, a conservative audit norm that
+    additionally scales moment rows into force-equivalent units.
+\end{itemize}
+The motivation is physical rather than cosmetic.  A raw Frobenius norm treats
+all six tangent columns as equally relevant at the current state, even when
+some generalized strain directions are nearly dormant.  The new state-weighted
+norm therefore measures
 \begin{equation}
-  \eta_{\mathbf{D}}
+  \eta_{\mathrm{sw}}
+  =
+  \frac{\lVert
+      (\mathbf{D}_{\mathrm{cond}}-\mathbf{D}_{\mathrm{fd}})\mathbf{W}_q
+    \rVert_F}
+       {\max\!\left(
+          1,
+          \lVert \mathbf{D}_{\mathrm{cond}}\mathbf{W}_q \rVert_F,
+          \lVert \mathbf{D}_{\mathrm{fd}}\mathbf{W}_q \rVert_F
+       \right)},
+\end{equation}
+where \(\mathbf{W}_q\) is built from the currently active generalized strain
+amplitudes.  The conservative audit norm adds a row scaling
+\(\mathbf{W}_s\) and measures
+\begin{equation}
+  \eta_{\mathrm{sp}}
+  =
+  \frac{\lVert
+      \mathbf{W}_s(\mathbf{D}_{\mathrm{cond}}-\mathbf{D}_{\mathrm{fd}})
+      \mathbf{W}_q
+    \rVert_F}
+       {\max\!\left(
+          1,
+          \lVert \mathbf{W}_s \mathbf{D}_{\mathrm{cond}}\mathbf{W}_q \rVert_F,
+          \lVert \mathbf{W}_s \mathbf{D}_{\mathrm{fd}}\mathbf{W}_q \rVert_F
+       \right)}.
+\end{equation}
+The legacy metric
+\begin{equation}
+  \eta_{F}
   =
   \frac{\lVert \mathbf{D}_{\mathrm{cond}}
          - \mathbf{D}_{\mathrm{fd}} \rVert_F}
@@ -190,16 +232,21 @@ reports the global operator gap
            \lVert \mathbf{D}_{\mathrm{cond}} \rVert_F,
            \lVert \mathbf{D}_{\mathrm{fd}} \rVert_F\right)}
 \end{equation}
-and the worst per-column diagnostic
-\begin{equation}
-  \eta_{\max} = \max_j \eta_j.
-\end{equation}
-The automatic acceptance gate currently uses \(\eta_{\mathbf{D}}\), while
-\(\eta_{\max}\) is retained as a visible diagnostic only.  That choice was
-made after the audit showed that raw columnwise Euclidean gaps can be dominated
-by the mixed units of section operators (forces and moments in the same
-column), which makes them useful as warnings but not yet mature enough to act
-as the sole production gate.
+remains available for exact reproduction of previous audits.
+
+On the mixed elastic reference state used by the new regression tests, the
+measured metrics were
+\begin{align}
+  \eta_{F} &= 4.60221\times 10^{-2}, \\
+  \eta_{\mathrm{sw}} &= 7.00812\times 10^{-3}, \\
+  \eta_{\mathrm{sp}} &= 6.94017\times 10^{-2}, \\
+  \eta_{\max,\mathrm{sw}} &= 3.78672\times 10^{-1}, \\
+  \eta_{\max,\mathrm{sp}} &= 7.36699\times 10^{-1}.
+\end{align}
+These numbers clarify the role of the new norms.  The state-weighted metric is
+far smaller than the raw Frobenius gap because the discrepancy sits largely in
+weakly active columns, whereas the section-power-scaled metric is deliberately
+more conservative.
 
 The public response object now records:
 \begin{itemize}
@@ -207,15 +254,56 @@ The public response object now records:
   \item the tangent scheme used;
   \item the status of the condensed operator attempt;
   \item the runtime validation status of the condensed operator;
+  \item the selected validation norm kind;
   \item the configured validation tolerance;
   \item the measured global and per-column validation gaps;
+  \item the row scales and column weights used by the selected norm;
   \item the sparse condensed solve residual when that path is attempted;
   \item the perturbation size used for each column;
   \item whether each column is valid;
   \item whether each column used the central stencil;
   \item the number of failed perturbation solves;
-  \item whether regularisation actually modified the returned tangent.
+\item whether regularisation actually modified the returned tangent.
 \end{itemize}
+
+With a validation tolerance of \(7.5\times 10^{-2}\), the runtime audit keeps
+the sparse condensed operator on the production path when
+\texttt{StateWeightedFrobenius} is selected and reports
+\texttt{TangentValidationStatus::Accepted}.  With a deliberately strict
+tolerance of \(10^{-8}\) under \texttt{RelativeFrobenius}, the same case falls
+back to adaptive finite differences and reports
+\texttt{CondensedTangentStatus::ValidationRejected}.  That pair of tests closes
+the observability gap around the tangent gate: the code now proves both the
+accept and reject branches explicitly.
+
+This pass also added a reproducible benchmark executable,
+\texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe}, to estimate the
+expected production impact of the new default norm.  The benchmark evaluates
+four mixed elastic states at tolerance \(4.5\times 10^{-2}\), measures a
+direct condensed-only time \(t_{\mathrm{cond}}\), a direct forced-FD time
+\(t_{\mathrm{fd}}\), and then defines the projected tangent-delivery cost
+\begin{equation}
+  T_{\mathrm{proj}}
+  =
+  \sum_i
+  \begin{cases}
+    t_{\mathrm{cond}}^{(i)}, & \text{if the audit accepts the condensed tangent},\\
+    t_{\mathrm{fd}}^{(i)}, & \text{otherwise.}
+  \end{cases}
+\end{equation}
+This is intentionally a projected cost, not the wall time of the validation
+mode itself, because the validation mode still computes both operators by
+construction.  On that benchmark family the measured results were
+\begin{align}
+  N_{\mathrm{accept},F} &= 0/4, &
+  T_{\mathrm{proj},F} &= 9.92183~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.403531~\mathrm{s},
+\end{align}
+which corresponds to a projected speedup of \(24.59\times\) for the tangent
+delivery stage of the outer FE\textsuperscript{2} loop on this benchmark.  The
+benchmark is intentionally small, but it is fully reproducible and now part of
+the multiscale stability gate.
 
 \subsection{Resulting semantics}
 
@@ -405,18 +493,44 @@ The new runtime audit mode made that comparison part of the API itself rather
 than a test-only post-mortem.  On the same elastic mixed-mode state, the
 audited runtime validation metrics were
 \begin{align}
-  \eta_{\mathbf{D}} &= 4.60221\times 10^{-2}, \\
-  \eta_{\max} &= 5.82414\times 10^{-1}.
+  \eta_{F} &= 4.60221\times 10^{-2}, \\
+  \eta_{\mathrm{sw}} &= 7.00812\times 10^{-3}, \\
+  \eta_{\mathrm{sp}} &= 6.94017\times 10^{-2}, \\
+  \eta_{\max,\mathrm{sw}} &= 3.78672\times 10^{-1}, \\
+  \eta_{\max,\mathrm{sp}} &= 7.36699\times 10^{-1}.
 \end{align}
+The stabilization outcome is now much easier to interpret.  The legacy
+Frobenius metric still captures the raw discrepancy, the new
+state-weighted norm drops that discrepancy by roughly one order of magnitude on
+the active mixed state, and the section-power-scaled audit remains available as
+a conservative check when moment resultants must be emphasised explicitly.
 With a validation tolerance of \(7.5\times 10^{-2}\), the runtime audit keeps
-the sparse condensed operator on the production path and reports
+the sparse condensed operator on the production path when
+\texttt{StateWeightedFrobenius} is selected and reports
 \texttt{TangentValidationStatus::Accepted}.  With a deliberately strict
-tolerance of \(10^{-8}\), the same case falls back to adaptive finite
-differences and reports
-\texttt{CondensedTangentStatus::ValidationRejected}.  This pair of tests is
-important because it closes the scientific-observability gap: the code now
-proves both branches of the runtime decision, not just the existence of a
-numerical discrepancy.
+tolerance of \(10^{-8}\) under \texttt{RelativeFrobenius}, the same case falls
+back to adaptive finite differences and reports
+\texttt{CondensedTangentStatus::ValidationRejected}.  This pair of tests closes
+the scientific-observability gap: the code now proves both branches of the
+runtime decision, not just the existence of a numerical discrepancy.
+
+The new benchmark executable
+\texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe} extends that
+observation beyond a single state.  On a four-case mixed elastic family at
+tolerance \(4.5\times 10^{-2}\), the measured projected tangent-delivery costs
+were
+\begin{align}
+  N_{\mathrm{accept},F} &= 0/4, &
+  T_{\mathrm{proj},F} &= 9.92183~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.403531~\mathrm{s},
+\end{align}
+which corresponds to a projected speedup of \(24.59\times\) for the tangent
+delivery stage of the outer FE\textsuperscript{2} loop on this benchmark.  The
+word \emph{projected} matters here: the validation mode still computes both the
+condensed and FD operators, so the benchmark estimates the expected production
+benefit of the acceptance criterion rather than claiming that the validation
+mode itself became \(24.59\times\) faster.
 
 \subsection{Executed regression targets}
 
@@ -425,8 +539,9 @@ runtime-validation extension of the stabilization changes:
 \begin{itemize}
   \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 43 passed, 0 failed;
   \item \texttt{fall\_n\_micro\_solve\_executor\_test.exe}: 6 passed, 0 failed;
-  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 123 passed, 0 failed;
-  \item \texttt{fall\_n\_heterogeneity\_test.exe}: 26 passed, 0 failed;
+  \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 135 passed, 0 failed;
+  \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe}: 3 passed,
+    0 failed;
   \item \texttt{fall\_n\_beam\_test.exe}: 21 passed, 0 failed;
   \item \texttt{fall\_n\_steppable\_solver\_test.exe}: 48 passed, 0 failed;
   \item \texttt{fall\_n\_steppable\_dynamic\_test.exe}: 32 passed, 0 failed.
@@ -448,6 +563,7 @@ which heavy target is consuming or blocking the local gate.  The script covers:
   \item \texttt{fall\_n\_multiscale\_api\_test};
   \item \texttt{fall\_n\_micro\_solve\_executor\_test};
   \item \texttt{fall\_n\_evolver\_advanced\_test};
+  \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test};
   \item \texttt{fall\_n\_beam\_test};
   \item \texttt{fall\_n\_steppable\_solver\_test};
   \item \texttt{fall\_n\_steppable\_dynamic\_test};
@@ -642,6 +758,7 @@ surface already defined in this chapter:
     \texttt{fall\_n\_multiscale\_api\_test},
     \texttt{fall\_n\_micro\_solve\_executor\_test},
     \texttt{fall\_n\_evolver\_advanced\_test},
+    \texttt{fall\_n\_tangent\_validation\_benchmark\_test},
     \texttt{fall\_n\_beam\_test},
     \texttt{fall\_n\_steppable\_solver\_test}, and
     \texttt{fall\_n\_steppable\_dynamic\_test};

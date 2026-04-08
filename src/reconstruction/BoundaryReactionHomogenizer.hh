@@ -19,6 +19,7 @@
 #include "../numerics/SparseSchurComplement.hh"
 #include "LocalBoundaryConditionApplicator.hh"
 #include "PersistentLocalStateOps.hh"
+#include "SectionOperatorValidationNorm.hh"
 
 namespace fall_n {
 
@@ -34,6 +35,10 @@ public:
         std::array<bool, 6> column_valid{};
         std::array<bool, 6> column_central{};
         std::array<double, 6> validation_column_gaps{};
+        std::array<double, 6> validation_row_scales{
+            {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+        std::array<double, 6> validation_column_scales{
+            {1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
         double symmetry_error_before_regularization{0.0};
         double condensed_solve_residual{0.0};
         bool condensed_pattern_reused{false};
@@ -51,6 +56,8 @@ public:
             CondensedTangentStatus::NotAttempted};
         TangentValidationStatus validation_status{
             TangentValidationStatus::NotRequested};
+        TangentValidationNormKind validation_norm{
+            TangentValidationNormKind::StateWeightedFrobenius};
     };
 
 private:
@@ -73,6 +80,10 @@ private:
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
     double tangent_validation_relative_tolerance_{1.0e-1};
+    TangentValidationNormKind tangent_validation_norm_{
+        TangentValidationNormKind::StateWeightedFrobenius};
+    double section_width_{0.0};
+    double section_height_{0.0};
     const std::vector<PenaltyCouplingEntry>* penalty_couplings_{nullptr};
     double alpha_penalty_{0.0};
     LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator_{};
@@ -134,14 +145,6 @@ private:
         }
     }
 
-    [[nodiscard]] static double relative_matrix_gap_(
-        const Eigen::Matrix<double, 6, 6>& lhs,
-        const Eigen::Matrix<double, 6, 6>& rhs)
-    {
-        const double denom = std::max({1.0, lhs.norm(), rhs.norm()});
-        return (lhs - rhs).norm() / denom;
-    }
-
     [[nodiscard]] static double relative_vector_gap_(
         const Eigen::Vector<double, 6>& lhs,
         const Eigen::Vector<double, 6>& rhs)
@@ -150,18 +153,37 @@ private:
         return (lhs - rhs).norm() / denom;
     }
 
-    [[nodiscard]] static std::array<double, 6> column_relative_gaps_(
-        const Eigen::Matrix<double, 6, 6>& lhs,
-        const Eigen::Matrix<double, 6, 6>& rhs)
+    [[nodiscard]] double validation_width_() const
     {
-        std::array<double, 6> gaps{};
-        for (int j = 0; j < 6; ++j) {
-            const double denom = std::max(
-                {1.0, lhs.col(j).norm(), rhs.col(j).norm()});
-            gaps[static_cast<std::size_t>(j)] =
-                (lhs.col(j) - rhs.col(j)).norm() / denom;
+        if (std::isfinite(section_width_) && section_width_ > 0.0) {
+            return section_width_;
         }
-        return gaps;
+        if (sub_ && std::isfinite(sub_->grid.width) && sub_->grid.width > 0.0) {
+            return sub_->grid.width;
+        }
+        return 0.0;
+    }
+
+    [[nodiscard]] double validation_height_() const
+    {
+        if (std::isfinite(section_height_) && section_height_ > 0.0) {
+            return section_height_;
+        }
+        if (sub_ && std::isfinite(sub_->grid.height) && sub_->grid.height > 0.0) {
+            return sub_->grid.height;
+        }
+        return 0.0;
+    }
+
+    [[nodiscard]] SectionOperatorValidationScales validation_scales_(
+        const Eigen::Vector<double, 6>& reference_generalized_state =
+            Eigen::Vector<double, 6>::Zero()) const
+    {
+        return make_section_operator_validation_scales(
+            tangent_validation_norm_,
+            validation_width_(),
+            validation_height_(),
+            reference_generalized_state);
     }
 
     void restore_tangent_baseline_state_() const
@@ -641,6 +663,7 @@ private:
         diagnostics.scheme =
             TangentLinearizationScheme::LinearizedCondensation;
         diagnostics.requested_mode = tangent_mode_;
+        diagnostics.validation_norm = tangent_validation_norm_;
         diagnostics.condensed_status = CondensedTangentStatus::Success;
         diagnostics.condensed_solve_residual = attempt.solve_residual;
         diagnostics.tangent =
@@ -669,6 +692,7 @@ private:
         diagnostics.scheme =
             TangentLinearizationScheme::AdaptiveFiniteDifference;
         diagnostics.requested_mode = tangent_mode_;
+        diagnostics.validation_norm = tangent_validation_norm_;
 
         if (!model_ || !sub_ || !displacement_ || !displacement_work_
             || !imposed_work_ || !snes_)
@@ -771,6 +795,15 @@ private:
     [[nodiscard]] TangentDiagnostics
     compute_validated_condensed_tangent_(double h_pert) const
     {
+        const SectionKinematics kin_A_orig =
+            sub_ ? sub_->kin_A : SectionKinematics{};
+        const SectionKinematics kin_B_orig =
+            sub_ ? sub_->kin_B : SectionKinematics{};
+        const double beam_length = characteristic_length_(kin_A_orig, kin_B_orig);
+        const Eigen::Vector<double, 6> reference_generalized_state =
+            relative_generalized_dofs_(kin_A_orig, kin_B_orig)
+            / std::max(beam_length, std::numeric_limits<double>::epsilon());
+
         const auto condensed = compute_linearized_condensed_tangent_();
         if (!condensed.diagnostics) {
             auto diagnostics = compute_adaptive_fd_tangent_(h_pert);
@@ -778,22 +811,32 @@ private:
             diagnostics.condensed_solve_residual = condensed.solve_residual;
             diagnostics.validation_relative_tolerance =
                 tangent_validation_relative_tolerance_;
+            diagnostics.validation_norm = tangent_validation_norm_;
+            const auto scales =
+                validation_scales_(reference_generalized_state);
+            diagnostics.validation_row_scales = scales.row;
+            diagnostics.validation_column_scales = scales.column;
             return diagnostics;
         }
 
         TangentDiagnostics accepted = *condensed.diagnostics;
         accepted.validation_relative_tolerance =
             tangent_validation_relative_tolerance_;
+        accepted.validation_norm = tangent_validation_norm_;
+
+        const auto scales = validation_scales_(reference_generalized_state);
+        accepted.validation_row_scales = scales.row;
+        accepted.validation_column_scales = scales.column;
 
         const Eigen::Vector<double, 6> base_forces = section_forces_from_reactions();
         const auto fd_reference = compute_adaptive_fd_tangent_(h_pert);
-        accepted.validation_column_gaps =
-            column_relative_gaps_(accepted.tangent, fd_reference.tangent);
-        accepted.validation_relative_gap =
-            relative_matrix_gap_(accepted.tangent, fd_reference.tangent);
-        accepted.validation_max_column_gap =
-            *std::max_element(accepted.validation_column_gaps.begin(),
-                              accepted.validation_column_gaps.end());
+        const auto metrics = compute_section_operator_validation_metrics(
+            accepted.tangent,
+            fd_reference.tangent,
+            scales);
+        accepted.validation_column_gaps = metrics.column_gaps;
+        accepted.validation_relative_gap = metrics.relative_gap;
+        accepted.validation_max_column_gap = metrics.max_column_gap;
 
         if (!fd_validation_reference_available_(fd_reference)) {
             accepted.validation_status =
@@ -828,10 +871,14 @@ private:
         rejected.validation_status = TangentValidationStatus::Rejected;
         rejected.validation_relative_tolerance =
             tangent_validation_relative_tolerance_;
+        rejected.validation_norm = tangent_validation_norm_;
         rejected.validation_relative_gap = accepted.validation_relative_gap;
         rejected.validation_max_column_gap =
             accepted.validation_max_column_gap;
         rejected.validation_column_gaps = accepted.validation_column_gaps;
+        rejected.validation_row_scales = accepted.validation_row_scales;
+        rejected.validation_column_scales =
+            accepted.validation_column_scales;
         return rejected;
     }
 
@@ -849,6 +896,9 @@ public:
         double diagonal_floor,
         TangentComputationMode tangent_mode,
         double tangent_validation_relative_tolerance,
+        TangentValidationNormKind tangent_validation_norm,
+        double section_width,
+        double section_height,
         const std::vector<PenaltyCouplingEntry>* penalty_couplings,
         double alpha_penalty,
         LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
@@ -866,6 +916,9 @@ public:
         , tangent_mode_{tangent_mode}
         , tangent_validation_relative_tolerance_{
               tangent_validation_relative_tolerance}
+        , tangent_validation_norm_{tangent_validation_norm}
+        , section_width_{section_width}
+        , section_height_{section_height}
         , penalty_couplings_{penalty_couplings}
         , alpha_penalty_{alpha_penalty}
         , bc_applicator_{bc_applicator}
@@ -1006,6 +1059,8 @@ public:
             diagnostics.condensed_symbolic_factorizations;
         response.tangent_validation_status =
             diagnostics.validation_status;
+        response.tangent_validation_norm =
+            diagnostics.validation_norm;
         response.tangent_validation_relative_tolerance =
             diagnostics.validation_relative_tolerance;
         response.tangent_validation_relative_gap =
@@ -1014,6 +1069,10 @@ public:
             diagnostics.validation_max_column_gap;
         response.tangent_validation_column_gaps =
             diagnostics.validation_column_gaps;
+        response.tangent_validation_row_scales =
+            diagnostics.validation_row_scales;
+        response.tangent_validation_column_scales =
+            diagnostics.validation_column_scales;
         response.perturbation_sizes = diagnostics.perturbation_sizes;
         response.tangent_column_valid = diagnostics.column_valid;
         response.tangent_column_central = diagnostics.column_central;
