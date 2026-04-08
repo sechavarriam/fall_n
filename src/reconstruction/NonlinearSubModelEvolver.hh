@@ -222,6 +222,7 @@ class NonlinearSubModelEvolver {
     double diagonal_floor_{1.0};
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
+    double tangent_validation_relative_tolerance_{1.0e-1};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
     std::unique_ptr<CondensationWorkspace> condensed_workspace_{
         std::make_unique<CondensationWorkspace>()};
@@ -248,6 +249,7 @@ class NonlinearSubModelEvolver {
             regularization_policy_,
             diagonal_floor_,
             tangent_mode_,
+            tangent_validation_relative_tolerance_,
             &penalty_couplings_,
             alpha_penalty_,
             make_bc_applicator_(),
@@ -503,6 +505,8 @@ public:
         , regularization_policy_{o.regularization_policy_}
         , diagonal_floor_{o.diagonal_floor_}
         , tangent_mode_{o.tangent_mode_}
+        , tangent_validation_relative_tolerance_{
+              o.tangent_validation_relative_tolerance_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
     {
@@ -554,6 +558,8 @@ public:
             regularization_policy_   = o.regularization_policy_;
             diagonal_floor_          = o.diagonal_floor_;
             tangent_mode_            = o.tangent_mode_;
+            tangent_validation_relative_tolerance_ =
+                o.tangent_validation_relative_tolerance_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             condensed_workspace_     = std::move(o.condensed_workspace_);
             if (!condensed_workspace_) {
@@ -634,10 +640,22 @@ public:
         tangent_mode_ = mode;
     }
 
+    void set_tangent_validation_relative_tolerance(
+        double tolerance) noexcept
+    {
+        tangent_validation_relative_tolerance_ = std::max(0.0, tolerance);
+    }
+
     [[nodiscard]] TangentComputationMode tangent_computation_mode()
         const noexcept
     {
         return tangent_mode_;
+    }
+
+    [[nodiscard]] double tangent_validation_relative_tolerance()
+        const noexcept
+    {
+        return tangent_validation_relative_tolerance_;
     }
 
     void commit_trial_state() {

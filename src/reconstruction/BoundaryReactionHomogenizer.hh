@@ -33,10 +33,14 @@ public:
         std::array<double, 6> perturbation_sizes{};
         std::array<bool, 6> column_valid{};
         std::array<bool, 6> column_central{};
+        std::array<double, 6> validation_column_gaps{};
         double symmetry_error_before_regularization{0.0};
         double condensed_solve_residual{0.0};
         bool condensed_pattern_reused{false};
         std::size_t condensed_symbolic_factorizations{0};
+        double validation_relative_tolerance{0.0};
+        double validation_relative_gap{0.0};
+        double validation_max_column_gap{0.0};
         int failed_perturbations{0};
         bool tangent_regularized{false};
         TangentLinearizationScheme scheme{
@@ -45,6 +49,8 @@ public:
             TangentComputationMode::PreferLinearizedCondensation};
         CondensedTangentStatus condensed_status{
             CondensedTangentStatus::NotAttempted};
+        TangentValidationStatus validation_status{
+            TangentValidationStatus::NotRequested};
     };
 
 private:
@@ -66,6 +72,7 @@ private:
     double diagonal_floor_{1.0};
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
+    double tangent_validation_relative_tolerance_{1.0e-1};
     const std::vector<PenaltyCouplingEntry>* penalty_couplings_{nullptr};
     double alpha_penalty_{0.0};
     LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator_{};
@@ -125,6 +132,36 @@ private:
             case 5: kin_B.theta_local[0] += delta_dof; break;
             default: break;
         }
+    }
+
+    [[nodiscard]] static double relative_matrix_gap_(
+        const Eigen::Matrix<double, 6, 6>& lhs,
+        const Eigen::Matrix<double, 6, 6>& rhs)
+    {
+        const double denom = std::max({1.0, lhs.norm(), rhs.norm()});
+        return (lhs - rhs).norm() / denom;
+    }
+
+    [[nodiscard]] static double relative_vector_gap_(
+        const Eigen::Vector<double, 6>& lhs,
+        const Eigen::Vector<double, 6>& rhs)
+    {
+        const double denom = std::max({1.0, lhs.norm(), rhs.norm()});
+        return (lhs - rhs).norm() / denom;
+    }
+
+    [[nodiscard]] static std::array<double, 6> column_relative_gaps_(
+        const Eigen::Matrix<double, 6, 6>& lhs,
+        const Eigen::Matrix<double, 6, 6>& rhs)
+    {
+        std::array<double, 6> gaps{};
+        for (int j = 0; j < 6; ++j) {
+            const double denom = std::max(
+                {1.0, lhs.col(j).norm(), rhs.col(j).norm()});
+            gaps[static_cast<std::size_t>(j)] =
+                (lhs.col(j) - rhs.col(j)).norm() / denom;
+        }
+        return gaps;
     }
 
     void restore_tangent_baseline_state_() const
@@ -713,6 +750,91 @@ private:
         return diagnostics;
     }
 
+    [[nodiscard]] static bool fd_validation_reference_available_(
+        const TangentDiagnostics& diagnostics)
+    {
+        const bool all_columns_valid = std::all_of(
+            diagnostics.column_valid.begin(),
+            diagnostics.column_valid.end(),
+            [](bool valid) { return valid; });
+        const bool all_columns_central = std::all_of(
+            diagnostics.column_central.begin(),
+            diagnostics.column_central.end(),
+            [](bool central) { return central; });
+        return diagnostics.scheme
+                   == TangentLinearizationScheme::AdaptiveFiniteDifference
+            && all_columns_valid
+            && all_columns_central
+            && diagnostics.tangent.allFinite();
+    }
+
+    [[nodiscard]] TangentDiagnostics
+    compute_validated_condensed_tangent_(double h_pert) const
+    {
+        const auto condensed = compute_linearized_condensed_tangent_();
+        if (!condensed.diagnostics) {
+            auto diagnostics = compute_adaptive_fd_tangent_(h_pert);
+            diagnostics.condensed_status = condensed.status;
+            diagnostics.condensed_solve_residual = condensed.solve_residual;
+            diagnostics.validation_relative_tolerance =
+                tangent_validation_relative_tolerance_;
+            return diagnostics;
+        }
+
+        TangentDiagnostics accepted = *condensed.diagnostics;
+        accepted.validation_relative_tolerance =
+            tangent_validation_relative_tolerance_;
+
+        const Eigen::Vector<double, 6> base_forces = section_forces_from_reactions();
+        const auto fd_reference = compute_adaptive_fd_tangent_(h_pert);
+        accepted.validation_column_gaps =
+            column_relative_gaps_(accepted.tangent, fd_reference.tangent);
+        accepted.validation_relative_gap =
+            relative_matrix_gap_(accepted.tangent, fd_reference.tangent);
+        accepted.validation_max_column_gap =
+            *std::max_element(accepted.validation_column_gaps.begin(),
+                              accepted.validation_column_gaps.end());
+
+        if (!fd_validation_reference_available_(fd_reference)) {
+            accepted.validation_status =
+                TangentValidationStatus::ReferenceUnavailable;
+            return accepted;
+        }
+
+        const bool accepted_by_tolerance =
+            accepted.validation_relative_gap
+                <= tangent_validation_relative_tolerance_;
+        if (accepted_by_tolerance) {
+            accepted.validation_status = TangentValidationStatus::Accepted;
+            return accepted;
+        }
+
+        const Eigen::Vector<double, 6> restored_forces =
+            section_forces_from_reactions();
+        if (relative_vector_gap_(base_forces, restored_forces) > 1.0e-10) {
+            accepted.validation_status =
+                TangentValidationStatus::ReferenceUnavailable;
+            return accepted;
+        }
+
+        auto rejected = fd_reference;
+        rejected.requested_mode = tangent_mode_;
+        rejected.condensed_status = CondensedTangentStatus::ValidationRejected;
+        rejected.condensed_solve_residual = condensed.solve_residual;
+        rejected.condensed_pattern_reused =
+            accepted.condensed_pattern_reused;
+        rejected.condensed_symbolic_factorizations =
+            accepted.condensed_symbolic_factorizations;
+        rejected.validation_status = TangentValidationStatus::Rejected;
+        rejected.validation_relative_tolerance =
+            tangent_validation_relative_tolerance_;
+        rejected.validation_relative_gap = accepted.validation_relative_gap;
+        rejected.validation_max_column_gap =
+            accepted.validation_max_column_gap;
+        rejected.validation_column_gaps = accepted.validation_column_gaps;
+        return rejected;
+    }
+
 public:
     BoundaryReactionHomogenizer() = default;
 
@@ -726,6 +848,7 @@ public:
         RegularizationPolicyKind regularization_policy,
         double diagonal_floor,
         TangentComputationMode tangent_mode,
+        double tangent_validation_relative_tolerance,
         const std::vector<PenaltyCouplingEntry>* penalty_couplings,
         double alpha_penalty,
         LocalBoundaryConditionApplicator<ModelT, SubModelT> bc_applicator,
@@ -741,6 +864,8 @@ public:
         , regularization_policy_{regularization_policy}
         , diagonal_floor_{diagonal_floor}
         , tangent_mode_{tangent_mode}
+        , tangent_validation_relative_tolerance_{
+              tangent_validation_relative_tolerance}
         , penalty_couplings_{penalty_couplings}
         , alpha_penalty_{alpha_penalty}
         , bc_applicator_{bc_applicator}
@@ -822,6 +947,13 @@ public:
             return diagnostics;
         }
 
+        if (tangent_mode_
+            == TangentComputationMode::
+                ValidateCondensationAgainstAdaptiveFiniteDifference)
+        {
+            return compute_validated_condensed_tangent_(h_pert);
+        }
+
         const auto condensed = compute_linearized_condensed_tangent_();
         if (condensed.diagnostics) {
             return *condensed.diagnostics;
@@ -872,6 +1004,16 @@ public:
             diagnostics.condensed_pattern_reused;
         response.condensed_symbolic_factorizations =
             diagnostics.condensed_symbolic_factorizations;
+        response.tangent_validation_status =
+            diagnostics.validation_status;
+        response.tangent_validation_relative_tolerance =
+            diagnostics.validation_relative_tolerance;
+        response.tangent_validation_relative_gap =
+            diagnostics.validation_relative_gap;
+        response.tangent_validation_max_column_gap =
+            diagnostics.validation_max_column_gap;
+        response.tangent_validation_column_gaps =
+            diagnostics.validation_column_gaps;
         response.perturbation_sizes = diagnostics.perturbation_sizes;
         response.tangent_column_valid = diagnostics.column_valid;
         response.tangent_column_central = diagnostics.column_central;
@@ -897,6 +1039,10 @@ public:
             response.status = ResponseStatus::SolveFailed;
         } else if (!all_columns_valid) {
             response.status = ResponseStatus::InvalidOperator;
+        } else if (diagnostics.validation_status
+                       == TangentValidationStatus::ReferenceUnavailable)
+        {
+            response.status = ResponseStatus::Degraded;
         } else if (diagnostics.scheme
                        == TangentLinearizationScheme::LinearizedCondensation
                    && !diagnostics.tangent_regularized)
