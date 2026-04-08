@@ -2,8 +2,7 @@
 #define FALL_N_SRC_VALIDATION_TABLE_CYCLIC_VALIDATION_SUPPORT_HH
 
 #include "src/validation/TableCyclicValidationAPI.hh"
-
-#include "header_files.hh"
+#include "src/validation/TableCyclicValidationDeps.hh"
 
 #include "src/analysis/PenaltyCoupling.hh"
 #include "src/elements/TrussElement.hh"
@@ -172,7 +171,8 @@ inline void write_fe2_solver_diagnostics_header(
 {
     os << "step,p,drift_m,termination_reason,converged,rollback_performed,"
           "failed_submodels,regularized_submodels,max_force_residual_rel,"
-          "max_tangent_residual_rel,failed_sites";
+          "max_force_component_residual_rel,max_tangent_residual_rel,"
+          "max_tangent_column_residual_rel,failed_sites";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
         os << ",sub" << i << "_response_status"
            << ",sub" << i << "_tangent_scheme"
@@ -211,7 +211,9 @@ inline void write_fe2_solver_diagnostics_row(
        << report.failed_submodels << ","
        << report.regularized_submodels << ","
        << report.max_force_residual_rel << ","
+       << report.max_force_component_residual_rel << ","
        << report.max_tangent_residual_rel << ","
+       << report.max_tangent_column_residual_rel << ","
        << summarize_failed_sites(report.failed_sites);
 
     for (std::size_t i = 0; i < locals.size(); ++i) {

@@ -385,6 +385,58 @@ void test_crack_summary_keeps_missing_damage_scalar_honest()
     }
 }
 
+void test_local_checkpoint_restores_path_dependent_state()
+{
+    std::cout << "\n== Local checkpoint exactness ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_min_crack_opening(0.0);
+
+    const auto elastic = ev.solve_step(0.0);
+    const auto elastic_response = ev.section_response(W, H, 1.0e-6);
+    const auto elastic_checkpoint = ev.capture_checkpoint();
+
+    check(elastic.converged,
+          "elastic reference step converges before checkpoint capture");
+
+    SectionKinematics cracked_kin = coord.sub_models()[0].kin_B;
+    cracked_kin.u_local[0] = 8.0e-4;
+    ev.update_kinematics(coord.sub_models()[0].kin_A, cracked_kin);
+
+    const auto cracked = ev.solve_step(0.1);
+    const auto cracked_response = ev.section_response(W, H, 1.0e-6);
+    check(cracked.converged,
+          "path-dependent cracked step converges before restore");
+
+    ev.restore_checkpoint(elastic_checkpoint);
+    const auto restored_response = ev.section_response(W, H, 1.0e-6);
+
+    const double restored_gap =
+        relative_norm(restored_response.forces, elastic_response.forces);
+    const double damaged_gap =
+        relative_norm(cracked_response.forces, elastic_response.forces);
+
+    std::cout << std::setprecision(6)
+              << "  restored_gap = " << restored_gap << "\n"
+              << "  damaged_gap  = " << damaged_gap << "\n";
+
+    check(restored_gap < 1.0e-12,
+          "restored checkpoint recovers the pre-cracking homogenized response");
+    check(damaged_gap > restored_gap + 1.0e-8,
+          "post-cracking response differs measurably from the restored elastic state");
+}
+
 void test_condensed_operator_matches_forced_fd()
 {
     std::cout << "\n== Condensed operator versus forced FD ==\n";
@@ -617,6 +669,11 @@ void test_validation_norm_family_exposes_gap_tradeoffs()
         TangentValidationNormKind::SectionPowerScaledFrobenius);
     const auto section_power = ev.section_response(W, H, 1.0e-6);
 
+    ev.set_tangent_validation_norm(
+        TangentValidationNormKind::DualEnergyScaled);
+    ev.set_tangent_validation_max_column_tolerance(1.0);
+    const auto dual_energy = ev.section_response(W, H, 1.0e-6);
+
     std::cout << std::setprecision(6)
               << "  frobenius_gap      = "
               << frobenius.tangent_validation_relative_gap << "\n"
@@ -624,12 +681,16 @@ void test_validation_norm_family_exposes_gap_tradeoffs()
               << state_weighted.tangent_validation_relative_gap << "\n"
               << "  section_power_gap  = "
               << section_power.tangent_validation_relative_gap << "\n"
+              << "  dual_energy_gap    = "
+              << dual_energy.tangent_validation_relative_gap << "\n"
               << "  frobenius_max_col  = "
               << frobenius.tangent_validation_max_column_gap << "\n"
               << "  state_weighted_max = "
               << state_weighted.tangent_validation_max_column_gap << "\n"
               << "  section_power_max  = "
-              << section_power.tangent_validation_max_column_gap << "\n";
+              << section_power.tangent_validation_max_column_gap << "\n"
+              << "  dual_energy_max    = "
+              << dual_energy.tangent_validation_max_column_gap << "\n";
 
     check(frobenius.tangent_validation_norm
               == TangentValidationNormKind::RelativeFrobenius,
@@ -640,6 +701,9 @@ void test_validation_norm_family_exposes_gap_tradeoffs()
     check(section_power.tangent_validation_norm
               == TangentValidationNormKind::SectionPowerScaledFrobenius,
           "section-power path reports its norm kind");
+    check(dual_energy.tangent_validation_norm
+              == TangentValidationNormKind::DualEnergyScaled,
+          "dual-energy path reports its norm kind");
     check(std::all_of(frobenius.tangent_validation_row_scales.begin(),
                       frobenius.tangent_validation_row_scales.end(),
                       [](double x) { return std::abs(x - 1.0) < 1.0e-14; }),
@@ -652,6 +716,20 @@ void test_validation_norm_family_exposes_gap_tradeoffs()
           "section-power audit remains more conservative than the state-weighted norm");
     check(section_power.tangent_validation_row_scales[1] > 1.0,
           "section-power audit exposes force-equivalent scaling on bending resultants");
+    check(std::all_of(dual_energy.tangent_validation_row_scales.begin(),
+                      dual_energy.tangent_validation_row_scales.end(),
+                      [](double x) { return std::isfinite(x) && x > 0.0; }),
+          "dual-energy norm keeps positive finite row scales");
+    check(std::any_of(dual_energy.tangent_validation_row_scales.begin(),
+                      dual_energy.tangent_validation_row_scales.end(),
+                      [](double x) { return std::abs(x - 1.0) > 1.0e-6; }),
+          "dual-energy norm redistributes row weights according to conjugate force-state activity");
+    check(dual_energy.tangent_validation_max_column_gap
+              <= state_weighted.tangent_validation_max_column_gap + 1.0e-12,
+          "dual-energy norm does not worsen the worst per-column gap relative to the state-weighted audit");
+    check(dual_energy.tangent_validation_relative_gap
+              <= section_power.tangent_validation_relative_gap,
+          "dual-energy norm remains no more conservative than section-power audit on the mixed elastic state");
 }
 
 void test_condensed_operator_reuses_symbolic_pattern()
@@ -714,6 +792,7 @@ int main(int argc, char** argv)
     test_mode_specific_homogenized_responses();
     test_linearized_consistency_energy_and_operator_comparison();
     test_crack_summary_keeps_missing_damage_scalar_honest();
+    test_local_checkpoint_restores_path_dependent_state();
     test_condensed_operator_matches_forced_fd();
     test_validated_condensed_operator_accepts_elastic_case();
     test_validated_condensed_operator_rejects_with_strict_tolerance();

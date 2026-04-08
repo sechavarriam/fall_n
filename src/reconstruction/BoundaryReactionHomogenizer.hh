@@ -44,6 +44,7 @@ public:
         bool condensed_pattern_reused{false};
         std::size_t condensed_symbolic_factorizations{0};
         double validation_relative_tolerance{0.0};
+        double validation_max_column_tolerance{0.0};
         double validation_relative_gap{0.0};
         double validation_max_column_gap{0.0};
         int failed_perturbations{0};
@@ -68,6 +69,12 @@ private:
         double solve_residual{0.0};
     };
 
+    struct LocalAssemblyResult {
+        std::optional<SparseMatrixT> tangent{};
+        CondensedTangentStatus status{
+            CondensedTangentStatus::NotAttempted};
+    };
+
     ModelT* model_{nullptr};
     SubModelT* sub_{nullptr};
     Vec displacement_{nullptr};
@@ -80,6 +87,7 @@ private:
     TangentComputationMode tangent_mode_{
         TangentComputationMode::PreferLinearizedCondensation};
     double tangent_validation_relative_tolerance_{1.0e-1};
+    double tangent_validation_max_column_tolerance_{5.0e-1};
     TangentValidationNormKind tangent_validation_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
     double section_width_{0.0};
@@ -177,13 +185,16 @@ private:
 
     [[nodiscard]] SectionOperatorValidationScales validation_scales_(
         const Eigen::Vector<double, 6>& reference_generalized_state =
+            Eigen::Vector<double, 6>::Zero(),
+        const Eigen::Vector<double, 6>& reference_generalized_force =
             Eigen::Vector<double, 6>::Zero()) const
     {
         return make_section_operator_validation_scales(
             tangent_validation_norm_,
             validation_width_(),
             validation_height_(),
-            reference_generalized_state);
+            reference_generalized_state,
+            reference_generalized_force);
     }
 
     void restore_tangent_baseline_state_() const
@@ -426,11 +437,13 @@ private:
         }
     }
 
-    [[nodiscard]] std::optional<SparseMatrixT>
+    [[nodiscard]] LocalAssemblyResult
     assemble_sparse_local_tangent_() const
     {
+        LocalAssemblyResult result;
         if (!model_) {
-            return std::nullopt;
+            result.status = CondensedTangentStatus::MissingModel;
+            return result;
         }
 
         state_ops_.sync_state_vector();
@@ -438,7 +451,8 @@ private:
         PetscInt n_local = 0;
         VecGetLocalSize(model_->state_vector(), &n_local);
         if (n_local <= 0) {
-            return std::nullopt;
+            result.status = CondensedTangentStatus::AssemblyFailed;
+            return result;
         }
 
         std::vector<Eigen::Triplet<double>> triplets;
@@ -449,25 +463,33 @@ private:
             auto K_e = elem.compute_tangent_stiffness_matrix(u_e);
             const auto& dofs = elem.get_dof_indices();
 
-            if (u_e.size() == 0 || K_e.rows() == 0 || K_e.cols() == 0
-                || dofs.empty()
+            if (u_e.size() == 0 || K_e.rows() == 0 || K_e.cols() == 0) {
+                result.status = CondensedTangentStatus::MissingElementTangent;
+                return result;
+            }
+            if (dofs.empty()
                 || K_e.rows() != static_cast<Eigen::Index>(dofs.size())
                 || K_e.cols() != static_cast<Eigen::Index>(dofs.size()))
             {
-                return std::nullopt;
+                result.status =
+                    CondensedTangentStatus::ElementTangentSizeMismatch;
+                return result;
             }
 
             for (Eigen::Index i = 0; i < K_e.rows(); ++i) {
                 const auto row = static_cast<Eigen::Index>(
                     dofs[static_cast<std::size_t>(i)]);
                 if (row < 0 || row >= static_cast<Eigen::Index>(n_local)) {
-                    return std::nullopt;
+                    result.status = CondensedTangentStatus::InvalidElementDofIndex;
+                    return result;
                 }
                 for (Eigen::Index j = 0; j < K_e.cols(); ++j) {
                     const auto col = static_cast<Eigen::Index>(
                         dofs[static_cast<std::size_t>(j)]);
                     if (col < 0 || col >= static_cast<Eigen::Index>(n_local)) {
-                        return std::nullopt;
+                        result.status =
+                            CondensedTangentStatus::InvalidElementDofIndex;
+                        return result;
                     }
                     append_triplet_(triplets, row, col, K_e(i, j));
                 }
@@ -480,7 +502,9 @@ private:
         tangent.setFromTriplets(
             triplets.begin(), triplets.end(), std::plus<double>{});
         tangent.makeCompressed();
-        return tangent;
+        result.tangent = std::move(tangent);
+        result.status = CondensedTangentStatus::Success;
+        return result;
     }
 
     void finalize_tangent_(TangentDiagnostics& diagnostics) const
@@ -548,10 +572,9 @@ private:
             return attempt;
         }
 
-        attempt.status = CondensedTangentStatus::AssemblyFailed;
-
-        auto tangent_full = assemble_sparse_local_tangent_();
-        if (!tangent_full) {
+        auto assembly = assemble_sparse_local_tangent_();
+        attempt.status = assembly.status;
+        if (!assembly.tangent) {
             return attempt;
         }
 
@@ -574,8 +597,8 @@ private:
         std::vector<Eigen::Triplet<double>> ff_triplets;
         std::vector<Eigen::Triplet<double>> cf_triplets;
 
-        for (Eigen::Index outer = 0; outer < tangent_full->outerSize(); ++outer) {
-            for (typename SparseMatrixT::InnerIterator it(*tangent_full, outer);
+        for (Eigen::Index outer = 0; outer < assembly.tangent->outerSize(); ++outer) {
+            for (typename SparseMatrixT::InnerIterator it(*assembly.tangent, outer);
                  it; ++it)
             {
                 const auto row = it.row();
@@ -664,6 +687,8 @@ private:
             TangentLinearizationScheme::LinearizedCondensation;
         diagnostics.requested_mode = tangent_mode_;
         diagnostics.validation_norm = tangent_validation_norm_;
+        diagnostics.validation_max_column_tolerance =
+            tangent_validation_max_column_tolerance_;
         diagnostics.condensed_status = CondensedTangentStatus::Success;
         diagnostics.condensed_solve_residual = attempt.solve_residual;
         diagnostics.tangent =
@@ -803,6 +828,8 @@ private:
         const Eigen::Vector<double, 6> reference_generalized_state =
             relative_generalized_dofs_(kin_A_orig, kin_B_orig)
             / std::max(beam_length, std::numeric_limits<double>::epsilon());
+        const Eigen::Vector<double, 6> base_forces =
+            section_forces_from_reactions();
 
         const auto condensed = compute_linearized_condensed_tangent_();
         if (!condensed.diagnostics) {
@@ -811,9 +838,12 @@ private:
             diagnostics.condensed_solve_residual = condensed.solve_residual;
             diagnostics.validation_relative_tolerance =
                 tangent_validation_relative_tolerance_;
+            diagnostics.validation_max_column_tolerance =
+                tangent_validation_max_column_tolerance_;
             diagnostics.validation_norm = tangent_validation_norm_;
             const auto scales =
-                validation_scales_(reference_generalized_state);
+                validation_scales_(
+                    reference_generalized_state, base_forces);
             diagnostics.validation_row_scales = scales.row;
             diagnostics.validation_column_scales = scales.column;
             return diagnostics;
@@ -822,13 +852,15 @@ private:
         TangentDiagnostics accepted = *condensed.diagnostics;
         accepted.validation_relative_tolerance =
             tangent_validation_relative_tolerance_;
+        accepted.validation_max_column_tolerance =
+            tangent_validation_max_column_tolerance_;
         accepted.validation_norm = tangent_validation_norm_;
 
-        const auto scales = validation_scales_(reference_generalized_state);
+        const auto scales = validation_scales_(
+            reference_generalized_state, base_forces);
         accepted.validation_row_scales = scales.row;
         accepted.validation_column_scales = scales.column;
 
-        const Eigen::Vector<double, 6> base_forces = section_forces_from_reactions();
         const auto fd_reference = compute_adaptive_fd_tangent_(h_pert);
         const auto metrics = compute_section_operator_validation_metrics(
             accepted.tangent,
@@ -846,7 +878,9 @@ private:
 
         const bool accepted_by_tolerance =
             accepted.validation_relative_gap
-                <= tangent_validation_relative_tolerance_;
+                <= tangent_validation_relative_tolerance_
+            && accepted.validation_max_column_gap
+                <= tangent_validation_max_column_tolerance_;
         if (accepted_by_tolerance) {
             accepted.validation_status = TangentValidationStatus::Accepted;
             return accepted;
@@ -871,6 +905,8 @@ private:
         rejected.validation_status = TangentValidationStatus::Rejected;
         rejected.validation_relative_tolerance =
             tangent_validation_relative_tolerance_;
+        rejected.validation_max_column_tolerance =
+            tangent_validation_max_column_tolerance_;
         rejected.validation_norm = tangent_validation_norm_;
         rejected.validation_relative_gap = accepted.validation_relative_gap;
         rejected.validation_max_column_gap =
@@ -896,6 +932,7 @@ public:
         double diagonal_floor,
         TangentComputationMode tangent_mode,
         double tangent_validation_relative_tolerance,
+        double tangent_validation_max_column_tolerance,
         TangentValidationNormKind tangent_validation_norm,
         double section_width,
         double section_height,
@@ -916,6 +953,8 @@ public:
         , tangent_mode_{tangent_mode}
         , tangent_validation_relative_tolerance_{
               tangent_validation_relative_tolerance}
+        , tangent_validation_max_column_tolerance_{
+              tangent_validation_max_column_tolerance}
         , tangent_validation_norm_{tangent_validation_norm}
         , section_width_{section_width}
         , section_height_{section_height}
@@ -1015,6 +1054,10 @@ public:
         auto diagnostics = compute_adaptive_fd_tangent_(h_pert);
         diagnostics.condensed_status = condensed.status;
         diagnostics.condensed_solve_residual = condensed.solve_residual;
+        diagnostics.validation_relative_tolerance =
+            tangent_validation_relative_tolerance_;
+        diagnostics.validation_max_column_tolerance =
+            tangent_validation_max_column_tolerance_;
         return diagnostics;
     }
 
@@ -1063,6 +1106,8 @@ public:
             diagnostics.validation_norm;
         response.tangent_validation_relative_tolerance =
             diagnostics.validation_relative_tolerance;
+        response.tangent_validation_max_column_tolerance =
+            diagnostics.validation_max_column_tolerance;
         response.tangent_validation_relative_gap =
             diagnostics.validation_relative_gap;
         response.tangent_validation_max_column_gap =

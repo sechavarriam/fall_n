@@ -24,6 +24,7 @@ struct SectionOperatorValidationScales {
     bool valid_geometry{false};
     std::array<double, 6> row{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
     std::array<double, 6> column{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+    std::array<double, 6> vector{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
 };
 
 struct SectionOperatorValidationMetrics {
@@ -40,6 +41,8 @@ struct SectionVectorValidationMetrics {
     TangentValidationNormKind norm{
         TangentValidationNormKind::StateWeightedFrobenius};
     double relative_gap{0.0};
+    double max_component_gap{0.0};
+    std::array<double, 6> component_gaps{};
     std::array<double, 6> component_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
     std::array<double, 6> row_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
     std::array<double, 6> column_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
@@ -51,6 +54,9 @@ make_section_operator_validation_scales(TangentValidationNormKind norm,
                                         double height,
                                         const Eigen::Vector<double, 6>&
                                             reference_generalized_state =
+                                                Eigen::Vector<double, 6>::Zero(),
+                                        const Eigen::Vector<double, 6>&
+                                            reference_generalized_force =
                                                 Eigen::Vector<double, 6>::Zero())
 {
     SectionOperatorValidationScales scales;
@@ -112,9 +118,49 @@ make_section_operator_validation_scales(TangentValidationNormKind norm,
             scaled_state[j] / max_scaled_state,
             state_floor);
     }
+    for (std::size_t i = 0; i < scales.vector.size(); ++i) {
+        scales.vector[i] = scales.row[i] * scales.column[i];
+    }
 
     if (norm == TangentValidationNormKind::StateWeightedFrobenius) {
         scales.row = {{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+        for (std::size_t i = 0; i < scales.vector.size(); ++i) {
+            scales.vector[i] = scales.column[i];
+        }
+        return scales;
+    }
+
+    if (norm == TangentValidationNormKind::DualEnergyScaled) {
+        const std::array<double, 6> force_state{{
+            std::abs(reference_generalized_force[0]),
+            std::abs(reference_generalized_force[1]),
+            std::abs(reference_generalized_force[2]),
+            std::abs(reference_generalized_force[3]),
+            std::abs(reference_generalized_force[4]),
+            std::abs(reference_generalized_force[5]),
+        }};
+        const double max_force_state = std::max(
+            {1.0e-6,
+             force_state[0],
+             force_state[1],
+             force_state[2],
+             force_state[3],
+             force_state[4],
+             force_state[5]});
+        const double force_floor = 1.0e-3 * max_force_state;
+        double power_scale = 0.0;
+        for (std::size_t i = 0; i < scales.column.size(); ++i) {
+            power_scale += std::max(force_state[i], force_floor)
+                         * std::max(scaled_state[i], state_floor);
+        }
+        power_scale = std::max(power_scale, max_force_state * state_floor);
+        for (std::size_t i = 0; i < scales.row.size(); ++i) {
+            const double activity =
+                std::max(scaled_state[i], state_floor);
+            scales.row[i] = (max_force_state * activity) / power_scale;
+            scales.vector[i] = scales.row[i];
+        }
+        return scales;
     }
     return scales;
 }
@@ -145,7 +191,7 @@ apply_section_vector_validation_scales(
     Eigen::Vector<double, 6> scaled = vec;
     for (int i = 0; i < 6; ++i) {
         const auto index = static_cast<std::size_t>(i);
-        scaled[i] *= scales.row[index] * scales.column[index];
+        scaled[i] *= scales.vector[index];
     }
     return scaled;
 }
@@ -195,7 +241,7 @@ compute_section_vector_validation_metrics(
     metrics.column_scales = scales.column;
 
     for (std::size_t i = 0; i < metrics.component_scales.size(); ++i) {
-        metrics.component_scales[i] = scales.row[i] * scales.column[i];
+        metrics.component_scales[i] = scales.vector[i];
     }
 
     const auto lhs_scaled =
@@ -206,6 +252,20 @@ compute_section_vector_validation_metrics(
     const double denom = std::max(
         {1.0, lhs_scaled.norm(), rhs_scaled.norm()});
     metrics.relative_gap = (lhs_scaled - rhs_scaled).norm() / denom;
+
+    for (std::size_t i = 0; i < metrics.component_gaps.size(); ++i) {
+        const double component_denom = std::max(
+            {1.0,
+             std::abs(lhs_scaled[static_cast<Eigen::Index>(i)]),
+             std::abs(rhs_scaled[static_cast<Eigen::Index>(i)])});
+        metrics.component_gaps[i] =
+            std::abs(lhs_scaled[static_cast<Eigen::Index>(i)]
+                     - rhs_scaled[static_cast<Eigen::Index>(i)])
+            / component_denom;
+    }
+    metrics.max_component_gap =
+        *std::max_element(metrics.component_gaps.begin(),
+                          metrics.component_gaps.end());
     return metrics;
 }
 
