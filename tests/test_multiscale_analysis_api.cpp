@@ -159,6 +159,8 @@ struct FakeSolver {
 struct FakeBridge {
     FakeSolver* solver{nullptr};
     std::vector<std::optional<SectionHomogenizedResponse>> injected{};
+    std::optional<Eigen::Vector<double, 6>> strain_override{};
+    std::optional<Eigen::Vector<double, 6>> forces_override{};
 
     explicit FakeBridge(FakeSolver* solver_in = nullptr,
                         std::size_t num_sites = 1)
@@ -179,8 +181,16 @@ struct FakeBridge {
     {
         MacroSectionState state;
         state.site = site;
-        state.strain.setConstant(solver->current_time());
-        state.forces.setConstant(solver->current_time());
+        if (strain_override) {
+            state.strain = *strain_override;
+        } else {
+            state.strain.setConstant(solver->current_time());
+        }
+        if (forces_override) {
+            state.forces = *forces_override;
+        } else {
+            state.forces.setConstant(solver->current_time());
+        }
         return state;
     }
 
@@ -219,6 +229,9 @@ struct FakeLocalModel {
     ResponseStatus response_status{ResponseStatus::Ok};
     bool tangent_regularized{false};
     int failed_perturbations{0};
+    Eigen::Matrix<double, 6, 6> response_tangent{
+        Eigen::Matrix<double, 6, 6>::Identity()};
+    std::optional<Eigen::Vector<double, 6>> response_forces_override{};
     std::array<bool, 6> tangent_column_valid{
         {true, true, true, true, true, true}};
     std::array<bool, 6> tangent_column_central{
@@ -235,12 +248,15 @@ struct FakeLocalModel {
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
     section_tangent(double, double, double) const
     {
-        return Eigen::Matrix<double, 6, 6>::Identity();
+        return response_tangent;
     }
 
     [[nodiscard]] Eigen::Vector<double, 6>
     section_forces(double, double) const
     {
+        if (response_forces_override) {
+            return *response_forces_override;
+        }
         return Eigen::Vector<double, 6>::Constant(solver->current_time());
     }
 
@@ -588,6 +604,76 @@ void test_iterated_two_way_matches_between_serial_and_openmp_executors()
         "serial and OpenMP inject the same accepted homogenized response");
 }
 
+void test_lagged_feedback_force_residual_norms_change_reported_gap()
+{
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    auto build_model = [](FakeSolver& solver) {
+        ModelT model{BridgeT{&solver, 1}};
+        model.macro_bridge().strain_override = (Eigen::Vector<double, 6>()
+            << 1.0, 1.0e-8, 1.0e-8, 2.5e-1, 1.0e-1, 1.0e-8).finished();
+        model.macro_bridge().forces_override = (Eigen::Vector<double, 6>()
+            << 10.0, 0.0, 0.0, 2.0, 1.0, 0.0).finished();
+
+        FakeLocalModel local{&solver, 0};
+        local.response_forces_override = (Eigen::Vector<double, 6>()
+            << 10.0, 1.5, 0.0, 2.0, 1.0, 0.0).finished();
+        model.register_local_model(
+            CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+            std::move(local));
+        return model;
+    };
+
+    FakeSolver raw_solver;
+    AnalysisT raw_analysis(
+        raw_solver,
+        build_model(raw_solver),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    raw_analysis.set_coupling_start_step(1);
+    raw_analysis.set_section_dimensions(0.20, 0.20);
+    raw_analysis.set_force_residual_norm(
+        TangentValidationNormKind::RelativeFrobenius);
+
+    FakeSolver weighted_solver;
+    AnalysisT weighted_analysis(
+        weighted_solver,
+        build_model(weighted_solver),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    weighted_analysis.set_coupling_start_step(1);
+    weighted_analysis.set_section_dimensions(0.20, 0.20);
+    weighted_analysis.set_force_residual_norm(
+        TangentValidationNormKind::StateWeightedFrobenius);
+
+    const bool raw_ok = raw_analysis.step();
+    const bool weighted_ok = weighted_analysis.step();
+
+    CHECK_TRUE(raw_ok && weighted_ok,
+               "lagged feedback harness converges for residual-norm comparison");
+    CHECK_TRUE(
+        raw_analysis.last_report().force_residual_norm
+            == TangentValidationNormKind::RelativeFrobenius,
+        "raw residual report preserves the selected norm kind");
+    CHECK_TRUE(
+        weighted_analysis.last_report().force_residual_norm
+            == TangentValidationNormKind::StateWeightedFrobenius,
+        "weighted residual report preserves the selected norm kind");
+    CHECK_TRUE(
+        weighted_analysis.last_report().max_force_residual_rel
+            < raw_analysis.last_report().max_force_residual_rel,
+        "state-weighted force residual downweights dormant generalized directions");
+    CHECK_TRUE(
+        weighted_analysis.last_report().force_residual_component_scales[0][1]
+            < 1.0,
+        "weighted force residual reports a sub-unit scale for the dormant bending component");
+}
+
 }  // namespace
 
 int main()
@@ -599,6 +685,7 @@ int main()
     test_lagged_feedback_reports_regularized_response_without_hard_failure();
     test_invalid_operator_counts_as_hard_failure();
     test_iterated_two_way_matches_between_serial_and_openmp_executors();
+    test_lagged_feedback_force_residual_norms_change_reported_gap();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return (g_fail == 0) ? 0 : 1;

@@ -296,11 +296,11 @@ mode itself, because the validation mode still computes both operators by
 construction.  On that benchmark family the measured results were
 \begin{align}
   N_{\mathrm{accept},F} &= 0/4, &
-  T_{\mathrm{proj},F} &= 9.92183~\mathrm{s}, \\
+  T_{\mathrm{proj},F} &= 8.64244~\mathrm{s}, \\
   N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
-  T_{\mathrm{proj},\mathrm{sw}} &= 0.403531~\mathrm{s},
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.345097~\mathrm{s},
 \end{align}
-which corresponds to a projected speedup of \(24.59\times\) for the tangent
+which corresponds to a projected speedup of \(25.04\times\) for the tangent
 delivery stage of the outer FE\textsuperscript{2} loop on this benchmark.  The
 benchmark is intentionally small, but it is fully reproducible and now part of
 the multiscale stability gate.
@@ -521,26 +521,90 @@ tolerance \(4.5\times 10^{-2}\), the measured projected tangent-delivery costs
 were
 \begin{align}
   N_{\mathrm{accept},F} &= 0/4, &
-  T_{\mathrm{proj},F} &= 9.92183~\mathrm{s}, \\
+  T_{\mathrm{proj},F} &= 8.64244~\mathrm{s}, \\
   N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
-  T_{\mathrm{proj},\mathrm{sw}} &= 0.403531~\mathrm{s},
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.345097~\mathrm{s},
 \end{align}
-which corresponds to a projected speedup of \(24.59\times\) for the tangent
+which corresponds to a projected speedup of \(25.04\times\) for the tangent
 delivery stage of the outer FE\textsuperscript{2} loop on this benchmark.  The
 word \emph{projected} matters here: the validation mode still computes both the
 condensed and FD operators, so the benchmark estimates the expected production
 benefit of the acceptance criterion rather than claiming that the validation
-mode itself became \(24.59\times\) faster.
+mode itself became \(25.04\times\) faster.
+
+\subsection{Coupling residual norms and projected outer-iteration cost}
+
+The next gap closed in this cycle was semantic rather than algebraic: the
+operator-validation path had already adopted the weighted norm family, but the
+outer FE\textsuperscript{2} convergence loop still consumed raw relative
+residuals.  That meant the code could accept a condensed operator with a
+state-weighted criterion while still forcing extra fixed-point iterations
+because the outer tangent residual remained tied to a pure Frobenius norm.
+
+The implementation now aligns those two layers.  \texttt{MultiscaleAnalysis}
+stores separate norm selections for force and tangent residuals, both defaulted
+to \texttt{StateWeightedFrobenius}.  For a local macro strain proxy
+\(\mathbf{e}_{\mathrm{ref}}\), the force residual at one coupling site is now
+measured as
+\begin{equation}
+  r_{f,\mathrm{sw}}
+  =
+  \frac{\lVert \mathbf{W}_q
+    (\mathbf{s}_{\mathrm{macro}}-\mathbf{s}_{\mathrm{micro}})\rVert_2}
+  {\max\!\left(
+    1,
+    \lVert \mathbf{W}_q \mathbf{s}_{\mathrm{macro}}\rVert_2,
+    \lVert \mathbf{W}_q \mathbf{s}_{\mathrm{micro}}\rVert_2
+  \right)},
+\end{equation}
+and the tangent residual between two fixed-point iterates is
+\begin{equation}
+  r_{D,\mathrm{sw}}
+  =
+  \frac{\lVert (\mathbf{D}^{(k)}-\mathbf{D}^{(k-1)})\mathbf{W}_q\rVert_F}
+  {\max\!\left(
+    1,
+    \lVert \mathbf{D}^{(k)}\mathbf{W}_q\rVert_F,
+    \lVert \mathbf{D}^{(k-1)}\mathbf{W}_q\rVert_F
+  \right)}.
+\end{equation}
+The same code path can still be switched back to
+\texttt{RelativeFrobenius} for exact historical reproduction or to
+\texttt{SectionPowerScaledFrobenius} for conservative audit campaigns.  The
+important part is that the selected norm family is now stored explicitly in
+\texttt{CouplingIterationReport}, together with the effective component scales
+for force residuals and the row/column scales used for tangent residuals.
+
+To make the expected convergence effect reproducible, a second benchmark,
+\texttt{fall\_n\_coupling\_residual\_benchmark\_test.exe}, was added.  It uses
+the same four mixed elastic states as the tangent-validation benchmark, forms a
+surrogate fixed-point pair from the condensed and forced-FD tangents at each
+state, and measures the local condensed-response cost that would be paid again
+if the outer criterion rejected the iterate.  The measured results at
+tangent tolerance \(4.5\times 10^{-2}\) were
+\begin{align}
+  N_{\mathrm{accept},F} &= 0/4, &
+  T_{\mathrm{proj},F} &= 0.652498~\mathrm{s}, \\
+  N_{\mathrm{accept},\mathrm{sw}} &= 4/4, &
+  T_{\mathrm{proj},\mathrm{sw}} &= 0.326249~\mathrm{s},
+\end{align}
+for a projected outer-iteration speedup of exactly \(2.0\times\) on this
+surrogate benchmark.  Again, the word \emph{projected} is deliberate: the test
+does not claim that the whole FE\textsuperscript{2} solve is twice as fast in
+general, only that this norm change removes one otherwise spurious extra outer
+iteration on the benchmarked mixed states.
 
 \subsection{Executed regression targets}
 
 The following focused executables were rebuilt and executed locally after the
 runtime-validation extension of the stabilization changes:
 \begin{itemize}
-  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 43 passed, 0 failed;
+  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: 48 passed, 0 failed;
   \item \texttt{fall\_n\_micro\_solve\_executor\_test.exe}: 6 passed, 0 failed;
   \item \texttt{fall\_n\_evolver\_advanced\_test.exe}: 135 passed, 0 failed;
   \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test.exe}: 3 passed,
+    0 failed;
+  \item \texttt{fall\_n\_coupling\_residual\_benchmark\_test.exe}: 3 passed,
     0 failed;
   \item \texttt{fall\_n\_beam\_test.exe}: 21 passed, 0 failed;
   \item \texttt{fall\_n\_steppable\_solver\_test.exe}: 48 passed, 0 failed;
@@ -564,6 +628,7 @@ which heavy target is consuming or blocking the local gate.  The script covers:
   \item \texttt{fall\_n\_micro\_solve\_executor\_test};
   \item \texttt{fall\_n\_evolver\_advanced\_test};
   \item \texttt{fall\_n\_tangent\_validation\_benchmark\_test};
+  \item \texttt{fall\_n\_coupling\_residual\_benchmark\_test};
   \item \texttt{fall\_n\_beam\_test};
   \item \texttt{fall\_n\_steppable\_solver\_test};
   \item \texttt{fall\_n\_steppable\_dynamic\_test};
@@ -1231,6 +1296,153 @@ These warnings were intentionally not hidden or silently normalised.  The
 stabilization decision was to keep the document compiling, add the current
 chapter as an execution record, and leave the broader document cleanup as a
 separate documentation-quality task.
+
+\section{Whole-Library Architecture Review and README Refresh}
+\label{sec:ms-stab-library-review}
+
+The stabilization pass ended with a broader repository audit rather than with a
+multiscale-only close-out.  The purpose of that review was twofold:
+\begin{enumerate}
+  \item verify that the new multiscale publication path still fits coherently
+    inside the larger \texttt{fall\_n} architecture;
+  \item replace the almost-empty top-level \texttt{README.md} with a document
+    that states the actual module structure, build surface, strengths, and
+    short-term improvement priorities of the repository.
+\end{enumerate}
+
+\subsection{Repository shape observed in the audit}
+
+At the time of this execution pass, the source tree exposed fifteen top-level
+\texttt{src/} modules:
+\texttt{analysis}, \texttt{continuum}, \texttt{domain}, \texttt{elements},
+\texttt{geometry}, \texttt{graph}, \texttt{materials}, \texttt{mesh},
+\texttt{model}, \texttt{numerics}, \texttt{petsc},
+\texttt{post-processing}, \texttt{reconstruction}, \texttt{utils}, and
+\texttt{validation}.  The repository also contained 73 standalone regression
+sources under \texttt{tests/} and 83 chapter files under \texttt{doc/}.  That
+shape matters because it confirms that \texttt{fall\_n} is no longer ``just a
+driver playground'': it is already large enough that build surface, public
+surface, and documentation surface must be treated as first-class architecture
+concerns.
+
+Figure~\ref{fig:ms-stab-library-map} summarises the current high-level module
+layout observed in the audit.
+
+\begin{figure}[htb]
+\centering
+\begin{tikzpicture}[
+  node distance=8mm and 10mm,
+  box/.style={draw, rounded corners, align=center, minimum width=28mm, minimum height=8mm},
+  >=Latex
+]
+  \node[box] (core) {\texttt{geometry} / \texttt{numerics}\\core math + shapes};
+  \node[box, right=of core] (materials) {\texttt{materials}\\constitutive kernels};
+  \node[box, right=of materials] (elements) {\texttt{elements} / \texttt{continuum}\\discrete operators};
+
+  \node[box, below=of core] (model) {\texttt{model} / \texttt{mesh}\\domain + DoFs + builders};
+  \node[box, below=of materials] (analysis) {\texttt{analysis}\\global solvers + FE$^2$};
+  \node[box, below=of elements] (reco) {\texttt{reconstruction}\\submodels + transfers};
+
+  \node[box, below=of model] (validation) {\texttt{validation}\\campaign drivers};
+  \node[box, right=of validation] (post) {\texttt{post-processing}\\VTK + queries};
+  \node[box, right=of post] (utils) {\texttt{utils} / \texttt{petsc}\\tooling + wrappers};
+
+  \draw[->] (core) -- (materials);
+  \draw[->] (materials) -- (elements);
+  \draw[->] (core) -- (model);
+  \draw[->] (elements) -- (analysis);
+  \draw[->] (model) -- (analysis);
+  \draw[->] (analysis) -- (reco);
+  \draw[->] (reco) -- (validation);
+  \draw[->] (analysis) -- (validation);
+  \draw[->] (validation) -- (post);
+  \draw[->] (utils) -- (analysis);
+\end{tikzpicture}
+\caption{High-level module map observed in the repository audit.}
+\label{fig:ms-stab-library-map}
+\end{figure}
+
+\subsection{Main architectural strengths}
+
+The repository-wide review identified four strengths worth preserving:
+\begin{enumerate}
+  \item \textbf{clear domain layering.}  Geometry, numerics, materials,
+    elements, model assembly, and analysis are already separated into
+    recognisable modules;
+  \item \textbf{policy- and concept-oriented kernels.}  The constitutive and
+    multiscale paths increasingly rely on explicit contracts instead of
+    hard-coded driver assumptions;
+  \item \textbf{unusually strong internal documentation.}  The code is backed by
+    a large technical manuscript that already captures implementation
+    rationale, not just usage notes;
+  \item \textbf{broad regression culture.}  The repository contains enough
+    focused tests that architectural refactors can be attempted honestly rather
+    than as unverified rewrites.
+\end{enumerate}
+
+\subsection{Quick wins identified by the review}
+
+The same audit also identified several improvements that are small enough to be
+attacked without a new research campaign, yet valuable enough to improve the
+everyday development experience immediately.  Table
+\ref{tab:ms-stab-library-quickwins} records the main items.
+
+\begin{table}[htb]
+\centering
+\small
+\begin{tabular}{p{0.27\textwidth}p{0.12\textwidth}p{0.42\textwidth}}
+\toprule
+Quick win & Impact & Rationale \\
+\midrule
+Reduce reliance on \texttt{header\_files.hh} and the global PCH &
+high &
+The umbrella header still drags almost the entire project into many
+translation units, inflating rebuild times and coupling unrelated modules. \\
+Split the top-level \texttt{CMakeLists.txt} into module-local fragments &
+medium/high &
+The build description already encodes several architectural layers, but they
+are hard to evolve because almost everything lives in one long root file. \\
+Normalize naming conventions &
+medium &
+The tree still mixes \texttt{non\_lineal}/\texttt{nonlinear},
+\texttt{Homogenisation}/\texttt{Homogenized}, and mixed English/Spanish naming,
+which raises the cognitive load of navigation and public packaging. \\
+Move generated artefacts out of the repository root &
+medium &
+The root still accumulates build/document/runtime byproducts in local
+development sessions; a stricter output convention would make the repository
+surface cleaner and easier to review. \\
+Generalize the installable public surface beyond multiscale &
+high &
+\texttt{fall\_n::multiscale\_api} already exists, but the rest of the library
+still behaves primarily as a source-tree project rather than as an installable
+set of consumable module targets. \\
+Clean the legacy document warnings and historical drift &
+medium &
+The PDF now compiles reliably, but duplicate labels, undefined references, and
+old narrative chapters still make the document harder to treat as a polished
+reference manual. \\
+\bottomrule
+\end{tabular}
+\caption{Whole-library quick wins identified during the stabilization review.}
+\label{tab:ms-stab-library-quickwins}
+\end{table}
+
+\subsection{README refresh}
+
+The top-level \texttt{README.md} was refreshed in the same execution pass to
+match the audited state of the codebase.  The new README now documents:
+\begin{itemize}
+  \item the repository purpose and current status;
+  \item the high-level module architecture;
+  \item the current publication-path multiscale API;
+  \item build, test, and documentation entry points;
+  \item current strengths, known limitations, and the quick wins listed above.
+\end{itemize}
+That update is not a cosmetic addition.  It closes a practical documentation
+gap: before this pass, the PDF contained a large amount of technical detail but
+the repository landing page did not tell a new contributor how the project was
+actually organised.
 
 \section{Closure of the Stabilization Cycle}
 \label{sec:ms-stab-close}

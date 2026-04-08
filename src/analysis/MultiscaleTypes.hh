@@ -151,6 +151,10 @@ struct CouplingIterationReport {
     int  iterations{0};
     int  failed_submodels{0};
     int  regularized_submodels{0};
+    TangentValidationNormKind force_residual_norm{
+        TangentValidationNormKind::StateWeightedFrobenius};
+    TangentValidationNormKind tangent_residual_norm{
+        TangentValidationNormKind::StateWeightedFrobenius};
 
     double max_force_residual_rel{0.0};
     double max_tangent_residual_rel{0.0};
@@ -162,6 +166,9 @@ struct CouplingIterationReport {
 
     std::vector<double> force_residuals_rel{};
     std::vector<double> tangent_residuals_rel{};
+    std::vector<std::array<double, 6>> force_residual_component_scales{};
+    std::vector<std::array<double, 6>> tangent_residual_row_scales{};
+    std::vector<std::array<double, 6>> tangent_residual_column_scales{};
     std::vector<CouplingSite> failed_sites{};
 };
 

@@ -13,6 +13,7 @@
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleModel.hh"
 #include "SteppableSolver.hh"
+#include "../reconstruction/SectionOperatorValidationNorm.hh"
 
 namespace fall_n {
 
@@ -37,6 +38,10 @@ class MultiscaleAnalysis {
     double section_width_{0.30};
     double section_height_{0.30};
     double tangent_perturbation_{1.0e-6};
+    TangentValidationNormKind force_residual_norm_{
+        TangentValidationNormKind::StateWeightedFrobenius};
+    TangentValidationNormKind tangent_residual_norm_{
+        TangentValidationNormKind::StateWeightedFrobenius};
     std::size_t analysis_steps_{0};
 
     CouplingIterationReport last_report_{};
@@ -49,6 +54,56 @@ class MultiscaleAnalysis {
     {
         const double denom = std::max({1.0, a.norm(), b.norm()});
         return (a - b).norm() / denom;
+    }
+
+    [[nodiscard]] SectionOperatorValidationScales residual_scales_(
+        TangentValidationNormKind norm,
+        const MacroSectionState& macro_state) const
+    {
+        return make_section_operator_validation_scales(
+            norm, section_width_, section_height_, macro_state.strain);
+    }
+
+    static void initialize_report_norms_(CouplingIterationReport& report,
+                                         TangentValidationNormKind force_norm,
+                                         TangentValidationNormKind tangent_norm)
+    {
+        report.force_residual_norm = force_norm;
+        report.tangent_residual_norm = tangent_norm;
+    }
+
+    [[nodiscard]] double force_residual_metric_(
+        const MacroSectionState& macro_state,
+        const SectionHomogenizedResponse& response,
+        std::array<double, 6>* component_scales = nullptr) const
+    {
+        const auto scales = residual_scales_(force_residual_norm_, macro_state);
+        const auto metrics = compute_section_vector_validation_metrics(
+            macro_state.forces, response.forces, scales);
+        if (component_scales) {
+            *component_scales = metrics.component_scales;
+        }
+        return metrics.relative_gap;
+    }
+
+    [[nodiscard]] double tangent_residual_metric_(
+        const MacroSectionState& macro_state,
+        const SectionHomogenizedResponse& current,
+        const SectionHomogenizedResponse& previous,
+        std::array<double, 6>* row_scales = nullptr,
+        std::array<double, 6>* column_scales = nullptr) const
+    {
+        const auto scales =
+            residual_scales_(tangent_residual_norm_, macro_state);
+        const auto metrics = compute_section_operator_validation_metrics(
+            current.tangent, previous.tangent, scales);
+        if (row_scales) {
+            *row_scales = metrics.row_scales;
+        }
+        if (column_scales) {
+            *column_scales = metrics.column_scales;
+        }
+        return metrics.relative_gap;
     }
 
     [[nodiscard]] static double relative_norm_(
@@ -166,6 +221,8 @@ class MultiscaleAnalysis {
         set_macro_trial_mode_(false);
 
         last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 1;
@@ -187,6 +244,8 @@ class MultiscaleAnalysis {
     bool perform_one_way_downscaling_()
     {
         last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = CouplingMode::OneWayDownscaling;
         last_report_.iterations = 1;
@@ -226,6 +285,8 @@ class MultiscaleAnalysis {
     bool perform_lagged_feedback_()
     {
         last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = CouplingMode::LaggedFeedbackCoupling;
         last_report_.iterations = 1;
@@ -249,14 +310,25 @@ class MultiscaleAnalysis {
 
         last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
         last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+        last_report_.force_residual_component_scales.assign(
+            model_.num_local_models(),
+            std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
+        last_report_.tangent_residual_row_scales.assign(
+            model_.num_local_models(),
+            std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
+        last_report_.tangent_residual_column_scales.assign(
+            model_.num_local_models(),
+            std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
 
         for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
             auto macro_state =
                 model_.macro_bridge().extract_section_state(model_.site(i));
             responses[i].strain_ref = macro_state.strain;
             model_.macro_bridge().inject_response(responses[i]);
-            last_report_.force_residuals_rel[i] =
-                relative_norm_(macro_state.forces, responses[i].forces);
+            last_report_.force_residuals_rel[i] = force_residual_metric_(
+                macro_state,
+                responses[i],
+                &last_report_.force_residual_component_scales[i]);
             last_report_.max_force_residual_rel =
                 std::max(last_report_.max_force_residual_rel,
                          last_report_.force_residuals_rel[i]);
@@ -285,6 +357,8 @@ class MultiscaleAnalysis {
             "IteratedTwoWayFE2 requires a macro solver with trial-commit control");
 
         last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = CouplingMode::IteratedTwoWayFE2;
         last_report_.iterations = 0;
@@ -371,6 +445,15 @@ class MultiscaleAnalysis {
             last_report_.failed_sites.clear();
             last_report_.force_residuals_rel.assign(model_.num_local_models(), 0.0);
             last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
+            last_report_.force_residual_component_scales.assign(
+                model_.num_local_models(),
+                std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
+            last_report_.tangent_residual_row_scales.assign(
+                model_.num_local_models(),
+                std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
+            last_report_.tangent_residual_column_scales.assign(
+                model_.num_local_models(),
+                std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
             last_report_.max_force_residual_rel = 0.0;
             last_report_.max_tangent_residual_rel = 0.0;
 
@@ -390,11 +473,18 @@ class MultiscaleAnalysis {
                         last_report_.relaxation_applied = true;
                     }
                     last_report_.tangent_residuals_rel[i] =
-                        relative_norm_(current[i].tangent, predictor[i].tangent);
+                        tangent_residual_metric_(
+                            macro_state,
+                            current[i],
+                            predictor[i],
+                            &last_report_.tangent_residual_row_scales[i],
+                            &last_report_.tangent_residual_column_scales[i]);
                 }
 
-                last_report_.force_residuals_rel[i] =
-                    relative_norm_(macro_state.forces, current[i].forces);
+                last_report_.force_residuals_rel[i] = force_residual_metric_(
+                    macro_state,
+                    current[i],
+                    &last_report_.force_residual_component_scales[i]);
 
                 accumulate_response_diagnostics_(last_report_, current[i]);
 
@@ -476,6 +566,23 @@ public:
         section_height_ = h;
     }
     void set_tangent_perturbation(double h) { tangent_perturbation_ = h; }
+    void set_force_residual_norm(TangentValidationNormKind norm) noexcept {
+        force_residual_norm_ = norm;
+    }
+    void set_tangent_residual_norm(TangentValidationNormKind norm) noexcept {
+        tangent_residual_norm_ = norm;
+    }
+
+    [[nodiscard]] TangentValidationNormKind force_residual_norm() const noexcept
+    {
+        return force_residual_norm_;
+    }
+
+    [[nodiscard]] TangentValidationNormKind tangent_residual_norm()
+        const noexcept
+    {
+        return tangent_residual_norm_;
+    }
 
     [[nodiscard]] ModelT& model() noexcept { return model_; }
     [[nodiscard]] const ModelT& model() const noexcept { return model_; }
@@ -504,6 +611,8 @@ public:
     bool initialize_local_models(bool seed_predictor = true)
     {
         last_report_ = CouplingIterationReport{};
+        initialize_report_norms_(
+            last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = algorithm_->mode();
         last_report_.iterations = 0;

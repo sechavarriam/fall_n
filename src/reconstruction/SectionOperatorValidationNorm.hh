@@ -36,6 +36,15 @@ struct SectionOperatorValidationMetrics {
     std::array<double, 6> column_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
 };
 
+struct SectionVectorValidationMetrics {
+    TangentValidationNormKind norm{
+        TangentValidationNormKind::StateWeightedFrobenius};
+    double relative_gap{0.0};
+    std::array<double, 6> component_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+    std::array<double, 6> row_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+    std::array<double, 6> column_scales{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+};
+
 [[nodiscard]] inline SectionOperatorValidationScales
 make_section_operator_validation_scales(TangentValidationNormKind norm,
                                         double width,
@@ -128,6 +137,19 @@ apply_section_operator_validation_scales(
     return scaled;
 }
 
+[[nodiscard]] inline Eigen::Vector<double, 6>
+apply_section_vector_validation_scales(
+    const Eigen::Vector<double, 6>& vec,
+    const SectionOperatorValidationScales& scales)
+{
+    Eigen::Vector<double, 6> scaled = vec;
+    for (int i = 0; i < 6; ++i) {
+        const auto index = static_cast<std::size_t>(i);
+        scaled[i] *= scales.row[index] * scales.column[index];
+    }
+    return scaled;
+}
+
 [[nodiscard]] inline SectionOperatorValidationMetrics
 compute_section_operator_validation_metrics(
     const Eigen::Matrix<double, 6, 6>& lhs,
@@ -158,6 +180,32 @@ compute_section_operator_validation_metrics(
     metrics.max_column_gap =
         *std::max_element(metrics.column_gaps.begin(),
                           metrics.column_gaps.end());
+    return metrics;
+}
+
+[[nodiscard]] inline SectionVectorValidationMetrics
+compute_section_vector_validation_metrics(
+    const Eigen::Vector<double, 6>& lhs,
+    const Eigen::Vector<double, 6>& rhs,
+    const SectionOperatorValidationScales& scales)
+{
+    SectionVectorValidationMetrics metrics;
+    metrics.norm = scales.norm;
+    metrics.row_scales = scales.row;
+    metrics.column_scales = scales.column;
+
+    for (std::size_t i = 0; i < metrics.component_scales.size(); ++i) {
+        metrics.component_scales[i] = scales.row[i] * scales.column[i];
+    }
+
+    const auto lhs_scaled =
+        apply_section_vector_validation_scales(lhs, scales);
+    const auto rhs_scaled =
+        apply_section_vector_validation_scales(rhs, scales);
+
+    const double denom = std::max(
+        {1.0, lhs_scaled.norm(), rhs_scaled.norm()});
+    metrics.relative_gap = (lhs_scaled - rhs_scaled).norm() / denom;
     return metrics;
 }
 
