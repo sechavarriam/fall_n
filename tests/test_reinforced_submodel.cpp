@@ -212,6 +212,22 @@ static void test_reinforced_solve() {
           "unreinforced E_eff in [10k, 50k] MPa range");
     check(rc_result.E_eff < unr_result.E_eff * 2.0,
           "reinforced E_eff < 2x unreinforced (small rho)");
+
+    SubModelSolver explicit_alpha_solver(30.0);
+    EmbeddedLinePenaltyCouplingConfig explicit_alpha_cfg;
+    explicit_alpha_cfg.mode = EmbeddedLinePenaltyMode::ExplicitAlpha;
+    explicit_alpha_cfg.alpha_penalty = 1.0e4 * 4700.0 * std::sqrt(30.0);
+    explicit_alpha_solver.set_embedded_line_coupling_config(explicit_alpha_cfg);
+
+    auto rc_result_explicit_alpha = explicit_alpha_solver.solve_reinforced(
+        rc_sub, steel, reinforced.rebar_range, rebar_areas, spec.nz);
+
+    check(rc_result_explicit_alpha.converged,
+          "reinforced: converged with explicit penalty alpha");
+    check(std::abs(rc_result_explicit_alpha.E_eff - rc_result.E_eff)
+              / std::max(1.0, std::abs(rc_result.E_eff))
+              < 5.0e-2,
+          "explicit penalty alpha preserves reinforced effective stiffness");
 }
 
 
