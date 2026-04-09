@@ -34,6 +34,7 @@
 
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
+#include <Eigen/SVD>
 
 #include "KoBatheConcrete.hh"   // Reuses KoBatheParameters
 
@@ -111,12 +112,20 @@ struct KoBatheState3D {
     std::array<bool, 3>   crack_closed{false, false, false};
 
     // ── Committed total strain ───────────────────────────────────────
-    Eigen::Matrix<double, 6, 1> eps_committed = Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Matrix<double, 6, 1> eps_committed =
+        Eigen::Matrix<double, 6, 1>::Zero();
+    Eigen::Matrix<double, 6, 1> sigma_committed =
+        Eigen::Matrix<double, 6, 1>::Zero();
 
     KoBathe3DSolutionMode last_solution_mode{
         KoBathe3DSolutionMode::PredictorOnly};
     double last_trial_sigma_o{0.0};
     double last_trial_tau_o{0.0};
+    double last_no_flow_coupling_update_norm{0.0};
+    double last_no_flow_recovery_residual{0.0};
+    int last_no_flow_stabilization_iterations{0};
+    int last_no_flow_crack_state_switches{0};
+    bool last_no_flow_stabilized{true};
 
     // ── Accessors for InternalFieldSnapshot ──────────────────────────
     [[nodiscard]] const Eigen::Matrix<double, 6, 1>& eps_p() const noexcept {
@@ -165,6 +174,20 @@ private:
     double numerical_tangent_rel_step_{1.0e-4};
     double numerical_tangent_abs_step_{1.0e-8};
     double numerical_tangent_validation_tol_{0.35};
+    int no_flow_stabilization_max_iterations_{6};
+
+    struct LastEvaluationDiagnostics {
+        KoBathe3DSolutionMode solution_mode{
+            KoBathe3DSolutionMode::PredictorOnly};
+        double trial_sigma_o{0.0};
+        double trial_tau_o{0.0};
+        double no_flow_coupling_update_norm{0.0};
+        double no_flow_recovery_residual{0.0};
+        int no_flow_stabilization_iterations{0};
+        int no_flow_crack_state_switches{0};
+        bool no_flow_stabilized{true};
+    };
+    mutable LastEvaluationDiagnostics last_evaluation_diagnostics_{};
 
     static constexpr double TOL = 1.0e-12;
     static constexpr double SQ2 = 1.4142135623730951;
@@ -654,6 +677,182 @@ private:
         return mandel_to_eng(C_m);
     }
 
+    struct NoFlowUpdate3D {
+        Vec6 stress = Vec6::Zero();
+        Mat6 tangent = Mat6::Zero();
+        Vec6 eps_elastic_final = Vec6::Zero();
+        Vec6 eps_plastic = Vec6::Zero();
+        double coupling_update_norm{0.0};
+        double recovery_residual{0.0};
+        int stabilization_iterations{0};
+        int crack_state_switches{0};
+        bool stabilized{true};
+        bool valid{false};
+    };
+
+    [[nodiscard]] Mat6 no_flow_constitutive_matrix_(
+        const FractureModuli& fm,
+        const KoBatheState3D& st,
+        KoBathe3DSolutionMode mode) const
+    {
+        Mat6 C = Mat6::Zero();
+        switch (mode) {
+        case KoBathe3DSolutionMode::NoFlowTension:
+            C = isotropic_3d_tangent(params_.Ke, params_.Ge);
+            break;
+        case KoBathe3DSolutionMode::NoFlowCompressionUnloading:
+            C = isotropic_3d_tangent(fm.Ks, fm.Gs);
+            break;
+        case KoBathe3DSolutionMode::CompressiveFlow:
+            C = isotropic_3d_tangent(fm.Kc, fm.Gc);
+            break;
+        case KoBathe3DSolutionMode::PredictorOnly:
+            C = isotropic_3d_tangent(params_.Ke, params_.Ge);
+            break;
+        }
+        if (st.num_cracks > 0) {
+            C = cracked_tangent_3d(C, st);
+        }
+        return C;
+    }
+
+    [[nodiscard]] static bool crack_state_changed_(
+        const KoBatheState3D& previous,
+        const KoBatheState3D& current) noexcept
+    {
+        if (previous.num_cracks != current.num_cracks) {
+            return true;
+        }
+        for (int ic = 0; ic < current.num_cracks; ++ic) {
+            if (previous.crack_closed[ic] != current.crack_closed[ic]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    struct ElasticRecovery3D {
+        Vec6 strain = Vec6::Zero();
+        bool valid{false};
+    };
+
+    [[nodiscard]] static ElasticRecovery3D
+    elastic_strain_recovery_from_stress_(const Mat6& C, const Vec6& sigma)
+    {
+        ElasticRecovery3D result;
+        if (!is_finite_mat_(C) || !is_finite_vec_(sigma)) {
+            return result;
+        }
+
+        Eigen::JacobiSVD<Mat6> svd(
+            C, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        const auto singular_values = svd.singularValues();
+        const double sigma_max = singular_values.maxCoeff();
+        const double sv_tol = std::max(1.0e-12 * sigma_max, 1.0e-14);
+
+        Vec6 scaled = svd.matrixU().transpose() * sigma;
+        for (int i = 0; i < singular_values.size(); ++i) {
+            if (singular_values[i] > sv_tol) {
+                scaled[i] /= singular_values[i];
+            } else {
+                scaled[i] = 0.0;
+            }
+        }
+
+        result.strain = svd.matrixV() * scaled;
+        result.valid = is_finite_vec_(result.strain);
+        return result;
+    }
+
+    [[nodiscard]] NoFlowUpdate3D apply_no_flow_coupling_update_(
+        const Vec6& eps_total,
+        const Vec6& eps_elastic_predictor,
+        const KoBatheState3D& state,
+        KoBatheState3D& st,
+        const FractureModuli& fm,
+        const std::array<double, 3>& committed_crack_strain_max) const
+    {
+        NoFlowUpdate3D result;
+        const Vec6 eps_elastic_old = state.eps_committed - state.eps_plastic;
+        KoBatheState3D iter_state = st;
+        const int max_iters = std::max(1, no_flow_stabilization_max_iterations_);
+
+        for (int iter = 0; iter < max_iters; ++iter) {
+            const bool state_changed_from_committed =
+                crack_state_changed_(state, iter_state);
+            Mat6 C_no_flow = no_flow_constitutive_matrix_(
+                fm, iter_state, iter_state.last_solution_mode);
+
+            if (iter == 0 && !state_changed_from_committed) {
+                const Vec6 sigma_increment =
+                    C_no_flow * (eps_elastic_predictor - eps_elastic_old);
+                result.stress = state.sigma_committed + sigma_increment;
+            } else {
+                result.stress = C_no_flow * eps_elastic_predictor;
+            }
+            result.tangent = C_no_flow;
+
+            const auto recovered =
+                elastic_strain_recovery_from_stress_(C_no_flow, result.stress);
+            if (!recovered.valid) {
+                result.stabilization_iterations = iter + 1;
+                result.stabilized = false;
+                return result;
+            }
+
+            result.eps_elastic_final = recovered.strain;
+            result.eps_plastic =
+                state.eps_plastic - result.eps_elastic_final + eps_elastic_predictor;
+            result.coupling_update_norm =
+                (result.eps_plastic - state.eps_plastic).norm();
+            const Vec6 stress_check = C_no_flow * result.eps_elastic_final;
+            result.recovery_residual =
+                (stress_check - result.stress).norm()
+                / (result.stress.norm()
+                   + std::numeric_limits<double>::epsilon());
+
+            KoBatheState3D next_state = iter_state;
+            next_state.eps_plastic = result.eps_plastic;
+            const Vec6 final_elastic = eps_total - next_state.eps_plastic;
+            update_crack_kinematics_3d(
+                next_state, final_elastic, committed_crack_strain_max);
+
+            const bool crack_state_switched =
+                crack_state_changed_(iter_state, next_state);
+            if (crack_state_switched) {
+                ++result.crack_state_switches;
+            }
+
+            result.stabilization_iterations = iter + 1;
+            result.eps_elastic_final = final_elastic;
+            result.tangent = no_flow_constitutive_matrix_(
+                fm, next_state, next_state.last_solution_mode);
+            result.stress = result.tangent * final_elastic;
+            result.valid =
+                is_finite_mat_(result.tangent)
+                && is_finite_vec_(result.stress)
+                && is_finite_vec_(result.eps_plastic)
+                && is_finite_vec_(result.eps_elastic_final)
+                && std::isfinite(result.coupling_update_norm)
+                && std::isfinite(result.recovery_residual);
+            if (!result.valid) {
+                result.stabilized = false;
+                return result;
+            }
+
+            iter_state = next_state;
+            if (!crack_state_switched) {
+                result.stabilized = true;
+                st = iter_state;
+                return result;
+            }
+        }
+
+        result.stabilized = false;
+        st = iter_state;
+        return result;
+    }
+
     void update_crack_kinematics_3d(
         KoBatheState3D& st,
         const Vec6& eps_elastic,
@@ -997,7 +1196,7 @@ private:
     //  Full 3D constitutive evaluation
     // =====================================================================
 
-    struct EvalResult3D {
+struct EvalResult3D {
         Vec6    stress;
         Mat6    tangent;
         KoBatheState3D state_new;
@@ -1100,22 +1299,7 @@ private:
         }
 
         // Update crack opening strains
-        for (int ic = 0; ic < st.num_cracks; ++ic) {
-            const Vec3& n = st.crack_normals[ic];
-            // ε_nn = n_i · ε_ij · n_j  (using tensor strain, not engineering)
-            // From Voigt: ε_nn = εxx·nx² + εyy·ny² + εzz·nz²
-            //                  + γyz·ny·nz + γxz·nx·nz + γxy·nx·ny
-            double e_nn = eps_elastic[0] * n[0] * n[0]
-                        + eps_elastic[1] * n[1] * n[1]
-                        + eps_elastic[2] * n[2] * n[2]
-                        + eps_elastic[3] * n[1] * n[2]
-                        + eps_elastic[4] * n[0] * n[2]
-                        + eps_elastic[5] * n[0] * n[1];
-
-            st.crack_strain[ic] = e_nn;
-            st.crack_strain_max[ic] = std::max(st.crack_strain_max[ic], e_nn);
-            st.crack_closed[ic] = (e_nn < 0.0);
-        }
+        update_crack_kinematics_3d(st, eps_elastic, committed_crack_strain_max);
 
         // Apply cracking to tangent
         Mat6 C_tangent = cracked_tangent_3d(Cc_tan, st);
@@ -1128,6 +1312,12 @@ private:
             sigma[1] -= fm.sigma_id;
             sigma[2] -= fm.sigma_id;
         }
+
+        st.last_no_flow_coupling_update_norm = 0.0;
+        st.last_no_flow_recovery_residual = 0.0;
+        st.last_no_flow_stabilization_iterations = 0;
+        st.last_no_flow_crack_state_switches = 0;
+        st.last_no_flow_stabilized = true;
 
         // ─── Step 8: Plasticity ──────────────────────────────────────
         if (st.last_solution_mode == KoBathe3DSolutionMode::CompressiveFlow) {
@@ -1154,9 +1344,45 @@ private:
                     sigma[2] -= fm.sigma_id;
                 }
             }
+        } else {
+            auto no_flow = apply_no_flow_coupling_update_(
+                eps_total,
+                eps_elastic,
+                state,
+                st,
+                fm,
+                committed_crack_strain_max);
+            st.last_no_flow_coupling_update_norm =
+                no_flow.coupling_update_norm;
+            st.last_no_flow_recovery_residual =
+                no_flow.recovery_residual;
+            st.last_no_flow_stabilization_iterations =
+                no_flow.stabilization_iterations;
+            st.last_no_flow_crack_state_switches =
+                no_flow.crack_state_switches;
+            st.last_no_flow_stabilized = no_flow.stabilized;
+            if (no_flow.valid) {
+                eps_elastic = no_flow.eps_elastic_final;
+                sigma = no_flow.stress;
+                C_tangent = no_flow.tangent;
+            }
         }
 
         st.eps_committed = eps_total;
+        st.sigma_committed = sigma;
+        last_evaluation_diagnostics_.solution_mode = st.last_solution_mode;
+        last_evaluation_diagnostics_.trial_sigma_o = st.last_trial_sigma_o;
+        last_evaluation_diagnostics_.trial_tau_o = st.last_trial_tau_o;
+        last_evaluation_diagnostics_.no_flow_coupling_update_norm =
+            st.last_no_flow_coupling_update_norm;
+        last_evaluation_diagnostics_.no_flow_recovery_residual =
+            st.last_no_flow_recovery_residual;
+        last_evaluation_diagnostics_.no_flow_stabilization_iterations =
+            st.last_no_flow_stabilization_iterations;
+        last_evaluation_diagnostics_.no_flow_crack_state_switches =
+            st.last_no_flow_crack_state_switches;
+        last_evaluation_diagnostics_.no_flow_stabilized =
+            st.last_no_flow_stabilized;
 
         return {sigma, C_tangent, st};
     }
@@ -1261,6 +1487,19 @@ public:
     [[nodiscard]] double numerical_tangent_validation_tolerance() const noexcept
     {
         return numerical_tangent_validation_tol_;
+    }
+    void set_no_flow_stabilization_max_iterations(int max_iters) noexcept
+    {
+        no_flow_stabilization_max_iterations_ = std::max(1, max_iters);
+    }
+    [[nodiscard]] int no_flow_stabilization_max_iterations() const noexcept
+    {
+        return no_flow_stabilization_max_iterations_;
+    }
+    [[nodiscard]] const LastEvaluationDiagnostics&
+    last_evaluation_diagnostics() const noexcept
+    {
+        return last_evaluation_diagnostics_;
     }
 
     // =====================================================================

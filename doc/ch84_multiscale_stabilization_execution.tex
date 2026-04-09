@@ -41,6 +41,8 @@ The main files audited and modified during this cycle were:
   \item \texttt{main\_table\_cyclic\_validation.cpp};
   \item \texttt{src/validation/TableCyclicValidationFE2Setup.hh};
   \item \texttt{src/validation/TableCyclicValidationFE2Setup.cpp};
+  \item \texttt{src/validation/TableCyclicValidationFE2Recorders.hh};
+  \item \texttt{src/validation/TableCyclicValidationFE2Recorders.cpp};
   \item \texttt{src/validation/TableCyclicValidationFE2Restart.hh};
   \item \texttt{src/validation/TableCyclicValidationFE2Restart.cpp};
   \item \texttt{src/validation/TableCyclicValidationFE2StepPostprocess.hh};
@@ -575,7 +577,10 @@ benchmark showed that this option is still experimental:
   \item with the consistent-tangent override, the wall time dropped to about
     \(595.14\)\,s but two sub-models failed at an achieved fraction of
     \(0.916667\), the multiscale iteration rolled back, and the step ended in
-    \texttt{MicroSolveFailed}.
+    \texttt{MicroSolveFailed}.  This is now a historical intermediate
+    benchmark: after the later first-ramp and tail-continuation corrections,
+    the default fracture-sec path moved the frontier beyond the local micro
+    failure and into the macro FE\textsuperscript{2} re-solve.
 \end{itemize}
 This result is scientifically valuable precisely because it is negative:
 ``closer to the article'' is not yet synonymous with ``more robust'' in the
@@ -1240,16 +1245,19 @@ Figure~\ref{fig:ms-stab-cyclic-split}.
   \node[box, below left=1.8cm and 2.6cm of api] (struct) {\texttt{TableCyclicValidationStructural.cpp}\\Cases 0--3};
   \node[box, below right=1.8cm and 2.6cm of api] (fe2) {\texttt{TableCyclicValidationFE2.cpp}\\Cases 4--5};
   \node[box, below left=1.8cm and 1.7cm of fe2] (support) {\texttt{TableCyclicValidationSupport.hh}\\heavy internal helpers};
-  \node[box, below right=1.8cm and 1.7cm of fe2] (runtimeio) {\texttt{TableCyclicValidationRuntimeIO.cpp}\\recorder buffers \& rewrites};
+  \node[box, below=1.8cm of fe2] (recorders) {\texttt{TableCyclicValidationFE2Recorders.cpp}\\recorder schema \& bootstrap};
+  \node[box, below right=1.8cm and 1.7cm of fe2] (runtimeio) {\texttt{TableCyclicValidationRuntimeIO.cpp}\\buffer persistence \& rewrites};
 
   \draw[arrow] (main) -- (api);
   \draw[arrow] (api) -- (struct);
   \draw[arrow] (api) -- (fe2);
   \draw[arrow] (fe2) -- (support);
+  \draw[arrow] (fe2) -- (recorders);
   \draw[arrow] (fe2) -- (runtimeio);
   \draw[arrow] (struct) -- (support);
+  \draw[arrow] (recorders) -- (runtimeio);
 \end{tikzpicture}
-\caption{Translation-unit split introduced in the second cyclic-validation stabilization pass.}
+\caption{Current translation-unit split of the cyclic-validation driver after the recorder-bootstrap extraction.}
 \label{fig:ms-stab-cyclic-split}
 \end{figure}
 
@@ -1366,6 +1374,32 @@ the FE\textsuperscript{2} runtime loop now reads more clearly as
 local submodel budgets on restart is isolated in a dedicated component.  The
 heavy translation unit is therefore still expensive, but the protocol logic is
 less entangled with restart bookkeeping than in the previous pass.
+
+The follow-up pass documented in this chapter then extracted the recorder
+bootstrap into
+\texttt{TableCyclicValidationFE2Recorders}\allowbreak\texttt{.hh/.cpp}.  This
+new slice owns the creation of recorder headers, the per-submodel crack-count
+columns, the solver-diagnostics schema, and the initial hysteresis row.  The
+scientific motivation is modest but important: the FE\textsuperscript{2}
+runtime loop now focuses on protocol ownership and step execution, while the
+CSV/recorder schema is isolated in a dedicated component that can evolve
+without reopening the same translation unit as the nonlinear coupling logic.
+
+The compile-time benchmark for this split was measured at object level with
+\texttt{ccache} disabled.  The audited results were:
+\begin{itemize}
+  \item recompiling
+    \texttt{CMakeFiles/fall\_n\_table\_cyclic\_validation.dir/src/validation/TableCyclicValidationFE2.cpp.obj}:
+    177.194~s;
+  \item recompiling
+    \texttt{CMakeFiles/fall\_n\_table\_cyclic\_validation.dir/src/validation/TableCyclicValidationFE2Recorders.cpp.obj}:
+    38.634~s.
+\end{itemize}
+This is the honest result that matters for day-to-day development: the split
+does not remove the heavy FE\textsuperscript{2} compilation frontier, but it
+does create a recorder/IO slice whose isolated rebuild cost is about
+\(177.194/38.634 \approx 4.59\) times smaller than reopening the main
+runtime TU.
 
 \paragraph{Adaptive continuation in the cyclic FE\textsuperscript{2} path.}
 The first exploratory one-way FE\textsuperscript{2} run with an
@@ -1581,16 +1615,66 @@ compression-coordinate return mapping.  Two new regressions,
 cracked mixed-compression state unloads or returns to tension, the effective
 plastic strains remain frozen.
 
-This correction produced a measurable short-run shift in the FE\textsuperscript{2}
-frontier.  With the updated driver and the same \(45\)\,s one-step Case~5
-probe, the first local solve reached
-\(k=3/4\) (\(p_{\mathrm{local}}=0.75\)),
-whereas the earlier corrected-but-pre-audit build had only reached
-\(k=2/4\) within the same observation window.  With the optional local
-consistent-tangent override, the same updated probe again entered the first
-local ramp and reached \(k=2/4\), which is scientifically important because it
-shows that the old immediate-failure narrative had indeed been conflating
-architectural and constitutive defects.
+The same audit then showed a second constitutive defect: the 3D no-flow branch
+was still carrying the compressive fracture/plasticity tangent into tensile and
+unloading states, and it still lacked the explicit coupling update of
+Eq.~(26b).  The corrected branch now uses
+\begin{equation}
+  C_{ijkl}^{\mathrm{NF}}
+  =
+  \begin{cases}
+    C_{ijkl}^{E}(K_e,G_e), & \text{tension}, \\
+    C_{ijkl}^{E}(K_s,G_s), & \text{compressive unloading},
+  \end{cases}
+\end{equation}
+followed by the tensorial update
+\begin{equation}
+  {}^{t+\Delta t}\!\varepsilon^{p}_{ij}
+  =
+  {}^{t}\!\varepsilon^{p}_{ij}
+  -
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(N)
+  +
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(0).
+\end{equation}
+The elastic recovery
+\({}^{t+\Delta t}\!\varepsilon^{e}_{ij}(N)\) is obtained from a robust
+pseudo-inverse solve of the no-flow operator, and the runtime diagnostics now
+record both the coupling-update norm and the recovery residual.  The audited
+regression surface shows:
+\begin{itemize}
+  \item the effective plastic strains remain frozen in no-flow states;
+  \item the tensorial inelastic strain is updated measurably in the cracked
+    unloading branch;
+  \item the elastic recovery residual stays below \(10^{-8}\) in the dedicated
+    no-flow regression.
+\end{itemize}
+
+When the crack topology or open/closed status changes during the same
+increment, the code restarts the no-flow stress update from the new cracked
+operator before applying Eq.~(26b).  This is the present approximation of the
+article's inner \(m\)-loop; it is more faithful than the previous
+``predictor-only'' path, but it is not yet a literal line-by-line transcription
+of Table~1.
+
+The short-run FE\textsuperscript{2} consequence was again mixed.  With the
+updated Eq.~(26b) branch and the same \(45\)\,s one-step Case~5 probe, the
+default secant path reached
+\[
+  k = 2/4,\qquad p_{\mathrm{local}} = 0.50,
+\]
+with residual norms
+\(\|F\| = 1.9924\) and \(1.4725\) at the accepted
+\(k=1/4\) and \(k=2/4\) ramp points, respectively.  The optional local
+consistent-tangent override also reached \(k=2/4\) in the same wall-clock
+window, with
+\(\|F\| = 1.9436\) and \(1.8024\) at those two accepted ramp points.
+Scientifically, this means the constitutive correction improved semantic
+fidelity and local-state auditability, but it did \emph{not} by itself move the
+first-step wall-clock frontier outward in the audited environment.  This
+specific \(k=2/4\) frontier should now be read as an intermediate historical
+measurement: after the later first-ramp continuation fix, the same Case~5
+frontier moved materially farther, as documented below.
 
 \paragraph{Predefinitive physical-validation matrix.}
 To make that frontier reproducible as an execution artifact rather than only as
@@ -1650,12 +1734,14 @@ Reached \(d=2.5\times 10^{-3}\)~m with
 \texttt{case5\_two\_way\_step1} &
 \texttt{KNOWN\_FRONTIER} &
 590.173 &
-Aborted at the first cracked point with
+Historical pre-tail-continuation frontier:
 \texttt{MicroSolveFailed}, explicit rollback, and four failed coupling sites. \\
 \bottomrule
 \end{tabular}
-\caption{Predefinitive physical-validation summary produced by the current
-short-run campaign.}
+\caption{Predefinitive physical-validation summary from the audited short-run
+campaign.  The later tail-continuation and first-predictor-damping passes
+shifted the Case~5 frontier beyond this historical row; see the updated
+Case~5 audit below.}
 \label{tab:ms-stab-predefinitive-summary}
 \end{table}
 
@@ -1664,6 +1750,135 @@ run was intentionally capped at one protocol point and still produced valid
 recorders.  \texttt{KNOWN\_FRONTIER} means that the run terminated at the
 currently documented scientific frontier with the expected failure semantics,
 not that the result is being silently treated as a success.
+
+\paragraph{First-ramp continuation defect closed after the predefinitive pass.}
+The next audited correction targeted a semantic gap between the cyclic driver
+surface and the persistent local solver.  The FE\textsuperscript{2} drivers had
+been configuring a first-ramp bisection budget and, in exploratory mode, an
+``arc-length from start'' policy; however, the local solver still executed the
+very first nonlinear ramp as a fixed sequence with no rollback or bisection.
+That meant the user-facing API was promising a continuation budget that the
+code did not actually honor at the first cracked FE\textsuperscript{2} point.
+
+The correction unified the first solve with the adaptive ramp logic already
+used later in the path.  Two new regressions,
+\texttt{test\_first\_solve\_honours\_initial\_bisection\_contract} and
+\texttt{test\_first\_solve\_can\_start\_in\_arc\_length\_mode}, now pin that
+contract down explicitly.
+
+\paragraph{Updated Case~5 evidence after the first-ramp correction.}
+The strict one-step Case~5 audit
+\begin{verbatim}
+--submodel-increments 4
+--submodel-bisections 2
+--submodel-adaptive-max-substeps 4
+--submodel-adaptive-max-bisections 2
+--submodel-snes-max-it 20
+\end{verbatim}
+no longer fails at the old \(k=1/4\) wall.  Instead, all four sub-models enter
+real first-ramp bisection, and the step aborts only after the minimum fraction
+floor is exhausted, with explicit \texttt{AdaptiveMinFractionReached}
+diagnostics.  The audited achieved fractions are \(18.75\%\), \(31.25\%\),
+\(18.75\%\), and \(31.25\%\) for sub-models 0--3, respectively.
+
+The wider one-step audit
+\begin{verbatim}
+--submodel-increments 4
+--submodel-bisections 2
+--submodel-adaptive-max-substeps 12
+--submodel-adaptive-max-bisections 4
+--submodel-snes-max-it 60
+\end{verbatim}
+moves the frontier significantly farther:
+\begin{itemize}
+  \item sub-model 0 reaches \(81.25\%\) of the target, with 6 accepted
+    sub-steps and 9 bisections;
+  \item sub-model 1 reaches \(93.75\%\) of the target, with 5 accepted
+    sub-steps and 5 bisections;
+  \item sub-model 2 reaches \(81.25\%\) of the target, with 5 accepted
+    sub-steps and 7 bisections;
+  \item sub-model 3 reaches \(100\%\) of the target and converges, with 7
+    accepted sub-steps and 6 bisections.
+\end{itemize}
+The same \texttt{solver\_diagnostics.csv} row reports \(72\) to \(82\) active
+cracked material points, up to three cracks at a point, one no-flow
+stabilization pass at most, zero no-flow destabilization events, and
+elastic-recovery residuals of order \(10^{-15}\).  This materially updates the
+scientific interpretation: the dominant Case~5 blocker is now the late,
+heavily cracked tail of the first micro ramp, not a purely tangent-level
+explanation and not an unstabilized no-flow branch.
+
+\paragraph{Tail continuation and first-predictor damping pass.}
+The next stabilization step targeted exactly that late cracked tail and the
+macro fixed-point transition sitting right behind it.  Two implementation
+changes were introduced together:
+\begin{enumerate}
+  \item the persistent local solver gained an explicit \emph{tail rescue}
+    policy, which restarts only the remaining segment of an already partially
+    converged ramp instead of collapsing the whole solve into a flat
+    \texttt{AdaptiveMinFractionReached} verdict;
+  \item the iterated FE\textsuperscript{2} orchestrator began damping the
+    \emph{first} micro predictor against a zero baseline, so the fixed-point
+    relaxation policy acts before the second macro re-solve rather than only
+    after it survives one more full iteration.
+\end{enumerate}
+
+Mathematically, if a local ramp has already accepted a fraction
+\(\hat{p}\in(0,1)\) of its target and the remaining segment is re-parameterised
+with \(\eta\in[0,1]\), the rescue stage solves
+\begin{equation}
+  \mathbf{u}(\eta)
+  = \mathbf{u}(\hat{p})
+    + \eta\left[\mathbf{u}(1)-\mathbf{u}(\hat{p})\right],
+\end{equation}
+with its own adaptive budget.  The resulting absolute minimum step length is
+\begin{equation}
+  \Delta p_{\min}^{\text{tail}}
+  = (1-\hat{p})\,2^{-B_{\text{tail}}}\,\Delta\eta_0,
+\end{equation}
+which is the natural continuation scaling once most of the original segment is
+already committed.  On the macro side, the first FE\textsuperscript{2}
+predictor is now relaxed as
+\begin{equation}
+  \mathbf{r}_{\text{pred}}^{(0)}
+  = \omega\,\mathbf{r}_{\mu}^{(0)}
+    + (1-\omega)\,\mathbf{0},
+\end{equation}
+instead of injecting the full micro response at once.
+
+\paragraph{Updated one-step Case~5 frontier after both passes.}
+The current audited default run
+\begin{verbatim}
+fall_n_table_cyclic_validation.exe
+  --case 5
+  --protocol extended50
+  --fe2-profile crack50
+  --max-steps 1
+  --submodel-output-interval 0
+  --global-output-interval 0
+\end{verbatim}
+no longer fails in the local columns at all.  The final
+\texttt{solver\_diagnostics.csv} row now records:
+\begin{itemize}
+  \item \texttt{termination\_reason = MacroSolveFailed},
+    \texttt{failed\_submodels = 0}, \texttt{rollback\_performed = 1};
+  \item four converged local first-ramp solves, with accepted sub-step counts
+    \((7,4,7,6)\) and bisections \((3,0,3,2)\);
+  \item four successful condensed operators
+    (\texttt{LinearizedCondensation} / \texttt{Success});
+  \item active cracked material points in the range \(80\) to \(82\),
+    up to three cracks at a point, zero no-flow destabilization events,
+    and elastic-recovery residuals again of order \(10^{-15}\);
+  \item zero tail-rescue activations in this default budget, which means the
+    standard \texttt{fe2\_crack50} local continuation is now already strong
+    enough to close the first cracked micro ramp.
+\end{itemize}
+
+This is an important scientific shift.  The previously documented
+\texttt{MicroSolveFailed} frontier should now be read as a historical,
+pre-tail-continuation state.  The present blocker is the first \emph{macro}
+FE\textsuperscript{2} re-solve with injected cracked operators, not the
+micro-scale inability to reach the \(+2.5\)\,mm target itself.
 
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}
@@ -1702,13 +1917,23 @@ medium/high &
 Documented explicitly as non-validated: the PETSc-backed cyclic driver must
 currently use \texttt{SerialExecutor} because the threaded path triggered
 wrong-state failures in the audited environment. \\
+Literal Table~1 crack-status \(m\)-loop in Ko--Bathe 3D &
+medium/high &
+Partially mitigated, but not closed.  Eq.~(26b) is now represented explicitly
+in the 3D no-flow branch, and the code now restarts the no-flow stress update
+when the crack topology or open/closed status changes.  However, that restart
+is still an implementation-level approximation of the article's \(m\)-indexed
+inner loop rather than a literal transcription of the full crack-status
+algorithm. \\
 Compile time of \texttt{fall\_n\_table\_cyclic\_validation} &
 medium/high &
 Partially mitigated, but not closed.  The validation path now uses a dedicated
 local dependency umbrella and keeps the support header out of the target PCH,
-which preserves a fast 15.3~s rebuild of the thin CLI entrypoint.  However,
-the FE\textsuperscript{2} translation unit still rebuilt in 457.6~s in the
-latest audited pass, so the heavy-TU compile frontier remains open. \\
+which preserves a fast 15.3~s rebuild of the thin CLI entrypoint.  The new
+\texttt{TableCyclicValidationFE2Recorders} split created an isolated recorder
+slice that rebuilds in 38.6~s at object level, versus 177.2~s for the main
+\texttt{TableCyclicValidationFE2.cpp} object in the same audited environment.
+However, the heavy-TU compile frontier itself remains open. \\
 One-way cyclic FE\textsuperscript{2} runtime beyond the first crack reversal &
 medium/high &
 Mitigated further by the \texttt{fe2\_crack50} execution profile, VTK-free

@@ -24,6 +24,8 @@ static void test_default_config_preserves_extended50_contract()
     assert(!cfg.submodel_use_consistent_material_tangent);
     assert(cfg.global_output_interval == 1);
     assert(cfg.submodel_output_interval == 10);
+    assert(cfg.submodel_tail_rescue_attempts == 0);
+    assert(cfg.submodel_tail_rescue_progress_threshold == 0.75);
     assert(cfg.max_amplitude_m() == 0.050);
     assert(cfg.is_turning_point_step(10));
     assert(!cfg.is_turning_point_step(9));
@@ -43,6 +45,11 @@ static void test_fe2_crack50_profile_applies_runtime_tuning()
     assert(cfg.submodel_arc_length_threshold == 1);
     assert(cfg.submodel_adaptive_max_substeps == 48);
     assert(cfg.submodel_adaptive_max_bisections == 12);
+    assert(cfg.submodel_tail_rescue_attempts == 2);
+    assert(cfg.submodel_tail_rescue_progress_threshold == 0.75);
+    assert(cfg.submodel_tail_rescue_substep_bonus == 24);
+    assert(cfg.submodel_tail_rescue_bisection_bonus == 6);
+    assert(cfg.submodel_tail_rescue_initial_fraction == 0.5);
     assert(cfg.submodel_snes_max_it == 150);
     assert(cfg.enable_turning_point_checkpoints);
     assert(cfg.max_turning_point_restarts == 3);

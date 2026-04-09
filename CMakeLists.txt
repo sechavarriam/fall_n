@@ -228,6 +228,7 @@ fall_n_use_multiscale_api(fall_n_table_multiscale)
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
     src/validation/TableCyclicValidationStructural.cpp
+    src/validation/TableCyclicValidationFE2Recorders.cpp
     src/validation/TableCyclicValidationFE2Setup.cpp
     src/validation/TableCyclicValidationFE2Restart.cpp
     src/validation/TableCyclicValidationFE2StepPostprocess.cpp
@@ -243,6 +244,7 @@ set_source_files_properties(main_table_cyclic_validation.cpp PROPERTIES
   SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(
     src/validation/TableCyclicValidationStructural.cpp
+    src/validation/TableCyclicValidationFE2Recorders.cpp
     src/validation/TableCyclicValidationFE2.cpp
     src/validation/TableCyclicValidationFE2Setup.cpp
     src/validation/TableCyclicValidationFE2Restart.cpp
