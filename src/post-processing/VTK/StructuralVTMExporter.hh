@@ -20,7 +20,9 @@
 #include <petsc.h>
 
 #include <vtkCellArray.h>
+#include <vtkCellData.h>
 #include <vtkCompositeDataSet.h>
+#include <vtkDataSetAttributes.h>
 #include <vtkDataObject.h>
 #include <vtkDoubleArray.h>
 #include <vtkFieldData.h>

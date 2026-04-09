@@ -109,6 +109,7 @@ class NonlinearSubModelEvolver {
         BoundaryReactionHomogenizer<MixedModel, MultiscaleSubModel>;
     using CondensationWorkspace =
         condensation::SparseSchurComplementWorkspace<Eigen::SparseMatrix<double>>;
+    using ModelCheckpointT = typename MixedModel::checkpoint_type;
 
     //  Sub-model reference 
     MultiscaleSubModel* sub_;
@@ -226,6 +227,26 @@ class NonlinearSubModelEvolver {
             make_bc_applicator_(),
             make_state_ops_(),
             condensed_workspace_.get()};
+    }
+
+    [[nodiscard]] static double default_local_length_scale_mm_(
+        const MultiscaleSubModel& sub) noexcept
+    {
+        // Ko-Bathe (2026), Sec. 2.1.5 / Fig. 7(b): when lb is not specified
+        // globally, the local interpretation uses the maximum side length of
+        // the element carrying the material point, not the cube-root volume.
+        return 1.0e3 * std::max({sub.grid.dx, sub.grid.dy, sub.grid.dz});
+    }
+
+    void reset_transient_model_()
+    {
+        destroy_petsc_objects();
+        model_.reset();
+        model_ready_ = false;
+        penalty_couplings_.clear();
+        condensed_workspace_->reset();
+        latest_cracks_.clear();
+        latest_crack_summary_ = {};
     }
 
 
@@ -390,12 +411,18 @@ class NonlinearSubModelEvolver {
 
 public:
 
+    [[nodiscard]] static double default_local_length_scale_mm(
+        const MultiscaleSubModel& sub) noexcept
+    {
+        return default_local_length_scale_mm_(sub);
+    }
+
     NonlinearSubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
                              std::string output_dir, int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
         , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(
-              fc_MPa, std::cbrt(sub.grid.dx * sub.grid.dy * sub.grid.dz) * 1e3)}
+              fc_MPa, default_local_length_scale_mm_(sub))}
         , rebar_factory_{std::make_unique<MenegottoPintoRebarFactory>(200000.0, 420.0, 0.01)}
         , output_writer_{std::move(output_dir), sub.parent_element_id}
         , vtk_interval_{vtk_interval}
@@ -528,9 +555,13 @@ public:
     struct SolverCheckpoint {
         petsc::OwnedVec displacement{};
         petsc::OwnedVec imposed_solution{};
+        std::optional<ModelCheckpointT> model{};
         SectionKinematics kin_A{};
         SectionKinematics kin_B{};
         bool model_initialized{false};
+        bool arc_length_active{false};
+        int consecutive_divergences{0};
+        double last_good_fraction{0.5};
     };
 
     using checkpoint_type = SolverCheckpoint;
@@ -644,8 +675,12 @@ public:
         checkpoint.kin_A = sub_->kin_A;
         checkpoint.kin_B = sub_->kin_B;
         checkpoint.model_initialized = model_ready_;
+        checkpoint.arc_length_active = use_arc_length_;
+        checkpoint.consecutive_divergences = consecutive_divergences_;
+        checkpoint.last_good_fraction = last_good_frac_;
 
         if (model_ready_ && U_ && model_) {
+            checkpoint.model.emplace(model_->capture_checkpoint());
             FALL_N_PETSC_CHECK(VecDuplicate(U_,
                                             checkpoint.displacement.ptr()));
             FALL_N_PETSC_CHECK(VecCopy(U_,
@@ -662,12 +697,24 @@ public:
     void restore_checkpoint(const checkpoint_type& checkpoint) {
         make_bc_applicator_().update_kinematics(
             checkpoint.kin_A, checkpoint.kin_B);
+        use_arc_length_ = checkpoint.arc_length_active;
+        consecutive_divergences_ = checkpoint.consecutive_divergences;
+        last_good_frac_ = checkpoint.last_good_fraction;
+
+        if (!checkpoint.model_initialized) {
+            reset_transient_model_();
+            return;
+        }
 
         if (!model_ || !U_) {
             return;
         }
 
-        make_state_ops_().revert_state();
+        if (checkpoint.model) {
+            model_->restore_checkpoint(*checkpoint.model);
+        } else {
+            make_state_ops_().revert_state();
+        }
 
         if (checkpoint.displacement) {
             FALL_N_PETSC_CHECK(VecCopy(checkpoint.displacement.get(), U_));
@@ -683,6 +730,7 @@ public:
         }
 
         make_state_ops_().sync_state_vector();
+        model_ready_ = true;
     }
 
 
@@ -1012,9 +1060,6 @@ private:
     //  First solve: build model + incremental loading from zero 
 
     SubModelSolverResult first_solve() {
-        SubModelSolverResult diagnostics;
-        diagnostics.used_arc_length = false;
-
         // 1. Build material + model (via injectable factories)
         Material<Policy> mat = concrete_factory_->create();
 
@@ -1066,42 +1111,6 @@ private:
         // 3. Set up persistent SNES + allocate U, R, J
         setup_snes();
 
-        if (!auto_commit_) {
-            SNESSolve(snes_, nullptr, U_);
-
-            SNESConvergedReason reason;
-            SNESGetConvergedReason(snes_, &reason);
-            PetscInt nits = 0;
-            SNESGetIterationNumber(snes_, &nits);
-            PetscReal fnorm = 0.0;
-            SNESGetFunctionNorm(snes_, &fnorm);
-
-            const bool converged = (reason > 0);
-            diagnostics.stage = SubModelSolveStage::FirstSolveSingleStep;
-            diagnostics.converged = converged;
-            diagnostics.snes_reason = static_cast<int>(reason);
-            diagnostics.snes_iterations = nits;
-            diagnostics.function_norm = static_cast<double>(fnorm);
-            diagnostics.achieved_fraction = converged ? 1.0 : 0.0;
-            if (converged) {
-                sync_state_vector_();
-            } else {
-                revert_state();
-                VecSet(U_, 0.0);
-                sync_state_vector_();
-            }
-
-            model_ready_ = true;
-            auto result = extract_results(converged);
-            result.stage = diagnostics.stage;
-            result.snes_reason = diagnostics.snes_reason;
-            result.snes_iterations = diagnostics.snes_iterations;
-            result.function_norm = diagnostics.function_norm;
-            result.achieved_fraction = diagnostics.achieved_fraction;
-            result.used_arc_length = diagnostics.used_arc_length;
-            return result;
-        }
-
         // 4. Save target imposed values, then do incremental loading
         Vec target;
         VecDuplicate(model_->imposed_solution(), &target);
@@ -1149,10 +1158,11 @@ private:
                          k, N, p, static_cast<int>(reason), nits, fnorm);
 
             if (reason > 0) {
-                if (auto_commit_)
-                    commit_state();
-                else
-                    sync_state_vector_();
+                // Trial FE² iterations still need path-dependent constitutive
+                // evolution across the ramp substeps. Exact rollback is handled
+                // by the outer local checkpoint, so we commit here regardless
+                // of auto_commit_.
+                commit_state();
                 completed_substeps = k;
             } else {
                 revert_state();
@@ -1187,7 +1197,7 @@ private:
     //  sub-step is solved by Newton; on failure the step size is bisected.
 
     SubModelSolverResult subsequent_solve() {
-        if (use_arc_length_ && auto_commit_)
+        if (use_arc_length_)
             return subsequent_solve_adaptive();
 
         // ── Standard path: full-step SNES ────────────────────────────

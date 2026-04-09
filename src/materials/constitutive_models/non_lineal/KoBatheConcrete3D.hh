@@ -30,11 +30,57 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <limits>
 
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
 
 #include "KoBatheConcrete.hh"   // Reuses KoBatheParameters
+
+
+// =============================================================================
+//  KoBathe3DCrackStabilization — explicit 3D crack-regularization policy
+// =============================================================================
+//
+//  The Ko–Bathe article provides the crack-retention factors η_N = 0.0001 and
+//  η_S = 0.1 together with an abrupt open/close switch (Table 2, Eq. 21).  The
+//  current 3D FE implementation also needs a numerically robust Newton path in
+//  heavily coupled continuum FE² sub-models, so the production defaults are a
+//  stabilized variant with higher retention factors and a smooth closure ramp.
+//
+//  Making these parameters explicit keeps the scientific deviation visible and
+//  lets validation drivers choose between a paper-reference mode and the
+//  stabilized FE²-production mode without touching the constitutive algorithm.
+
+struct KoBathe3DCrackStabilization {
+    double eta_N{0.20};
+    double eta_S{0.50};
+    double closure_transition_strain{1.0e-5};
+    bool smooth_closure{true};
+
+    [[nodiscard]] static constexpr KoBathe3DCrackStabilization
+    stabilized_default() noexcept
+    {
+        return {};
+    }
+
+    [[nodiscard]] static constexpr KoBathe3DCrackStabilization
+    paper_reference() noexcept
+    {
+        return {
+            KoBatheParameters::eta_N,
+            KoBatheParameters::eta_S,
+            0.0,
+            false};
+    }
+};
+
+enum class KoBathe3DSolutionMode {
+    PredictorOnly,
+    NoFlowTension,
+    NoFlowCompressionUnloading,
+    CompressiveFlow
+};
 
 
 // =============================================================================
@@ -67,6 +113,11 @@ struct KoBatheState3D {
     // ── Committed total strain ───────────────────────────────────────
     Eigen::Matrix<double, 6, 1> eps_committed = Eigen::Matrix<double, 6, 1>::Zero();
 
+    KoBathe3DSolutionMode last_solution_mode{
+        KoBathe3DSolutionMode::PredictorOnly};
+    double last_trial_sigma_o{0.0};
+    double last_trial_tau_o{0.0};
+
     // ── Accessors for InternalFieldSnapshot ──────────────────────────
     [[nodiscard]] const Eigen::Matrix<double, 6, 1>& eps_p() const noexcept {
         return eps_plastic;
@@ -74,6 +125,13 @@ struct KoBatheState3D {
     [[nodiscard]] double eps_bar_p() const noexcept {
         return std::sqrt(ep1 * ep1 + ep2 * ep2 + ep3 * ep3);
     }
+};
+
+enum class KoBathe3DMaterialTangentMode {
+    FractureSecant,
+    LegacyForwardDifference,
+    AdaptiveCentralDifference,
+    AdaptiveCentralDifferenceWithSecantFallback
 };
 
 
@@ -100,20 +158,17 @@ private:
     using Mat3 = Eigen::Matrix3d;
 
     KoBatheParameters params_;
+    KoBathe3DCrackStabilization crack_stabilization_{};
     KoBatheState3D state_{};
-    bool use_consistent_tangent_{false};
+    KoBathe3DMaterialTangentMode material_tangent_mode_{
+        KoBathe3DMaterialTangentMode::FractureSecant};
+    double numerical_tangent_rel_step_{1.0e-4};
+    double numerical_tangent_abs_step_{1.0e-8};
+    double numerical_tangent_validation_tol_{0.35};
 
     static constexpr double TOL = 1.0e-12;
     static constexpr double SQ2 = 1.4142135623730951;
     static constexpr double SQ3 = 1.7320508075688772;
-
-    // 3D stiffness retention factors — larger than 2D to tame the tangent
-    // discontinuity at crack initiation.  With η_N=0.20 the eigenvalue
-    // ratio across the crack threshold is 5:1, allowing Newton to converge
-    // without deep bisection.
-    static constexpr double ETA_N_3D = 0.20;   // vs 0.0001 in 2D
-    static constexpr double ETA_S_3D = 0.50;   // vs 0.1 in 2D
-
 
     // =====================================================================
     //  Octahedral stress invariants — full 3D (Eqs. 2a–2b)
@@ -561,18 +616,24 @@ private:
                 && std::abs(ts.Cts) > TOL) {
                 Enn_open = ts.Cts;
             } else {
-                Enn_open = ETA_N_3D * C_local(0, 0);
+                Enn_open = crack_stabilization_.eta_N * C_local(0, 0);
             }
 
-            // Smooth transition: avoids tangent discontinuity at e_nn = 0
-            // alpha → 0 (closed, full stiffness) for e_nn << 0
-            // alpha → 1 (open, degraded)         for e_nn >> 0
-            constexpr double delta = 1.0e-5;
-            double alpha = 0.5 * (1.0 + std::tanh(st.crack_strain[ic] / delta));
+            double alpha = st.crack_strain[ic] >= 0.0 ? 1.0 : 0.0;
+            if (crack_stabilization_.smooth_closure
+                && crack_stabilization_.closure_transition_strain > TOL) {
+                const double delta =
+                    crack_stabilization_.closure_transition_strain;
+                // Smooth transition: avoids a sharp tangent jump at e_nn = 0
+                // without changing the crack-history evolution.
+                alpha = 0.5
+                      * (1.0 + std::tanh(st.crack_strain[ic] / delta));
+            }
             double Enn = (1.0 - alpha) * C_local(0, 0) + alpha * Enn_open;
 
             // Smooth shear retention factor
-            double beta_s = (1.0 - alpha) * 1.0 + alpha * ETA_S_3D;
+            double beta_s =
+                (1.0 - alpha) + alpha * crack_stabilization_.eta_S;
 
             // Modify crack-local Mandel stiffness
             C_local(0, 0) = Enn;
@@ -591,6 +652,28 @@ private:
         }
 
         return mandel_to_eng(C_m);
+    }
+
+    void update_crack_kinematics_3d(
+        KoBatheState3D& st,
+        const Vec6& eps_elastic,
+        const std::array<double, 3>& committed_crack_strain_max) const
+    {
+        for (int ic = 0; ic < st.num_cracks; ++ic) {
+            const Vec3& n = st.crack_normals[ic];
+            const double e_nn =
+                eps_elastic[0] * n[0] * n[0]
+                + eps_elastic[1] * n[1] * n[1]
+                + eps_elastic[2] * n[2] * n[2]
+                + eps_elastic[3] * n[1] * n[2]
+                + eps_elastic[4] * n[0] * n[2]
+                + eps_elastic[5] * n[0] * n[1];
+
+            st.crack_strain[ic] = e_nn;
+            st.crack_strain_max[ic] =
+                std::max(committed_crack_strain_max[ic], e_nn);
+            st.crack_closed[ic] = (e_nn < 0.0);
+        }
     }
 
 
@@ -741,7 +824,64 @@ private:
     //
     //  Cost: 7× evaluate per Gauss point (base + 6 perturbations).
 
-    [[nodiscard]] Mat6 numerical_tangent(
+    [[nodiscard]] static bool is_finite_vec_(const Vec6& v)
+    {
+        for (int i = 0; i < 6; ++i) {
+            if (!std::isfinite(v[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] static bool is_finite_mat_(const Mat6& m)
+    {
+        for (int i = 0; i < 6; ++i) {
+            for (int j = 0; j < 6; ++j) {
+                if (!std::isfinite(m(i, j))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] double tangent_fd_step_(double component) const
+    {
+        return std::max(
+            numerical_tangent_abs_step_,
+            numerical_tangent_rel_step_ * std::max(std::abs(component), 1.0e-5));
+    }
+
+    struct NumericalColumnEstimate {
+        Vec6 column = Vec6::Zero();
+        bool valid{false};
+    };
+
+    [[nodiscard]] NumericalColumnEstimate central_difference_column_(
+        const Vec6& eps_total,
+        const KoBatheState3D& state,
+        int component,
+        double h) const
+    {
+        Vec6 eps_plus = eps_total;
+        Vec6 eps_minus = eps_total;
+        eps_plus[component] += h;
+        eps_minus[component] -= h;
+
+        const auto plus = evaluate(eps_plus, state, /*check_new_cracks=*/false);
+        const auto minus = evaluate(eps_minus, state, /*check_new_cracks=*/false);
+        if (!is_finite_vec_(plus.stress) || !is_finite_vec_(minus.stress)) {
+            return {};
+        }
+
+        NumericalColumnEstimate estimate;
+        estimate.column = (plus.stress - minus.stress) / (2.0 * h);
+        estimate.valid = is_finite_vec_(estimate.column);
+        return estimate;
+    }
+
+    [[nodiscard]] Mat6 legacy_forward_numerical_tangent_(
         const Vec6& eps_total,
         const KoBatheState3D& state) const
     {
@@ -749,7 +889,7 @@ private:
         Mat6 C;
         for (int j = 0; j < 6; ++j) {
             // Adaptive perturbation size  (√ε_mach ≈ 1.5e-8)
-            const double h = 1.0e-7 * std::max(std::abs(eps_total[j]), 1.0e-6);
+            const double h = tangent_fd_step_(eps_total[j]);
             Vec6 eps_pert = eps_total;
             eps_pert[j] += h;
             auto pert = evaluate(eps_pert, state, /*check_new_cracks=*/false);
@@ -757,6 +897,99 @@ private:
         }
         // Symmetrise for a positive-definite-friendly tangent
         return 0.5 * (C + C.transpose());
+    }
+
+    [[nodiscard]] Mat6 adaptive_central_numerical_tangent_(
+        const Vec6& eps_total,
+        const KoBatheState3D& state,
+        bool allow_secant_fallback) const
+    {
+        const auto secant_eval =
+            evaluate(eps_total, state, /*check_new_cracks=*/false);
+        Mat6 C = secant_eval.tangent;
+
+        for (int j = 0; j < 6; ++j) {
+            const double h = tangent_fd_step_(eps_total[j]);
+            const auto coarse = central_difference_column_(eps_total, state, j, h);
+            const auto fine =
+                central_difference_column_(eps_total, state, j, 0.5 * h);
+
+            if (!coarse.valid && !fine.valid) {
+                if (!allow_secant_fallback) {
+                    C.col(j).setZero();
+                }
+                continue;
+            }
+
+            if (allow_secant_fallback && (!coarse.valid || !fine.valid)) {
+                continue;
+            }
+
+            if (coarse.valid && fine.valid) {
+                const double denom =
+                    std::max(fine.column.norm(), std::numeric_limits<double>::epsilon());
+                const double rel_gap =
+                    (coarse.column - fine.column).norm() / denom;
+                const Vec6 secant_column = secant_eval.tangent.col(j);
+                const double secant_denom =
+                    std::max(secant_column.norm(), std::numeric_limits<double>::epsilon());
+                const double secant_gap =
+                    (fine.column - secant_column).norm() / secant_denom;
+                if (rel_gap <= numerical_tangent_validation_tol_) {
+                    if (!allow_secant_fallback
+                        || secant_gap <= numerical_tangent_validation_tol_)
+                    {
+                        C.col(j) = fine.column;
+                    }
+                } else if (!allow_secant_fallback) {
+                    C.col(j) = fine.column;
+                }
+                continue;
+            }
+
+            C.col(j) = fine.valid ? fine.column : coarse.column;
+        }
+
+        if (!is_finite_mat_(C)) {
+            return secant_eval.tangent;
+        }
+        return 0.5 * (C + C.transpose());
+    }
+
+    [[nodiscard]] static const char* solution_mode_name_(
+        KoBathe3DSolutionMode mode) noexcept
+    {
+        switch (mode) {
+        case KoBathe3DSolutionMode::PredictorOnly:
+            return "PredictorOnly";
+        case KoBathe3DSolutionMode::NoFlowTension:
+            return "NoFlowTension";
+        case KoBathe3DSolutionMode::NoFlowCompressionUnloading:
+            return "NoFlowCompressionUnloading";
+        case KoBathe3DSolutionMode::CompressiveFlow:
+            return "CompressiveFlow";
+        }
+        return "Unknown";
+    }
+
+    [[nodiscard]] Mat6 material_tangent_(
+        const Vec6& eps_total,
+        const KoBatheState3D& state) const
+    {
+        switch (material_tangent_mode_) {
+        case KoBathe3DMaterialTangentMode::FractureSecant:
+            return evaluate(eps_total, state, /*check_new_cracks=*/false).tangent;
+        case KoBathe3DMaterialTangentMode::LegacyForwardDifference:
+            return legacy_forward_numerical_tangent_(eps_total, state);
+        case KoBathe3DMaterialTangentMode::AdaptiveCentralDifference:
+            return adaptive_central_numerical_tangent_(
+                eps_total, state, /*allow_secant_fallback=*/false);
+        case KoBathe3DMaterialTangentMode::
+            AdaptiveCentralDifferenceWithSecantFallback:
+            return adaptive_central_numerical_tangent_(
+                eps_total, state, /*allow_secant_fallback=*/true);
+        }
+        return evaluate(eps_total, state, /*check_new_cracks=*/false).tangent;
     }
 
 
@@ -776,6 +1009,7 @@ private:
         bool check_new_cracks = true) const
     {
         KoBatheState3D st = state;
+        const auto committed_crack_strain_max = st.crack_strain_max;
 
         // ─── Step 1: Elastic strain ──────────────────────────────────
         Vec6 eps_elastic = eps_total - st.eps_plastic;
@@ -811,6 +1045,17 @@ private:
 
         // ─── Step 7: Cracking check ─────────────────────────────────
         auto oct2 = octahedral_3d(sigma);
+        st.last_trial_sigma_o = oct2.sigma_o;
+        st.last_trial_tau_o = oct2.tau_o;
+        const bool tensile_state = oct2.sigma_o >= -TOL;
+        const bool compressive_loading =
+            oct2.sigma_o < -TOL && oct2.tau_o > state.tau_o_max + TOL;
+        st.last_solution_mode =
+            compressive_loading
+                ? KoBathe3DSolutionMode::CompressiveFlow
+                : (tensile_state
+                       ? KoBathe3DSolutionMode::NoFlowTension
+                       : KoBathe3DSolutionMode::NoFlowCompressionUnloading);
 
         {
             // Find maximum principal stress and its direction
@@ -885,24 +1130,29 @@ private:
         }
 
         // ─── Step 8: Plasticity ──────────────────────────────────────
-        auto pl = plastic_correction_3d(eps_elastic, st.eps_plastic, st);
-        if (pl.plastic_active) {
-            st.eps_plastic = pl.eps_plastic;
-            st.ep1 = pl.ep1;
-            st.ep2 = pl.ep2;
-            st.ep3 = pl.ep3;
+        if (st.last_solution_mode == KoBathe3DSolutionMode::CompressiveFlow) {
+            auto pl = plastic_correction_3d(eps_elastic, st.eps_plastic, st);
+            if (pl.plastic_active) {
+                st.eps_plastic = pl.eps_plastic;
+                st.ep1 = pl.ep1;
+                st.ep2 = pl.ep2;
+                st.ep3 = pl.ep3;
 
-            eps_elastic = eps_total - st.eps_plastic;
-            sigma = Cc_sec * eps_elastic;
-            sigma[0] -= fm.sigma_id;
-            sigma[1] -= fm.sigma_id;
-            sigma[2] -= fm.sigma_id;
-            if (st.num_cracks > 0) {
-                Mat6 Cc_sec_cracked2 = cracked_tangent_3d(Cc_sec, st);
-                sigma = Cc_sec_cracked2 * eps_elastic;
+                eps_elastic = eps_total - st.eps_plastic;
+                update_crack_kinematics_3d(
+                    st, eps_elastic, committed_crack_strain_max);
+                C_tangent = cracked_tangent_3d(Cc_tan, st);
+                sigma = Cc_sec * eps_elastic;
                 sigma[0] -= fm.sigma_id;
                 sigma[1] -= fm.sigma_id;
                 sigma[2] -= fm.sigma_id;
+                if (st.num_cracks > 0) {
+                    Mat6 Cc_sec_cracked2 = cracked_tangent_3d(Cc_sec, st);
+                    sigma = Cc_sec_cracked2 * eps_elastic;
+                    sigma[0] -= fm.sigma_id;
+                    sigma[1] -= fm.sigma_id;
+                    sigma[2] -= fm.sigma_id;
+                }
             }
         }
 
@@ -932,9 +1182,7 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& alpha) const
     {
-        if (use_consistent_tangent_)
-            return numerical_tangent(strain.components(), alpha);
-        return evaluate(strain.components(), alpha, /*check_new_cracks=*/false).tangent;
+        return material_tangent_(strain.components(), alpha);
     }
 
     void commit(InternalVariablesT& alpha, const KinematicT& strain) const {
@@ -949,9 +1197,7 @@ public:
     }
 
     [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
-        if (use_consistent_tangent_)
-            return numerical_tangent(strain.components(), state_);
-        return evaluate(strain.components(), state_, /*check_new_cracks=*/false).tangent;
+        return material_tangent_(strain.components(), state_);
     }
 
     // =====================================================================
@@ -973,25 +1219,74 @@ public:
     [[nodiscard]] const KoBatheParameters& parameters() const noexcept {
         return params_;
     }
+    [[nodiscard]] const KoBathe3DCrackStabilization&
+    crack_stabilization() const noexcept
+    {
+        return crack_stabilization_;
+    }
 
     [[nodiscard]] double compressive_strength() const noexcept { return params_.fc; }
     [[nodiscard]] double young_modulus() const noexcept { return params_.Ee; }
     [[nodiscard]] double poisson_ratio() const noexcept { return params_.nue; }
 
-    void set_consistent_tangent(bool flag) noexcept { use_consistent_tangent_ = flag; }
-    [[nodiscard]] bool consistent_tangent() const noexcept { return use_consistent_tangent_; }
+    void set_consistent_tangent(bool flag) noexcept
+    {
+        material_tangent_mode_ = flag
+            ? KoBathe3DMaterialTangentMode::
+                AdaptiveCentralDifferenceWithSecantFallback
+            : KoBathe3DMaterialTangentMode::FractureSecant;
+    }
+    [[nodiscard]] bool consistent_tangent() const noexcept
+    {
+        return material_tangent_mode_
+            != KoBathe3DMaterialTangentMode::FractureSecant;
+    }
+    void set_material_tangent_mode(KoBathe3DMaterialTangentMode mode) noexcept
+    {
+        material_tangent_mode_ = mode;
+    }
+    [[nodiscard]] KoBathe3DMaterialTangentMode material_tangent_mode() const noexcept
+    {
+        return material_tangent_mode_;
+    }
+    void set_numerical_tangent_steps(double rel_step, double abs_step) noexcept
+    {
+        numerical_tangent_rel_step_ = std::max(rel_step, 1.0e-12);
+        numerical_tangent_abs_step_ = std::max(abs_step, 1.0e-14);
+    }
+    void set_numerical_tangent_validation_tolerance(double tol) noexcept
+    {
+        numerical_tangent_validation_tol_ = std::max(tol, 0.0);
+    }
+    [[nodiscard]] double numerical_tangent_validation_tolerance() const noexcept
+    {
+        return numerical_tangent_validation_tol_;
+    }
 
     // =====================================================================
     //  Constructors
     // =====================================================================
 
-    explicit KoBatheConcrete3D(KoBatheParameters params)
-        : params_(std::move(params)) {}
+    explicit KoBatheConcrete3D(
+        KoBatheParameters params,
+        KoBathe3DCrackStabilization crack_stabilization =
+            KoBathe3DCrackStabilization::stabilized_default())
+        : params_(std::move(params))
+        , crack_stabilization_(crack_stabilization)
+    {}
 
-    explicit KoBatheConcrete3D(double fc_MPa)
-        : KoBatheConcrete3D(KoBatheParameters(fc_MPa)) {}
+    explicit KoBatheConcrete3D(
+        double fc_MPa,
+        KoBathe3DCrackStabilization crack_stabilization =
+            KoBathe3DCrackStabilization::stabilized_default())
+        : KoBatheConcrete3D(
+            KoBatheParameters(fc_MPa), crack_stabilization) {}
 
-    KoBatheConcrete3D() : params_(30.0) {}
+    KoBatheConcrete3D()
+        : KoBatheConcrete3D(
+            KoBatheParameters(30.0),
+            KoBathe3DCrackStabilization::stabilized_default())
+    {}
 
     ~KoBatheConcrete3D() = default;
     KoBatheConcrete3D(const KoBatheConcrete3D&)               = default;
@@ -1008,7 +1303,16 @@ public:
            << "  Ke = " << m.params_.Ke << " MPa,  Ge = " << m.params_.Ge << " MPa\n"
            << "  E  = " << m.params_.Ee << " MPa,  ν  = " << m.params_.nue << "\n"
            << "  tp = " << m.params_.tp << "  (ft = " << m.params_.tp * m.params_.fc << " MPa)\n"
-           << "  Cracks: " << m.state_.num_cracks << "\n";
+           << "  crack_stab = {eta_N=" << m.crack_stabilization_.eta_N
+           << ", eta_S=" << m.crack_stabilization_.eta_S
+           << ", smooth=" << (m.crack_stabilization_.smooth_closure ? "yes" : "no")
+           << ", delta=" << m.crack_stabilization_.closure_transition_strain
+           << "}\n"
+           << "  Cracks: " << m.state_.num_cracks << "\n"
+           << "  Last mode: "
+           << KoBatheConcrete3D::solution_mode_name_(m.state_.last_solution_mode)
+           << "  (trial sigma_o=" << m.state_.last_trial_sigma_o
+           << ", trial tau_o=" << m.state_.last_trial_tau_o << ")\n";
         return os;
     }
 };

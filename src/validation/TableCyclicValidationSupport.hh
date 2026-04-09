@@ -172,7 +172,8 @@ inline void write_fe2_solver_diagnostics_header(
     os << "step,p,drift_m,termination_reason,converged,rollback_performed,"
           "failed_submodels,regularized_submodels,max_force_residual_rel,"
           "max_force_component_residual_rel,max_tangent_residual_rel,"
-          "max_tangent_column_residual_rel,failed_sites";
+          "max_tangent_column_residual_rel,attempted_macro_step,"
+          "attempted_macro_time,failed_sites";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
         os << ",sub" << i << "_response_status"
            << ",sub" << i << "_tangent_scheme"
@@ -203,6 +204,10 @@ inline void write_fe2_solver_diagnostics_row(
     const auto& report = analysis.last_report();
     const auto& responses = analysis.last_responses();
     const auto& locals = analysis.model().local_models();
+    const int attempted_step =
+        report.attempted_state_valid ? report.attempted_macro_step : step;
+    const double attempted_time =
+        report.attempted_state_valid ? report.attempted_macro_time : p;
 
     os << step << "," << p << "," << drift << ","
        << to_string(report.termination_reason) << ","
@@ -214,6 +219,8 @@ inline void write_fe2_solver_diagnostics_row(
        << report.max_force_component_residual_rel << ","
        << report.max_tangent_residual_rel << ","
        << report.max_tangent_column_residual_rel << ","
+       << attempted_step << ","
+       << attempted_time << ","
        << summarize_failed_sites(report.failed_sites);
 
     for (std::size_t i = 0; i < locals.size(); ++i) {

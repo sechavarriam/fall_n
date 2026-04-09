@@ -57,6 +57,7 @@ struct CyclicValidationRunConfig {
     int restart_adaptive_substep_bonus{12};
     int restart_adaptive_bisection_bonus{4};
     int restart_snes_max_it_bonus{25};
+    bool submodel_use_consistent_material_tangent{false};
     int submodel_output_interval{10};
     int global_output_interval{1};
     double min_crack_opening{1.0e-4};
@@ -112,6 +113,7 @@ make_validation_config(ValidationProtocolPreset preset)
             .restart_adaptive_substep_bonus = 12,
             .restart_adaptive_bisection_bonus = 4,
             .restart_snes_max_it_bonus = 25,
+            .submodel_use_consistent_material_tangent = false,
             .submodel_output_interval = 20,
             .global_output_interval = 1,
             .min_crack_opening = 5.0e-4
@@ -145,6 +147,7 @@ make_validation_config(ValidationProtocolPreset preset)
         .restart_adaptive_substep_bonus = 16,
         .restart_adaptive_bisection_bonus = 4,
         .restart_snes_max_it_bonus = 25,
+        .submodel_use_consistent_material_tangent = false,
         .submodel_output_interval = 10,
         .global_output_interval = 1,
         .min_crack_opening = 1.0e-4
@@ -161,12 +164,13 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
     case ValidationExecutionProfile::FE2Crack50Exploratory:
         cfg.execution_profile_name = "fe2_crack50";
         cfg.steps_per_segment = 1;
-        cfg.submodel_increment_steps = 8;
-        cfg.submodel_max_bisections = 3;
+        cfg.submodel_increment_steps = 12;
+        cfg.submodel_max_bisections = 4;
         cfg.submodel_enable_arc_length_from_start = true;
         cfg.submodel_arc_length_threshold = 1;
         cfg.submodel_adaptive_max_substeps = 48;
         cfg.submodel_adaptive_max_bisections = 12;
+        cfg.submodel_snes_max_it = 150;
         cfg.enable_turning_point_checkpoints = true;
         cfg.max_turning_point_restarts = 3;
         cfg.restart_submodel_increment_step_bonus = 6;
@@ -174,6 +178,7 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
         cfg.restart_adaptive_substep_bonus = 24;
         cfg.restart_adaptive_bisection_bonus = 6;
         cfg.restart_snes_max_it_bonus = 50;
+        cfg.submodel_use_consistent_material_tangent = false;
         cfg.submodel_output_interval = 0;
         cfg.global_output_interval = 0;
         cfg.min_crack_opening = 0.0;

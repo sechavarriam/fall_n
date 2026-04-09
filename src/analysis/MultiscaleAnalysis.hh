@@ -85,6 +85,20 @@ private:
     {
         report.force_residual_norm = force_norm;
         report.tangent_residual_norm = tangent_norm;
+        report.attempted_state_valid = false;
+        report.attempted_macro_step = 0;
+        report.attempted_macro_time = 0.0;
+    }
+
+    void capture_attempted_macro_state_()
+    {
+        last_report_.attempted_state_valid = true;
+        last_report_.attempted_macro_time = macro_solver_->current_time();
+        if constexpr (requires(MacroSolverT& solver) {
+                          { solver.current_step() } -> std::convertible_to<int>;
+                      }) {
+            last_report_.attempted_macro_step = macro_solver_->current_step();
+        }
     }
 
     [[nodiscard]] double force_residual_metric_(
@@ -194,7 +208,8 @@ private:
 
     void finalize_local_models_(double time)
     {
-        for (auto& local_model : model_.local_models()) {
+        for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+            auto& local_model = model_.local_models()[i];
             local_model.commit_trial_state();
             local_model.set_auto_commit(true);
             local_model.end_of_step(time);
@@ -210,22 +225,28 @@ private:
         last_report_.failed_submodels = 0;
 
         executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
-            auto& local_model = model_.local_models()[i];
-            local_model.set_auto_commit(true);
-
-            const auto ek =
-                model_.macro_bridge().extract_element_kinematics(
-                    model_.site(i).macro_element_id);
-            local_model.update_kinematics(ek.kin_A, ek.kin_B);
-
-            auto result = local_model.solve_step(time);
-            auto response = local_model.section_response(
-                section_width_, section_height_, tangent_perturbation_);
+            auto response = SectionHomogenizedResponse{};
             response.site = model_.site(i);
-            if constexpr (requires { result.converged; }) {
-                if (!result.converged) {
-                    response.status = ResponseStatus::SolveFailed;
+            try {
+                auto& local_model = model_.local_models()[i];
+                local_model.set_auto_commit(true);
+
+                const auto ek =
+                    model_.macro_bridge().extract_element_kinematics(
+                        model_.site(i).macro_element_id);
+                local_model.update_kinematics(ek.kin_A, ek.kin_B);
+
+                auto result = local_model.solve_step(time);
+                response = local_model.section_response(
+                    section_width_, section_height_, tangent_perturbation_);
+                response.site = model_.site(i);
+                if constexpr (requires { result.converged; }) {
+                    if (!result.converged) {
+                        response.status = ResponseStatus::SolveFailed;
+                    }
                 }
+            } catch (...) {
+                response.status = ResponseStatus::SolveFailed;
             }
             responses[i] = response;
         });
@@ -253,6 +274,9 @@ private:
             CouplingTerminationReason::UncoupledMacroStep;
 
         const bool ok = macro_solver_->step();
+        if (ok) {
+            capture_attempted_macro_state_();
+        }
         last_report_.converged = ok;
         if (!ok) {
             last_report_.termination_reason =
@@ -282,6 +306,7 @@ private:
                 CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
+        capture_attempted_macro_state_();
 
         auto t0 = std::chrono::steady_clock::now();
         std::vector<SectionHomogenizedResponse> responses;
@@ -323,6 +348,7 @@ private:
                 CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
+        capture_attempted_macro_state_();
 
         auto t0 = std::chrono::steady_clock::now();
         std::vector<SectionHomogenizedResponse> responses;
@@ -428,6 +454,7 @@ private:
 
             const auto macro_t0 = std::chrono::steady_clock::now();
             if (!macro_solver_->step()) {
+                capture_attempted_macro_state_();
                 macro_solver_->restore_checkpoint(macro_checkpoint);
                 for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                     model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
@@ -444,25 +471,33 @@ private:
             const auto macro_t1 = std::chrono::steady_clock::now();
             last_report_.macro_solve_seconds +=
                 std::chrono::duration<double>(macro_t1 - macro_t0).count();
+            capture_attempted_macro_state_();
 
             const auto micro_t0 = std::chrono::steady_clock::now();
             executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
-                auto& local_model = model_.local_models()[i];
-                local_model.restore_checkpoint(local_checkpoints[i]);
-
-                const auto ek =
-                    model_.macro_bridge().extract_element_kinematics(
-                        model_.site(i).macro_element_id);
-                local_model.update_kinematics(ek.kin_A, ek.kin_B);
-
-                auto result = local_model.solve_step(macro_solver_->current_time());
-                current[i] = local_model.section_response(
-                    section_width_, section_height_, tangent_perturbation_);
+                current[i] = SectionHomogenizedResponse{};
                 current[i].site = model_.site(i);
-                if constexpr (requires { result.converged; }) {
-                    if (!result.converged) {
-                        current[i].status = ResponseStatus::SolveFailed;
+                try {
+                    auto& local_model = model_.local_models()[i];
+                    local_model.restore_checkpoint(local_checkpoints[i]);
+
+                    const auto ek =
+                        model_.macro_bridge().extract_element_kinematics(
+                            model_.site(i).macro_element_id);
+                    local_model.update_kinematics(ek.kin_A, ek.kin_B);
+
+                    auto result =
+                        local_model.solve_step(macro_solver_->current_time());
+                    current[i] = local_model.section_response(
+                        section_width_, section_height_, tangent_perturbation_);
+                    current[i].site = model_.site(i);
+                    if constexpr (requires { result.converged; }) {
+                        if (!result.converged) {
+                            current[i].status = ResponseStatus::SolveFailed;
+                        }
                     }
+                } catch (...) {
+                    current[i].status = ResponseStatus::SolveFailed;
                 }
             });
             last_responses_ = current;
@@ -539,6 +574,10 @@ private:
                 last_report_.max_tangent_column_residual_rel =
                     std::max(last_report_.max_tangent_column_residual_rel,
                              last_report_.tangent_column_residuals_rel[i]);
+            }
+
+            if (last_report_.failed_submodels > 0) {
+                break;
             }
 
             predictor = current;

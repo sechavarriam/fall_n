@@ -306,6 +306,305 @@ void test_internal_field_snapshot_semantics_3d() {
 
 
 // =============================================================================
+//  Test 5c: Explicit 3D crack-stabilization profiles
+// =============================================================================
+
+void test_crack_stabilization_profiles_3d() {
+    std::cout << "\n-- Test 5c: 3D crack-stabilization profiles --\n";
+
+    KoBatheConcrete3D stabilized_default(30.0);
+    const auto& stab = stabilized_default.crack_stabilization();
+    check(approx_eq(stab.eta_N, 0.20, 1e-12),
+        "Default 3D eta_N matches the stabilized production profile");
+    check(approx_eq(stab.eta_S, 0.50, 1e-12),
+        "Default 3D eta_S matches the stabilized production profile");
+    check(stab.smooth_closure,
+        "Default 3D profile uses smooth crack closure");
+    check(stab.closure_transition_strain > 0.0,
+        "Default 3D profile exposes a positive closure transition strain");
+
+    KoBatheConcrete3D paper_like(
+        KoBatheParameters(30.0),
+        KoBathe3DCrackStabilization::paper_reference());
+    const auto& paper = paper_like.crack_stabilization();
+    check(approx_eq(paper.eta_N, KoBatheParameters::eta_N, 1e-12),
+        "Paper-reference eta_N matches Eq. (21)");
+    check(approx_eq(paper.eta_S, KoBatheParameters::eta_S, 1e-12),
+        "Paper-reference eta_S matches Eq. (21)");
+    check(!paper.smooth_closure,
+        "Paper-reference profile disables smooth closure blending");
+    check(approx_eq(paper.closure_transition_strain, 0.0, 1e-12),
+        "Paper-reference profile uses a sharp open/close switch");
+}
+
+
+// =============================================================================
+//  Test 5d: Crack kinematics use the final elastic state after plastic update
+// =============================================================================
+
+void test_crack_kinematics_follow_final_elastic_state_3d() {
+    std::cout << "\n-- Test 5d: crack kinematics after plastic correction --\n";
+
+    KoBatheConcrete3D model(30.0);
+    KoBatheState3D state{};
+
+    bool cracked = false;
+    for (int i = 1; i <= 80; ++i) {
+        Strain<6> eps;
+        Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+        v[0] = 2.0e-3 * static_cast<double>(i) / 80.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.num_cracks > 0) {
+            cracked = true;
+            break;
+        }
+    }
+
+    check(cracked, "A crack is created before the mixed compression step");
+    if (!cracked) {
+        return;
+    }
+
+    bool plastic_active = false;
+    Strain<6> final_eps;
+    Eigen::Matrix<double, 6, 1> final_components =
+        Eigen::Matrix<double, 6, 1>::Zero();
+    for (int i = 1; i <= 40; ++i) {
+        final_components.setZero();
+        final_components[0] = 1.5e-3;
+        final_components[1] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        final_components[2] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        final_eps.set_components(final_components);
+        model.commit(state, final_eps);
+        if (state.eps_plastic.norm() > 1.0e-12) {
+            plastic_active = true;
+            break;
+        }
+    }
+
+    check(plastic_active,
+          "The mixed compression path activates plastic strain after cracking");
+    if (!plastic_active) {
+        return;
+    }
+
+    const auto& n = state.crack_normals[0];
+    const Eigen::Matrix<double, 6, 1> eps_e =
+        final_components - state.eps_plastic;
+    const double expected_e_nn =
+        eps_e[0] * n[0] * n[0]
+        + eps_e[1] * n[1] * n[1]
+        + eps_e[2] * n[2] * n[2]
+        + eps_e[3] * n[1] * n[2]
+        + eps_e[4] * n[0] * n[2]
+        + eps_e[5] * n[0] * n[1];
+
+    check(approx_eq(state.crack_strain[0], expected_e_nn, 1e-8),
+          "Stored crack opening matches the final elastic strain projection");
+    check(state.crack_closed[0] == (expected_e_nn < 0.0),
+          "Crack closure flag follows the final elastic crack strain sign");
+}
+
+void test_adaptive_material_tangent_matches_elastic_response_3d() {
+    std::cout << "\n-- Test 5e: adaptive tangent in the elastic range --\n";
+
+    KoBatheConcrete3D secant_model(30.0);
+    KoBatheConcrete3D legacy_model(30.0);
+    KoBatheConcrete3D adaptive_model(30.0);
+    legacy_model.set_material_tangent_mode(
+        KoBathe3DMaterialTangentMode::LegacyForwardDifference);
+    adaptive_model.set_material_tangent_mode(
+        KoBathe3DMaterialTangentMode::
+            AdaptiveCentralDifferenceWithSecantFallback);
+
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+    v[0] = -2.5e-5;
+    v[5] = 1.25e-5;
+    eps.set_components(v);
+
+    const auto C_sec = secant_model.tangent(eps);
+    const auto C_legacy = legacy_model.tangent(eps);
+    const auto C_adapt = adaptive_model.tangent(eps);
+    const double legacy_rel_err =
+        (C_legacy - C_sec).norm() / (C_sec.norm() + 1.0e-12);
+    const double adaptive_rel_err =
+        (C_adapt - C_sec).norm() / (C_sec.norm() + 1.0e-12);
+
+    std::cout << "  legacy_rel_err   = " << legacy_rel_err << "\n"
+              << "  adaptive_rel_err = " << adaptive_rel_err << "\n";
+
+    check(adaptive_rel_err <= legacy_rel_err + 5.0e-4,
+          "Adaptive numerical tangent remains at least as accurate as the legacy forward-difference tangent within a tight tolerance band");
+}
+
+void test_adaptive_material_tangent_can_fallback_to_secant_3d() {
+    std::cout << "\n-- Test 5f: adaptive tangent secant fallback --\n";
+
+    KoBatheConcrete3D secant_model(30.0);
+    KoBatheConcrete3D adaptive_model(30.0);
+    adaptive_model.set_material_tangent_mode(
+        KoBathe3DMaterialTangentMode::
+            AdaptiveCentralDifferenceWithSecantFallback);
+    adaptive_model.set_numerical_tangent_validation_tolerance(0.0);
+
+    KoBatheState3D state{};
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+
+    for (int i = 1; i <= 80; ++i) {
+        v.setZero();
+        v[0] = 2.0e-3 * static_cast<double>(i) / 80.0;
+        eps.set_components(v);
+        secant_model.commit(state, eps);
+    }
+    for (int i = 1; i <= 40; ++i) {
+        v.setZero();
+        v[0] = 1.5e-3;
+        v[1] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        v[2] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        eps.set_components(v);
+        secant_model.commit(state, eps);
+    }
+
+    eps.set_components(v);
+    const auto C_sec = secant_model.tangent(eps, state);
+    const auto C_adapt = adaptive_model.tangent(eps, state);
+    const double rel_err =
+        (C_adapt - C_sec).norm() / (C_sec.norm() + 1.0e-12);
+
+    std::cout << "  strict_fallback_rel_err = " << rel_err << "\n";
+
+    check(rel_err < 1.0e-10,
+          "Zero validation tolerance forces the adaptive tangent back to the fracture-sec tangent");
+}
+
+void test_unloading_is_classified_as_no_flow_3d() {
+    std::cout << "\n-- Test 5g: unloading is classified as no-flow --\n";
+
+    KoBatheConcrete3D model(30.0);
+    KoBatheState3D state{};
+
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+    bool cracked = false;
+    for (int i = 1; i <= 80; ++i) {
+        v.setZero();
+        v[0] = 2.0e-3 * static_cast<double>(i) / 80.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.num_cracks > 0) {
+            cracked = true;
+            break;
+        }
+    }
+
+    check(cracked, "A tensile preload creates a crack before mixed compression");
+    if (!cracked) {
+        return;
+    }
+
+    bool plastic_started = false;
+    for (int i = 1; i <= 40; ++i) {
+        v.setZero();
+        v[0] = 1.5e-3;
+        v[1] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        v[2] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.ep1 > 1.0e-12 || state.ep2 > 1.0e-12 || state.ep3 > 1.0e-12) {
+            plastic_started = true;
+            break;
+        }
+    }
+
+    check(plastic_started,
+          "Mixed compression after cracking activates effective plastic strain");
+    if (!plastic_started) {
+        return;
+    }
+
+    const auto before = state;
+    v[1] *= 0.70;
+    v[2] *= 0.70;
+    eps.set_components(v);
+    model.commit(state, eps);
+
+    check(state.last_solution_mode
+              == KoBathe3DSolutionMode::NoFlowCompressionUnloading,
+          "Compression unloading is classified explicitly as no-flow");
+    check(approx_eq(state.ep1, before.ep1, 1e-10),
+          "Hydrostatic effective plastic strain stays frozen during unloading");
+    check(approx_eq(state.ep2, before.ep2, 1e-10),
+          "Deviatoric effective plastic strain #2 stays frozen during unloading");
+    check(approx_eq(state.ep3, before.ep3, 1e-10),
+          "Deviatoric effective plastic strain #3 stays frozen during unloading");
+}
+
+void test_tension_is_classified_as_no_flow_3d() {
+    std::cout << "\n-- Test 5h: tension is classified as no-flow --\n";
+
+    KoBatheConcrete3D model(30.0);
+    KoBatheState3D state{};
+
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+    bool cracked = false;
+    for (int i = 1; i <= 80; ++i) {
+        v.setZero();
+        v[0] = 2.0e-3 * static_cast<double>(i) / 80.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.num_cracks > 0) {
+            cracked = true;
+            break;
+        }
+    }
+
+    check(cracked, "A tensile preload creates a crack before mixed compression");
+    if (!cracked) {
+        return;
+    }
+
+    bool plastic_started = false;
+    for (int i = 1; i <= 40; ++i) {
+        v.setZero();
+        v[0] = 1.5e-3;
+        v[1] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        v[2] = -4.0e-3 * static_cast<double>(i) / 40.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.ep1 > 1.0e-12 || state.ep2 > 1.0e-12 || state.ep3 > 1.0e-12) {
+            plastic_started = true;
+            break;
+        }
+    }
+
+    check(plastic_started,
+          "Mixed compression after cracking creates a non-trivial plastic state before tension");
+    if (!plastic_started) {
+        return;
+    }
+
+    const auto before = state;
+    v.setZero();
+    v[0] = 1.8e-3;
+    eps.set_components(v);
+    model.commit(state, eps);
+
+    check(state.last_solution_mode == KoBathe3DSolutionMode::NoFlowTension,
+          "Tension is classified explicitly as no-flow");
+    check(approx_eq(state.ep1, before.ep1, 1e-10),
+          "Hydrostatic effective plastic strain stays frozen in tension");
+    check(approx_eq(state.ep2, before.ep2, 1e-10),
+          "Deviatoric effective plastic strain #2 stays frozen in tension");
+    check(approx_eq(state.ep3, before.ep3, 1e-10),
+          "Deviatoric effective plastic strain #3 stays frozen in tension");
+}
+
+
+// =============================================================================
 //  Test 6: Mandel rotation matrix orthogonality
 // =============================================================================
 
@@ -532,6 +831,12 @@ int main() {
     test_triaxial_compression_3d();
     test_tension_cracking_3d();
     test_internal_field_snapshot_semantics_3d();
+    test_crack_stabilization_profiles_3d();
+    test_crack_kinematics_follow_final_elastic_state_3d();
+    test_adaptive_material_tangent_matches_elastic_response_3d();
+    test_adaptive_material_tangent_can_fallback_to_secant_3d();
+    test_unloading_is_classified_as_no_flow_3d();
+    test_tension_is_classified_as_no_flow_3d();
     test_mandel_rotation();
     test_biaxial_compression_3d();
     test_commit_cycle_3d();

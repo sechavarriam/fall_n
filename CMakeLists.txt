@@ -228,6 +228,11 @@ fall_n_use_multiscale_api(fall_n_table_multiscale)
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
     src/validation/TableCyclicValidationStructural.cpp
+    src/validation/TableCyclicValidationFE2Setup.cpp
+    src/validation/TableCyclicValidationFE2Restart.cpp
+    src/validation/TableCyclicValidationFE2StepPostprocess.cpp
+    src/validation/TableCyclicValidationRuntimeIO.cpp
+    src/validation/TableCyclicValidationSubmodelFactories.cpp
     src/validation/TableCyclicValidationFE2.cpp)
 fall_n_use_multiscale_api(fall_n_table_cyclic_validation)
 # Use a validation-specific PCH instead of the global umbrella so edits to the
@@ -236,6 +241,14 @@ fall_n_use_multiscale_api(fall_n_table_cyclic_validation)
 fall_n_enable_cyclic_validation_pch(fall_n_table_cyclic_validation)
 set_source_files_properties(main_table_cyclic_validation.cpp PROPERTIES
   SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(
+    src/validation/TableCyclicValidationStructural.cpp
+    src/validation/TableCyclicValidationFE2.cpp
+    src/validation/TableCyclicValidationFE2Setup.cpp
+    src/validation/TableCyclicValidationFE2Restart.cpp
+    src/validation/TableCyclicValidationFE2StepPostprocess.cpp
+    PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON)
 
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
@@ -440,7 +453,10 @@ fall_n_add_test(TARGET fall_n_cyclic_protocol_test
 
 fall_n_add_test(TARGET fall_n_cyclic_validation_api_test
     NAME cyclic_validation_api  SOURCE tests/test_cyclic_validation_api.cpp
-    LIBS NONE  LABEL unit)
+    LIBS FULL  LABEL unit)
+target_sources(fall_n_cyclic_validation_api_test PRIVATE
+    src/validation/TableCyclicValidationFE2Setup.cpp
+    src/validation/TableCyclicValidationSubmodelFactories.cpp)
 
 fall_n_add_test(TARGET fall_n_node_test
     NAME node_dof_storage  SOURCE tests/test_node_dof.cpp

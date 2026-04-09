@@ -21,6 +21,13 @@ The most mature publication-path subsystem today is the multiscale module:
 - The persistent local facade has been split further internally through `LocalBoundaryConditionApplicator`, `PersistentLocalStateOps`, `BoundaryReactionHomogenizer`, `LocalCrackDiagnostics`, and `LocalVTKOutputWriter`.
 - A local stabilization gate exists in `scripts/ci_multiscale_stabilization.ps1`, and the intended CI surface is frozen in `.github/workflows/multiscale-stability.yml`.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
+- The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
+- The Ko-Bathe 3D audit also closed a real constitutive-state bug: crack opening/closure is now refreshed from the final elastic strain after plastic correction, instead of silently inheriting a pre-return trial state.
+- The Ko-Bathe 3D path now classifies `compressive flow` versus `no-flow` explicitly from the trial octahedral invariants, so tensile states and compressive unloading no longer accumulate effective plastic flow spuriously.
+- The FE2 cyclic driver now exposes submodel material-tangent mode explicitly; the numerical consistent tangent is available for audit, but it is not the default because the first-cracked Case 5 benchmark still regresses with it.
+- The FE2 cyclic setup now keeps the owning `MultiscaleCoordinator` alive inside the returned case context, so local evolvers no longer hold dangling `MultiscaleSubModel*` references after the setup TU split.
+- The FE2 cyclic driver was split one step further through `TableCyclicValidationFE2StepPostprocess`, moving crack-summary aggregation and recorder-row assembly out of the main FE2 runtime translation unit.
+- The FE2 cyclic driver now also isolates turning-point restart retuning in `TableCyclicValidationFE2Restart`, reducing coupling between nonlinear step control and restart-budget policy.
 
 This does not mean the whole repository is “finished”. It means the codebase now has one path that is close to publication quality, and the rest of the library can be reviewed and strengthened around that standard.
 
@@ -178,6 +185,8 @@ The document compiles, but it still contains pre-existing warnings and historica
 
 - `NonlinearSubModelEvolver` is still too large, even though the most critical concerns have already been split out.
 - The current weighted norms for condensed-tangent validation and FE2 residuals are physically better than pure Frobenius, but they are still proxies; `DualEnergyScaled` improves the generalized-work proxy, yet it is not a full proof of energetic equivalence.
+- The numerical consistent tangent of `KoBatheConcrete3D` is still experimental in FE2 submodels: it is exposed and benchmarked, but the post-setup ownership fix re-opened the scientific audit of the first-cracked Case 5 short run, so the old failure narrative must now be treated as historical rather than definitive.
+- The 3D Ko-Bathe path now enforces the paper's top-level `flow / no-flow` classification, but Eq. (26b) of Ko-Bathe is still not represented as a separate explicit no-flow tensor update; the remaining scientific gap is therefore smaller, but not closed.
 - The distributed MPI micro-solve engine is not implemented yet beyond contracts and communicator ownership.
 - The root `CMakeLists.txt` is still monolithic.
 - `header_files.hh` still causes avoidable build coupling and PCH invalidation.
@@ -191,7 +200,7 @@ The fastest improvements with a good effort/impact ratio are:
 
 1. Keep shrinking the use of `header_files.hh` and move toward module-local umbrellas.
 2. Split `CMakeLists.txt` into smaller module-oriented fragments.
-3. Continue breaking up the FE2-heavy cyclic-validation translation units, because the local umbrella/PCH cleanup improved dependency hygiene but did not yet solve the heavy compile frontier.
+3. Continue breaking up the FE2-heavy cyclic-validation translation units, because the setup split and the new FE2 step-postprocess split improved cost-of-change and ownership clarity but did not yet solve the heavy compile frontier.
 4. Normalize naming and spelling across directories and public types.
 5. Clean generated artefacts and keep runtime output out of the repository root.
 6. Expand installable public targets beyond `fall_n::multiscale_api`.
@@ -213,7 +222,9 @@ The structural case already reaches the full `50 mm` envelope. The FE2 case has 
 The current honest frontier is:
 
 - Case 4 one-way FE2 reaches the first cracked point reproducibly in the short-run matrix and remains scientifically observable through `+5 mm` in the longer exploratory runs.
-- Case 5 iterated two-way FE2 still aborts at the first cracked point in the short-run matrix with explicit rollback and failed-site reporting; that is documented as a frontier, not hidden as a pass.
+- Case 5 iterated two-way FE2 now survives the setup phase and enters the first local ramp under the tuned `fe2_crack50` short-run profile; after the coordinator-lifetime fix the exact first-cracked frontier must be re-measured end-to-end rather than inferred from the older aborted run.
+- After the explicit 3D `no-flow` correction, the same one-step `fe2_crack50` Case 5 probe reaches the third local ramp increment (`k = 3/4`) within the audited 45 s window, which is a measurable improvement over the pre-audit build.
+- The optional consistent-tangent override remains an audit path, not a promotion path. The earlier negative result is preserved as historical evidence, but after the FE2 setup-lifetime correction it should be treated as a benchmark that needs re-audit before any final scientific claim is made.
 
 ## Bottom Line
 

@@ -59,6 +59,7 @@ int main(int argc, char* argv[])
     double submodel_snes_atol_override = -1.0;
     double submodel_snes_rtol_override = -1.0;
     double min_crack_opening_override = -1.0;
+    int submodel_use_consistent_material_tangent_override = -1;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -113,6 +114,10 @@ int main(int argc, char* argv[])
             submodel_snes_rtol_override = std::stod(argv[++i]);
         } else if (arg == "--min-crack-opening" && i + 1 < argc) {
             min_crack_opening_override = std::stod(argv[++i]);
+        } else if (arg == "--submodel-consistent-material-tangent") {
+            submodel_use_consistent_material_tangent_override = 1;
+        } else if (arg == "--submodel-secant-material-tangent") {
+            submodel_use_consistent_material_tangent_override = 0;
         }
     }
 
@@ -164,6 +169,10 @@ int main(int argc, char* argv[])
     if (min_crack_opening_override >= 0.0) {
         cfg.min_crack_opening = min_crack_opening_override;
     }
+    if (submodel_use_consistent_material_tangent_override >= 0) {
+        cfg.submodel_use_consistent_material_tangent =
+            (submodel_use_consistent_material_tangent_override == 1);
+    }
 
     const auto takes_value = [](const std::string& arg) {
         return arg == "--case"
@@ -190,6 +199,11 @@ int main(int argc, char* argv[])
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--submodel-adaptive-from-start") {
+            continue;
+        }
+        if (arg == "--submodel-consistent-material-tangent"
+            || arg == "--submodel-secant-material-tangent")
+        {
             continue;
         }
         if (takes_value(arg) && i + 1 < argc) {
@@ -225,7 +239,8 @@ int main(int argc, char* argv[])
             }
             std::println("  Sub-model ramp: {} increments  |  {} bisections  |  "
                          "arc-start={} threshold={} adaptive-budget={}/{}  |  "
-                         "SNES max_it={} atol={:.2e} rtol={:.2e}",
+                         "SNES max_it={} atol={:.2e} rtol={:.2e}  |  "
+                         "material tangent={}",
                          cfg.submodel_increment_steps,
                          cfg.submodel_max_bisections,
                          cfg.submodel_enable_arc_length_from_start ? "on" : "off",
@@ -234,7 +249,10 @@ int main(int argc, char* argv[])
                          cfg.submodel_adaptive_max_bisections,
                          cfg.submodel_snes_max_it,
                          cfg.submodel_snes_atol,
-                         cfg.submodel_snes_rtol);
+                         cfg.submodel_snes_rtol,
+                         cfg.submodel_use_consistent_material_tangent
+                             ? "consistent"
+                             : "fracture-sec");
             std::println("  Output cadence: global-vtk={}  |  submodel-vtk={}  "
                          "|  min-crack-opening={:.2e}",
                          cfg.global_output_interval,
