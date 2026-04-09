@@ -437,6 +437,173 @@ void test_local_checkpoint_restores_path_dependent_state()
           "post-cracking response differs measurably from the restored elastic state");
 }
 
+void test_trial_mode_adaptive_checkpoint_restores_committed_state()
+{
+    std::cout << "\n== Trial adaptive rollback exactness ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto base = ev.solve_step(0.0);
+    const auto base_response = ev.section_response(W, H, 1.0e-6);
+    const auto checkpoint = ev.capture_checkpoint();
+
+    check(base.converged,
+          "reference state converges before the trial adaptive rollback audit");
+
+    ev.enable_arc_length(true);
+    ev.set_auto_commit(false);
+    ev.set_adaptive_substepping_limits(2, 10);
+
+    SectionKinematics kin_B = coord.sub_models()[0].kin_B;
+    kin_B.u_local[0] = 5.0e-4;
+    ev.update_kinematics(coord.sub_models()[0].kin_A, kin_B);
+
+    const auto trial = ev.solve_step(0.02);
+    const auto trial_response = ev.section_response(W, H, 1.0e-6);
+
+    check(trial.converged,
+          "trial-mode adaptive solve converges without auto-commit");
+    check(trial.used_arc_length,
+          "trial-mode solve enters the adaptive sub-stepping path");
+
+    ev.restore_checkpoint(checkpoint);
+    const auto restored_response = ev.section_response(W, H, 1.0e-6);
+
+    const double restored_gap =
+        relative_norm(restored_response.forces, base_response.forces);
+    const double trial_gap =
+        relative_norm(trial_response.forces, base_response.forces);
+
+    std::cout << std::setprecision(6)
+              << "  restored_gap = " << restored_gap << "\n"
+              << "  trial_gap    = " << trial_gap << "\n";
+
+    check(restored_gap < 1.0e-12,
+          "full local checkpoint restores the committed constitutive state after a trial adaptive solve");
+    check(trial_gap > restored_gap + 1.0e-8,
+          "trial adaptive solve produces a measurably different homogenized response before rollback");
+}
+
+void test_uninitialized_checkpoint_resets_persistent_local_model()
+{
+    std::cout << "\n== Virgin checkpoint resets persistent model ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+
+    const auto virgin_checkpoint = ev.capture_checkpoint();
+    const auto first = ev.solve_step(0.0);
+    check(first.converged,
+          "first solve converges before restoring the virgin checkpoint");
+
+    ev.restore_checkpoint(virgin_checkpoint);
+    const auto restored = ev.section_response(W, H, 1.0e-6);
+    check(restored.status == ResponseStatus::NotReady,
+          "restoring a pre-build checkpoint clears the persistent local model state");
+
+    const auto rerun = ev.solve_step(0.0);
+    check(rerun.converged,
+          "after restoring the virgin checkpoint the sub-model can be rebuilt and solved again");
+    check(rerun.stage == SubModelSolveStage::FirstSolveRamp
+              || rerun.stage == SubModelSolveStage::FirstSolveSingleStep,
+          "restoring a pre-build checkpoint re-enters the first-solve path");
+}
+
+void test_kobathe_factory_maps_fracture_energy_and_length_scale_correctly()
+{
+    std::cout << "\n== Ko-Bathe factory parameter mapping ==\n";
+
+    KoBatheConcreteMaterialFactory defaults(30.0, 240.0);
+    const auto default_params = defaults.parameters();
+
+    std::cout << std::setprecision(6)
+              << "  default Gf = " << default_params.Gf << " N/mm\n"
+              << "  default lb = " << default_params.lb << " mm\n"
+              << "  default tp = " << default_params.tp << "\n";
+
+    check(std::abs(default_params.Gf - 0.06) < 1.0e-12,
+          "default factory keeps Ko-Bathe fracture energy at 0.06 N/mm");
+    check(std::abs(default_params.lb - 240.0) < 1.0e-12,
+          "default factory maps the provided crack-band length to lb");
+
+    KoBatheConcreteMaterialFactory explicit_params(30.0, 180.0, 0.11, 0.08);
+    const auto explicit_kb = explicit_params.parameters();
+
+    check(std::abs(explicit_kb.Gf - 0.11) < 1.0e-12,
+          "factory exposes an explicit fracture-energy override");
+    check(std::abs(explicit_kb.lb - 180.0) < 1.0e-12,
+          "factory exposes an explicit crack-band length override");
+    check(std::abs(explicit_kb.tp - 0.08) < 1.0e-12,
+          "factory passes the explicit tensile-strength ratio into Ko-Bathe parameters");
+
+    KoBatheConcreteMaterialFactory paper_like_factory(
+        30.0,
+        180.0,
+        0.11,
+        0.08,
+        KoBathe3DCrackStabilization::paper_reference());
+    const auto& paper_stab = paper_like_factory.crack_stabilization();
+    check(std::abs(paper_stab.eta_N - KoBatheParameters::eta_N) < 1.0e-12,
+          "factory can request the paper-reference normal crack retention");
+    check(std::abs(paper_stab.eta_S - KoBatheParameters::eta_S) < 1.0e-12,
+          "factory can request the paper-reference shear crack retention");
+    check(!paper_stab.smooth_closure,
+          "factory preserves the requested hard closure semantics");
+    check(!paper_like_factory.use_consistent_tangent(),
+          "factory keeps the default material tangent mode unless requested");
+    check(paper_like_factory.material_tangent_mode()
+              == KoBathe3DMaterialTangentMode::FractureSecant,
+          "default factory mode remains the fracture-sec tangent");
+
+    KoBatheConcreteMaterialFactory consistent_factory(
+        30.0,
+        180.0,
+        0.11,
+        0.08,
+        KoBathe3DCrackStabilization::stabilized_default(),
+        true);
+    check(consistent_factory.use_consistent_tangent(),
+          "factory can request the adaptive numerical tangent audit mode for 3D Ko-Bathe");
+    check(consistent_factory.material_tangent_mode()
+              == KoBathe3DMaterialTangentMode::
+                  AdaptiveCentralDifferenceWithSecantFallback,
+          "factory maps the requested tangent audit mode to the validated adaptive path");
+
+    const double W = 0.20;
+    const double H = 0.20;
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{
+        make_ek(0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero())});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    const double lb_local =
+        NonlinearSubModelEvolver::default_local_length_scale_mm(
+            coord.sub_models()[0]);
+    check(std::abs(lb_local - 250.0) < 1.0e-12,
+          "default local crack-band length follows Ko-Bathe's max-side interpretation");
+}
+
 void test_condensed_operator_matches_forced_fd()
 {
     std::cout << "\n== Condensed operator versus forced FD ==\n";
@@ -793,6 +960,9 @@ int main(int argc, char** argv)
     test_linearized_consistency_energy_and_operator_comparison();
     test_crack_summary_keeps_missing_damage_scalar_honest();
     test_local_checkpoint_restores_path_dependent_state();
+    test_trial_mode_adaptive_checkpoint_restores_committed_state();
+    test_uninitialized_checkpoint_resets_persistent_local_model();
+    test_kobathe_factory_maps_fracture_energy_and_length_scale_correctly();
     test_condensed_operator_matches_forced_fd();
     test_validated_condensed_operator_accepts_elastic_case();
     test_validated_condensed_operator_rejects_with_strict_tolerance();

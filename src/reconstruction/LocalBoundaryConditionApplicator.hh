@@ -1,6 +1,8 @@
 #ifndef FALL_N_SRC_RECONSTRUCTION_LOCAL_BOUNDARY_CONDITION_APPLICATOR_HH
 #define FALL_N_SRC_RECONSTRUCTION_LOCAL_BOUNDARY_CONDITION_APPLICATOR_HH
 
+#include <stdexcept>
+
 #include <petsc.h>
 
 #include "FieldTransfer.hh"
@@ -16,6 +18,12 @@ class LocalBoundaryConditionApplicator {
     {
         if (!sub_) {
             return;
+        }
+        if (sub_->face_min_z_ids.empty() || sub_->face_max_z_ids.empty()) {
+            throw std::runtime_error(
+                "LocalBoundaryConditionApplicator: empty face-node cache. "
+                "The sub-model must cache boundary face nodes before "
+                "kinematics are updated.");
         }
 
         sub_->bc_min_z = compute_boundary_displacements(

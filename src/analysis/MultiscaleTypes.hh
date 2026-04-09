@@ -170,6 +170,9 @@ struct CouplingIterationReport {
     bool rollback_performed{false};
     bool relaxation_applied{false};
     bool regularization_detected{false};
+    bool attempted_state_valid{false};
+    int attempted_macro_step{0};
+    double attempted_macro_time{0.0};
 
     std::vector<double> force_residuals_rel{};
     std::vector<double> force_component_residuals_rel{};

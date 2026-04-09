@@ -20,7 +20,7 @@ purposes: (i)~validating each modelling layer in isolation before
 coupling, (ii)~quantifying the convergence behaviour of the
 Ko--Bathe concrete model under cyclic loading, and
 (iii)~establishing a reproducible baseline for the FE² two-way
-coupling with the numerically consistent tangent.
+coupling with an explicitly audited material-tangent strategy.
 
 Beyond the numerical results, the chapter documents three aspects
 discovered during the initial validation campaign: implementation
@@ -29,7 +29,7 @@ bugs in the sub-model solver
 two-way coupling failure (Section~\ref{sec:case5-failure}), and a
 detailed cross-reference between the Ko--Bathe article and the
 \texttt{KoBatheConcrete3D} implementation, including the derivation
-and implementation of a numerically consistent tangent
+and implementation of the experimental numerically consistent tangent
 (Sections~\ref{sec:article-crossref}--\ref{sec:consistent-tangent}).
 
 
@@ -60,8 +60,9 @@ progressive structure isolates complexity layer by layer:
   \item \textbf{Case~4:} Table with FE² sub-models, one-way
     coupling (macro $\to$ micro only).
   \item \textbf{Case~5:} Table with FE² sub-models, two-way
-    staggered coupling (macro $\leftrightarrow$ micro), with
-    consistent tangent enabled.
+    staggered coupling (macro $\leftrightarrow$ micro), using the
+    fracture-sec tangent by default and retaining the consistent tangent
+    only as an explicit audit mode.
 \end{itemize}
 
 \noindent
@@ -213,11 +214,12 @@ normative:
 \end{enumerate}
 
 The driver now also exposes an explicit execution profile,
-\texttt{fe2\_crack50}, intended for long one-way exploratory
+\texttt{fe2\_crack50}, intended for long exploratory
 FE\textsuperscript{2} runs under \texttt{extended50}.  That profile applies
-one macro step per protocol segment, an 8-substep first ramp, adaptive local
+one macro step per protocol segment, a 12-substep first ramp, adaptive local
 continuation from the first post-ramp reversal, enlarged adaptive budgets
-\((48,12)\), disabled structural/sub-model VTK output, and
+\((48,12)\), increased first-ramp and SNES budgets, disabled
+structural/sub-model VTK output, and
 \texttt{min\_crack\_opening}=0 so that crack summaries remain sensitive even
 when graphical output is suppressed.  The intent is not to redefine the
 physics, but to remove avoidable I/O and configuration noise while probing the
@@ -316,13 +318,26 @@ summary vocabulary is intentionally explicit:
 On the audited short-run matrix, Case~4 produced
 \(d = 2.5\times 10^{-3}\)~m,
 \(V=-0.5678\)~MN, 1080 cracks, and
-\(9.88515\times 10^{-4}\) peak opening in 342.371~s, while Case~5 terminated
-in 590.173~s with \texttt{MicroSolveFailed} and the failed sites
-\texttt{eid=0/gp=0/xi=-0.57735},
-\texttt{eid=1/gp=0/xi=-0.57735},
-\texttt{eid=2/gp=0/xi=-0.57735}, and
-\texttt{eid=3/gp=0/xi=-0.57735}.  This does not close the physical validation
-campaign, but it does make the predefinitive state reproducible and auditable.
+\(9.88515\times 10^{-4}\) peak opening in 342.371~s.  That initial matrix also
+captured an iterated two-way Case~5 failure at the same \(+2.5\)\,mm point.
+However, the subsequent stabilization pass corrected the Ko--Bathe factory
+parameter mapping, aligned the inferred local crack-band length with the
+max-side rule of Fig.~7(b) in~\cite{KoBathe2026}, and upgraded local
+checkpoint/restore to preserve the full constitutive state during trial
+iterations.  After those corrections, the same Case~5 first cracked point
+converged under the tuned \texttt{fe2\_crack50} budget with:
+\begin{itemize}
+  \item \(p = 0.0555556\), corresponding to \(+2.5\)\,mm drift;
+  \item base shear \(V = 1.50812\)~MN;
+  \item peak structural damage \(= 0.0214922\);
+  \item 296 cracked Gauss points and 880 crack planes;
+  \item peak crack opening \(= 9.84163\times 10^{-4}\);
+  \item zero failed sub-models and two outer FE\textsuperscript{2} iterations.
+\end{itemize}
+This does not close the full physical validation campaign, but it moves the
+frontier materially: the first cracked point of iterated two-way
+FE\textsuperscript{2} is now crossed reproducibly, and the open frontier shifts
+to later amplitudes of the \texttt{extended50} protocol.
 
 \paragraph{Historical note.}
 The remaining paragraphs of this section preserve the earlier v2 campaign for
@@ -876,38 +891,85 @@ prohibitively expensive.  The honest state of the project is therefore:
 Case~5 is architecturally instrumented and better diagnosed than before, but it
 is not yet a release-quality long-run validation case.
 
-In the original v1~protocol ($\{1,2,4,8\}\delta_y$, max 80\,mm),
-\textbf{Case~5 was aborted at step~2}: the sub-model SNES diverged
-for the bending perturbation directions during the homogenised
-tangent computation.  The root-cause analysis is in
-Section~\ref{sec:case5-failure}.
+An important correction to the historical narrative became necessary in the
+present pass.  After the cyclic FE\textsuperscript{2} setup was split into a
+separate translation unit, the returned local evolvers still held raw
+\texttt{MultiscaleSubModel*} pointers into a temporary
+\texttt{MultiscaleCoordinator}.  Once the setup function returned, those
+pointers became dangling, which in turn corrupted the cached face-node lists
+used to rebuild the sub-model boundary conditions.  The immediate symptom was a
+post-step abort inside the boundary-displacement reconstruction, not a genuine
+material or FE\textsuperscript{2} convergence failure.  The corrected driver
+now keeps the coordinator alive inside the returned case context and validates
+the face-node caches before rebuilding the local boundary conditions.
 
-\paragraph{Historical v2 rerun results.}
-With the redesigned v2~protocol (max 20\,mm) and the numerically
-consistent tangent enabled, Case~5 completed \textbf{step~1}
-successfully---all four sub-models performed their incremental
-ramping (\texttt{first\_solve}, 20~sub-steps each) and the
-staggered loop converged in a single iteration.  This represents
-a significant improvement over v1, where the sub-models themselves
-failed during initial setup.
+\paragraph{Audited short-run benchmark.}
+After the coordinator-lifetime correction, both Case~4 and Case~5 were
+reprobed with the same short-run settings
+\texttt{--protocol extended50 --fe2-profile crack50 --max-steps 1}.  Within the
+same \(45\) to \(60\)\,s observation window, the two cases exhibited the same
+macro state and entered the first local ramp without the previous abort:
+\begin{itemize}
+  \item the macro step converged at \(p = 0.055556\) in \(2\) Newton
+    iterations;
+  \item the first local solve reached at least the \(p=0.50\) ramp fraction in
+    the audited probe;
+  \item no post-step segmentation fault or corrupted face-node cache was
+    observed;
+  \item the limiting factor reverted to the true one: the wall-clock cost of
+    the first cracked local ramp.
+\end{itemize}
+This means the active Case~5 frontier has moved again: before any definitive
+statement is made about material convergence at the first cracked point, the
+end-to-end short-run benchmark must be re-audited on top of the corrected
+FE\textsuperscript{2} setup lifetime.
 
-However, \textbf{Case~5 still aborted at step~2} with
-\texttt{SNES\_DIVERGED\_LINE\_SEARCH} (reason~$= -6$).  After
-bisecting through all 6 levels (from $\Delta p = 0.0167$ down
-to $\Delta p = 2.6 \times 10^{-4}$), no macro convergence was
-achieved.
+\paragraph{Constitutive branch correction in the current pass.}
+The subsequent constitutive audit against Table~1 of
+Ko--Bathe~\cite{KoBathe2026} showed that the 3D material was still allowing
+the compression-coordinate return mapping to run implicitly in states that the
+article classifies as \emph{no-flow}.  The implementation was corrected so
+that only
+\[
+  {}^{t+\Delta t}\sigma_o^{\mathrm{tr}} < 0
+  \quad\text{and}\quad
+  {}^{t+\Delta t}\tau_o^{\mathrm{tr}} > {}^{t}\tau_o^{\max}
+\]
+can enter the plastic-flow branch; tensile states and compressive unloading
+now remain explicitly on the no-flow branch, and the effective plastic strains
+stay frozen there.  On the same \(45\)\,s one-step Case~5 probe, the updated
+driver reached the third local ramp increment,
+\[
+  k = 3/4,\qquad p_{\mathrm{local}} = 0.75,
+\]
+whereas the earlier corrected-but-pre-audit short probe had only reached
+\(k = 2/4\) within the same observation window.  This is not yet a
+publication-grade convergence proof, but it is reproducible evidence that the
+scientific correction moved the first-step FE\textsuperscript{2} frontier in
+the expected direction.
+
+\paragraph{Consistent-tangent audit result.}
+The explicit
+\texttt{--submodel-consistent-material-tangent} override remains available for
+audit, but its interpretation also changed after the ownership fix.  The
+historical one-step benchmark that ended in \texttt{MicroSolveFailed} is still
+kept as evidence that the numerical tangent path is not automatically a
+production win.  However, after the setup-lifetime correction, a fresh
+\(60\)\,s probe with the same override also progressed into the first local
+ramp rather than failing immediately.  Therefore, the correct scientific
+statement is now more modest: the consistent tangent is still experimental, and
+its first-cracked short-run behaviour must be re-established on top of the
+corrected driver before any comparative claim is frozen.
 
 \paragraph{Root cause.}
-After \texttt{first\_solve}, the sub-model concrete is in a
-cracked state.  The perturbation-based homogenisation computes
-$\mathbf{D}_{\text{hom}}$ by applying small strain increments
-to each curvature/axial component and observing the resulting
-section force increments.  Post-cracking, the Ko--Bathe response
-is dominated by crack opening and closing with abrupt stiffness
-transitions, producing a $\mathbf{D}_{\text{hom}}$ that is
-ill-conditioned (near-zero entries in the bending rows).  This
-makes the macro tangent stiffness matrix singular or nearly so,
-preventing Newton convergence at any step size.
+The root cause of the previous immediate frontier was partly architectural, not
+purely constitutive: a dangling sub-model ownership chain invalidated the local
+boundary-condition rebuild immediately after the first macro step.  With that
+bug removed, the remaining blocker is again the expensive nonlinear micro ramp
+and the later reversals of the \texttt{extended50} protocol.  The
+consistent-tangent audit remains informative, but it can no longer be used in
+isolation to claim that the material tangent itself is the sole source of the
+former first-point failure.
 
 \paragraph{Implications.}
 Two-way FE² coupling with the secant-based Ko--Bathe model requires

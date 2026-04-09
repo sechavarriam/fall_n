@@ -29,15 +29,30 @@ The main files audited and modified during this cycle were:
 \begin{itemize}
   \item \texttt{src/analysis/MultiscaleTypes.hh};
   \item \texttt{src/analysis/MultiscaleAnalysis.hh};
+  \item \texttt{src/reconstruction/MaterialFactory.hh};
   \item \texttt{src/reconstruction/NonlinearSubModelEvolver.hh};
+  \item \texttt{src/reconstruction/FieldTransfer.hh};
+  \item \texttt{src/reconstruction/LocalBoundaryConditionApplicator.hh};
+  \item \texttt{src/materials/constitutive\_models/non\_lineal/KoBatheConcrete3D.hh};
   \item \texttt{src/numerics/SparseSchurComplement.hh};
   \item \texttt{src/reconstruction/LocalModelAdapter.hh};
   \item \texttt{src/reconstruction/HomogenisationStrategy.hh};
   \item \texttt{src/utils/CyclicProtocol.hh};
   \item \texttt{main\_table\_cyclic\_validation.cpp};
+  \item \texttt{src/validation/TableCyclicValidationFE2Setup.hh};
+  \item \texttt{src/validation/TableCyclicValidationFE2Setup.cpp};
+  \item \texttt{src/validation/TableCyclicValidationFE2Restart.hh};
+  \item \texttt{src/validation/TableCyclicValidationFE2Restart.cpp};
+  \item \texttt{src/validation/TableCyclicValidationFE2StepPostprocess.hh};
+  \item \texttt{src/validation/TableCyclicValidationFE2StepPostprocess.cpp};
+  \item \texttt{src/validation/TableCyclicValidationRuntimeIO.hh};
+  \item \texttt{src/validation/TableCyclicValidationRuntimeIO.cpp};
+  \item \texttt{src/validation/TableCyclicValidationSubmodelFactories.hh};
+  \item \texttt{src/validation/TableCyclicValidationSubmodelFactories.cpp};
   \item \texttt{scripts/plot\_cyclic\_validation.py};
   \item \texttt{tests/test\_multiscale\_analysis\_api.cpp};
   \item \texttt{tests/test\_evolver\_advanced.cpp};
+  \item \texttt{tests/test\_ko\_bathe\_concrete\_3d.cpp};
   \item \texttt{tests/test\_condensation.cpp};
   \item \texttt{tests/test\_cyclic\_protocol.cpp};
   \item \texttt{scripts/ci\_multiscale\_stabilization.ps1};
@@ -469,6 +484,115 @@ Most importantly, the macro checkpoint is now restored explicitly on macro-step
 failure before the FE\textsuperscript{2} step returns.  This closes a real
 semantic gap that could otherwise leave a dirty trial state in memory after a
 reported failure.
+
+\subsection{Scientific root-cause analysis of the first cracked Case~5 point}
+\label{sec:ms-stab-case5-root-cause}
+
+The later cyclic-validation audit showed that the first cracked
+FE\textsuperscript{2} point of Case~5 had not been failing for a single
+reason.  Three coupled defects were involved:
+\begin{enumerate}
+  \item the local Ko--Bathe factory was constructing
+    \texttt{KoBatheParameters} with positional arguments
+    \texttt{(fc, 0.06, lb)}, which the parameter class interprets as
+    \((f_c', t_p, G_f)\) rather than \((f_c', G_f, l_b)\);
+  \item the inferred local crack-band length was using a cube-root-volume
+    proxy instead of the article's local max-side interpretation from
+    Fig.~7(b)~\cite{KoBathe2026};
+  \item the local checkpoint/restore path only preserved displacement-like
+    quantities and therefore disabled exact rollback of the constitutive state
+    in trial-mode FE\textsuperscript{2} iterations.
+\end{enumerate}
+
+The first issue is a genuine scientific implementation bug.  The intended
+parameter vector is
+\begin{equation}
+  (f_c', t_p, G_f, l_b),
+\end{equation}
+but the old factory call effectively set
+\begin{equation}
+  t_p = 0.06,
+  \qquad
+  G_f = l_b,
+  \qquad
+  l_b = 100~\text{mm},
+\end{equation}
+which is dimensionally inconsistent and materially alters the tension-softening
+law
+\begin{equation}
+  \varepsilon_{tu} = \frac{2G_f}{f_t l_b}.
+\end{equation}
+That bug is now closed by an explicit named mapping through
+\texttt{KoBatheConcreteMaterialFactory::parameters()} and guarded by dedicated
+tests.
+
+The second issue was not merely a documentation discrepancy.  Because
+\(\varepsilon_{tu}\) scales inversely with \(l_b\), the choice of length scale
+changes the onset and slope of the crack-softening branch directly.  The
+current code now uses
+\begin{equation}
+  l_b^{\mathrm{local}}
+  =
+  10^3 \max(\Delta x,\Delta y,\Delta z)
+\end{equation}
+for the inferred local path, which matches the interpretation stated in
+Section~2.1.5 of the article.
+
+The third issue explains why the iterated FE\textsuperscript{2} path was much
+more fragile than the one-way path.  In the one-way case, the local model
+always advanced from the last committed state.  In the iterated case, each
+trial outer iteration needed to:
+\begin{enumerate}
+  \item restore the exact micro constitutive history;
+  \item solve a new local boundary-value problem;
+  \item either accept and commit at convergence or roll back completely.
+\end{enumerate}
+Without a full model checkpoint, the local adaptive continuation logic was
+operating on partially stale history data even when the displacement field had
+been restored.
+
+After fixing those three issues and tuning the exploratory short-run profile to
+a 12-substep first ramp with larger SNES and adaptive budgets, the first
+cracked Case~5 point
+\((p = 0.0555556,\; d = 2.5~\mathrm{mm})\) converged with zero failed
+sub-models and two outer FE\textsuperscript{2} iterations.  Therefore the
+scientific frontier has moved: the first cracked point is no longer the
+blocking barrier, and the open debt now lies in later amplitudes of the
+\texttt{extended50} protocol.
+
+\paragraph{Material tangent audit: explicit but not yet promotable.}
+The next scientific question was whether the first-cracked Case~5 point could
+be made even more robust by enabling the numerical consistent tangent of the
+\texttt{KoBatheConcrete3D} relation inside the FE\textsuperscript{2}
+sub-models.  The implementation now exposes that choice explicitly through the
+sub-model concrete factory and through the cyclic-validation CLI flag
+\texttt{--submodel-consistent-material-tangent}.  However, the audited
+benchmark showed that this option is still experimental:
+\begin{itemize}
+  \item with the default fracture-sec tangent, the first cracked point
+    converged in about \(771.31\)\,s and all four sub-models completed
+    \texttt{FirstSolveRamp};
+  \item with the consistent-tangent override, the wall time dropped to about
+    \(595.14\)\,s but two sub-models failed at an achieved fraction of
+    \(0.916667\), the multiscale iteration rolled back, and the step ended in
+    \texttt{MicroSolveFailed}.
+\end{itemize}
+This result is scientifically valuable precisely because it is negative:
+``closer to the article'' is not yet synonymous with ``more robust'' in the
+current 3D FE\textsuperscript{2} implementation.
+
+\paragraph{Material-level implementation error closed in the same pass.}
+The material audit also found a more concrete constitutive inconsistency than
+the tangent-mode debate.  When the 3D plastic return mapping updated the
+plastic strain within a step, the stored crack opening and crack-closure flag
+were still reflecting the pre-return elastic strain.  The implementation now
+refreshes those quantities from the final elastic strain state
+\(\boldsymbol{\varepsilon}^{e}_{t+\Delta t}\), so the committed crack
+kinematics are once again consistent with the committed plastic strain.  This
+does \emph{not} yet make the whole 3D algorithm a line-by-line transcription of
+the Ko--Bathe flow chart, but it removes a real constitutive-state bug that was
+capable of polluting the FE\textsuperscript{2} local solve exactly at crack
+onset.
 
 \section{Phase 3: Physical Regression Matrix}
 \label{sec:ms-stab-phase3}
@@ -1098,8 +1222,12 @@ The validation executable was then split into a thin CLI entrypoint
 (\texttt{main\_table\_cyclic\_validation.cpp}), a lightweight public driver API
 (\texttt{TableCyclicValidationAPI.hh}), a structural implementation TU
 (\texttt{TableCyclicValidationStructural.cpp}), and the FE\textsuperscript{2}
-implementation TU (\texttt{TableCyclicValidationFE2.cpp}).  The resulting
-translation-unit structure is shown in Figure~\ref{fig:ms-stab-cyclic-split}.
+implementation TU (\texttt{TableCyclicValidationFE2.cpp}).  The present pass
+continued that split by extracting the recorder/rewrite machinery into a small
+runtime-I/O module,
+\texttt{TableCyclicValidationRuntimeIO}\allowbreak\texttt{.hh/.cpp}.  The
+resulting translation-unit structure is shown in
+Figure~\ref{fig:ms-stab-cyclic-split}.
 
 \begin{figure}[htb]
 \centering
@@ -1111,12 +1239,14 @@ translation-unit structure is shown in Figure~\ref{fig:ms-stab-cyclic-split}.
   \node[box, below=1.6cm of main] (api) {\texttt{TableCyclicValidationAPI.hh}\\lightweight driver surface};
   \node[box, below left=1.8cm and 2.6cm of api] (struct) {\texttt{TableCyclicValidationStructural.cpp}\\Cases 0--3};
   \node[box, below right=1.8cm and 2.6cm of api] (fe2) {\texttt{TableCyclicValidationFE2.cpp}\\Cases 4--5};
-  \node[box, below=1.8cm of fe2] (support) {\texttt{TableCyclicValidationSupport.hh}\\heavy internal helpers};
+  \node[box, below left=1.8cm and 1.7cm of fe2] (support) {\texttt{TableCyclicValidationSupport.hh}\\heavy internal helpers};
+  \node[box, below right=1.8cm and 1.7cm of fe2] (runtimeio) {\texttt{TableCyclicValidationRuntimeIO.cpp}\\recorder buffers \& rewrites};
 
   \draw[arrow] (main) -- (api);
   \draw[arrow] (api) -- (struct);
   \draw[arrow] (api) -- (fe2);
   \draw[arrow] (fe2) -- (support);
+  \draw[arrow] (fe2) -- (runtimeio);
   \draw[arrow] (struct) -- (support);
 \end{tikzpicture}
 \caption{Translation-unit split introduced in the second cyclic-validation stabilization pass.}
@@ -1195,6 +1325,47 @@ global architectural smell while preserving fast feedback for the thin CLI.
 The remaining compile-time debt still lives in the FE\textsuperscript{2}
 translation unit itself, which continues to instantiate a very large fraction
 of the multiscale and nonlinear local-solver surface.
+
+The additional runtime-I/O extraction in the present pass is therefore best
+understood as a \emph{cost-of-change} improvement rather than a promise of
+immediate full-build speedup.  Recorder buffering, file rewrite logic, and
+turning-point row bookkeeping are now isolated from the main FE\textsuperscript{2}
+driver implementation, so edits in that slice no longer require reopening the
+same large translation unit as the nonlinear multiscale runtime.
+
+The present follow-up pass continued that direction by extracting the
+sub-model material-factory decisions into
+\texttt{TableCyclicValidationSubmodelFactories}\allowbreak\texttt{.hh/.cpp}.
+This new split does not magically solve the heavy-TU problem either; it simply
+moves another scientifically volatile slice (material profile selection,
+default crack-band length inference, and tangent-mode wiring) out of the main
+FE\textsuperscript{2} driver.  The measured incremental rebuilds on the local
+audit were both about \(44\)\,s when touching either the new factory TU or the
+main FE\textsuperscript{2} TU, which means the current benefit is again mainly
+architectural honesty rather than a dramatic compile-time win.  That result is
+kept intentionally explicit here so the manuscript does not over-claim the
+effect of the split.
+
+The next split in the same line of work moved the post-step crack-summary
+aggregation and recorder-row assembly into
+\texttt{TableCyclicValidationFE2StepPostprocess}\allowbreak\texttt{.hh/.cpp}.
+This again should not be read as a miraculous full-build optimization.  The
+measured benefit is mainly a reduction in \emph{cost of change}: edits in the
+FE\textsuperscript{2} runtime loop no longer require reopening the recorder and
+CSV assembly slice, while recorder changes no longer require recompiling the
+same driver logic that owns the nonlinear step/restart flow.  The heavy
+translation-unit frontier is therefore still present, but the architectural
+boundary is now materially cleaner than before.
+
+The current pass continued that split once more by extracting the turning-point
+restart retuning logic into
+\texttt{TableCyclicValidationFE2Restart}\allowbreak\texttt{.hh/.cpp}.  This is
+again a \emph{cost-of-change} improvement more than a raw compile-time one:
+the FE\textsuperscript{2} runtime loop now reads more clearly as
+``advance / diagnose / optionally restart'', while the policy that tightens the
+local submodel budgets on restart is isolated in a dedicated component.  The
+heavy translation unit is therefore still expensive, but the protocol logic is
+less entangled with restart bookkeeping than in the previous pass.
 
 \paragraph{Adaptive continuation in the cyclic FE\textsuperscript{2} path.}
 The first exploratory one-way FE\textsuperscript{2} run with an
@@ -1308,6 +1479,118 @@ output directory, the broader status of the validation campaign:
 Scientifically, that is a better state than before this pass: the validation
 campaign now has a clear full-amplitude structural reference and an honest
 partial FE\textsuperscript{2} frontier, both reproducible from the same driver.
+
+\paragraph{Coordinator lifetime defect after the setup split.}
+The next audit step was not a constitutive improvement but a correctness
+correction in the FE\textsuperscript{2} driver surface itself.  Once the cyclic
+setup was split into \texttt{TableCyclicValidationFE2Setup}\allowbreak
+\texttt{.hh/.cpp}, the setup function started returning local evolvers that
+still held raw \texttt{MultiscaleSubModel*} pointers into a temporary
+\texttt{MultiscaleCoordinator}.  When the function returned, the coordinator
+was destroyed, but the local evolvers retained the dangling pointers.  The
+first subsequent call to rebuild the boundary conditions then read corrupted
+face-node caches and failed inside
+\texttt{compute\_boundary\_displacements()}.
+
+The backtrace was decisive: the crash no longer pointed to the multiscale
+response container, but to a nonsensical
+\texttt{std::vector<PetscInt>} size inside the face-node cache.  In the audited
+debugging session, the first corrupted call attempted to reserve a vector with
+an absurd boundary-node count, which made the issue clearly architectural
+rather than material.
+
+The correction had three parts:
+\begin{enumerate}
+  \item \texttt{FE2CaseContext} now owns the
+    \texttt{MultiscaleCoordinator} explicitly, and the declaration order keeps
+    the coordinator alive until after the multiscale analysis and its local
+    evolvers are destroyed;
+  \item \texttt{compute\_boundary\_displacements()} now checks that the cached
+    face-node list does not exceed the owning domain node count and that every
+    cached node id lies inside the domain;
+  \item \texttt{LocalBoundaryConditionApplicator} now throws an explicit error
+    if the face caches are empty, instead of silently proceeding into undefined
+    behaviour.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  node distance=13mm and 14mm,
+  box/.style={draw, rounded corners, align=center, minimum width=33mm, minimum height=10mm},
+  rel/.style={-Latex, thick}
+]
+  \node[box] (ctx) {\texttt{FE2CaseContext}};
+  \node[box, below left=of ctx] (coord) {\texttt{MultiscaleCoordinator}\\owns \texttt{sub\_models()}};
+  \node[box, below=of ctx] (analysis) {\texttt{ValidationAnalysis}};
+  \node[box, below right=of ctx] (locals) {\texttt{NonlinearSubModelEvolver}\\stores \texttt{MultiscaleSubModel*}};
+
+  \draw[rel] (ctx) -- node[left] {owns} (coord);
+  \draw[rel] (ctx) -- node[right] {owns} (analysis);
+  \draw[rel] (analysis) -- node[above] {contains} (locals);
+  \draw[rel] (locals) -- node[above] {references} (coord);
+\end{tikzpicture}
+\caption{Lifetime relationship that must hold after the FE\textsuperscript{2}
+setup split: the returned case context must keep the coordinator alive for at
+least as long as the local evolvers that reference its sub-models.}
+\label{fig:fe2-coordinator-lifetime}
+\end{figure}
+
+The corresponding regression test,
+\texttt{test\_fe2\_setup\_keeps\_submodels\_alive\_after\_context\_return},
+now checks exactly that ownership relationship by comparing the addresses of
+the local evolvers' referenced sub-models against the coordinator-owned vector
+inside the returned case context.
+
+\paragraph{Observed frontier after the lifetime fix.}
+After the ownership correction, both Case~4 and Case~5 were reprobed with
+\texttt{--protocol extended50 --fe2-profile crack50 --max-steps 1}.  In the
+audited \(45\) to \(60\)\,s observation window, both cases advanced past the
+previous crash point, entered the first local ramp, and reached at least the
+\(p = 0.50\) substep fraction for the first local solve.  Therefore the
+previous ``first cracked point'' frontier must be reinterpreted: a real FE\textsuperscript{2}
+driver-lifetime bug had been mixed into the earlier diagnosis.  The remaining
+frontier is again the true one, namely the cost and robustness of the long
+nonlinear micro ramp and the later reversals of the \texttt{extended50}
+protocol.
+
+\paragraph{Explicit no-flow correction in the Ko--Bathe 3D path.}
+Once the driver lifetime bug was removed, the material audit returned to the
+foreground.  A direct comparison against Table~1 of
+Ko--Bathe~\cite{KoBathe2026} showed that the 3D implementation was still
+missing the explicit top-level branch split between
+\emph{compressive loading} and \emph{no-flow}.  The code now classifies the
+branch with the trial octahedral invariants,
+\begin{align}
+  \text{compressive flow}
+  &\iff
+  {}^{t+\Delta t}\sigma_o^{\mathrm{tr}} < 0
+  \;\wedge\;
+  {}^{t+\Delta t}\tau_o^{\mathrm{tr}} > {}^{t}\tau_o^{\max},
+  \\
+  \text{no-flow}
+  &\iff
+  {}^{t+\Delta t}\sigma_o^{\mathrm{tr}} \ge 0
+  \;\vee\;
+  {}^{t+\Delta t}\tau_o^{\mathrm{tr}} \le {}^{t}\tau_o^{\max},
+\end{align}
+and only the compressive-flow branch is now allowed to enter the
+compression-coordinate return mapping.  Two new regressions,
+\texttt{test\_unloading\_is\_classified\_as\_no\_flow\_3d} and
+\texttt{test\_tension\_is\_classified\_as\_no\_flow\_3d}, verify that once a
+cracked mixed-compression state unloads or returns to tension, the effective
+plastic strains remain frozen.
+
+This correction produced a measurable short-run shift in the FE\textsuperscript{2}
+frontier.  With the updated driver and the same \(45\)\,s one-step Case~5
+probe, the first local solve reached
+\(k=3/4\) (\(p_{\mathrm{local}}=0.75\)),
+whereas the earlier corrected-but-pre-audit build had only reached
+\(k=2/4\) within the same observation window.  With the optional local
+consistent-tangent override, the same updated probe again entered the first
+local ramp and reached \(k=2/4\), which is scientifically important because it
+shows that the old immediate-failure narrative had indeed been conflating
+architectural and constitutive defects.
 
 \paragraph{Predefinitive physical-validation matrix.}
 To make that frontier reproducible as an execution artifact rather than only as

@@ -467,6 +467,12 @@ void test_iterated_two_way_rolls_back_on_micro_failure()
         analysis.last_report().termination_reason
             == CouplingTerminationReason::MicroSolveFailed,
         "micro failure is distinguished from macro failure");
+    CHECK_TRUE(analysis.last_report().attempted_state_valid,
+               "micro failure preserves the attempted macro trial state in the report");
+    CHECK_TRUE(analysis.last_report().attempted_macro_step == 1,
+               "micro failure report preserves the attempted macro step before rollback");
+    CHECK_TRUE(std::abs(analysis.last_report().attempted_macro_time - 1.0) < 1.0e-12,
+               "micro failure report preserves the attempted macro time before rollback");
     CHECK_TRUE(!analysis.last_report().failed_sites.empty(),
                "micro failure records the failed coupling site");
     CHECK_TRUE(analysis.model().macro_bridge().injected[0] == std::nullopt,

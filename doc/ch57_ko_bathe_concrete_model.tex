@@ -267,6 +267,173 @@ element length (mm).  When $\varepsilon_{tp} \le \varepsilon_{nn} \le
 When the crack closes ($\varepsilon_{nn}<0$), full compressive normal
 stiffness is restored (\emph{re-contact}).
 
+\subsection{Audit of the Current 3D Extension}
+\label{ssec:kb-3d-audit}
+
+The repository also contains a three-dimensional constitutive relation,
+\texttt{KoBatheConcrete3D}, used by the multiscale continuum sub-models.
+That class should \emph{not} be read as a literal transcription of the 2026
+paper.  The paper formulates a generally applicable three-dimensional
+framework~\cite{KoBathe2026}, but the current code path couples that theory to
+additional numerical stabilization choices required by the FE\textsuperscript{2}
+micro-problems.
+
+\paragraph{Normative distinction.}
+The present codebase therefore contains two scientifically distinct layers:
+\begin{enumerate}
+  \item the plane-stress implementation
+    \texttt{KoBatheConcrete.hh}, which aims to follow the article directly;
+  \item the three-dimensional implementation
+    \texttt{KoBatheConcrete3D.hh}, which follows the same
+    fracture/plasticity/crack sequence but adds FE-oriented stabilization in
+    the cracked tangent.
+\end{enumerate}
+
+\paragraph{What is faithful to the paper in 3D.}
+The current 3D relation still preserves the main ingredients of the article:
+\begin{itemize}
+  \item the same octahedral stress classification
+    \((\sigma_o,\tau_o)\) as the driver of fracture loading/unloading;
+  \item the same fracture-energy scaling
+    \(\varepsilon_{tu} = 2G_f/(f_t l_b)\);
+  \item the same scalar fracture-moduli laws
+    \(K_s, G_s, K_c, G_c\);
+  \item the same three compression-surface plastic update logic;
+  \item the same Men\'etrey--Willam-type crack envelope for tensile cracking.
+\end{itemize}
+
+\paragraph{What is intentionally different.}
+The cracked tangent in the current 3D implementation is a stabilized variant.
+In the paper, Table~2 and Eq.~(21) prescribe the retention factors
+\begin{equation}
+  \eta_N = 10^{-4},
+  \qquad
+  \eta_S = 10^{-1},
+  \label{eq:kb-paper-retention-3d}
+\end{equation}
+with a sharp open/close transition for the crack-normal stiffness.  In the
+current multiscale production path, the default 3D profile is instead
+\begin{equation}
+  \eta_N^{\mathrm{prod}} = 0.20,
+  \qquad
+  \eta_S^{\mathrm{prod}} = 0.50,
+  \qquad
+  \alpha(\varepsilon_{nn}) =
+  \frac{1}{2}\left(1 + \tanh\frac{\varepsilon_{nn}}{\delta_c}\right),
+  \label{eq:kb-3d-stabilized-retention}
+\end{equation}
+with \(\delta_c = 10^{-5}\) by default.  Hence the returned normal stiffness
+uses
+\begin{equation}
+  E_{nn} =
+  (1-\alpha)\,\lambda_a + \alpha\,E_{nn}^{\mathrm{open}},
+  \qquad
+  E_{nn}^{\mathrm{open}} =
+  \begin{cases}
+    C_{ts}, & \varepsilon_{tp} \le \varepsilon_{nn} \le \varepsilon_{tu},\\
+    \eta_N^{\mathrm{prod}}\lambda_a, & \text{otherwise},
+  \end{cases}
+\end{equation}
+and the crack-related shear terms are scaled with
+\begin{equation}
+  G_{ns}^{\mathrm{eff}}
+  =
+  \bigl((1-\alpha)+\alpha\,\eta_S^{\mathrm{prod}}\bigr)\,G_{ns}.
+\end{equation}
+
+This modification is not claimed to be the unique or exact constitutive
+representation of the paper in 3D.  It is a numerical regularization aimed at
+reducing tangent discontinuities in the fully coupled FE\textsuperscript{2}
+micro-problems.
+
+\paragraph{Length scale.}
+The article states in Section~2.1.5 and Fig.~7(b) that when \(l_b\) is not
+provided globally, the local crack-band interpretation should use the
+\emph{maximum side length} of the element, not the cube-root of its
+volume~\cite{KoBathe2026}.  The current sub-model factory now follows that
+interpretation:
+\begin{equation}
+  l_b^{\mathrm{local}}
+  =
+  10^3 \max(\Delta x, \Delta y, \Delta z)
+  \quad \text{(mm)}.
+  \label{eq:kb-local-lb-max-side}
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\caption{Current status of the Ko--Bathe implementations in the repository.}
+\label{tab:kb-implementation-audit}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.28\textwidth}p{0.28\textwidth}@{}}
+\toprule
+\textbf{Feature} & \textbf{Paper / 2D-reference path} & \textbf{Current 3D FE\textsuperscript{2} path} \\
+\midrule
+Crack retention & $\eta_N=10^{-4}$, $\eta_S=10^{-1}$ & $\eta_N=0.20$, $\eta_S=0.50$ by default \\
+Crack closure   & sharp re-contact switch & smooth \(\tanh\) blend by default \\
+Length scale \(l_b\) & global crack-band width or local max side length & now local max side length when inferred \\
+Factory parameter order & \texttt{fc, tp, Gf, lb} & corrected to match that order explicitly \\
+Scientific status & article-faithful target & stabilized extension; not a strict paper transcription \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Implementation contract.}
+To keep this distinction executable rather than merely descriptive, the code
+now exposes explicit crack-stabilization profiles for the 3D relation:
+\begin{itemize}
+  \item \texttt{KoBathe3DCrackStabilization::paper\_reference()}, which
+    reproduces the Table~2 retention factors and disables smooth closure; and
+  \item \texttt{KoBathe3DCrackStabilization::stabilized\_default()}, which
+    preserves the current production profile used in the multiscale runs.
+\end{itemize}
+Therefore the scientific debt is no longer hidden: the user can now choose
+between a paper-like audit mode and the current FE\textsuperscript{2}
+stabilized mode, and the documentation states explicitly that the default 3D
+path is a \emph{stabilized implementation variant}.
+
+\paragraph{Ordering of plasticity and crack kinematics.}
+Table~1 and Fig.~8 of~\cite{KoBathe2026} place the crack-opening/closure
+solution \emph{after} the elastic-fracturing / elasto-plastic update.  The
+present audit confirmed that the repository still does \emph{not} implement a
+fully article-faithful reordering of the entire 3D constitutive routine.
+However, an important inconsistency was corrected in the present pass: when the
+plastic return mapping updates the plastic strain inside a step, the stored
+crack opening
+\(\varepsilon_{nn}^{\mathrm{cr}}\)
+and the closure flag are now refreshed from the \emph{final} elastic strain
+state,
+\begin{equation}
+  \varepsilon_{nn}^{\mathrm{cr}}
+  =
+  \mathbf{n}^{\mathsf T}\,\boldsymbol{\varepsilon}^{e}_{t+\Delta t}\,\mathbf{n},
+  \qquad
+  \boldsymbol{\varepsilon}^{e}_{t+\Delta t}
+  =
+  \boldsymbol{\varepsilon}_{t+\Delta t}
+  -
+  \boldsymbol{\varepsilon}^{p}_{t+\Delta t},
+\end{equation}
+rather than from a transient pre-return trial strain.  This closes a concrete
+implementation bug in the 3D extension: the committed crack opening is now
+consistent with the committed plastic strain.  The broader algorithmic debt
+remains explicit: the nucleation logic is still not a strict line-by-line
+transcription of the article flow chart, and the documentation therefore does
+not claim full 3D article-faithful equivalence.
+
+\paragraph{Consistent tangent status.}
+The article explicitly notes that the consistent stress--strain matrix is
+important for quadratic convergence of the nonlinear solve
+(\emph{cf.} the discussion around Eqs.~(30)--(31) and the implementation
+remarks in Section~2.2 of~\cite{KoBathe2026}).  The repository now exposes that
+choice explicitly at the 3D factory level, but the audit also showed that the
+numerical consistent tangent should still be treated as \emph{experimental} in
+the FE\textsuperscript{2} sub-models.  In the audited Case~5 first-cracked
+benchmark, the default fracture-sec tangent converged, whereas the consistent
+tangent variant reduced runtime but failed with two micro-solves.  Hence the
+production FE\textsuperscript{2} profile continues to use the fracture-sec
+tangent by default, while the consistent tangent is retained as an explicit
+audit/experimental mode rather than being silently enabled.
+
 % ────────────────────────────────────────────────────────────────────────
 \subsection{Material Parameters}
 \label{ssec:kb-parameters}
@@ -597,6 +764,129 @@ eight groups (31 checks), all passing:
         crack normal vectors as 3D fields for direct ParaView Glyph rendering of
         oriented fracture planes at integration points.
 \end{enumerate}
+
+% ========================================================================
+\section{3D Audit Against Ko--Bathe (2026)}
+\label{sec:kb-3d-audit}
+
+The current research frontier of the repository is no longer the 2D
+\texttt{KoBatheConcrete} path alone but the 3D
+\texttt{KoBatheConcrete3D} extension used in the FE\textsuperscript{2}
+sub-models.  Because that 3D implementation is central to the current cyclic
+validation campaign, it was re-audited directly against the algorithmic
+description in Section~2.2 and Table~1 of Ko and
+Bathe~\cite{KoBathe2026}.  The audit result is mixed: several concrete
+implementation bugs were corrected, but some scientifically important
+deviations from the article remain explicit.
+
+\subsection{Corrections verified in code}
+
+The following defects were verified and corrected in the current code base:
+\begin{enumerate}
+  \item \textbf{Fracture-energy parameter mapping.}  The material factory now
+    maps the Ko--Bathe parameter tuple in the correct order
+    \((f_c, t_p, G_f, l_b)\).  This removed a real bug in which fracture energy
+    and characteristic length could be silently swapped when constructing the
+    3D concrete model from the FE\textsuperscript{2} sub-model factories.
+  \item \textbf{Local crack-band length-scale rule.}  When the user leaves
+    \(l_b = 0\) and requests the local interpretation, the implementation now
+    follows the article rule
+    \[
+      l_b
+      =
+      \max\!\left(
+        \lVert \mathbf{x}_1-\mathbf{x}_2\rVert,\;
+        \lVert \mathbf{x}_1-\mathbf{x}_3\rVert,\;
+        \lVert \mathbf{x}_1-\mathbf{x}_4\rVert
+      \right),
+    \]
+    rather than an ad hoc geometric surrogate.
+  \item \textbf{Final-state crack kinematics.}  After plastic correction, the
+    stored crack opening/closure state is now refreshed from the final elastic
+    strain, not from the pre-return trial state.  This is important because the
+    Ko--Bathe algorithm uses the final elastic state to classify crack opening
+    and closure in the cracked branch of Table~1~\cite{KoBathe2026}.
+\end{enumerate}
+
+\subsection{Remaining deviations from the article}
+
+The audit also exposed remaining scientific debts that have not yet been
+closed in the current implementation.
+
+\paragraph{No-flow classification is now explicit in the 3D implementation.}
+The current 3D path now mirrors the top-level decision structure of
+Table~1 in~\cite{KoBathe2026}.  After the elastic-fracture predictor, the code
+classifies the branch using the trial octahedral invariants:
+\begin{align}
+  \text{compressive flow}
+  &\iff
+  {}^{t+\Delta t}\sigma_o^{\mathrm{tr}} < 0
+  \;\wedge\;
+  {}^{t+\Delta t}\tau_o^{\mathrm{tr}} > {}^{t}\tau_o^{\max},
+  \label{eq:kb-3d-flow-classification}
+  \\
+  \text{no-flow}
+  &\iff
+  {}^{t+\Delta t}\sigma_o^{\mathrm{tr}} \ge 0
+  \;\vee\;
+  {}^{t+\Delta t}\tau_o^{\mathrm{tr}} \le {}^{t}\tau_o^{\max}.
+  \label{eq:kb-3d-no-flow-classification}
+\end{align}
+Only the \emph{compressive-flow} branch is now allowed to enter the
+compression-coordinate plastic return mapping.  In tensile states and in
+compressive unloading, the effective plastic strains
+\((\hat\varepsilon_{p1},\hat\varepsilon_{p2},\hat\varepsilon_{p3})\) remain
+frozen, matching the article-level interpretation that those states belong to
+the no-flow branch.  The implementation also stores the last classified branch
+and the trial invariants in the constitutive state for auditability and
+regression testing.
+
+This closes a real implementation error.  Before the fix, the 3D code could
+still enter the plastic-correction stage during unloading whenever the trial
+compression coordinates happened to keep one of the three failure functions
+numerically active.  The added regression surface now verifies that once a
+mixed cracked-compressive state is unloading or returns to tension, the
+effective plastic strains remain unchanged.
+
+\paragraph{Eq.~(26b) coupling update is not represented explicitly.}
+In the no-flow branch, Ko and Bathe update the internal plastic strain-like
+history using
+\begin{equation}
+  {}^{t+\Delta t}\!\varepsilon^{p}_{ij}
+  =
+  {}^{t}\!\varepsilon^{p}_{ij}
+  -
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(N)
+  +
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(0),
+  \label{eq:kb-26b-audit}
+\end{equation}
+which is the explicit coupling term between fracture and plasticity in the
+article's elastic-fracturing branch~\cite{KoBathe2026}.  The current 3D code
+does not yet expose this update as a separate branch; its internal state
+evolution remains driven by the simplified ``elastic trial + optional plastic
+correction'' structure.
+
+\paragraph{Crack-count reduction is regularized rather than article-faithful.}
+The article specifies that if the crack closes, or if the new orientation is
+effectively the same as a previous crack, or if the tensile crack strain does
+not exceed the historical maximum, the crack count is reduced and the material
+can return to a lower-order cracked state or even to the non-cracked
+branch~\cite{KoBathe2026}.  The current production implementation instead keeps
+the crack object alive and regularizes the transition through explicit
+retention factors \((\eta_N,\eta_S)\) and an optional smooth closure ramp.  The
+default FE\textsuperscript{2} profile therefore remains intentionally more
+robust than the literal article semantics, but it is also less
+article-faithful.
+
+\subsection{Interpretation}
+
+The practical consequence of this audit is that the current 3D Ko--Bathe path
+should be understood as an \emph{article-informed stabilized extension}, not as
+a line-by-line transcription of Table~1.  That is acceptable for the present
+FE\textsuperscript{2} stabilization phase, but it must remain explicit in the
+documentation because the unresolved gaps above directly affect hysteresis,
+crack closure, and the interpretation of any ``consistent tangent'' claim.
 
 % ========================================================================
 \section{Possible Extensions}

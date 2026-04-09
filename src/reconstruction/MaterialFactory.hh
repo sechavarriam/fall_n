@@ -54,19 +54,76 @@ struct RebarMaterialFactory {
 
 class KoBatheConcreteMaterialFactory final : public ConcreteMaterialFactory {
     double fc_;
+    double tp_ratio_;
+    double fracture_energy_Nmm_;
     double lb_;
+    KoBathe3DCrackStabilization crack_stabilization_{};
+    KoBathe3DMaterialTangentMode material_tangent_mode_{
+        KoBathe3DMaterialTangentMode::FractureSecant};
 public:
-    explicit KoBatheConcreteMaterialFactory(double fc_MPa, double lb_mm = 100.0)
-        : fc_{fc_MPa}, lb_{lb_mm} {}
+    explicit KoBatheConcreteMaterialFactory(double fc_MPa,
+                                            double lb_mm = 100.0,
+                                            double fracture_energy_Nmm = 0.06,
+                                            double tp_ratio = 0.0,
+                                            KoBathe3DCrackStabilization
+                                                crack_stabilization =
+                                                    KoBathe3DCrackStabilization::
+                                                        stabilized_default(),
+                                            bool use_consistent_tangent = false)
+        : fc_{fc_MPa}
+        , tp_ratio_{tp_ratio}
+        , fracture_energy_Nmm_{fracture_energy_Nmm}
+        , lb_{lb_mm}
+        , crack_stabilization_{crack_stabilization}
+        , material_tangent_mode_{
+              use_consistent_tangent
+                  ? KoBathe3DMaterialTangentMode::
+                        AdaptiveCentralDifferenceWithSecantFallback
+                  : KoBathe3DMaterialTangentMode::FractureSecant}
+    {}
 
     Material<ThreeDimensionalMaterial> create() const override {
-        KoBatheParameters params{fc_, 0.06, lb_};
-        InelasticMaterial<KoBatheConcrete3D> mat_inst{params};
+        const KoBatheParameters params = parameters();
+        KoBatheConcrete3D concrete_impl{params, crack_stabilization_};
+        concrete_impl.set_material_tangent_mode(material_tangent_mode_);
+        InelasticMaterial<KoBatheConcrete3D> mat_inst{
+            std::move(concrete_impl)};
         return Material<ThreeDimensionalMaterial>{mat_inst, InelasticUpdate{}};
     }
 
     std::unique_ptr<ConcreteMaterialFactory> clone() const override {
         return std::make_unique<KoBatheConcreteMaterialFactory>(*this);
+    }
+
+    [[nodiscard]] double compressive_strength_MPa() const noexcept { return fc_; }
+    [[nodiscard]] double tp_ratio() const noexcept { return tp_ratio_; }
+    [[nodiscard]] double fracture_energy_Nmm() const noexcept
+    {
+        return fracture_energy_Nmm_;
+    }
+    [[nodiscard]] double length_scale_mm() const noexcept { return lb_; }
+    [[nodiscard]] const KoBathe3DCrackStabilization&
+    crack_stabilization() const noexcept
+    {
+        return crack_stabilization_;
+    }
+    [[nodiscard]] bool use_consistent_tangent() const noexcept
+    {
+        return material_tangent_mode_
+            != KoBathe3DMaterialTangentMode::FractureSecant;
+    }
+    [[nodiscard]] KoBathe3DMaterialTangentMode material_tangent_mode() const noexcept
+    {
+        return material_tangent_mode_;
+    }
+    [[nodiscard]] KoBatheParameters parameters() const noexcept
+    {
+        // KoBatheParameters signature is
+        //   (fc_MPa, tp_ratio, Gf_Nmm, lb_mm).
+        // Keeping this mapping in a named helper makes the intended semantics
+        // testable and avoids silent argument-order regressions.
+        return KoBatheParameters{
+            fc_, tp_ratio_, fracture_energy_Nmm_, lb_};
     }
 };
 

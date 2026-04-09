@@ -42,6 +42,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -266,10 +267,23 @@ compute_boundary_displacements(
     const DomainT& domain,
     const std::vector<PetscInt>& boundary_node_ids)
 {
+    const std::size_t num_nodes = domain.num_nodes();
+    if (boundary_node_ids.size() > num_nodes) {
+        throw std::runtime_error(
+            "compute_boundary_displacements: boundary-node cache exceeds the "
+            "domain node count. This indicates an invalid sub-model "
+            "lifetime or a corrupted face-node cache.");
+    }
+
     std::vector<std::pair<std::size_t, Eigen::Vector3d>> result;
     result.reserve(boundary_node_ids.size());
 
     for (const auto nid : boundary_node_ids) {
+        if (nid < 0 || static_cast<std::size_t>(nid) >= num_nodes) {
+            throw std::runtime_error(
+                "compute_boundary_displacements: boundary-node id is outside "
+                "the owning domain.");
+        }
         const auto& node = domain.node(static_cast<std::size_t>(nid));
         const Eigen::Vector3d pos(node.coord(0), node.coord(1), node.coord(2));
         const auto u_global = displacement_at_global_point(kin, pos);
