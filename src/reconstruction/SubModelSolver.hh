@@ -7,7 +7,11 @@
 //
 //  Takes a MultiscaleSubModel (domain + boundary conditions derived from beam
 //  kinematics) and solves the corresponding 3-D problem using
-//  NonlinearAnalysis with KoBatheConcrete3D (plastic-fracturing model).
+//  NonlinearAnalysis with injected local material factories.
+//
+//  The default constructor still reproduces the repository reference path
+//  through Ko-Bathe concrete and Menegotto-Pinto steel, but those material
+//  choices now live in the materials module rather than in reconstruction.
 //
 //  Optionally embeds rebar truss elements using MultiElementPolicy.
 //  When rebar is absent, uses SingleElementPolicy for zero overhead.
@@ -39,6 +43,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <string_view>
 
 #include <Eigen/Dense>
@@ -49,11 +54,8 @@
 
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
-#include "../materials/LinealElasticMaterial.hh"      // ContinuumIsotropicElasticMaterial
-#include "../materials/update_strategy/IntegrationStrategy.hh"  // ElasticUpdate, InelasticUpdate
-#include "../materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
-
-#include "../materials/constitutive_models/non_lineal/MenegottoPintoSteel.hh"
+#include "../materials/SubmodelMaterialFactory.hh"
+#include "../materials/SubmodelMaterialFactoryDefaults.hh"
 
 #include "../model/Model.hh"
 #include "../model/PrismaticDomainBuilder.hh"   // RebarElementRange
@@ -200,11 +202,70 @@ struct RebarSteelConfig {
 class SubModelSolver {
 
     double fc_;  ///< Compressive strength f'c [MPa]
+    std::unique_ptr<ConcreteMaterialFactory> concrete_factory_;
+    std::unique_ptr<RebarMaterialFactory> rebar_factory_;
+
+    [[nodiscard]] std::unique_ptr<ConcreteMaterialFactory>
+    clone_concrete_factory_() const
+    {
+        if (concrete_factory_) {
+            return concrete_factory_->clone();
+        }
+        return make_default_submodel_concrete_factory(fc_);
+    }
+
+    [[nodiscard]] std::unique_ptr<RebarMaterialFactory>
+    make_rebar_factory_(const RebarSteelConfig& steel) const
+    {
+        if (rebar_factory_) {
+            return rebar_factory_->clone();
+        }
+        return make_default_submodel_rebar_factory(
+            steel.E_s, steel.fy, steel.b, steel.R0, steel.cR1, steel.cR2);
+    }
 
 public:
 
     /// @param fc_MPa  Concrete compressive strength [MPa] (e.g. 30.0)
-    explicit SubModelSolver(double fc_MPa) : fc_{fc_MPa} {}
+    explicit SubModelSolver(double fc_MPa)
+        : fc_{fc_MPa}
+        , concrete_factory_{make_default_submodel_concrete_factory(fc_MPa)}
+    {}
+
+    SubModelSolver(double fc_MPa,
+                   std::unique_ptr<ConcreteMaterialFactory> concrete_factory,
+                   std::unique_ptr<RebarMaterialFactory> rebar_factory = nullptr)
+        : fc_{fc_MPa}
+        , concrete_factory_{concrete_factory ? std::move(concrete_factory)
+                                             : make_default_submodel_concrete_factory(fc_MPa)}
+        , rebar_factory_{std::move(rebar_factory)}
+    {}
+
+    SubModelSolver(const SubModelSolver& other)
+        : fc_{other.fc_}
+        , concrete_factory_{other.concrete_factory_
+                                ? other.concrete_factory_->clone()
+                                : nullptr}
+        , rebar_factory_{other.rebar_factory_
+                             ? other.rebar_factory_->clone()
+                             : nullptr}
+    {}
+
+    SubModelSolver& operator=(const SubModelSolver& other)
+    {
+        if (this == &other) {
+            return *this;
+        }
+        fc_ = other.fc_;
+        concrete_factory_ =
+            other.concrete_factory_ ? other.concrete_factory_->clone() : nullptr;
+        rebar_factory_ =
+            other.rebar_factory_ ? other.rebar_factory_->clone() : nullptr;
+        return *this;
+    }
+
+    SubModelSolver(SubModelSolver&&) noexcept = default;
+    SubModelSolver& operator=(SubModelSolver&&) noexcept = default;
 
     // ── Main solve method ────────────────────────────────────────────────
 
@@ -223,9 +284,8 @@ public:
         using Policy  = ThreeDimensionalMaterial;
         constexpr std::size_t NDOF = 3;
 
-        // ── 1. Build material (KoBatheConcrete3D: plastic-fracturing) ──
-        InelasticMaterial<KoBatheConcrete3D> mat_inst{fc_};
-        Material<Policy>  mat{mat_inst, InelasticUpdate{}};
+        // ── 1. Build material through the factory contract ──
+        Material<Policy> mat = clone_concrete_factory_()->create();
 
         // ── 2. Build model from the sub-model's domain ─────────────────
         Model<Policy, continuum::SmallStrain, NDOF> M{sub.domain, mat};
@@ -247,11 +307,9 @@ public:
         //
         // Configure PETSc solver via options database for this sub-model solve.
         //
-        // KoBatheConcrete3D uses operator splitting: new cracks form only
-        // at commit time (after convergence), not during Newton iterations.
-        // This makes σ(ε) smooth within each solve.  Basic line search
-        // (no backtracking) avoids DIVERGED_LINE_SEARCH from the residual
-        // kinks at committed-crack boundaries.
+        // The repository default local law is still Ko-Bathe-based, but the
+        // factory contract allows callers to inject a different constitutive
+        // family without changing the solver protocol.
         PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
         PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
         PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
@@ -358,9 +416,10 @@ public:
     /// Solve a reinforced concrete sub-model with embedded rebar.
     ///
     /// The Domain must contain both hex8 and line2 element geometries
-    /// (created by make_reinforced_prismatic_domain).  Hex elements use
-    /// KoBatheConcrete3D; line elements use TrussElement with
-    /// MenegottoPinto steel.
+    /// (created by make_reinforced_prismatic_domain).  Hex elements use the
+    /// configured continuum-material factory; line elements use the configured
+    /// embedded-line factory or, if absent, the repository default rebar law
+    /// instantiated from the supplied steel parameters.
     ///
     /// rebar_range:  element index range [first, last) for rebar geometries.
     /// rebar_areas:  cross-section area per rebar bar (one per bar in
@@ -378,13 +437,9 @@ public:
         constexpr std::size_t NDOF = 3;
 
         // ── 1. Build materials ─────────────────────────────────────
-        InelasticMaterial<KoBatheConcrete3D> concrete_inst{fc_};
-        Material<Policy> concrete_mat{concrete_inst, InelasticUpdate{}};
-
-        InelasticMaterial<MenegottoPintoSteel> steel_inst{
-            steel.E_s, steel.fy, steel.b,
-            steel.R0, steel.cR1, steel.cR2};
-        Material<UniaxialMaterial> rebar_mat{steel_inst, InelasticUpdate{}};
+        Material<Policy> concrete_mat = clone_concrete_factory_()->create();
+        Material<UniaxialMaterial> rebar_mat =
+            make_rebar_factory_(steel)->create();
 
         // ── 2. Build heterogeneous element vector ──────────────────
         using HexElement = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;

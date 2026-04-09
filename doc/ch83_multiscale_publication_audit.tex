@@ -605,6 +605,63 @@ until erased checkpoint/restore semantics are completed.  Likewise,
 \texttt{src/reconstruction/HomogenisationStrategy.hh} is retained as an
 internal validation utility rather than a recommended public extension point.
 
+\subsection{Material and local-method extensibility boundary}
+
+At the FE\textsuperscript{2} orchestration level, the local problem should be
+understood as a history-dependent operator rather than as ``the Ko--Bathe
+continuum solve''.  The mathematically relevant object is
+\begin{equation}
+  \mathcal{L}_{\mu} :
+  \left(
+    \mathbf{e}_{n+1}^{\mathrm{trial}},
+    \mathbf{z}_{n},
+    t_n,
+    \Delta t
+  \right)
+  \mapsto
+  \left(
+    \mathbf{s}_{n+1},
+    \mathbf{D}_{n+1},
+    \mathbf{z}_{n+1},
+    \mathcal{D}_{n+1}
+  \right),
+  \label{eq:ms-pub-local-operator-contract}
+\end{equation}
+where \(\mathbf{e}_{n+1}^{\mathrm{trial}}\) is the generalized strain state
+imposed by the macro problem, \(\mathbf{z}_n\) is the local internal history,
+\(\mathbf{s}_{n+1}\) is the homogenized section response,
+\(\mathbf{D}_{n+1}\) is the linearized section operator used by the outer
+iteration, and \(\mathcal{D}_{n+1}\) is the diagnostic payload.  Nothing in
+\eqref{eq:ms-pub-local-operator-contract} requires \(\mathbf{z}_n\) to come
+from a particular constitutive family.  It may encode continuum crack history,
+enriched degrees of freedom, discontinuous traces, or any other local state
+representation.
+
+The implementation now reflects that separation explicitly.  The protocol owned
+by \texttt{MultiscaleAnalysis} depends only on the
+\texttt{LocalModelAdapter} concept, while the persistent continuum local model
+(\texttt{NonlinearSubModelEvolver}) obtains its material instances through the
+contracts \texttt{ConcreteMaterialFactory} and
+\texttt{RebarMaterialFactory}, defined in
+\texttt{src/materials/SubmodelMaterialFactory.hh}.  The current reference
+implementations
+(\texttt{KoBatheConcreteMaterialFactory} and
+\texttt{MenegottoPintoRebarFactory}) now live in
+\texttt{src/materials/SubmodelMaterialFactoryDefaults.hh}, and
+\texttt{src/reconstruction/MaterialFactory.hh} is reduced to a compatibility
+shim rather than a normative ownership point.
+
+This architectural boundary is essential for scientific extensibility.  Future
+local models may be built as enriched crack solvers in the extended finite
+element sense \cite{BelytschkoBlack1999}, or as discontinuous
+Petrov--Galerkin / broken-test-space local solves in the sense of
+Demkowicz and Gopalakrishnan \cite{DemkowiczGopalakrishnan2010}, without
+rewriting the FE\textsuperscript{2} orchestration layer.  The multiscale kernel
+therefore depends on the local operator contract
+\eqref{eq:ms-pub-local-operator-contract}, not on the accidental fact that the
+current reference local operator happens to be a Ko--Bathe-driven reinforced
+continuum solve.
+
 \subsection{SOLID without sacrificing the hot path}
 
 The multiscale orchestration now follows the design principle ``static in the
@@ -630,7 +687,11 @@ kernel, explicit at the boundary'':
     checkpoint control.
   \item \textbf{Dependency Inversion Principle.}
     \texttt{MultiscaleAnalysis} depends on abstract coupling policies and on
-    concepts, not on concrete drivers.
+    concepts, not on concrete drivers.  The same rule now applies one level
+    lower: the multiscale and reconstruction layers depend on material-factory
+    contracts owned by \texttt{src/materials}, while Ko--Bathe/Menegotto remain
+    replaceable reference implementations rather than hard-coded assumptions of
+    the FE\textsuperscript{2} core.
 \end{itemize}
 
 These abstractions are intentionally placed at the orchestration layer.  The

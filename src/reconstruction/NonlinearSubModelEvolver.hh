@@ -47,6 +47,8 @@
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
 #include "../materials/InternalFieldSnapshot.hh"
+#include "../materials/SubmodelMaterialFactory.hh"
+#include "../materials/SubmodelMaterialFactoryDefaults.hh"
 
 #include "BoundaryReactionHomogenizer.hh"
 #include "HomogenizedSection.hh"
@@ -55,7 +57,6 @@
 #include "LocalCrackDiagnostics.hh"
 #include "LocalModelAdapter.hh"
 #include "LocalVTKOutputWriter.hh"
-#include "MaterialFactory.hh"
 #include "PersistentLocalStateOps.hh"
 #include "../analysis/ArcLengthSolver.hh"
 
@@ -824,9 +825,9 @@ public:
                              std::string output_dir, int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
-        , concrete_factory_{std::make_unique<KoBatheConcreteMaterialFactory>(
+        , concrete_factory_{make_default_submodel_concrete_factory(
               fc_MPa, default_local_length_scale_mm_(sub))}
-        , rebar_factory_{std::make_unique<MenegottoPintoRebarFactory>(200000.0, 420.0, 0.01)}
+        , rebar_factory_{make_default_submodel_rebar_factory()}
         , output_writer_{std::move(output_dir), sub.parent_element_id}
         , vtk_interval_{vtk_interval}
     {}

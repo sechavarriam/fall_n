@@ -1,8 +1,7 @@
 #include "src/validation/TableCyclicValidationSubmodelFactories.hh"
 
 #include "src/analysis/MultiscaleCoordinator.hh"
-#include "src/materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
-#include "src/reconstruction/MaterialFactory.hh"
+#include "src/materials/SubmodelMaterialFactoryDefaults.hh"
 #include "src/validation/TableCyclicValidationSupport.hh"
 
 #include <algorithm>

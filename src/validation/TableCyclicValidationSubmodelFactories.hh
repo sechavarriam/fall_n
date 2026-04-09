@@ -1,6 +1,7 @@
 #ifndef FALL_N_SRC_VALIDATION_TABLE_CYCLIC_VALIDATION_SUBMODEL_FACTORIES_HH
 #define FALL_N_SRC_VALIDATION_TABLE_CYCLIC_VALIDATION_SUBMODEL_FACTORIES_HH
 
+#include "src/materials/SubmodelMaterialFactory.hh"
 #include "src/validation/TableCyclicValidationAPI.hh"
 
 #include <memory>
@@ -8,8 +9,6 @@
 namespace fall_n {
 
 struct MultiscaleSubModel;
-struct ConcreteMaterialFactory;
-struct RebarMaterialFactory;
 
 namespace table_cyclic_validation {
 
