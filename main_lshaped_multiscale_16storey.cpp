@@ -43,6 +43,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <numbers>
 #include <print>
@@ -57,6 +58,11 @@ using namespace fall_n;
 //  Constants
 // =============================================================================
 namespace {
+
+[[nodiscard]] double csv_scalar_or_nan(bool available, double value)
+{
+    return available ? value : std::numeric_limits<double>::quiet_NaN();
+}
 
 // ── I/O paths ────────────────────────────────────────────────────────────────
 #ifdef FALL_N_SOURCE_DIR
@@ -748,11 +754,12 @@ int main(int argc, char* argv[]) {
 
     // ── Crack evolution CSV ────────────────────────────────────────────
     std::ofstream crack_csv(OUT + "recorders/crack_evolution.csv");
-    crack_csv << "time,total_cracked_gps,total_cracks,max_damage,max_opening";
+    crack_csv << "time,total_cracked_gps,total_cracks,damage_scalar_available,max_damage_scalar,max_opening";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i)
         crack_csv << ",sub" << i << "_cracked_gps"
                   << ",sub" << i << "_cracks"
-                  << ",sub" << i << "_max_damage";
+                  << ",sub" << i << "_damage_scalar_available"
+                  << ",sub" << i << "_max_damage_scalar";
     crack_csv << "\n";
 
     // Phase 2: reset dt to nominal and disable adaptation for stable FE² coupling.
@@ -791,17 +798,27 @@ int main(int argc, char* argv[]) {
         // ── End-of-step: crack collection + VTK (once per global step) ─
 
         // ── Collect crack summaries ─────────────────────────────────
-        int    step_cracked_gps      = 0;
-        int    step_total_cracks     = 0;
-        double step_max_crack_damage = 0.0;
-        double step_max_opening      = 0.0;
+        int    step_cracked_gps          = 0;
+        int    step_total_cracks         = 0;
+        bool   step_damage_scalar_available = false;
+        double step_max_crack_damage =
+            std::numeric_limits<double>::quiet_NaN();
+        double step_max_opening          = 0.0;
         std::vector<CrackSummary> step_summaries;
         for (auto& ev : analysis.model().local_models()) {
             auto cs = ev.crack_summary();
             step_summaries.push_back(cs);
             step_cracked_gps  += cs.num_cracked_gps;
             step_total_cracks += cs.total_cracks;
-            step_max_crack_damage = std::max(step_max_crack_damage, cs.max_damage);
+            if (cs.damage_scalar_available) {
+                if (!step_damage_scalar_available) {
+                    step_max_crack_damage = cs.max_damage_scalar;
+                } else {
+                    step_max_crack_damage = std::max(
+                        step_max_crack_damage, cs.max_damage_scalar);
+                }
+                step_damage_scalar_available = true;
+            }
             step_max_opening      = std::max(step_max_opening, cs.max_opening);
         }
         total_cracks = step_total_cracks;
@@ -810,13 +827,19 @@ int main(int argc, char* argv[]) {
         crack_csv << std::fixed << std::setprecision(4) << t
                   << "," << step_cracked_gps
                   << "," << step_total_cracks
+                  << "," << (step_damage_scalar_available ? 1 : 0)
                   << std::scientific << std::setprecision(6)
-                  << "," << step_max_crack_damage
+                  << "," << csv_scalar_or_nan(
+                                 step_damage_scalar_available,
+                                 step_max_crack_damage)
                   << "," << step_max_opening;
         for (const auto& cs : step_summaries)
             crack_csv << "," << cs.num_cracked_gps
                       << "," << cs.total_cracks
-                      << "," << cs.max_damage;
+                      << "," << (cs.damage_scalar_available ? 1 : 0)
+                      << "," << csv_scalar_or_nan(
+                                     cs.damage_scalar_available,
+                                     cs.max_damage_scalar);
         crack_csv << "\n" << std::flush;
 
         // ── Track peak damage ───────────────────────────────────────

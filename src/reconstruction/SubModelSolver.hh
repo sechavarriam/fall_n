@@ -180,6 +180,18 @@ struct SubModelSolverResult {
     std::size_t num_gp{0};
 };
 
+enum class EmbeddedLinePenaltyMode {
+    ReferenceConcreteHeuristic,
+    ExplicitAlpha
+};
+
+struct EmbeddedLinePenaltyCouplingConfig {
+    EmbeddedLinePenaltyMode mode{
+        EmbeddedLinePenaltyMode::ReferenceConcreteHeuristic};
+    double alpha_penalty{0.0};
+    double stiffness_factor{1.0e4};
+};
+
 
 // =============================================================================
 //  RebarSteelConfig — Menegotto-Pinto steel parameters for embedded rebar
@@ -204,6 +216,7 @@ class SubModelSolver {
     double fc_;  ///< Compressive strength f'c [MPa]
     std::unique_ptr<ConcreteMaterialFactory> concrete_factory_;
     std::unique_ptr<RebarMaterialFactory> rebar_factory_;
+    EmbeddedLinePenaltyCouplingConfig penalty_coupling_config_{};
 
     [[nodiscard]] std::unique_ptr<ConcreteMaterialFactory>
     clone_concrete_factory_() const
@@ -222,6 +235,17 @@ class SubModelSolver {
         }
         return make_default_submodel_rebar_factory(
             steel.E_s, steel.fy, steel.b, steel.R0, steel.cR1, steel.cR2);
+    }
+
+    [[nodiscard]] double penalty_alpha_() const noexcept
+    {
+        if (penalty_coupling_config_.mode
+            == EmbeddedLinePenaltyMode::ExplicitAlpha)
+        {
+            return penalty_coupling_config_.alpha_penalty;
+        }
+        const double E_c = 4700.0 * std::sqrt(fc_);
+        return penalty_coupling_config_.stiffness_factor * E_c;
     }
 
 public:
@@ -249,6 +273,7 @@ public:
         , rebar_factory_{other.rebar_factory_
                              ? other.rebar_factory_->clone()
                              : nullptr}
+        , penalty_coupling_config_{other.penalty_coupling_config_}
     {}
 
     SubModelSolver& operator=(const SubModelSolver& other)
@@ -261,11 +286,18 @@ public:
             other.concrete_factory_ ? other.concrete_factory_->clone() : nullptr;
         rebar_factory_ =
             other.rebar_factory_ ? other.rebar_factory_->clone() : nullptr;
+        penalty_coupling_config_ = other.penalty_coupling_config_;
         return *this;
     }
 
     SubModelSolver(SubModelSolver&&) noexcept = default;
     SubModelSolver& operator=(SubModelSolver&&) noexcept = default;
+
+    void set_embedded_line_coupling_config(
+        const EmbeddedLinePenaltyCouplingConfig& config) noexcept
+    {
+        penalty_coupling_config_ = config;
+    }
 
     // ── Main solve method ────────────────────────────────────────────────
 
@@ -478,11 +510,9 @@ public:
         // ── 4b. Penalty coupling for embedded rebar ────────────────
         PenaltyCoupling penalty;
         if (!sub.rebar_embeddings.empty()) {
-            const double E_c = 4700.0 * std::sqrt(fc_);
-            const double alpha = 1e4 * E_c;
             const auto num_bars = sub.rebar_diameters.size();
             penalty.setup(sub.domain, sub.grid, sub.rebar_embeddings,
-                          num_bars, alpha, /*skip_minz_maxz=*/true,
+                          num_bars, penalty_alpha_(), /*skip_minz_maxz=*/true,
                           sub.grid.hex_order);
         }
 

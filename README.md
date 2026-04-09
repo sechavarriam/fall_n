@@ -63,6 +63,8 @@ The multiscale publication path currently looks like this:
 
 The current continuum local-model implementation is still reinforced-concrete-oriented, but the dependency boundary is now explicit: multiscale/reconstruction depends on abstract local-material factories, and the Ko-Bathe/Menegotto reference pair is just one materials-module realization. This is the seam intended for future local-model variants, including enriched/XFEM-like local solvers or discontinuous Petrov-Galerkin / DG local formulations.
 
+At the utility-solver level, the embedded rebar penalty coupling is also no longer a hidden constant: `SubModelSolver` now exposes an `EmbeddedLinePenaltyCouplingConfig`, so the reinforced-concrete heuristic remains available as a default but is no longer hard-coded as if it were the only physically meaningful choice.
+
 The local architectural split is already underway:
 
 - `LocalBoundaryConditionApplicator`

@@ -1976,14 +1976,44 @@ The refactor was verified with:
 
 \subsection{Residual debt after the segregation}
 
-One honest limitation remains visible after the refactor:
-\texttt{SubModelSolver::solve\_reinforced()} still estimates the penalty-coupling
-scale from the concrete compressive-strength proxy
-\(E_c \approx 4700\sqrt{f_c}\), which is a reinforced-concrete heuristic rather
-than a fully generic local-model coupling policy.  That heuristic no longer
-binds the multiscale core to Ko--Bathe, but it does remain a material-coloured
-assumption inside the legacy utility solver and should be separated into a
-dedicated coupling-parameter policy in a later pass.
+The first residual debt identified at the beginning of the pass was that
+\texttt{SubModelSolver::solve\_reinforced()} still estimated the penalty-coupling
+scale from the reinforced-concrete proxy
+\(E_c \approx 4700\sqrt{f_c}\).  In the follow-up implementation of the same
+cycle, that assumption was moved behind an explicit value-type policy,
+\texttt{EmbeddedLinePenaltyCouplingConfig}, with two modes:
+\begin{equation}
+  \alpha =
+  \begin{cases}
+    \alpha_{\mathrm{explicit}}, &
+    \texttt{EmbeddedLinePenaltyMode::ExplicitAlpha},\\[4pt]
+    \gamma E_c, \quad E_c \approx 4700\sqrt{f_c}, &
+    \texttt{EmbeddedLinePenaltyMode::ReferenceConcreteHeuristic}.
+  \end{cases}
+  \label{eq:ms-stab-embedded-line-penalty-policy}
+\end{equation}
+This does not make the legacy solver fully material-agnostic yet, but it does
+change the architectural semantics materially: the reinforced-concrete penalty
+estimate is now a default policy choice rather than a hidden constant baked
+into the only available reinforced local solve path.
+
+The same pass also closed a concrete CI regression in the example drivers:
+\texttt{main\_lshaped\_multiscale.cpp},
+\texttt{main\_lshaped\_multiscale\_16storey.cpp}, and
+\texttt{main\_table\_multiscale.cpp} still wrote
+\texttt{CrackSummary::max\_damage}, even though the stabilized crack-summary
+semantics had already moved to the pair
+\texttt{damage\_scalar\_available} / \texttt{max\_damage\_scalar}.  The fix was
+not merely syntactic.  The CSV outputs of those examples now follow the same
+honest semantics as the cyclic validation harness:
+\begin{equation}
+  \texttt{damage\_scalar\_available} = 0
+  \quad\Longrightarrow\quad
+  \texttt{max\_damage\_scalar} = \mathrm{NaN},
+  \label{eq:ms-stab-example-damage-csv-semantics}
+\end{equation}
+instead of silently reporting zero damage when the constitutive snapshot does
+not expose a scalar damage channel.
 
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}

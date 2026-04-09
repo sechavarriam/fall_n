@@ -662,6 +662,23 @@ therefore depends on the local operator contract
 current reference local operator happens to be a Ko--Bathe-driven reinforced
 continuum solve.
 
+The same reasoning applies to embedded-line coupling.  A legacy utility solver
+may still choose a default penalty scale from a reinforced-concrete heuristic,
+for example
+\begin{equation}
+  \alpha = \gamma E_c,
+  \qquad
+  E_c \approx 4700\sqrt{f_c},
+  \label{eq:ms-pub-legacy-penalty-heuristic}
+\end{equation}
+but that heuristic should be exposed as a replaceable policy rather than as an
+axiom of the multiscale kernel.  The current implementation now isolates that
+choice behind an explicit \texttt{EmbeddedLinePenaltyCouplingConfig} in the
+legacy \texttt{SubModelSolver}.  This is not yet the final form of the coupling
+API, but it already prevents the reinforced-concrete penalty estimate from
+being mistaken for an unavoidable property of the FE\textsuperscript{2}
+architecture itself.
+
 \subsection{SOLID without sacrificing the hot path}
 
 The multiscale orchestration now follows the design principle ``static in the
