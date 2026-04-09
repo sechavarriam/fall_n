@@ -47,6 +47,11 @@ struct CyclicValidationRunConfig {
     int submodel_arc_length_threshold{3};
     int submodel_adaptive_max_substeps{30};
     int submodel_adaptive_max_bisections{10};
+    int submodel_tail_rescue_attempts{0};
+    double submodel_tail_rescue_progress_threshold{0.75};
+    int submodel_tail_rescue_substep_bonus{12};
+    int submodel_tail_rescue_bisection_bonus{4};
+    double submodel_tail_rescue_initial_fraction{0.5};
     int submodel_snes_max_it{100};
     double submodel_snes_atol{2.0};
     double submodel_snes_rtol{1.0e-3};
@@ -103,6 +108,11 @@ make_validation_config(ValidationProtocolPreset preset)
             .submodel_arc_length_threshold = 3,
             .submodel_adaptive_max_substeps = 30,
             .submodel_adaptive_max_bisections = 10,
+            .submodel_tail_rescue_attempts = 0,
+            .submodel_tail_rescue_progress_threshold = 0.75,
+            .submodel_tail_rescue_substep_bonus = 12,
+            .submodel_tail_rescue_bisection_bonus = 4,
+            .submodel_tail_rescue_initial_fraction = 0.5,
             .submodel_snes_max_it = 100,
             .submodel_snes_atol = 2.0,
             .submodel_snes_rtol = 1.0e-3,
@@ -137,6 +147,11 @@ make_validation_config(ValidationProtocolPreset preset)
         .submodel_arc_length_threshold = 3,
         .submodel_adaptive_max_substeps = 30,
         .submodel_adaptive_max_bisections = 10,
+        .submodel_tail_rescue_attempts = 0,
+        .submodel_tail_rescue_progress_threshold = 0.75,
+        .submodel_tail_rescue_substep_bonus = 12,
+        .submodel_tail_rescue_bisection_bonus = 4,
+        .submodel_tail_rescue_initial_fraction = 0.5,
         .submodel_snes_max_it = 100,
         .submodel_snes_atol = 2.0,
         .submodel_snes_rtol = 1.0e-3,
@@ -170,6 +185,11 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
         cfg.submodel_arc_length_threshold = 1;
         cfg.submodel_adaptive_max_substeps = 48;
         cfg.submodel_adaptive_max_bisections = 12;
+        cfg.submodel_tail_rescue_attempts = 2;
+        cfg.submodel_tail_rescue_progress_threshold = 0.75;
+        cfg.submodel_tail_rescue_substep_bonus = 24;
+        cfg.submodel_tail_rescue_bisection_bonus = 6;
+        cfg.submodel_tail_rescue_initial_fraction = 0.5;
         cfg.submodel_snes_max_it = 150;
         cfg.enable_turning_point_checkpoints = true;
         cfg.max_turning_point_restarts = 3;

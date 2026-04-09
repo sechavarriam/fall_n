@@ -93,6 +93,14 @@ struct InternalFieldSnapshot {
     // ── Fracturing history invariants — for concrete models ─────────────
     std::optional<double> sigma_o_max{};   // max octahedral normal stress (compression)
     std::optional<double> tau_o_max{};     // max octahedral shear stress
+    std::optional<int> solution_mode{};
+    std::optional<double> trial_sigma_o{};
+    std::optional<double> trial_tau_o{};
+    std::optional<double> no_flow_coupling_update_norm{};
+    std::optional<double> no_flow_recovery_residual{};
+    std::optional<int> no_flow_stabilization_iterations{};
+    std::optional<int> no_flow_crack_state_switches{};
+    std::optional<bool> no_flow_stabilized{};
 
     // ── Query helpers ────────────────────────────────────────────────────
     [[nodiscard]] bool has_plastic_strain()            const noexcept { return plastic_strain.has_value(); }
@@ -100,6 +108,10 @@ struct InternalFieldSnapshot {
     [[nodiscard]] bool has_damage()                     const noexcept { return damage.has_value(); }
     [[nodiscard]] bool has_cracks()                     const noexcept { return num_cracks.has_value(); }
     [[nodiscard]] bool has_fracture_history()            const noexcept { return sigma_o_max.has_value(); }
+    [[nodiscard]] bool has_no_flow_diagnostics()         const noexcept {
+        return no_flow_stabilization_iterations.has_value()
+            || no_flow_stabilized.has_value();
+    }
 };
 
 

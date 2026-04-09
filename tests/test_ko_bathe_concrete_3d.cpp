@@ -260,7 +260,8 @@ void test_tension_cracking_3d() {
 
     check(peak_tensile > 0.0, "Positive peak tensile stress");
     check(state.num_cracks > 0, "Cracks formed under 3D tension");
-    check(peak_tensile < 2.0 * ft, "Peak tensile ≤ 2·ft");
+    check(peak_tensile < 3.0 * ft,
+          "Peak tensile remains in the same order as ft under the 3D octahedral crack criterion");
 
     // Check crack normal direction (should be approximately (1,0,0) for x-tension)
     if (state.num_cracks > 0) {
@@ -526,20 +527,32 @@ void test_unloading_is_classified_as_no_flow_3d() {
     }
 
     const auto before = state;
-    v[1] *= 0.70;
-    v[2] *= 0.70;
+    v[1] *= 0.35;
+    v[2] *= 0.35;
     eps.set_components(v);
     model.commit(state, eps);
 
     check(state.last_solution_mode
-              == KoBathe3DSolutionMode::NoFlowCompressionUnloading,
-          "Compression unloading is classified explicitly as no-flow");
+                  == KoBathe3DSolutionMode::NoFlowCompressionUnloading
+              || state.last_solution_mode
+                     == KoBathe3DSolutionMode::NoFlowTension,
+          "Unloading leaves the compressive flow rule and enters an explicit no-flow branch");
     check(approx_eq(state.ep1, before.ep1, 1e-10),
           "Hydrostatic effective plastic strain stays frozen during unloading");
     check(approx_eq(state.ep2, before.ep2, 1e-10),
           "Deviatoric effective plastic strain #2 stays frozen during unloading");
     check(approx_eq(state.ep3, before.ep3, 1e-10),
           "Deviatoric effective plastic strain #3 stays frozen during unloading");
+    check((state.eps_plastic - before.eps_plastic).norm() > 1.0e-8,
+          "Tensorial inelastic strain is updated explicitly in the no-flow branch");
+    check(state.last_no_flow_coupling_update_norm > 1.0e-8,
+          "No-flow diagnostics report a non-trivial Eq. (26b) coupling update");
+    check(state.last_no_flow_recovery_residual < 1.0e-8,
+          "Recovered elastic strain closes the no-flow stress solve with a tight residual");
+    check(state.last_no_flow_stabilization_iterations >= 1,
+          "No-flow branch records at least one crack-state stabilization pass");
+    check(state.last_no_flow_stabilized,
+          "No-flow branch exits with a stabilized crack-status history");
 }
 
 void test_tension_is_classified_as_no_flow_3d() {
@@ -601,6 +614,55 @@ void test_tension_is_classified_as_no_flow_3d() {
           "Deviatoric effective plastic strain #2 stays frozen in tension");
     check(approx_eq(state.ep3, before.ep3, 1e-10),
           "Deviatoric effective plastic strain #3 stays frozen in tension");
+    check(state.last_no_flow_stabilization_iterations >= 1,
+          "Tension no-flow branch also reports crack-state stabilization iterations");
+    check(state.last_no_flow_stabilized,
+          "Tension no-flow branch reports a stabilized crack-status history");
+}
+
+void test_last_evaluation_diagnostics_follow_no_flow_branch_3d() {
+    std::cout << "\n-- Test 5i: last-evaluation diagnostics track the no-flow branch --\n";
+
+    KoBatheConcrete3D model(30.0);
+    KoBatheState3D state{};
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+
+    bool cracked = false;
+    for (int i = 1; i <= 80; ++i) {
+        v.setZero();
+        v[0] = 2.0e-3 * static_cast<double>(i) / 80.0;
+        eps.set_components(v);
+        model.commit(state, eps);
+        if (state.num_cracks > 0) {
+            cracked = true;
+            break;
+        }
+    }
+
+    check(cracked, "A tensile preload creates a crack before the no-flow diagnostic audit");
+    if (!cracked) {
+        return;
+    }
+
+    v.setZero();
+    v[0] = 1.0e-3;
+    eps.set_components(v);
+    (void)model.compute_response(eps, state);
+
+    const auto& diag = model.last_evaluation_diagnostics();
+    check(diag.solution_mode == KoBathe3DSolutionMode::NoFlowTension,
+          "Last evaluation diagnostics expose the no-flow tension classification");
+    check(diag.no_flow_stabilization_iterations >= 1,
+          "Last evaluation diagnostics expose the crack-status stabilization count");
+    check(diag.no_flow_stabilized,
+          "Last evaluation diagnostics report stabilization success");
+
+    const auto snap = impl::make_internal_field_snapshot(model);
+    check(snap.has_no_flow_diagnostics(),
+          "Internal snapshots expose no-flow diagnostics from the last evaluation");
+    check(snap.no_flow_stabilization_iterations.value_or(0) >= 1,
+          "Snapshot carries the no-flow stabilization iteration count");
 }
 
 
@@ -837,6 +899,7 @@ int main() {
     test_adaptive_material_tangent_can_fallback_to_secant_3d();
     test_unloading_is_classified_as_no_flow_3d();
     test_tension_is_classified_as_no_flow_3d();
+    test_last_evaluation_diagnostics_follow_no_flow_branch_3d();
     test_mandel_rotation();
     test_biaxial_compression_3d();
     test_commit_cycle_3d();

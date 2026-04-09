@@ -83,6 +83,15 @@ enum class SubModelSolveStage {
     SubsequentAdaptiveStep
 };
 
+enum class SubModelFailureCause {
+    None,
+    NewtonDiverged,
+    FunctionDomain,
+    LinearSolveFailed,
+    AdaptiveMinFractionReached,
+    AdaptiveSubstepBudgetExceeded
+};
+
 [[nodiscard]] inline constexpr std::string_view
 to_string(SubModelSolveStage stage)
 {
@@ -101,16 +110,50 @@ to_string(SubModelSolveStage stage)
     return "UnknownSubModelSolveStage";
 }
 
+[[nodiscard]] inline constexpr std::string_view
+to_string(SubModelFailureCause cause)
+{
+    switch (cause) {
+        case SubModelFailureCause::None:
+            return "None";
+        case SubModelFailureCause::NewtonDiverged:
+            return "NewtonDiverged";
+        case SubModelFailureCause::FunctionDomain:
+            return "FunctionDomain";
+        case SubModelFailureCause::LinearSolveFailed:
+            return "LinearSolveFailed";
+        case SubModelFailureCause::AdaptiveMinFractionReached:
+            return "AdaptiveMinFractionReached";
+        case SubModelFailureCause::AdaptiveSubstepBudgetExceeded:
+            return "AdaptiveSubstepBudgetExceeded";
+    }
+    return "UnknownSubModelFailureCause";
+}
+
 struct SubModelSolverResult {
     bool converged{false};
     SubModelSolveStage stage{SubModelSolveStage::NotRun};
+    SubModelFailureCause failure_cause{SubModelFailureCause::None};
     int snes_reason{0};
     PetscInt snes_iterations{0};
     double function_norm{0.0};
     int adaptive_substeps{0};
     int adaptive_bisections{0};
+    int adaptive_tail_rescue_attempts{0};
     double achieved_fraction{0.0};
+    double adaptive_tail_rescue_trigger_fraction{0.0};
     bool used_arc_length{false};
+    double failed_target_fraction{0.0};
+    double failed_step_fraction{0.0};
+    double minimum_step_fraction{0.0};
+    int failed_substep_index{0};
+    int max_no_flow_stabilization_iterations{0};
+    int total_no_flow_crack_state_switches{0};
+    bool no_flow_unstabilized_detected{false};
+    int material_points_with_active_cracks{0};
+    int max_num_cracks_at_point{0};
+    double max_material_no_flow_recovery_residual{0.0};
+    double max_material_no_flow_coupling_update_norm{0.0};
 
     /// Maximum absolute value of any displacement DOF in the state vector.
     double max_displacement{0.0};

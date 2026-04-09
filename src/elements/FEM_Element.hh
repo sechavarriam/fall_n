@@ -120,6 +120,11 @@ class FEM_Element {
         virtual std::vector<GaussFieldRecord>
             collect_gauss_fields(Vec /*u_local*/) const { return {}; }
 
+        // Material snapshots without stress recomputation. This preserves
+        // the last constitutive-evaluation diagnostics from the Newton path.
+        virtual std::vector<InternalFieldSnapshot>
+            material_point_snapshots() const { return {}; }
+
         // Multiscale: per-GP state snapshot (crack data, damage, stress/strain)
         virtual std::vector<GaussPointSnapshot>
             gauss_point_snapshots(Vec /*u_local*/) const { return {}; }
@@ -199,6 +204,21 @@ class FEM_Element {
                 return element_.collect_gauss_fields(u_local);
             else
                 return {};
+        }
+
+        std::vector<InternalFieldSnapshot>
+        material_point_snapshots() const override {
+            if constexpr (requires { element_.material_points(); }) {
+                std::vector<InternalFieldSnapshot> out;
+                const auto& mps = element_.material_points();
+                out.reserve(mps.size());
+                for (const auto& mp : mps) {
+                    out.push_back(mp.internal_field_snapshot());
+                }
+                return out;
+            } else {
+                return {};
+            }
         }
 
         std::vector<GaussPointSnapshot>
@@ -345,6 +365,12 @@ public:
         -> std::vector<GaussPointSnapshot>
     {
         return pimpl_->gauss_point_snapshots(u_local);
+    }
+
+    [[nodiscard]] auto material_point_snapshots() const
+        -> std::vector<InternalFieldSnapshot>
+    {
+        return pimpl_->material_point_snapshots();
     }
 };
 

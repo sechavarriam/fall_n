@@ -552,6 +552,22 @@ private:
                             &last_report_.tangent_residual_row_scales[i],
                             &last_report_.tangent_residual_column_scales[i],
                             &last_report_.tangent_column_residuals_rel[i]);
+                } else {
+                    // Dampen the very first FE2 predictor as well. Otherwise
+                    // the first macro re-solve sees the full micro feedback in
+                    // one shot, and the relaxation policy has no chance to act
+                    // before a macro divergence.
+                    const auto tangent_before = current[i].tangent;
+                    const auto force_before = current[i].forces;
+                    auto zero_baseline = current[i];
+                    zero_baseline.forces.setZero();
+                    zero_baseline.tangent.setZero();
+                    relaxation_->relax(current[i], zero_baseline, iter);
+                    if ((current[i].tangent - tangent_before).norm() > 0.0
+                        || (current[i].forces - force_before).norm() > 0.0)
+                    {
+                        last_report_.relaxation_applied = true;
+                    }
                 }
 
                 last_report_.force_residuals_rel[i] = force_residual_metric_(

@@ -394,6 +394,45 @@ void test_lagged_feedback_injects_site_response()
         "lagged feedback report exposes an explicit termination reason");
 }
 
+void test_iterated_two_way_damps_the_first_micro_predictor()
+{
+    FakeSolver solver;
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_forces_override =
+        Eigen::Vector<double, 6>::Constant(1.0);
+    local.response_tangent = Eigen::Matrix<double, 6, 6>::Identity();
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(1.0, 1.0),
+        std::make_unique<ConstantRelaxation>(0.5));
+    analysis.set_coupling_start_step(1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok, "iterated FE2 converges with damped first predictor");
+    CHECK_TRUE(analysis.last_report().relaxation_applied,
+               "iterated FE2 reports that relaxation was applied");
+    CHECK_TRUE(
+        analysis.model().macro_bridge().injected[0].has_value(),
+        "iterated FE2 stores the accepted relaxed response at the coupling site");
+    CHECK_TRUE(
+        std::abs(
+            analysis.model().macro_bridge().injected[0]->forces[0]
+            - 0.75) < 1.0e-12,
+        "the first micro predictor is relaxed against zero before the second macro solve");
+}
+
 void test_iterated_two_way_rolls_back_on_macro_failure()
 {
     FakeSolver solver;
@@ -740,6 +779,7 @@ int main()
 {
     test_iterated_two_way_uses_local_step_counter();
     test_lagged_feedback_injects_site_response();
+    test_iterated_two_way_damps_the_first_micro_predictor();
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();

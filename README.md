@@ -24,10 +24,15 @@ The most mature publication-path subsystem today is the multiscale module:
 - The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
 - The Ko-Bathe 3D audit also closed a real constitutive-state bug: crack opening/closure is now refreshed from the final elastic strain after plastic correction, instead of silently inheriting a pre-return trial state.
 - The Ko-Bathe 3D path now classifies `compressive flow` versus `no-flow` explicitly from the trial octahedral invariants, so tensile states and compressive unloading no longer accumulate effective plastic flow spuriously.
+- The Ko-Bathe 3D no-flow branch now carries an explicit Eq. (26b)-style tensorial coupling update and switches back to the article-consistent constitutive law in tension/unloading instead of reusing the compressive fracture/plasticity tangent there.
 - The FE2 cyclic driver now exposes submodel material-tangent mode explicitly; the numerical consistent tangent is available for audit, but it is not the default because the first-cracked Case 5 benchmark still regresses with it.
 - The FE2 cyclic setup now keeps the owning `MultiscaleCoordinator` alive inside the returned case context, so local evolvers no longer hold dangling `MultiscaleSubModel*` references after the setup TU split.
 - The FE2 cyclic driver was split one step further through `TableCyclicValidationFE2StepPostprocess`, moving crack-summary aggregation and recorder-row assembly out of the main FE2 runtime translation unit.
 - The FE2 cyclic driver now also isolates turning-point restart retuning in `TableCyclicValidationFE2Restart`, reducing coupling between nonlinear step control and restart-budget policy.
+- The FE2 cyclic driver now also isolates recorder/bootstrap wiring in `TableCyclicValidationFE2Recorders`, so schema/CSV changes no longer require reopening the main runtime loop translation unit.
+- The persistent local solver now honors the configured first-ramp bisection budget and the `arc_length_from_start` flag during the very first nonlinear ramp, which closed a real semantic gap between the FE2 validation drivers and the local solver contract.
+- The persistent local solver now also supports explicit late-tail continuation on the remaining segment of a partially converged ramp, with full diagnostics (`adaptive_tail_rescue_attempts`, trigger fraction, and propagated minimum step size) instead of silently treating every exhausted budget as the same failure.
+- The iterated FE2 orquestator now damps the very first micro feedback predictor against a zero baseline, so the fixed-point relaxation policy can act before the second macro solve instead of waiting one full failed iteration.
 
 This does not mean the whole repository is “finished”. It means the codebase now has one path that is close to publication quality, and the rest of the library can be reviewed and strengthened around that standard.
 
@@ -185,14 +190,14 @@ The document compiles, but it still contains pre-existing warnings and historica
 
 - `NonlinearSubModelEvolver` is still too large, even though the most critical concerns have already been split out.
 - The current weighted norms for condensed-tangent validation and FE2 residuals are physically better than pure Frobenius, but they are still proxies; `DualEnergyScaled` improves the generalized-work proxy, yet it is not a full proof of energetic equivalence.
-- The numerical consistent tangent of `KoBatheConcrete3D` is still experimental in FE2 submodels: it is exposed and benchmarked, but the post-setup ownership fix re-opened the scientific audit of the first-cracked Case 5 short run, so the old failure narrative must now be treated as historical rather than definitive.
-- The 3D Ko-Bathe path now enforces the paper's top-level `flow / no-flow` classification, but Eq. (26b) of Ko-Bathe is still not represented as a separate explicit no-flow tensor update; the remaining scientific gap is therefore smaller, but not closed.
+- The numerical consistent tangent of `KoBatheConcrete3D` is still experimental in FE2 submodels: it is exposed and benchmarked, but the current audited Case 5 frontier is no longer best explained as a tangent-only problem. Under strict diagnostic budgets the limiter is still the late, heavily cracked tail of the first micro ramp; under the default `fe2_crack50` profile the frontier has already moved one level up to the macro FE2 re-solve after all four micro columns converge.
+- The 3D Ko-Bathe path now enforces the paper's top-level `flow / no-flow` classification and now carries an explicit Eq. (26b) no-flow tensor update, but the full crack-status `m`-loop from Table 1 is still approximated rather than transcribed literally.
 - The distributed MPI micro-solve engine is not implemented yet beyond contracts and communicator ownership.
 - The root `CMakeLists.txt` is still monolithic.
 - `header_files.hh` still causes avoidable build coupling and PCH invalidation.
 - The repository mixes naming styles such as `non_lineal` / `nonlinear` and `Homogenisation` / `Homogenized`.
 - The top-level documentation still contains historical drift and LaTeX warning debt.
-- Some heavy validation drivers remain expensive to compile and run; on the latest audited cyclic-validation pass, touching `main_table_cyclic_validation.cpp` rebuilt in about `15.3 s`, while touching `TableCyclicValidationFE2.cpp` still took about `457.6 s`.
+- Some heavy validation drivers remain expensive to compile and run; on the latest audited cyclic-validation pass, the isolated `TableCyclicValidationFE2.cpp` object rebuilt in about `177.2 s`, while the extracted `TableCyclicValidationFE2Recorders.cpp` slice rebuilt in about `38.6 s`, so the heavy runtime TU frontier is still open even though the IO/recorder slice is now materially cheaper to edit.
 
 ## Quick Wins
 
@@ -222,8 +227,11 @@ The structural case already reaches the full `50 mm` envelope. The FE2 case has 
 The current honest frontier is:
 
 - Case 4 one-way FE2 reaches the first cracked point reproducibly in the short-run matrix and remains scientifically observable through `+5 mm` in the longer exploratory runs.
-- Case 5 iterated two-way FE2 now survives the setup phase and enters the first local ramp under the tuned `fe2_crack50` short-run profile; after the coordinator-lifetime fix the exact first-cracked frontier must be re-measured end-to-end rather than inferred from the older aborted run.
-- After the explicit 3D `no-flow` correction, the same one-step `fe2_crack50` Case 5 probe reaches the third local ramp increment (`k = 3/4`) within the audited 45 s window, which is a measurable improvement over the pre-audit build.
+- Case 5 iterated two-way FE2 now survives the setup phase and enters an actually adaptive first local ramp under the tuned `fe2_crack50` short-run profile; the first-ramp bisection budget is no longer silently ignored by the local solver.
+- In the strict one-step Case 5 audit (`4` initial increments, `2` first-ramp bisections, `20` local SNES iterations), all four submodels now pass the former `k = 1/4` wall and reach between `18.75%` and `31.25%` of the local target before the minimum fraction floor is hit.
+- In the wider one-step Case 5 audit (`4` initial increments, `2` first-ramp bisections, `60` local SNES iterations, adaptive budget `12/4`), one submodel reaches the full target, two reach `81.25%`, and one reaches `93.75%`; the failed sites now report `AdaptiveMinFractionReached` rather than a featureless early Newton abort.
+- The same audited run shows `72–82` active cracked material points, up to `3` cracks at a point, one-step no-flow stabilization, and no no-flow destabilization. That is strong evidence that the remaining frontier is the late, heavily cracked tail of the first micro ramp, not the top-level `flow / no-flow` split itself.
+- In the current default `fe2_crack50` one-step audit, all four submodels now reach `100%` of the first `+2.5 mm` target with `4–7` accepted ramp substeps, `0–3` bisections, `80–82` active cracked points, and zero tail-rescue activations. The step still aborts, but now with `MacroSolveFailed` and `failed_submodels = 0`: the scientific frontier has moved from the local micro ramp to the first macro FE2 re-solve with injected cracked-section operators.
 - The optional consistent-tangent override remains an audit path, not a promotion path. The earlier negative result is preserved as historical evidence, but after the FE2 setup-lifetime correction it should be treated as a benchmark that needs re-audit before any final scientific claim is made.
 
 ## Bottom Line

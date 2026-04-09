@@ -168,6 +168,11 @@ class NonlinearSubModelEvolver {
     int    arc_length_threshold_{3}; // switch after this many consecutive divergences
     int    adaptive_max_substeps_{30};
     int    adaptive_max_bisections_{10};
+    int    adaptive_tail_rescue_attempts_{0};
+    double adaptive_tail_rescue_progress_threshold_{0.75};
+    int    adaptive_tail_rescue_substep_bonus_{12};
+    int    adaptive_tail_rescue_bisection_bonus_{4};
+    double adaptive_tail_rescue_initial_fraction_{0.5};
 
     //  Crack VTK filter: minimum opening to include crack plane in output.
     //  Cracks below this threshold (in strain units) are omitted from VTK
@@ -227,6 +232,404 @@ class NonlinearSubModelEvolver {
             make_bc_applicator_(),
             make_state_ops_(),
             condensed_workspace_.get()};
+    }
+
+    struct MaterialSolveDiagnostics {
+        int active_cracked_points{0};
+        int max_num_cracks_at_point{0};
+        int max_no_flow_stabilization_iterations{0};
+        int total_no_flow_crack_state_switches{0};
+        bool no_flow_unstabilized_detected{false};
+        double max_no_flow_recovery_residual{0.0};
+        double max_no_flow_coupling_update_norm{0.0};
+    };
+
+    struct AdaptiveRampSolveStats {
+        bool converged{false};
+        int last_reason{0};
+        PetscInt last_snes_iterations{0};
+        double last_function_norm{0.0};
+        int total_substeps{0};
+        int total_bisections{0};
+        int total_tail_rescue_attempts{0};
+        double achieved_fraction{0.0};
+        double tail_rescue_trigger_fraction{0.0};
+        double failed_target_fraction{0.0};
+        double failed_step_fraction{0.0};
+        double minimum_step_fraction{0.0};
+        int failed_substep_index{0};
+        SubModelFailureCause failure_cause{SubModelFailureCause::None};
+    };
+
+    [[nodiscard]] static SubModelFailureCause
+    classify_snes_failure_(SNESConvergedReason reason) noexcept
+    {
+        switch (reason) {
+        case SNES_DIVERGED_FUNCTION_DOMAIN:
+            return SubModelFailureCause::FunctionDomain;
+        case SNES_DIVERGED_LINEAR_SOLVE:
+        case SNES_DIVERGED_INNER:
+            return SubModelFailureCause::LinearSolveFailed;
+        default:
+            return SubModelFailureCause::NewtonDiverged;
+        }
+    }
+
+    static void apply_material_diagnostics_(
+        SubModelSolverResult& result,
+        const MaterialSolveDiagnostics& diagnostics) noexcept
+    {
+        result.material_points_with_active_cracks =
+            diagnostics.active_cracked_points;
+        result.max_num_cracks_at_point =
+            diagnostics.max_num_cracks_at_point;
+        result.max_no_flow_stabilization_iterations =
+            diagnostics.max_no_flow_stabilization_iterations;
+        result.total_no_flow_crack_state_switches =
+            diagnostics.total_no_flow_crack_state_switches;
+        result.no_flow_unstabilized_detected =
+            diagnostics.no_flow_unstabilized_detected;
+        result.max_material_no_flow_recovery_residual =
+            diagnostics.max_no_flow_recovery_residual;
+        result.max_material_no_flow_coupling_update_norm =
+            diagnostics.max_no_flow_coupling_update_norm;
+    }
+
+    [[nodiscard]] MaterialSolveDiagnostics collect_material_diagnostics_() const
+    {
+        MaterialSolveDiagnostics diagnostics;
+        if (!model_) {
+            return diagnostics;
+        }
+
+        for (const auto& elem : model_->elements()) {
+            const auto snapshots = elem.material_point_snapshots();
+            for (const auto& snap : snapshots) {
+                if (snap.num_cracks.value_or(0) > 0) {
+                    ++diagnostics.active_cracked_points;
+                }
+                diagnostics.max_num_cracks_at_point = std::max(
+                    diagnostics.max_num_cracks_at_point,
+                    snap.num_cracks.value_or(0));
+                diagnostics.max_no_flow_stabilization_iterations = std::max(
+                    diagnostics.max_no_flow_stabilization_iterations,
+                    snap.no_flow_stabilization_iterations.value_or(0));
+                diagnostics.total_no_flow_crack_state_switches +=
+                    snap.no_flow_crack_state_switches.value_or(0);
+                diagnostics.no_flow_unstabilized_detected =
+                    diagnostics.no_flow_unstabilized_detected
+                    || !snap.no_flow_stabilized.value_or(true);
+                diagnostics.max_no_flow_recovery_residual = std::max(
+                    diagnostics.max_no_flow_recovery_residual,
+                    snap.no_flow_recovery_residual.value_or(0.0));
+                diagnostics.max_no_flow_coupling_update_norm = std::max(
+                    diagnostics.max_no_flow_coupling_update_norm,
+                    snap.no_flow_coupling_update_norm.value_or(0.0));
+            }
+        }
+
+        return diagnostics;
+    }
+
+    [[nodiscard]] bool should_attempt_tail_rescue_(
+        const AdaptiveRampSolveStats& stats,
+        double global_base_fraction,
+        double global_span_fraction,
+        int rescue_attempts_done) const noexcept
+    {
+        if (adaptive_tail_rescue_attempts_ <= 0
+            || rescue_attempts_done >= adaptive_tail_rescue_attempts_
+            || stats.converged)
+        {
+            return false;
+        }
+
+        if (stats.failure_cause != SubModelFailureCause::AdaptiveMinFractionReached
+            && stats.failure_cause
+                   != SubModelFailureCause::AdaptiveSubstepBudgetExceeded)
+        {
+            return false;
+        }
+
+        if (global_span_fraction <= 1.0e-12) {
+            return false;
+        }
+
+        const double local_progress =
+            (stats.achieved_fraction - global_base_fraction)
+            / global_span_fraction;
+        const double segment_end = global_base_fraction + global_span_fraction;
+        const double remaining = segment_end - stats.achieved_fraction;
+        return local_progress >= adaptive_tail_rescue_progress_threshold_
+            && remaining > 1.0e-12;
+    }
+
+    [[nodiscard]] AdaptiveRampSolveStats solve_ramp_adaptive_(
+        Vec imp_prev,
+        Vec imp_target,
+        double initial_step_fraction,
+        int max_bisections,
+        int max_substeps,
+        bool track_last_good_fraction,
+        double global_base_fraction = 0.0,
+        double global_span_fraction = 1.0)
+    {
+        AdaptiveRampSolveStats stats;
+        stats.achieved_fraction = global_base_fraction;
+        stats.failed_target_fraction = global_base_fraction;
+
+        const double clamped_initial_step =
+            std::clamp(initial_step_fraction, 1.0e-12, 1.0);
+        const int clamped_bisections = std::max(0, max_bisections);
+        const int clamped_substeps = std::max(1, max_substeps);
+        const double min_frac_local =
+            std::ldexp(clamped_initial_step, -clamped_bisections);
+        stats.minimum_step_fraction = global_span_fraction * min_frac_local;
+
+        auto restore_imposed_at_progress = [&](double progress_fraction) {
+            VecCopy(imp_prev, model_->imposed_solution());
+            VecScale(model_->imposed_solution(), 1.0 - progress_fraction);
+            VecAXPY(model_->imposed_solution(), progress_fraction, imp_target);
+        };
+
+        double progress = 0.0;
+        double step_frac = clamped_initial_step;
+
+        Vec U_checkpoint{nullptr};
+        Vec imp_checkpoint{nullptr};
+        VecDuplicate(U_, &U_checkpoint);
+        VecDuplicate(model_->imposed_solution(), &imp_checkpoint);
+        VecCopy(U_, U_checkpoint);
+        restore_imposed_at_progress(progress);
+        VecCopy(model_->imposed_solution(), imp_checkpoint);
+
+        while (progress < 1.0 - 1.0e-12) {
+            const double target_p = std::min(progress + step_frac, 1.0);
+            const double global_target_p =
+                global_base_fraction + global_span_fraction * target_p;
+            const double global_step_frac =
+                global_span_fraction * step_frac;
+            restore_imposed_at_progress(target_p);
+
+            SNESSolve(snes_, nullptr, U_);
+
+            SNESConvergedReason reason;
+            SNESGetConvergedReason(snes_, &reason);
+            PetscInt snes_iters = 0;
+            SNESGetIterationNumber(snes_, &snes_iters);
+            PetscReal fnorm = 0.0;
+            SNESGetFunctionNorm(snes_, &fnorm);
+
+            stats.last_reason = static_cast<int>(reason);
+            stats.last_snes_iterations = snes_iters;
+            stats.last_function_norm = static_cast<double>(fnorm);
+            stats.failed_target_fraction = global_target_p;
+            stats.failed_step_fraction = global_step_frac;
+            stats.failed_substep_index = stats.total_substeps + 1;
+
+            if (reason > 0) {
+                commit_state();
+                VecCopy(U_, U_checkpoint);
+                VecCopy(model_->imposed_solution(), imp_checkpoint);
+                progress = target_p;
+                stats.achieved_fraction =
+                    global_base_fraction + global_span_fraction * progress;
+                ++stats.total_substeps;
+                if (track_last_good_fraction) {
+                    last_good_frac_ = global_step_frac;
+                }
+
+                if (stats.total_substeps >= clamped_substeps
+                    && progress < 1.0 - 1.0e-12)
+                {
+                    stats.failure_cause =
+                        SubModelFailureCause::AdaptiveSubstepBudgetExceeded;
+                    break;
+                }
+
+                std::println(
+                    "    [SubModel {:2d}] sub-step {:2d}: "
+                    "p={:.1f}→{:.1f}%  SNES={:2d} iters  reason={}  frac={:.3e}",
+                    sub_->parent_element_id,
+                    stats.total_substeps,
+                    (global_target_p - global_step_frac) * 100.0,
+                    global_target_p * 100.0,
+                    static_cast<int>(snes_iters),
+                    static_cast<int>(reason),
+                    global_step_frac);
+
+                step_frac = std::min(step_frac * 2.0, 1.0 - progress);
+                if (step_frac <= 0.0) {
+                    break;
+                }
+                continue;
+            }
+
+            VecCopy(U_checkpoint, U_);
+            VecCopy(imp_checkpoint, model_->imposed_solution());
+            revert_state();
+            ++stats.total_bisections;
+            stats.failure_cause = classify_snes_failure_(reason);
+
+            std::println(
+                "    [SubModel {:2d}] BISECT at p={:.1f}%  "
+                "SNES diverged (reason={})  frac {:.3e}→{:.3e}",
+                sub_->parent_element_id,
+                global_target_p * 100.0,
+                static_cast<int>(reason),
+                global_step_frac,
+                global_span_fraction * step_frac * 0.5);
+
+            step_frac *= 0.5;
+            if (step_frac < min_frac_local) {
+                stats.failure_cause =
+                    SubModelFailureCause::AdaptiveMinFractionReached;
+                break;
+            }
+        }
+
+        stats.converged = (progress >= 1.0 - 1.0e-12);
+        stats.achieved_fraction =
+            global_base_fraction + global_span_fraction * progress;
+        if (stats.converged) {
+            stats.failure_cause = SubModelFailureCause::None;
+        } else if (stats.total_substeps >= clamped_substeps
+                   && progress < 1.0 - 1.0e-12)
+        {
+            stats.failure_cause =
+                SubModelFailureCause::AdaptiveSubstepBudgetExceeded;
+        }
+
+        if (stats.converged) {
+            std::println(
+                "  [SubModel {}] Adaptive ramp: {} sub-steps, {} bisections "
+                "to reach target",
+                sub_->parent_element_id,
+                stats.total_substeps,
+                stats.total_bisections);
+        } else if (stats.total_substeps > 0) {
+            std::println(
+                "  [SubModel {}] Adaptive ramp PARTIAL: {} sub-steps reached "
+                "{:.1f}% ({} bisections)",
+                sub_->parent_element_id,
+                stats.total_substeps,
+                progress * 100.0,
+                stats.total_bisections);
+        } else {
+            std::println(
+                "  [SubModel {}] Adaptive ramp FAILED after {} bisections "
+                "(min frac {:.1e})",
+                sub_->parent_element_id,
+                stats.total_bisections,
+                stats.minimum_step_fraction);
+        }
+
+        VecDestroy(&U_checkpoint);
+        VecDestroy(&imp_checkpoint);
+        return stats;
+    }
+
+    [[nodiscard]] AdaptiveRampSolveStats solve_ramp_with_tail_rescue_(
+        Vec imp_prev,
+        Vec imp_target,
+        double initial_step_fraction,
+        int max_bisections,
+        int max_substeps,
+        bool track_last_good_fraction,
+        double global_base_fraction = 0.0,
+        double global_span_fraction = 1.0)
+    {
+        auto stats = solve_ramp_adaptive_(
+            imp_prev,
+            imp_target,
+            initial_step_fraction,
+            max_bisections,
+            max_substeps,
+            track_last_good_fraction,
+            global_base_fraction,
+            global_span_fraction);
+
+        const double segment_end = global_base_fraction + global_span_fraction;
+        while (should_attempt_tail_rescue_(
+            stats,
+            global_base_fraction,
+            global_span_fraction,
+            stats.total_tail_rescue_attempts))
+        {
+            ++stats.total_tail_rescue_attempts;
+            if (stats.tail_rescue_trigger_fraction <= 0.0) {
+                stats.tail_rescue_trigger_fraction = stats.achieved_fraction;
+            }
+
+            const double rescue_base = stats.achieved_fraction;
+            const double rescue_span = segment_end - rescue_base;
+            const int rescue_substeps =
+                std::max(1,
+                         max_substeps
+                             + stats.total_tail_rescue_attempts
+                                   * adaptive_tail_rescue_substep_bonus_);
+            const int rescue_bisections =
+                std::max(0,
+                         max_bisections
+                             + stats.total_tail_rescue_attempts
+                                   * adaptive_tail_rescue_bisection_bonus_);
+            const int accepted_before = stats.total_substeps;
+
+            Vec rescue_prev{nullptr};
+            VecDuplicate(model_->imposed_solution(), &rescue_prev);
+            VecCopy(model_->imposed_solution(), rescue_prev);
+
+            std::println(
+                "  [SubModel {}] Tail rescue {}/{} from {:.1f}% "
+                "(remaining {:.3e}, substeps {}, bisections {})",
+                sub_->parent_element_id,
+                stats.total_tail_rescue_attempts,
+                adaptive_tail_rescue_attempts_,
+                rescue_base * 100.0,
+                rescue_span,
+                rescue_substeps,
+                rescue_bisections);
+
+            auto rescue_stats = solve_ramp_adaptive_(
+                rescue_prev,
+                imp_target,
+                adaptive_tail_rescue_initial_fraction_,
+                rescue_bisections,
+                rescue_substeps,
+                track_last_good_fraction,
+                rescue_base,
+                rescue_span);
+            VecDestroy(&rescue_prev);
+
+            stats.last_reason = rescue_stats.last_reason;
+            stats.last_snes_iterations = rescue_stats.last_snes_iterations;
+            stats.last_function_norm = rescue_stats.last_function_norm;
+            stats.total_substeps += rescue_stats.total_substeps;
+            stats.total_bisections += rescue_stats.total_bisections;
+            stats.achieved_fraction = rescue_stats.achieved_fraction;
+            stats.failed_target_fraction =
+                rescue_stats.failed_target_fraction;
+            stats.failed_step_fraction = rescue_stats.failed_step_fraction;
+            stats.minimum_step_fraction = std::min(
+                stats.minimum_step_fraction,
+                rescue_stats.minimum_step_fraction);
+            stats.failure_cause = rescue_stats.failure_cause;
+            stats.converged = rescue_stats.converged;
+            stats.failed_substep_index = rescue_stats.converged
+                ? 0
+                : accepted_before + rescue_stats.failed_substep_index;
+
+            if (rescue_stats.converged) {
+                stats.failure_cause = SubModelFailureCause::None;
+                break;
+            }
+
+            if (rescue_stats.achieved_fraction <= rescue_base + 1.0e-12) {
+                break;
+            }
+        }
+
+        return stats;
     }
 
     [[nodiscard]] static double default_local_length_scale_mm_(
@@ -475,6 +878,15 @@ public:
         , arc_length_threshold_{o.arc_length_threshold_}
         , adaptive_max_substeps_{o.adaptive_max_substeps_}
         , adaptive_max_bisections_{o.adaptive_max_bisections_}
+        , adaptive_tail_rescue_attempts_{o.adaptive_tail_rescue_attempts_}
+        , adaptive_tail_rescue_progress_threshold_{
+              o.adaptive_tail_rescue_progress_threshold_}
+        , adaptive_tail_rescue_substep_bonus_{
+              o.adaptive_tail_rescue_substep_bonus_}
+        , adaptive_tail_rescue_bisection_bonus_{
+              o.adaptive_tail_rescue_bisection_bonus_}
+        , adaptive_tail_rescue_initial_fraction_{
+              o.adaptive_tail_rescue_initial_fraction_}
         , min_crack_opening_{o.min_crack_opening_}
         , alpha_penalty_{o.alpha_penalty_}
         , snes_max_it_{o.snes_max_it_}
@@ -527,6 +939,16 @@ public:
             arc_length_threshold_    = o.arc_length_threshold_;
             adaptive_max_substeps_   = o.adaptive_max_substeps_;
             adaptive_max_bisections_ = o.adaptive_max_bisections_;
+            adaptive_tail_rescue_attempts_ =
+                o.adaptive_tail_rescue_attempts_;
+            adaptive_tail_rescue_progress_threshold_ =
+                o.adaptive_tail_rescue_progress_threshold_;
+            adaptive_tail_rescue_substep_bonus_ =
+                o.adaptive_tail_rescue_substep_bonus_;
+            adaptive_tail_rescue_bisection_bonus_ =
+                o.adaptive_tail_rescue_bisection_bonus_;
+            adaptive_tail_rescue_initial_fraction_ =
+                o.adaptive_tail_rescue_initial_fraction_;
             min_crack_opening_       = o.min_crack_opening_;
             alpha_penalty_           = o.alpha_penalty_;
             snes_max_it_             = o.snes_max_it_;
@@ -591,6 +1013,21 @@ public:
     {
         adaptive_max_substeps_ = std::max(1, max_substeps);
         adaptive_max_bisections_ = std::max(1, max_bisections);
+    }
+
+    void set_adaptive_tail_rescue_policy(int max_attempts,
+                                         double progress_threshold,
+                                         int substep_bonus,
+                                         int bisection_bonus,
+                                         double initial_fraction = 0.5) noexcept
+    {
+        adaptive_tail_rescue_attempts_ = std::max(0, max_attempts);
+        adaptive_tail_rescue_progress_threshold_ =
+            std::clamp(progress_threshold, 0.0, 1.0);
+        adaptive_tail_rescue_substep_bonus_ = std::max(0, substep_bonus);
+        adaptive_tail_rescue_bisection_bonus_ = std::max(0, bisection_bonus);
+        adaptive_tail_rescue_initial_fraction_ =
+            std::clamp(initial_fraction, 1.0e-12, 1.0);
     }
     [[nodiscard]] bool arc_length_active() const noexcept { return use_arc_length_; }
 
@@ -1115,13 +1552,7 @@ private:
         Vec target;
         VecDuplicate(model_->imposed_solution(), &target);
         VecCopy(model_->imposed_solution(), target);
-
-        bool converged = true;
         const int N = first_step_increments_;
-        int completed_substeps = 0;
-        int last_reason = 0;
-        PetscInt last_nits = 0;
-        double last_fnorm = 0.0;
 
         // Debug: check target BC norm
         {
@@ -1132,58 +1563,134 @@ private:
                          N, snes_max_it_, snes_atol_, snes_rtol_);
         }
 
-        for (int k = 1; k <= N; ++k) {
-            const double p = static_cast<double>(k) / static_cast<double>(N);
+        Vec imp_zero;
+        VecDuplicate(model_->imposed_solution(), &imp_zero);
+        VecSet(imp_zero, 0.0);
+        VecCopy(imp_zero, model_->imposed_solution());
 
-            // Set imposed = target * p
-            VecCopy(target, model_->imposed_solution());
-            VecScale(model_->imposed_solution(), p);
+        const bool use_adaptive_first_ramp =
+            use_arc_length_ || first_step_bisect_ > 0;
+        AdaptiveRampSolveStats adaptive_stats{};
+        bool converged = true;
+        int completed_substeps = 0;
+        int last_reason = 0;
+        PetscInt last_nits = 0;
+        double last_fnorm = 0.0;
+        int total_bisections = 0;
+        double minimum_step_fraction =
+            (N > 0) ? 1.0 / static_cast<double>(N) : 0.0;
+        double failed_target_fraction = 0.0;
+        double failed_step_fraction = minimum_step_fraction;
+        int failed_substep_index = 0;
+        SubModelFailureCause failure_cause = SubModelFailureCause::None;
 
-            // Newton iteration from current U
-            SNESSolve(snes_, nullptr, U_);
+        if (use_adaptive_first_ramp) {
+            const int max_substeps = std::max(
+                adaptive_max_substeps_,
+                std::max(1, N) * (std::max(0, first_step_bisect_) + 1));
+            adaptive_stats = solve_ramp_with_tail_rescue_(
+                imp_zero,
+                target,
+                (N > 0) ? 1.0 / static_cast<double>(N) : 1.0,
+                first_step_bisect_,
+                max_substeps,
+                false);
+            converged = adaptive_stats.converged;
+            completed_substeps = adaptive_stats.total_substeps;
+            last_reason = adaptive_stats.last_reason;
+            last_nits = adaptive_stats.last_snes_iterations;
+            last_fnorm = adaptive_stats.last_function_norm;
+            total_bisections = adaptive_stats.total_bisections;
+            minimum_step_fraction = adaptive_stats.minimum_step_fraction;
+            failed_target_fraction = adaptive_stats.failed_target_fraction;
+            failed_step_fraction = adaptive_stats.failed_step_fraction;
+            failed_substep_index = adaptive_stats.failed_substep_index;
+            failure_cause = adaptive_stats.failure_cause;
+        } else {
+            for (int k = 1; k <= N; ++k) {
+                const double p =
+                    static_cast<double>(k) / static_cast<double>(N);
 
-            SNESConvergedReason reason;
-            SNESGetConvergedReason(snes_, &reason);
+                VecCopy(target, model_->imposed_solution());
+                VecScale(model_->imposed_solution(), p);
 
-            PetscInt nits;
-            SNESGetIterationNumber(snes_, &nits);
+                SNESSolve(snes_, nullptr, U_);
 
-            PetscReal fnorm;
-            SNESGetFunctionNorm(snes_, &fnorm);
-            last_reason = static_cast<int>(reason);
-            last_nits = nits;
-            last_fnorm = static_cast<double>(fnorm);
+                SNESConvergedReason reason;
+                SNESGetConvergedReason(snes_, &reason);
 
-            std::println("  [first_solve] k={}/{} p={:.4f} reason={} iters={} ||F||={:.4e}",
-                         k, N, p, static_cast<int>(reason), nits, fnorm);
+                PetscInt nits;
+                SNESGetIterationNumber(snes_, &nits);
 
-            if (reason > 0) {
-                // Trial FE² iterations still need path-dependent constitutive
-                // evolution across the ramp substeps. Exact rollback is handled
-                // by the outer local checkpoint, so we commit here regardless
-                // of auto_commit_.
-                commit_state();
-                completed_substeps = k;
-            } else {
-                revert_state();
-                converged = false;
-                break;
+                PetscReal fnorm;
+                SNESGetFunctionNorm(snes_, &fnorm);
+                last_reason = static_cast<int>(reason);
+                last_nits = nits;
+                last_fnorm = static_cast<double>(fnorm);
+
+                std::println(
+                    "  [first_solve] k={}/{} p={:.4f} reason={} iters={} ||F||={:.4e}",
+                    k,
+                    N,
+                    p,
+                    static_cast<int>(reason),
+                    nits,
+                    fnorm);
+
+                if (reason > 0) {
+                    commit_state();
+                    completed_substeps = k;
+                } else {
+                    revert_state();
+                    converged = false;
+                    failed_substep_index = completed_substeps + 1;
+                    failed_target_fraction =
+                        (N > 0)
+                            ? static_cast<double>(failed_substep_index)
+                                  / static_cast<double>(N)
+                            : 0.0;
+                    failure_cause = classify_snes_failure_(reason);
+                    break;
+                }
             }
         }
 
         VecDestroy(&target);
+        VecDestroy(&imp_zero);
         model_ready_ = true;
 
+        const auto material_diagnostics = collect_material_diagnostics_();
         auto result = extract_results(converged);
         result.stage = SubModelSolveStage::FirstSolveRamp;
+        result.failure_cause = converged
+            ? SubModelFailureCause::None
+            : failure_cause;
         result.snes_reason = last_reason;
         result.snes_iterations = last_nits;
         result.function_norm = last_fnorm;
         result.adaptive_substeps = completed_substeps;
+        result.adaptive_bisections = total_bisections;
+        result.adaptive_tail_rescue_attempts =
+            adaptive_stats.total_tail_rescue_attempts;
         result.achieved_fraction =
-            (N > 0) ? static_cast<double>(completed_substeps) / static_cast<double>(N)
-                    : 0.0;
-        result.used_arc_length = false;
+            use_adaptive_first_ramp
+                ? adaptive_stats.achieved_fraction
+                : ((N > 0)
+                       ? static_cast<double>(completed_substeps)
+                             / static_cast<double>(N)
+                       : 0.0);
+        result.adaptive_tail_rescue_trigger_fraction =
+            adaptive_stats.tail_rescue_trigger_fraction;
+        result.used_arc_length = use_arc_length_;
+        result.failed_substep_index =
+            converged ? 0 : failed_substep_index;
+        result.failed_target_fraction =
+            converged
+                ? result.achieved_fraction
+                : failed_target_fraction;
+        result.failed_step_fraction = failed_step_fraction;
+        result.minimum_step_fraction = minimum_step_fraction;
+        apply_material_diagnostics_(result, material_diagnostics);
         return result;
     }
 
@@ -1243,13 +1750,22 @@ private:
             }
         }
 
+        const auto material_diagnostics = collect_material_diagnostics_();
         auto result = extract_results(converged);
         result.stage = SubModelSolveStage::SubsequentFullStep;
+        result.failure_cause = converged
+            ? SubModelFailureCause::None
+            : classify_snes_failure_(reason);
         result.snes_reason = static_cast<int>(reason);
         result.snes_iterations = nits;
         result.function_norm = static_cast<double>(fnorm);
         result.achieved_fraction = converged ? 1.0 : 0.0;
         result.used_arc_length = false;
+        result.failed_substep_index = converged ? 0 : 1;
+        result.failed_target_fraction = 1.0;
+        result.failed_step_fraction = 1.0;
+        result.minimum_step_fraction = 1.0;
+        apply_material_diagnostics_(result, material_diagnostics);
         return result;
     }
 
@@ -1262,10 +1778,6 @@ private:
     //  The method fails only when the minimum step fraction is reached.
 
     SubModelSolverResult subsequent_solve_adaptive() {
-        const int MAX_BISECT = adaptive_max_bisections_;
-        const double MIN_FRAC = std::ldexp(1.0, -MAX_BISECT);
-        const int MAX_SUBSTEPS = adaptive_max_substeps_;
-
         // 1. Save previous imposed values (last converged step's BCs)
         Vec imp_prev;
         VecDuplicate(model_->imposed_solution(), &imp_prev);
@@ -1277,116 +1789,52 @@ private:
         Vec imp_target;
         VecDuplicate(model_->imposed_solution(), &imp_target);
         VecCopy(model_->imposed_solution(), imp_target);
-
-        // 3. Adaptive sub-stepping loop
-        double progress  = 0.0;   // fraction completed [0, 1]
-        double step_frac = last_good_frac_;   // start from cached fraction
-        int    total_subs = 0;
-        int    total_bisections = 0;
-        bool   all_converged = true;
-        int    last_reason = 0;
-        PetscInt last_snes_iters = 0;
-        double last_fnorm = 0.0;
-
-        // Save U at last converged sub-step for restoration on failure
-        Vec U_checkpoint;
-        VecDuplicate(U_, &U_checkpoint);
-        VecCopy(U_, U_checkpoint);
-
-        while (progress < 1.0 - 1e-12) {
-            double target_p = std::min(progress + step_frac, 1.0);
-
-            // Interpolate: imp = (1 − p)·imp_prev + p·imp_target
-            VecCopy(imp_prev, model_->imposed_solution());
-            VecScale(model_->imposed_solution(), 1.0 - target_p);
-            VecAXPY(model_->imposed_solution(), target_p, imp_target);
-
-            SNESSolve(snes_, nullptr, U_);
-
-            SNESConvergedReason reason;
-            SNESGetConvergedReason(snes_, &reason);
-            PetscInt snes_iters;
-            SNESGetIterationNumber(snes_, &snes_iters);
-            PetscReal fnorm = 0.0;
-            SNESGetFunctionNorm(snes_, &fnorm);
-            last_reason = static_cast<int>(reason);
-            last_snes_iters = snes_iters;
-            last_fnorm = static_cast<double>(fnorm);
-
-            if (reason > 0) {
-                commit_state();
-                VecCopy(U_, U_checkpoint);  // update checkpoint
-                last_good_frac_ = step_frac;  // cache BEFORE recovery
-                progress = target_p;
-                ++total_subs;
-                std::println("    [SubModel {:2d}] sub-step {:2d}: "
-                             "p={:.1f}→{:.1f}%  SNES={:2d} iters  reason={}  frac={:.3e}",
-                             sub_->parent_element_id, total_subs,
-                             (target_p - step_frac) * 100.0,
-                             target_p * 100.0,
-                             static_cast<int>(snes_iters),
-                             static_cast<int>(reason), step_frac);
-                // Try to recover step size for next sub-step
-                step_frac = std::min(step_frac * 2.0, 1.0 - progress);
-            } else {
-                VecCopy(U_checkpoint, U_);  // restore displacement vector
-                revert_state();
-                ++total_bisections;
-                std::println("    [SubModel {:2d}] BISECT at p={:.1f}%  "
-                             "SNES diverged (reason={})  frac {:.3e}→{:.3e}",
-                             sub_->parent_element_id,
-                             target_p * 100.0,
-                             static_cast<int>(reason),
-                             step_frac, step_frac * 0.5);
-                step_frac *= 0.5;
-                if (step_frac < MIN_FRAC) {
-                    all_converged = false;
-                    break;
-                }
-            }
-
-            if (total_subs >= MAX_SUBSTEPS && progress < 1.0 - 1e-12) {
-                all_converged = false;
-                break;
-            }
-        }
+        const auto stats = solve_ramp_with_tail_rescue_(
+            imp_prev,
+            imp_target,
+            std::clamp(last_good_frac_, 1.0e-12, 1.0),
+            adaptive_max_bisections_,
+            adaptive_max_substeps_,
+            true);
 
         // 4. Book-keeping  (last_good_frac_ is updated inside the loop)
-        if (all_converged) {
+        if (stats.converged) {
             consecutive_divergences_ = 0;
-            std::println("  [SubModel {}] Adaptive sub-stepping: "
-                         "{} sub-steps, {} bisections to reach target",
-                         sub_->parent_element_id, total_subs, total_bisections);
         } else {
-            if (total_subs > 0) {
+            if (stats.total_substeps > 0) {
                 // Partial progress: keep committed state, reset divergence counter
                 consecutive_divergences_ = 0;
-                std::println("  [SubModel {}] Adaptive sub-stepping PARTIAL: "
-                             "{} sub-steps reached {:.1f}% ({} bisections)",
-                             sub_->parent_element_id, total_subs,
-                             progress * 100.0, total_bisections);
             } else {
                 ++consecutive_divergences_;
-                std::println("  [SubModel {}] Adaptive sub-stepping FAILED "
-                             "after {} bisections (min frac {:.1e})",
-                             sub_->parent_element_id,
-                             total_bisections, MIN_FRAC);
             }
         }
 
         VecDestroy(&imp_prev);
         VecDestroy(&imp_target);
-        VecDestroy(&U_checkpoint);
 
-        auto result = extract_results(all_converged);
+        const auto material_diagnostics = collect_material_diagnostics_();
+        auto result = extract_results(stats.converged);
         result.stage = SubModelSolveStage::SubsequentAdaptiveStep;
-        result.snes_reason = last_reason;
-        result.snes_iterations = last_snes_iters;
-        result.function_norm = last_fnorm;
-        result.adaptive_substeps = total_subs;
-        result.adaptive_bisections = total_bisections;
-        result.achieved_fraction = progress;
+        result.failure_cause = stats.converged
+            ? SubModelFailureCause::None
+            : stats.failure_cause;
+        result.snes_reason = stats.last_reason;
+        result.snes_iterations = stats.last_snes_iterations;
+        result.function_norm = stats.last_function_norm;
+        result.adaptive_substeps = stats.total_substeps;
+        result.adaptive_bisections = stats.total_bisections;
+        result.adaptive_tail_rescue_attempts =
+            stats.total_tail_rescue_attempts;
+        result.achieved_fraction = stats.achieved_fraction;
+        result.adaptive_tail_rescue_trigger_fraction =
+            stats.tail_rescue_trigger_fraction;
         result.used_arc_length = true;
+        result.failed_target_fraction = stats.failed_target_fraction;
+        result.failed_step_fraction = stats.failed_step_fraction;
+        result.minimum_step_fraction = stats.minimum_step_fraction;
+        result.failed_substep_index =
+            stats.converged ? 0 : stats.failed_substep_index;
+        apply_material_diagnostics_(result, material_diagnostics);
         return result;
     }
 

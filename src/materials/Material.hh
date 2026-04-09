@@ -163,6 +163,46 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
       snap.tau_o_max   = alpha.tau_o_max;
    }
 
+   if constexpr (requires {
+      material.internal_state().last_solution_mode;
+      material.internal_state().last_trial_sigma_o;
+      material.internal_state().last_trial_tau_o;
+      material.internal_state().last_no_flow_coupling_update_norm;
+      material.internal_state().last_no_flow_recovery_residual;
+      material.internal_state().last_no_flow_stabilization_iterations;
+      material.internal_state().last_no_flow_crack_state_switches;
+      material.internal_state().last_no_flow_stabilized;
+   }) {
+      const auto& alpha = material.internal_state();
+      snap.solution_mode =
+         static_cast<int>(alpha.last_solution_mode);
+      snap.trial_sigma_o = alpha.last_trial_sigma_o;
+      snap.trial_tau_o = alpha.last_trial_tau_o;
+      snap.no_flow_coupling_update_norm =
+         alpha.last_no_flow_coupling_update_norm;
+      snap.no_flow_recovery_residual =
+         alpha.last_no_flow_recovery_residual;
+      snap.no_flow_stabilization_iterations =
+         alpha.last_no_flow_stabilization_iterations;
+      snap.no_flow_crack_state_switches =
+         alpha.last_no_flow_crack_state_switches;
+      snap.no_flow_stabilized = alpha.last_no_flow_stabilized;
+   }
+
+   if constexpr (requires { material.last_evaluation_diagnostics(); }) {
+      const auto& diag = material.last_evaluation_diagnostics();
+      snap.solution_mode = static_cast<int>(diag.solution_mode);
+      snap.trial_sigma_o = diag.trial_sigma_o;
+      snap.trial_tau_o = diag.trial_tau_o;
+      snap.no_flow_coupling_update_norm = diag.no_flow_coupling_update_norm;
+      snap.no_flow_recovery_residual = diag.no_flow_recovery_residual;
+      snap.no_flow_stabilization_iterations =
+         diag.no_flow_stabilization_iterations;
+      snap.no_flow_crack_state_switches =
+         diag.no_flow_crack_state_switches;
+      snap.no_flow_stabilized = diag.no_flow_stabilized;
+   }
+
    return snap;
 }
 

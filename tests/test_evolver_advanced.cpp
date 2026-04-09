@@ -221,6 +221,94 @@ void test_adaptive_substepping_accepts_exact_budget_completion()
           "achieved fraction reports full completion");
 }
 
+void test_first_solve_honours_initial_bisection_contract()
+{
+    std::cout << "\n== First solve adaptive ramp contract ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_incremental_params(4, 3);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "first solve converges under the configured ramp contract");
+    check(solve.stage == SubModelSolveStage::FirstSolveRamp,
+          "first solve still reports the ramp stage");
+    check(solve.adaptive_substeps >= 1,
+          "first solve reports the number of accepted ramp substeps");
+    check(solve.adaptive_bisections >= 0,
+          "first solve reports the number of ramp bisections");
+    check(std::abs(solve.minimum_step_fraction - 1.0 / 32.0) < 1.0e-12,
+          "first solve minimum fraction reflects increments times configured bisections");
+}
+
+void test_first_solve_can_start_in_arc_length_mode()
+{
+    std::cout << "\n== First solve arc-length-from-start ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_incremental_params(2, 2);
+    ev.enable_arc_length(true);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "first solve converges when adaptive mode is enabled from the start");
+    check(solve.used_arc_length,
+          "first solve reports the from-start adaptive mode");
+    check(std::abs(solve.minimum_step_fraction - 1.0 / 8.0) < 1.0e-12,
+          "from-start adaptive mode exposes the expected first-ramp minimum fraction");
+}
+
+void test_tail_rescue_policy_stays_dormant_on_easy_first_ramp()
+{
+    std::cout << "\n== Tail rescue stays dormant on easy ramp ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+
+    auto ek = make_ek(
+        0, Eigen::Vector3d{1.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_incremental_params(2, 2);
+    ev.enable_arc_length(true);
+    ev.set_adaptive_tail_rescue_policy(2, 0.75, 8, 2, 0.5);
+
+    const auto solve = ev.solve_step(0.0);
+    check(solve.converged,
+          "easy first ramp still converges when tail rescue policy is enabled");
+    check(solve.adaptive_tail_rescue_attempts == 0,
+          "tail rescue metadata stays dormant when the base adaptive ramp already converges");
+    check(solve.adaptive_tail_rescue_trigger_fraction == 0.0,
+          "no tail rescue trigger fraction is reported on an easy ramp");
+}
+
 void test_mode_specific_homogenized_responses()
 {
     std::cout << "\n== Mode-specific homogenized responses ==\n";
@@ -383,6 +471,45 @@ void test_crack_summary_keeps_missing_damage_scalar_honest()
         check(!summary.fracture_history_available,
               "without recorded cracks, fracture-history aggregates stay absent");
     }
+}
+
+void test_local_solver_reports_no_flow_material_diagnostics()
+{
+    std::cout << "\n== Local solver no-flow diagnostics ==\n";
+
+    const double W = 0.20;
+    const double H = 0.20;
+    auto ek = make_ek(
+        0, Eigen::Vector3d{8.0e-4, 0.0, 0.0}, Eigen::Vector3d::Zero());
+
+    MultiscaleCoordinator coord;
+    coord.add_critical_element(ElementKinematics{ek});
+    coord.build_sub_models(SubModelSpec{W, H, 2, 2, 4});
+
+    NonlinearSubModelEvolver ev(coord.sub_models()[0], 30.0, ".", 9999);
+    ev.set_regularization_policy(RegularizationPolicyKind::None, 0.0);
+    ev.set_min_crack_opening(0.0);
+
+    const auto cracked = ev.solve_step(0.0);
+    check(cracked.converged, "cracked axial-tension reference step converges");
+    check(cracked.failure_cause == SubModelFailureCause::None,
+          "successful cracked step reports no failure cause");
+
+    SectionKinematics unload_kin = coord.sub_models()[0].kin_B;
+    unload_kin.u_local[0] = 4.0e-4;
+    ev.update_kinematics(coord.sub_models()[0].kin_A, unload_kin);
+
+    const auto unloaded = ev.solve_step(0.1);
+    check(unloaded.converged,
+          "unloading from a cracked state converges in the local solver");
+    check(unloaded.failure_cause == SubModelFailureCause::None,
+          "successful unloading step keeps the failure cause clear");
+    check(unloaded.max_no_flow_stabilization_iterations >= 1,
+          "local solve result reports no-flow stabilization iterations");
+    check(!unloaded.no_flow_unstabilized_detected,
+          "local solve result reports stabilized no-flow crack histories");
+    check(unloaded.max_material_no_flow_coupling_update_norm > 0.0,
+          "local solve result exposes the largest Eq. (26b) coupling update norm");
 }
 
 void test_local_checkpoint_restores_path_dependent_state()
@@ -956,9 +1083,13 @@ int main(int argc, char** argv)
     test_reinforced_evolver();
     test_adaptive_substepping();
     test_adaptive_substepping_accepts_exact_budget_completion();
+    test_first_solve_honours_initial_bisection_contract();
+    test_first_solve_can_start_in_arc_length_mode();
+    test_tail_rescue_policy_stays_dormant_on_easy_first_ramp();
     test_mode_specific_homogenized_responses();
     test_linearized_consistency_energy_and_operator_comparison();
     test_crack_summary_keeps_missing_damage_scalar_honest();
+    test_local_solver_reports_no_flow_material_diagnostics();
     test_local_checkpoint_restores_path_dependent_state();
     test_trial_mode_adaptive_checkpoint_restores_committed_state();
     test_uninitialized_checkpoint_resets_persistent_local_model();

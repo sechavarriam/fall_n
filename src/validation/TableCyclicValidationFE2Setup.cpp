@@ -174,6 +174,12 @@ FE2CaseContext build_fe2_case_context(
         nl_evolvers.back().set_adaptive_substepping_limits(
             cfg.submodel_adaptive_max_substeps,
             cfg.submodel_adaptive_max_bisections);
+        nl_evolvers.back().set_adaptive_tail_rescue_policy(
+            cfg.submodel_tail_rescue_attempts,
+            cfg.submodel_tail_rescue_progress_threshold,
+            cfg.submodel_tail_rescue_substep_bonus,
+            cfg.submodel_tail_rescue_bisection_bonus,
+            cfg.submodel_tail_rescue_initial_fraction);
         nl_evolvers.back().set_snes_params(
             cfg.submodel_snes_max_it,
             cfg.submodel_snes_atol,

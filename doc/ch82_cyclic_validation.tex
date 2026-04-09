@@ -937,16 +937,53 @@ that only
 \]
 can enter the plastic-flow branch; tensile states and compressive unloading
 now remain explicitly on the no-flow branch, and the effective plastic strains
-stay frozen there.  On the same \(45\)\,s one-step Case~5 probe, the updated
-driver reached the third local ramp increment,
+stay frozen there.  In the same pass, the article's Eq.~(26b) was also
+implemented explicitly in the 3D no-flow branch: once a tensile or unloading
+state is identified, the algorithm now recovers the final elastic strain from
+the no-flow constitutive operator and updates the tensorial inelastic strain
+through
 \[
-  k = 3/4,\qquad p_{\mathrm{local}} = 0.75,
+  {}^{t+\Delta t}\!\varepsilon^{p}_{ij}
+  =
+  {}^{t}\!\varepsilon^{p}_{ij}
+  -
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(N)
+  +
+  {}^{t+\Delta t}\!\varepsilon^{e}_{ij}(0).
 \]
-whereas the earlier corrected-but-pre-audit short probe had only reached
-\(k = 2/4\) within the same observation window.  This is not yet a
-publication-grade convergence proof, but it is reproducible evidence that the
-scientific correction moved the first-step FE\textsuperscript{2} frontier in
-the expected direction.
+When the crack topology or open/closed status changes inside the same
+increment, the no-flow branch now performs a bounded constitutive
+stabilization loop before accepting the final state.  Hence the present
+implementation no longer applies Eq.~(26b) after a single constitutive
+restart; it iterates the cracked operator until the crack-status history
+stabilizes, or until a small constitutive cap is reached.  This is still not a
+literal transcription of the article's full \(m\)-history because the
+crack-count reduction remains regularized, but it is materially closer to
+Table~1 than the old one-shot approximation.
+
+The short-run FE\textsuperscript{2} consequence is now more informative than
+before.  With a deliberately strict diagnostic probe
+\texttt{--submodel-snes-max-it 20}, the first Case~5 macro step aborts with
+all four local models failing already at
+\[
+  k = 1/4,\qquad p_{\mathrm{local}} = 0.25,
+\]
+and the recorded solver diagnostics show zero active cracked material points.
+Therefore the earliest observable instability is a pre-committed-crack Newton
+divergence, not a failure of the crack-status stabilization loop.
+
+With the exploratory short-run probe
+\texttt{--submodel-snes-max-it 60}, the same first macro step aborts only
+later: Submodels~0 and~2 fail at \(k=3/4\), while Submodels~1 and~3 fail at
+\(k=4/4\).  The recorded \texttt{solver\_diagnostics.csv} row then reports,
+for every failed submodel, \(72\) active cracked material points, \(2\) to
+\(3\) cracks at the most damaged points, one no-flow stabilization pass, zero
+unstabilized no-flow states, and elastic-recovery residuals of order
+\(10^{-15}\).  The scientific interpretation is therefore sharper than before:
+the current Case~5 frontier is not well explained by a missing Eq.~(26b) term
+or by an unstabilized \(m\)-loop surrogate.  The blocker has moved to the
+Newton convergence of a heavily cracked local ramp in the range
+\(p_{\mathrm{local}}\in[0.75,1.0]\).
 
 \paragraph{Consistent-tangent audit result.}
 The explicit
@@ -955,11 +992,15 @@ audit, but its interpretation also changed after the ownership fix.  The
 historical one-step benchmark that ended in \texttt{MicroSolveFailed} is still
 kept as evidence that the numerical tangent path is not automatically a
 production win.  However, after the setup-lifetime correction, a fresh
-\(60\)\,s probe with the same override also progressed into the first local
-ramp rather than failing immediately.  Therefore, the correct scientific
-statement is now more modest: the consistent tangent is still experimental, and
-its first-cracked short-run behaviour must be re-established on top of the
-corrected driver before any comparative claim is frozen.
+\(45\)\,s probe with the same override again progressed into the first local
+ramp rather than failing immediately and reached \(k=2/4\).  The newer
+strict \texttt{max-it = 20} diagnostic probe also clarifies the failure mode:
+the consistent tangent does \emph{not} change the local failure classification.
+The four submodels still abort with \texttt{NewtonDiverged} at \(k=1/4\), and
+the recorded residual norms are in fact larger than in the secant path.
+Therefore the correct scientific statement is now more modest: the consistent
+tangent is still experimental, but the current evidence does not support
+promoting it as the immediate cure for the Case~5 frontier.
 
 \paragraph{Root cause.}
 The root cause of the previous immediate frontier was partly architectural, not
@@ -1304,10 +1345,26 @@ assignment occurred after the recovery branch.  This caused the next
 adaptive call to restart from the beginning.  The fix moves the
 assignment before the recovery line.
 
+\paragraph{Bug~4: first-ramp continuation budget silently ignored.}
+The persistent local solver stored \texttt{first\_step\_bisect\_} and exposed
+\texttt{enable\_arc\_length(true)} as part of the FE\textsuperscript{2}
+validation surface, but the first nonlinear solve still executed a fixed
+incremental ramp with no rollback/bisection path.  As a consequence, the
+driver-level contract and the actual local continuation algorithm diverged
+exactly at the first cracked FE\textsuperscript{2} point.  The fix unifies the
+first solve with the adaptive ramp logic, restores both the displacement and
+the imposed boundary vector on failure, and enforces the minimum fraction
+\(\Delta p_{\min} = 2^{-B}/N\) implied by the configured first-ramp
+bisection depth \(B\) and the initial increment count \(N\).
+
 
 %----------------------------------------------------------------------
-\section{Case 5 Root Cause: Secant Tangent Limitation}
+\section{Historical Case 5 Diagnosis: Secant Tangent Limitation}
 \label{sec:case5-failure}
+
+\noindent\textit{Historical note.} This section is retained as provenance only.
+The current audited interpretation is given later in
+Section~\ref{sec:case5-updated-root-cause}.
 
 The two-way FE² coupling requires the sub-model to provide a
 well-conditioned homogenised tangent $\mathbf{D}_{\text{hom}}$ that
@@ -1363,6 +1420,188 @@ with damage, producing a tangent that does not reflect the
 \emph{consistent} (algorithmic) tangent, as analysed in
 Sections~\ref{sec:article-crossref} and~\ref{sec:consistent-tangent}.
 
+
+%----------------------------------------------------------------------
+\section{Updated Case 5 Root Cause Audit}
+\label{sec:case5-updated-root-cause}
+
+The earlier Case~5 narrative was too narrow.  It over-attributed the first
+cracked FE\textsuperscript{2} failure to the secant character of the
+Ko--Bathe tangent while the implementation still contained a more basic local
+continuation defect: the first nonlinear ramp of the persistent sub-model
+solver ignored the configured bisection budget and also ignored the
+``adaptive/arc-length from start'' flag.  In other words, the driver could ask
+for an adaptive first solve, but the local solver still executed a fixed ramp
+\begin{equation}
+  p_k = \frac{k}{N}, \qquad k=1,\dots,N,
+\end{equation}
+with no rollback/bisection mechanism attached to that first solve.
+
+\paragraph{First-ramp continuation that is now actually enforced.}
+The first solve now uses the same continuation contract expected by the cyclic
+validation API.  Starting from \(\Delta p_0 = 1/N\), the local ramp advances
+with
+\begin{equation}
+  p_{n+1}^{\mathrm{trial}} = \min(p_n + \Delta p_n, 1),
+\end{equation}
+accepts a sub-step if the local SNES solve converges, and then expands the
+next fraction according to
+\begin{equation}
+  \Delta p_{n+1} = \min(2 \Delta p_n, 1 - p_{n+1}),
+\end{equation}
+while a failed trial restores the last converged state and bisects
+\begin{equation}
+  \Delta p_n \leftarrow \tfrac{1}{2}\Delta p_n.
+\end{equation}
+With a configured first-ramp bisection depth \(B\), the minimum admissible
+fraction is therefore
+\begin{equation}
+  \Delta p_{\min} = 2^{-B}\Delta p_0 = \frac{2^{-B}}{N}.
+  \label{eq:first-ramp-min-frac}
+\end{equation}
+
+\paragraph{Strict diagnostic probe after the correction.}
+With the updated solver and the strict one-step audit
+\begin{verbatim}
+--submodel-increments 4
+--submodel-bisections 2
+--submodel-adaptive-max-substeps 4
+--submodel-adaptive-max-bisections 2
+--submodel-snes-max-it 20
+\end{verbatim}
+all four sub-models now advance past the old \(k=1/4\) wall:
+\begin{itemize}
+  \item sub-models 0 and 2 reach \(p_{\mathrm{local}} = 0.1875\);
+  \item sub-models 1 and 3 reach \(p_{\mathrm{local}} = 0.3125\).
+\end{itemize}
+The step still aborts, but now with the explicit failure mode
+\texttt{AdaptiveMinFractionReached}.  Therefore the strict frontier is no
+longer ``Newton diverged immediately at the first quarter-step''.
+
+\paragraph{Wider one-step probe after the correction.}
+The more permissive one-step audit
+\begin{verbatim}
+--submodel-increments 4
+--submodel-bisections 2
+--submodel-adaptive-max-substeps 12
+--submodel-adaptive-max-bisections 4
+--submodel-snes-max-it 60
+\end{verbatim}
+moves the frontier substantially farther.  The final
+\texttt{solver\_diagnostics.csv} row now reports:
+\begin{itemize}
+  \item sub-model 0: \(81.25\%\) of the target, 6 accepted sub-steps,
+    9 bisections, failure at \(p_{\mathrm{local}}=0.875\),
+    \(\|F\| = 2.0191\);
+  \item sub-model 1: \(93.75\%\) of the target, 5 accepted sub-steps,
+    5 bisections, failure at \(p_{\mathrm{local}}=1.0\),
+    \(\|F\| = 5.65981\);
+  \item sub-model 2: \(81.25\%\) of the target, 5 accepted sub-steps,
+    7 bisections, failure at \(p_{\mathrm{local}}=0.90625\),
+    \(\|F\| = 2.59141\);
+  \item sub-model 3: \(100\%\) of the target, 7 accepted sub-steps,
+    6 bisections, converged.
+\end{itemize}
+The same row also shows \(72\) to \(82\) active cracked material points, up to
+three cracks at a point, one no-flow stabilization pass at most, zero no-flow
+destabilization events, and elastic-recovery residuals of order \(10^{-15}\).
+
+\paragraph{Updated interpretation.}
+These observations materially change the scientific diagnosis.  The missing
+first-ramp continuation was a real implementation defect, and the current
+Case~5 blocker is no longer best interpreted as an immediate secant-tangent
+collapse.  The present frontier is the \emph{late, heavily cracked tail} of
+the first micro ramp: once the local problem reaches roughly \(80\%\) to
+\(100\%\) of the target drift, Newton still stalls in three of the four
+columns before the minimum admissible continuation fraction is exhausted.  The
+no-flow Eq.~(26b) branch and the bounded crack-status stabilization loop are
+no longer the main suspects for this frontier, because the same runs report
+clean no-flow diagnostics.
+
+\paragraph{Late-tail continuation as a separate algorithmic lever.}
+The persistent local solver now carries an explicit \emph{tail rescue} stage
+for adaptive ramps.  If a ramp reaches a sufficiently advanced fraction
+\(\hat{p}\) of its target but still aborts with
+\texttt{AdaptiveMinFractionReached} or
+\texttt{AdaptiveSubstepBudgetExceeded}, the remaining segment is re-parameterised
+as
+\begin{equation}
+  \mathbf{u}(\eta)
+  = \mathbf{u}(\hat{p})
+    + \eta\left[\mathbf{u}(1) - \mathbf{u}(\hat{p})\right],
+  \qquad \eta \in [0,1],
+\end{equation}
+and solved again with its own adaptive budget.  If the rescued segment starts
+with a local fraction \(\Delta \eta_0\) and bisection depth \(B_{\text{tail}}\),
+the minimum \emph{absolute} continuation fraction of the original target is
+\begin{equation}
+  \Delta p^{\text{tail}}_{\min}
+  = \bigl(1-\hat{p}\bigr)\,2^{-B_{\text{tail}}}\,\Delta\eta_0.
+  \label{eq:tail-rescue-min-frac}
+\end{equation}
+This is a standard continuation idea in the spirit of step-length control and
+arc-length methods~\cite{Riks1979,Crisfield1981}: once a large part of the
+target increment has already been accepted, the remaining segment should be
+treated as a new continuation problem, not as an all-or-nothing failure.
+
+\paragraph{Default \texttt{fe2\_crack50} profile after the tail-continuation pass.}
+Under the current default one-step audit
+\begin{verbatim}
+--fe2-profile crack50
+--max-steps 1
+\end{verbatim}
+the micro frontier moved again.  All four sub-models now reach
+\(100\%\) of the first \(+2.5\)\,mm target with:
+\begin{itemize}
+  \item sub-model 0: 7 accepted sub-steps, 3 bisections;
+  \item sub-model 1: 4 accepted sub-steps, 0 bisections;
+  \item sub-model 2: 7 accepted sub-steps, 3 bisections;
+  \item sub-model 3: 6 accepted sub-steps, 2 bisections.
+\end{itemize}
+The same \texttt{solver\_diagnostics.csv} row reports \(80\) to \(82\) active
+cracked material points, up to three cracks at a point, zero no-flow
+destabilization events, elastic-recovery residuals again of order
+\(10^{-15}\), and zero tail-rescue activations.  In other words, the default
+\texttt{fe2\_crack50} budget is now large enough that the first local cracked
+ramp closes without needing the new tail rescue at all.
+
+\paragraph{Why the frontier is now macro, not micro.}
+After the four local columns converge, the step still aborts, but now with
+\texttt{MacroSolveFailed}, \texttt{failed\_submodels = 0}, and explicit rollback.
+The relevant constitutive object injected into the macro beam is the affine
+section law
+\begin{equation}
+  \mathbf{s}(\mathbf{e})
+  = \mathbf{s}^{(k)}_{\mu}
+    + \mathbf{D}^{(k)}_{\mu}
+      \left(\mathbf{e} - \mathbf{e}^{(k)}_{\mu}\right),
+  \label{eq:fe2-affine-section-law}
+\end{equation}
+constructed from the converged micro state of fixed-point iteration \(k\).
+The FE\textsuperscript{2} orchestrator now also damps the \emph{first} micro
+predictor according to
+\begin{equation}
+  \mathbf{r}^{(0)}_{\text{pred}}
+  = \omega\,\mathbf{r}^{(0)}_{\mu}
+    + (1-\omega)\,\mathbf{r}^{(0)}_{\text{base}},
+  \qquad
+  \mathbf{r}^{(0)}_{\text{base}} = \mathbf{0},
+  \label{eq:first-predictor-damping}
+\end{equation}
+so that the relaxation policy acts already before the second macro solve.
+Even with that damping, the default Case~5 one-step audit still diverges at
+the macro level.  The current scientific frontier is therefore no longer the
+first cracked micro ramp itself, but the first \emph{macro} FE\textsuperscript{2}
+re-solve driven by fully converged cracked-section operators.
+
+\paragraph{What remains true about the tangent audit.}
+The tangent discussion is still important, but it must now be framed honestly.
+The sparse condensed operator and the numerical consistent tangent remain
+relevant scientific levers for robustness of the late cracked regime.
+However, the present evidence does \emph{not} support the older claim that
+Case~5 fails \emph{primarily} because the secant tangent immediately makes the
+macro operator singular.  The first-ramp continuation defect had to be removed
+before that question could even be asked cleanly.
 
 %----------------------------------------------------------------------
 \section{Cross-Reference: Ko--Bathe Article vs.\ Implementation}
