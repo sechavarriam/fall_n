@@ -21,6 +21,7 @@
 #include <cstring>
 #include <iostream>
 #include <iomanip>
+#include <memory>
 #include <vector>
 #include <array>
 
@@ -46,6 +47,29 @@ static void check(bool cond, const char* msg) {
 
 static constexpr double tol_tight = 1e-6;
 static constexpr double tol       = 1e-4;
+
+namespace {
+
+class ElasticConcreteFactory final : public fall_n::ConcreteMaterialFactory {
+    double E_;
+    double nu_;
+public:
+    ElasticConcreteFactory(double E, double nu) : E_{E}, nu_{nu} {}
+
+    Material<ThreeDimensionalMaterial> create() const override
+    {
+        ContinuumIsotropicElasticMaterial mat_site{E_, nu_};
+        return Material<ThreeDimensionalMaterial>{
+            mat_site, ElasticUpdate{}};
+    }
+
+    std::unique_ptr<fall_n::ConcreteMaterialFactory> clone() const override
+    {
+        return std::make_unique<ElasticConcreteFactory>(*this);
+    }
+};
+
+} // namespace
 
 
 // ── Helper: build a simple ElementKinematics for an axis-aligned beam ─────────
@@ -363,6 +387,36 @@ void test_parallel_build_smoke() {
 
 
 // =============================================================================
+//  Test 8: SubModelSolver honors injected concrete factories
+// =============================================================================
+//
+//  Reconstruction must depend on the material-factory contract rather than on
+//  a hard-coded Ko-Bathe material path.  A simple elastic factory is enough to
+//  verify that the solver can be rebound to a different local constitutive law.
+
+void test_injected_concrete_factory() {
+    std::cout << "\nTest 8: SubModelSolver honors injected concrete factory\n";
+
+    const double E = 1500.0;
+    const double nu = 0.0;
+    const double eps = 2.0e-4;
+
+    auto ek = make_axial_ek(0, 0.0, eps);
+    auto coord = build_coordinator(ek);
+    auto& sub = coord.sub_models()[0];
+
+    fall_n::SubModelSolver solver(
+        30.0,
+        std::make_unique<ElasticConcreteFactory>(E, nu));
+    const auto res = solver.solve(sub);
+
+    check(res.converged, "solver converged with injected elastic factory");
+    check(std::abs(res.E_eff - E) / E < 5.0e-2,
+          "effective modulus follows injected elastic material");
+}
+
+
+// =============================================================================
 //  main
 // =============================================================================
 
@@ -383,6 +437,7 @@ int main(int argc, char** argv) {
     test_uniform_axial_extension();
     test_homogenization_N();
     test_parallel_build_smoke();
+    test_injected_concrete_factory();
 
     std::cout << "\n" << std::string(60, '=') << "\n"
               << "  Summary: " << passed << " passed, " << failed << " failed\n"

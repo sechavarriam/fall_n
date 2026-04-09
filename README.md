@@ -19,6 +19,7 @@ The most mature publication-path subsystem today is the multiscale module:
 - The sparse condensed tangent is validated against adaptive finite differences with configurable norm families.
 - The FE2 outer loop now uses the same family of physically weighted norms for force/tangent residuals that the condensed-tangent validator uses.
 - The persistent local facade has been split further internally through `LocalBoundaryConditionApplicator`, `PersistentLocalStateOps`, `BoundaryReactionHomogenizer`, `LocalCrackDiagnostics`, and `LocalVTKOutputWriter`.
+- The local continuum-material contracts now live in `src/materials/SubmodelMaterialFactory.hh`, while the current Ko-Bathe/Menegotto reference defaults live in `src/materials/SubmodelMaterialFactoryDefaults.hh`; the multiscale core no longer owns those constitutive choices.
 - A local stabilization gate exists in `scripts/ci_multiscale_stabilization.ps1`, and the intended CI surface is frozen in `.github/workflows/multiscale-stability.yml`.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
 - The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
@@ -60,6 +61,8 @@ The multiscale publication path currently looks like this:
 4. `NonlinearSubModelEvolver` acts as the persistent local-model facade.
 5. `BoundaryReactionHomogenizer` computes section forces and the condensed tangent, with explicit fallback and validation against adaptive finite differences.
 
+The current continuum local-model implementation is still reinforced-concrete-oriented, but the dependency boundary is now explicit: multiscale/reconstruction depends on abstract local-material factories, and the Ko-Bathe/Menegotto reference pair is just one materials-module realization. This is the seam intended for future local-model variants, including enriched/XFEM-like local solvers or discontinuous Petrov-Galerkin / DG local formulations.
+
 The local architectural split is already underway:
 
 - `LocalBoundaryConditionApplicator`
@@ -77,6 +80,11 @@ The explicit public multiscale umbrella is:
 
 - `src/analysis/MultiscaleAPI.hh`
 - CMake target: `fall_n::multiscale_api`
+
+The local continuum-material factory boundary supporting that surface is:
+
+- `src/materials/SubmodelMaterialFactory.hh`
+- `src/materials/SubmodelMaterialFactoryDefaults.hh`
 
 This is the recommended include/link surface for the multiscale subsystem. The older `header_files.hh` umbrella still exists and is still heavily used internally, but it should be treated as a transitional convenience rather than the long-term public API.
 

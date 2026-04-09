@@ -29,8 +29,11 @@ The main files audited and modified during this cycle were:
 \begin{itemize}
   \item \texttt{src/analysis/MultiscaleTypes.hh};
   \item \texttt{src/analysis/MultiscaleAnalysis.hh};
+  \item \texttt{src/materials/SubmodelMaterialFactory.hh};
+  \item \texttt{src/materials/SubmodelMaterialFactoryDefaults.hh};
   \item \texttt{src/reconstruction/MaterialFactory.hh};
   \item \texttt{src/reconstruction/NonlinearSubModelEvolver.hh};
+  \item \texttt{src/reconstruction/SubModelSolver.hh};
   \item \texttt{src/reconstruction/FieldTransfer.hh};
   \item \texttt{src/reconstruction/LocalBoundaryConditionApplicator.hh};
   \item \texttt{src/materials/constitutive\_models/non\_lineal/KoBatheConcrete3D.hh};
@@ -1879,6 +1882,108 @@ This is an important scientific shift.  The previously documented
 pre-tail-continuation state.  The present blocker is the first \emph{macro}
 FE\textsuperscript{2} re-solve with injected cracked operators, not the
 micro-scale inability to reach the \(+2.5\)\,mm target itself.
+
+\section{Follow-up: Material-Module Segregation of the Reference Local Law}
+\label{sec:ms-stab-material-segregation}
+
+\subsection{Motivation}
+
+The audit showed that the FE\textsuperscript{2} core had already been decoupled
+from driver logic, but the continuum local-model path still carried one
+architectural shortcut: the multiscale/reconstruction layer still owned the
+concrete default types \texttt{KoBatheConcreteMaterialFactory} and
+\texttt{MenegottoPintoRebarFactory}.  That was acceptable for a reinforced
+concrete validation driver, but it was not acceptable as the longer-term
+publication architecture because it implicitly suggested that the local
+operator was ``the Ko--Bathe submodel'' instead of ``a local model satisfying
+the FE\textsuperscript{2} contract''.
+
+The scientific consequence is not merely aesthetic.  If the local operator is
+conceptually frozen to one constitutive family, it becomes harder to insert
+future alternatives such as enriched crack local models, XFEM-like
+formulations, or broken-test-space / discontinuous Petrov--Galerkin local
+solvers.  The stabilization cycle therefore required a sharper dependency
+boundary.
+
+\subsection{Implemented change}
+
+The change was deliberately conservative in runtime terms:
+\begin{itemize}
+  \item abstract factory contracts were moved to
+    \texttt{src/materials/SubmodelMaterialFactory.hh};
+  \item the current reference defaults
+    (\texttt{KoBatheConcreteMaterialFactory} and
+    \texttt{MenegottoPintoRebarFactory}) were moved to
+    \texttt{src/materials/SubmodelMaterialFactoryDefaults.hh};
+  \item \texttt{src/reconstruction/MaterialFactory.hh} was reduced to a
+    forwarding compatibility shim;
+  \item \texttt{NonlinearSubModelEvolver} now constructs its default materials
+    through \texttt{make\_default\_submodel\_concrete\_factory(...)} and
+    \texttt{make\_default\_submodel\_rebar\_factory(...)}, so the
+    reconstruction layer no longer names Ko--Bathe/Menegotto directly;
+  \item \texttt{SubModelSolver} was updated to use the same abstract factory
+    boundary and now accepts an injected continuum-material factory, which
+    closes a remaining legacy coupling point;
+  \item the cyclic validation factory helper was updated to depend on the new
+    materials-module defaults explicitly rather than on the reconstruction shim.
+\end{itemize}
+
+No new virtual dispatch was introduced in the micro hot path.  Factory
+dispatch occurs only when the local model is instantiated or rebuilt, whereas
+the Gauss-point update, tangent assembly, sparse condensation, and FE\textsuperscript{2}
+fixed-point loop remain template-based exactly as before.  In other words, the
+change improves dependency structure without paying for runtime polymorphism in
+the critical inner solve.
+
+\subsection{Architectural reading}
+
+After the change, the conceptual layering is:
+\begin{center}
+\begin{tabular}{c}
+\texttt{MultiscaleAnalysis / BeamMacroBridge / MultiscaleModel} \\
+\(\downarrow\) local-model contract \\
+\texttt{LocalModelAdapter} \\
+\(\downarrow\) persistent continuum implementation \\
+\texttt{NonlinearSubModelEvolver} \\
+\(\downarrow\) material construction contracts \\
+\texttt{ConcreteMaterialFactory / RebarMaterialFactory} \\
+\(\downarrow\) reference implementations (materials module) \\
+\texttt{KoBatheConcreteMaterialFactory / MenegottoPintoRebarFactory}
+\end{tabular}
+\end{center}
+
+This makes the FE\textsuperscript{2} kernel materially agnostic in the precise
+software-engineering sense intended by the publication plan: the orchestration
+layer depends on a local operator interface, and the current continuum local
+implementation depends on material-construction contracts.  The Ko--Bathe law
+is therefore one valid realization of the current local continuum path, not a
+hard-coded property of the multiscale core.
+
+\subsection{Verification}
+
+The refactor was verified with:
+\begin{itemize}
+  \item \texttt{fall\_n\_sub\_model\_solver\_test}, extended with an injected
+    purely elastic continuum factory to prove that \texttt{SubModelSolver}
+    no longer requires a Ko--Bathe material to function;
+  \item \texttt{fall\_n\_evolver\_advanced\_test}, which continues to exercise
+    the Ko--Bathe reference factory path and therefore checks that the move did
+    not regress the current nonlinear local benchmark surface;
+  \item \texttt{fall\_n\_cyclic\_validation\_api\_test}, which checks that the
+    validation driver still builds the intended reference submodel factories
+    after the module-boundary change.
+\end{itemize}
+
+\subsection{Residual debt after the segregation}
+
+One honest limitation remains visible after the refactor:
+\texttt{SubModelSolver::solve\_reinforced()} still estimates the penalty-coupling
+scale from the concrete compressive-strength proxy
+\(E_c \approx 4700\sqrt{f_c}\), which is a reinforced-concrete heuristic rather
+than a fully generic local-model coupling policy.  That heuristic no longer
+binds the multiscale core to Ko--Bathe, but it does remain a material-coloured
+assumption inside the legacy utility solver and should be separated into a
+dedicated coupling-parameter policy in a later pass.
 
 \section{Phase 5: Residual Debt Ledger}
 \label{sec:ms-stab-phase5}
