@@ -40,6 +40,7 @@ struct FakeSolverCheckpoint {
     double trial_time{0.0};
     bool auto_commit{true};
     int step_calls{0};
+    double increment_size{1.0};
 };
 
 struct FakeSolver {
@@ -53,6 +54,7 @@ struct FakeSolver {
     bool observer_notifications{true};
     int commit_calls{0};
     int step_calls{0};
+    double increment_size{1.0};
     bool fail_next_step{false};
     bool dirty_trial_on_failure{true};
     std::function<bool()> step_guard{};
@@ -99,12 +101,12 @@ struct FakeSolver {
 
         if (auto_commit) {
             ++committed_step;
-            committed_time += 1.0;
+            committed_time += increment_size;
             trial_step = committed_step;
             trial_time = committed_time;
         } else {
             trial_step = committed_step + 1;
-            trial_time = committed_time + 1.0;
+            trial_time = committed_time + increment_size;
         }
         snes_reason = 4;
         snes_iterations = 2;
@@ -147,7 +149,8 @@ struct FakeSolver {
             committed_time,
             trial_time,
             auto_commit,
-            step_calls
+            step_calls,
+            increment_size
         };
     }
 
@@ -159,6 +162,7 @@ struct FakeSolver {
         trial_time = checkpoint.trial_time;
         auto_commit = checkpoint.auto_commit;
         step_calls = checkpoint.step_calls;
+        increment_size = checkpoint.increment_size;
     }
 
     [[nodiscard]] double current_time() const noexcept
@@ -179,6 +183,8 @@ struct FakeSolver {
     [[nodiscard]] int converged_reason() const noexcept { return snes_reason; }
     [[nodiscard]] int num_iterations() const noexcept { return snes_iterations; }
     [[nodiscard]] double function_norm() const noexcept { return snes_function_norm; }
+    [[nodiscard]] double get_increment_size() const noexcept { return increment_size; }
+    void set_increment_size(double dp) { increment_size = dp; }
 };
 
 struct FakeBridge {
@@ -619,6 +625,70 @@ void test_iterated_two_way_filters_inadmissible_predictor_before_macro_resolve()
         "predictor admissibility filtering records the inadmissible coupling site");
 }
 
+void test_iterated_two_way_recovers_macro_failure_with_step_cutback()
+{
+    FakeSolver solver;
+    solver.committed_step = 1;
+    solver.trial_step = 1;
+    solver.committed_time = 1.0;
+    solver.trial_time = 1.0;
+    solver.increment_size = 1.0;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_forces_override =
+        Eigen::Vector<double, 6>::Constant(1.0);
+    local.response_tangent = Eigen::Matrix<double, 6, 6>::Identity();
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(10.0, 10.0),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+    analysis.set_macro_step_cutback(1, 0.5);
+
+    solver.step_guard = [&solver]() {
+        return solver.increment_size <= 0.5 + 1.0e-12;
+    };
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok,
+               "iterated FE2 can recover a macro failure by cutting back the macro increment");
+    CHECK_TRUE(analysis.last_report().macro_step_cutback_succeeded,
+               "macro step cutback is reported as successful");
+    CHECK_TRUE(analysis.last_report().macro_step_cutback_attempts == 1,
+               "macro step cutback records the number of retries");
+    CHECK_TRUE(
+        std::abs(
+            analysis.last_report().macro_step_cutback_last_factor - 0.5)
+            < 1.0e-12,
+        "macro step cutback reports the accepted reduction factor");
+    CHECK_TRUE(
+        std::abs(
+            analysis.last_report().macro_step_cutback_initial_increment - 1.0)
+            < 1.0e-12,
+        "macro step cutback records the original macro increment size");
+    CHECK_TRUE(
+        std::abs(
+            analysis.last_report().macro_step_cutback_last_increment - 0.5)
+            < 1.0e-12,
+        "macro step cutback records the accepted reduced macro increment size");
+    CHECK_TRUE(std::abs(solver.current_time() - 2.0) < 1.0e-12,
+               "macro step cutback still reaches the original macro target time");
+    CHECK_TRUE(std::abs(solver.get_increment_size() - 0.5) < 1.0e-12,
+               "successful macro step cutback keeps the reduced increment size for continuation");
+}
+
 void test_iterated_two_way_rolls_back_on_macro_failure()
 {
     FakeSolver solver;
@@ -975,6 +1045,7 @@ int main()
     test_constant_relaxation_preserves_affine_section_law_with_shifted_reference();
     test_iterated_two_way_backtracks_macro_predictor_on_failure();
     test_iterated_two_way_filters_inadmissible_predictor_before_macro_resolve();
+    test_iterated_two_way_recovers_macro_failure_with_step_cutback();
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();

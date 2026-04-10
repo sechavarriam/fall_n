@@ -181,6 +181,11 @@ struct CouplingIterationReport {
     bool predictor_admissibility_satisfied{true};
     int predictor_admissibility_attempts{0};
     double predictor_admissibility_last_alpha{1.0};
+    int macro_step_cutback_attempts{0};
+    bool macro_step_cutback_succeeded{false};
+    double macro_step_cutback_last_factor{1.0};
+    double macro_step_cutback_initial_increment{0.0};
+    double macro_step_cutback_last_increment{0.0};
     int macro_backtracking_attempts{0};
     bool macro_backtracking_succeeded{false};
     double macro_backtracking_last_alpha{1.0};

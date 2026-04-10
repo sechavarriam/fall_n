@@ -226,6 +226,9 @@ FE2CaseContext build_fe2_case_context(
         cfg.predictor_admissibility_min_symmetric_eigenvalue,
         cfg.predictor_admissibility_backtrack_attempts,
         cfg.predictor_admissibility_backtrack_factor);
+    ctx.analysis->set_macro_step_cutback(
+        cfg.macro_step_cutback_attempts,
+        cfg.macro_step_cutback_factor);
     ctx.analysis->set_macro_failure_backtracking(
         cfg.macro_failure_backtrack_attempts,
         cfg.macro_failure_backtrack_factor);

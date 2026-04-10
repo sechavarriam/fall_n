@@ -759,6 +759,157 @@ way to separate ``the methodology breaks as soon as a clearly indefinite local
 predictor is injected'' from ``the methodology still fails even after the
 predictor has been filtered to the chosen admissibility floor''.
 
+\subsection{Target-preserving macro step cutting}
+\label{sec:ms-pub-macro-step-cutting}
+
+The next continuation layer operates at the macro solver, but it is still
+deliberately weaker than a full arc-length formulation.  Assume that the
+macro solver exposes a current scalar increment \(\Delta p_n\), a runtime
+setter for that increment, checkpoint/restore, and a target-preserving
+\texttt{step\_to(\(\cdot\))} API.  Let \(p_n\) denote the committed scalar
+control parameter at the start of the FE\textsuperscript{2} step and define
+the nominal macro target
+\begin{equation}
+  p_{n+1}^{\star} = p_n + \Delta p_n.
+  \label{eq:ms-pub-macro-target}
+\end{equation}
+If the first macro re-solve fails under the current injected affine law, the
+algorithm may retry the \emph{same target}
+\eqref{eq:ms-pub-macro-target} with smaller internal increments
+\begin{equation}
+  \Delta p_n^{(k)} = \beta^k \Delta p_n,
+  \qquad
+  k = 1,2,\dots,N_{\mathrm{cut}},
+  \qquad
+  0 < \beta < 1,
+  \label{eq:ms-pub-macro-cutback-increments}
+\end{equation}
+while keeping the same FE\textsuperscript{2} predictor law.
+Operationally, each retry restores the macro checkpoint, sets
+\(\Delta p_n^{(k)}\), and solves
+\begin{equation}
+  p_n \;\xrightarrow[\Delta p_n^{(k)}]{\texttt{step\_to}}\; p_{n+1}^{\star}.
+  \label{eq:ms-pub-macro-cutback-step-to}
+\end{equation}
+
+This distinction matters.  A plain reduction of the next
+\texttt{step()} size would change the target protocol point and therefore blur
+the meaning of the cyclic-validation recorders.  Equation
+\eqref{eq:ms-pub-macro-cutback-step-to} preserves the same target control
+point and changes only the internal continuation path used by the macro
+nonlinear solver.  In that sense, the method is a target-preserving
+step-length continuation rather than a change of loading program.
+
+The method is related to the classical step-cutting strategies used in
+incremental-iterative nonlinear analysis \cite{Crisfield1981,Deuflhard2011},
+but it is intentionally more modest than the arc-length solver documented in
+Chapter~\ref{ch:arc-length}.  It does not introduce an auxiliary load
+parameter equation; it merely gives the current macro step more internal
+resolution while preserving the FE\textsuperscript{2} target
+\eqref{eq:ms-pub-macro-target}.  This makes it attractive as a validation-path
+continuation aid because:
+\begin{itemize}
+  \item it is compatible with the existing
+    \texttt{CheckpointableSteppableSolver} contract;
+  \item it remains solver-agnostic at the multiscale boundary;
+  \item it is easy to report and audit through the nominal increment,
+    accepted cutback factor, and accepted reduced increment size.
+\end{itemize}
+
+The scientific limitation is again explicit.  Successful macro step cutting
+does not prove that the injected cracked operator is physically admissible in
+general; it only proves that the macro equilibrium problem can be reached
+along a finer continuation path under the current FE\textsuperscript{2}
+predictor.  If repeated cutbacks still fail, the appropriate next step is no
+longer ``more of the same'', but a stronger macro continuation method such as
+an actually checkpointable arc-length solver.
+
+\subsection{Recorder semantics for failed FE\textsuperscript{2} steps}
+\label{sec:ms-pub-failed-step-recorder-semantics}
+
+Physical validation at the first cracked FE\textsuperscript{2} point requires
+an explicit distinction between \emph{accepted structural observables} and
+\emph{attempted local constitutive observables}.  If a coupled step fails and
+the orchestrator performs rollback, the accepted macro state does not exist at
+that target point.  Therefore quantities such as the accepted base shear,
+accepted structural damage, and accepted global displacement field are not
+well-defined observables of the failed step and should not be reconstructed
+from the restored checkpoint.
+
+The current recorder contract therefore treats a failed FE\textsuperscript{2}
+attempt as an explicit non-accepted state:
+\begin{equation}
+  \texttt{accepted} = 0
+  \quad\Longrightarrow\quad
+  \{\texttt{base\_shear\_MN},\ \texttt{peak\_damage}\}
+  = \mathrm{NaN}
+  \label{eq:ms-pub-failed-step-nan-contract}
+\end{equation}
+whenever those quantities would otherwise be read from a state that was
+already rolled back.
+
+At the same time, the failed attempt can still carry useful constitutive
+information on the micro side.  The implementation now distinguishes two
+different crack observables.
+
+\paragraph{Open-crack observable.}
+Let \(n_c(g)\) denote the number of stored crack families at Gauss point
+\(g\), and let \(w_i(g)\) denote the opening of crack family \(i\).  For a
+chosen recorder threshold \(w_{\min}\), the observable open-crack set is
+\begin{equation}
+  \mathcal{G}_{\mathrm{open}}
+  =
+  \left\{
+    g \;:\;
+    n_c(g) > 0,\;
+    \max_i w_i(g) \ge w_{\min}
+  \right\}.
+  \label{eq:ms-pub-open-crack-set}
+\end{equation}
+This is the set reported through \texttt{total\_cracked\_gps},
+\texttt{total\_cracks}, and \texttt{max\_opening} in the FE\textsuperscript{2}
+validation recorders.
+
+\paragraph{Crack-history observable.}
+The material model may already store crack families even when all currently
+reported openings are zero or below the recorder threshold.  This motivates a
+second set,
+\begin{equation}
+  \mathcal{G}_{\mathrm{hist}}
+  =
+  \left\{
+    g \;:\;
+    n_c(g) > 0
+  \right\},
+  \label{eq:ms-pub-crack-history-set}
+\end{equation}
+which is reported through the aggregate
+\texttt{total\_active\_crack\_history\_points}.  By construction,
+\begin{equation}
+  \left|\mathcal{G}_{\mathrm{hist}}\right|
+  \ge
+  \left|\mathcal{G}_{\mathrm{open}}\right|.
+  \label{eq:ms-pub-crack-history-dominates-open}
+\end{equation}
+This inequality is not merely formal.  In the current
+\texttt{fe2\_frontier\_audit} for the first \texttt{Case~5} cracked point, the
+failed FE\textsuperscript{2} row records
+\begin{equation}
+  \left|\mathcal{G}_{\mathrm{open}}\right| = 0,
+  \qquad
+  \left|\mathcal{G}_{\mathrm{hist}}\right| = 306,
+  \qquad
+  \max_g n_c(g) = 3.
+  \label{eq:ms-pub-frontier-audit-observable-split}
+\end{equation}
+Hence the material points already carry crack history at the failed target,
+but the same failed target does not yet produce an open-crack observable under
+the recorder criterion.  This is precisely why validation requires both
+observables: keeping only \(\mathcal{G}_{\mathrm{open}}\) would make the failed
+attempt look artificially elastic, while keeping only
+\(\mathcal{G}_{\mathrm{hist}}\) would overstate the amount of macroscopically
+visible cracking.
+
 \section{Implemented Architecture}
 \label{sec:ms-pub-architecture}
 

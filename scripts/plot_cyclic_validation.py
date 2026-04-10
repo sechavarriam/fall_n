@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import shutil
 import sys
@@ -92,6 +93,13 @@ def load_case(base_dir: Path, case_id: str) -> tuple[np.ndarray, np.ndarray] | N
         return None
     df = pd.read_csv(path)
     return df["drift_m"].values, df["base_shear_MN"].values
+
+
+def split_accepted_rows(df):
+    if "accepted" not in df.columns:
+        return df, df.iloc[0:0]
+    accepted = pd.to_numeric(df["accepted"], errors="coerce").fillna(1.0) != 0.0
+    return df[accepted], df[~accepted]
 
 
 def plot_protocol(base_dir: Path, amps: list[float], protocol_name: str) -> list[str]:
@@ -188,9 +196,15 @@ def plot_case_crack_evolution(base_dir: Path, case_id: str) -> list[str]:
     if not path.is_file():
         return []
 
-    df = pd.read_csv(path)
+    df_all = pd.read_csv(path)
+    df, failed = split_accepted_rows(df_all)
+    if df.empty:
+        df = df_all
     fig, axes = plt.subplots(2, 2, figsize=(8.6, 6.2))
     drift_mm = df["drift_m"] * 1e3 if "drift_m" in df.columns else df["step"]
+    failed_drift_mm = (
+        failed["drift_m"] * 1e3 if "drift_m" in failed.columns else failed["step"]
+    )
 
     axes[0, 0].plot(drift_mm, df["total_cracked_gps"], color="#1f77b4", lw=1.0)
     axes[0, 0].set_title("Cracked Gauss points", fontsize=9)
@@ -221,6 +235,30 @@ def plot_case_crack_evolution(base_dir: Path, case_id: str) -> list[str]:
     axes[1, 1].set_title("Peak crack opening", fontsize=9)
     axes[1, 1].set_xlabel("Drift [mm]" if "drift_m" in df.columns else "Step")
 
+    if not failed.empty:
+        axes[0, 0].scatter(
+            failed_drift_mm, failed["total_cracked_gps"],
+            color="#1f77b4", marker="x", s=28, linewidths=1.0,
+            label="failed FE2 attempt")
+        axes[0, 1].scatter(
+            failed_drift_mm, failed["total_cracks"],
+            color="#ff7f0e", marker="x", s=28, linewidths=1.0)
+        if "peak_damage_scalar" in failed.columns:
+            axes[1, 0].scatter(
+                failed_drift_mm, failed["peak_damage_scalar"],
+                color="#d62728", marker="x", s=28, linewidths=1.0)
+        if "max_tau_o_max" in failed.columns:
+            axes[1, 0].scatter(
+                failed_drift_mm, failed["max_tau_o_max"],
+                color="#9467bd", marker="x", s=28, linewidths=1.0)
+        if "most_compressive_sigma_o_max" in failed.columns:
+            axes[1, 0].scatter(
+                failed_drift_mm, np.abs(failed["most_compressive_sigma_o_max"]),
+                color="#8c564b", marker="x", s=28, linewidths=1.0)
+        axes[1, 1].scatter(
+            failed_drift_mm, failed["max_opening"],
+            color="#2ca02c", marker="x", s=28, linewidths=1.0)
+
     for ax in axes.flat:
         ax.grid(True, alpha=0.3)
         ax.axvline(0.0, color="gray", linewidth=0.4)
@@ -239,11 +277,17 @@ def plot_case_global_history(base_dir: Path, case_id: str) -> list[str]:
     if not path.is_file():
         return []
 
-    df = pd.read_csv(path)
-    if "peak_damage" not in df.columns:
+    df_all = pd.read_csv(path)
+    if "peak_damage" not in df_all.columns:
         return []
+    df, failed = split_accepted_rows(df_all)
+    if df.empty:
+        df = df_all
 
     x = df["drift_m"] * 1e3 if "drift_m" in df.columns else df["step"]
+    failed_x = (
+        failed["drift_m"] * 1e3 if "drift_m" in failed.columns else failed["step"]
+    )
     fig, axes = plt.subplots(2, 1, figsize=(7.6, 5.8), sharex=True)
 
     axes[0].plot(x, df["peak_damage"], color="#d62728", lw=1.0)
@@ -271,6 +315,24 @@ def plot_case_global_history(base_dir: Path, case_id: str) -> list[str]:
     if "fe2_iterations" in df.columns:
         axes[1].plot(x, df["fe2_iterations"], color="#2ca02c", lw=1.0,
                      label="fe2_iterations")
+    if not failed.empty:
+        if "total_cracks" in failed.columns:
+            axes[1].scatter(
+                failed_x, failed["total_cracks"], color="#1f77b4",
+                marker="x", s=28, linewidths=1.0, label="failed total_cracks")
+        if "peak_submodel_damage_scalar" in failed.columns:
+            axes[1].scatter(
+                failed_x, failed["peak_submodel_damage_scalar"],
+                color="#ff7f0e", marker="x", s=28, linewidths=1.0,
+                label="failed peak_submodel_damage_scalar")
+        if "max_submodel_tau_o_max" in failed.columns:
+            axes[1].scatter(
+                failed_x, failed["max_submodel_tau_o_max"],
+                color="#9467bd", marker="x", s=28, linewidths=1.0)
+        if "most_compressive_submodel_sigma_o_max" in failed.columns:
+            axes[1].scatter(
+                failed_x, np.abs(failed["most_compressive_submodel_sigma_o_max"]),
+                color="#8c564b", marker="x", s=28, linewidths=1.0)
     axes[1].set_xlabel("Drift [mm]" if "drift_m" in df.columns else "Step")
     axes[1].set_ylabel("Response metrics")
     axes[1].set_title("Multiscale response indicators", fontsize=9)
@@ -378,6 +440,9 @@ def print_case_summary(base_dir: Path, case_id: str) -> None:
     peak_damage = None
     max_total_cracks = None
     max_opening_mm = None
+    max_active_crack_history_points = None
+    max_num_cracks_at_point = None
+    failed_attempts = 0
     global_path = case_dir / "recorders" / "global_history.csv"
     if global_path.is_file():
         global_records = 0
@@ -385,19 +450,35 @@ def print_case_summary(base_dir: Path, case_id: str) -> None:
             reader = csv.DictReader(f)
             for row in reader:
                 global_records += 1
+                accepted = row.get("accepted", "1")
+                if accepted and accepted not in ("1", "1.0", "True", "true"):
+                    failed_attempts += 1
                 if "drift_m" in row and row["drift_m"]:
-                    max_drift_mm = max(max_drift_mm, abs(float(row["drift_m"])) * 1e3)
+                    drift = float(row["drift_m"])
+                    if math.isfinite(drift):
+                        max_drift_mm = max(max_drift_mm, abs(drift) * 1e3)
                 if "base_shear_MN" in row and row["base_shear_MN"]:
-                    max_shear_kN = max(max_shear_kN, abs(float(row["base_shear_MN"])) * 1e3)
+                    shear = float(row["base_shear_MN"])
+                    if math.isfinite(shear):
+                        max_shear_kN = max(max_shear_kN, abs(shear) * 1e3)
                 if "peak_damage" in row and row["peak_damage"]:
                     value = float(row["peak_damage"])
-                    peak_damage = value if peak_damage is None else max(peak_damage, value)
+                    if math.isfinite(value):
+                        peak_damage = value if peak_damage is None else max(peak_damage, value)
                 if "total_cracks" in row and row["total_cracks"]:
                     value = int(float(row["total_cracks"]))
                     max_total_cracks = value if max_total_cracks is None else max(max_total_cracks, value)
+                if "total_active_crack_history_points" in row and row["total_active_crack_history_points"]:
+                    value = int(float(row["total_active_crack_history_points"]))
+                    max_active_crack_history_points = value if max_active_crack_history_points is None else max(max_active_crack_history_points, value)
+                if "max_num_cracks_at_point" in row and row["max_num_cracks_at_point"]:
+                    value = int(float(row["max_num_cracks_at_point"]))
+                    max_num_cracks_at_point = value if max_num_cracks_at_point is None else max(max_num_cracks_at_point, value)
                 if "max_opening" in row and row["max_opening"]:
-                    value = abs(float(row["max_opening"])) * 1e3
-                    max_opening_mm = value if max_opening_mm is None else max(max_opening_mm, value)
+                    opening = float(row["max_opening"])
+                    if math.isfinite(opening):
+                        value = abs(opening) * 1e3
+                        max_opening_mm = value if max_opening_mm is None else max(max_opening_mm, value)
         num_records = max(num_records, global_records)
 
     if num_records == 0:
@@ -409,8 +490,14 @@ def print_case_summary(base_dir: Path, case_id: str) -> None:
         print(f"  peak_damage={peak_damage:.5f}", end="")
     if max_total_cracks is not None:
         print(f"  max_cracks={max_total_cracks}", end="")
+    if max_active_crack_history_points is not None:
+        print(f"  active_crack_history_pts={max_active_crack_history_points}", end="")
+    if max_num_cracks_at_point is not None:
+        print(f"  max_cracks_per_point={max_num_cracks_at_point}", end="")
     if max_opening_mm is not None:
         print(f"  max_opening={max_opening_mm:.4f} mm", end="")
+    if failed_attempts:
+        print(f"  failed_attempts={failed_attempts}", end="")
     print()
 
 

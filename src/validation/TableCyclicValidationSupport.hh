@@ -147,6 +147,10 @@ inline double extract_base_shear_x(const ModelT& model,
     return shear;
 }
 
+double extract_base_shear_x_struct_model(
+    const StructModel& model,
+    const std::vector<std::size_t>& base_nodes);
+
 [[nodiscard]] inline std::string
 summarize_failed_sites(const std::vector<CouplingSite>& failed_sites)
 {
@@ -178,6 +182,11 @@ inline void write_fe2_solver_diagnostics_header(
           "predictor_admissibility_attempts,"
           "predictor_admissibility_last_alpha,"
           "predictor_inadmissible_sites,"
+          "macro_step_cutback_attempts,"
+          "macro_step_cutback_succeeded,"
+          "macro_step_cutback_last_factor,"
+          "macro_step_cutback_initial_increment,"
+          "macro_step_cutback_last_increment,"
           "macro_backtracking_attempts,"
           "macro_backtracking_succeeded,macro_backtracking_last_alpha,"
           "macro_solver_reason,macro_solver_iterations,"
@@ -252,6 +261,11 @@ inline void write_fe2_solver_diagnostics_row(
        << report.predictor_admissibility_attempts << ","
        << report.predictor_admissibility_last_alpha << ","
        << summarize_failed_sites(report.predictor_inadmissible_sites) << ","
+       << report.macro_step_cutback_attempts << ","
+       << (report.macro_step_cutback_succeeded ? 1 : 0) << ","
+       << report.macro_step_cutback_last_factor << ","
+       << report.macro_step_cutback_initial_increment << ","
+       << report.macro_step_cutback_last_increment << ","
        << report.macro_backtracking_attempts << ","
        << (report.macro_backtracking_succeeded ? 1 : 0) << ","
        << report.macro_backtracking_last_alpha << ","

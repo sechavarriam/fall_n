@@ -18,17 +18,22 @@ FE2RecorderBuffers initialize_fe2_recorders(
         out_dir + "/recorders/solver_diagnostics.csv";
 
     const std::string global_header =
-        "step,p,drift_m,base_shear_MN,peak_damage,"
+        "step,p,drift_m,base_shear_MN,accepted,termination_reason,"
+        "rollback_performed,peak_damage,"
         "submodel_damage_scalar_available,peak_submodel_damage_scalar,"
         "most_compressive_submodel_sigma_o_max,max_submodel_tau_o_max,"
-        "total_cracked_gps,total_cracks,max_opening,fe2_iterations,"
+        "total_cracked_gps,total_cracks,max_opening,"
+        "total_active_crack_history_points,max_num_cracks_at_point,"
+        "fe2_iterations,"
         "max_force_residual_rel,max_force_component_residual_rel,"
         "max_tangent_residual_rel,max_tangent_column_residual_rel\n";
     const std::string hysteresis_header = "step,p,drift_m,base_shear_MN\n";
 
     std::ostringstream crack_header;
     crack_header
-        << "step,p,drift_m,total_cracked_gps,total_cracks,"
+        << "step,p,drift_m,accepted,termination_reason,rollback_performed,"
+           "total_cracked_gps,total_cracks,"
+           "total_active_crack_history_points,max_num_cracks_at_point,"
            "damage_scalar_available,peak_damage_scalar,"
            "most_compressive_sigma_o_max,max_tau_o_max,max_opening";
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
