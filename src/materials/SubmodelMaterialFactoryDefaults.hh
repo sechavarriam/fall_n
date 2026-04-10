@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "ConstitutiveIntegrator.hh"
+#include "LinealElasticMaterial.hh"
 #include "SubmodelMaterialFactory.hh"
 #include "constitutive_models/non_lineal/KoBatheConcrete3D.hh"
 #include "constitutive_models/non_lineal/MenegottoPintoSteel.hh"

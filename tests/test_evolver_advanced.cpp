@@ -454,10 +454,15 @@ void test_crack_summary_keeps_missing_damage_scalar_honest()
     ev.set_min_crack_opening(0.0);
 
     const auto solve = ev.solve_step(0.0);
+    const auto attempted = ev.last_attempted_crack_summary();
     ev.end_of_step(0.0);
     const auto summary = ev.crack_summary();
 
     check(solve.converged, "cracking reference case converges");
+    check(attempted.total_cracks == summary.total_cracks,
+          "last attempted crack summary matches the committed summary after an accepted step");
+    check(attempted.num_cracked_gps == summary.num_cracked_gps,
+          "attempted crack summary preserves cracked GP counts");
     check(!summary.damage_scalar_available,
           "crack summary does not invent a scalar damage metric for Ko-Bathe 3D");
     check(std::isnan(summary.max_damage_scalar),

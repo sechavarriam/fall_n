@@ -80,9 +80,43 @@ jobs:
       - name: Run multiscale regression tests
         shell: powershell
         run: |
-          $ucrtBin = Join-Path $env:RUNNER_TEMP "msys64\ucrt64\bin"
-          if (Test-Path $ucrtBin) {
-            $env:PATH = "$ucrtBin;$env:PATH"
+          $msysRoots = @(
+            (Join-Path $env:RUNNER_TEMP "msys64"),
+            (Join-Path $env:RUNNER_TEMP "setup-msys2\msys64"),
+            "C:\msys64"
+          ) | Where-Object { Test-Path $_ }
+
+          if ($msysRoots.Count -eq 0) {
+            throw "Unable to locate an MSYS2 runtime root under RUNNER_TEMP or C:\msys64."
+          }
+
+          $msysRoot = $msysRoots[0]
+          $ucrtBin = Join-Path $msysRoot "ucrt64\bin"
+          $usrBin = Join-Path $msysRoot "usr\bin"
+
+          foreach ($bin in @($ucrtBin, $usrBin)) {
+            if (-not (Test-Path $bin)) {
+              throw "Expected runtime directory not found: $bin"
+            }
+          }
+
+          $env:PATH = "$ucrtBin;$usrBin;$env:PATH"
+          Write-Host "MSYS2 runtime root: $msysRoot"
+
+          $requiredDlls = @(
+            "libstdc++-6.dll",
+            "libgcc_s_seh-1.dll",
+            "libwinpthread-1.dll",
+            "libgomp-1.dll",
+            "libvtkCommonCore.dll",
+            "libpetsc-dmo.dll"
+          )
+
+          foreach ($dll in $requiredDlls) {
+            $dllPath = Join-Path $ucrtBin $dll
+            if (-not (Test-Path $dllPath)) {
+              throw "Missing expected runtime dependency in UCRT64 bin: $dll"
+            }
           }
 
           $executables = @(

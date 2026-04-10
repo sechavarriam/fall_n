@@ -6,6 +6,7 @@
 #include "src/validation/TableCyclicValidationRuntimeIO.hh"
 
 #include <chrono>
+#include <limits>
 
 namespace fall_n::table_cyclic_validation {
 
@@ -95,10 +96,16 @@ run_case_fe2(bool two_way, const std::string& out_dir,
             }
 
             {
-                std::ostringstream solver_row;
-                write_fe2_solver_diagnostics_row(
-                    solver_row, step, p, d, analysis);
-                recorder_buffers.solver_rows.push_back(solver_row.str());
+                const auto diagnostics =
+                    collect_fe2_failed_step_diagnostics(analysis);
+                append_fe2_step_records(
+                    recorder_buffers,
+                    step,
+                    p,
+                    d,
+                    std::numeric_limits<double>::quiet_NaN(),
+                    diagnostics,
+                    analysis);
                 recorder_buffers.rewrite_all();
             }
             std::println(

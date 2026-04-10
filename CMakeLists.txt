@@ -463,7 +463,10 @@ target_sources(fall_n_cyclic_validation_api_test PRIVATE
 fall_n_add_test(TARGET fall_n_case5_frontier_probe_test
     NAME case5_frontier_probe  SOURCE tests/test_case5_frontier_probe.cpp
     LIBS FULL  LABEL slow)
+set_target_properties(fall_n_case5_frontier_probe_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
 target_sources(fall_n_case5_frontier_probe_test PRIVATE
+    src/validation/TableCyclicValidationSupport.cpp
     src/validation/TableCyclicValidationFE2Setup.cpp
     src/validation/TableCyclicValidationSubmodelFactories.cpp)
 

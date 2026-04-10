@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <map>
+#include <limits>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -47,6 +48,18 @@ int main(int argc, char* argv[])
         ValidationExecutionProfile::Default;
     int steps_per_segment_override = -1;
     int max_steps_override = -1;
+    int max_bisections_override = -1;
+    int max_staggered_iterations_override = -1;
+    double staggered_tol_override = -1.0;
+    double staggered_relaxation_override = -1.0;
+    int predictor_backtracking_attempts_override = -1;
+    double predictor_backtracking_factor_override = -1.0;
+    double predictor_min_symmetric_eigenvalue_override =
+        std::numeric_limits<double>::quiet_NaN();
+    int macro_step_cutback_attempts_override = -1;
+    double macro_step_cutback_factor_override = -1.0;
+    int macro_backtracking_attempts_override = -1;
+    double macro_backtracking_factor_override = -1.0;
     int submodel_increment_steps_override = -1;
     int submodel_max_bisections_override = -1;
     bool submodel_enable_arc_length_from_start = false;
@@ -82,14 +95,39 @@ int main(int argc, char* argv[])
             } else if (value == "crack50" || value == "fe2_crack50") {
                 execution_profile =
                     ValidationExecutionProfile::FE2Crack50Exploratory;
+            } else if (value == "frontier" || value == "fe2_frontier_audit") {
+                execution_profile =
+                    ValidationExecutionProfile::FE2FrontierAudit;
             } else {
                 throw std::invalid_argument(
-                    "Unknown FE2 execution profile. Use default or crack50.");
+                    "Unknown FE2 execution profile. Use default, crack50, or frontier.");
             }
         } else if (arg == "--steps-per-segment" && i + 1 < argc) {
             steps_per_segment_override = std::stoi(argv[++i]);
         } else if (arg == "--max-steps" && i + 1 < argc) {
             max_steps_override = std::stoi(argv[++i]);
+        } else if (arg == "--max-bisections" && i + 1 < argc) {
+            max_bisections_override = std::stoi(argv[++i]);
+        } else if (arg == "--staggered-iters" && i + 1 < argc) {
+            max_staggered_iterations_override = std::stoi(argv[++i]);
+        } else if (arg == "--staggered-tol" && i + 1 < argc) {
+            staggered_tol_override = std::stod(argv[++i]);
+        } else if (arg == "--staggered-relaxation" && i + 1 < argc) {
+            staggered_relaxation_override = std::stod(argv[++i]);
+        } else if (arg == "--predictor-backtracking-attempts" && i + 1 < argc) {
+            predictor_backtracking_attempts_override = std::stoi(argv[++i]);
+        } else if (arg == "--predictor-backtracking-factor" && i + 1 < argc) {
+            predictor_backtracking_factor_override = std::stod(argv[++i]);
+        } else if (arg == "--predictor-min-sym-eig" && i + 1 < argc) {
+            predictor_min_symmetric_eigenvalue_override = std::stod(argv[++i]);
+        } else if (arg == "--macro-step-cutback-attempts" && i + 1 < argc) {
+            macro_step_cutback_attempts_override = std::stoi(argv[++i]);
+        } else if (arg == "--macro-step-cutback-factor" && i + 1 < argc) {
+            macro_step_cutback_factor_override = std::stod(argv[++i]);
+        } else if (arg == "--macro-backtracking-attempts" && i + 1 < argc) {
+            macro_backtracking_attempts_override = std::stoi(argv[++i]);
+        } else if (arg == "--macro-backtracking-factor" && i + 1 < argc) {
+            macro_backtracking_factor_override = std::stod(argv[++i]);
         } else if (arg == "--submodel-increments" && i + 1 < argc) {
             submodel_increment_steps_override = std::stoi(argv[++i]);
         } else if (arg == "--submodel-bisections" && i + 1 < argc) {
@@ -128,6 +166,43 @@ int main(int argc, char* argv[])
     }
     if (max_steps_override > 0) {
         cfg.max_steps = max_steps_override;
+    }
+    if (max_bisections_override >= 0) {
+        cfg.max_bisections = max_bisections_override;
+    }
+    if (max_staggered_iterations_override > 0) {
+        cfg.max_staggered_iterations = max_staggered_iterations_override;
+    }
+    if (staggered_tol_override > 0.0) {
+        cfg.staggered_tol = staggered_tol_override;
+    }
+    if (staggered_relaxation_override >= 0.0) {
+        cfg.staggered_relaxation = staggered_relaxation_override;
+    }
+    if (predictor_backtracking_attempts_override >= 0) {
+        cfg.predictor_admissibility_backtrack_attempts =
+            predictor_backtracking_attempts_override;
+    }
+    if (predictor_backtracking_factor_override >= 0.0) {
+        cfg.predictor_admissibility_backtrack_factor =
+            predictor_backtracking_factor_override;
+    }
+    if (std::isfinite(predictor_min_symmetric_eigenvalue_override)) {
+        cfg.predictor_admissibility_min_symmetric_eigenvalue =
+            predictor_min_symmetric_eigenvalue_override;
+    }
+    if (macro_step_cutback_attempts_override >= 0) {
+        cfg.macro_step_cutback_attempts = macro_step_cutback_attempts_override;
+    }
+    if (macro_step_cutback_factor_override >= 0.0) {
+        cfg.macro_step_cutback_factor = macro_step_cutback_factor_override;
+    }
+    if (macro_backtracking_attempts_override >= 0) {
+        cfg.macro_failure_backtrack_attempts =
+            macro_backtracking_attempts_override;
+    }
+    if (macro_backtracking_factor_override >= 0.0) {
+        cfg.macro_failure_backtrack_factor = macro_backtracking_factor_override;
     }
     if (submodel_increment_steps_override > 0) {
         cfg.submodel_increment_steps = submodel_increment_steps_override;
@@ -180,6 +255,17 @@ int main(int argc, char* argv[])
             || arg == "--fe2-profile"
             || arg == "--steps-per-segment"
             || arg == "--max-steps"
+            || arg == "--max-bisections"
+            || arg == "--staggered-iters"
+            || arg == "--staggered-tol"
+            || arg == "--staggered-relaxation"
+            || arg == "--predictor-backtracking-attempts"
+            || arg == "--predictor-backtracking-factor"
+            || arg == "--predictor-min-sym-eig"
+            || arg == "--macro-step-cutback-attempts"
+            || arg == "--macro-step-cutback-factor"
+            || arg == "--macro-backtracking-attempts"
+            || arg == "--macro-backtracking-factor"
             || arg == "--submodel-increments"
             || arg == "--submodel-bisections"
             || arg == "--submodel-arc-threshold"
@@ -253,6 +339,20 @@ int main(int argc, char* argv[])
                          cfg.submodel_use_consistent_material_tangent
                              ? "consistent"
                              : "fracture-sec");
+            std::println("  FE2 outer loop: max-staggered={}  tol={:.2e}  relax={:.2f}",
+                         cfg.max_staggered_iterations,
+                         cfg.staggered_tol,
+                         cfg.staggered_relaxation);
+            std::println("  FE2 predictor filter: attempts={}  factor={:.2f}  min-sym-eig={:.2e}",
+                         cfg.predictor_admissibility_backtrack_attempts,
+                         cfg.predictor_admissibility_backtrack_factor,
+                         cfg.predictor_admissibility_min_symmetric_eigenvalue);
+            std::println("  FE2 macro continuation: cutback-attempts={}  cutback-factor={:.2f}  "
+                         "backtracking-attempts={}  backtracking-factor={:.2f}",
+                         cfg.macro_step_cutback_attempts,
+                         cfg.macro_step_cutback_factor,
+                         cfg.macro_failure_backtrack_attempts,
+                         cfg.macro_failure_backtrack_factor);
             std::println("  Output cadence: global-vtk={}  |  submodel-vtk={}  "
                          "|  min-crack-opening={:.2e}",
                          cfg.global_output_interval,

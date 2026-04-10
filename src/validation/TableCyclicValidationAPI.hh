@@ -28,7 +28,8 @@ enum class ValidationProtocolPreset {
 
 enum class ValidationExecutionProfile {
     Default,
-    FE2Crack50Exploratory
+    FE2Crack50Exploratory,
+    FE2FrontierAudit
 };
 
 struct CyclicValidationRunConfig {
@@ -44,6 +45,8 @@ struct CyclicValidationRunConfig {
     int predictor_admissibility_backtrack_attempts{0};
     double predictor_admissibility_backtrack_factor{0.5};
     double predictor_admissibility_min_symmetric_eigenvalue{0.0};
+    int macro_step_cutback_attempts{0};
+    double macro_step_cutback_factor{0.5};
     int macro_failure_backtrack_attempts{0};
     double macro_failure_backtrack_factor{0.5};
     int submodel_increment_steps{30};
@@ -110,6 +113,8 @@ make_validation_config(ValidationProtocolPreset preset)
             .predictor_admissibility_backtrack_attempts = 0,
             .predictor_admissibility_backtrack_factor = 0.5,
             .predictor_admissibility_min_symmetric_eigenvalue = 0.0,
+            .macro_step_cutback_attempts = 0,
+            .macro_step_cutback_factor = 0.5,
             .macro_failure_backtrack_attempts = 0,
             .macro_failure_backtrack_factor = 0.5,
             .submodel_increment_steps = 20,
@@ -154,6 +159,8 @@ make_validation_config(ValidationProtocolPreset preset)
         .predictor_admissibility_backtrack_attempts = 0,
         .predictor_admissibility_backtrack_factor = 0.5,
         .predictor_admissibility_min_symmetric_eigenvalue = 0.0,
+        .macro_step_cutback_attempts = 0,
+        .macro_step_cutback_factor = 0.5,
         .macro_failure_backtrack_attempts = 0,
         .macro_failure_backtrack_factor = 0.5,
         .submodel_increment_steps = 30,
@@ -197,6 +204,8 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
         cfg.predictor_admissibility_backtrack_attempts = 3;
         cfg.predictor_admissibility_backtrack_factor = 0.5;
         cfg.predictor_admissibility_min_symmetric_eigenvalue = 0.0;
+        cfg.macro_step_cutback_attempts = 2;
+        cfg.macro_step_cutback_factor = 0.5;
         cfg.macro_failure_backtrack_attempts = 3;
         cfg.macro_failure_backtrack_factor = 0.5;
         cfg.submodel_increment_steps = 12;
@@ -223,6 +232,44 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
         cfg.global_output_interval = 0;
         cfg.min_crack_opening = 0.0;
         break;
+    case ValidationExecutionProfile::FE2FrontierAudit:
+        cfg.execution_profile_name = "fe2_frontier_audit";
+        cfg.steps_per_segment = 1;
+        cfg.max_bisections = 1;
+        cfg.max_staggered_iterations = 2;
+        cfg.staggered_tol = 0.05;
+        cfg.staggered_relaxation = 0.75;
+        cfg.predictor_admissibility_backtrack_attempts = 1;
+        cfg.predictor_admissibility_backtrack_factor = 0.5;
+        cfg.predictor_admissibility_min_symmetric_eigenvalue = 0.0;
+        cfg.macro_step_cutback_attempts = 1;
+        cfg.macro_step_cutback_factor = 0.5;
+        cfg.macro_failure_backtrack_attempts = 1;
+        cfg.macro_failure_backtrack_factor = 0.5;
+        cfg.submodel_increment_steps = 4;
+        cfg.submodel_max_bisections = 1;
+        cfg.submodel_enable_arc_length_from_start = true;
+        cfg.submodel_arc_length_threshold = 1;
+        cfg.submodel_adaptive_max_substeps = 12;
+        cfg.submodel_adaptive_max_bisections = 4;
+        cfg.submodel_tail_rescue_attempts = 1;
+        cfg.submodel_tail_rescue_progress_threshold = 0.75;
+        cfg.submodel_tail_rescue_substep_bonus = 8;
+        cfg.submodel_tail_rescue_bisection_bonus = 2;
+        cfg.submodel_tail_rescue_initial_fraction = 0.5;
+        cfg.submodel_snes_max_it = 60;
+        cfg.enable_turning_point_checkpoints = false;
+        cfg.max_turning_point_restarts = 0;
+        cfg.restart_submodel_increment_step_bonus = 0;
+        cfg.restart_submodel_bisection_bonus = 0;
+        cfg.restart_adaptive_substep_bonus = 0;
+        cfg.restart_adaptive_bisection_bonus = 0;
+        cfg.restart_snes_max_it_bonus = 0;
+        cfg.submodel_use_consistent_material_tangent = false;
+        cfg.submodel_output_interval = 0;
+        cfg.global_output_interval = 0;
+        cfg.min_crack_opening = 0.0;
+        break;
     }
 }
 
@@ -234,6 +281,8 @@ describe_execution_profile(ValidationExecutionProfile profile)
         return "default";
     case ValidationExecutionProfile::FE2Crack50Exploratory:
         return "fe2_crack50";
+    case ValidationExecutionProfile::FE2FrontierAudit:
+        return "fe2_frontier_audit";
     }
     return "unknown";
 }

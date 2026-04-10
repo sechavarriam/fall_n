@@ -11,7 +11,7 @@
 using fall_n::CouplingTerminationReason;
 using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
 using fall_n::table_cyclic_validation::ValidationProtocolPreset;
-using fall_n::table_cyclic_validation::extract_base_shear_x;
+using fall_n::table_cyclic_validation::extract_base_shear_x_struct_model;
 using fall_n::table_cyclic_validation::make_validation_config;
 using fall_n::table_cyclic_validation::apply_execution_profile;
 using fall_n::table_cyclic_validation::build_fe2_case_context;
@@ -29,7 +29,19 @@ int main()
         cfg,
         fall_n::table_cyclic_validation::ValidationExecutionProfile::
             FE2Crack50Exploratory);
-    cfg.max_bisections = 2;
+    cfg.max_bisections = 1;
+    cfg.max_staggered_iterations = 2;
+    cfg.macro_failure_backtrack_attempts = 1;
+    cfg.macro_step_cutback_attempts = 1;
+    cfg.predictor_admissibility_backtrack_attempts = 1;
+    cfg.submodel_increment_steps = 4;
+    cfg.submodel_max_bisections = 1;
+    cfg.submodel_adaptive_max_substeps = 12;
+    cfg.submodel_adaptive_max_bisections = 4;
+    cfg.submodel_tail_rescue_attempts = 1;
+    cfg.submodel_tail_rescue_substep_bonus = 8;
+    cfg.submodel_tail_rescue_bisection_bonus = 2;
+    cfg.submodel_snes_max_it = 60;
 
     {
         auto ctx = build_fe2_case_context(
@@ -64,7 +76,8 @@ int main()
             ? report.attempted_macro_time
             : nl.current_time();
         const double drift = cfg.displacement(p);
-        const double shear = extract_base_shear_x(model, ctx.base_nodes);
+        const double shear =
+            extract_base_shear_x_struct_model(model, ctx.base_nodes);
 
         std::cout << "[INFO] case5_frontier_probe step_ok=" << ok
                   << " termination=" << fall_n::to_string(report.termination_reason)
@@ -79,6 +92,16 @@ int main()
                   << report.predictor_admissibility_attempts
                   << " predictor_admissibility_last_alpha="
                   << report.predictor_admissibility_last_alpha
+                  << " macro_step_cutback_attempts="
+                  << report.macro_step_cutback_attempts
+                  << " macro_step_cutback_succeeded="
+                  << report.macro_step_cutback_succeeded
+                  << " macro_step_cutback_last_factor="
+                  << report.macro_step_cutback_last_factor
+                  << " macro_step_cutback_initial_increment="
+                  << report.macro_step_cutback_initial_increment
+                  << " macro_step_cutback_last_increment="
+                  << report.macro_step_cutback_last_increment
                   << " macro_backtracking_attempts="
                   << report.macro_backtracking_attempts
                   << " macro_backtracking_succeeded="

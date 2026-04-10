@@ -961,18 +961,32 @@ literal transcription of the article's full \(m\)-history because the
 crack-count reduction remains regularized, but it is materially closer to
 Table~1 than the old one-shot approximation.
 
-The short-run FE\textsuperscript{2} consequence is now more informative than
-before.  With a deliberately strict diagnostic probe
-\texttt{--submodel-snes-max-it 20}, the first Case~5 macro step aborts with
-all four local models failing already at
-\[
-  k = 1/4,\qquad p_{\mathrm{local}} = 0.25,
-\]
-and the recorded solver diagnostics show zero active cracked material points.
-Therefore the earliest observable instability is a pre-committed-crack Newton
-divergence, not a failure of the crack-status stabilization loop.
+The short-run FE\textsuperscript{2} consequence is now best read in two
+stages.  Historically, a very strict probe with
+\texttt{--submodel-snes-max-it 20} appeared to fail before any observable
+cracking could be diagnosed.  That result is now retained only as historical
+evidence, because the validation recorders have since been hardened and the
+named \texttt{fe2\_frontier\_audit} profile has made the same first cracked
+point much more explicit.
 
-With the exploratory short-run probe
+Under the current frontier-audit interpretation, the first failed Case~5 point
+still aborts as \texttt{MicroSolveFailed}, but it no longer looks like a
+featureless pre-crack Newton collapse.  The failed-step recorder split now
+shows that the open-crack observables remain zero at the failed target while
+the constitutive crack-history observable is already large.  In the current
+audited row,
+\[
+  \texttt{total\_cracked\_gps} = 0,
+  \qquad
+  \texttt{total\_active\_crack\_history\_points} = 306,
+  \qquad
+  \max_g n_c(g) = 3.
+\]
+Therefore the earliest failed cracked point is no longer ``no cracking'';
+rather, it is a state in which crack history is already active in the material
+while no open-crack observable survives the recorder threshold.
+
+With the broader exploratory short-run probe
 \texttt{--submodel-snes-max-it 60}, the same first macro step aborts only
 later: Submodels~0 and~2 fail at \(k=3/4\), while Submodels~1 and~3 fail at
 \(k=4/4\).  The recorded \texttt{solver\_diagnostics.csv} row then reports,
@@ -1593,6 +1607,88 @@ Even with that damping, the default Case~5 one-step audit still diverges at
 the macro level.  The current scientific frontier is therefore no longer the
 first cracked micro ramp itself, but the first \emph{macro} FE\textsuperscript{2}
 re-solve driven by fully converged cracked-section operators.
+
+\paragraph{Fast \texttt{fe2\_frontier\_audit} profile and observable split.}
+The newer
+\begin{verbatim}
+--fe2-profile frontier
+--max-steps 1
+\end{verbatim}
+profile is intentionally more restrictive.  It is not the production-like
+\texttt{crack50} budget; it is a machine-readable frontier audit designed to
+expose the first failed cracked point at lower runtime cost.  In the current
+audited run, the uncoupled macro step converges, but the coupled step aborts
+with
+\begin{equation}
+  \texttt{MicroSolveFailed},
+  \qquad
+  \texttt{failed\_submodels}=2,
+  \label{eq:case5-frontier-audit-micro-failure}
+\end{equation}
+and the failed coupling sites are
+\(\texttt{eid}=0,\texttt{gp}=0,\xi=-0.57735\) and
+\(\texttt{eid}=2,\texttt{gp}=0,\xi=-0.57735\).
+
+The new failed-step recorder semantics are important here.  Because the step
+is rolled back, accepted structural quantities are undefined and are written as
+\texttt{NaN}.  The micro-side constitutive observables are still recorded from
+the last attempted local states.  Two different crack counts then coexist:
+\begin{itemize}
+  \item the open-crack observable,
+    \(\left|\mathcal{G}_{\mathrm{open}}\right|\), reported through
+    \texttt{total\_cracked\_gps}, \texttt{total\_cracks}, and
+    \texttt{max\_opening};
+  \item the crack-history observable,
+    \(\left|\mathcal{G}_{\mathrm{hist}}\right|\), reported through
+    \texttt{total\_active\_crack\_history\_points}.
+\end{itemize}
+For the current failed first point, the row now reads
+\begin{equation}
+  \left|\mathcal{G}_{\mathrm{open}}\right| = 0,
+  \qquad
+  \left|\mathcal{G}_{\mathrm{hist}}\right| = 306,
+  \qquad
+  \max_g n_c(g) = 3.
+  \label{eq:case5-frontier-audit-observables}
+\end{equation}
+This means that crack history is already active at many material points even
+though no open-crack observable survives the current recorder criterion.  The
+validation reading is therefore sharper than before: under the cheap frontier
+profile the first failed point is micro-limited and localized, but it is not
+``uncracked'' in the constitutive sense.
+
+\paragraph{Macro step-cutting as the next continuation layer.}
+The next validation-oriented continuation layer now sits at that macro
+frontier.  If the macro solver exposes a runtime increment size
+\(\Delta p_n\) and a target-preserving \texttt{step\_to(\(\cdot\))} API, the
+FE\textsuperscript{2} orchestrator may retry the same target
+\(p_{n+1}^{\star} = p_n + \Delta p_n\) with reduced internal increments
+\(\Delta p_n^{(k)} = \beta^k \Delta p_n\).  The key point is that the target
+protocol point is preserved; only the continuation path is refined.  This is
+therefore a step-cutting continuation aid, not a hidden change of cyclic
+loading program.
+
+The associated regression surface now proves that the typed FE\textsuperscript{2}
+API can recover a controlled macro failure through this cutback path while
+still reaching the original target time.  The full structural Case~5 frontier
+remains open in the audited local harness because the rebuilt cheap probe is
+still runtime-limited, but the methodological interpretation changes again:
+the library now has three explicit macro-side continuation levers for the
+first cracked FE\textsuperscript{2} step---predictor admissibility filtering,
+operator-space macro backtracking, and target-preserving macro step cutting.
+The remaining question is no longer whether the code can continue at all, but
+which continuation mechanism is sufficient to close the physical Case~5 path
+without overfitting the validation setup.
+
+\paragraph{Run-management as part of the validation method.}
+At the current cost scale, the full \texttt{Case~5} campaign is no longer a
+throwaway command-line experiment.  The launch protocol itself is therefore
+treated as part of the validation method: the repository now provides a
+dedicated launcher that preserves the exact command, redirects logs, stores the
+live PID, and keeps the VTK cadence explicit.  This matters scientifically
+because post-failure or post-success interpretation of crack initiation and
+hysteresis loops is only as trustworthy as the traceability of the long run
+that produced them.
 
 \paragraph{What remains true about the tangent audit.}
 The tangent discussion is still important, but it must now be framed honestly.

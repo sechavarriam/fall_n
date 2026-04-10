@@ -156,6 +156,7 @@ class NonlinearSubModelEvolver {
     //  Crack history 
     std::vector<CrackRecord> latest_cracks_;
     CrackSummary latest_crack_summary_{};
+    CrackSummary last_attempted_crack_summary_{};
     SubModelSolverResult last_solve_result_{};
 
     //  NL solver parameters 
@@ -651,6 +652,7 @@ class NonlinearSubModelEvolver {
         condensed_workspace_->reset();
         latest_cracks_.clear();
         latest_crack_summary_ = {};
+        last_attempted_crack_summary_ = {};
     }
 
 
@@ -870,6 +872,7 @@ public:
         , auto_commit_{o.auto_commit_}
         , latest_cracks_{std::move(o.latest_cracks_)}
         , latest_crack_summary_{o.latest_crack_summary_}
+        , last_attempted_crack_summary_{o.last_attempted_crack_summary_}
         , last_solve_result_{o.last_solve_result_}
         , first_step_increments_{o.first_step_increments_}
         , first_step_bisect_{o.first_step_bisect_}
@@ -931,6 +934,7 @@ public:
             auto_commit_   = o.auto_commit_;
             latest_cracks_ = std::move(o.latest_cracks_);
             latest_crack_summary_ = o.latest_crack_summary_;
+            last_attempted_crack_summary_ = o.last_attempted_crack_summary_;
             last_solve_result_ = o.last_solve_result_;
             first_step_increments_ = o.first_step_increments_;
             first_step_bisect_     = o.first_step_bisect_;
@@ -1193,6 +1197,14 @@ public:
             result = subsequent_solve();
 
         last_solve_result_ = result;
+        if (model_ready_ && model_ && U_) {
+            last_attempted_crack_summary_ =
+                LocalCrackDiagnostics<MixedModel>::collect(
+                    *model_, *sub_, U_, min_crack_opening_, false)
+                    .summary;
+        } else {
+            last_attempted_crack_summary_ = {};
+        }
 
         // Crack data & VTK output are NOT performed here during staggered
         // iterations — the caller should use end_of_step() once per global
@@ -1242,6 +1254,10 @@ public:
 
     [[nodiscard]] CrackSummary crack_summary() const noexcept {
         return latest_crack_summary_;
+    }
+
+    [[nodiscard]] CrackSummary last_attempted_crack_summary() const noexcept {
+        return last_attempted_crack_summary_;
     }
 
 
@@ -1910,6 +1926,7 @@ private:
         if (!model_) {
             latest_cracks_.clear();
             latest_crack_summary_ = {};
+            last_attempted_crack_summary_ = {};
             return;
         }
         const bool retain_detail = vtk_interval_ > 0;
@@ -1918,6 +1935,7 @@ private:
                 *model_, *sub_, U_, min_crack_opening_, retain_detail);
         latest_cracks_ = crack_state.cracks;
         latest_crack_summary_ = crack_state.summary;
+        last_attempted_crack_summary_ = crack_state.summary;
     }
 
 

@@ -24,6 +24,8 @@ static void test_default_config_preserves_extended50_contract()
     assert(cfg.predictor_admissibility_backtrack_attempts == 0);
     assert(cfg.predictor_admissibility_backtrack_factor == 0.5);
     assert(cfg.predictor_admissibility_min_symmetric_eigenvalue == 0.0);
+    assert(cfg.macro_step_cutback_attempts == 0);
+    assert(cfg.macro_step_cutback_factor == 0.5);
     assert(cfg.macro_failure_backtrack_attempts == 0);
     assert(!cfg.submodel_use_consistent_material_tangent);
     assert(cfg.global_output_interval == 1);
@@ -46,6 +48,8 @@ static void test_fe2_crack50_profile_applies_runtime_tuning()
     assert(cfg.predictor_admissibility_backtrack_attempts == 3);
     assert(cfg.predictor_admissibility_backtrack_factor == 0.5);
     assert(cfg.predictor_admissibility_min_symmetric_eigenvalue == 0.0);
+    assert(cfg.macro_step_cutback_attempts == 2);
+    assert(cfg.macro_step_cutback_factor == 0.5);
     assert(cfg.macro_failure_backtrack_attempts == 3);
     assert(cfg.macro_failure_backtrack_factor == 0.5);
     assert(cfg.submodel_increment_steps == 12);
@@ -69,6 +73,36 @@ static void test_fe2_crack50_profile_applies_runtime_tuning()
     assert(cfg.min_crack_opening == 0.0);
     assert(cfg.max_amplitude_m() == 0.050);
     std::cout << "[PASS] test_fe2_crack50_profile_applies_runtime_tuning\n";
+}
+
+static void test_fe2_frontier_profile_applies_fast_audit_tuning()
+{
+    auto cfg = make_validation_config(ValidationProtocolPreset::Extended50);
+    apply_execution_profile(cfg,
+                            ValidationExecutionProfile::FE2FrontierAudit);
+    assert(cfg.execution_profile_name == "fe2_frontier_audit");
+    assert(cfg.steps_per_segment == 1);
+    assert(cfg.max_bisections == 1);
+    assert(cfg.max_staggered_iterations == 2);
+    assert(cfg.predictor_admissibility_backtrack_attempts == 1);
+    assert(cfg.macro_step_cutback_attempts == 1);
+    assert(cfg.macro_failure_backtrack_attempts == 1);
+    assert(cfg.submodel_increment_steps == 4);
+    assert(cfg.submodel_max_bisections == 1);
+    assert(cfg.submodel_enable_arc_length_from_start);
+    assert(cfg.submodel_arc_length_threshold == 1);
+    assert(cfg.submodel_adaptive_max_substeps == 12);
+    assert(cfg.submodel_adaptive_max_bisections == 4);
+    assert(cfg.submodel_tail_rescue_attempts == 1);
+    assert(cfg.submodel_tail_rescue_substep_bonus == 8);
+    assert(cfg.submodel_tail_rescue_bisection_bonus == 2);
+    assert(cfg.submodel_snes_max_it == 60);
+    assert(!cfg.enable_turning_point_checkpoints);
+    assert(cfg.max_turning_point_restarts == 0);
+    assert(cfg.submodel_output_interval == 0);
+    assert(cfg.global_output_interval == 0);
+    assert(cfg.min_crack_opening == 0.0);
+    std::cout << "[PASS] test_fe2_frontier_profile_applies_fast_audit_tuning\n";
 }
 
 static void test_fe2_setup_keeps_submodels_alive_after_context_return()
@@ -113,6 +147,7 @@ int main()
 {
     test_default_config_preserves_extended50_contract();
     test_fe2_crack50_profile_applies_runtime_tuning();
+    test_fe2_frontier_profile_applies_fast_audit_tuning();
     test_fe2_setup_keeps_submodels_alive_after_context_return();
     std::cout << "\n=== All cyclic validation API tests PASSED ===\n";
     return 0;

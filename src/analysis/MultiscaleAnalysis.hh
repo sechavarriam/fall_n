@@ -58,6 +58,8 @@ private:
     double predictor_min_symmetric_eigenvalue_{0.0};
     int predictor_admissibility_backtrack_attempts_{0};
     double predictor_admissibility_backtrack_factor_{0.5};
+    int macro_step_cutback_attempts_{0};
+    double macro_step_cutback_factor_{0.5};
     int macro_failure_backtrack_attempts_{0};
     double macro_failure_backtrack_factor_{0.5};
     std::size_t analysis_steps_{0};
@@ -99,6 +101,11 @@ private:
         report.predictor_admissibility_satisfied = true;
         report.predictor_admissibility_attempts = 0;
         report.predictor_admissibility_last_alpha = 1.0;
+        report.macro_step_cutback_attempts = 0;
+        report.macro_step_cutback_succeeded = false;
+        report.macro_step_cutback_last_factor = 1.0;
+        report.macro_step_cutback_initial_increment = 0.0;
+        report.macro_step_cutback_last_increment = 0.0;
         report.predictor_inadmissible_sites.clear();
     }
 
@@ -373,6 +380,19 @@ private:
         }
     }
 
+    [[nodiscard]] bool macro_solver_supports_increment_control_() const
+    {
+        if constexpr (requires(MacroSolverT& solver, double dp) {
+                          { solver.get_increment_size() }
+                              -> std::convertible_to<double>;
+                          solver.set_increment_size(dp);
+                      }) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     void solve_locals_once_(double time,
                             std::vector<SectionHomogenizedResponse>& responses,
                             int& failed_submodels)
@@ -601,6 +621,20 @@ private:
         last_report_.termination_reason = CouplingTerminationReason::NotRun;
 
         const auto macro_checkpoint = macro_solver_->capture_checkpoint();
+        const double macro_step_start_time = macro_solver_->current_time();
+        double macro_trial_increment = 0.0;
+        bool macro_trial_increment_available = false;
+        if constexpr (requires(MacroSolverT& solver) {
+                          { solver.get_increment_size() }
+                              -> std::convertible_to<double>;
+                      }) {
+            macro_trial_increment = macro_solver_->get_increment_size();
+            macro_trial_increment_available = macro_trial_increment > 0.0;
+        }
+        const double macro_nominal_increment = macro_trial_increment;
+        const double macro_step_target_time =
+            macro_step_start_time
+            + (macro_trial_increment_available ? macro_trial_increment : 0.0);
         std::vector<LocalCheckpointT> local_checkpoints;
         local_checkpoints.reserve(model_.num_local_models());
         for (auto& local_model : model_.local_models()) {
@@ -627,20 +661,91 @@ private:
                     active_predictor, macro_success_baseline);
             apply_predictor_admissibility_filter_(
                 active_predictor, predictor_baseline);
-            auto try_macro_step = [&](const std::vector<SectionHomogenizedResponse>&
-                                          candidate) -> bool {
+            auto try_macro_step = [&](
+                                      const std::vector<SectionHomogenizedResponse>&
+                                          candidate,
+                                      double requested_increment) -> bool {
                 macro_solver_->restore_checkpoint(macro_checkpoint);
+                if constexpr (requires(MacroSolverT& solver, double dp) {
+                                  solver.set_increment_size(dp);
+                              }) {
+                    if (requested_increment > 0.0) {
+                        macro_solver_->set_increment_size(requested_increment);
+                    }
+                }
                 inject_or_clear_(candidate);
                 const auto macro_t0 = std::chrono::steady_clock::now();
-                const bool ok = macro_solver_->step();
+                bool ok = false;
+                if constexpr (requires(MacroSolverT& solver, double dp) {
+                                  { solver.get_increment_size() }
+                                      -> std::convertible_to<double>;
+                                  solver.set_increment_size(dp);
+                              }) {
+                    if (requested_increment > 0.0
+                        && macro_step_target_time > macro_step_start_time)
+                    {
+                        const auto verdict =
+                            macro_solver_->step_to(macro_step_target_time);
+                        ok = verdict != StepVerdict::Stop
+                            && macro_solver_->current_time()
+                                >= macro_step_target_time - 1.0e-12;
+                    } else {
+                        ok = macro_solver_->step();
+                    }
+                } else {
+                    ok = macro_solver_->step();
+                }
                 const auto macro_t1 = std::chrono::steady_clock::now();
                 last_report_.macro_solve_seconds +=
                     std::chrono::duration<double>(macro_t1 - macro_t0).count();
                 capture_macro_solver_diagnostics_();
                 return ok;
             };
+            auto try_macro_with_cutback =
+                [&](const std::vector<SectionHomogenizedResponse>& candidate)
+                    -> bool {
+                const double initial_increment = macro_trial_increment;
+                if (macro_trial_increment_available) {
+                    last_report_.macro_step_cutback_initial_increment =
+                        macro_nominal_increment;
+                    last_report_.macro_step_cutback_last_increment =
+                        initial_increment;
+                }
 
-            bool macro_ok = try_macro_step(active_predictor);
+                bool ok = try_macro_step(candidate, macro_trial_increment);
+                if (ok) {
+                    return true;
+                }
+
+                if (!macro_trial_increment_available
+                    || macro_step_cutback_attempts_ <= 0)
+                {
+                    return false;
+                }
+
+                for (int attempt = 1;
+                     attempt <= macro_step_cutback_attempts_;
+                     ++attempt)
+                {
+                    const double factor =
+                        std::pow(macro_step_cutback_factor_, attempt);
+                    const double reduced_increment =
+                        initial_increment * factor;
+                    last_report_.macro_step_cutback_attempts = attempt;
+                    last_report_.macro_step_cutback_last_factor = factor;
+                    last_report_.macro_step_cutback_last_increment =
+                        reduced_increment;
+                    ok = try_macro_step(candidate, reduced_increment);
+                    if (ok) {
+                        macro_trial_increment = reduced_increment;
+                        last_report_.macro_step_cutback_succeeded = true;
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            bool macro_ok = try_macro_with_cutback(active_predictor);
 
             auto macro_backtrack_baseline = macro_success_baseline;
             if (macro_backtrack_baseline.size() != model_.num_local_models()
@@ -673,7 +778,7 @@ private:
                             macro_backtrack_baseline[i],
                             last_report_.macro_backtracking_last_alpha);
                     }
-                    macro_ok = try_macro_step(active_predictor);
+                    macro_ok = try_macro_with_cutback(active_predictor);
                     if (macro_ok) {
                         last_report_.macro_backtracking_succeeded = true;
                         break;
@@ -912,6 +1017,11 @@ public:
     {
         macro_failure_backtrack_attempts_ = std::max(0, attempts);
         macro_failure_backtrack_factor_ = std::clamp(factor, 0.0, 1.0);
+    }
+    void set_macro_step_cutback(int attempts, double factor = 0.5)
+    {
+        macro_step_cutback_attempts_ = std::max(0, attempts);
+        macro_step_cutback_factor_ = std::clamp(factor, 0.0, 1.0);
     }
     void set_predictor_admissibility_filter(
         double min_symmetric_eigenvalue,

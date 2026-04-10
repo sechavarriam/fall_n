@@ -2018,13 +2018,91 @@ is filtered.
 
 An additional practical observation emerged while trying to reuse the cheap
 \texttt{Case~5} frontier probe as the main execution artifact for this pass.
-The dedicated target \texttt{fall\_n\_case5\_frontier\_probe\_test} currently
-fails to link on the audited Windows/MSYS2 environment with duplicated
-Eigen-generated symbols.  This is a target-level build defect, not a scientific
-negative result.  Consequently, the evidence for this pass rests on the API
-regression surface and the main FE\textsuperscript{2} driver rather than on the
-cheap probe executable itself.  The defect is now documented explicitly as a
-release/readiness item instead of being silently ignored.
+The dedicated target \texttt{fall\_n\_case5\_frontier\_probe\_test} no longer
+fails at the link stage on the audited Windows/MSYS2 path.  The recovery was
+purely architectural and build-level:
+\begin{itemize}
+  \item the heavy base-shear extraction path was moved behind the concrete
+    wrapper \texttt{extract\_base\_shear\_x\_struct\_model(...)} in
+    \texttt{TableCyclicValidationSupport.cpp}, so the probe target no longer
+    instantiates that template-heavy path directly;
+  \item PCH was disabled for the probe target, which avoided a second layer of
+    target-specific coupling on the Windows/MSYS2 toolchain;
+  \item \texttt{SubmodelMaterialFactoryDefaults.hh} received the explicit
+    material include it had been inheriting only accidentally from the PCH.
+\end{itemize}
+After those corrections, the target builds again sequentially in the audited
+environment.  The honest remaining limitation is now runtime, not link/build:
+the cheap probe is still wall-clock limited in the local harness, so it is not
+yet a stable CI-speed oracle for the full structural Case~5 frontier.
+
+\paragraph{Macro step-cutting follow-up.}
+Once the probe could be rebuilt again, the next execution pass targeted the
+macro solve itself rather than the micro constitutive path.  The practical
+question was: if the cracked micro operators are already acceptable, does the
+first macro FE\textsuperscript{2} re-solve still fail simply because the
+solver tries to traverse too much of the global path in a single increment?
+
+The implemented answer is a target-preserving macro cutback layer.  Let the
+committed macro control parameter at the start of the FE\textsuperscript{2}
+step be \(p_n\), let the nominal solver increment be \(\Delta p_n\), and let
+the intended target remain
+\begin{equation}
+  p_{n+1}^{\star} = p_n + \Delta p_n.
+\end{equation}
+If the macro solver exposes runtime increment control, the FE\textsuperscript{2}
+orchestrator may now retry the same target with a reduced internal increment
+\begin{equation}
+  \Delta p_n^{(k)} = \beta^k \Delta p_n,
+  \qquad
+  k = 1,\dots,N_{\mathrm{cut}},
+\end{equation}
+while solving
+\begin{equation}
+  p_n \;\xrightarrow[\Delta p_n^{(k)}]{\texttt{step\_to}}\; p_{n+1}^{\star}.
+\end{equation}
+The important detail is that the FE\textsuperscript{2} protocol target is
+\emph{not} changed; only the internal macro continuation path is refined.  This
+makes the method a continuation aid for the validation campaign, not an
+unreported change of loading program.
+
+The dedicated synthetic regression
+\texttt{test\_iterated\_two\_way\_recovers\_macro\_failure\_with\_step\_cutback}
+closed cleanly on the typed FE\textsuperscript{2} API harness.  In that test,
+the first macro trial fails when the solver increment is larger than \(0.5\),
+but the same FE\textsuperscript{2} target converges once the orchestrator
+retries it with a \(0.5\) cutback factor.  The report now records:
+\begin{itemize}
+  \item whether macro step cutting was attempted;
+  \item whether it succeeded;
+  \item the number of cutback retries;
+  \item the nominal increment of the FE\textsuperscript{2} step;
+  \item the accepted reduced increment;
+  \item the accepted reduction factor.
+\end{itemize}
+The exploratory \texttt{fe2\_crack50} profile now enables a small cutback
+budget in addition to predictor admissibility filtering and operator-space
+macro backtracking.  The full structural Case~5 rerun remains runtime-limited
+in the audited harness, so the present claim is deliberately narrow: the
+continuation capability exists, is regression-tested, is wired through the
+validation API and recorder CSVs, and is available for the next physical
+validation pass.
+
+The verification evidence for this pass was:
+\begin{itemize}
+  \item \texttt{fall\_n\_multiscale\_api\_test.exe}: green, including the new
+    cutback regression and the previously added affine-relaxation,
+    macro-backtracking, and predictor-admissibility checks;
+  \item \texttt{fall\_n\_cyclic\_validation\_api\_test.exe}: green, verifying
+    that the exploratory \texttt{fe2\_crack50} profile now wires predictor
+    admissibility, macro step cutting, and macro backtracking coherently;
+  \item \texttt{fall\_n\_case5\_frontier\_probe\_test}: build green again after
+    the target cleanup, but runtime-limited in the audited harness.
+\end{itemize}
+This combination is scientifically useful even though it does not yet close the
+full Case~5 path: the first two artifacts validate the algorithmic contract,
+and the third confirms that the remaining frontier is a runtime/methodology
+question rather than a target-build defect.
 
 \paragraph{Workflow hardening follow-up.}
 This same pass also closed a practical CI blocker.  The Windows/MSYS2 GitHub
@@ -2032,12 +2110,31 @@ workflow built the regression executables successfully under the UCRT64 toolchai
 but some native executables failed at runtime with exit code \(127\) when
 launched directly from the MSYS shell.  The stabilized fix was to keep the
 build stages in the UCRT64 MSYS shell while moving only the execution stage to
-PowerShell and prepending \texttt{ucrt64\textbackslash bin} to \texttt{PATH}.
-This preserves the package/toolchain logic of the MSYS2 stage while using the
+PowerShell and prepending \texttt{ucrt64\textbackslash bin} and
+\texttt{usr\textbackslash bin} to \texttt{PATH}, together with a minimal
+runtime-DLL sanity check before the regression executables are launched.  This
+preserves the package/toolchain logic of the MSYS2 stage while using the
 native Windows loader for the regression executables themselves.  The change is
 small operationally, but it matters because a broken gate would otherwise make
 the FE\textsuperscript{2} stabilization claims non-reproducible on the public
-CI surface.
+CI surface.  It also records a more honest interpretation of the runner failure:
+the audited local evidence showed that \texttt{fall\_n\_evolver\_advanced\_test}
+itself was sound, so the public failure was treated as an environment-closure
+problem rather than as a constitutive regression.
+
+\paragraph{Operational launch of the full Case~5 campaign.}
+The stabilization pass also formalized the long-run FE\textsuperscript{2}
+campaign launch as a reproducible operational artifact.  The script
+\texttt{scripts/run\_case5\_full\_vtk.ps1} launches the full
+\texttt{Case~5} driver in the background with the active
+\texttt{extended50 + crack50} configuration, writes stdout/stderr logs to
+\texttt{data/output/cyclic\_validation/case5/full\_run}, records the exact
+command line in a manifest, writes the live process identifier to a PID file,
+and records completion/exit status in a dedicated completion file through a
+small wrapper process.  That may look like a workflow detail, but it closes an
+important gap between ``research executable'' and ``reproducible validation
+campaign'': once the run is expensive enough that it must outlive an
+interactive session, the launch itself becomes part of the scientific record.
 
 \section{Follow-up: Material-Module Segregation of the Reference Local Law}
 \label{sec:ms-stab-material-segregation}
@@ -2412,6 +2509,130 @@ That update is not a cosmetic addition.  It closes a practical documentation
 gap: before this pass, the PDF contained a large amount of technical detail but
 the repository landing page did not tell a new contributor how the project was
 actually organised.
+
+\section{Failed-Step Recorder Hardening and Fast Case~5 Frontier Audit}
+\label{sec:ms-stab-failed-step-frontier-audit}
+
+\subsection{Motivation}
+
+The previous Case~5 frontier pass had already isolated a useful cheap command,
+but it still suffered from an observability defect.  When the
+FE\textsuperscript{2} step aborted, only
+\texttt{solver\_diagnostics.csv} received a row.  The higher-level
+\texttt{global\_history.csv} and \texttt{crack\_evolution.csv} files remained
+empty because they were written only on accepted FE\textsuperscript{2} steps.
+
+That was not merely inconvenient.  It meant the validation campaign could
+locate a failure through solver metadata, but could not preserve the physical
+interpretation of that failure in the same recorder family used for accepted
+steps.  The stabilization goal of this pass was therefore twofold:
+\begin{itemize}
+  \item preserve failed-step evidence without pretending that a rolled-back
+    step became accepted physics;
+  \item make the first cracked Case~5 point reproducible through a named,
+    fast audit profile.
+\end{itemize}
+
+\subsection{Implementation}
+
+The implementation introduced two complementary changes.
+
+\paragraph{Last-attempt crack summary.}
+\texttt{NonlinearSubModelEvolver} now stores a
+\texttt{last\_attempted\_crack\_summary} in addition to the committed
+\texttt{crack\_summary}.  The committed summary is still updated only through
+\texttt{end\_of\_step()}, while the attempted summary is refreshed after every
+\texttt{solve\_step()} through the lightweight crack-diagnostics path with
+\texttt{retain\_detail = false}.  This preserves the last attempted local
+constitutive observables across FE\textsuperscript{2} rollback without
+changing the semantics of the committed VTK-oriented crack output.
+
+\paragraph{Failed-step recorder contract.}
+The FE\textsuperscript{2} recorders now append rows even when the coupled step
+fails.  The new CSV contract adds:
+\begin{itemize}
+  \item \texttt{accepted};
+  \item \texttt{termination\_reason};
+  \item \texttt{rollback\_performed};
+  \item \texttt{total\_active\_crack\_history\_points};
+  \item \texttt{max\_num\_cracks\_at\_point}.
+\end{itemize}
+Accepted structural quantities that would be undefined after rollback are
+written as \texttt{NaN}; the failed-step rows do \emph{not} attempt to
+reconstruct a false accepted base shear or structural damage from the restored
+checkpoint.
+
+\subsection{Fast frontier-audit profile}
+
+The validation API now exposes a dedicated profile
+\texttt{fe2\_frontier\_audit}, wired through
+\texttt{ValidationExecutionProfile::FE2FrontierAudit}.  Its purpose is to
+reach the first failed cracked Case~5 point with lower runtime cost than the
+production-like \texttt{fe2\_crack50} budget.  The audited command was:
+\begin{verbatim}
+build/fall_n_table_cyclic_validation.exe
+  --case 5
+  --protocol extended50
+  --fe2-profile frontier
+  --max-steps 1
+  --global-output-interval 0
+  --submodel-output-interval 0
+\end{verbatim}
+The run completed successfully as a process in about \(698\)\,s and produced a
+single failed-step row in all three FE\textsuperscript{2} recorder families.
+
+\subsection{Observed result}
+
+The first step now fails reproducibly as
+\begin{equation}
+  \texttt{termination\_reason} = \texttt{MicroSolveFailed},
+  \qquad
+  \texttt{failed\_submodels} = 2,
+  \qquad
+  \texttt{rollback\_performed} = 1.
+\end{equation}
+The failed coupling sites are the first Gauss points of elements \(0\) and
+\(2\), both at \(\xi=-0.57735\).
+
+The recorded observables are split exactly as intended:
+\begin{equation}
+  \texttt{accepted} = 0,
+  \qquad
+  \texttt{base\_shear\_MN} = \mathrm{NaN},
+  \qquad
+  \texttt{peak\_damage} = \mathrm{NaN},
+\end{equation}
+while the micro-side crack metrics remain available:
+\begin{equation}
+  \texttt{total\_cracked\_gps} = 0,
+  \quad
+  \texttt{total\_cracks} = 0,
+  \quad
+  \texttt{max\_opening} = 0,
+  \quad
+  \texttt{total\_active\_crack\_history\_points} = 306,
+  \quad
+  \texttt{max\_num\_cracks\_at\_point} = 3.
+\end{equation}
+This is an important scientific clarification.  The first failed cracked point
+is no longer ``missing data'' and it is no longer misread as ``no cracking''.
+Instead, the record now says exactly what happened: crack history is already
+active in many material points, but no open-crack observable survives the
+current recorder criterion at that failed FE\textsuperscript{2} target.
+
+\subsection{Interpretation}
+
+After this pass the Case~5 validation frontier is best understood as a
+two-level surface:
+\begin{itemize}
+  \item under the cheap \texttt{fe2\_frontier\_audit} budget, the first failed
+    point is micro-limited and localized at two coupling sites;
+  \item under the larger \texttt{fe2\_crack50} budget, the same first cracked
+    point is already macro-dominated after all four local columns converge.
+\end{itemize}
+This split is more valuable than a single failure label because it guides the
+next validation work precisely: the local late cracked tail and the macro
+post-peak continuation problem can now be studied separately.
 
 \section{Closure of the Stabilization Cycle}
 \label{sec:ms-stab-close}

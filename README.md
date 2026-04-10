@@ -21,7 +21,7 @@ The most mature publication-path subsystem today is the multiscale module:
 - The persistent local facade has been split further internally through `LocalBoundaryConditionApplicator`, `PersistentLocalStateOps`, `BoundaryReactionHomogenizer`, `LocalCrackDiagnostics`, and `LocalVTKOutputWriter`.
 - The local continuum-material contracts now live in `src/materials/SubmodelMaterialFactory.hh`, while the current Ko-Bathe/Menegotto reference defaults live in `src/materials/SubmodelMaterialFactoryDefaults.hh`; the multiscale core no longer owns those constitutive choices.
 - A local stabilization gate exists in `scripts/ci_multiscale_stabilization.ps1`, and the intended CI surface is frozen in `.github/workflows/multiscale-stability.yml`.
-- The GitHub Windows/MSYS2 gate now builds under the UCRT64 MSYS shell but runs regression executables from PowerShell with `ucrt64\\bin` injected into `PATH`, which avoids the `exit 127` native-loader failures observed when launching some UCRT executables directly from the MSYS shell.
+- The GitHub Windows/MSYS2 gate now builds under the UCRT64 MSYS shell but runs regression executables from PowerShell with both `ucrt64\\bin` and `usr\\bin` injected into `PATH`, plus a small runtime-DLL sanity check. This hardens the public gate against `STATUS_DLL_NOT_FOUND` / `exit -1073741515` failures that are sensitive to the runner environment rather than to the binaries themselves.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
 - The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
 - The Ko-Bathe 3D audit also closed a real constitutive-state bug: crack opening/closure is now refreshed from the final elastic strain after plastic correction, instead of silently inheriting a pre-return trial state.
@@ -38,6 +38,7 @@ The most mature publication-path subsystem today is the multiscale module:
 - The FE2 relaxation path now blends full affine section laws consistently, not just raw `forces` and `tangent` arrays, and the iterated macro solve now has an explicit operator-space backtracking path for `MacroSolveFailed` recoveries.
 - The FE2 coupling report now exposes macro SNES diagnostics (`reason`, iteration count, residual norm) and per-site section-operator diagnostics (minimum symmetric eigenvalue, maximum symmetric eigenvalue, trace, and nonpositive diagonal count) so a `MacroSolveFailed` event is no longer a black box.
 - The iterated FE2 path now also supports a configurable predictor-admissibility filter: before a cracked local operator is sent into the next macro re-solve, the affine section law can be blended toward a baseline law until the symmetric-part eigenvalue floor is satisfied. This is explicit, reported, and intended as a validation aid rather than a hidden constitutive modification.
+- The iterated FE2 path now also supports a configurable macro step-cutting continuation when the macro solver exposes runtime increment control. The cutback preserves the target control point by retrying the same FE2 macro re-solve with a smaller solver increment and `step_to(...)`, and it reports both the nominal and accepted increment sizes explicitly.
 
 This does not mean the whole repository is “finished”. It means the codebase now has one path that is close to publication quality, and the rest of the library can be reviewed and strengthened around that standard.
 
@@ -174,6 +175,19 @@ scripts/run_predefinitive_physical_validation.ps1
 
 It reruns the focused multiscale regression executables, launches a one-step one-way FE2 short run, launches a one-step iterated two-way FE2 short run, stores logs under `data/output/cyclic_validation/predefinitive_validation/logs`, and writes a machine-readable summary CSV.
 
+The current full Case 5 launcher for VTK-oriented review is:
+
+```powershell
+scripts/run_case5_full_vtk.ps1
+```
+
+It starts the full `Case 5` FE2 campaign in the background with the current
+`extended50 + crack50` defaults, preserves the run command in
+`data/output/cyclic_validation/case5/full_run/manifest.txt`, redirects stdout
+and stderr to log files in the same folder, writes the active PID to
+`data/output/cyclic_validation/case5/full_run/pid.txt`, and records completion
+status and exit code in `data/output/cyclic_validation/case5/full_run/completion.txt`.
+
 ## Documentation
 
 The main technical document is:
@@ -220,7 +234,7 @@ The document compiles, but it still contains pre-existing warnings and historica
 - The distributed MPI micro-solve engine is not implemented yet beyond contracts and communicator ownership.
 - The root `CMakeLists.txt` is still monolithic.
 - `header_files.hh` still causes avoidable build coupling and PCH invalidation.
-- The dedicated `fall_n_case5_frontier_probe_test` target is currently affected by a Windows/MSYS2 linker issue involving duplicated Eigen-generated symbols. The main FE2 drivers and the API regressions remain usable, but the cheap probe still needs a target-level link cleanup before it can be treated as a stable CI artifact.
+- The dedicated `fall_n_case5_frontier_probe_test` target now builds again on the audited Windows/MSYS2 path after the probe-specific link cleanup, but it remains a runtime-limited artifact in the local harness and therefore is not yet a stable CI-speed oracle for the full Case 5 frontier.
 - The repository mixes naming styles such as `non_lineal` / `nonlinear` and `Homogenisation` / `Homogenized`.
 - The top-level documentation still contains historical drift and LaTeX warning debt.
 - Some heavy validation drivers remain expensive to compile and run; on the latest audited cyclic-validation pass, the isolated `TableCyclicValidationFE2.cpp` object rebuilt in about `177.2 s`, while the extracted `TableCyclicValidationFE2Recorders.cpp` slice rebuilt in about `38.6 s`, so the heavy runtime TU frontier is still open even though the IO/recorder slice is now materially cheaper to edit.
@@ -259,7 +273,11 @@ The current honest frontier is:
 - The same audited run shows `72–82` active cracked material points, up to `3` cracks at a point, one-step no-flow stabilization, and no no-flow destabilization. That is strong evidence that the remaining frontier is the late, heavily cracked tail of the first micro ramp, not the top-level `flow / no-flow` split itself.
 - In the current default `fe2_crack50` one-step audit, all four submodels now reach `100%` of the first `+2.5 mm` target with `4–7` accepted ramp substeps, `0–3` bisections, `80–82` active cracked points, and zero tail-rescue activations. The step still aborts, but now with `MacroSolveFailed` and `failed_submodels = 0`: the scientific frontier has moved from the local micro ramp to the first macro FE2 re-solve with injected cracked-section operators.
 - A synthetic API regression now proves that the new macro backtracking path can recover a macro solve that would otherwise fail under the same affine section-law predictor. The full structural `Case 5` frontier remains macro-dominated, but the cheap probe used during stabilization is still runtime-limited; the new backtracking path should therefore be read as a validated algorithmic capability, not yet as a closed end-to-end physical-validation result.
-- The next concrete validation task is now sharper than before: use the new macro SNES and section-operator diagnostics to determine whether the first cracked `Case 5` FE2 failure is driven mainly by a grossly indefinite injected tangent, by an overly large affine force intercept, or by the interaction between those operators and the macro incremental/bisection solver.
+- A second execution profile, `fe2_frontier_audit`, now exists to make the first cracked Case 5 point reproducible and machine-readable at lower runtime cost. In the current audited run `build/fall_n_table_cyclic_validation.exe --case 5 --protocol extended50 --fe2-profile frontier --max-steps 1 --global-output-interval 0 --submodel-output-interval 0`, the uncoupled macro step converges, but the FE2 step aborts with `MicroSolveFailed`, `failed_submodels = 2`, and failed coupling sites `eid=0/gp=0/xi=-0.57735` and `eid=2/gp=0/xi=-0.57735`.
+- Failed FE2 steps now leave explicit `accepted=0` rows in `global_history.csv` and `crack_evolution.csv`. Structural quantities that are no longer physically defined after rollback, such as accepted base shear and accepted structural peak damage, remain `NaN` instead of being silently back-filled from the restored state.
+- The current `fe2_frontier_audit` row is intentionally subtle: it records `total_cracked_gps = 0`, `total_cracks = 0`, and `max_opening = 0`, but also `total_active_crack_history_points = 306` and `max_num_cracks_at_point = 3`. That means the material points already carry crack history, while no open-crack observable survives the current recorder criterion at that failed FE2 point. The validation methodology therefore needs both observables; either one alone would give a misleading diagnosis.
+- A second synthetic API regression now proves that the FE2 loop can also recover a macro failure by cutting back the macro increment while still reaching the same target control point. This is a continuation aid for the validation campaign, not yet a claim that the full structural `Case 5` path is closed.
+- The next concrete validation task is now split in two levels instead of one. Under `fe2_frontier_audit`, the cheap reproducible frontier is micro-limited and localized at two coupling sites. Under the production-like `fe2_crack50` budget, the frontier is already macro-dominated. That split is scientifically useful: it tells us that further validation needs both a local late-tail continuation study and a macro post-peak continuation study, rather than a single undifferentiated "Case 5 still fails" verdict.
 - The optional consistent-tangent override remains an audit path, not a promotion path. The earlier negative result is preserved as historical evidence, but after the FE2 setup-lifetime correction it should be treated as a benchmark that needs re-audit before any final scientific claim is made.
 
 ## Bottom Line
