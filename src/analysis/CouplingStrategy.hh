@@ -90,6 +90,45 @@ struct RelaxationPolicy {
                        int iteration) = 0;
 };
 
+[[nodiscard]] inline Eigen::Vector<double, 6> affine_force_at(
+    const SectionHomogenizedResponse& response,
+    const Eigen::Vector<double, 6>& strain_ref)
+{
+    return response.forces
+         + response.tangent * (strain_ref - response.strain_ref);
+}
+
+inline void blend_section_response(
+    SectionHomogenizedResponse& current,
+    const SectionHomogenizedResponse& previous,
+    double alpha)
+{
+    const double beta = 1.0 - alpha;
+    const auto relaxed_tangent =
+        alpha * current.tangent + beta * previous.tangent;
+
+    if (current.forces_consistent_with_tangent
+        && previous.forces_consistent_with_tangent)
+    {
+        const auto strain_ref = current.strain_ref;
+        const auto current_force_at_ref =
+            affine_force_at(current, strain_ref);
+        const auto previous_force_at_ref =
+            affine_force_at(previous, strain_ref);
+        current.forces = alpha * current_force_at_ref
+                       + beta * previous_force_at_ref;
+        current.tangent = relaxed_tangent;
+        current.forces_consistent_with_tangent = true;
+        refresh_section_operator_diagnostics(current);
+        return;
+    }
+
+    current.tangent = relaxed_tangent;
+    current.forces = alpha * current.forces + beta * previous.forces;
+    current.forces_consistent_with_tangent = false;
+    refresh_section_operator_diagnostics(current);
+}
+
 class ConstantRelaxation final : public RelaxationPolicy {
     double omega_;
 public:
@@ -99,10 +138,7 @@ public:
                const SectionHomogenizedResponse& previous,
                [[maybe_unused]] int iteration) override
     {
-        current.tangent =
-            omega_ * current.tangent + (1.0 - omega_) * previous.tangent;
-        current.forces =
-            omega_ * current.forces + (1.0 - omega_) * previous.forces;
+        blend_section_response(current, previous, omega_);
     }
 };
 

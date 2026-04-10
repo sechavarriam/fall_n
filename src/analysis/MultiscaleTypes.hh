@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <Eigen/Dense>
+#include <Eigen/Eigenvalues>
 
 namespace fall_n {
 
@@ -146,6 +147,10 @@ struct SectionHomogenizedResponse {
     std::array<bool, 6> tangent_column_valid{};
     std::array<bool, 6> tangent_column_central{};
     int failed_perturbations{0};
+    double tangent_min_symmetric_eigenvalue{0.0};
+    double tangent_max_symmetric_eigenvalue{0.0};
+    double tangent_trace{0.0};
+    int tangent_nonpositive_diagonal_entries{0};
 };
 
 struct CouplingIterationReport {
@@ -167,8 +172,14 @@ struct CouplingIterationReport {
     double max_tangent_column_residual_rel{0.0};
     double macro_solve_seconds{0.0};
     double micro_solve_seconds{0.0};
+    int macro_solver_reason{0};
+    int macro_solver_iterations{0};
+    double macro_solver_function_norm{0.0};
     bool rollback_performed{false};
     bool relaxation_applied{false};
+    int macro_backtracking_attempts{0};
+    bool macro_backtracking_succeeded{false};
+    double macro_backtracking_last_alpha{1.0};
     bool regularization_detected{false};
     bool attempted_state_valid{false};
     int attempted_macro_step{0};
@@ -181,8 +192,34 @@ struct CouplingIterationReport {
     std::vector<std::array<double, 6>> force_residual_component_scales{};
     std::vector<std::array<double, 6>> tangent_residual_row_scales{};
     std::vector<std::array<double, 6>> tangent_residual_column_scales{};
+    std::vector<double> tangent_min_symmetric_eigenvalues{};
+    std::vector<double> tangent_max_symmetric_eigenvalues{};
+    std::vector<double> tangent_traces{};
+    std::vector<int> tangent_nonpositive_diagonal_counts{};
     std::vector<CouplingSite> failed_sites{};
 };
+
+inline void refresh_section_operator_diagnostics(
+    SectionHomogenizedResponse& response)
+{
+    const auto sym = 0.5 * (response.tangent + response.tangent.transpose());
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig(sym);
+    if (eig.info() == Eigen::Success) {
+        response.tangent_min_symmetric_eigenvalue = eig.eigenvalues()[0];
+        response.tangent_max_symmetric_eigenvalue = eig.eigenvalues()[5];
+    } else {
+        response.tangent_min_symmetric_eigenvalue = 0.0;
+        response.tangent_max_symmetric_eigenvalue = 0.0;
+    }
+    response.tangent_trace = response.tangent.trace();
+    int nonpositive = 0;
+    for (int i = 0; i < 6; ++i) {
+        if (response.tangent(i, i) <= 0.0) {
+            ++nonpositive;
+        }
+    }
+    response.tangent_nonpositive_diagonal_entries = nonpositive;
+}
 
 [[nodiscard]] inline constexpr std::string_view to_string(CouplingMode mode)
 {

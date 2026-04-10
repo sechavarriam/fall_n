@@ -222,6 +222,9 @@ FE2CaseContext build_fe2_case_context(
         ValidationMicroExecutor{});
     ctx.analysis->set_coupling_start_step(COUPLING_START_STEP);
     ctx.analysis->set_section_dimensions(COL_B, COL_H);
+    ctx.analysis->set_macro_failure_backtracking(
+        cfg.macro_failure_backtrack_attempts,
+        cfg.macro_failure_backtrack_factor);
 
     ctx.base_nodes = {0, 1, 2, 3};
     return ctx;

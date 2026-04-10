@@ -1883,6 +1883,104 @@ pre-tail-continuation state.  The present blocker is the first \emph{macro}
 FE\textsuperscript{2} re-solve with injected cracked operators, not the
 micro-scale inability to reach the \(+2.5\)\,mm target itself.
 
+\paragraph{Affine-law relaxation and macro backtracking follow-up.}
+The next stabilization pass targeted exactly that macro blocker.  Two related
+changes were implemented:
+\begin{enumerate}
+  \item \texttt{ConstantRelaxation} was redefined as the convex combination of
+    two affine section laws, not as the componentwise blend of stored
+    \texttt{forces} and \texttt{tangent} with a silently frozen
+    \texttt{strain\_ref};
+  \item \texttt{MultiscaleAnalysis} gained an explicit macro-failure
+    backtracking path in operator space,
+    \(\mathcal{S}^{(k)} = \alpha_k \mathcal{S}_{\mathrm{pred}}
+      + (1-\alpha_k)\mathcal{S}_{\mathrm{base}}\),
+    with \(\alpha_k = \beta^k\), plus a zero-correction baseline for the very
+    first coupled step.
+\end{enumerate}
+
+The synthetic API regressions closed cleanly in this pass.  The new
+\texttt{test\_constant\_relaxation\_preserves\_affine\_section\_law\_with\_shifted\_reference}
+now verifies the affine consistency of the relaxed law explicitly, and
+\texttt{test\_iterated\_two\_way\_backtracks\_macro\_predictor\_on\_failure}
+verifies that a macro failure can be recovered by operator-space backtracking
+under controlled conditions.
+
+To make the Case~5 frontier reproducible without always rebuilding the full
+driver, a lighter executable probe,
+\texttt{fall\_n\_case5\_frontier\_probe\_test}, was also added.  The honest
+result of the audited full-budget probe \emph{before} the zero-baseline
+backtracking extension remained:
+\begin{itemize}
+  \item \texttt{termination\_reason = MacroSolveFailed},
+  \item \texttt{failed\_submodels = 0},
+  \item \texttt{iterations = 2},
+  \item \texttt{macro\_backtracking\_attempts = 0},
+\end{itemize}
+which exposed a real semantic gap: on the first coupled step there was no
+accepted injected predictor to retreat toward, so the new backtracking path
+had no admissible baseline.  The implementation was then extended to use the
+zero-correction baseline on that first coupled step as well.
+
+The full structural rerun with that zero-baseline extension remains
+runtime-limited in the audited local environment.  A cheap probe variant with
+reduced global bisection budget was prepared for development use, but it still
+did not finish within the local harness timeout.  The current state is
+therefore:
+\begin{itemize}
+  \item the mathematical inconsistency in FE\textsuperscript{2} relaxation is
+    closed and regression-tested;
+  \item the macro backtracking algorithm exists, is regression-tested, and now
+    covers both the ``previous predictor available'' and ``first coupled
+    step'' baselines;
+  \item the end-to-end Case~5 physical frontier remains honestly open until the
+    new zero-baseline backtracking path is validated in a complete structural
+    rerun.
+\end{itemize}
+
+\paragraph{Macro observability follow-up.}
+The next execution pass then focused on making that remaining frontier
+measurable rather than merely nameable.  Two additions were made:
+\begin{enumerate}
+  \item \texttt{NLAnalysis} now exposes the last available macro SNES
+    convergence reason, iteration count, and residual norm to the FE\textsuperscript{2}
+    report;
+  \item \texttt{SectionHomogenizedResponse} and
+    \texttt{CouplingIterationReport} now record simple diagnostics of the
+    relaxed injected section operator:
+    \(\lambda_{\min}(\mathbf{D}_{\mathrm{sym}})\),
+    \(\lambda_{\max}(\mathbf{D}_{\mathrm{sym}})\),
+    \(\operatorname{tr}(\mathbf{D})\), and the count of nonpositive diagonal
+    entries.
+\end{enumerate}
+
+The purpose is not to over-interpret those diagnostics as a complete stability
+theory.  The purpose is to rule out classes of explanation quickly.  After this
+pass, a future Case~5 frontier row can answer questions such as:
+\begin{itemize}
+  \item did the macro solve fail in one violent Newton blow-up or after many
+    line-search iterations?;
+  \item was the injected section operator strongly indefinite at the failed
+    site?;
+  \item was the operator still mostly positive while the affine force intercept
+    remained too aggressive?
+\end{itemize}
+That is a materially better scientific position than a bare
+\texttt{MacroSolveFailed} label.
+
+\paragraph{Workflow hardening follow-up.}
+This same pass also closed a practical CI blocker.  The Windows/MSYS2 GitHub
+workflow built the regression executables successfully under the UCRT64 toolchain,
+but some native executables failed at runtime with exit code \(127\) when
+launched directly from the MSYS shell.  The stabilized fix was to keep the
+build stages in the UCRT64 MSYS shell while moving only the execution stage to
+PowerShell and prepending \texttt{ucrt64\textbackslash bin} to \texttt{PATH}.
+This preserves the package/toolchain logic of the MSYS2 stage while using the
+native Windows loader for the regression executables themselves.  The change is
+small operationally, but it matters because a broken gate would otherwise make
+the FE\textsuperscript{2} stabilization claims non-reproducible on the public
+CI surface.
+
 \section{Follow-up: Material-Module Segregation of the Reference Local Law}
 \label{sec:ms-stab-material-segregation}
 
