@@ -41,6 +41,9 @@ struct CyclicValidationRunConfig {
     int max_staggered_iterations{5};
     double staggered_tol{0.05};
     double staggered_relaxation{0.75};
+    int predictor_admissibility_backtrack_attempts{0};
+    double predictor_admissibility_backtrack_factor{0.5};
+    double predictor_admissibility_min_symmetric_eigenvalue{0.0};
     int macro_failure_backtrack_attempts{0};
     double macro_failure_backtrack_factor{0.5};
     int submodel_increment_steps{30};
@@ -104,6 +107,9 @@ make_validation_config(ValidationProtocolPreset preset)
             .max_staggered_iterations = 3,
             .staggered_tol = 0.05,
             .staggered_relaxation = 0.80,
+            .predictor_admissibility_backtrack_attempts = 0,
+            .predictor_admissibility_backtrack_factor = 0.5,
+            .predictor_admissibility_min_symmetric_eigenvalue = 0.0,
             .macro_failure_backtrack_attempts = 0,
             .macro_failure_backtrack_factor = 0.5,
             .submodel_increment_steps = 20,
@@ -145,6 +151,9 @@ make_validation_config(ValidationProtocolPreset preset)
         .max_staggered_iterations = 5,
         .staggered_tol = 0.05,
         .staggered_relaxation = 0.75,
+        .predictor_admissibility_backtrack_attempts = 0,
+        .predictor_admissibility_backtrack_factor = 0.5,
+        .predictor_admissibility_min_symmetric_eigenvalue = 0.0,
         .macro_failure_backtrack_attempts = 0,
         .macro_failure_backtrack_factor = 0.5,
         .submodel_increment_steps = 30,
@@ -185,6 +194,9 @@ inline void apply_execution_profile(CyclicValidationRunConfig& cfg,
     case ValidationExecutionProfile::FE2Crack50Exploratory:
         cfg.execution_profile_name = "fe2_crack50";
         cfg.steps_per_segment = 1;
+        cfg.predictor_admissibility_backtrack_attempts = 3;
+        cfg.predictor_admissibility_backtrack_factor = 0.5;
+        cfg.predictor_admissibility_min_symmetric_eigenvalue = 0.0;
         cfg.macro_failure_backtrack_attempts = 3;
         cfg.macro_failure_backtrack_factor = 0.5;
         cfg.submodel_increment_steps = 12;

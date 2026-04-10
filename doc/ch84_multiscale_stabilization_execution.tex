@@ -1968,6 +1968,64 @@ pass, a future Case~5 frontier row can answer questions such as:
 That is a materially better scientific position than a bare
 \texttt{MacroSolveFailed} label.
 
+\paragraph{Predictor-admissibility follow-up.}
+The next pass used those diagnostics operationally.  The goal was not to
+``fix'' the accepted cracked local law, but to make the \emph{predictor}
+injected into the next macro solve explicitly screenable.  A configurable
+predictor-admissibility filter was therefore added to
+\texttt{MultiscaleAnalysis}.  The current criterion is the symmetric-eigenvalue
+floor
+\[
+  \lambda_{\min}\!\left(\mathbf{D}_{\mathrm{sym}}\right)
+  \ge \lambda_{\min}^{\star},
+\]
+applied to the affine law that would otherwise be sent directly into the next
+macro step.  If the predictor violates that floor, the algorithm blends it
+toward a baseline affine law with the same geometric sequence already used by
+the macro backtracking path,
+\[
+  \widehat{\mathcal{S}}^{(k,m)}
+  = \alpha_m\,\mathcal{S}^{(k)}
+  + (1-\alpha_m)\,\mathcal{S}_{\mathrm{base}},
+  \qquad
+  \alpha_m = \beta^m,
+\]
+until the floor is satisfied or the admissibility budget is exhausted.
+
+This distinction turned out to be scientifically useful.  Macro backtracking is
+only triggered \emph{after} a failed macro solve.  The new admissibility filter
+acts \emph{before} the macro solve and records:
+\begin{itemize}
+  \item whether the filter was applied;
+  \item whether the chosen admissibility floor was eventually satisfied;
+  \item how many admissibility backtracking attempts were required;
+  \item the accepted damping factor;
+  \item the original inadmissible coupling sites.
+\end{itemize}
+The synthetic regression
+\texttt{test\_iterated\_two\_way\_filters\_inadmissible\_predictor\_before\_macro\_resolve}
+closed cleanly and verified exactly that contract on a controlled one-site
+problem: a predictor with a negative minimum symmetric eigenvalue is screened,
+blended toward the previous accepted baseline, and only then admitted into the
+macro re-solve.
+
+The exploratory \texttt{fe2\_crack50} profile now enables this filter with
+\(\lambda_{\min}^{\star}=0\) and the same geometric factor used by macro
+backtracking.  This should be read as a validation aid, not as a hidden
+constitutive law change.  The accepted local response remains whatever the
+micro solve delivered; only the predictor used for the next outer trial solve
+is filtered.
+
+An additional practical observation emerged while trying to reuse the cheap
+\texttt{Case~5} frontier probe as the main execution artifact for this pass.
+The dedicated target \texttt{fall\_n\_case5\_frontier\_probe\_test} currently
+fails to link on the audited Windows/MSYS2 environment with duplicated
+Eigen-generated symbols.  This is a target-level build defect, not a scientific
+negative result.  Consequently, the evidence for this pass rests on the API
+regression surface and the main FE\textsuperscript{2} driver rather than on the
+cheap probe executable itself.  The defect is now documented explicitly as a
+release/readiness item instead of being silently ignored.
+
 \paragraph{Workflow hardening follow-up.}
 This same pass also closed a practical CI blocker.  The Windows/MSYS2 GitHub
 workflow built the regression executables successfully under the UCRT64 toolchain,

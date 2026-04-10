@@ -222,6 +222,10 @@ FE2CaseContext build_fe2_case_context(
         ValidationMicroExecutor{});
     ctx.analysis->set_coupling_start_step(COUPLING_START_STEP);
     ctx.analysis->set_section_dimensions(COL_B, COL_H);
+    ctx.analysis->set_predictor_admissibility_filter(
+        cfg.predictor_admissibility_min_symmetric_eigenvalue,
+        cfg.predictor_admissibility_backtrack_attempts,
+        cfg.predictor_admissibility_backtrack_factor);
     ctx.analysis->set_macro_failure_backtracking(
         cfg.macro_failure_backtrack_attempts,
         cfg.macro_failure_backtrack_factor);

@@ -694,6 +694,71 @@ This moves the FE\textsuperscript{2} validation path closer to a real
 methodology audit: the outer loop now reports both ``how the macro solve
 failed'' and ``what kind of section operator it was trying to solve with''.
 
+\subsection{Predictor admissibility filtering before the macro re-solve}
+\label{sec:ms-pub-predictor-admissibility}
+
+The next stabilization step is deliberately narrower than a full constitutive
+regularisation: before the next macro re-solve is attempted, the code may
+screen the \emph{predictor} affine law against a configurable admissibility
+criterion based on the symmetric part of the injected section operator.  The
+criterion currently implemented is
+\begin{equation}
+  \lambda_{\min}\!\left(
+    \mathbf{D}_{\mathrm{sym}}
+  \right)
+  \ge \lambda_{\min}^{\star},
+  \label{eq:ms-pub-predictor-admissibility}
+\end{equation}
+where \(\lambda_{\min}^{\star}\) is a user-selected floor.  The default
+publication path keeps this filter disabled; the exploratory
+\texttt{fe2\_crack50} profile enables it with
+\(\lambda_{\min}^{\star}=0\) as an explicit validation aid.
+
+The key architectural point is that the filter does \emph{not} rewrite the
+accepted local response.  It acts only on the predictor sent into the next
+macro trial solve.  Let \(\mathcal{S}^{(k)}\) denote the current affine law
+and \(\mathcal{S}_{\mathrm{base}}\) the baseline predictor (the last accepted
+law, or the zero-correction baseline when no accepted predictor exists yet).
+The admissibility filter applies the same affine-consistent blending operator
+introduced in \eqref{eq:ms-pub-affine-relaxation}, now with a geometric
+backtracking sequence
+\begin{equation}
+  \widehat{\mathcal{S}}^{(k,m)}
+  =
+  \alpha_m\,\mathcal{S}^{(k)}
+  + (1-\alpha_m)\,\mathcal{S}_{\mathrm{base}},
+  \qquad
+  \alpha_m = \beta^m,
+  \quad
+  m = 1,2,\dots
+  \label{eq:ms-pub-predictor-admissibility-backtracking}
+\end{equation}
+until \eqref{eq:ms-pub-predictor-admissibility} is satisfied or the
+configured admissibility budget is exhausted.
+
+This must be distinguished from the macro-failure backtracking introduced
+earlier.  The admissibility filter is a \emph{pre-solve} screen driven by
+operator diagnostics; macro backtracking is a \emph{post-failure} recovery
+attempt driven by the observed macro failure itself.  Keeping both mechanisms
+explicit preserves methodological honesty:
+\begin{itemize}
+  \item if the admissibility filter is sufficient, the report says so and
+    records the original inadmissible sites together with the accepted
+    damping factor;
+  \item if the admissibility filter is not sufficient, the subsequent macro
+    failure still appears as a genuine \texttt{MacroSolveFailed} event with
+    macro solver diagnostics and operator diagnostics intact.
+\end{itemize}
+
+The scientific limitation is equally explicit.  Condition
+\eqref{eq:ms-pub-predictor-admissibility} is not a proof of global
+well-posedness of the macro step, nor is it a proof that the cracked section
+operator is ``physically correct'' in any energetic sense.  It is a
+numerically transparent screening condition for the validation campaign: a
+way to separate ``the methodology breaks as soon as a clearly indefinite local
+predictor is injected'' from ``the methodology still fails even after the
+predictor has been filtered to the chosen admissibility floor''.
+
 \section{Implemented Architecture}
 \label{sec:ms-pub-architecture}
 

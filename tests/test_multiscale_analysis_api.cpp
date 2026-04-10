@@ -552,6 +552,73 @@ void test_iterated_two_way_backtracks_macro_predictor_on_failure()
         "macro backtracking reports the damping factor that recovered the macro solve");
 }
 
+void test_iterated_two_way_filters_inadmissible_predictor_before_macro_resolve()
+{
+    FakeSolver solver;
+    solver.committed_step = 1;
+    solver.trial_step = 1;
+    solver.committed_time = 1.0;
+    solver.trial_time = 1.0;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.response_forces_override =
+        Eigen::Vector<double, 6>::Constant(1.0);
+    local.response_tangent = Eigen::Matrix<double, 6, 6>::Identity();
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(10.0, 10.0),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+    analysis.set_predictor_admissibility_filter(0.0, 2, 0.5);
+
+    solver.step_guard = [&analysis]() {
+        const auto& injected = analysis.model().macro_bridge().injected[0];
+        if (!injected.has_value()) {
+            return true;
+        }
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> eig(
+            0.5 * (injected->tangent + injected->tangent.transpose()));
+        return eig.info() == Eigen::Success && eig.eigenvalues()[0] >= -1.0e-12;
+    };
+
+    CHECK_TRUE(analysis.initialize_local_models(true),
+               "initialize_local_models seeds a positive baseline before admissibility filtering");
+
+    auto& local_ref = analysis.model().local_models()[0];
+    local_ref.response_tangent = Eigen::Matrix<double, 6, 6>::Identity();
+    local_ref.response_tangent(0, 0) = -3.0;
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok,
+               "iterated FE2 can filter an inadmissible predictor before the macro re-solve");
+    CHECK_TRUE(analysis.last_report().predictor_admissibility_filter_applied,
+               "the coupling report records that predictor admissibility filtering was applied");
+    CHECK_TRUE(analysis.last_report().predictor_admissibility_satisfied,
+               "the coupling report records that the filtered predictor satisfied the admissibility floor");
+    CHECK_TRUE(analysis.last_report().predictor_admissibility_attempts == 2,
+               "predictor admissibility filtering records how many backtracking attempts were needed");
+    CHECK_TRUE(
+        std::abs(
+            analysis.last_report().predictor_admissibility_last_alpha - 0.25)
+            < 1.0e-12,
+        "predictor admissibility filtering reports the accepted operator damping factor");
+    CHECK_TRUE(
+        analysis.last_report().predictor_inadmissible_sites.size() == 1,
+        "predictor admissibility filtering records the inadmissible coupling site");
+}
+
 void test_iterated_two_way_rolls_back_on_macro_failure()
 {
     FakeSolver solver;
@@ -907,6 +974,7 @@ int main()
     test_iterated_two_way_damps_the_first_micro_predictor();
     test_constant_relaxation_preserves_affine_section_law_with_shifted_reference();
     test_iterated_two_way_backtracks_macro_predictor_on_failure();
+    test_iterated_two_way_filters_inadmissible_predictor_before_macro_resolve();
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();
