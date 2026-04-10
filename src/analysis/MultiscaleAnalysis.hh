@@ -54,6 +54,10 @@ private:
         TangentValidationNormKind::StateWeightedFrobenius};
     TangentValidationNormKind tangent_residual_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
+    bool predictor_admissibility_filter_enabled_{false};
+    double predictor_min_symmetric_eigenvalue_{0.0};
+    int predictor_admissibility_backtrack_attempts_{0};
+    double predictor_admissibility_backtrack_factor_{0.5};
     int macro_failure_backtrack_attempts_{0};
     double macro_failure_backtrack_factor_{0.5};
     std::size_t analysis_steps_{0};
@@ -91,6 +95,11 @@ private:
         report.attempted_state_valid = false;
         report.attempted_macro_step = 0;
         report.attempted_macro_time = 0.0;
+        report.predictor_admissibility_filter_applied = false;
+        report.predictor_admissibility_satisfied = true;
+        report.predictor_admissibility_attempts = 0;
+        report.predictor_admissibility_last_alpha = 1.0;
+        report.predictor_inadmissible_sites.clear();
     }
 
     void capture_macro_solver_diagnostics_()
@@ -196,6 +205,114 @@ private:
             ++report.regularized_submodels;
             report.regularization_detected = true;
         }
+    }
+
+    [[nodiscard]] bool is_predictor_response_admissible_(
+        const SectionHomogenizedResponse& response) const
+    {
+        return response.tangent_min_symmetric_eigenvalue
+            >= predictor_min_symmetric_eigenvalue_;
+    }
+
+    [[nodiscard]] bool predictor_is_admissible_(
+        const std::vector<SectionHomogenizedResponse>& responses,
+        std::vector<CouplingSite>* inadmissible_sites = nullptr) const
+    {
+        bool admissible = true;
+        if (inadmissible_sites) {
+            inadmissible_sites->clear();
+        }
+
+        for (const auto& response : responses) {
+            if (!is_predictor_response_admissible_(response)) {
+                admissible = false;
+                if (inadmissible_sites) {
+                    inadmissible_sites->push_back(response.site);
+                }
+            }
+        }
+        return admissible;
+    }
+
+    [[nodiscard]] std::vector<SectionHomogenizedResponse>
+    predictor_admissibility_baseline_(
+        const std::vector<SectionHomogenizedResponse>& predictor,
+        const std::vector<SectionHomogenizedResponse>& baseline) const
+    {
+        if (baseline.size() == model_.num_local_models()) {
+            return baseline;
+        }
+
+        if (predictor.size() != model_.num_local_models()) {
+            return {};
+        }
+
+        auto zero_baseline = predictor;
+        for (auto& response : zero_baseline) {
+            response.forces.setZero();
+            response.tangent.setZero();
+            response.forces_consistent_with_tangent = true;
+            refresh_section_operator_diagnostics(response);
+        }
+        return zero_baseline;
+    }
+
+    void apply_predictor_admissibility_filter_(
+        std::vector<SectionHomogenizedResponse>& predictor,
+        const std::vector<SectionHomogenizedResponse>& baseline)
+    {
+        last_report_.predictor_inadmissible_sites.clear();
+        last_report_.predictor_admissibility_satisfied = true;
+
+        if (!predictor_admissibility_filter_enabled_
+            || predictor.size() != model_.num_local_models())
+        {
+            return;
+        }
+
+        if (predictor_is_admissible_(
+                predictor, &last_report_.predictor_inadmissible_sites))
+        {
+            return;
+        }
+
+        const auto original_inadmissible_sites =
+            last_report_.predictor_inadmissible_sites;
+
+        last_report_.predictor_admissibility_filter_applied = true;
+        last_report_.predictor_admissibility_satisfied = false;
+
+        if (baseline.size() != model_.num_local_models()) {
+            return;
+        }
+
+        auto filtered = predictor;
+        for (int attempt = 1;
+             attempt <= predictor_admissibility_backtrack_attempts_;
+             ++attempt)
+        {
+            const double alpha = std::pow(
+                predictor_admissibility_backtrack_factor_, attempt);
+            filtered = predictor;
+            for (std::size_t i = 0; i < filtered.size(); ++i) {
+                blend_section_response(filtered[i], baseline[i], alpha);
+            }
+            last_report_.predictor_admissibility_attempts = attempt;
+            last_report_.predictor_admissibility_last_alpha = alpha;
+
+            if (predictor_is_admissible_(
+                    filtered, &last_report_.predictor_inadmissible_sites))
+            {
+                predictor = std::move(filtered);
+                last_report_.predictor_inadmissible_sites =
+                    original_inadmissible_sites;
+                last_report_.predictor_admissibility_satisfied = true;
+                return;
+            }
+        }
+
+        predictor = std::move(filtered);
+        last_report_.predictor_inadmissible_sites = original_inadmissible_sites;
     }
 
     void set_macro_trial_mode_(bool enabled)
@@ -505,6 +622,11 @@ private:
             last_report_.iterations = iter + 1;
 
             std::vector<SectionHomogenizedResponse> active_predictor = predictor;
+            const auto predictor_baseline =
+                predictor_admissibility_baseline_(
+                    active_predictor, macro_success_baseline);
+            apply_predictor_admissibility_filter_(
+                active_predictor, predictor_baseline);
             auto try_macro_step = [&](const std::vector<SectionHomogenizedResponse>&
                                           candidate) -> bool {
                 macro_solver_->restore_checkpoint(macro_checkpoint);
@@ -790,6 +912,18 @@ public:
     {
         macro_failure_backtrack_attempts_ = std::max(0, attempts);
         macro_failure_backtrack_factor_ = std::clamp(factor, 0.0, 1.0);
+    }
+    void set_predictor_admissibility_filter(
+        double min_symmetric_eigenvalue,
+        int backtrack_attempts,
+        double backtrack_factor = 0.5)
+    {
+        predictor_admissibility_filter_enabled_ = backtrack_attempts > 0;
+        predictor_min_symmetric_eigenvalue_ = min_symmetric_eigenvalue;
+        predictor_admissibility_backtrack_attempts_ =
+            std::max(0, backtrack_attempts);
+        predictor_admissibility_backtrack_factor_ =
+            std::clamp(backtrack_factor, 0.0, 1.0);
     }
     void set_force_residual_norm(TangentValidationNormKind norm) noexcept {
         force_residual_norm_ = norm;

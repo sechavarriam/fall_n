@@ -21,6 +21,9 @@ static void test_default_config_preserves_extended50_contract()
     assert(cfg.steps_per_segment == 10);
     assert(cfg.enable_turning_point_checkpoints);
     assert(cfg.max_turning_point_restarts == 2);
+    assert(cfg.predictor_admissibility_backtrack_attempts == 0);
+    assert(cfg.predictor_admissibility_backtrack_factor == 0.5);
+    assert(cfg.predictor_admissibility_min_symmetric_eigenvalue == 0.0);
     assert(cfg.macro_failure_backtrack_attempts == 0);
     assert(!cfg.submodel_use_consistent_material_tangent);
     assert(cfg.global_output_interval == 1);
@@ -40,6 +43,9 @@ static void test_fe2_crack50_profile_applies_runtime_tuning()
                             ValidationExecutionProfile::FE2Crack50Exploratory);
     assert(cfg.execution_profile_name == "fe2_crack50");
     assert(cfg.steps_per_segment == 1);
+    assert(cfg.predictor_admissibility_backtrack_attempts == 3);
+    assert(cfg.predictor_admissibility_backtrack_factor == 0.5);
+    assert(cfg.predictor_admissibility_min_symmetric_eigenvalue == 0.0);
     assert(cfg.macro_failure_backtrack_attempts == 3);
     assert(cfg.macro_failure_backtrack_factor == 0.5);
     assert(cfg.submodel_increment_steps == 12);

@@ -177,6 +177,10 @@ struct CouplingIterationReport {
     double macro_solver_function_norm{0.0};
     bool rollback_performed{false};
     bool relaxation_applied{false};
+    bool predictor_admissibility_filter_applied{false};
+    bool predictor_admissibility_satisfied{true};
+    int predictor_admissibility_attempts{0};
+    double predictor_admissibility_last_alpha{1.0};
     int macro_backtracking_attempts{0};
     bool macro_backtracking_succeeded{false};
     double macro_backtracking_last_alpha{1.0};
@@ -197,6 +201,7 @@ struct CouplingIterationReport {
     std::vector<double> tangent_traces{};
     std::vector<int> tangent_nonpositive_diagonal_counts{};
     std::vector<CouplingSite> failed_sites{};
+    std::vector<CouplingSite> predictor_inadmissible_sites{};
 };
 
 inline void refresh_section_operator_diagnostics(

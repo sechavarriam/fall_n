@@ -71,6 +71,14 @@ int main()
                   << " failed_submodels=" << report.failed_submodels
                   << " rollback=" << report.rollback_performed
                   << " iterations=" << report.iterations
+                  << " predictor_admissibility_filter_applied="
+                  << report.predictor_admissibility_filter_applied
+                  << " predictor_admissibility_satisfied="
+                  << report.predictor_admissibility_satisfied
+                  << " predictor_admissibility_attempts="
+                  << report.predictor_admissibility_attempts
+                  << " predictor_admissibility_last_alpha="
+                  << report.predictor_admissibility_last_alpha
                   << " macro_backtracking_attempts="
                   << report.macro_backtracking_attempts
                   << " macro_backtracking_succeeded="
