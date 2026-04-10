@@ -23,7 +23,8 @@ inline const std::string OUT_ROOT = BASE + "data/output/cyclic_validation/";
 
 enum class ValidationProtocolPreset {
     Legacy20,
-    Extended50
+    Extended50,
+    Extended100
 };
 
 enum class ValidationExecutionProfile {
@@ -142,6 +143,53 @@ make_validation_config(ValidationProtocolPreset preset)
             .submodel_output_interval = 20,
             .global_output_interval = 1,
             .min_crack_opening = 5.0e-4
+        };
+    }
+
+    if (preset == ValidationProtocolPreset::Extended100) {
+        return CyclicValidationRunConfig{
+            .protocol_name = "extended100",
+            .execution_profile_name = "default",
+            .amplitudes_m = {fall_n::kExtended100ValidationAmplitudesM.begin(),
+                             fall_n::kExtended100ValidationAmplitudesM.end()},
+            .steps_per_segment = 10,
+            .max_steps = 0,
+            .max_bisections = 10,
+            .max_staggered_iterations = 6,
+            .staggered_tol = 0.05,
+            .staggered_relaxation = 0.70,
+            .predictor_admissibility_backtrack_attempts = 0,
+            .predictor_admissibility_backtrack_factor = 0.5,
+            .predictor_admissibility_min_symmetric_eigenvalue = 0.0,
+            .macro_step_cutback_attempts = 0,
+            .macro_step_cutback_factor = 0.5,
+            .macro_failure_backtrack_attempts = 0,
+            .macro_failure_backtrack_factor = 0.5,
+            .submodel_increment_steps = 40,
+            .submodel_max_bisections = 8,
+            .submodel_enable_arc_length_from_start = false,
+            .submodel_arc_length_threshold = 3,
+            .submodel_adaptive_max_substeps = 40,
+            .submodel_adaptive_max_bisections = 12,
+            .submodel_tail_rescue_attempts = 1,
+            .submodel_tail_rescue_progress_threshold = 0.75,
+            .submodel_tail_rescue_substep_bonus = 16,
+            .submodel_tail_rescue_bisection_bonus = 6,
+            .submodel_tail_rescue_initial_fraction = 0.5,
+            .submodel_snes_max_it = 120,
+            .submodel_snes_atol = 2.0,
+            .submodel_snes_rtol = 1.0e-3,
+            .enable_turning_point_checkpoints = true,
+            .max_turning_point_restarts = 3,
+            .restart_submodel_increment_step_bonus = 6,
+            .restart_submodel_bisection_bonus = 3,
+            .restart_adaptive_substep_bonus = 20,
+            .restart_adaptive_bisection_bonus = 6,
+            .restart_snes_max_it_bonus = 30,
+            .submodel_use_consistent_material_tangent = false,
+            .submodel_output_interval = 10,
+            .global_output_interval = 1,
+            .min_crack_opening = 1.0e-4
         };
     }
 
@@ -329,6 +377,33 @@ std::vector<StepRecord> run_case3(const std::string& out_dir,
 std::vector<StepRecord> run_case_fe2(bool two_way,
                                      const std::string& out_dir,
                                      const CyclicValidationRunConfig& cfg);
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  V2 comprehensive validation functions (4.0m × 0.50m × 0.30m column)
+// ═════════════════════════════════════════════════════════════════════════════
+
+std::vector<StepRecord> run_v2_material_phase(
+    const std::string& out_dir,
+    const CyclicValidationRunConfig& cfg);
+
+std::vector<StepRecord> run_v2_section_phase(
+    const std::string& out_dir,
+    const CyclicValidationRunConfig& cfg);
+
+std::vector<StepRecord> run_v2_beam_by_nodes(
+    std::size_t nodes,
+    const std::string& out_dir,
+    const CyclicValidationRunConfig& cfg);
+
+std::vector<StepRecord> run_v2_continuum_by_label(
+    const std::string& label,
+    const std::string& out_dir,
+    const CyclicValidationRunConfig& cfg);
+
+std::vector<StepRecord> run_v2_fe2(
+    bool two_way,
+    const std::string& out_dir,
+    const CyclicValidationRunConfig& cfg);
 
 } // namespace fall_n::table_cyclic_validation
 

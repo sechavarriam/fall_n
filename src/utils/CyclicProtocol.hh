@@ -29,6 +29,10 @@ inline constexpr std::array<double, 6> kExtendedValidationAmplitudesM{
     0.0025, 0.0050, 0.0100, 0.0200, 0.0350, 0.0500
 };
 
+inline constexpr std::array<double, 9> kExtended100ValidationAmplitudesM{
+    0.0025, 0.0050, 0.0100, 0.0200, 0.0350, 0.0500, 0.0650, 0.0800, 0.1000
+};
+
 [[nodiscard]] inline constexpr int cyclic_segment_count(
     std::size_t num_levels) noexcept
 {

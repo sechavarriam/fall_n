@@ -63,6 +63,34 @@ inline constexpr int SUB_NX = 2;
 inline constexpr int SUB_NY = 2;
 inline constexpr int SUB_NZ = 1;
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  V2 column geometry (4.0 m × 0.50 m × 0.30 m, f'c=28 MPa)
+// ═════════════════════════════════════════════════════════════════════════════
+namespace v2 {
+
+inline constexpr double H       = 4.0;
+inline constexpr double COL_BX  = 0.50;
+inline constexpr double COL_BY  = 0.30;
+inline constexpr double COL_CVR = 0.03;
+inline constexpr double COL_BAR = 0.016;
+inline constexpr double COL_TIE = 0.08;
+inline constexpr double COL_FPC = 28.0;
+
+inline constexpr double STEEL_E  = 200000.0;
+inline constexpr double STEEL_FY = 420.0;
+inline constexpr double STEEL_B  = 0.01;
+inline constexpr double TIE_FY   = 420.0;
+inline constexpr double NU_RC    = 0.20;
+inline constexpr double RHO_S    = 0.015;
+
+inline const double EC_COL = 4700.0 * std::sqrt(COL_FPC);
+inline const double GC_COL = EC_COL / (2.0 * (1.0 + NU_RC));
+
+inline const std::string OUT_ROOT =
+    table_cyclic_validation::BASE + "data/output/cyclic_validation_v2/";
+
+} // namespace v2
+
 [[maybe_unused]] inline constexpr int FE2_STEPS = 60;
 [[maybe_unused]] inline constexpr int MAX_STAGGERED_ITER = 3;
 [[maybe_unused]] inline constexpr double STAGGERED_TOL = 0.05;
