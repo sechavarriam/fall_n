@@ -110,6 +110,113 @@ make_rc_column_section(const RCColumnSpec& s) {
 
 
 // ═════════════════════════════════════════════════════════════════════════
+//  RC rectangular column section (12 bars)
+// ═════════════════════════════════════════════════════════════════════════
+
+struct RCRectColumnSpec {
+    // Section geometry
+    double bx;              // width  along local y (m)
+    double by;              // depth  along local z (m)
+    double cover;           // clear cover to stirrup centre (m)
+    double bar_diameter;    // longitudinal bar diameter (m)
+    double tie_spacing;     // transverse tie spacing (m)
+
+    // Concrete
+    double fpc;             // unconfined cylinder strength (MPa)
+    double nu;              // Poisson's ratio (for shear modulus)
+
+    // Steel
+    double steel_E;         // Young's modulus (MPa)
+    double steel_fy;        // yield strength (MPa)
+    double steel_b;         // strain-hardening ratio
+
+    // Transverse reinforcement
+    double tie_fy;          // tie yield strength (MPa)
+    double rho_s = 0.015;   // volumetric transverse reinforcement ratio
+
+    // Shear correction factors
+    double kappa_y = 5.0/6.0;
+    double kappa_z = 5.0/6.0;
+};
+
+/// Build a nonlinear fiber-section material for a rectangular RC column
+/// with 12 longitudinal bars (4 corner + 4 per long face).
+///
+/// Layout: 4 cover patches + 1 confined core + 12 longitudinal bars.
+/// Bars are placed at the corners and at 2 intermediate locations along
+/// each long face (bx direction).
+inline Material<TimoshenkoBeam3D>
+make_rc_rect_column_section(const RCRectColumnSpec& s) {
+    const double Ec = concrete_initial_modulus(s.fpc);
+    const double Gc = isotropic_shear_modulus(Ec, s.nu);
+    const double J  = rectangular_torsion_constant(s.bx, s.by);
+
+    std::vector<Fiber> fibers;
+    fibers.reserve(80);
+
+    const double y_edge = 0.5 * s.bx;
+    const double z_edge = 0.5 * s.by;
+    const double y_core = y_edge - s.cover;
+    const double z_core = z_edge - s.cover;
+
+    // Cover concrete (4 patches)
+    auto unconfined = [&] { return make_unconfined_concrete(s.fpc); };
+
+    add_patch_fibers(fibers, -y_edge, y_edge, 10, -z_edge, -z_core, 2, unconfined);
+    add_patch_fibers(fibers, -y_edge, y_edge, 10,  z_core,  z_edge, 2, unconfined);
+    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 4, unconfined);
+    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 4, unconfined);
+
+    // Confined core
+    add_patch_fibers(
+        fibers, -y_core, y_core, 8, -z_core, z_core, 6,
+        [&] {
+            return make_confined_concrete(
+                s.fpc, s.rho_s, s.tie_fy,
+                2.0 * std::min(y_core, z_core),
+                s.tie_spacing);
+        });
+
+    // 12-bar reinforcement pattern:
+    //   4 corners
+    //   4 intermediate along top/bottom faces (bx direction)
+    const double y_bar = y_edge - s.cover;
+    const double z_bar = z_edge - s.cover;
+    const double A_bar = bar_area(s.bar_diameter);
+
+    // Intermediate spacing: 2 bars per long face → at ±y_bar/3
+    const double y_mid1 = -y_bar / 3.0;
+    const double y_mid2 =  y_bar / 3.0;
+
+    const std::array<std::pair<double, double>, 12> bars = {{
+        // corners
+        {-y_bar, -z_bar}, { y_bar, -z_bar},
+        {-y_bar,  z_bar}, { y_bar,  z_bar},
+        // bottom face intermediates
+        { y_mid1, -z_bar}, { y_mid2, -z_bar},
+        // top face intermediates
+        { y_mid1,  z_bar}, { y_mid2,  z_bar},
+        // left face intermediates
+        {-y_bar, 0.0},
+        // right face intermediates
+        { y_bar, 0.0},
+        // short face (by) intermediates — centre of each short face
+        { 0.0, -z_bar}, { 0.0, z_bar}
+    }};
+
+    add_rebar_fibers(
+        fibers, bars, A_bar,
+        [&] { return make_steel_fiber_material(s.steel_E, s.steel_fy, s.steel_b); });
+
+    FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
+    return Material<TimoshenkoBeam3D>{
+        InelasticMaterial<FiberSection3D>{std::move(section)},
+        InelasticUpdate{}
+    };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════
 //  RC beam section specification
 // ═════════════════════════════════════════════════════════════════════════
 

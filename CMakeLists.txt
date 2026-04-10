@@ -234,7 +234,8 @@ add_executable(fall_n_table_cyclic_validation
     src/validation/TableCyclicValidationFE2StepPostprocess.cpp
     src/validation/TableCyclicValidationRuntimeIO.cpp
     src/validation/TableCyclicValidationSubmodelFactories.cpp
-    src/validation/TableCyclicValidationFE2.cpp)
+    src/validation/TableCyclicValidationFE2.cpp
+    src/validation/ComprehensiveCyclicValidation.cpp)
 fall_n_use_multiscale_api(fall_n_table_cyclic_validation)
 # Use a validation-specific PCH instead of the global umbrella so edits to the
 # thin CLI or one implementation TU do not keep invalidating an oversized
@@ -249,6 +250,7 @@ set_source_files_properties(
     src/validation/TableCyclicValidationFE2Setup.cpp
     src/validation/TableCyclicValidationFE2Restart.cpp
     src/validation/TableCyclicValidationFE2StepPostprocess.cpp
+    src/validation/ComprehensiveCyclicValidation.cpp
     PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON)
 

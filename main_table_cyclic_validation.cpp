@@ -84,9 +84,11 @@ int main(int argc, char* argv[])
                 protocol_preset = ValidationProtocolPreset::Legacy20;
             } else if (value == "extended50" || value == "v3") {
                 protocol_preset = ValidationProtocolPreset::Extended50;
+            } else if (value == "extended100") {
+                protocol_preset = ValidationProtocolPreset::Extended100;
             } else {
                 throw std::invalid_argument(
-                    "Unknown protocol. Use legacy20 or extended50.");
+                    "Unknown protocol. Use legacy20, extended50, or extended100.");
             }
         } else if (arg == "--fe2-profile" && i + 1 < argc) {
             const std::string value = argv[++i];
@@ -406,6 +408,72 @@ int main(int argc, char* argv[])
                 const auto dir = OUT_ROOT + "case5";
                 std::filesystem::create_directories(dir);
                 results["5"] = run_case_fe2(true, dir, cfg);
+            }
+
+            // ── V2 comprehensive validation (4.0m × 0.50m × 0.30m) ─────
+            const auto V2_ROOT = BASE + "data/output/cyclic_validation_v2/";
+            const bool run_v2 = case_id.starts_with("v2");
+            const auto v2_should_run = [&](const std::string& id) {
+                return case_id == "v2_all" || case_id == id;
+            };
+
+            if (run_v2) {
+                sep('=');
+                std::println("  V2 Comprehensive Validation Phase");
+                sep('-');
+
+                if (v2_should_run("v2_mat")) {
+                    const auto dir = V2_ROOT + "material";
+                    std::filesystem::create_directories(dir);
+                    results["v2_mat"] = run_v2_material_phase(dir, cfg);
+                }
+
+                if (v2_should_run("v2_sec")) {
+                    const auto dir = V2_ROOT + "section";
+                    std::filesystem::create_directories(dir);
+                    results["v2_sec"] = run_v2_section_phase(dir, cfg);
+                }
+
+                for (std::size_t nodes = 2; nodes <= 10; ++nodes) {
+                    const std::string id =
+                        "v2_beam" + std::to_string(nodes);
+                    if (v2_should_run(id)) {
+                        const auto dir = V2_ROOT + "beam_N" +
+                            std::format("{:02d}", nodes);
+                        std::filesystem::create_directories(dir);
+                        results[id] = run_v2_beam_by_nodes(nodes, dir, cfg);
+                    }
+                }
+
+                const std::array<std::string, 9> hex_labels = {{
+                    "Hex8_coarse", "Hex8_medium", "Hex8_fine",
+                    "Hex20_coarse", "Hex20_medium", "Hex20_fine",
+                    "Hex27_coarse", "Hex27_medium", "Hex27_fine",
+                }};
+                for (const auto& lbl : hex_labels) {
+                    const std::string id = "v2_" + lbl;
+                    if (v2_should_run(id)) {
+                        // Convert label to directory name (lowercase)
+                        std::string dir_name = lbl;
+                        for (auto& c : dir_name)
+                            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                        const auto dir = V2_ROOT + dir_name;
+                        std::filesystem::create_directories(dir);
+                        results[id] = run_v2_continuum_by_label(lbl, dir, cfg);
+                    }
+                }
+
+                if (v2_should_run("v2_fe2_oneway")) {
+                    const auto dir = V2_ROOT + "fe2_oneway";
+                    std::filesystem::create_directories(dir);
+                    results["v2_fe2_oneway"] = run_v2_fe2(false, dir, cfg);
+                }
+
+                if (v2_should_run("v2_fe2_twoway")) {
+                    const auto dir = V2_ROOT + "fe2_twoway";
+                    std::filesystem::create_directories(dir);
+                    results["v2_fe2_twoway"] = run_v2_fe2(true, dir, cfg);
+                }
             }
 
             sep('=');
