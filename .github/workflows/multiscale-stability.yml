@@ -78,15 +78,30 @@ jobs:
           done
 
       - name: Run multiscale regression tests
+        shell: powershell
         run: |
-          ./build/fall_n_multiscale_api_test.exe
-          ./build/fall_n_micro_solve_executor_test.exe
-          ./build/fall_n_evolver_advanced_test.exe
-          ./build/fall_n_tangent_validation_benchmark_test.exe
-          ./build/fall_n_coupling_residual_benchmark_test.exe
-          ./build/fall_n_beam_test.exe
-          ./build/fall_n_steppable_solver_test.exe
-          ./build/fall_n_steppable_dynamic_test.exe
+          $ucrtBin = Join-Path $env:RUNNER_TEMP "msys64\ucrt64\bin"
+          if (Test-Path $ucrtBin) {
+            $env:PATH = "$ucrtBin;$env:PATH"
+          }
+
+          $executables = @(
+            ".\build\fall_n_multiscale_api_test.exe",
+            ".\build\fall_n_micro_solve_executor_test.exe",
+            ".\build\fall_n_evolver_advanced_test.exe",
+            ".\build\fall_n_tangent_validation_benchmark_test.exe",
+            ".\build\fall_n_coupling_residual_benchmark_test.exe",
+            ".\build\fall_n_beam_test.exe",
+            ".\build\fall_n_steppable_solver_test.exe",
+            ".\build\fall_n_steppable_dynamic_test.exe"
+          )
+
+          foreach ($exe in $executables) {
+            & $exe
+            if ($LASTEXITCODE -ne 0) {
+              throw "Regression executable failed: $exe (exit $LASTEXITCODE)"
+            }
+          }
 
       - name: Compile documentation
         working-directory: doc

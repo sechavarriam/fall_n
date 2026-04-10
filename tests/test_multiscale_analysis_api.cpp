@@ -1,5 +1,6 @@
 #include <array>
 #include <cassert>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <vector>
@@ -54,6 +55,10 @@ struct FakeSolver {
     int step_calls{0};
     bool fail_next_step{false};
     bool dirty_trial_on_failure{true};
+    std::function<bool()> step_guard{};
+    int snes_reason{4};
+    int snes_iterations{2};
+    double snes_function_norm{0.0};
 
     void set_auto_commit(bool enabled) {
         auto_commit = enabled;
@@ -76,6 +81,19 @@ struct FakeSolver {
                 trial_step = committed_step + 17;
                 trial_time = committed_time + 17.0;
             }
+            snes_reason = -5;
+            snes_iterations = 100;
+            snes_function_norm = 42.0;
+            return false;
+        }
+        if (step_guard && !step_guard()) {
+            if (dirty_trial_on_failure) {
+                trial_step = committed_step + 17;
+                trial_time = committed_time + 17.0;
+            }
+            snes_reason = -5;
+            snes_iterations = 100;
+            snes_function_norm = 24.0;
             return false;
         }
 
@@ -88,6 +106,9 @@ struct FakeSolver {
             trial_step = committed_step + 1;
             trial_time = committed_time + 1.0;
         }
+        snes_reason = 4;
+        snes_iterations = 2;
+        snes_function_norm = 0.0;
         return true;
     }
 
@@ -154,6 +175,10 @@ struct FakeSolver {
     {
         return {current_step(), current_time()};
     }
+
+    [[nodiscard]] int converged_reason() const noexcept { return snes_reason; }
+    [[nodiscard]] int num_iterations() const noexcept { return snes_iterations; }
+    [[nodiscard]] double function_norm() const noexcept { return snes_function_norm; }
 };
 
 struct FakeBridge {
@@ -433,6 +458,100 @@ void test_iterated_two_way_damps_the_first_micro_predictor()
         "the first micro predictor is relaxed against zero before the second macro solve");
 }
 
+void test_constant_relaxation_preserves_affine_section_law_with_shifted_reference()
+{
+    ConstantRelaxation relaxation{0.25};
+
+    SectionHomogenizedResponse current;
+    current.forces = Eigen::Vector<double, 6>::Constant(10.0);
+    current.tangent = 2.0 * Eigen::Matrix<double, 6, 6>::Identity();
+    current.strain_ref = Eigen::Vector<double, 6>::Constant(1.0);
+    current.forces_consistent_with_tangent = true;
+
+    SectionHomogenizedResponse previous;
+    previous.forces = Eigen::Vector<double, 6>::Constant(1.0);
+    previous.tangent = Eigen::Matrix<double, 6, 6>::Identity();
+    previous.strain_ref = Eigen::Vector<double, 6>::Zero();
+    previous.forces_consistent_with_tangent = true;
+
+    relaxation.relax(current, previous, 0);
+
+    CHECK_TRUE(std::abs(current.forces[0] - 4.0) < 1.0e-12,
+               "constant relaxation recenters affine section forces at the active strain reference");
+    CHECK_TRUE(std::abs(current.tangent(0, 0) - 1.25) < 1.0e-12,
+               "constant relaxation still convex-combines the tangent");
+
+    const auto evaluation_strain =
+        Eigen::Vector<double, 6>::Constant(2.0);
+    const auto relaxed_value =
+        current.forces + current.tangent * (evaluation_strain - current.strain_ref);
+    CHECK_TRUE(std::abs(relaxed_value[0] - 5.25) < 1.0e-12,
+               "the relaxed affine law matches the convex combination of the two original section laws");
+    CHECK_TRUE(current.forces_consistent_with_tangent,
+               "affine-consistent relaxation keeps the consistency flag set");
+}
+
+void test_iterated_two_way_backtracks_macro_predictor_on_failure()
+{
+    FakeSolver solver;
+    solver.committed_step = 1;
+    solver.trial_step = 1;
+    solver.committed_time = 1.0;
+    solver.trial_time = 1.0;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        FakeLocalModel{&solver, 0});
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(10.0, 10.0),
+        std::make_unique<ConstantRelaxation>(0.25));
+    analysis.set_coupling_start_step(1);
+    analysis.set_macro_failure_backtracking(1, 0.5);
+
+    solver.step_guard = [&solver, bridge = &analysis.model().macro_bridge()]() {
+        const auto& injected = bridge->injected[0];
+        if (!injected.has_value()) {
+            return true;
+        }
+        const double effective_force =
+            injected->forces[0]
+            + injected->tangent(0, 0)
+                  * (solver.committed_time - injected->strain_ref[0]);
+        return effective_force <= 2.5;
+    };
+
+    CHECK_TRUE(analysis.initialize_local_models(true),
+               "initialize_local_models seeds the previous converged predictor");
+
+    auto& local = analysis.model().local_models()[0];
+    local.response_forces_override =
+        Eigen::Vector<double, 6>::Constant(10.0);
+    local.response_tangent =
+        2.0 * Eigen::Matrix<double, 6, 6>::Identity();
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok,
+               "iterated FE2 recovers a macro failure by backtracking the section-law predictor");
+    CHECK_TRUE(analysis.last_report().macro_backtracking_succeeded,
+               "the coupling report records successful macro backtracking");
+    CHECK_TRUE(analysis.last_report().macro_backtracking_attempts == 1,
+               "the coupling report records the number of macro backtracking attempts");
+    CHECK_TRUE(
+        std::abs(analysis.last_report().macro_backtracking_last_alpha - 0.5)
+            < 1.0e-12,
+        "macro backtracking reports the damping factor that recovered the macro solve");
+}
+
 void test_iterated_two_way_rolls_back_on_macro_failure()
 {
     FakeSolver solver;
@@ -467,6 +586,12 @@ void test_iterated_two_way_rolls_back_on_macro_failure()
         analysis.last_report().termination_reason
             == CouplingTerminationReason::MacroSolveFailed,
         "macro failure is reported with explicit termination semantics");
+    CHECK_TRUE(analysis.last_report().macro_solver_reason == -5,
+               "macro failure report captures the macro solver convergence reason");
+    CHECK_TRUE(analysis.last_report().macro_solver_iterations == 100,
+               "macro failure report captures the macro solver iteration count");
+    CHECK_TRUE(std::abs(analysis.last_report().macro_solver_function_norm - 42.0) < 1.0e-12,
+               "macro failure report captures the macro solver residual norm");
     CHECK_TRUE(solver.committed_step == 0 && solver.committed_time == 0.0,
                "macro rollback restores the committed macro state");
     CHECK_TRUE(analysis.model().macro_bridge().injected[0] == std::nullopt,
@@ -780,6 +905,8 @@ int main()
     test_iterated_two_way_uses_local_step_counter();
     test_lagged_feedback_injects_site_response();
     test_iterated_two_way_damps_the_first_micro_predictor();
+    test_constant_relaxation_preserves_affine_section_law_with_shifted_reference();
+    test_iterated_two_way_backtracks_macro_predictor_on_failure();
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();

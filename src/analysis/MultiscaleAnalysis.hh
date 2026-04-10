@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cmath>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -53,6 +54,8 @@ private:
         TangentValidationNormKind::StateWeightedFrobenius};
     TangentValidationNormKind tangent_residual_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
+    int macro_failure_backtrack_attempts_{0};
+    double macro_failure_backtrack_factor_{0.5};
     std::size_t analysis_steps_{0};
 
     CouplingIterationReport last_report_{};
@@ -88,6 +91,28 @@ private:
         report.attempted_state_valid = false;
         report.attempted_macro_step = 0;
         report.attempted_macro_time = 0.0;
+    }
+
+    void capture_macro_solver_diagnostics_()
+    {
+        if constexpr (requires(const MacroSolverT& solver) {
+                          { solver.converged_reason() };
+                      }) {
+            last_report_.macro_solver_reason =
+                static_cast<int>(macro_solver_->converged_reason());
+        }
+        if constexpr (requires(const MacroSolverT& solver) {
+                          { solver.num_iterations() };
+                      }) {
+            last_report_.macro_solver_iterations =
+                static_cast<int>(macro_solver_->num_iterations());
+        }
+        if constexpr (requires(const MacroSolverT& solver) {
+                          { solver.function_norm() } -> std::convertible_to<double>;
+                      }) {
+            last_report_.macro_solver_function_norm =
+                macro_solver_->function_norm();
+        }
     }
 
     void capture_attempted_macro_state_()
@@ -216,6 +241,21 @@ private:
         }
     }
 
+    void inject_or_clear_(
+        const std::vector<SectionHomogenizedResponse>& responses)
+    {
+        if (responses.size() == model_.num_local_models()) {
+            for (const auto& response : responses) {
+                model_.macro_bridge().inject_response(response);
+            }
+            return;
+        }
+
+        for (const auto& site : model_.sites()) {
+            model_.macro_bridge().clear_response(site);
+        }
+    }
+
     void solve_locals_once_(double time,
                             std::vector<SectionHomogenizedResponse>& responses,
                             int& failed_submodels)
@@ -240,6 +280,7 @@ private:
                 response = local_model.section_response(
                     section_width_, section_height_, tangent_perturbation_);
                 response.site = model_.site(i);
+                refresh_section_operator_diagnostics(response);
                 if constexpr (requires { result.converged; }) {
                     if (!result.converged) {
                         response.status = ResponseStatus::SolveFailed;
@@ -274,6 +315,7 @@ private:
             CouplingTerminationReason::UncoupledMacroStep;
 
         const bool ok = macro_solver_->step();
+        capture_macro_solver_diagnostics_();
         if (ok) {
             capture_attempted_macro_state_();
         }
@@ -301,11 +343,13 @@ private:
 
         set_macro_trial_mode_(false);
         if (!macro_solver_->step()) {
+            capture_macro_solver_diagnostics_();
             last_report_.converged = false;
             last_report_.termination_reason =
                 CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
+        capture_macro_solver_diagnostics_();
         capture_attempted_macro_state_();
 
         auto t0 = std::chrono::steady_clock::now();
@@ -343,11 +387,13 @@ private:
 
         set_macro_trial_mode_(false);
         if (!macro_solver_->step()) {
+            capture_macro_solver_diagnostics_();
             last_report_.converged = false;
             last_report_.termination_reason =
                 CouplingTerminationReason::MacroSolveFailed;
             return false;
         }
+        capture_macro_solver_diagnostics_();
         capture_attempted_macro_state_();
 
         auto t0 = std::chrono::steady_clock::now();
@@ -363,6 +409,14 @@ private:
         last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
         last_report_.tangent_column_residuals_rel.assign(
             model_.num_local_models(), 0.0);
+        last_report_.tangent_min_symmetric_eigenvalues.assign(
+            model_.num_local_models(), 0.0);
+        last_report_.tangent_max_symmetric_eigenvalues.assign(
+            model_.num_local_models(), 0.0);
+        last_report_.tangent_traces.assign(
+            model_.num_local_models(), 0.0);
+        last_report_.tangent_nonpositive_diagonal_counts.assign(
+            model_.num_local_models(), 0);
         last_report_.force_residual_component_scales.assign(
             model_.num_local_models(),
             std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
@@ -383,6 +437,14 @@ private:
                 responses[i],
                 &last_report_.force_residual_component_scales[i],
                 &last_report_.force_component_residuals_rel[i]);
+            last_report_.tangent_min_symmetric_eigenvalues[i] =
+                responses[i].tangent_min_symmetric_eigenvalue;
+            last_report_.tangent_max_symmetric_eigenvalues[i] =
+                responses[i].tangent_max_symmetric_eigenvalue;
+            last_report_.tangent_traces[i] =
+                responses[i].tangent_trace;
+            last_report_.tangent_nonpositive_diagonal_counts[i] =
+                responses[i].tangent_nonpositive_diagonal_entries;
             last_report_.max_force_residual_rel =
                 std::max(last_report_.max_force_residual_rel,
                          last_report_.force_residuals_rel[i]);
@@ -431,6 +493,8 @@ private:
 
         std::vector<SectionHomogenizedResponse> predictor = last_converged_responses_;
         std::vector<SectionHomogenizedResponse> current(model_.num_local_models());
+        std::vector<SectionHomogenizedResponse> macro_success_baseline =
+            last_converged_responses_;
 
         set_macro_trial_mode_(true);
 
@@ -440,21 +504,62 @@ private:
         for (int iter = 0; iter < max_iter; ++iter) {
             last_report_.iterations = iter + 1;
 
-            macro_solver_->restore_checkpoint(macro_checkpoint);
+            std::vector<SectionHomogenizedResponse> active_predictor = predictor;
+            auto try_macro_step = [&](const std::vector<SectionHomogenizedResponse>&
+                                          candidate) -> bool {
+                macro_solver_->restore_checkpoint(macro_checkpoint);
+                inject_or_clear_(candidate);
+                const auto macro_t0 = std::chrono::steady_clock::now();
+                const bool ok = macro_solver_->step();
+                const auto macro_t1 = std::chrono::steady_clock::now();
+                last_report_.macro_solve_seconds +=
+                    std::chrono::duration<double>(macro_t1 - macro_t0).count();
+                capture_macro_solver_diagnostics_();
+                return ok;
+            };
 
-            if (predictor.size() == model_.num_local_models()) {
-                for (const auto& response : predictor) {
-                    model_.macro_bridge().inject_response(response);
-                }
-            } else {
-                for (const auto& site : model_.sites()) {
-                    model_.macro_bridge().clear_response(site);
+            bool macro_ok = try_macro_step(active_predictor);
+
+            auto macro_backtrack_baseline = macro_success_baseline;
+            if (macro_backtrack_baseline.size() != model_.num_local_models()
+                && active_predictor.size() == model_.num_local_models())
+            {
+                macro_backtrack_baseline = active_predictor;
+                for (auto& response : macro_backtrack_baseline) {
+                    response.forces.setZero();
+                    response.tangent.setZero();
+                    response.forces_consistent_with_tangent = true;
                 }
             }
 
-            const auto macro_t0 = std::chrono::steady_clock::now();
-            if (!macro_solver_->step()) {
-                capture_attempted_macro_state_();
+            if (!macro_ok
+                && active_predictor.size() == model_.num_local_models()
+                && macro_backtrack_baseline.size() == model_.num_local_models()
+                && macro_failure_backtrack_attempts_ > 0)
+            {
+                for (int attempt = 1;
+                     attempt <= macro_failure_backtrack_attempts_;
+                     ++attempt)
+                {
+                    last_report_.macro_backtracking_attempts = attempt;
+                    last_report_.macro_backtracking_last_alpha =
+                        std::pow(macro_failure_backtrack_factor_, attempt);
+                    active_predictor = predictor;
+                    for (std::size_t i = 0; i < active_predictor.size(); ++i) {
+                        blend_section_response(
+                            active_predictor[i],
+                            macro_backtrack_baseline[i],
+                            last_report_.macro_backtracking_last_alpha);
+                    }
+                    macro_ok = try_macro_step(active_predictor);
+                    if (macro_ok) {
+                        last_report_.macro_backtracking_succeeded = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!macro_ok) {
                 macro_solver_->restore_checkpoint(macro_checkpoint);
                 for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                     model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
@@ -468,10 +573,8 @@ private:
                 set_macro_trial_mode_(false);
                 return false;
             }
-            const auto macro_t1 = std::chrono::steady_clock::now();
-            last_report_.macro_solve_seconds +=
-                std::chrono::duration<double>(macro_t1 - macro_t0).count();
             capture_attempted_macro_state_();
+            macro_success_baseline = active_predictor;
 
             const auto micro_t0 = std::chrono::steady_clock::now();
             executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
@@ -491,6 +594,7 @@ private:
                     current[i] = local_model.section_response(
                         section_width_, section_height_, tangent_perturbation_);
                     current[i].site = model_.site(i);
+                    refresh_section_operator_diagnostics(current[i]);
                     if constexpr (requires { result.converged; }) {
                         if (!result.converged) {
                             current[i].status = ResponseStatus::SolveFailed;
@@ -515,6 +619,14 @@ private:
             last_report_.tangent_residuals_rel.assign(model_.num_local_models(), 0.0);
             last_report_.tangent_column_residuals_rel.assign(
                 model_.num_local_models(), 0.0);
+            last_report_.tangent_min_symmetric_eigenvalues.assign(
+                model_.num_local_models(), 0.0);
+            last_report_.tangent_max_symmetric_eigenvalues.assign(
+                model_.num_local_models(), 0.0);
+            last_report_.tangent_traces.assign(
+                model_.num_local_models(), 0.0);
+            last_report_.tangent_nonpositive_diagonal_counts.assign(
+                model_.num_local_models(), 0);
             last_report_.force_residual_component_scales.assign(
                 model_.num_local_models(),
                 std::array<double, 6>{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}});
@@ -535,10 +647,10 @@ private:
                 current[i].strain_ref = macro_state.strain;
                 current[i].site.local_frame = macro_state.site.local_frame;
 
-                if (predictor.size() == model_.num_local_models()) {
+                if (active_predictor.size() == model_.num_local_models()) {
                     const auto tangent_before = current[i].tangent;
                     const auto force_before = current[i].forces;
-                    relaxation_->relax(current[i], predictor[i], iter);
+                    relaxation_->relax(current[i], active_predictor[i], iter);
                     if ((current[i].tangent - tangent_before).norm() > 0.0
                         || (current[i].forces - force_before).norm() > 0.0)
                     {
@@ -548,7 +660,7 @@ private:
                         tangent_residual_metric_(
                             macro_state,
                             current[i],
-                            predictor[i],
+                            active_predictor[i],
                             &last_report_.tangent_residual_row_scales[i],
                             &last_report_.tangent_residual_column_scales[i],
                             &last_report_.tangent_column_residuals_rel[i]);
@@ -575,6 +687,14 @@ private:
                     current[i],
                     &last_report_.force_residual_component_scales[i],
                     &last_report_.force_component_residuals_rel[i]);
+                last_report_.tangent_min_symmetric_eigenvalues[i] =
+                    current[i].tangent_min_symmetric_eigenvalue;
+                last_report_.tangent_max_symmetric_eigenvalues[i] =
+                    current[i].tangent_max_symmetric_eigenvalue;
+                last_report_.tangent_traces[i] =
+                    current[i].tangent_trace;
+                last_report_.tangent_nonpositive_diagonal_counts[i] =
+                    current[i].tangent_nonpositive_diagonal_entries;
 
                 accumulate_response_diagnostics_(last_report_, current[i]);
 
@@ -666,6 +786,11 @@ public:
         section_height_ = h;
     }
     void set_tangent_perturbation(double h) { tangent_perturbation_ = h; }
+    void set_macro_failure_backtracking(int attempts, double factor = 0.5)
+    {
+        macro_failure_backtrack_attempts_ = std::max(0, attempts);
+        macro_failure_backtrack_factor_ = std::clamp(factor, 0.0, 1.0);
+    }
     void set_force_residual_norm(TangentValidationNormKind norm) noexcept {
         force_residual_norm_ = norm;
     }

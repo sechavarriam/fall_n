@@ -574,6 +574,126 @@ row/column scales applied at each site.  The runtime-benchmarked
 acceptance criterion should track the current generalized work content more
 closely than a strain-only weighting.
 
+\subsection{Affine-consistent FE\textsuperscript{2} relaxation and macro backtracking}
+\label{sec:ms-pub-affine-relaxation}
+
+Once the local operator is injected as an affine section law,
+\begin{equation}
+  \mathbf{s}(\mathbf{e})
+  = \mathbf{s}_{\mu}
+    + \mathbf{D}_{\mu}\left(\mathbf{e}-\mathbf{e}_{\mu}\right),
+  \label{eq:ms-pub-affine-section-law}
+\end{equation}
+it is no longer mathematically correct to relax only the stored vectors
+\(\mathbf{s}_{\mu}\) and matrices \(\mathbf{D}_{\mu}\) while leaving the
+reference strain \(\mathbf{e}_{\mu}\) untouched.  If two iterates
+\((\mathbf{s}_a,\mathbf{D}_a,\mathbf{e}_a)\) and
+\((\mathbf{s}_b,\mathbf{D}_b,\mathbf{e}_b)\) are blended with
+\(\alpha\in[0,1]\), the meaningful operation is the convex combination of the
+\emph{laws}, not of the stored intercepts:
+\begin{equation}
+  \mathcal{S}_{\alpha}(\mathbf{e})
+  = \alpha\left[\mathbf{s}_b
+      + \mathbf{D}_b\left(\mathbf{e}-\mathbf{e}_b\right)\right]
+    + (1-\alpha)\left[\mathbf{s}_a
+      + \mathbf{D}_a\left(\mathbf{e}-\mathbf{e}_a\right)\right].
+  \label{eq:ms-pub-affine-law-blend}
+\end{equation}
+Choosing a working reference \(\mathbf{e}_r\) and rewriting
+\eqref{eq:ms-pub-affine-law-blend} again in affine form gives
+\begin{align}
+  \mathbf{D}_{\alpha}
+    &= \alpha \mathbf{D}_b + (1-\alpha)\mathbf{D}_a,
+    \label{eq:ms-pub-affine-law-blend-tangent}\\
+  \mathbf{s}_{\alpha}(\mathbf{e}_r)
+    &= \alpha\left[\mathbf{s}_b
+         + \mathbf{D}_b\left(\mathbf{e}_r-\mathbf{e}_b\right)\right]
+     + (1-\alpha)\left[\mathbf{s}_a
+         + \mathbf{D}_a\left(\mathbf{e}_r-\mathbf{e}_a\right)\right].
+    \label{eq:ms-pub-affine-law-blend-force}
+\end{align}
+Equations~\eqref{eq:ms-pub-affine-law-blend-tangent} and
+\eqref{eq:ms-pub-affine-law-blend-force} are now the normative meaning of
+``relaxation'' inside \texttt{ConstantRelaxation}.  This closes a real
+consistency gap present in the earlier implementation, where blended
+\texttt{forces} and \texttt{tangent} no longer represented the convex
+combination of the two section laws once the strain references differed.
+
+The same affine-law viewpoint also motivates the new macro-failure recovery
+path.  Let \(\mathcal{S}_{\mathrm{pred}}\) denote the section law proposed for
+the next macro re-solve and \(\mathcal{S}_{\mathrm{base}}\) a previously
+admissible baseline law.  On a macro failure, the algorithm now performs a
+backtracking search in operator space:
+\begin{equation}
+  \mathcal{S}^{(k)}(\mathbf{e})
+  = \alpha_k\,\mathcal{S}_{\mathrm{pred}}(\mathbf{e})
+   + (1-\alpha_k)\,\mathcal{S}_{\mathrm{base}}(\mathbf{e}),
+  \qquad
+  \alpha_k = \beta^k,
+  \quad 0 < \beta < 1.
+  \label{eq:ms-pub-affine-backtracking}
+\end{equation}
+This is not a Newton line search on the global residual directly; it is a
+line search on the injected section operator that attempts to recover a macro
+solve while keeping the local micro law interpolation physically meaningful.
+When a previous admissible predictor exists, it plays the role of
+\(\mathcal{S}_{\mathrm{base}}\).  On the first coupled step, where no injected
+predictor exists yet, the implementation now falls back to the zero-correction
+baseline
+\begin{equation}
+  \mathcal{S}_{\mathbf{0}}(\mathbf{e}) \equiv \mathbf{0},
+  \label{eq:ms-pub-zero-baseline}
+\end{equation}
+represented at the same strain reference as the current predictor.  This is
+the natural affine analogue of first-predictor damping in a staggered fixed
+point context \cite{Kelley1995,Deuflhard2011}.
+
+\subsection{Macro-solver and injected-operator diagnostics}
+\label{sec:ms-pub-macro-diagnostics}
+
+The next methodological requirement is observability.  Once the local ramp is
+no longer the limiting factor, a mere \texttt{MacroSolveFailed} flag is too
+coarse to support scientific validation.  The implementation therefore now
+tracks both macro solver diagnostics and simple spectral diagnostics of the
+injected section operator.
+
+For the macro nonlinear solve, the FE\textsuperscript{2} report records the
+last available SNES convergence reason \(r_{\mathrm{SNES}}\), iteration count
+\(n_{\mathrm{SNES}}\), and residual norm
+\(\lVert \mathbf{R}_{\mathrm{SNES}}\rVert_2\).  These are not new equations,
+but they matter because they separate ``macro divergence after one bad
+operator'' from ``macro stagnation after many line-search reductions''.
+
+For each injected section tangent \(\mathbf{D}\), the report now also records
+the diagnostics of its symmetric part
+\begin{equation}
+  \mathbf{D}_{\mathrm{sym}}
+  = \tfrac{1}{2}\left(\mathbf{D}+\mathbf{D}^\mathsf{T}\right),
+  \label{eq:ms-pub-section-symmetric-part}
+\end{equation}
+namely
+\begin{equation}
+  \lambda_{\min}(\mathbf{D}_{\mathrm{sym}}), \qquad
+  \lambda_{\max}(\mathbf{D}_{\mathrm{sym}}), \qquad
+  \operatorname{tr}(\mathbf{D}), \qquad
+  n_{\le 0}^{\mathrm{diag}}(\mathbf{D}).
+  \label{eq:ms-pub-section-operator-diagnostics}
+\end{equation}
+These quantities are intentionally simple.  They are not claimed to be a full
+stability proof for the macro problem, but they are strong enough to classify
+important failure regimes:
+\begin{itemize}
+  \item a strongly negative \(\lambda_{\min}\) indicates a markedly indefinite
+    injected operator;
+  \item a large positive trace with poor macro convergence suggests that the
+    issue may lie more in the affine force intercept than in global softness;
+  \item several nonpositive diagonal entries are a useful quick-screen for
+    heavily degraded or sign-indefinite generalized directions.
+\end{itemize}
+This moves the FE\textsuperscript{2} validation path closer to a real
+methodology audit: the outer loop now reports both ``how the macro solve
+failed'' and ``what kind of section operator it was trying to solve with''.
+
 \section{Implemented Architecture}
 \label{sec:ms-pub-architecture}
 

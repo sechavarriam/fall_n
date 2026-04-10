@@ -460,6 +460,13 @@ target_sources(fall_n_cyclic_validation_api_test PRIVATE
     src/validation/TableCyclicValidationFE2Setup.cpp
     src/validation/TableCyclicValidationSubmodelFactories.cpp)
 
+fall_n_add_test(TARGET fall_n_case5_frontier_probe_test
+    NAME case5_frontier_probe  SOURCE tests/test_case5_frontier_probe.cpp
+    LIBS FULL  LABEL slow)
+target_sources(fall_n_case5_frontier_probe_test PRIVATE
+    src/validation/TableCyclicValidationFE2Setup.cpp
+    src/validation/TableCyclicValidationSubmodelFactories.cpp)
+
 fall_n_add_test(TARGET fall_n_node_test
     NAME node_dof_storage  SOURCE tests/test_node_dof.cpp
     LIBS CORE  LABEL unit)

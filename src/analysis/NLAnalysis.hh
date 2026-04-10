@@ -432,6 +432,23 @@ public:
         return its;
     }
 
+    /// Euclidean norm of the last SNES residual vector, when available.
+    double function_norm() const {
+        if (!snes_ || !R_vec) {
+            return 0.0;
+        }
+        PetscReal norm = 0.0;
+        Vec residual = nullptr;
+        SNESGetFunction(snes_, &residual, nullptr, nullptr);
+        if (!residual) {
+            residual = R_vec.get();
+        }
+        if (residual) {
+            VecNorm(residual, NORM_2, &norm);
+        }
+        return static_cast<double>(norm);
+    }
+
     // ─── Setup (call before solve, or called automatically) ──────
 
     void setup() {

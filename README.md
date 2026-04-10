@@ -21,6 +21,7 @@ The most mature publication-path subsystem today is the multiscale module:
 - The persistent local facade has been split further internally through `LocalBoundaryConditionApplicator`, `PersistentLocalStateOps`, `BoundaryReactionHomogenizer`, `LocalCrackDiagnostics`, and `LocalVTKOutputWriter`.
 - The local continuum-material contracts now live in `src/materials/SubmodelMaterialFactory.hh`, while the current Ko-Bathe/Menegotto reference defaults live in `src/materials/SubmodelMaterialFactoryDefaults.hh`; the multiscale core no longer owns those constitutive choices.
 - A local stabilization gate exists in `scripts/ci_multiscale_stabilization.ps1`, and the intended CI surface is frozen in `.github/workflows/multiscale-stability.yml`.
+- The GitHub Windows/MSYS2 gate now builds under the UCRT64 MSYS shell but runs regression executables from PowerShell with `ucrt64\\bin` injected into `PATH`, which avoids the `exit 127` native-loader failures observed when launching some UCRT executables directly from the MSYS shell.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
 - The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
 - The Ko-Bathe 3D audit also closed a real constitutive-state bug: crack opening/closure is now refreshed from the final elastic strain after plastic correction, instead of silently inheriting a pre-return trial state.
@@ -34,6 +35,8 @@ The most mature publication-path subsystem today is the multiscale module:
 - The persistent local solver now honors the configured first-ramp bisection budget and the `arc_length_from_start` flag during the very first nonlinear ramp, which closed a real semantic gap between the FE2 validation drivers and the local solver contract.
 - The persistent local solver now also supports explicit late-tail continuation on the remaining segment of a partially converged ramp, with full diagnostics (`adaptive_tail_rescue_attempts`, trigger fraction, and propagated minimum step size) instead of silently treating every exhausted budget as the same failure.
 - The iterated FE2 orquestator now damps the very first micro feedback predictor against a zero baseline, so the fixed-point relaxation policy can act before the second macro solve instead of waiting one full failed iteration.
+- The FE2 relaxation path now blends full affine section laws consistently, not just raw `forces` and `tangent` arrays, and the iterated macro solve now has an explicit operator-space backtracking path for `MacroSolveFailed` recoveries.
+- The FE2 coupling report now exposes macro SNES diagnostics (`reason`, iteration count, residual norm) and per-site section-operator diagnostics (minimum symmetric eigenvalue, maximum symmetric eigenvalue, trace, and nonpositive diagonal count) so a `MacroSolveFailed` event is no longer a black box.
 
 This does not mean the whole repository is “finished”. It means the codebase now has one path that is close to publication quality, and the rest of the library can be reviewed and strengthened around that standard.
 
@@ -60,6 +63,16 @@ The multiscale publication path currently looks like this:
 3. `MultiscaleAnalysis` owns the protocol, rollback, convergence, relaxation, and execution policy.
 4. `NonlinearSubModelEvolver` acts as the persistent local-model facade.
 5. `BoundaryReactionHomogenizer` computes section forces and the condensed tangent, with explicit fallback and validation against adaptive finite differences.
+
+For the iterated FE2 path, the active section law is treated as
+\[
+s(e)=s_\mu + D_\mu (e-e_\mu).
+\]
+That matters operationally: both fixed-point relaxation and macro-failure
+backtracking are now applied to the affine law itself, not to unrelated
+arrays. In practice, the code first translates both laws to a common strain
+reference, blends the translated force intercepts and tangents, and only then
+reinjects the result into the macro beam section.
 
 The current continuum local-model implementation is still reinforced-concrete-oriented, but the dependency boundary is now explicit: multiscale/reconstruction depends on abstract local-material factories, and the Ko-Bathe/Menegotto reference pair is just one materials-module realization. This is the seam intended for future local-model variants, including enriched/XFEM-like local solvers or discontinuous Petrov-Galerkin / DG local formulations.
 
@@ -242,6 +255,8 @@ The current honest frontier is:
 - In the wider one-step Case 5 audit (`4` initial increments, `2` first-ramp bisections, `60` local SNES iterations, adaptive budget `12/4`), one submodel reaches the full target, two reach `81.25%`, and one reaches `93.75%`; the failed sites now report `AdaptiveMinFractionReached` rather than a featureless early Newton abort.
 - The same audited run shows `72–82` active cracked material points, up to `3` cracks at a point, one-step no-flow stabilization, and no no-flow destabilization. That is strong evidence that the remaining frontier is the late, heavily cracked tail of the first micro ramp, not the top-level `flow / no-flow` split itself.
 - In the current default `fe2_crack50` one-step audit, all four submodels now reach `100%` of the first `+2.5 mm` target with `4–7` accepted ramp substeps, `0–3` bisections, `80–82` active cracked points, and zero tail-rescue activations. The step still aborts, but now with `MacroSolveFailed` and `failed_submodels = 0`: the scientific frontier has moved from the local micro ramp to the first macro FE2 re-solve with injected cracked-section operators.
+- A synthetic API regression now proves that the new macro backtracking path can recover a macro solve that would otherwise fail under the same affine section-law predictor. The full structural `Case 5` frontier remains macro-dominated, but the cheap probe used during stabilization is still runtime-limited; the new backtracking path should therefore be read as a validated algorithmic capability, not yet as a closed end-to-end physical-validation result.
+- The next concrete validation task is now sharper than before: use the new macro SNES and section-operator diagnostics to determine whether the first cracked `Case 5` FE2 failure is driven mainly by a grossly indefinite injected tangent, by an overly large affine force intercept, or by the interaction between those operators and the macro incremental/bisection solver.
 - The optional consistent-tangent override remains an audit path, not a promotion path. The earlier negative result is preserved as historical evidence, but after the FE2 setup-lifetime correction it should be treated as a benchmark that needs re-audit before any final scientific claim is made.
 
 ## Bottom Line
