@@ -1,0 +1,802 @@
+%----------------------------------------------------------------------
+%  Chapter 86 — Boundary Condition Imposition and Incremental Control
+%                Architecture for Multiscale Analysis
+%----------------------------------------------------------------------
+\chapter{Boundary Condition Imposition and Incremental Control
+         Architecture for Multiscale Analysis}
+\label{ch:bc-incremental-multiscale}
+
+This chapter provides a detailed exposition of how Dirichlet boundary
+conditions are imposed, how displacement (and load) increments are
+controlled through the incremental stepping engine, and how these
+mechanisms interact with the FE\textsuperscript{2} multiscale coupling
+framework.  It also identifies a fundamental gap in the current
+architecture: the absence of a complete \emph{physical state transfer}
+protocol between macro- and micro-scale models, and proposes extensions
+that would inject reconstructed stress tensors, conjugate kinematic
+measures, and material history variables into the sub-model, thereby
+improving both the fidelity of the physics and the convergence of the
+nonlinear sub-model solver.
+
+
+%======================================================================
+\section{Dirichlet BC Imposition via PETSc Section Elimination}
+\label{sec:dirichlet-imposition}
+%======================================================================
+
+Unlike many finite element codes that employ penalty methods or
+Lagrange multipliers, \texttt{fall\_n} uses the native PETSc DMPlex
+\emph{section constraint} mechanism, which implements algebraic
+elimination of constrained degrees of freedom.  The approach proceeds
+in three phases.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase 1: Constraint Declaration}
+\label{ssec:bc-declaration}
+
+Before calling \verb|setup()|, the user (or the FE\textsuperscript{2}
+framework) declares constraints through the \texttt{Model} API:
+
+\begin{lstlisting}
+// Fixed base (all 6 DOFs = 0)
+model.constrain_node(0, {0, 0, 0, 0, 0, 0});
+
+// Pre-declare controlled DOF (value will change during analysis)
+model.constrain_dof(top_node, 0, 0.0);
+
+// Selector-based: roller support on x=0 plane (only u_x fixed)
+model.constrain_dof_where(PlaneSelector<3>{0, 0.0}, 0, 0.0);
+\end{lstlisting}
+
+These methods store constraints in the internal map
+\begin{equation}
+  \texttt{constraints\_} :
+    \underbrace{\mathit{plex\_id}}_{\text{DMPlex point}}
+    \;\longrightarrow\;
+    \bigl(\,
+      \underbrace{\mathbf{i}}_{\substack{\text{sorted DOF}\\\text{indices}}},\;
+      \underbrace{\mathbf{v}}_{\text{prescribed values}}
+    \,\bigr),
+  \label{eq:constraint-map}
+\end{equation}
+where the DOF indices within each node are maintained in sorted order
+(a requirement of \texttt{PetscSectionSetConstraintIndices}).
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase 2: PETSc Section Assembly}
+\label{ssec:bc-section-assembly}
+
+During \verb|setup()|, the constraint information is written into the
+PETSc \texttt{PetscSection} that governs the DOF layout:
+
+\begin{enumerate}
+  \item \textbf{Mark constrained DOF counts:}
+    \begin{lstlisting}[basicstyle=\small\ttfamily]
+for (auto& [plex_id, idx] : constraints_)
+    PetscSectionAddConstraintDof(dof_section_, plex_id,
+                                 idx.first.size());
+PetscSectionSetUp(dof_section_);
+    \end{lstlisting}
+  \item \textbf{Set constrained DOF indices:}
+    \begin{lstlisting}[basicstyle=\small\ttfamily]
+for (const auto& [plex_id, idx] : constraints_)
+    PetscSectionSetConstraintIndices(dof_section_, plex_id,
+                                     idx.first.data());
+    \end{lstlisting}
+  \item \textbf{Attach section to DM and create vectors:}
+    \begin{lstlisting}[basicstyle=\small\ttfamily]
+DMSetLocalSection(dm, dof_section_);
+DMSetUp(dm);
+DMCreateLocalVector(dm, &global_imposed_solution_);
+    \end{lstlisting}
+\end{enumerate}
+
+The key consequence is that the PETSc \emph{global} vectors and
+matrices created from this DM automatically exclude constrained DOFs.
+The global solution vector~$\mathbf{U}$ contains only the
+\emph{free} DOFs~$\mathbf{u}_f$, while the prescribed values~$\mathbf{u}_c$
+reside in the \emph{local} vector~\verb|global_imposed_solution_|.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase 3: Residual Assembly and Imposed Values}
+\label{ssec:bc-residual}
+
+Within each Newton iteration, the SNES residual callback reconstructs
+the full displacement field by combining free and constrained DOFs:
+
+\begin{equation}
+  \mathbf{u}_{\text{total}} =
+    \underbrace{\texttt{DMGlobalToLocal}(\mathbf{U})}_{\text{expand free DOFs}}
+    \;+\;
+    \underbrace{\mathbf{u}_{\text{imposed}}}_{\text{prescribed values}}.
+  \label{eq:u-total}
+\end{equation}
+
+In code:
+\begin{lstlisting}
+DMGlobalToLocal(dm, u_global, INSERT_VALUES, u_local);
+VecAXPY(u_local, 1.0, model->imposed_solution());  // u += u_c
+\end{lstlisting}
+
+Each element then computes its internal force vector
+$\mathbf{f}_e^{\text{int}}(\mathbf{u}_{\text{total}})$ using the
+complete field.  This naturally incorporates the coupling between free
+and constrained DOFs
+\begin{equation}
+  \mathbf{R}(\mathbf{u}_f)
+    = \mathbf{f}^{\text{int}}(\mathbf{u}_f + \mathbf{u}_c) - \mathbf{f}^{\text{ext}}
+    = \mathbf{0},
+  \label{eq:residual-with-bc}
+\end{equation}
+so that the $\mathbf{K}_{fc}\,\mathbf{u}_c$ contribution appears
+automatically in the residual without explicit condensation.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Dynamic Update of Imposed Values}
+\label{ssec:bc-update-imposed}
+
+During incremental analysis, the method
+\begin{lstlisting}
+model->update_imposed_value(node_idx, local_dof, value);
+\end{lstlisting}
+performs two atomic operations:
+\begin{enumerate}
+  \item updates the value in the in-memory \texttt{constraints\_} map, and
+  \item writes the value into
+    \texttt{global\_imposed\_solution\_} via
+    \texttt{VecSetValueLocal(\ldots, INSERT\_VALUES)}.
+\end{enumerate}
+
+This is $O(\log n)$ for the map update and $O(1)$ for the PETSc vector
+insertion.  It is safe to call inside the incremental stepping loop
+because it never mutates the DM section---only the numerical value of the
+imposed displacement changes, not the DOF layout.
+
+
+%======================================================================
+\section{Incremental Control Policy Architecture}
+\label{sec:incremental-control}
+%======================================================================
+
+The stepping engine of \texttt{NonlinearAnalysis} is parameterised by a
+\emph{control policy} that determines the complete system state for a
+given scalar parameter~$p \in [0,1]$.  The design is formalised as a
+C++20 concept:
+
+\begin{lstlisting}
+template <typename S, typename ModelT>
+concept IncrementalControlPolicy =
+    requires(S& s, double p, Vec f_full, Vec f_ext, ModelT* m) {
+        s.apply(p, f_full, f_ext, m);
+    };
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{The Absolute Idempotency Invariant}
+\label{ssec:idempotency}
+
+The central design invariant is:
+
+\begin{quote}
+\itshape
+For any value of $p$, calling \texttt{scheme.apply(p, \ldots)} must
+fully determine the system state (external forces, imposed
+displacements, and any other boundary conditions).
+The call is \emph{absolute} and \emph{idempotent}: the result depends
+only on~$p$, not on the history of previous \texttt{apply()} calls.
+\end{quote}
+
+This invariant makes the bisection engine trivially correct.  When a step
+$[p_{\text{prev}} \to p_{\text{target}}]$ diverges, the engine:
+\begin{enumerate}
+  \item reverts $\mathbf{U}$ to its snapshot,
+  \item reverts material internal variables to their committed state,
+  \item calls \texttt{scheme.apply($p_{\text{prev}}$, \ldots)} to
+    restore the boundary/load state (no incremental state to unwind),
+  \item bisects:
+    $p_{\text{mid}} = \tfrac{1}{2}(p_{\text{prev}} + p_{\text{target}})$,
+  \item recursively solves
+    $[p_{\text{prev}} \to p_{\text{mid}}]$ then
+    $[p_{\text{mid}} \to p_{\text{target}}]$,
+  \item up to a configurable maximum bisection depth.
+\end{enumerate}
+
+This is fundamentally different from \emph{incremental} schemes
+(e.g.~OpenSees \texttt{integrator DisplacementControl}) where state
+must be explicitly saved and restored during bisection.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Concrete Control Policies}
+\label{ssec:control-policies}
+
+Four concrete policies satisfy the concept:
+
+\begin{table}[htbp]
+\centering
+\caption{Available incremental control policies.}
+\label{tab:control-policies}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Policy} & \textbf{System State at~$p$} & \textbf{Usage} \\
+\midrule
+\texttt{LoadControl}
+  & $\mathbf{f}_{\text{ext}} = p\,\mathbf{f}_{\text{full}}$
+  & Proportional loading \\
+\texttt{DisplacementControl}
+  & $u_i^{\text{imp}} = p\,u_i^{\text{target}}$;\;
+    $\mathbf{f}_{\text{ext}} = p\,s\,\mathbf{f}_{\text{full}}$
+  & Monotonic pushover \\
+\texttt{CustomControl<F>}
+  & User-supplied lambda
+  & Cyclic protocols \\
+\texttt{ArcLengthControl}
+  & Crisfield cylindrical/spherical
+  & Snap-through, post-peak \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Comparison with OpenSees TimeSeries}
+\label{ssec:timeseries-comparison}
+
+In OpenSees, loading is decomposed as
+$\mathbf{f}(t) = \lambda(t) \cdot \mathbf{f}_{\text{pattern}}$,
+where $\lambda(t)$ is a \texttt{TimeSeries} object that maps pseudo-time
+to a scalar load factor, and the load pattern associates forces with
+nodes.  The two abstractions are composed multiplicatively.
+
+In \texttt{fall\_n}, the \texttt{IncrementalControlPolicy} serves a
+similar role but with three key differences:
+
+\begin{enumerate}
+  \item \textbf{Scope:} An OpenSees \texttt{TimeSeries} can only scale
+    loads.  A control policy can modify \emph{any} aspect of the system
+    state: external forces, imposed displacements, and even model
+    parameters---all within a single \texttt{apply()} call.
+  \item \textbf{Idempotency:} OpenSees \texttt{TimeSeries} objects
+    can be stateful (e.g.\ \texttt{PathTimeSeries} with interpolation
+    over time history).  Control policies are \emph{required} to be
+    idempotent, ensuring bisection correctness.
+  \item \textbf{Composition:} OpenSees allows multiple
+    \texttt{LoadPattern} objects active simultaneously.
+    In \texttt{fall\_n}, all loading logic is composed inside a single
+    lambda passed to \texttt{make\_control()}:
+    \begin{lstlisting}
+auto scheme = make_control([&](double p, Vec f_full,
+                               Vec f_ext, auto* m) {
+    VecCopy(f_full, f_ext);
+    VecScale(f_ext, gravity_factor(p));
+    VecAXPY(f_ext, lateral_factor(p), f_lateral);
+    m->update_imposed_value(node, 0,
+                            cyclic_displacement(p, amps));
+});
+    \end{lstlisting}
+\end{enumerate}
+
+A separate \texttt{TimeSeries} abstraction is therefore \emph{not
+warranted}: the current design is both more general and provably
+compatible with the bisection engine.  What \emph{is} valuable is a
+library of reusable $p \to \text{value}$ functions (such as the existing
+\texttt{cyclic\_displacement()} protocol), which serve the role of
+composable building blocks without introducing stateful objects.
+
+
+%======================================================================
+\section{Cyclic Displacement Protocol}
+\label{sec:cyclic-protocol}
+%======================================================================
+
+The function \texttt{cyclic\_displacement(p, amplitudes)} maps the
+scalar parameter~$p \in [0,1]$ to a physical displacement (in metres)
+according to a symmetric triangular wave protocol with monotonically
+increasing amplitude levels:
+
+\begin{equation}
+  d(p) = \begin{cases}
+    f \cdot A_k           & \text{phase 0: } 0 \to +A_k \\
+    A_k\,(1 - 2f)         & \text{phase 1: } +A_k \to -A_k \\
+    -A_k\,(1 - f)          & \text{phase 2: } -A_k \to 0
+  \end{cases}
+  \label{eq:cyclic-displacement}
+\end{equation}
+
+where $k = \lfloor s / 3 \rfloor$ is the amplitude level index,
+$s = \lfloor 3\,N_{\text{levels}} \cdot p \rfloor$ is the segment
+index, $f = 3\,N_{\text{levels}} \cdot p - s$ is the intra-segment
+fraction, and $A_k$ is the $k$-th amplitude from the user-specified
+sequence.  This function is \emph{pure} (no side effects, no internal
+state), preserving the idempotency invariant of the control policy.
+
+Three preset amplitude sequences are provided:
+
+\begin{table}[htbp]
+\centering
+\caption{Preset cyclic amplitude sequences.}
+\label{tab:cyclic-amplitudes}
+\begin{tabular}{@{}lcl@{}}
+\toprule
+\textbf{Preset} & \textbf{Levels} & \textbf{Amplitudes (mm)} \\
+\midrule
+Legacy (20\,mm)     & 4 & $\pm 2.5,\; \pm 5,\; \pm 10,\; \pm 20$ \\
+Extended (50\,mm)   & 6 & $\pm 2.5,\; \pm 5,\; \pm 10,\; \pm 20,\; \pm 35,\; \pm 50$ \\
+Extended (100\,mm)  & 9 & $\pm 2.5,\; \ldots,\; \pm 65,\; \pm 80,\; \pm 100$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%======================================================================
+\section{Worked Example: Cyclic Beam Validation}
+\label{sec:worked-example-cyclic}
+%======================================================================
+
+The following annotated code fragment shows the complete boundary
+condition setup and incremental solve for the cyclic validation
+of a beam column element:
+
+\begin{lstlisting}
+// -- Phase 1: Declare constraints (before setup) ----------------
+model.constrain_node(0, {0,0,0,0,0,0});      // fixed base
+model.constrain_dof(top_node, 0, 0.0);       // pre-declare DOF 0
+model.setup();                                // DM section locked
+
+// -- Phase 2: Define control scheme ------------------------------
+auto scheme = make_control(
+    [top_node, &cfg](double p, Vec, Vec f_ext, BeamModel* m) {
+        VecSet(f_ext, 0.0);                   // no external forces
+        m->update_imposed_value(top_node, 0,  // DOF 0 at top
+                                cfg.displacement(p));  // cyclic!
+    });
+
+// -- Phase 3: Incremental solve with bisection ------------------
+bool ok = nl.solve_incremental(
+    cfg.total_steps(),         // e.g. 180 steps
+    cfg.max_bisections,        // e.g. 6 levels
+    scheme);                   // injected policy
+\end{lstlisting}
+
+At each of the 180 uniform steps, the parameter advances as
+$p_k = k/180$, and the control policy maps $p_k$ through
+\texttt{cyclic\_displacement()} to obtain the physical displacement.
+If SNES diverges at a given $p_k$, the bisection engine
+halves the step and retries, recursively, up to the specified depth.
+The scheme never needs to be ``restored'' because it is an absolute
+function of~$p$.
+
+
+%======================================================================
+\section{Initial Physical State Imposition for FE\textsuperscript{2}}
+\label{sec:initial-state-fe2}
+%======================================================================
+
+The preceding sections describe how \emph{kinematic} boundary conditions
+(displacement Dirichlet) are imposed on the sub-model in each FE%
+\textsuperscript{2} step.  This section examines the current state
+transfer protocol and identifies critical gaps that must be addressed
+to achieve a physically consistent and computationally efficient
+multiscale coupling.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Current State: Displacement-Only Downscaling}
+\label{ssec:displacement-only}
+
+In the present implementation
+(\texttt{NonlinearSubModelEvolver}, Chapter~\ref{ch:nl-sub-model-evolver}),
+the global-to-local transfer consists exclusively of
+\emph{displacement boundary conditions} derived from the beam's
+Timoshenko kinematic reconstruction:
+
+\begin{equation}
+  \mathbf{u}^{\text{RVE}}(\mathbf{x}_{\text{face}})
+    = \mathbf{u}_c + \boldsymbol{\theta} \times
+      (\mathbf{x}_{\text{face}} - \mathbf{x}_c),
+  \label{eq:kinematic-bc}
+\end{equation}
+
+where $\mathbf{u}_c$ is the centroidal translation,
+$\boldsymbol{\theta}$ the rotation vector, and
+$\mathbf{x}_c$~the section centroid, all in the beam's local frame.
+These displacements are imposed on the two end faces (min-$z$
+and max-$z$) of the prismatic sub-model domain.
+
+The state transfer flow is:
+\begin{enumerate}
+  \item Extract \texttt{SectionKinematics} from the beam element
+    at parametric coordinates $\xi = \pm 1$.
+  \item Evaluate Eq.~\eqref{eq:kinematic-bc} at each boundary node.
+  \item Call \verb|model.constrain_node(nid, {u_x, u_y, u_z})| for
+    each boundary node.
+  \item Solve the sub-model via incremental displacement control
+    with 20 steps and 8 bisection levels.
+\end{enumerate}
+
+The \texttt{NonlinearSubModelEvolver} is \emph{persistent}: the
+displacement vector~$\mathbf{U}$ is \emph{not} reset between
+global steps, so the converged sub-model state from step~$n$ serves
+as the initial guess for step~$n+1$.  Material internal variables
+(crack openings, plastic strains, Menegotto--Pinto reversal points)
+accumulate across the loading history.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{The ModelState Snapshot}
+\label{ssec:model-state}
+
+The \texttt{ModelState<dim>} structure provides a PETSc-independent
+snapshot of a model's solved state:
+
+\begin{equation}
+  \mathcal{S} = \Bigl\{
+    \bigl\{n_i,\; \mathbf{u}_i,\; \dot{\mathbf{u}}_i\bigr\}_{i=1}^{N_{\text{nodes}}},
+    \;\;
+    \bigl\{e_j,\;
+      \bigl\{\boldsymbol{\sigma}_{jk},\;
+             \boldsymbol{\varepsilon}_{jk}
+      \bigr\}_{k=1}^{N_{\text{GP},j}}
+    \bigr\}_{j=1}^{N_{\text{elem}}}
+  \Bigr\}.
+  \label{eq:model-state}
+\end{equation}
+
+This structure captures nodal displacements and velocities, as well as
+Gauss-point stress and strain tensors in Voigt notation.
+The \texttt{capture\_state()} method of \texttt{Model<>} populates
+this structure from the PETSc vectors and element material points,
+while \texttt{apply\_initial\_displacement()} writes a captured
+displacement field back as the initial imposed solution.
+
+\paragraph{Limitation.}  The current \texttt{ModelState} stores
+stress and strain but has no mechanism to inject them \emph{into} a
+model's material points as initial conditions.  It captures the state
+for post-processing and continuation (displacement seeding), but does
+not restore the \emph{constitutive} state.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{What Is Missing: Stress and Strain Injection}
+\label{ssec:stress-injection}
+
+In a rigorous FE\textsuperscript{2} downscaling, the macro-to-micro
+transfer should include not only the kinematic field but also the
+\emph{reconstructed stress tensor}~$\boldsymbol{\sigma}^{\text{macro}}$
+and the conjugate kinematic measure~$\boldsymbol{\varepsilon}^{\text{macro}}$,
+evaluated at each Gauss point of the sub-model from the beam's generalised
+strains.
+
+The Timoshenko kinematics provide the generalised strain measures at
+the section level:
+\begin{equation}
+  \mathbf{e} = \bigl\{
+    \varepsilon_0,\; \kappa_y,\; \kappa_z,\;
+    \gamma_y,\; \gamma_z,\; \theta'
+  \bigr\}^T,
+  \label{eq:gen-strains}
+\end{equation}
+from which the 3D strain field at any point $(y,z)$ in the section can
+be reconstructed:
+\begin{equation}
+  \boldsymbol{\varepsilon}^{\text{macro}}(y,z) =
+    \varepsilon_0\,\mathbf{e}_z \otimes \mathbf{e}_z
+    - \kappa_y\,z\,\mathbf{e}_z \otimes \mathbf{e}_z
+    + \kappa_z\,y\,\mathbf{e}_z \otimes \mathbf{e}_z
+    + \tfrac{1}{2}\gamma_y \bigl(
+        \mathbf{e}_y \otimes \mathbf{e}_z
+      + \mathbf{e}_z \otimes \mathbf{e}_y\bigr)
+    + \tfrac{1}{2}\gamma_z \bigl(
+        \mathbf{e}_x \otimes \mathbf{e}_z
+      + \mathbf{e}_z \otimes \mathbf{e}_x\bigr),
+  \label{eq:strain-reconstruction}
+\end{equation}
+and the corresponding stress tensor via the section's effective tangent:
+\begin{equation}
+  \boldsymbol{\sigma}^{\text{macro}}(y,z)
+    = \mathbb{D}_{\text{sec}}^{-1}(\mathbf{e}) \cdot
+      \boldsymbol{\varepsilon}^{\text{macro}}(y,z).
+  \label{eq:stress-reconstruction}
+\end{equation}
+
+If these tensors were injected into each Gauss point of the sub-model
+\emph{before} the nonlinear solve, the benefits would be:
+
+\begin{enumerate}
+  \item \textbf{Better initial guess:}  The SNES solver would start
+    from a state that already satisfies equilibrium at the macro-scale,
+    rather than from a zero-stress (or purely kinematic) initial
+    condition.  This can dramatically reduce the number of Newton
+    iterations required.
+
+  \item \textbf{Physical consistency:}  The sub-model's material
+    points would begin from a stress state consistent with the
+    global solution, preventing spurious elastic unloading in the
+    first Newton iteration that arises when the displacement field
+    is imposed but the stress field is zero.
+
+  \item \textbf{Compatibility with path-dependent materials:}
+    Damage and plasticity models depend on the stress path, not just
+    the final strain.  Injecting the macro-scale stress provides
+    a better ``starting ramp'' for the local constitutive integration.
+\end{enumerate}
+
+
+%======================================================================
+\section{Material History Mapping Between Models}
+\label{sec:material-history-mapping}
+%======================================================================
+
+The most subtle and potentially impactful aspect of the multiscale
+state transfer concerns the \emph{material internal variables}
+$\boldsymbol{\alpha}$~that encode loading history.  Currently, each
+scale maintains its own independent material history:
+
+\begin{itemize}
+  \item The global beam model uses fiber-section integration with
+    Kent--Park concrete and Menegotto--Pinto steel.  Each fiber
+    accumulates its own internal state
+    $\boldsymbol{\alpha}^{\text{macro}}$.
+  \item The sub-model uses 3D Ko--Bathe concrete hexahedra with
+    embedded Menegotto--Pinto truss elements for rebar.  Each Gauss
+    point / truss element maintains its own
+    $\boldsymbol{\alpha}^{\text{micro}}$.
+\end{itemize}
+
+When the sub-model is first activated at a given time step, the
+micro-scale material points start from a virgin state, regardless of
+the loading history that the global model has already undergone.
+This inconsistency leads to two problems:
+
+\begin{enumerate}
+  \item \textbf{Initial transient:}  The sub-model must ``catch up''
+    to the global solution, effectively re-experiencing the loading
+    history incrementally.  This slows convergence and may introduce
+    spurious damage.
+  \item \textbf{Incorrect effective tangent:}  The sub-model's
+    tangent stiffness $\mathbb{D}_{\text{hom}}$ starts from the
+    virgin elastic state rather than from the degraded/hardened state
+    of the macro-scale, causing a stiffness mismatch that impairs
+    the global Newton convergence.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Menegotto--Pinto History Transfer: Fibers to Trusses}
+\label{ssec:menegotto-transfer}
+
+The Menegotto--Pinto steel model maintains the following internal
+state at each integration point:
+
+\begin{equation}
+  \boldsymbol{\alpha}_{\text{MP}} = \bigl\{
+    \varepsilon_r,\; \sigma_r,\;
+    \varepsilon_0,\; \sigma_0,\;
+    \varepsilon_r^{\text{prev}},\; \sigma_r^{\text{prev}},\;
+    \varepsilon_{\max},\; \xi,\;
+    d,\; \varepsilon_c,\; \sigma_c,\;
+    \text{yielded}
+  \bigr\},
+  \label{eq:mp-state}
+\end{equation}
+
+where $(\varepsilon_r, \sigma_r)$ is the last reversal point,
+$(\varepsilon_0, \sigma_0)$ the asymptote intersection,
+$\xi = |\varepsilon_0 - \varepsilon_r|$ the shift parameter for the
+R-evolution $R(\xi) = R_0 - c_{R1}\,\xi/(c_{R2} + \xi)$,
+$d \in \{+1, -1, 0\}$ the loading direction,
+and $(\varepsilon_c, \sigma_c)$ the last committed strain and stress.
+
+In the global beam model, this state lives at each \emph{fiber}
+integration point.  In the sub-model, the same Menegotto--Pinto
+constitutive law governs each \emph{truss element} representing
+a reinforcing bar.  The key observation is that:
+
+\begin{quote}
+\itshape
+A macro-scale fiber at position $(y_i, z_i)$ in the section, carrying
+area $A_i$, has a one-to-one correspondence with a micro-scale truss
+element at the same geometric position, with the same cross-sectional
+area and the same material parameters.
+\end{quote}
+
+Therefore, the history transfer is, in principle, a direct copy:
+\begin{equation}
+  \boldsymbol{\alpha}_{\text{MP}}^{\text{truss}_j}
+    \leftarrow
+  \boldsymbol{\alpha}_{\text{MP}}^{\text{fiber}_i},
+  \qquad
+  \text{where } j = \mathcal{M}(i),
+  \label{eq:mp-transfer}
+\end{equation}
+where $\mathcal{M}: \{\text{fibers}\} \to \{\text{trusses}\}$ is the
+geometric mapping that associates each fiber with its corresponding
+truss element (by nearest-neighbour matching of the $(y,z)$ coordinates
+in the section plane).
+
+For the material parameters $(E_0, f_y, b, R_0, c_{R1}, c_{R2})$
+to be identical at both scales (which they are in the current
+implementation), the transfer is exact: the truss element, initialized
+with the fiber's reversal points and accumulated plastic strain, will
+produce the identical stress--strain response for any subsequent
+loading path.
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Concrete History Transfer: Fibers to Hexahedra}
+\label{ssec:concrete-transfer}
+
+The concrete case is more complex because the constitutive models at
+the two scales differ:
+
+\begin{itemize}
+  \item \textbf{Macro-scale:}  Kent--Park uniaxial model (confined /
+    unconfined), parameterised by $f'_c$, $\varepsilon_0$,
+    $\varepsilon_{20}$, and damage scalars.
+  \item \textbf{Micro-scale:}  Ko--Bathe 3D multiaxial model with crack
+    tensors per Gauss point, tracking crack opening, closing, and
+    re-opening in up to three directions.
+\end{itemize}
+
+A direct variable-by-variable copy is not possible.  Instead, the
+transfer must be \emph{semantic}:
+
+\begin{enumerate}
+  \item \textbf{Damage scalar mapping:}  The Kent--Park damage
+    parameter $d^{\text{macro}}(\varepsilon)$ can be mapped to an
+    equivalent isotropic damage in the Ko--Bathe model by matching
+    the secant stiffness degradation:
+    \begin{equation}
+      (1 - d_{\text{KB}})\,E_0^{\text{3D}}
+        \approx (1 - d_{\text{KP}})\,E_0^{\text{1D}}.
+      \label{eq:damage-matching}
+    \end{equation}
+  \item \textbf{Crack direction:}  The 1D fiber model does not track
+    crack orientation.  A reasonable initialisation is to set the
+    principal crack direction perpendicular to the fiber's axial
+    direction (i.e.\ normal to the beam axis), consistent with
+    the flexural crack pattern expected at that section location.
+  \item \textbf{Strain history:}  The maximum compressive and tensile
+    strains experienced by each fiber can be used to initialise the
+    Ko--Bathe equivalent strain thresholds, ensuring that the
+    micro-scale model starts with the correct damage level.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Proposed Architecture: StateTransferProtocol}
+\label{ssec:state-transfer-protocol}
+
+To formalize and extensibly implement the above transfers, we propose
+a C++20 concept:
+
+\begin{lstlisting}
+template <typename T>
+concept StateTransferProtocol = requires(
+    T& transfer,
+    const GlobalModel& macro,
+    LocalModel& micro,
+    std::size_t gauss_idx)
+{
+    // Map fiber internal state to truss element
+    transfer.map_rebar_history(macro, micro);
+
+    // Inject reconstructed stress/strain at Gauss points
+    transfer.inject_initial_stress(macro, micro);
+
+    // Inject reconstructed strain at Gauss points
+    transfer.inject_initial_strain(macro, micro);
+
+    // Map concrete damage from 1D fibers to 3D Gauss points
+    transfer.map_concrete_damage(macro, micro);
+};
+\end{lstlisting}
+
+A concrete implementation would proceed in four stages:
+
+\begin{enumerate}
+  \item \textbf{Geometric mapping:}  Establish the correspondences
+    fiber~$\leftrightarrow$~truss and fiber~$\leftrightarrow$~Gauss
+    point using a spatial search in the section plane.
+  \item \textbf{Rebar history injection:}  Copy
+    $\boldsymbol{\alpha}_{\text{MP}}^{\text{fiber}}$ verbatim into the
+    matched truss's \texttt{MenegottoPintoState}.
+  \item \textbf{Concrete state seeding:}  Evaluate the reconstructed
+    strain field at each Gauss point and initialise the Ko--Bathe
+    crack tensor from the macro-scale damage.
+  \item \textbf{Stress initialisation:}  Set
+    $\boldsymbol{\sigma}^{(0)}_{\text{GP}}
+      = \boldsymbol{\sigma}^{\text{macro}}(y_{\text{GP}}, z_{\text{GP}})$
+    and use it as the initial stress for the sub-model residual.
+\end{enumerate}
+
+
+%======================================================================
+\section{Expected Impact on Convergence}
+\label{sec:convergence-impact}
+%======================================================================
+
+The completeness of the state transfer directly affects the convergence
+behaviour of the sub-model nonlinear solve.  We can distinguish three
+levels of transfer and their expected effects:
+
+\begin{table}[htbp]
+\centering
+\caption{State transfer levels and expected convergence impact.}
+\label{tab:transfer-levels}
+\begin{tabular}{@{}clp{5.5cm}p{4.5cm}@{}}
+\toprule
+\textbf{Level} & \textbf{Transfer Content} & \textbf{Effect on Convergence} & \textbf{Status} \\
+\midrule
+0 & Displacement BCs only
+  & Sub-model starts from virgin material; Newton must traverse the
+    entire loading path.  High iteration count.
+  & Implemented \\
+1 & + Reconstructed $\boldsymbol{\varepsilon}$, $\boldsymbol{\sigma}$
+  & Initial stress field reduces residual norm at first Newton
+    iteration.  Fewer iterations.
+  & Proposed; requires \texttt{inject\_initial\_stress} API. \\
+2 & + Rebar history ($\boldsymbol{\alpha}_{\text{MP}}$)
+  & Truss elements start on the correct loading branch with the
+    correct tangent modulus.
+    Eliminates spurious elastic unloading of reinforcement.
+  & Proposed; requires fiber$\leftrightarrow$truss mapping. \\
+3 & + Concrete damage mapping
+  & Ko--Bathe Gauss points start with degraded stiffness consistent
+    with macro-scale damage.  Prevents artificial stiffness
+    recovery at the transition.
+  & Proposed; requires semantic damage mapping. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The hypothesis is that the progression from Level~0 to Level~3
+will reduce the required number of adaptive sub-steps and bisection
+depth in the sub-model solver, with the most significant improvement
+coming from Level~2 (rebar history), since the steel constitutive
+response is highly path-dependent and the tangent modulus undergoes
+order-of-magnitude changes between loading and unloading branches.
+
+The physical intuition is straightforward:
+\begin{quote}
+\itshape
+A sub-model that starts from a physical state consistent with the
+global solution does not need to ``rediscover'' the loading history.
+It begins at the right point on the right loading branch, with the
+right stiffness, and needs only to accommodate the \emph{incremental}
+change from the previous global step---not the entire accumulated
+deformation.
+\end{quote}
+
+This is precisely analogous to the benefit of using the converged
+solution as the initial guess for Newton's method: starting close to
+the answer means fewer iterations to convergence.
+
+%======================================================================
+\section{Implementation Roadmap}
+\label{sec:impl-roadmap}
+%======================================================================
+
+The following concrete steps are proposed:
+
+\begin{enumerate}
+  \item \textbf{Extend \texttt{ModelState}:}
+    Add an \texttt{InternalVariablesData} variant field to
+    \texttt{GaussPointData} that can hold arbitrary per-GP internal
+    variable snapshots (using \texttt{std::any} or a type-erased
+    buffer).
+  \item \textbf{Add \texttt{inject\_gauss\_state()} to the Material
+    concept:}  Extend \texttt{InelasticConstitutiveRelation} with a
+    method that initialises the internal state from an externally
+    provided~$\boldsymbol{\alpha}$.
+  \item \textbf{Implement fiber$\,\leftrightarrow\,$truss geometric
+    mapping:}  Use the section's fiber coordinates and the sub-model's
+    truss node coordinates to establish the bijection
+    $\mathcal{M}: \{\text{fibers}\} \to \{\text{trusses}\}$.
+  \item \textbf{Implement \texttt{StateTransferProtocol} for
+    beam$\,\to\,$continuum:}  A concrete class that performs the
+    four-stage transfer described in
+    \S\ref{ssec:state-transfer-protocol}.
+  \item \textbf{Benchmark:}  Compare Newton iteration counts and
+    sub-step requirements for the cyclic validation column at
+    all four transfer levels, using the Full Extended~(50\,mm)
+    protocol.
+\end{enumerate}
+
+The critical implementation constraint is that the state injection
+must respect the \texttt{IncrementalControlPolicy} idempotency
+invariant: the injected state is set once at the beginning of the
+sub-model solve and does not depend on the bisection parameter~$p$.
+It is an \emph{initial condition}, not a boundary condition.
