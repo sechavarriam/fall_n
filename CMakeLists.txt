@@ -425,6 +425,10 @@ fall_n_add_test(TARGET fall_n_ko_bathe_concrete_3d_test
     NAME ko_bathe_concrete_3d  SOURCE tests/test_ko_bathe_concrete_3d.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_state_injection_test
+    NAME state_injection  SOURCE tests/test_state_injection.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_truss_element_test
     NAME truss_element  SOURCE tests/test_truss_element.cpp
     LIBS FULL  LABEL unit)
@@ -636,6 +640,7 @@ fall_n_add_test(TARGET fall_n_bc_test
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
     phase5_dynamic_verification  vertical_slice_gate  boundary_conditions
+    case5_frontier_probe
     PROPERTIES TIMEOUT 600)
 
 

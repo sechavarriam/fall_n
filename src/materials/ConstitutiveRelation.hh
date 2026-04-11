@@ -245,6 +245,31 @@ concept ExternallyStateDrivenConstitutiveRelation =
 
 
 // =============================================================================
+//  LEVEL 4 — ExternallyStateInjectable (opt-in capability)
+// =============================================================================
+//
+//  An inelastic relation that supports wholesale replacement of its internal
+//  state from an external source.  This is the key enabler for FE² state
+//  transfer: the macro-model extracts fibre history, maps it to the micro
+//  discretization, and injects it before the first sub-model solve.
+//
+//  Required interface (on top of InelasticConstitutiveRelation):
+//    - r.set_internal_state(alpha)  — replace the internal state
+//
+//  Both MenegottoPintoSteel and KoBatheConcrete3D satisfy this concept after
+//  being equipped with set_internal_state().
+//
+// -----------------------------------------------------------------------------
+
+template <typename R>
+concept ExternallyStateInjectable =
+    InelasticConstitutiveRelation<R> &&
+    requires(R r, const typename R::InternalVariablesT& alpha) {
+        { r.set_internal_state(alpha) };
+    };
+
+
+// =============================================================================
 //  Convenience alias: standard tangent matrix type for a conjugate pair
 // =============================================================================
 //

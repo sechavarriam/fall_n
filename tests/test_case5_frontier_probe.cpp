@@ -35,13 +35,13 @@ int main()
     cfg.macro_step_cutback_attempts = 1;
     cfg.predictor_admissibility_backtrack_attempts = 1;
     cfg.submodel_increment_steps = 4;
-    cfg.submodel_max_bisections = 1;
-    cfg.submodel_adaptive_max_substeps = 12;
-    cfg.submodel_adaptive_max_bisections = 4;
-    cfg.submodel_tail_rescue_attempts = 1;
-    cfg.submodel_tail_rescue_substep_bonus = 8;
+    cfg.submodel_max_bisections = 2;
+    cfg.submodel_adaptive_max_substeps = 16;
+    cfg.submodel_adaptive_max_bisections = 5;
+    cfg.submodel_tail_rescue_attempts = 2;
+    cfg.submodel_tail_rescue_substep_bonus = 10;
     cfg.submodel_tail_rescue_bisection_bonus = 2;
-    cfg.submodel_snes_max_it = 60;
+    cfg.submodel_snes_max_it = 200;
 
     {
         auto ctx = build_fe2_case_context(

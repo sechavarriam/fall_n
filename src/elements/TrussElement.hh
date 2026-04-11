@@ -268,6 +268,17 @@ public:
         material_.revert();
     }
 
+    /// Inject a type-erased internal state into the single material point.
+    /// The StateRef must reference the correct InternalVariablesT for the
+    /// underlying constitutive model (e.g. MenegottoPintoState).
+    void inject_material_state(impl::StateRef state) {
+        material_.inject_internal_state(state);
+    }
+
+    [[nodiscard]] bool supports_state_injection() const noexcept {
+        return material_.supports_state_injection();
+    }
+
     // ── Post-processing: Gauss-point field export for VTK ─────────
     //
     //  Promotes uniaxial σ/ε to 6-component Voigt vectors:

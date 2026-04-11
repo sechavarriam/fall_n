@@ -79,6 +79,15 @@ class MaterialPoint{// Legacy name for a continuum constitutive site.
             material_.revert();
         }
 
+        // ─── State injection (FE² state transfer) ───────────────
+        void inject_internal_state(impl::StateRef state) {
+            material_.inject_internal_state(state);
+        }
+
+        [[nodiscard]] bool supports_state_injection() const noexcept {
+            return material_.supports_state_injection();
+        }
+
         // ─── Internal state export (post-processing) ────────────
         [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const {
             return material_.internal_field_snapshot();

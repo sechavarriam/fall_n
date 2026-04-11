@@ -1438,6 +1438,11 @@ public:
         return state_;
     }
 
+    /// Replace the internal state wholesale (for FE² state injection).
+    void set_internal_state(const InternalVariablesT& s) {
+        state_ = s;
+    }
+
     // =====================================================================
     //  Parameter accessors
     // =====================================================================
@@ -1555,6 +1560,27 @@ public:
         return os;
     }
 };
+
+
+// =============================================================================
+//  Static concept verification
+// =============================================================================
+
+static_assert(
+    ConstitutiveRelation<KoBatheConcrete3D>,
+    "KoBatheConcrete3D must satisfy ConstitutiveRelation");
+
+static_assert(
+    InelasticConstitutiveRelation<KoBatheConcrete3D>,
+    "KoBatheConcrete3D must satisfy InelasticConstitutiveRelation");
+
+static_assert(
+    ExternallyStateDrivenConstitutiveRelation<KoBatheConcrete3D>,
+    "KoBatheConcrete3D must satisfy ExternallyStateDrivenConstitutiveRelation");
+
+static_assert(
+    ExternallyStateInjectable<KoBatheConcrete3D>,
+    "KoBatheConcrete3D must satisfy ExternallyStateInjectable");
 
 
 #endif // FN_KO_BATHE_CONCRETE_3D_HH
