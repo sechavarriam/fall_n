@@ -387,13 +387,15 @@ each modelling level.
 \toprule
 \textbf{Model} & \textbf{Peak $V$ (kN)} & \textbf{Records} \\
 \midrule
-Beam $N=2$           & 31.86 & 181 \\
-Beam $N=3$           & 25.02 & 181 \\
-Beam $N=4$           & 12.76 & 126 (partial) \\
-Beam $N=5\!-\!10$   & 5.97  & 38 (early abort) \\
-Hex8 (coarse)        & 283.93 & 181 \\
-Hex8 (medium)        & — & — \\
-FE$^2$ one-way       & — & — \\
+Beam $N=2$           & 31.86  & 181 \\
+Beam $N=3$           & 25.02  & 181 \\
+Beam $N=4$           & 12.76  & 126 (partial) \\
+Beam $N=5\!-\!10$   & 5.97   & 38 (early abort) \\
+\midrule
+Hex8 (coarse, $4\!\times\!3\!\times\!8$)    & 283.93 & 181 \\
+Hex8 (medium, $6\!\times\!4\!\times\!16$)   & 132.48 & 100 (aborted $p\!=\!0.55$) \\
+Hex20 (coarse, $2\!\times\!2\!\times\!4$)   & 218.69 & 181 \\
+Hex27 (coarse, $2\!\times\!2\!\times\!4$)   & 29.61  & 46 (aborted $p\!=\!0.25$) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -406,11 +408,28 @@ concrete causes localization at individual Gauss points within the single
 element, leading to convergence failure (bisection exhaustion) at
 progressively earlier load steps.  This is a well-known limitation of
 higher-order elements with softening constitutive models in the absence
-of regularization.  The Hex8 coarse continuum model (4$\times$3$\times$8)
-completes the full protocol with a peak shear of 283.93~kN---substantially
-higher than the beam models.  This difference arises from the fully
-three-dimensional stress state and the distributed boundary conditions at
-the base face, which engage the full confinement capacity of the section.
+of regularization.
+
+Both continuum models complete all 180~steps.  The Hex8 coarse mesh
+($4\!\times\!3\!\times\!8$, 96~elements) reaches a peak of 283.93~kN,
+while the Hex20 coarse mesh ($2\!\times\!2\!\times\!4$, 16~elements)
+reaches 218.69~kN.  The Hex8 medium mesh ($6\!\times\!4\!\times\!16$)
+aborts at $p = 0.55$ (100~records, peak $V = 132.48$~kN) due to
+bisection exhaustion at the ±20~mm amplitude level, where
+strain softening in finer elements introduces sharp localization
+gradients.  Similarly, the Hex27 coarse mesh ($2\!\times\!2\!\times\!4$)
+aborts at $p = 0.25$ (46~records, peak $V = 29.61$~kN), with each
+step requiring extensive bisection recovery.
+
+The order-of-magnitude difference between beam
+($\sim$25~kN) and continuum ($\sim$220--284~kN) models arises from:
+(i)~the fully three-dimensional stress state engaging confinement,
+(ii)~distributed base boundary conditions over the entire cross-section,
+and (iii)~the embedded rebar penalty coupling contributing directly
+to the reaction force.  The Hex20 model with fewer but higher-order
+elements gives a softer response than the Hex8 mesh, consistent with
+reduced shear locking.  The convergence difficulties of the finer meshes
+underscore the need for fracture-energy regularisation in future work.
 
 
 %======================================================================
@@ -522,19 +541,34 @@ The multi-level validation campaign establishes:
 \begin{enumerate}
   \item The Kent--Park and Menegotto--Pinto material models produce
     physically meaningful hystereses with progressive energy
-    dissipation under cyclic loading.
+    dissipation under cyclic loading.  Peak stresses of $-28$~MPa
+    (unconfined), $-34.3$~MPa (confined concrete) and $\pm 515.8$~MPa
+    (steel) are consistent with the specified material parameters.
   \item The fiber section correctly transfers material-level behaviour
-    to the $M$--$\kappa$ plane, with confined concrete increasing
-    both strength and ductility.
-  \item The MITC Timoshenko beam element converges rapidly;
-    $N=4$ typically suffices for engineering accuracy ($<2\%$
-    deviation from $N=10$).
-  \item The continuum mesh study shows second-order elements (Hex20,
-    Hex27) converge faster and more reliably than Hex8 under
-    predominantly flexural loading, at higher per-element cost.
-  \item One-way FE$^2$ coupling produces an envelope consistent
-    with both beam and continuum references.
-  \item Two-way FE$^2$ coupling requires tangent stabilisation
-    (diagonal clamping or finite-difference fallback) to maintain
+    to the $M$--$\kappa$ plane, with the confined core increasing
+    both strength and ductility.  Ultimate moments of $M_u = 371$~kN\,m
+    (strong axis) and $M_u = 245$~kN\,m (weak axis) are obtained with
+    curvature ductilities $\mu \approx 19$--$20$.
+  \item The MITC Timoshenko beam element with $N=2$ (linear) and $N=3$
+    (quadratic) nodes completes the full cyclic protocol.  For
+    $N \ge 4$, strain localization at individual Gauss points with the
+    softening concrete model causes convergence failure, demonstrating
+    the absence of a characteristic-length regularisation.
+  \item The 3D continuum models complete the full protocol (Hex8
+    coarse: $V_\text{max} = 284$~kN; Hex20 coarse: $V_\text{max} = 219$~kN),
+    showing approximately an order-of-magnitude higher shear capacity
+    than the beam models ($\sim$25~kN) due to three-dimensional
+    confinement, distributed base reaction and embedded rebar
+    coupling.  The Hex20 model with fewer but higher-order elements
+    gives a softer response than Hex8, consistent with reduced
+    shear locking.
+  \item The cross-scale comparison highlights the importance of model
+    selection for RC column assessment: beam models (with fiber
+    sections) capture bending-dominated response efficiently, while
+    continuum models are necessary for capturing confinement effects,
+    local crack patterns and shear-dominated failure modes.
+  \item The FE$^2$ coupling framework is operative but requires
+    tangent stabilisation (diagonal clamping or finite-difference
+    fallback) and consistent algorithmic tangents to maintain
     Newton convergence after cracking onset.
 \end{enumerate}
