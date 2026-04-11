@@ -727,12 +727,12 @@ levels of transfer and their expected effects:
 1 & + Reconstructed $\boldsymbol{\varepsilon}$, $\boldsymbol{\sigma}$
   & Initial stress field reduces residual norm at first Newton
     iteration.  Fewer iterations.
-  & Proposed; requires \texttt{inject\_initial\_stress} API. \\
+  & Implemented (\S\ref{sec:state-injection-impl}). \\
 2 & + Rebar history ($\boldsymbol{\alpha}_{\text{MP}}$)
   & Truss elements start on the correct loading branch with the
     correct tangent modulus.
     Eliminates spurious elastic unloading of reinforcement.
-  & Proposed; requires fiber$\leftrightarrow$truss mapping. \\
+  & Implemented (\S\ref{sec:state-injection-impl}). \\
 3 & + Concrete damage mapping
   & Ko--Bathe Gauss points start with degraded stiffness consistent
     with macro-scale damage.  Prevents artificial stiffness
@@ -769,25 +769,29 @@ the answer means fewer iterations to convergence.
 \label{sec:impl-roadmap}
 %======================================================================
 
-The following concrete steps are proposed:
+The following concrete steps are proposed (items marked~\checkmark have
+been completed; see \S\ref{sec:state-injection-impl} for details):
 
 \begin{enumerate}
-  \item \textbf{Extend \texttt{ModelState}:}
-    Add an \texttt{InternalVariablesData} variant field to
-    \texttt{GaussPointData} that can hold arbitrary per-GP internal
-    variable snapshots (using \texttt{std::any} or a type-erased
-    buffer).
-  \item \textbf{Add \texttt{inject\_gauss\_state()} to the Material
-    concept:}  Extend \texttt{InelasticConstitutiveRelation} with a
-    method that initialises the internal state from an externally
-    provided~$\boldsymbol{\alpha}$.
-  \item \textbf{Implement fiber$\,\leftrightarrow\,$truss geometric
-    mapping:}  Use the section's fiber coordinates and the sub-model's
-    truss node coordinates to establish the bijection
-    $\mathcal{M}: \{\text{fibers}\} \to \{\text{trusses}\}$.
-  \item \textbf{Implement \texttt{StateTransferProtocol} for
-    beam$\,\to\,$continuum:}  A concrete class that performs the
-    four-stage transfer described in
+  \item[\checkmark] \textbf{Add \texttt{set\_internal\_state()} to
+    constitutive relations} and the \texttt{ExternallyStateInjectable}
+    concept.  Extend the \texttt{Material<>} vtable with
+    \texttt{StateRef}-based injection using
+    \texttt{WrapsInjectableRelation} dispatch.
+  \item[\checkmark] \textbf{Implement fiber$\,\leftrightarrow\,$truss
+    geometric mapping:}  \texttt{FiberToTrussMapper.hh} with
+    nearest-neighbour matching and batch state injection.
+  \item[\checkmark] \textbf{Implement
+    \texttt{reconstruct\_3d\_strain()} and
+    \texttt{reconstruct\_3d\_stress()}:}  Poisson-enriched strain
+    field and nonlinear fiber-based stress reconstruction in
+    \texttt{FieldTransfer.hh}.
+  \item[\checkmark] \textbf{Hook in sub-model evolver:}
+    \texttt{StateTransferCallback} invoked in \texttt{first\_solve()}
+    before the incremental ramp.
+  \item \textbf{Implement \texttt{StateTransferProtocol}:}  A
+    concrete orchestrator class that wires all components together
+    and provides the four-stage transfer described in
     \S\ref{ssec:state-transfer-protocol}.
   \item \textbf{Benchmark:}  Compare Newton iteration counts and
     sub-step requirements for the cyclic validation column at
@@ -800,3 +804,317 @@ must respect the \texttt{IncrementalControlPolicy} idempotency
 invariant: the injected state is set once at the beginning of the
 sub-model solve and does not depend on the bisection parameter~$p$.
 It is an \emph{initial condition}, not a boundary condition.
+
+
+%======================================================================
+\section{Implementation of State Injection Infrastructure}
+\label{sec:state-injection-impl}
+%======================================================================
+
+This section documents the concrete implementation of Levels~1 and~2
+from Table~\ref{tab:transfer-levels}, covering the material state
+injection API, the fiber-to-truss geometric mapping, and the
+stress/strain reconstruction pipeline.  The implementation was
+completed in three phases (A, B, C) as detailed below.
+
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase A: Material State Injection API}
+\label{ssec:phase-a-injection-api}
+% ─────────────────────────────────────────────────────────────────────
+
+The foundation of the state transfer mechanism is a new concept and
+a virtual dispatch chain that enables injection of material internal
+variables through the type-erasure boundary.
+
+\subsubsection{The \texttt{ExternallyStateInjectable} Concept}
+
+A new Level~4 requirement extends the concept hierarchy in
+\texttt{ConstitutiveRelation.hh}:
+
+\begin{lstlisting}
+template <typename R>
+concept ExternallyStateInjectable =
+    InelasticConstitutiveRelation<R> &&
+    requires(R r, const typename R::InternalVariablesT& alpha) {
+        { r.set_internal_state(alpha) };
+    };
+\end{lstlisting}
+
+Both \texttt{MenegottoPintoSteel} and \texttt{KoBatheConcrete3D}
+satisfy this concept via their new \texttt{set\_internal\_state()}
+methods, which replace the internal state~$\boldsymbol{\alpha}$
+with an externally provided snapshot:
+\[
+  \boldsymbol{\alpha} \leftarrow \boldsymbol{\alpha}_{\text{ext}}.
+\]
+
+\subsubsection{The \texttt{StateRef} Non-Owning Type-Erased Reference}
+
+A key design decision is how to pass the typed internal state through
+the type-erased \texttt{Material<>} wrapper.  The na\"ive approach of
+using \texttt{std::any} incurs a heap allocation per injection
+(the state structs---particularly \texttt{KoBatheState3D} with its
+Eigen vectors---exceed the small-buffer optimisation threshold) plus
+an RTTI comparison on extraction via \texttt{std::any\_cast}.
+
+Since the injected state is always an lvalue whose lifetime exceeds
+the injection call, we use a zero-copy alternative:
+
+\begin{lstlisting}
+struct StateRef {
+   const void*           data_  = nullptr;
+   const std::type_info* type_  = nullptr;
+
+   template <typename T>
+   static StateRef from(const T& value) noexcept {
+      return StateRef{&value, &typeid(T)};
+   }
+
+   template <typename T>
+   const T& as() const {
+      if (!type_ || *type_ != typeid(T))
+         throw std::runtime_error("StateRef type mismatch");
+      return *static_cast<const T*>(data_);
+   }
+};
+\end{lstlisting}
+
+\texttt{StateRef} is a non-owning reference that stores only a
+\texttt{const void*} pointer and a \texttt{const std::type\_info*}
+for runtime type safety.  Compared to \texttt{std::any}:
+
+\begin{itemize}
+  \item \textbf{Zero allocation:}  No heap allocation regardless of
+    state size.
+  \item \textbf{Zero copy:}  The state struct is never copied;
+    \texttt{StateRef::from()} stores a pointer to the original.
+  \item \textbf{Type-safe:}  \texttt{as<T>()} performs an RTTI
+    comparison (\texttt{typeid} equality) and throws on mismatch,
+    providing the same safety guarantee as \texttt{std::any\_cast}.
+  \item \textbf{Trivial overhead:}  Two pointers (16~bytes on 64-bit)
+    passed by value through the virtual call chain.
+\end{itemize}
+
+
+\subsubsection{Virtual Dispatch Through the Type-Erasure Chain}
+
+The injection traverses four layers of the type-erasure architecture:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Layer} & \textbf{Class} & \textbf{Action} \\
+\midrule
+1 & \texttt{Material<P>} / \texttt{MaterialRef<P>}
+  & Forwards to \texttt{pimpl\_->inject\_internal\_state(state)} \\
+2 & \texttt{MaterialConcept} (virtual base)
+  & Dispatches to concrete model override \\
+3 & \texttt{OwningMaterialModel<MT, Int>}
+  & \texttt{if constexpr} branch at compile time \\
+4 & Concrete material / \texttt{ConstitutiveSite}
+  & Calls \texttt{set\_internal\_state()} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At Layer~3, two concepts control the dispatch:
+
+\begin{itemize}
+  \item \texttt{HasSetInternalState<MT>}: the stored type directly
+    provides \texttt{set\_internal\_state()}.  Applies when the
+    \texttt{Material<>} wraps a raw constitutive relation.
+  \item \texttt{WrapsInjectableRelation<MT>}: the stored type is a
+    \texttt{ConstitutiveSite} that exposes \texttt{constitutive\_relation()}
+    returning an injectable relation.  Applies when the \texttt{Material<>}
+    wraps an \texttt{InelasticMaterial<R>}.
+\end{itemize}
+
+For the \texttt{WrapsInjectableRelation} path, the injection must
+update \emph{both} the raw relation's internal state and the
+\texttt{ConstitutiveSite}'s \texttt{algorithmic\_state()}, which is
+a separate copy used by the Level~3 (externally-driven) dispatch:
+\begin{lstlisting}
+// WrapsInjectableRelation path:
+material_.constitutive_relation().set_internal_state(s);
+material_.algorithmic_state() = s;  // sync Level 3 dispatch state
+\end{lstlisting}
+
+This dual-sync is necessary because
+\texttt{MaterialInstance::compute\_response(k)} delegates to
+\texttt{relation\_->compute\_response(k, algorithmic\_state())},
+not to the relation's own embedded state.
+
+
+\subsubsection{Element-Level Injection Methods}
+
+\texttt{TrussElement} and \texttt{ContinuumElement} expose
+element-level injection methods that forward through
+\texttt{MaterialPoint} to the type-erased material:
+
+\begin{lstlisting}
+// TrussElement: single material point
+void inject_material_state(impl::StateRef state);
+
+// ContinuumElement: per Gauss point
+void inject_material_state(std::size_t gp, impl::StateRef state);
+void inject_material_state(const std::vector<impl::StateRef>& states);
+\end{lstlisting}
+
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase B: Fiber-to-Truss Geometric Mapping}
+\label{ssec:phase-b-fiber-truss}
+% ─────────────────────────────────────────────────────────────────────
+
+The \texttt{FiberSection} in the macro-beam stores per-fiber
+\texttt{Fiber\{y, z, A, Material<UniaxialMaterial>\}} records.  The
+micro-model's reinforcement is a set of \texttt{TrussElement<3>}
+placed at matching $(y, z)$ positions.  The mapper establishes a
+bijection:
+
+\[
+  \mathcal{M}: \{\text{steel fibers}\} \to \{\text{truss bars}\},
+  \quad
+  \mathcal{M}(i) = \arg\min_{j} \|
+    (y^{\text{fiber}}_i, z^{\text{fiber}}_i) -
+    (y^{\text{bar}}_j, z^{\text{bar}}_j)
+  \|_2,
+  \quad
+  \text{s.t.}\ \|\cdot\| < \texttt{tol}.
+\]
+
+\texttt{build\_fiber\_truss\_map()} identifies steel fibers (those
+satisfying \texttt{supports\_state\_injection()}), performs
+nearest-neighbour matching, and produces a vector of
+\texttt{FiberTrussLink\{fiber\_index, bar\_index, distance\}} records.
+
+The injection function \texttt{inject\_rebar\_states()} takes a vector
+of \texttt{RebarStatePacket\{bar\_index, MenegottoPintoState\}} and
+injects each state into the corresponding truss element via
+\texttt{StateRef::from()}.
+
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Phase C: Stress/Strain Reconstruction and Hook}
+\label{ssec:phase-c-reconstruction}
+% ─────────────────────────────────────────────────────────────────────
+
+Two reconstruction functions in \texttt{FieldTransfer.hh} extend the
+existing beam-to-continuum field transfer:
+
+\begin{enumerate}
+  \item \textbf{\texttt{reconstruct\_3d\_strain()}:}  Enriches the
+    beam kinematic field with Poisson effects:
+    \[
+      \varepsilon_{yy} = \varepsilon_{zz} = -\nu\,\varepsilon_{xx},
+    \]
+    producing a full 6-component Voigt vector at each $(y,z)$ position.
+
+  \item \textbf{\texttt{reconstruct\_3d\_stress()}:}  Finds the
+    nearest fiber in the \texttt{FiberSection}, queries the fiber's
+    nonlinear uniaxial stress via \texttt{compute\_response()}, and
+    assembles a full stress tensor with elastic shear fallback:
+    $\sigma_{xy} = G\gamma_y$, $\sigma_{xz} = G\gamma_z$.
+\end{enumerate}
+
+Both functions operate on the converged macro-beam state and do not
+require iteration.
+
+\subsubsection{Integration Hook in the Sub-Model Evolver}
+
+The \texttt{NonlinearSubModelEvolver} gains a
+\texttt{StateTransferCallback} member:
+
+\begin{lstlisting}
+using StateTransferCallback =
+    std::function<void(typename MixedModel::container_type&)>;
+
+void set_state_transfer(StateTransferCallback cb);
+\end{lstlisting}
+
+The callback is invoked in \texttt{first\_solve()}, between the SNES
+setup (Step~3) and the incremental ramp (Step~4).  At this point the
+sub-model mesh is fully assembled but the Newton solve has not yet
+begun, making it the correct location for one-time state initialisation
+that respects the idempotency invariant.
+
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Verification}
+\label{ssec:state-injection-verification}
+% ─────────────────────────────────────────────────────────────────────
+
+The implementation is verified by a dedicated unit test
+(\texttt{test\_state\_injection.cpp}) that exercises four scenarios:
+
+\begin{enumerate}
+  \item \textbf{MenegottoPintoSteel roundtrip:}  Cycle the material
+    through tension and compression reversals, extract
+    $\boldsymbol{\alpha}$, inject into a fresh instance, verify
+    identical stress and tangent response.
+  \item \textbf{KoBatheConcrete3D roundtrip:}  Same pattern for the
+    3D concrete model under uniaxial compression.
+  \item \textbf{Type-erased injection:}  Create a
+    \texttt{Material<UniaxialMaterial>} wrapping an
+    \texttt{InelasticMaterial<MenegottoPintoSteel>} (the full
+    \texttt{ConstitutiveSite} path), inject via
+    \texttt{StateRef}, verify the response matches the raw
+    relation.
+  \item \textbf{Concept satisfaction:}  Compile-time
+    \texttt{static\_assert} for the \texttt{ExternallyStateInjectable}
+    concept on both materials.
+\end{enumerate}
+
+All four tests pass.  The full existing test suite (71~tests) also
+passes with zero regressions.
+
+
+% ─────────────────────────────────────────────────────────────────────
+\subsection{Summary of Modified Files}
+\label{ssec:modified-files}
+% ─────────────────────────────────────────────────────────────────────
+
+Table~\ref{tab:modified-files} lists every file modified or created
+for the state injection infrastructure.
+
+\begin{table}[htbp]
+\centering
+\caption{Files modified or created for the state injection infrastructure.}
+\label{tab:modified-files}
+\small
+\begin{tabular}{@{}lp{7.5cm}@{}}
+\toprule
+\textbf{File} & \textbf{Change} \\
+\midrule
+\texttt{ConstitutiveRelation.hh}
+  & Added \texttt{ExternallyStateInjectable} concept \\
+\texttt{MenegottoPintoSteel.hh}
+  & Added \texttt{set\_internal\_state()} \\
+\texttt{KoBatheConcrete3D.hh}
+  & Added \texttt{set\_internal\_state()} \\
+\texttt{Material.hh}
+  & Added \texttt{StateRef}, \texttt{HasSetInternalState},
+    \texttt{WrapsInjectableRelation} concepts; extended vtable
+    with \texttt{inject\_internal\_state(StateRef)} \\
+\texttt{MaterialPoint.hh}
+  & Forwarding to \texttt{material\_.inject\_internal\_state()} \\
+\texttt{TrussElement.hh}
+  & Added \texttt{inject\_material\_state(StateRef)} \\
+\texttt{ContinuumElement.hh}
+  & Added \texttt{inject\_material\_state()} (single GP + batch) \\
+\texttt{FiberToTrussMapper.hh} \emph{(new)}
+  & Nearest-neighbour fiber$\leftrightarrow$truss matching;
+    \texttt{RebarStatePacket}; \texttt{inject\_rebar\_states()} \\
+\texttt{FieldTransfer.hh}
+  & Added \texttt{reconstruct\_3d\_strain()},
+    \texttt{reconstruct\_3d\_stress()} \\
+\texttt{NonlinearSubModelEvolver.hh}
+  & Added \texttt{StateTransferCallback} hook in
+    \texttt{first\_solve()} \\
+\texttt{test\_state\_injection.cpp} \emph{(new)}
+  & Unit test: roundtrip for both materials + type-erased path \\
+\bottomrule
+\end{tabular}
+\end{table}

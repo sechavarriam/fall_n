@@ -4,6 +4,7 @@
 #include <memory>
 #include <array>
 #include <span>
+#include <vector>
 
 #ifdef __clang__ 
   #include <format>
@@ -431,6 +432,25 @@ public:
       for (auto& mp : material_points_) {
           mp.revert();
       }
+  }
+
+  /// Inject type-erased internal state at a specific Gauss point.
+  /// @param gp   Gauss point index (0-based)
+  /// @param state  StateRef referencing the correct InternalVariablesT
+  void inject_material_state(std::size_t gp, impl::StateRef state) {
+      material_points_[gp].inject_internal_state(state);
+  }
+
+  /// Inject the same state into ALL Gauss points.
+  void inject_material_state(const std::vector<impl::StateRef>& states) {
+      for (std::size_t gp = 0; gp < material_points_.size(); ++gp) {
+          material_points_[gp].inject_internal_state(states[gp]);
+      }
+  }
+
+  [[nodiscard]] bool supports_state_injection() const noexcept {
+      if (material_points_.empty()) return false;
+      return material_points_.front().supports_state_injection();
   }
 
 // =================================== Solution manipulation =====================================

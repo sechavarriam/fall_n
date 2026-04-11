@@ -5,7 +5,9 @@
 #include <concepts>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 
 // ============================================================================
@@ -36,6 +38,38 @@ template<class MaterialPolicy> class MaterialRef;
 
 namespace impl {
 
+// ─── StateRef: lightweight non-owning type-erased reference ──────────────
+//
+//  Replaces std::any in the state-injection API.  Zero allocation, zero copy:
+//  just a const void* plus a type hash for safety.  The referred-to object
+//  must outlive the StateRef.
+//
+//  Construct:  StateRef::from(some_state)
+//  Extract:    ref.as<MenegottoPintoState>()    — throws on type mismatch.
+
+struct StateRef {
+   const void*           data_  = nullptr;
+   const std::type_info* type_  = nullptr;
+
+   constexpr StateRef() noexcept = default;
+   constexpr StateRef(const void* d, const std::type_info* t) noexcept
+      : data_{d}, type_{t} {}
+
+   template <typename T>
+   static StateRef from(const T& value) noexcept {
+      return StateRef{&value, &typeid(T)};
+   }
+
+   template <typename T>
+   [[nodiscard]] const T& as() const {
+      if (!type_ || *type_ != typeid(T))
+         throw std::runtime_error("StateRef::as(): type mismatch in state injection");
+      return *static_cast<const T*>(data_);
+   }
+
+   [[nodiscard]] constexpr explicit operator bool() const noexcept { return data_ != nullptr; }
+};
+
 template<class MaterialPolicy>
 class MaterialConcept;
 
@@ -63,6 +97,19 @@ public:
    virtual SectionConstitutiveSnapshot section_snapshot() const { return {}; }
 };
 
+// Helper: detect set_internal_state() capability at compile time.
+template <typename M>
+concept HasSetInternalState = requires(M& m, const typename M::InternalVariablesT& a) {
+   m.set_internal_state(a);
+};
+
+// Helper: detect constitutive_relation() accessor wrapping an injectable relation.
+template <typename M>
+concept WrapsInjectableRelation = requires(M& m) {
+   { m.constitutive_relation() };
+} && HasSetInternalState<
+   std::remove_cvref_t<decltype(std::declval<M&>().constitutive_relation())>>;
+
 template<class MaterialPolicy>
 class MaterialConcept : public MaterialConstConcept<MaterialPolicy> {
    using StateVariableT = typename MaterialPolicy::StateVariableT;
@@ -75,6 +122,16 @@ public:
    virtual void commit(
       const continuum::ConstitutiveKinematics<MaterialPolicy::dim>& kin) = 0;
    virtual void revert() = 0;
+
+   /// Inject a type-erased internal state (for FE² state transfer).
+   /// Default: throws if the concrete model does not support injection.
+   virtual void inject_internal_state(StateRef /*state*/) {
+      throw std::runtime_error(
+         "inject_internal_state: material does not support state injection");
+   }
+
+   /// Check at runtime whether the concrete model supports state injection.
+   virtual bool supports_state_injection() const noexcept { return false; }
 };
 
 template <typename MaterialType>
@@ -401,6 +458,29 @@ public:
       integrator_.revert(material_);
    }
 
+   void inject_internal_state(StateRef state) override {
+      if constexpr (HasSetInternalState<MaterialType>) {
+         material_.set_internal_state(
+            state.as<typename MaterialType::InternalVariablesT>());
+      } else if constexpr (WrapsInjectableRelation<MaterialType>) {
+         using RelT = std::remove_cvref_t<decltype(material_.constitutive_relation())>;
+         const auto& s = state.as<typename RelT::InternalVariablesT>();
+         material_.constitutive_relation().set_internal_state(s);
+         // Also sync the ConstitutiveSite's algorithmic state
+         // (used by Level 3 compute_response dispatch).
+         if constexpr (requires { material_.algorithmic_state() = s; }) {
+            material_.algorithmic_state() = s;
+         }
+      } else {
+         throw std::runtime_error(
+            "inject_internal_state: concrete material lacks set_internal_state()");
+      }
+   }
+
+   bool supports_state_injection() const noexcept override {
+      return HasSetInternalState<MaterialType> || WrapsInjectableRelation<MaterialType>;
+   }
+
    InternalFieldSnapshot internal_field_snapshot() const override {
       return make_internal_field_snapshot(material_);
    }
@@ -557,6 +637,29 @@ public:
       integrator_->revert(*material_);
    }
 
+   void inject_internal_state(StateRef state) override {
+      using MT = std::remove_cvref_t<MaterialType>;
+      if constexpr (HasSetInternalState<MT>) {
+         material_->set_internal_state(
+            state.as<typename MT::InternalVariablesT>());
+      } else if constexpr (WrapsInjectableRelation<MT>) {
+         using RelT = std::remove_cvref_t<decltype(material_->constitutive_relation())>;
+         const auto& s = state.as<typename RelT::InternalVariablesT>();
+         material_->constitutive_relation().set_internal_state(s);
+         if constexpr (requires { material_->algorithmic_state() = s; }) {
+            material_->algorithmic_state() = s;
+         }
+      } else {
+         throw std::runtime_error(
+            "inject_internal_state: concrete material lacks set_internal_state()");
+      }
+   }
+
+   bool supports_state_injection() const noexcept override {
+      using MT = std::remove_cvref_t<MaterialType>;
+      return HasSetInternalState<MT> || WrapsInjectableRelation<MT>;
+   }
+
    InternalFieldSnapshot internal_field_snapshot() const override {
       return make_internal_field_snapshot(*material_);
    }
@@ -709,6 +812,8 @@ public:
       pimpl()->commit(kin);
    }
    void revert() { pimpl()->revert(); }
+   void inject_internal_state(impl::StateRef state) { pimpl()->inject_internal_state(state); }
+   [[nodiscard]] bool supports_state_injection() const noexcept { return pimpl()->supports_state_injection(); }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl()->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl()->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }
@@ -771,6 +876,8 @@ public:
       pimpl_->commit(kin);
    }
    void revert() { pimpl_->revert(); }
+   void inject_internal_state(impl::StateRef state) { pimpl_->inject_internal_state(state); }
+   [[nodiscard]] bool supports_state_injection() const noexcept { return pimpl_->supports_state_injection(); }
    [[nodiscard]] InternalFieldSnapshot internal_field_snapshot() const { return pimpl_->internal_field_snapshot(); }
    [[nodiscard]] SectionConstitutiveSnapshot section_snapshot() const { return pimpl_->section_snapshot(); }
    [[nodiscard]] MaterialConstRef<MaterialPolicy> cref() const { return MaterialConstRef<MaterialPolicy>(*this); }

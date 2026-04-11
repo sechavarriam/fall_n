@@ -29,6 +29,7 @@
 #include <array>
 #include <cstddef>
 #include <format>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -199,6 +200,10 @@ class NonlinearSubModelEvolver {
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
     std::unique_ptr<CondensationWorkspace> condensed_workspace_{
         std::make_unique<CondensationWorkspace>()};
+
+    //  Optional FE² state transfer callback (Phase A/B/C infrastructure)
+    std::function<void(typename MixedModel::container_type&)>
+        state_transfer_callback_;
 
     [[nodiscard]] StateOps make_state_ops_() noexcept
     {
@@ -906,6 +911,7 @@ public:
         , tangent_validation_norm_{o.tangent_validation_norm_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
+        , state_transfer_callback_{std::move(o.state_transfer_callback_)}
     {
         if (!condensed_workspace_) {
             condensed_workspace_ = std::make_unique<CondensationWorkspace>();
@@ -1106,6 +1112,27 @@ public:
         const noexcept
     {
         return tangent_validation_norm_;
+    }
+
+    // ── FE² State Transfer ─────────────────────────────────────────
+    //
+    //  When a state_transfer_callback is registered, first_solve() will
+    //  invoke it after model setup but BEFORE the incremental ramp.
+    //  The callback receives a mutable reference to the element container
+    //  so it can call inject_material_state() on individual elements.
+    //
+    //  Usage:
+    //    evolver.set_state_transfer([&](auto& elems) {
+    //        for (auto& pkt : rebar_packets)
+    //            elems[truss_offset + pkt.bar_index]
+    //                .inject_material_state(pkt.internal_state);
+    //    });
+
+    using StateTransferCallback =
+        std::function<void(typename MixedModel::container_type&)>;
+
+    void set_state_transfer(StateTransferCallback cb) {
+        state_transfer_callback_ = std::move(cb);
     }
 
     void commit_trial_state() {
@@ -1564,6 +1591,15 @@ private:
 
         // 3. Set up persistent SNES + allocate U, R, J
         setup_snes();
+
+        // 3.5. FE² state transfer: inject material history from macro-beam
+        //      into micro-model elements BEFORE the incremental ramp.
+        //      This allows the sub-model's rebar truss elements to start
+        //      with the correct cyclic history (reversal points, hardening)
+        //      and continuum elements to receive initial stress/damage.
+        if (state_transfer_callback_) {
+            state_transfer_callback_(model_->elements());
+        }
 
         // 4. Save target imposed values, then do incremental loading
         Vec target;

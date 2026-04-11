@@ -50,6 +50,8 @@
 #include <petsc.h>
 
 #include "../model/PrismaticDomainBuilder.hh"
+#include "../materials/constitutive_models/non_lineal/FiberSection.hh"
+#include "../materials/Strain.hh"
 
 
 namespace fall_n {
@@ -247,6 +249,113 @@ inline Eigen::Vector<double, 6> section_strain_at(
     eps[4] = kin.gamma_z;   // γ_xz
 
     return eps;
+}
+
+
+// =============================================================================
+//  reconstruct_3d_strain — Timoshenko-compatible 3D strain at (y, z)
+// =============================================================================
+//
+//  Extends section_strain_at() to include Poisson-induced transverse strains:
+//      ε_yy = ε_zz = −ν · ε_xx
+//
+//  This gives a more physically consistent initial strain field for the
+//  continuum sub-model, incorporating the 3D Poisson effect that beam theory
+//  neglects.  The shear components remain as in Timoshenko theory.
+
+inline Eigen::Vector<double, 6> reconstruct_3d_strain(
+    const SectionKinematics& kin, double y, double z)
+{
+    Eigen::Vector<double, 6> eps = Eigen::Vector<double, 6>::Zero();
+
+    const double eps_xx = kin.eps_0 - z * kin.kappa_y + y * kin.kappa_z;
+    eps[0] = eps_xx;                  // ε_xx
+    eps[1] = -kin.nu * eps_xx;        // ε_yy  (Poisson effect)
+    eps[2] = -kin.nu * eps_xx;        // ε_zz  (Poisson effect)
+    eps[3] = kin.gamma_y;             // γ_xy  (Timoshenko)
+    eps[4] = kin.gamma_z;             // γ_xz  (Timoshenko)
+    // γ_yz = 0 (no coupling in beam theory)
+
+    return eps;
+}
+
+
+// =============================================================================
+//  reconstruct_3d_stress — Nonlinear fiber-based stress at (y, z)
+// =============================================================================
+//
+//  Instead of the elastic σ = E·ε, this queries the nearest fiber's committed
+//  stress state for the axial component σ_xx.  Shear stresses remain elastic
+//  (beam theory does not track nonlinear shear).
+//
+//  The caller must provide the fiber section so the function can evaluate
+//  the actual nonlinear constitutive response.
+//
+//  Falls back to the elastic estimate when the fiber section evaluates the
+//  1D fiber strain at the given (y, z) point.
+
+template <typename BeamPolicy>
+Eigen::Vector<double, 6> reconstruct_3d_stress(
+    const SectionKinematics& kin,
+    const FiberSection<BeamPolicy>& section,
+    double y, double z)
+{
+    Eigen::Vector<double, 6> sig = Eigen::Vector<double, 6>::Zero();
+
+    // Build the beam generalized strain vector for the FiberSection
+    using StrainT = typename FiberSection<BeamPolicy>::KinematicT;
+    StrainT beam_strain{};
+
+    if constexpr (StrainT::num_components == 6) {
+        // TimoshenkoBeam3D: [ε₀, κ_y, κ_z, γ_y, γ_z, twist]
+        beam_strain[0] = kin.eps_0;
+        beam_strain[1] = kin.kappa_y;
+        beam_strain[2] = kin.kappa_z;
+        beam_strain[3] = kin.gamma_y;
+        beam_strain[4] = kin.gamma_z;
+        beam_strain[5] = kin.twist;
+    } else if constexpr (StrainT::num_components == 3) {
+        // TimoshenkoBeam2D: [ε₀, κ, γ]
+        beam_strain[0] = kin.eps_0;
+        beam_strain[1] = kin.kappa_y;
+        beam_strain[2] = kin.gamma_y;
+    }
+
+    // Evaluate the fiber section's stress response (uses committed state)
+    auto section_stress = section.compute_response(beam_strain);
+
+    // The section stress is in generalized forces [N, M_y, M_z, V_y, V_z, T].
+    // For point-wise 3D stress we instead compute the local fiber strain
+    // at (y, z) and use the elastic estimate + nonlinear axial contribution.
+    //
+    // Fiber strain at (y,z): ε_fiber = ε₀ - z·κ_y + y·κ_z
+    const double eps_fiber = kin.eps_0 - z * kin.kappa_y + y * kin.kappa_z;
+
+    // Find the nearest fiber and use its committed stress for σ_xx.
+    // If no fibers are available, fall back to elastic.
+    const auto& fibers = section.fibers();
+    double best_dist = std::numeric_limits<double>::max();
+    double sigma_xx = kin.E * eps_fiber;  // elastic fallback
+
+    for (const auto& f : fibers) {
+        double dy = f.y - y;
+        double dz = f.z - z;
+        double dist = dy * dy + dz * dz;
+        if (dist < best_dist) {
+            best_dist = dist;
+            // Query fiber material at the local fiber strain
+            Strain<1> fiber_strain(eps_fiber);
+            auto fiber_stress = f.material.compute_response(fiber_strain);
+            sigma_xx = fiber_stress[0];
+        }
+    }
+
+    sig[0] = sigma_xx;                    // σ_xx (nonlinear from fiber)
+    sig[3] = kin.G * kin.gamma_y;         // τ_xy (elastic, beam theory)
+    sig[4] = kin.G * kin.gamma_z;         // τ_xz (elastic, beam theory)
+    // σ_yy, σ_zz, τ_yz = 0 (beam theory assumptions)
+
+    return sig;
 }
 
 

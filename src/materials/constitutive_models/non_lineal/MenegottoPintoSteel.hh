@@ -439,6 +439,11 @@ public:
         return state_;
     }
 
+    /// Replace the internal state wholesale (for FE² state injection).
+    void set_internal_state(const InternalVariablesT& s) {
+        state_ = s;
+    }
+
 
     // =================================================================
     //  Parameter accessors
@@ -518,6 +523,10 @@ static_assert(
 static_assert(
     ExternallyStateDrivenConstitutiveRelation<MenegottoPintoSteel>,
     "MenegottoPintoSteel must satisfy ExternallyStateDrivenConstitutiveRelation");
+
+static_assert(
+    ExternallyStateInjectable<MenegottoPintoSteel>,
+    "MenegottoPintoSteel must satisfy ExternallyStateInjectable");
 
 
 #endif // FN_MENEGOTTO_PINTO_STEEL_HH
