@@ -4,7 +4,9 @@ Eigen/
 build/
 unstructured_dft/
 .cache/
-.vscode/
+.vscode/*
+!.vscode/
+!.vscode/settings.json
 tasks.json
 Makefile
 output/

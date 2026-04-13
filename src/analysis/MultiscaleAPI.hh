@@ -6,6 +6,7 @@
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleAnalysis.hh"
 #include "MultiscaleModel.hh"
+#include "SubscaleModelConcepts.hh"
 #include "MultiscaleTypes.hh"
 #include "SteppableSolver.hh"
 

@@ -1,0 +1,89 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "latex-workshop.latex.tools": [
+        {
+            "name": "latexmk",
+            "command": "latexmk",
+            "args": [
+                "-synctex=1",
+                "-interaction=nonstopmode",
+                "-file-line-error",
+                "-pdf",
+                "-outdir=%OUTDIR%",
+                "%DOC%"
+            ]
+        },
+        {
+            "name": "pdflatex",
+            "command": "pdflatex",
+            "args": [
+                "-synctex=1",
+                "-interaction=nonstopmode",
+                "-file-line-error",
+                "%DOC%"
+            ]
+        },
+        {
+            "name": "xelatex",
+            "command": "xelatex",
+            "args": [
+                "-synctex=1",
+                "-interaction=nonstopmode",
+                "-file-line-error",
+                "%DOC%"
+            ]
+        },
+        {
+            "name": "makeindex",
+            "command": "makeindex",
+            "args": [
+                "%DOCFILE%.idx"
+            ]
+        },
+        {
+            "name": "makeindex_nomencl",
+            "command": "makeindex",
+            "args": [
+                "%DOCFILE%.nlo",
+                "-s",
+                "nomencl.ist",
+                "-o",
+                "%DOCFILE%.nls"
+            ]
+        },
+        {
+            "name": "biber",
+            "command": "biber",
+            "args": [
+                "%DOCFILE%"
+            ]
+        },
+        {
+            "name": "makeglossaries",
+            "command": "makeglossaries",
+            "args": [
+                "%DOCFILE%"
+            ]
+        }
+    ],
+    "latex-workshop.latex.recipes": [
+        {
+            "name": "latexmk",
+            "tools": [
+                "latexmk"
+            ]
+        },
+        {
+            "name": "kaobook",
+            "tools": [
+                "xelatex",
+                "makeindex",
+                "makeindex_nomencl",
+                "biber",
+                "makeglossaries",
+                "xelatex",
+                "xelatex"
+            ]
+        }
+    ]
+}

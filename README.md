@@ -20,6 +20,8 @@ The most mature publication-path subsystem today is the multiscale module:
 - The FE2 outer loop now uses the same family of physically weighted norms for force/tangent residuals that the condensed-tangent validator uses.
 - The persistent local facade has been split further internally through `LocalBoundaryConditionApplicator`, `PersistentLocalStateOps`, `BoundaryReactionHomogenizer`, `LocalCrackDiagnostics`, and `LocalVTKOutputWriter`.
 - The local continuum-material contracts now live in `src/materials/SubmodelMaterialFactory.hh`, while the current Ko-Bathe/Menegotto reference defaults live in `src/materials/SubmodelMaterialFactoryDefaults.hh`; the multiscale core no longer owns those constitutive choices.
+- A first generic subscale-model concept layer now exists in `src/analysis/SubscaleModelConcepts.hh`; the current `LocalModelAdapter` should now be read as a section-specialized FE2 contract rather than as the final abstraction level for every future local model.
+- That abstraction step is no longer only conceptual: `src/reconstruction/AffineSectionSubscaleModel.hh` now provides a second, operator-driven local-model realization that satisfies both the generic subscale concepts and the current section-specialized multiscale path without requiring a local continuum solve.
 - A local stabilization gate exists in `scripts/ci_multiscale_stabilization.ps1`, and the intended CI surface is frozen in `.github/workflows/multiscale-stability.yml`.
 - The GitHub Windows/MSYS2 gate now builds under the UCRT64 MSYS shell but runs regression executables from PowerShell with both `ucrt64\\bin` and `usr\\bin` injected into `PATH`, plus a small runtime-DLL sanity check. This hardens the public gate against `STATUS_DLL_NOT_FOUND` / `exit -1073741515` failures that are sensitive to the runner environment rather than to the binaries themselves.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
@@ -197,6 +199,16 @@ The repository now includes the companion thesis as a Git submodule:
 
 This keeps the library and the thesis versioned separately while still letting
 us work in a unified local workspace.
+
+The workspace now also version-controls the thesis recipe used in day-to-day
+editing with LaTeX Workshop:
+
+- recipe name: `kaobook`
+- sequence: `xelatex -> makeindex -> makeindex_nomencl -> biber -> makeglossaries -> xelatex -> xelatex`
+
+That sequence is intentionally explicit because the thesis uses `kaobook`,
+`polyglossia`, bibliography, glossary, index, and nomenclature; a single
+`pdflatex` pass is not representative of the real manuscript lifecycle.
 
 Typical usage after cloning `fall_n`:
 

@@ -28,6 +28,7 @@
 
 #include <Eigen/Dense>
 
+#include "../analysis/SubscaleModelConcepts.hh"
 #include "../analysis/MultiscaleTypes.hh"
 #include "FieldTransfer.hh"   // SectionKinematics
 
@@ -36,48 +37,78 @@ namespace fall_n {
 
 
 // =============================================================================
-//  LocalModelAdapter concept
+//  FE2-specialized section contract
 // =============================================================================
+//
+//  The generic subscale-model concepts now live one level higher in
+//  analysis/SubscaleModelConcepts.hh.  The current FE2 production path is a
+//  stricter specialization of that generic family:
+//
+//    - the driving data are beam-section kinematics on two end faces;
+//    - the effective operator is a homogenized section law;
+//    - and the local solve remains fully checkpointable and observable.
+//
+//  This preserves the current typed FE2 hot path while making it explicit that
+//  "section-local model" is only one realization of the broader subscale-model
+//  architecture.
+
+struct SectionSubproblemDrivingState {
+    SectionKinematics face_a{};
+    SectionKinematics face_b{};
+};
+
+struct SectionEffectiveOperatorRequest {
+    double width{0.0};
+    double height{0.0};
+    double tangent_perturbation{1.0e-6};
+};
 
 template <typename T>
-concept LocalModelAdapter = requires(
+concept SectionDrivenSubscaleModel = requires(
     T& t,
-    const SectionKinematics& kin,
-    double width, double height, double h_pert, double time,
-    bool auto_commit,
-    const typename std::remove_cvref_t<T>::checkpoint_type& checkpoint)
+    const SectionSubproblemDrivingState& driving)
 {
-    // Apply new beam kinematics at both ends
-    { t.update_kinematics(kin, kin) };
-
-    // Solve from current converged state to new BC target
-    { t.solve_step(time) };
-
-    // Upscaled section tangent  D(6×6) = ∂s/∂e
-    { t.section_tangent(width, height, h_pert) }
-        -> std::convertible_to<Eigen::Matrix<double, 6, 6>>;
-
-    // Upscaled section forces  s = [N, My, Mz, Vy, Vz, Mt]
-    { t.section_forces(width, height) }
-        -> std::convertible_to<Eigen::Vector<double, 6>>;
-    { t.section_response(width, height, h_pert) }
-        -> std::convertible_to<SectionHomogenizedResponse>;
-
-    // Commit / revert material state
-    { t.commit_state() };
-    { t.revert_state() };
-    { t.commit_trial_state() };
-    { t.end_of_step(time) };
-
-    // Trial solve lifecycle
-    { t.set_auto_commit(auto_commit) };
-    { t.capture_checkpoint() }
-        -> std::same_as<typename std::remove_cvref_t<T>::checkpoint_type>;
-    { t.restore_checkpoint(checkpoint) };
-
-    // Owning beam element id in the global model
-    { t.parent_element_id() } -> std::convertible_to<std::size_t>;
+    { t.update_kinematics(driving.face_a, driving.face_b) };
 };
+
+template <typename T>
+concept SectionEffectiveOperatorProvider = requires(
+    T& t,
+    const SectionEffectiveOperatorRequest& request)
+{
+    { t.section_tangent(
+          request.width, request.height, request.tangent_perturbation) }
+        -> std::convertible_to<Eigen::Matrix<double, 6, 6>>;
+    { t.section_forces(request.width, request.height) }
+        -> std::convertible_to<Eigen::Vector<double, 6>>;
+    { t.section_response(
+          request.width, request.height, request.tangent_perturbation) }
+        -> std::convertible_to<SectionHomogenizedResponse>;
+};
+
+template <typename T>
+concept LocalModelAdapter =
+    StepSolvableSubscaleModel<T> &&
+    CheckpointableSubscaleModel<T> &&
+    ObservableSubscaleModel<T> &&
+    SectionDrivenSubscaleModel<T> &&
+    SectionEffectiveOperatorProvider<T>;
+
+template <SectionDrivenSubscaleModel T>
+inline void apply_driving_state(
+    T& model, const SectionSubproblemDrivingState& driving)
+{
+    model.update_kinematics(driving.face_a, driving.face_b);
+}
+
+template <SectionEffectiveOperatorProvider T>
+[[nodiscard]] inline SectionHomogenizedResponse
+effective_operator(
+    T& model, const SectionEffectiveOperatorRequest& request)
+{
+    return model.section_response(
+        request.width, request.height, request.tangent_perturbation);
+}
 
 
 // =============================================================================
