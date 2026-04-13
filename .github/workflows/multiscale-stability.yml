@@ -47,6 +47,40 @@ jobs:
             mingw-w64-ucrt-x86_64-texlive-extra-utils
             mingw-w64-ucrt-x86_64-texlive-lang-english
 
+      - name: Ensure Microsoft MPI runtime
+        shell: powershell
+        run: |
+          $msmpiDirs = @(
+            (Join-Path $env:WINDIR "System32"),
+            "C:\Program Files\Microsoft MPI\Bin"
+          ) | Where-Object { Test-Path $_ }
+
+          $msmpiDlls = $msmpiDirs | ForEach-Object { Join-Path $_ "msmpi.dll" }
+          $installedDll = $msmpiDlls | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $installedDll) {
+            $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+            if (-not $winget) {
+              throw "MS-MPI runtime (msmpi.dll) was not found and winget.exe is unavailable to install Microsoft.msmpi."
+            }
+
+            winget install --exact --id Microsoft.msmpi `
+              --accept-package-agreements `
+              --accept-source-agreements `
+              --silent `
+              --disable-interactivity
+
+            $installedDll = $msmpiDlls | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+
+          if (-not $installedDll) {
+            throw "MS-MPI runtime installation completed, but msmpi.dll was not found in System32 or 'C:\Program Files\Microsoft MPI\Bin'."
+          }
+
+          $installedDir = Split-Path -Parent $installedDll
+          "MSMPI_RUNTIME_DIR=$installedDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "MS-MPI runtime: $installedDll"
+
       - name: Configure
         run: cmake -S . -B build -G Ninja
 
@@ -113,6 +147,11 @@ jobs:
           $msysRoot = $msysRoots[0]
           $ucrtBin = Join-Path $msysRoot "ucrt64\bin"
           $usrBin = Join-Path $msysRoot "usr\bin"
+          $msmpiBinCandidates = @(
+            $env:MSMPI_RUNTIME_DIR,
+            (Join-Path $env:WINDIR "System32"),
+            "C:\Program Files\Microsoft MPI\Bin"
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 
           foreach ($bin in @($ucrtBin, $usrBin)) {
             if (-not (Test-Path $bin)) {
@@ -120,8 +159,12 @@ jobs:
             }
           }
 
-          $env:PATH = "$ucrtBin;$usrBin;$env:PATH"
+          $runtimeBins = @($ucrtBin, $usrBin) + $msmpiBinCandidates
+          $env:PATH = (($runtimeBins | Select-Object -Unique) -join ";") + ";$env:PATH"
           Write-Host "MSYS2 runtime root: $msysRoot"
+          if ($msmpiBinCandidates.Count -gt 0) {
+            Write-Host "MS-MPI runtime dirs: $($msmpiBinCandidates -join '; ')"
+          }
 
           $requiredDlls = @(
             "libstdc++-6.dll",
@@ -131,7 +174,13 @@ jobs:
             "libvtkCommonCore.dll",
             "libvtkIOXML.dll",
             "libtbb12.dll",
-            "libpetsc-dmo.dll"
+            "libpetsc-dmo.dll",
+            "libgfortran-5.dll",
+            "libhwloc-15.dll",
+            "libmetis.dll",
+            "libparmetis.dll",
+            "libopenblas.dll",
+            "libquadmath-0.dll"
           )
 
           foreach ($dll in $requiredDlls) {
@@ -140,6 +189,13 @@ jobs:
               throw "Missing expected runtime dependency in UCRT64 bin: $dll"
             }
           }
+
+          $msmpiDllCandidates = $msmpiBinCandidates | ForEach-Object { Join-Path $_ "msmpi.dll" }
+          $msmpiDll = $msmpiDllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $msmpiDll) {
+            throw "MS-MPI runtime DLL (msmpi.dll) was not found in any configured runtime directory."
+          }
+          Write-Host "Using MS-MPI runtime DLL: $msmpiDll"
 
           $executables = @(
             ".\build\fall_n_multiscale_api_test.exe",
@@ -155,6 +211,12 @@ jobs:
           foreach ($exe in $executables) {
             & $exe
             if ($LASTEXITCODE -ne 0) {
+              if ($LASTEXITCODE -eq -1073741515) {
+                Write-Warning "STATUS_DLL_NOT_FOUND while launching $exe"
+                Write-Host "Runtime PATH prefix: $($runtimeBins -join ';')"
+                Write-Host "MS-MPI DLL candidates:"
+                $msmpiDllCandidates | ForEach-Object { Write-Host "  $_ => $(Test-Path $_)" }
+              }
               throw "Regression executable failed: $exe (exit $LASTEXITCODE)"
             }
           }

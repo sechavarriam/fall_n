@@ -405,6 +405,13 @@ fall_n_add_test(TARGET fall_n_multiscale_api_test
     NAME multiscale_analysis_api  SOURCE tests/test_multiscale_analysis_api.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_affine_section_subscale_model_test
+    NAME affine_section_subscale_model
+    SOURCE tests/test_affine_section_subscale_model.cpp
+    LIBS FULL LABEL unit)
+set_target_properties(fall_n_affine_section_subscale_model_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+
 fall_n_add_test(TARGET fall_n_micro_solve_executor_test
     NAME micro_solve_executor  SOURCE tests/test_micro_solve_executor.cpp
     LIBS FULL  LABEL unit)

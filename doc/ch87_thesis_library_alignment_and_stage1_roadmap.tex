@@ -1,0 +1,318 @@
+% ==========================================================================
+%  Chapter 87 -- Thesis/Library Alignment and Stage-1 Research Roadmap
+% ==========================================================================
+
+\chapter{Thesis/Library Alignment and Stage-1 Research Roadmap}
+\label{ch:thesis-library-stage1}
+
+\paragraph{Normative status.}
+This chapter records the first joint roadmap for the thesis and the library.
+It does not replace the current normative multiscale contracts
+(Chapter~\ref{ch:multiscale-publication-audit}); instead, it states how the
+next architectural iteration must be executed so that the thesis narrative and
+the implementation evolve consistently.
+
+\section{Why a joint roadmap is necessary}
+
+The current codebase already implements several ideas that the thesis only
+states at a conceptual level: checkpointable solvers, typed multiscale
+aggregation, explicit coupling sites, section-law diagnostics, and a material
+factory boundary separating the multiscale core from Ko--Bathe/Menegotto
+defaults.  Conversely, the thesis already develops a much stronger ontology for
+continuum mechanics than the one currently enforced by the geometry/topology
+layer in code.
+
+This creates a productive but potentially dangerous asymmetry:
+\begin{itemize}
+  \item the code may overfit to one current realization of the method;
+  \item the thesis may overstate capabilities that are still partial or
+  placeholder; and
+  \item future work on alternative local models (XFEM, DG, DPG, surrogate
+  operators) may remain architecturally blocked if the current
+  beam-section-focused contract becomes the de facto permanent interface.
+\end{itemize}
+
+The purpose of the present chapter is therefore not to promise a finished
+architecture, but to define a disciplined route from the current
+FE\textsuperscript{2}-specialized design toward a genuinely abstract subscale
+computational-model contract.
+
+\section{Current traceability snapshot}
+
+Table~\ref{tab:stage1-traceability} summarizes the main thesis concepts, their
+current computational anchor, and the honest implementation status to be used
+in the next writing pass of the thesis.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Stage-1 traceability snapshot.}
+  \label{tab:stage1-traceability}
+  \small
+  \begin{tabular}{@{}p{0.23\textwidth}p{0.28\textwidth}p{0.12\textwidth}p{0.27\textwidth}@{}}
+    \toprule
+    \textbf{Thesis concept} & \textbf{Primary code anchor} & \textbf{Status}
+    & \textbf{Critical note} \\
+    \midrule
+    Computational model as method + state + implementation
+    & \texttt{Model.hh}, \texttt{NLAnalysis.hh}, \texttt{DynamicAnalysis.hh},
+      \texttt{MultiscaleAnalysis.hh}
+    & implemented
+    & Solver state, restart, and orchestration are first-class citizens. \\
+
+    Multiscale model as aggregation of single-scale models plus coupling laws
+    & \texttt{MultiscaleModel.hh}, \texttt{BeamMacroBridge.hh},
+      \texttt{MultiscaleTypes.hh}
+    & implemented
+    & This is currently one of the most thesis-aligned parts of the library. \\
+
+    Material/history separation
+    & \texttt{MaterialStatePolicy.hh}, \texttt{Material.hh},
+      \texttt{ConstitutiveRelation.hh}
+    & implemented
+    & Semantically strong, but the runtime-erased name \texttt{Material} still
+      overloads the physical meaning of “material”. \\
+
+    Continuum ontology of body/configuration/objective measures
+    & \texttt{ConstitutiveKinematics.hh}, \texttt{KinematicPolicy.hh},
+      \texttt{Point.hh}, \texttt{Topology.hh}
+    & partial
+    & Kinematic semantics are richer than topological semantics at present. \\
+
+    Total Lagrangian continuum path
+    & \texttt{KinematicPolicy.hh}, \texttt{ContinuumElement.hh}
+    & implemented
+    & This is the current 3D finite-strain reference path. \\
+
+    Updated Lagrangian continuum path
+    & \texttt{KinematicPolicy.hh}, \texttt{test\_updated\_lagrangian.cpp}
+    & partial
+    & Spatial assembly exists, but the validated scientific scope remains
+      narrower than the full thesis rhetoric on UL. \\
+
+    Corotational continuum path
+    & \texttt{KinematicPolicy.hh}
+    & placeholder
+    & Exists as a planned slot, not as a usable 3D continuum formulation. \\
+
+    Corotational beam/shell paths
+    & \texttt{BeamKinematicPolicy.hh}, \texttt{ShellKinematicPolicy.hh}
+    & implemented
+    & Must be documented separately from the continuum status. \\
+
+    Abstract local-submodel contract
+    & \texttt{SubscaleModelConcepts.hh}, \texttt{LocalModelAdapter.hh}
+    & partial
+    & Stage-1 now includes a generic contract layer plus a second
+      operator-driven realization (\texttt{AffineSectionSubscaleModel.hh}),
+      even though the normative orchestrator is still section-specialized. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Architectural target for Stage 1}
+
+The central architectural move of Stage 1 is to lift the submodel contract by
+one abstraction level.  The current production path remains a \emph{section}
+FE\textsuperscript{2} realization, but it should no longer be treated as the
+only possible shape of a subscale model.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 12mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      spe/.style={draw, rounded corners, align=center, fill=green!7,
+                  minimum width=42mm, minimum height=10mm},
+      impl/.style={draw, rounded corners, align=center, fill=orange!10,
+                   minimum width=46mm, minimum height=10mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (step) {StepSolvable\\SubscaleModel};
+    \node[box, right=of step] (chk) {Checkpointable\\SubscaleModel};
+    \node[box, right=of chk] (obs) {Observable\\SubscaleModel};
+
+    \node[box, below=of chk] (drv) {DrivenSubscaleModel\\$\langle$DrivingState$\rangle$};
+    \node[box, right=of drv] (op) {RequestedEffectiveOperatorProvider\\$\langle$Request, Operator$\rangle$};
+
+    \node[spe, below=12mm of drv, xshift=26mm] (sec) {Section-specialized layer\\\texttt{LocalModelAdapter.hh}};
+    \node[impl, below=12mm of sec] (nlsm) {Current realization\\\texttt{NonlinearSubModelEvolver}};
+
+    \draw[arr] (step.south) -- (sec.north west);
+    \draw[arr] (chk.south) -- (sec.north);
+    \draw[arr] (obs.south) -- (sec.north east);
+    \draw[arr] (drv.south) -- (sec.north west);
+    \draw[arr] (op.south) -- (sec.north east);
+    \draw[arr] (sec.south) -- (nlsm.north);
+  \end{tikzpicture}
+  \caption{Stage-1 contract elevation: a generic subscale-model concept family
+  sits above the current section-local FE\textsuperscript{2} specialization.}
+  \label{fig:stage1-subscale-contracts}
+\end{figure}
+
+The important point is not the new header alone, but the intended
+responsibility split:
+\begin{itemize}
+  \item generic lifecycle and rollback responsibilities are formulation-agnostic;
+  \item the driving state and the effective operator become explicit type
+  parameters, not hidden assumptions;
+  \item the current section FE\textsuperscript{2} route becomes a
+  specialization, not the whole ontology;
+  \item and type erasure remains an experimental boundary utility rather than
+  the normative hot path.
+\end{itemize}
+
+\paragraph{First proof that the abstraction is not rhetorical.}
+Stage~1 now includes a deliberately simple second realization:
+\texttt{AffineSectionSubscaleModel.hh}.  It does not solve a local continuum
+problem, does not depend on Ko--Bathe, and does not require a finite-element
+submesh.  Instead, it maps a driven generalized state to an affine effective
+section operator through a checkpointable, typed lifecycle.  This does not yet
+close the broader ambition of supporting XFEM, DG, DPG, or surrogate operators
+through one fully generic orchestrator, but it does prove an important point:
+the new contract layer is already capable of hosting a non-continuum,
+operator-driven local realization without introducing runtime polymorphism into
+the hot path.
+
+\section{Reproducible thesis build chain}
+
+The thesis must be treated as a first-class research artifact, not as a
+manually compiled side document.  During this cycle, the actual VS Code recipe
+used in local development was audited and versioned into the workspace
+configuration.  The normative recipe is named \texttt{kaobook} and runs:
+\[
+\texttt{xelatex}
+\rightarrow
+\texttt{makeindex}
+\rightarrow
+\texttt{makeindex\_nomencl}
+\rightarrow
+\texttt{biber}
+\rightarrow
+\texttt{makeglossaries}
+\rightarrow
+\texttt{xelatex}
+\rightarrow
+\texttt{xelatex}.
+\]
+
+This matters for two reasons:
+\begin{itemize}
+  \item the thesis uses the \texttt{kaobook} class together with
+  \texttt{polyglossia}, \texttt{kaobiblio}, glossaries, and nomenclature, so a
+  single \texttt{pdflatex} pass is not representative of the real document
+  lifecycle;
+  \item previous attempts with an incompatible engine or incomplete sequence
+  produced misleading failures unrelated to the actual content under review.
+\end{itemize}
+
+The versioned workspace recipe does not guarantee that the full manuscript is
+warning-free, but it does make the intended compilation chain explicit and
+reproducible from the repository itself.
+
+\section{Finite-kinematics audit to be completed before the FEM rewrite}
+
+Stage 1 must not rewrite the FEM chapter before the finite-kinematics status is
+honestly classified.  Table~\ref{tab:stage1-kinematics-status} records the
+current target classification.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Finite-kinematics status to govern the next thesis rewrite.}
+  \label{tab:stage1-kinematics-status}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Family} & \textbf{Formulation} & \textbf{Status} & \textbf{Immediate action} \\
+    \midrule
+    Continuum 3D & Total Lagrangian & Implemented & use as reference baseline \\
+    Continuum 3D & Updated Lagrangian & Partial & audit and delimit validated scope \\
+    Continuum 3D & Corotational & Placeholder & either implement or explicitly descope \\
+    Beams & Corotational & Implemented & preserve and document separately \\
+    Shells & Corotational & Implemented & preserve and document separately \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+This table matters because the current thesis text already treats TL and UL as
+available computational realizations of the continuum theory.  That is broadly
+true, but not yet with the same degree of scientific maturity across all
+material and element paths.
+
+\section{Stage-1 work packages}
+
+\subsection*{WP1 -- Formal traceability audit}
+\textbf{Goal:} create a chapter-by-chapter map from thesis concepts to code,
+tests, and evidence. \\
+\textbf{Outputs:} status tables, honest scope statements, and audit notes in
+both the thesis and \texttt{fall\_n/doc}. \\
+\textbf{Exit criterion:} no central thesis claim remains uncategorized as
+implemented, partial, placeholder, or future work.
+
+\subsection*{WP2 -- Contract elevation for local submodels}
+\textbf{Goal:} introduce a generic compile-time contract family above the
+current section-local FE\textsuperscript{2} adapter. \\
+\textbf{Outputs:} generic concepts, section-specialized adapters, and a staged
+migration plan for the multiscale orchestrator. \\
+\textbf{Exit criterion:} the codebase can host more than one kind of local
+subproblem without pushing virtual dispatch into the normative hot path.
+
+\subsection*{WP3 -- Continuum-mechanics semantic lift}
+\textbf{Goal:} encode more faithfully the ontology of body, configuration,
+placement, and conjugate pairs from the continuum chapter. \\
+\textbf{Outputs:} tags, carriers, and semantic bridges from theory to
+implementation. \\
+\textbf{Exit criterion:} the finite-kinematics pipeline can be explained and
+tested in the same language as the continuum chapter.
+
+\subsection*{WP4 -- Finite-kinematics verification campaign}
+\textbf{Goal:} revalidate TL, UL, and corotational paths with formulation-level
+honesty. \\
+\textbf{Outputs:} dedicated tests, explicit scope tables, and formulation
+status records. \\
+\textbf{Exit criterion:} the FEM chapter can be rewritten without overstating
+UL or continuum corotational support.
+
+\subsection*{WP5 -- FEM chapter rewrite}
+\textbf{Goal:} rewrite Chapter 6 as the theory of the library rather than a
+generic FEM survey. \\
+\textbf{Outputs:} a chapter centered on domain topology, kinematic policies,
+constitutive integration, assembly, tangent operators, and solver architecture. \\
+\textbf{Exit criterion:} the thesis and the library speak the same FEM
+language.
+
+\subsection*{WP6 -- Implementation chapter write-up}
+\textbf{Goal:} turn the current thesis implementation chapter into a true
+description of the computational model. \\
+\textbf{Outputs:} architecture diagrams, concept families, lifecycle logic,
+HPC remarks, and multiscale orchestration rationale. \\
+\textbf{Exit criterion:} Chapter 7 can stand as a rigorous software-architecture
+chapter for a scientific-computing thesis.
+
+\subsection*{WP7 -- Thesis closure preparation}
+\textbf{Goal:} define the remaining validation and conclusion chapters. \\
+\textbf{Outputs:} a projected Chapter 8 (verification/validation), Chapter 9
+(cyclic multiscale validation and computational performance), and Chapter 10
+(conclusions and outlook). \\
+\textbf{Exit criterion:} the thesis can transition from architectural
+consolidation to final scientific validation.
+
+\section{Critical publication outlook}
+
+At this point, the material is \emph{promising} for high-level publications,
+but not yet automatically deserving of them.
+
+\begin{itemize}
+  \item A strong methodology paper becomes realistic only after the
+  multiscale validation closes the post-cracking regime convincingly.
+  \item A software/architecture paper is already plausible, but it should be
+  marketed honestly as an evolving scientific-computing architecture, not as a
+  fully generalized multiscale platform.
+  \item A paper claiming a general abstract local-model framework would still be
+  premature until a second genuinely different local-model family passes
+  through the elevated contract.
+\end{itemize}
+
+In other words, the present stage justifies a roadmap and architectural
+hardening effort; it does not yet justify complacency about publication
+readiness.
