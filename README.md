@@ -188,6 +188,48 @@ and stderr to log files in the same folder, writes the active PID to
 `data/output/cyclic_validation/case5/full_run/pid.txt`, and records completion
 status and exit code in `data/output/cyclic_validation/case5/full_run/completion.txt`.
 
+## Thesis Submodule
+
+The repository now includes the companion thesis as a Git submodule:
+
+- path: `PhD_Thesis`
+- remote: `https://github.com/sechavarriam/PhD_Thesis.git`
+
+This keeps the library and the thesis versioned separately while still letting
+us work in a unified local workspace.
+
+Typical usage after cloning `fall_n`:
+
+```powershell
+git submodule update --init --recursive
+```
+
+To pull the latest thesis state intentionally:
+
+```powershell
+git submodule update --remote PhD_Thesis
+```
+
+To work on the thesis itself:
+
+```powershell
+git -C PhD_Thesis status
+git -C PhD_Thesis add ...
+git -C PhD_Thesis commit
+```
+
+After advancing the thesis commit, record the new submodule pointer in
+`fall_n` with a normal commit in the superproject.
+
+Important convention:
+
+- build artefacts and local edits inside `PhD_Thesis` belong to the thesis
+  repository, not to `fall_n`;
+- the superproject should only track the submodule pointer and `.gitmodules`,
+  not the internal thesis file history;
+- do not “clean” the thesis from the `fall_n` root unless you intend to clean
+  the thesis repository itself.
+
 ## Documentation
 
 The main technical document is:

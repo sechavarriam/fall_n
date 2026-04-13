@@ -86,7 +86,14 @@ jobs:
             build/fall_n_evolver_advanced_test.exe \
             build/fall_n_tangent_validation_benchmark_test.exe; do
             echo "\n=== $exe ==="
-            ldd "$exe" | grep -i 'not found' && { echo "MISSING DLL for $exe"; exit 1; } || true
+            ldd "$exe" | tee ldd.out
+            missing="$(grep -i 'not found' ldd.out \
+              | grep -viE '^[[:space:]]*(api-ms-win-(crt|core)-|ext-ms-win-)' || true)"
+            if [ -n "$missing" ]; then
+              echo "$missing"
+              echo "MISSING DLL for $exe"
+              exit 1
+            fi
           done
           echo "--- All DLL dependencies satisfied ---"
 
