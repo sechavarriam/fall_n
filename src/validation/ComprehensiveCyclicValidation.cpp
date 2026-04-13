@@ -16,6 +16,7 @@
 // =============================================================================
 
 #include "src/validation/TableCyclicValidationSupport.hh"
+#include "src/validation/TableCyclicValidationSubmodelFactories.hh"
 #include "src/validation/CyclicMaterialDriver.hh"
 
 #include <array>
@@ -644,7 +645,8 @@ std::vector<StepRecord> run_v2_fe2(
     const double ym1 = -y1 / 3.0;
     const double ym2 =  y1 / 3.0;
 
-    // Use Hex20 medium mesh (selected from convergence study as baseline)
+    // Use Hex27 for sub-model (all grid face nodes exist — required for
+    // constraint setup). Hex20 face-node filtering is not yet implemented.
     RebarSpec rebar_spec;
     rebar_spec.bars = {
         {y0, z0, bar_a, bar_d}, {y1, z0, bar_a, bar_d},
@@ -661,7 +663,7 @@ std::vector<StepRecord> run_v2_fe2(
     sub_spec.nx = 4;
     sub_spec.ny = 3;
     sub_spec.nz = 4;
-    sub_spec.hex_order = HexOrder::Serendipity;  // Hex20
+    sub_spec.hex_order = HexOrder::Quadratic;   // Hex27
     // Transfer rebar bars into SubModelSpec format
     for (const auto& rb : rebar_spec.bars) {
         sub_spec.rebar_bars.push_back({rb.ly, rb.lz, rb.area, rb.diameter});
@@ -685,8 +687,73 @@ std::vector<StepRecord> run_v2_fe2(
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-    // One-way: solve macro, then downscale to RVE
+    // ═══════════════════════════════════════════════════════════════════════
+    //  FE² ONE-WAY: macro beam solve → 3D sub-model reconstruction
+    // ═══════════════════════════════════════════════════════════════════════
     if (!two_way) {
+
+        // --- Extract initial kinematics (zero state) for sub-model mesh ---
+        auto& beam = model.elements()[0];
+        auto u_zero = beam.local_state_vector(model.state_vector());
+
+        auto kin_A_init = extract_section_kinematics(beam, u_zero, -1.0);
+        auto kin_B_init = extract_section_kinematics(beam, u_zero, +1.0);
+        kin_A_init.E  = v2::EC_COL;  kin_A_init.G = v2::GC_COL;
+        kin_A_init.nu = v2::NU_RC;
+        kin_B_init.E  = v2::EC_COL;  kin_B_init.G = v2::GC_COL;
+        kin_B_init.nu = v2::NU_RC;
+
+        ElementKinematics ek;
+        ek.element_id = 0;
+        ek.kin_A = kin_A_init;
+        ek.kin_B = kin_B_init;
+        ek.endpoint_A = beam.geometry().map_local_point(std::array{-1.0});
+        ek.endpoint_B = beam.geometry().map_local_point(std::array{+1.0});
+        ek.up_direction = {1.0, 0.0, 0.0};
+
+        MultiscaleCoordinator coordinator;
+        coordinator.add_critical_element(ek);
+        coordinator.build_sub_models(sub_spec);
+
+        {
+            const auto rpt = coordinator.report();
+            std::println("  Sub-model: {} hex, {} nodes",
+                         rpt.total_elements, rpt.total_nodes);
+        }
+
+        auto& sub = coordinator.sub_models()[0];
+
+        // --- Create sub-model evolver with V2 material factories ---
+        const std::string evol_dir = out_dir + "/sub_models";
+        std::filesystem::create_directories(evol_dir);
+
+        NonlinearSubModelEvolver evolver(
+            sub, v2::COL_FPC,
+            make_table_submodel_concrete_factory(sub, cfg),
+            make_table_submodel_rebar_factory(),
+            evol_dir, cfg.submodel_output_interval);
+
+        evolver.set_incremental_params(
+            cfg.submodel_increment_steps, cfg.submodel_max_bisections);
+        evolver.set_penalty_alpha(v2::EC_COL * 10.0);
+        evolver.set_arc_length_threshold(cfg.submodel_arc_length_threshold);
+        evolver.enable_arc_length(cfg.submodel_enable_arc_length_from_start);
+        evolver.set_adaptive_substepping_limits(
+            cfg.submodel_adaptive_max_substeps,
+            cfg.submodel_adaptive_max_bisections);
+        evolver.set_adaptive_tail_rescue_policy(
+            cfg.submodel_tail_rescue_attempts,
+            cfg.submodel_tail_rescue_progress_threshold,
+            cfg.submodel_tail_rescue_substep_bonus,
+            cfg.submodel_tail_rescue_bisection_bonus,
+            cfg.submodel_tail_rescue_initial_fraction);
+        evolver.set_snes_params(
+            cfg.submodel_snes_max_it,
+            cfg.submodel_snes_atol,
+            cfg.submodel_snes_rtol);
+        evolver.set_min_crack_opening(cfg.min_crack_opening);
+
+        // --- Macro NL analysis with step-by-step control ---
         NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                           BeamPolicy>
             nl{&model};
@@ -697,29 +764,62 @@ std::vector<StepRecord> run_v2_fe2(
 
         const std::vector<std::size_t> base_nodes = {0};
 
-        nl.set_step_callback([&](int step, double p, const BeamModel& m) {
-            const double d = cfg.displacement(p);
-            const double shear = extract_base_shear_x(m, base_nodes);
-            records.push_back({step, p, d, shear});
-
-            if (step % 20 == 0 || step == cfg.total_steps()) {
-                std::println(
-                    "    step={:3d}  p={:.4f}  d={:+.4e} m  V={:+.4e} MN",
-                    step, p, d, shear);
-            }
-        });
-
         auto scheme = make_control(
             [top_node, &cfg](double p, Vec, Vec f_ext, BeamModel* m) {
                 VecSet(f_ext, 0.0);
                 m->update_imposed_value(top_node, 0, cfg.displacement(p));
             });
 
-        const bool ok =
-            nl.solve_incremental(cfg.total_steps(), cfg.max_bisections, scheme);
+        nl.begin_incremental(cfg.total_steps(), cfg.max_bisections, scheme);
 
-        std::println("  FE² one-way: {} ({} records)",
-                     ok ? "COMPLETED" : "ABORTED", records.size());
+        int step = 1;
+        int micro_fails = 0;
+        const int total = cfg.total_steps();
+
+        while (step <= total) {
+            if (!nl.step()) {
+                std::println("    Macro step {} FAILED — aborting", step);
+                break;
+            }
+
+            const double p = nl.current_time();
+            const double d = cfg.displacement(p);
+            const double shear = extract_base_shear_x(model, base_nodes);
+            records.push_back({step, p, d, shear});
+
+            // --- Downscale: push macro kinematics into 3D sub-model ---
+            auto u_loc = beam.local_state_vector(model.state_vector());
+            auto kin_A = extract_section_kinematics(beam, u_loc, -1.0);
+            auto kin_B = extract_section_kinematics(beam, u_loc, +1.0);
+            kin_A.E  = v2::EC_COL;  kin_A.G = v2::GC_COL;
+            kin_A.nu = v2::NU_RC;
+            kin_B.E  = v2::EC_COL;  kin_B.G = v2::GC_COL;
+            kin_B.nu = v2::NU_RC;
+
+            evolver.update_kinematics(kin_A, kin_B);
+            auto micro = evolver.solve_step(p);
+            evolver.end_of_step(p);
+
+            if (!micro.converged) ++micro_fails;
+
+            if (step % 20 == 0 || step == total) {
+                auto cs = evolver.crack_summary();
+                std::println(
+                    "    step={:3d}  p={:.4f}  d={:+.4e} m  V={:+.4e} MN  "
+                    "micro:{}  cracked_gps:{} max_opening:{:.4f}",
+                    step, p, d, shear,
+                    micro.converged ? "OK" : "FAIL",
+                    cs.num_cracked_gps, cs.max_opening);
+            }
+
+            ++step;
+        }
+
+        evolver.finalize();
+
+        std::println("  FE² one-way: {} ({} records, {} micro fails)",
+                     (step > total) ? "COMPLETED" : "ABORTED",
+                     records.size(), micro_fails);
         write_csv(out_dir + "/hysteresis.csv", records);
         return records;
     }

@@ -35,6 +35,7 @@ jobs:
             mingw-w64-ucrt-x86_64-fast_float
             mingw-w64-ucrt-x86_64-nlohmann-json
             mingw-w64-ucrt-x86_64-vtk
+            mingw-w64-ucrt-x86_64-tbb
             mingw-w64-ucrt-x86_64-petsc
             mingw-w64-ucrt-x86_64-texlive-core
             mingw-w64-ucrt-x86_64-texlive-latex-recommended
@@ -77,6 +78,18 @@ jobs:
             ninja -C build -j"$JOBS" "$target"
           done
 
+      - name: Preflight DLL check
+        run: |
+          echo "--- ldd check for VTK/PETSc transitive dependencies ---"
+          for exe in \
+            build/fall_n_multiscale_api_test.exe \
+            build/fall_n_evolver_advanced_test.exe \
+            build/fall_n_tangent_validation_benchmark_test.exe; do
+            echo "\n=== $exe ==="
+            ldd "$exe" | grep -i 'not found' && { echo "MISSING DLL for $exe"; exit 1; } || true
+          done
+          echo "--- All DLL dependencies satisfied ---"
+
       - name: Run multiscale regression tests
         shell: powershell
         run: |
@@ -109,6 +122,8 @@ jobs:
             "libwinpthread-1.dll",
             "libgomp-1.dll",
             "libvtkCommonCore.dll",
+            "libvtkIOXML.dll",
+            "libtbb12.dll",
             "libpetsc-dmo.dll"
           )
 
