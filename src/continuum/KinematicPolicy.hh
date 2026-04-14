@@ -786,6 +786,7 @@ struct KinematicFormulationTraits<SmallStrain> {
     static constexpr FormulationKind formulation_kind = FormulationKind::small_strain;
     static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::linearized;
     static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::reference;
+    static constexpr VolumeMeasureKind volume_measure = VolumeMeasureKind::reference;
     static constexpr ConjugateMeasureSemantics conjugate_pair{
         StrainMeasureKind::infinitesimal,
         StressMeasureKind::cauchy,
@@ -794,6 +795,18 @@ struct KinematicFormulationTraits<SmallStrain> {
     };
     static constexpr FormulationMaturity maturity = FormulationMaturity::implemented;
     static constexpr bool pair_is_normatively_audited = true;
+    static constexpr VirtualWorkCompatibilityKind virtual_work_compatibility =
+        VirtualWorkCompatibilityKind::linearized_equivalent;
+    static constexpr VirtualWorkSemantics virtual_work_semantics{
+        formulation_kind,
+        conjugate_pair,
+        assembly_configuration,
+        volume_measure,
+        virtual_work_compatibility,
+        pair_is_normatively_audited
+    };
+    static constexpr FormulationAuditScope audit_scope =
+        canonical_formulation_audit_scope(formulation_kind);
 };
 
 template <>
@@ -801,6 +814,7 @@ struct KinematicFormulationTraits<TotalLagrangian> {
     static constexpr FormulationKind formulation_kind = FormulationKind::total_lagrangian;
     static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::material;
     static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::reference;
+    static constexpr VolumeMeasureKind volume_measure = VolumeMeasureKind::reference;
     static constexpr ConjugateMeasureSemantics conjugate_pair{
         StrainMeasureKind::green_lagrange,
         StressMeasureKind::second_piola_kirchhoff,
@@ -809,6 +823,18 @@ struct KinematicFormulationTraits<TotalLagrangian> {
     };
     static constexpr FormulationMaturity maturity = FormulationMaturity::implemented;
     static constexpr bool pair_is_normatively_audited = true;
+    static constexpr VirtualWorkCompatibilityKind virtual_work_compatibility =
+        VirtualWorkCompatibilityKind::exact;
+    static constexpr VirtualWorkSemantics virtual_work_semantics{
+        formulation_kind,
+        conjugate_pair,
+        assembly_configuration,
+        volume_measure,
+        virtual_work_compatibility,
+        pair_is_normatively_audited
+    };
+    static constexpr FormulationAuditScope audit_scope =
+        canonical_formulation_audit_scope(formulation_kind);
 };
 
 template <>
@@ -816,6 +842,7 @@ struct KinematicFormulationTraits<UpdatedLagrangian> {
     static constexpr FormulationKind formulation_kind = FormulationKind::updated_lagrangian;
     static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::spatial;
     static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::current;
+    static constexpr VolumeMeasureKind volume_measure = VolumeMeasureKind::current;
     static constexpr ConjugateMeasureSemantics conjugate_pair{
         StrainMeasureKind::almansi,
         StressMeasureKind::cauchy,
@@ -824,6 +851,18 @@ struct KinematicFormulationTraits<UpdatedLagrangian> {
     };
     static constexpr FormulationMaturity maturity = FormulationMaturity::partial;
     static constexpr bool pair_is_normatively_audited = true;
+    static constexpr VirtualWorkCompatibilityKind virtual_work_compatibility =
+        VirtualWorkCompatibilityKind::exact;
+    static constexpr VirtualWorkSemantics virtual_work_semantics{
+        formulation_kind,
+        conjugate_pair,
+        assembly_configuration,
+        volume_measure,
+        virtual_work_compatibility,
+        pair_is_normatively_audited
+    };
+    static constexpr FormulationAuditScope audit_scope =
+        canonical_formulation_audit_scope(formulation_kind);
 };
 
 template <>
@@ -831,6 +870,7 @@ struct KinematicFormulationTraits<Corotational> {
     static constexpr FormulationKind formulation_kind = FormulationKind::corotational;
     static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::corotated;
     static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::corotated;
+    static constexpr VolumeMeasureKind volume_measure = VolumeMeasureKind::corotated;
     static constexpr ConjugateMeasureSemantics conjugate_pair{
         StrainMeasureKind::infinitesimal,
         StressMeasureKind::cauchy,
@@ -839,6 +879,18 @@ struct KinematicFormulationTraits<Corotational> {
     };
     static constexpr FormulationMaturity maturity = FormulationMaturity::placeholder;
     static constexpr bool pair_is_normatively_audited = false;
+    static constexpr VirtualWorkCompatibilityKind virtual_work_compatibility =
+        VirtualWorkCompatibilityKind::unaudited_placeholder;
+    static constexpr VirtualWorkSemantics virtual_work_semantics{
+        formulation_kind,
+        conjugate_pair,
+        assembly_configuration,
+        volume_measure,
+        virtual_work_compatibility,
+        pair_is_normatively_audited
+    };
+    static constexpr FormulationAuditScope audit_scope =
+        canonical_formulation_audit_scope(formulation_kind);
 };
 
 

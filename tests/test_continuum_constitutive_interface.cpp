@@ -60,6 +60,14 @@ void test_constitutive_kinematics_small_strain() {
         kin.measure_pair_is_normatively_audited);
     report("ck_small_pair_work_conjugate",
         kin.has_normatively_audited_work_conjugacy());
+    report("ck_small_virtual_work_linearized_equivalent",
+        kin.virtual_work_compatibility == VirtualWorkCompatibilityKind::linearized_equivalent);
+    report("ck_small_virtual_work_normatively_acceptable",
+        kin.has_normatively_acceptable_virtual_work_semantics());
+    report("ck_small_requires_finite_kinematics_disclaimer",
+        kin.requires_finite_kinematics_scope_disclaimer());
+    report("ck_small_not_reference_finite_kinematics_path",
+        !kin.is_reference_finite_kinematics_path());
     report("ck_small_voigt_passthrough",
         max_abs_diff(kin.active_strain_voigt(), gp.strain_voigt) < 1e-14);
     report("ck_small_tensor_roundtrip",
@@ -95,6 +103,12 @@ void test_constitutive_kinematics_total_lagrangian() {
         kin.stress_measure_configuration == ConfigurationKind::reference);
     report("ck_tl_pair_work_conjugate",
         kin.has_normatively_audited_work_conjugacy());
+    report("ck_tl_virtual_work_exact",
+        kin.has_exact_virtual_work_semantics());
+    report("ck_tl_reference_finite_kinematics_path",
+        kin.is_reference_finite_kinematics_path());
+    report("ck_tl_validated_continuum_path",
+        kin.has_validated_continuum_3d_formulation_path());
     report("ck_tl_green_from_F",
         max_abs_diff(kin.green_lagrange_strain.voigt_engineering(), E.voigt_engineering()) < 1e-14);
     report("ck_tl_voigt_matches_green",
@@ -132,6 +146,12 @@ void test_constitutive_kinematics_updated_lagrangian() {
     report("ck_ul_partial_but_audited_pair",
         kin.formulation_maturity == FormulationMaturity::partial &&
         kin.has_normatively_audited_work_conjugacy());
+    report("ck_ul_virtual_work_exact",
+        kin.has_exact_virtual_work_semantics());
+    report("ck_ul_requires_finite_kinematics_disclaimer",
+        kin.requires_finite_kinematics_scope_disclaimer());
+    report("ck_ul_not_reference_finite_kinematics_path",
+        !kin.is_reference_finite_kinematics_path());
     report("ck_ul_almansi_from_F",
         max_abs_diff(kin.almansi_strain.voigt_engineering(), e.voigt_engineering()) < 1e-14);
     report("ck_ul_active_voigt_matches_almansi",
@@ -295,6 +315,30 @@ void test_kinematic_formulation_trait_audit() {
         KinematicFormulationTraits<SmallStrain>::conjugate_pair.is_work_conjugate() &&
         KinematicFormulationTraits<TotalLagrangian>::conjugate_pair.is_work_conjugate() &&
         KinematicFormulationTraits<UpdatedLagrangian>::conjugate_pair.is_work_conjugate());
+    report("trait_virtual_work_status",
+        KinematicFormulationTraits<SmallStrain>::virtual_work_compatibility ==
+            VirtualWorkCompatibilityKind::linearized_equivalent &&
+        KinematicFormulationTraits<TotalLagrangian>::virtual_work_compatibility ==
+            VirtualWorkCompatibilityKind::exact &&
+        KinematicFormulationTraits<UpdatedLagrangian>::virtual_work_compatibility ==
+            VirtualWorkCompatibilityKind::exact &&
+        KinematicFormulationTraits<Corotational>::virtual_work_compatibility ==
+            VirtualWorkCompatibilityKind::unaudited_placeholder);
+    report("trait_canonical_virtual_work_semantics_helper",
+        canonical_virtual_work_semantics(FormulationKind::total_lagrangian).is_exact() &&
+        canonical_virtual_work_semantics(FormulationKind::updated_lagrangian).is_exact() &&
+        canonical_virtual_work_semantics(FormulationKind::small_strain).is_normatively_acceptable() &&
+        !canonical_virtual_work_semantics(FormulationKind::corotational).is_normatively_acceptable());
+    report("trait_formulation_audit_scope_status",
+        !KinematicFormulationTraits<SmallStrain>::audit_scope.supports_finite_kinematics &&
+        KinematicFormulationTraits<TotalLagrangian>::audit_scope.is_reference_finite_kinematics_path() &&
+        KinematicFormulationTraits<UpdatedLagrangian>::audit_scope.requires_finite_kinematics_scope_disclaimer() &&
+        !KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
+    report("trait_canonical_formulation_audit_helper",
+        canonical_formulation_audit_scope(FormulationKind::total_lagrangian).is_reference_finite_kinematics_path() &&
+        canonical_formulation_audit_scope(FormulationKind::updated_lagrangian).has_validation_evidence() &&
+        canonical_formulation_audit_scope(FormulationKind::small_strain).requires_finite_kinematics_scope_disclaimer() &&
+        !canonical_formulation_audit_scope(FormulationKind::corotational).supports_finite_kinematics_normatively());
 }
 
 void test_configuration_points_and_motion_semantics() {

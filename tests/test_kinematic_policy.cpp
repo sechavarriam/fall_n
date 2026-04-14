@@ -74,6 +74,18 @@ void test_policy_traits() {
     static_assert(KinematicFormulationTraits<TotalLagrangian>::maturity == FormulationMaturity::implemented);
     static_assert(KinematicFormulationTraits<UpdatedLagrangian>::maturity == FormulationMaturity::partial);
     static_assert(KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::placeholder);
+    static_assert(KinematicFormulationTraits<SmallStrain>::virtual_work_compatibility ==
+                  VirtualWorkCompatibilityKind::linearized_equivalent);
+    static_assert(KinematicFormulationTraits<TotalLagrangian>::virtual_work_compatibility ==
+                  VirtualWorkCompatibilityKind::exact);
+    static_assert(KinematicFormulationTraits<UpdatedLagrangian>::virtual_work_compatibility ==
+                  VirtualWorkCompatibilityKind::exact);
+    static_assert(KinematicFormulationTraits<Corotational>::virtual_work_compatibility ==
+                  VirtualWorkCompatibilityKind::unaudited_placeholder);
+    static_assert(KinematicFormulationTraits<TotalLagrangian>::audit_scope.is_reference_finite_kinematics_path());
+    static_assert(KinematicFormulationTraits<UpdatedLagrangian>::audit_scope.requires_finite_kinematics_scope_disclaimer());
+    static_assert(!KinematicFormulationTraits<SmallStrain>::audit_scope.supports_finite_kinematics);
+    static_assert(!KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
     static_assert(ReferencePlacement<3>::from_configuration == ConfigurationKind::material_body);
     static_assert(ReferencePlacement<3>::to_configuration == ConfigurationKind::reference);
     static_assert(CurrentPlacement<3>::to_configuration == ConfigurationKind::current);

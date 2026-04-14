@@ -146,20 +146,19 @@ jobs:
 
           $msysRoot = $msysRoots[0]
           $ucrtBin = Join-Path $msysRoot "ucrt64\bin"
-          $usrBin = Join-Path $msysRoot "usr\bin"
           $msmpiBinCandidates = @(
             $env:MSMPI_RUNTIME_DIR,
             (Join-Path $env:WINDIR "System32"),
             "C:\Program Files\Microsoft MPI\Bin"
           ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 
-          foreach ($bin in @($ucrtBin, $usrBin)) {
+          foreach ($bin in @($ucrtBin)) {
             if (-not (Test-Path $bin)) {
               throw "Expected runtime directory not found: $bin"
             }
           }
 
-          $runtimeBins = @($ucrtBin, $usrBin) + $msmpiBinCandidates
+          $runtimeBins = @($ucrtBin) + $msmpiBinCandidates
           $env:PATH = (($runtimeBins | Select-Object -Unique) -join ";") + ";$env:PATH"
           Write-Host "MSYS2 runtime root: $msysRoot"
           if ($msmpiBinCandidates.Count -gt 0) {
@@ -177,6 +176,7 @@ jobs:
             "libpetsc-dmo.dll",
             "libgfortran-5.dll",
             "libhwloc-15.dll",
+            "libltdl-7.dll",
             "libmetis.dll",
             "libparmetis.dll",
             "libopenblas.dll",
@@ -196,6 +196,40 @@ jobs:
             throw "MS-MPI runtime DLL (msmpi.dll) was not found in any configured runtime directory."
           }
           Write-Host "Using MS-MPI runtime DLL: $msmpiDll"
+
+          $stagedRuntimeDlls = $requiredDlls + @("msmpi.dll")
+          foreach ($dll in ($stagedRuntimeDlls | Select-Object -Unique)) {
+            $source = @(
+              (Join-Path $ucrtBin $dll),
+              ($msmpiBinCandidates | ForEach-Object { Join-Path $_ $dll })
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+            if ($source) {
+              Copy-Item -Path $source -Destination ".\build\$dll" -Force
+            }
+          }
+
+          $runtimePatterns = @(
+            "libpetsc*.dll",
+            "libmetis*.dll",
+            "libparmetis*.dll",
+            "libhwloc*.dll",
+            "libltdl*.dll",
+            "libopenblas*.dll",
+            "libgfortran*.dll",
+            "libquadmath*.dll",
+            "libstdc++*.dll",
+            "libgcc_s*.dll",
+            "libwinpthread*.dll",
+            "libgomp*.dll",
+            "libtbb*.dll"
+          )
+
+          foreach ($pattern in $runtimePatterns) {
+            Get-ChildItem -Path $ucrtBin -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item -Path $_.FullName -Destination (Join-Path ".\build" $_.Name) -Force
+            }
+          }
 
           $executables = @(
             ".\build\fall_n_multiscale_api_test.exe",
