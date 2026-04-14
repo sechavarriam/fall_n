@@ -24,11 +24,36 @@
 //
 // =============================================================================
 
+#include <array>
 #include <type_traits>
+#include <string_view>
 
 #include "ComputationalScopeAudit.hh"
 
 namespace fall_n {
+
+enum class ComputationalModelSliceSupportLevel {
+    unsupported_or_disclaimed,
+    normative,
+    reference_linear,
+    reference_geometric_nonlinearity
+};
+
+[[nodiscard]] constexpr std::string_view
+to_string(ComputationalModelSliceSupportLevel level) noexcept
+{
+    switch (level) {
+        case ComputationalModelSliceSupportLevel::unsupported_or_disclaimed:
+            return "unsupported_or_disclaimed";
+        case ComputationalModelSliceSupportLevel::normative:
+            return "normative";
+        case ComputationalModelSliceSupportLevel::reference_linear:
+            return "reference_linear";
+        case ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity:
+            return "reference_geometric_nonlinearity";
+    }
+    return "unknown_computational_model_slice_support_level";
+}
 
 template <typename ModelT>
 concept AuditedComputationalModelType = requires {
@@ -83,6 +108,34 @@ struct ComputationalModelSliceAuditScope {
         return !supports_normatively() ||
                element_solver_scope.requires_scope_disclaimer();
     }
+
+    [[nodiscard]] constexpr ComputationalModelSliceSupportLevel
+    support_level() const noexcept
+    {
+        if (is_reference_geometric_nonlinearity_slice()) {
+            return ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity;
+        }
+        if (is_reference_linear_slice()) {
+            return ComputationalModelSliceSupportLevel::reference_linear;
+        }
+        if (supports_normatively()) {
+            return ComputationalModelSliceSupportLevel::normative;
+        }
+        return ComputationalModelSliceSupportLevel::unsupported_or_disclaimed;
+    }
+};
+
+struct ComputationalModelSliceAuditRow {
+    std::string_view slice_label{};
+    std::string_view model_label{};
+    std::string_view solver_label{};
+    ComputationalModelSliceAuditScope audit_scope{};
+
+    [[nodiscard]] constexpr ComputationalModelSliceSupportLevel
+    support_level() const noexcept
+    {
+        return audit_scope.support_level();
+    }
 };
 
 template <AuditedComputationalModelType ModelT, SolverWithAuditedModelSlice SolverT>
@@ -114,6 +167,55 @@ template <AuditedComputationalModelType ModelT, SolverWithAuditedModelSlice Solv
 inline constexpr ComputationalModelSliceAuditScope
     canonical_model_solver_slice_audit_scope_v =
         canonical_model_solver_slice_audit_scope<ModelT, SolverT>();
+
+template <AuditedComputationalModelType ModelT, SolverWithAuditedModelSlice SolverT>
+inline constexpr ComputationalModelSliceSupportLevel
+    canonical_model_solver_slice_support_level_v =
+        canonical_model_solver_slice_audit_scope_v<ModelT, SolverT>.support_level();
+
+template <AuditedComputationalModelType ModelT, SolverWithAuditedModelSlice SolverT>
+[[nodiscard]] constexpr ComputationalModelSliceAuditRow
+make_model_solver_slice_audit_row(
+    std::string_view slice_label,
+    std::string_view model_label,
+    std::string_view solver_label) noexcept
+{
+    return {
+        .slice_label = slice_label,
+        .model_label = model_label,
+        .solver_label = solver_label,
+        .audit_scope = canonical_model_solver_slice_audit_scope<ModelT, SolverT>()
+    };
+}
+
+template <std::size_t N>
+[[nodiscard]] constexpr std::size_t
+count_model_solver_slice_support_level(
+    const std::array<ComputationalModelSliceAuditRow, N>& rows,
+    ComputationalModelSliceSupportLevel level) noexcept
+{
+    std::size_t count = 0;
+    for (const auto& row : rows) {
+        if (row.support_level() == level) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+template <std::size_t N>
+[[nodiscard]] constexpr std::size_t
+count_model_solver_slices_requiring_scope_disclaimer(
+    const std::array<ComputationalModelSliceAuditRow, N>& rows) noexcept
+{
+    std::size_t count = 0;
+    for (const auto& row : rows) {
+        if (row.audit_scope.requires_scope_disclaimer()) {
+            ++count;
+        }
+    }
+    return count;
+}
 
 template <typename ModelT, typename SolverT>
 concept NormativelySupportedModelSolverSlice =

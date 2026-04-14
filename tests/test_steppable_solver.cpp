@@ -34,6 +34,7 @@
 #include <petsc.h>
 
 #include "header_files.hh"
+#include "src/analysis/ComputationalModelSliceCatalog.hh"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -88,8 +89,23 @@ using ContSmallElem = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
 using ContTLElem    = ContinuumElement<Policy, NDOF, continuum::TotalLagrangian>;
 using ContULElem    = ContinuumElement<Policy, NDOF, continuum::UpdatedLagrangian>;
 using BeamCRElem    = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
+using BeamSRElem    = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;
 using ShellSRElem   = MITC4Shell<>;
 using ShellCRElem   = CorotationalMITC4Shell<>;
+using BeamCRPolicy  = SingleElementPolicy<BeamCRElem>;
+using BeamSRPolicy  = SingleElementPolicy<BeamSRElem>;
+using ShellSRPolicy = SingleElementPolicy<ShellSRElem>;
+using ShellCRPolicy = SingleElementPolicy<ShellCRElem>;
+using BeamSRModel   = Model<TimoshenkoBeam3D, beam::SmallRotation, 6, BeamSRPolicy>;
+using BeamCRModel   = Model<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
+using ShellSRModel  = Model<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
+using ShellCRModel  = Model<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
+using BeamSRLin     = LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, BeamSRPolicy>;
+using BeamCRNLA     = NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
+using ShellSRLin    = LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
+using ShellCRNLA    = NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
+static constexpr auto representative_model_solver_slice_audit_table =
+    fall_n::canonical_representative_model_solver_slice_audit_table_v;
 
 /// Create a fresh Model with unit cube, BCs, and forces.
 struct NLFixture {
@@ -192,14 +208,55 @@ void test_concept_satisfaction() {
     static_assert(fall_n::SolverWithAuditedModelSlice<ArcTL>);
     static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelT, LinA>);
     static_assert(fall_n::ReferenceLinearModelSolverSlice<ModelT, LinA>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ModelT, LinA> ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_linear);
     static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelTL, NLA_TL>);
     static_assert(fall_n::ReferenceGeometricNonlinearityModelSolverSlice<ModelTL, NLA_TL>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ModelTL, NLA_TL> ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity);
     static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelUL, NLA_UL>);
     static_assert(!fall_n::ReferenceGeometricNonlinearityModelSolverSlice<ModelUL, NLA_UL>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ModelUL, NLA_UL> ==
+                  fall_n::ComputationalModelSliceSupportLevel::normative);
     static_assert(!fall_n::NormativelySupportedModelSolverSlice<ModelTL, DynTL>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ModelTL, DynTL> ==
+                  fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed);
     static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<ModelTL, DynTL>.requires_scope_disclaimer());
     static_assert(!fall_n::NormativelySupportedModelSolverSlice<ModelTL, ArcTL>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ModelTL, ArcTL> ==
+                  fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed);
     static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<ModelTL, ArcTL>.requires_scope_disclaimer());
+    static_assert(fall_n::NormativelySupportedModelSolverSlice<BeamSRModel, BeamSRLin>);
+    static_assert(fall_n::ReferenceLinearModelSolverSlice<BeamSRModel, BeamSRLin>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<BeamSRModel, BeamSRLin> ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_linear);
+    static_assert(!fall_n::NormativelySupportedModelSolverSlice<BeamCRModel, BeamCRNLA>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<BeamCRModel, BeamCRNLA> ==
+                  fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed);
+    static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<BeamCRModel, BeamCRNLA>.requires_scope_disclaimer());
+    static_assert(fall_n::NormativelySupportedModelSolverSlice<ShellSRModel, ShellSRLin>);
+    static_assert(fall_n::ReferenceLinearModelSolverSlice<ShellSRModel, ShellSRLin>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ShellSRModel, ShellSRLin> ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_linear);
+    static_assert(!fall_n::NormativelySupportedModelSolverSlice<ShellCRModel, ShellCRNLA>);
+    static_assert(fall_n::canonical_model_solver_slice_support_level_v<ShellCRModel, ShellCRNLA> ==
+                  fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed);
+    static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<ShellCRModel, ShellCRNLA>.requires_scope_disclaimer());
+    static_assert(representative_model_solver_slice_audit_table.size() == 9);
+    static_assert(fall_n::canonical_representative_model_solver_slice_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::reference_linear> == 3);
+    static_assert(fall_n::canonical_representative_model_solver_slice_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity> == 1);
+    static_assert(fall_n::canonical_representative_model_solver_slice_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::normative> == 1);
+    static_assert(fall_n::canonical_representative_model_solver_slice_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed> == 4);
+    static_assert(fall_n::canonical_representative_model_solver_slices_requiring_scope_disclaimer_v == 5);
+    static_assert(representative_model_solver_slice_audit_table[1].support_level() ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity);
+    static_assert(representative_model_solver_slice_audit_table[2].audit_scope.requires_scope_disclaimer());
+    static_assert(representative_model_solver_slice_audit_table[3].audit_scope.requires_scope_disclaimer());
+    static_assert(representative_model_solver_slice_audit_table[8].audit_scope.requires_scope_disclaimer());
     check(true, "model and solver types compose into audited computational slices");
 }
 

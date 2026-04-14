@@ -164,6 +164,21 @@ responsibility split:
   the normative hot path.
 \end{itemize}
 
+\paragraph{Representative slices are now a first-class audited artifact.}
+The fifth layer is no longer expressed only as a collection of
+\texttt{static\_assert}s.  The library now exposes
+\texttt{make\_model\_solver\_slice\_audit\_row(...)} together with constexpr
+counting helpers, so the representative
+\emph{model $\times$ solver} table used in the tests and in the thesis can be
+constructed from the same typed audit source instead of being maintained only
+as prose.
+During the present iteration, this moved one step further: the representative
+table itself now lives in
+\texttt{src/analysis/ComputationalModelSliceCatalog.hh}.  That catalog is kept
+deliberately outside the main analysis umbrella so that thesis-facing audit
+metadata can be reused as a canonical source without inflating the common
+include surface of the numerical hot path.
+
 \paragraph{First proof that the abstraction is not rhetorical.}
 Stage~1 now includes a deliberately simple second realization:
 \texttt{AffineSectionSubscaleModel.hh}.  It does not solve a local continuum
@@ -212,6 +227,14 @@ The versioned workspace recipe does not guarantee that the full manuscript is
 warning-free, but it does make the intended compilation chain explicit and
 reproducible from the repository itself.
 
+One practical caveat must be stated explicitly: the \texttt{kaobook} chain is
+operationally sequential.  Interrupted or parallel XeLaTeX passes can leave
+stale \texttt{main*.mw} files from \texttt{morewrites}; once that happens, a
+later \texttt{xelatex} pass may fail with misleading internal-token errors even
+when the manuscript content itself is sound.  The current reproducibility
+discipline therefore treats cleanup of those intermediates as part of the
+document lifecycle after failed parallel runs.
+
 An analogous principle now governs the Windows/MSYS2 regression gate of the
 library itself.  The current workflow no longer relies exclusively on
 \texttt{PATH}-based runtime discovery for PETSc/VTK-heavy executables.  In
@@ -222,6 +245,9 @@ failure mode was \texttt{STATUS\_DLL\_NOT\_FOUND} on the deep
 \texttt{fall\_n\_evolver\_advanced\_test.exe} surface, and a broader staging
 policy is preferable to repeatedly underestimating transitive runner
 dependencies and mistaking an environment failure for a scientific regression.
+The same hardening now carries the exact \texttt{MSMPI\_RUNTIME\_DLL} path
+between workflow steps, rather than reconstructing it later from candidate
+directories that may exist without actually containing \texttt{msmpi.dll}.
 
 \section{Finite-kinematics audit to be completed before the FEM rewrite}
 
@@ -372,6 +398,65 @@ runtime registry or a reflective metadata system.  Instead, it reuses
 from dynamic dispatch while making the thesis language much more precise:
 claims can now be anchored not only to ``family/formulation/route'' but to the
 same typed computational slices that appear in user code and regression tests.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative typed model--solver slices after introducing
+  \texttt{ComputationalModelSliceSupportLevel}.}
+  \label{tab:stage1-model-solver-slice-audit}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Typed slice} & \textbf{Support level} & \textbf{Status} &
+    \textbf{Critical reading} \\
+    \midrule
+    \texttt{Model<small strain>} + \texttt{LinearAnalysis}
+    & \texttt{reference\_linear}
+    & reference
+    & current continuum linear baseline \\[1mm]
+
+    \texttt{Model<TL>} + \texttt{NonlinearAnalysis<TL>}
+    & \texttt{reference\_geometric\_nonlinearity}
+    & reference
+    & current continuum finite-kinematics Newton baseline \\[1mm]
+
+    \texttt{Model<UL>} + \texttt{NonlinearAnalysis<UL>}
+    & \texttt{normative}
+    & partial
+    & real slice, still below the TL reference path \\[1mm]
+
+    \texttt{Model<TL>} + \texttt{DynamicAnalysis<TL>}
+    & \texttt{unsupported\_or\_disclaimed}
+    & disclaimed
+    & runtime path exists, but not yet promoted as audited baseline \\[1mm]
+
+    \texttt{Model<TL>} + \texttt{ArcLengthSolver<TL>}
+    & \texttt{unsupported\_or\_disclaimed}
+    & disclaimed
+    & continuation class exists, but still outside the normative slice \\[1mm]
+
+    \texttt{BeamSRModel} + \texttt{BeamSRLin}
+    & \texttt{reference\_linear}
+    & reference
+    & audited linear beam slice \\[1mm]
+
+    \texttt{BeamCRModel} + \texttt{BeamCRNLA}
+    & \texttt{unsupported\_or\_disclaimed}
+    & disclaimed
+    & beam corotational route remains solver-level conservative \\[1mm]
+
+    \texttt{ShellSRModel} + \texttt{ShellSRLin}
+    & \texttt{reference\_linear}
+    & reference
+    & audited small-rotation shell slice \\[1mm]
+
+    \texttt{ShellCRModel} + \texttt{ShellCRNLA}
+    & \texttt{unsupported\_or\_disclaimed}
+    & disclaimed
+    & shell corotational nonlinear slice is available, but not baseline \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 During the present iteration this family-level audit also stopped being a
 purely switch-based internal convention. The library now exposes the same

@@ -50,13 +50,31 @@ jobs:
       - name: Ensure Microsoft MPI runtime
         shell: powershell
         run: |
+          function Find-ExistingMsmpiDll {
+            param([string[]]$Directories)
+
+            foreach ($dir in $Directories) {
+              if (-not $dir) {
+                continue
+              }
+              if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+                continue
+              }
+              $candidate = Join-Path $dir "msmpi.dll"
+              if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return $candidate
+              }
+            }
+
+            return $null
+          }
+
           $msmpiDirs = @(
             (Join-Path $env:WINDIR "System32"),
             "C:\Program Files\Microsoft MPI\Bin"
-          ) | Where-Object { Test-Path $_ }
+          )
 
-          $msmpiDlls = $msmpiDirs | ForEach-Object { Join-Path $_ "msmpi.dll" }
-          $installedDll = $msmpiDlls | Where-Object { Test-Path $_ } | Select-Object -First 1
+          $installedDll = Find-ExistingMsmpiDll -Directories $msmpiDirs
 
           if (-not $installedDll) {
             $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
@@ -70,7 +88,7 @@ jobs:
               --silent `
               --disable-interactivity
 
-            $installedDll = $msmpiDlls | Where-Object { Test-Path $_ } | Select-Object -First 1
+            $installedDll = Find-ExistingMsmpiDll -Directories $msmpiDirs
           }
 
           if (-not $installedDll) {
@@ -79,6 +97,7 @@ jobs:
 
           $installedDir = Split-Path -Parent $installedDll
           "MSMPI_RUNTIME_DIR=$installedDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSMPI_RUNTIME_DLL=$installedDll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "MS-MPI runtime: $installedDll"
 
       - name: Configure
@@ -134,6 +153,21 @@ jobs:
       - name: Run multiscale regression tests
         shell: powershell
         run: |
+          function Find-FirstExistingFile {
+            param(
+              [Parameter(Mandatory = $true)]
+              [string[]]$Candidates
+            )
+
+            foreach ($candidate in $Candidates) {
+              if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                return $candidate
+              }
+            }
+
+            return $null
+          }
+
           $msysRoots = @(
             (Join-Path $env:RUNNER_TEMP "msys64"),
             (Join-Path $env:RUNNER_TEMP "setup-msys2\msys64"),
@@ -146,11 +180,26 @@ jobs:
 
           $msysRoot = $msysRoots[0]
           $ucrtBin = Join-Path $msysRoot "ucrt64\bin"
+          $msmpiDllCandidates = @(
+            $env:MSMPI_RUNTIME_DLL,
+            (Join-Path (Join-Path $env:WINDIR "System32") "msmpi.dll"),
+            "C:\Program Files\Microsoft MPI\Bin\msmpi.dll"
+          ) | Select-Object -Unique
+          $msmpiDll = Find-FirstExistingFile -Candidates $msmpiDllCandidates
+          if (-not $msmpiDll) {
+            throw "MS-MPI runtime DLL (msmpi.dll) was not found in any configured runtime location."
+          }
+
           $msmpiBinCandidates = @(
+            (Split-Path -Parent $msmpiDll),
             $env:MSMPI_RUNTIME_DIR,
             (Join-Path $env:WINDIR "System32"),
             "C:\Program Files\Microsoft MPI\Bin"
-          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          ) | Where-Object {
+            $_ -and
+            (Test-Path -LiteralPath $_ -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $_ "msmpi.dll") -PathType Leaf)
+          } | Select-Object -Unique
 
           foreach ($bin in @($ucrtBin)) {
             if (-not (Test-Path $bin)) {
@@ -190,22 +239,23 @@ jobs:
             }
           }
 
-          $msmpiDllCandidates = $msmpiBinCandidates | ForEach-Object { Join-Path $_ "msmpi.dll" }
-          $msmpiDll = $msmpiDllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $msmpiDll) {
-            throw "MS-MPI runtime DLL (msmpi.dll) was not found in any configured runtime directory."
-          }
           Write-Host "Using MS-MPI runtime DLL: $msmpiDll"
 
           $stagedRuntimeDlls = $requiredDlls + @("msmpi.dll")
           foreach ($dll in ($stagedRuntimeDlls | Select-Object -Unique)) {
-            $source = @(
-              (Join-Path $ucrtBin $dll),
-              ($msmpiBinCandidates | ForEach-Object { Join-Path $_ $dll })
-            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            $candidateFiles = @((Join-Path $ucrtBin $dll))
+            if ($dll -eq "msmpi.dll") {
+              $candidateFiles += $msmpiDllCandidates
+            } else {
+              foreach ($dir in $msmpiBinCandidates) {
+                $candidateFiles += (Join-Path $dir $dll)
+              }
+            }
+
+            $source = Find-FirstExistingFile -Candidates $candidateFiles
 
             if ($source) {
-              Copy-Item -Path $source -Destination ".\build\$dll" -Force
+              Copy-Item -LiteralPath $source -Destination ".\build\$dll" -Force
             }
           }
 
@@ -215,11 +265,11 @@ jobs:
           # GitHub runners even when lighter harnesses succeed locally.
           $ucrtDlls = Get-ChildItem -Path $ucrtBin -Filter "*.dll" -ErrorAction Stop
           foreach ($dll in $ucrtDlls) {
-            Copy-Item -Path $dll.FullName -Destination (Join-Path ".\build" $dll.Name) -Force
+            Copy-Item -LiteralPath $dll.FullName -Destination (Join-Path ".\build" $dll.Name) -Force
           }
 
           if ($msmpiDll) {
-            Copy-Item -Path $msmpiDll -Destination ".\build\msmpi.dll" -Force
+            Copy-Item -LiteralPath $msmpiDll -Destination ".\build\msmpi.dll" -Force
           }
 
           Write-Host "Staged $($ucrtDlls.Count) UCRT64 runtime DLLs into the build directory."
