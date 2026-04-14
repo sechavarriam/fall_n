@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <iostream>
 
+#include "src/analysis/AnalysisRouteAudit.hh"
 #include "src/continuum/Continuum.hh"
 #include "src/continuum/HyperelasticRelation.hh"
 #include "src/materials/LinealElasticMaterial.hh"
@@ -339,6 +340,75 @@ void test_kinematic_formulation_trait_audit() {
         canonical_formulation_audit_scope(FormulationKind::updated_lagrangian).has_validation_evidence() &&
         canonical_formulation_audit_scope(FormulationKind::small_strain).requires_finite_kinematics_scope_disclaimer() &&
         !canonical_formulation_audit_scope(FormulationKind::corotational).supports_finite_kinematics_normatively());
+    report("trait_family_formulation_audit_scope_status",
+        KinematicFormulationTraits<TotalLagrangian>::family_audit_scope.is_reference_geometric_nonlinearity_path() &&
+        KinematicFormulationTraits<UpdatedLagrangian>::family_audit_scope.requires_geometric_nonlinearity_scope_disclaimer() &&
+        canonical_family_formulation_audit_scope(ElementFamilyKind::beam_1d, FormulationKind::corotational)
+            .is_reference_geometric_nonlinearity_path() &&
+        canonical_family_formulation_audit_scope(ElementFamilyKind::shell_2d, FormulationKind::corotational)
+            .requires_geometric_nonlinearity_scope_disclaimer());
+    report("trait_family_compatibility_concepts",
+        FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, TotalLagrangian> &&
+        FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, UpdatedLagrangian> &&
+        !FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, Corotational> &&
+        FamilyReferenceGeometricNonlinearityKinematicPolicy<ElementFamilyKind::beam_1d, beam::Corotational> &&
+        FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, shell::Corotational> &&
+        !FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, TotalLagrangian>);
+    report("trait_family_audit_table_helpers",
+        canonical_family_formulation_audit_table().size() == 12 &&
+        count_normatively_supported_family_formulations(ElementFamilyKind::continuum_solid_3d) == 3 &&
+        count_normatively_supported_family_formulations(ElementFamilyKind::beam_1d) == 2 &&
+        count_normatively_supported_family_formulations(ElementFamilyKind::shell_2d) == 2 &&
+        find_family_linear_reference_path(ElementFamilyKind::continuum_solid_3d).has_value() &&
+        find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::continuum_solid_3d).has_value() &&
+        find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::continuum_solid_3d)
+            ->formulation_kind == FormulationKind::total_lagrangian &&
+        find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::beam_1d).has_value() &&
+        find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::beam_1d)
+            ->formulation_kind == FormulationKind::corotational &&
+        !find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::shell_2d).has_value());
+    report("trait_analysis_route_audit_scope_status",
+        canonical_analysis_route_audit_scope(fall_n::AnalysisRouteKind::linear_static)
+            .is_reference_route() &&
+        canonical_analysis_route_audit_scope(fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+            .supports_trial_state_control &&
+        canonical_analysis_route_audit_scope(fall_n::AnalysisRouteKind::implicit_second_order_dynamics)
+            .supports_checkpoint_restart &&
+        canonical_analysis_route_audit_scope(fall_n::AnalysisRouteKind::arc_length_continuation)
+            .requires_scope_disclaimer());
+    report("trait_family_formulation_analysis_route_audit_scope_status",
+        canonical_family_formulation_analysis_route_audit_scope(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::total_lagrangian,
+            fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+            .is_reference_route_for_scope() &&
+        canonical_family_formulation_analysis_route_audit_scope(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::updated_lagrangian,
+            fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+            .supports_normatively() &&
+        canonical_family_formulation_analysis_route_audit_scope(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::total_lagrangian,
+            fall_n::AnalysisRouteKind::implicit_second_order_dynamics)
+            .requires_scope_disclaimer() &&
+        canonical_family_formulation_analysis_route_audit_scope(
+            ElementFamilyKind::beam_1d,
+            FormulationKind::corotational,
+            fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+            .has_runtime_path &&
+        !canonical_family_formulation_analysis_route_audit_scope(
+             ElementFamilyKind::beam_1d,
+             FormulationKind::corotational,
+             fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+             .supports_normatively() &&
+        fall_n::canonical_family_formulation_analysis_route_table().size() == 48 &&
+        fall_n::count_normatively_supported_analysis_routes(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::small_strain) == 3 &&
+        fall_n::count_runtime_declared_analysis_routes(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::updated_lagrangian) == 3);
 }
 
 void test_configuration_points_and_motion_semantics() {

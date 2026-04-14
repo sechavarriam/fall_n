@@ -55,6 +55,7 @@
 #include "StrainMeasures.hh"
 #include "StressMeasures.hh"
 #include "ContinuumSemantics.hh"
+#include "FormulationScopeAudit.hh"
 
 // Forward-declare ElementGeometry (used only through pointer/reference).
 template <std::size_t dim>
@@ -807,6 +808,9 @@ struct KinematicFormulationTraits<SmallStrain> {
     };
     static constexpr FormulationAuditScope audit_scope =
         canonical_formulation_audit_scope(formulation_kind);
+    static constexpr FamilyFormulationAuditScope family_audit_scope =
+        canonical_family_formulation_audit_scope(ElementFamilyKind::continuum_solid_3d,
+                                                 formulation_kind);
 };
 
 template <>
@@ -835,6 +839,9 @@ struct KinematicFormulationTraits<TotalLagrangian> {
     };
     static constexpr FormulationAuditScope audit_scope =
         canonical_formulation_audit_scope(formulation_kind);
+    static constexpr FamilyFormulationAuditScope family_audit_scope =
+        canonical_family_formulation_audit_scope(ElementFamilyKind::continuum_solid_3d,
+                                                 formulation_kind);
 };
 
 template <>
@@ -863,6 +870,9 @@ struct KinematicFormulationTraits<UpdatedLagrangian> {
     };
     static constexpr FormulationAuditScope audit_scope =
         canonical_formulation_audit_scope(formulation_kind);
+    static constexpr FamilyFormulationAuditScope family_audit_scope =
+        canonical_family_formulation_audit_scope(ElementFamilyKind::continuum_solid_3d,
+                                                 formulation_kind);
 };
 
 template <>
@@ -891,6 +901,37 @@ struct KinematicFormulationTraits<Corotational> {
     };
     static constexpr FormulationAuditScope audit_scope =
         canonical_formulation_audit_scope(formulation_kind);
+    static constexpr FamilyFormulationAuditScope family_audit_scope =
+        canonical_family_formulation_audit_scope(ElementFamilyKind::continuum_solid_3d,
+                                                 formulation_kind);
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::continuum_solid_3d, SmallStrain> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        KinematicFormulationTraits<SmallStrain>::family_audit_scope;
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::continuum_solid_3d, TotalLagrangian> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        KinematicFormulationTraits<TotalLagrangian>::family_audit_scope;
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::continuum_solid_3d, UpdatedLagrangian> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        KinematicFormulationTraits<UpdatedLagrangian>::family_audit_scope;
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::continuum_solid_3d, Corotational> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        KinematicFormulationTraits<Corotational>::family_audit_scope;
 };
 
 
@@ -898,20 +939,17 @@ struct KinematicFormulationTraits<Corotational> {
 //  CompatibleFormulation  — concept restricting invalid policy combinations
 // =============================================================================
 //
-//  Prevents nonsensical combinations like TotalLagrangian with a beam
-//  material policy (beams use Corotational or Updated formulations instead).
-//
-//  For now, this is a permissive constraint; it will be refined as more
-//  element types gain nonlinear support.
+//  Legacy continuum alias kept for compatibility with older tests and code.
+//  The stronger family-aware concepts live in FormulationScopeAudit.hh and are
+//  now the preferred route for element-level constraints.
 //
 // -----------------------------------------------------------------------------
 
 template <typename KinPolicy, typename MatPolicy>
 concept CompatibleFormulation =
-    KinematicPolicyConcept<KinPolicy>
-    // Future: add constraints like
-    //   && !(std::same_as<KinPolicy, TotalLagrangian> && is_beam_material<MatPolicy>)
-    ;
+    KinematicPolicyConcept<KinPolicy> &&
+    FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d,
+                                              KinPolicy>;
 
 
 } // namespace continuum

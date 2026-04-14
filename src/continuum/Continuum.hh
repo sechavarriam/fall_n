@@ -28,6 +28,7 @@
 #include "StrainMeasures.hh"
 #include "StressMeasures.hh"
 #include "ContinuumSemantics.hh"
+#include "FormulationScopeAudit.hh"
 #include "KinematicPolicy.hh"
 #include "ConstitutiveKinematics.hh"
 #include "HyperelasticModel.hh"

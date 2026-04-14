@@ -44,6 +44,7 @@
 #include <petscvec.h>
 
 #include "../model/Model.hh"
+#include "AnalysisRouteAudit.hh"
 #include "IncrementalControl.hh"
 
 
@@ -75,8 +76,17 @@ template <typename MaterialPolicy,
               ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class ArcLengthSolver {
 public:
+    using analysis_route_tag =
+        fall_n::AnalysisRouteTag<fall_n::AnalysisRouteKind::arc_length_continuation>;
+    static constexpr fall_n::AnalysisRouteKind analysis_route_kind =
+        fall_n::AnalysisRouteKind::arc_length_continuation;
+    static constexpr fall_n::AnalysisRouteAuditScope analysis_route_audit_scope =
+        fall_n::canonical_analysis_route_audit_scope(analysis_route_kind);
+
     using ModelT   = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
     using ElementT = typename ModelT::element_type;
+    using model_type = ModelT;
+    using element_type = ElementT;
 
 private:
     ModelT* model_{nullptr};

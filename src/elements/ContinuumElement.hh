@@ -23,10 +23,23 @@
 
 template <typename MaterialPolicy, std::size_t ndof,
           typename KinematicPolicy = continuum::SmallStrain>
+    requires continuum::FamilyNormativelySupportedKinematicPolicy<
+        continuum::ElementFamilyKind::continuum_solid_3d,
+        KinematicPolicy>
 class ContinuumElement
 {
   // ========================= Types and Static Constant Definitions =================================
 
+  public:
+  using kinematic_policy_type = KinematicPolicy;
+  static constexpr continuum::ElementFamilyKind element_family_kind =
+      continuum::ElementFamilyKind::continuum_solid_3d;
+  static constexpr continuum::FormulationKind formulation_kind =
+      continuum::KinematicFormulationTraits<KinematicPolicy>::formulation_kind;
+  static constexpr continuum::FamilyFormulationAuditScope family_formulation_audit_scope =
+      continuum::KinematicFormulationTraits<KinematicPolicy>::family_audit_scope;
+
+  private:
   using StateVariableT = typename MaterialPolicy::StateVariableT;
 
   using MaterialPointT = MaterialPoint<MaterialPolicy>;

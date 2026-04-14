@@ -88,6 +88,7 @@
 #include "../model/BoundaryCondition.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
+#include "AnalysisRouteAudit.hh"
 #include "Damping.hh"
 #include "AnalysisObserver.hh"
 #include "StepDirector.hh"
@@ -99,9 +100,23 @@ template <typename MaterialPolicy,
           std::size_t ndofs = MaterialPolicy::dim,
           typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class DynamicAnalysis {
+public:
+    using analysis_route_tag =
+        fall_n::AnalysisRouteTag<fall_n::AnalysisRouteKind::implicit_second_order_dynamics>;
+    static constexpr fall_n::AnalysisRouteKind analysis_route_kind =
+        fall_n::AnalysisRouteKind::implicit_second_order_dynamics;
+    static constexpr fall_n::AnalysisRouteAuditScope analysis_route_audit_scope =
+        fall_n::canonical_analysis_route_audit_scope(analysis_route_kind);
 
+private:
     using ModelT = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
     static constexpr auto dim = MaterialPolicy::dim;
+
+public:
+    using model_type = ModelT;
+    using element_type = typename ModelT::element_type;
+
+private:
 
     ModelT* model_{nullptr};
     petsc::OwnedTS ts_{};

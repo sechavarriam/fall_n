@@ -8,6 +8,7 @@
 #include "../model/Model.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
+#include "AnalysisRouteAudit.hh"
 #include "AnalysisObserver.hh"
 #include "IncrementalControl.hh"
 #include "StepDirector.hh"
@@ -56,9 +57,24 @@ template <typename MaterialPolicy,
           std::size_t ndofs = MaterialPolicy::dim,
           typename ElemPolicy = SingleElementPolicy<ContinuumElement<MaterialPolicy, ndofs, KinematicPolicy>>>
 class NonlinearAnalysis {
+public:
+    using analysis_route_tag =
+        fall_n::AnalysisRouteTag<fall_n::AnalysisRouteKind::nonlinear_incremental_newton>;
+    static constexpr fall_n::AnalysisRouteKind analysis_route_kind =
+        fall_n::AnalysisRouteKind::nonlinear_incremental_newton;
+    static constexpr fall_n::AnalysisRouteAuditScope analysis_route_audit_scope =
+        fall_n::canonical_analysis_route_audit_scope(analysis_route_kind);
+
+private:
     using ModelT = Model<MaterialPolicy, KinematicPolicy, ndofs, ElemPolicy>;
     using ElementT = typename ModelT::element_type;
     static constexpr auto dim = MaterialPolicy::dim;
+
+public:
+    using model_type = ModelT;
+    using element_type = ElementT;
+
+private:
 
     static constexpr bool has_explicit_local_nonlinear_api =
         requires (ElementT& elem, Vec u_local, const Eigen::VectorXd& u_e) {

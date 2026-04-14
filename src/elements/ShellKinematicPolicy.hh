@@ -40,6 +40,11 @@
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 
+#include "../continuum/FormulationScopeAudit.hh"
+
+template <std::size_t dim>
+class ElementGeometry;
+
 namespace shell {
 
 // =============================================================================
@@ -415,7 +420,47 @@ private:
 
 static_assert(ShellKinematicPolicyConcept<Corotational>);
 
+template <typename Policy>
+struct ShellKinematicFormulationTraits;
+
+template <>
+struct ShellKinematicFormulationTraits<SmallRotation> {
+    static constexpr continuum::FormulationKind formulation_kind =
+        continuum::FormulationKind::small_strain;
+    static constexpr continuum::FamilyFormulationAuditScope audit_scope =
+        continuum::canonical_family_formulation_audit_scope(
+            continuum::ElementFamilyKind::shell_2d,
+            formulation_kind);
+};
+
+template <>
+struct ShellKinematicFormulationTraits<Corotational> {
+    static constexpr continuum::FormulationKind formulation_kind =
+        continuum::FormulationKind::corotational;
+    static constexpr continuum::FamilyFormulationAuditScope audit_scope =
+        continuum::canonical_family_formulation_audit_scope(
+            continuum::ElementFamilyKind::shell_2d,
+            formulation_kind);
+};
 
 } // namespace shell
+
+namespace continuum {
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::shell_2d, shell::SmallRotation> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        shell::ShellKinematicFormulationTraits<shell::SmallRotation>::audit_scope;
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::shell_2d, shell::Corotational> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        shell::ShellKinematicFormulationTraits<shell::Corotational>::audit_scope;
+};
+
+} // namespace continuum
 
 #endif // FALL_N_SHELL_KINEMATIC_POLICY_HH
