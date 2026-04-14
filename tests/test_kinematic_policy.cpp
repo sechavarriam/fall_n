@@ -67,13 +67,21 @@ void test_policy_traits() {
     static_assert(TotalLagrangian::needs_geometric_stiffness);
     static_assert(KinematicPolicyConcept<TotalLagrangian>);
 
-    // Placeholders
+    // Additional policy slots
     static_assert(KinematicPolicyConcept<UpdatedLagrangian>);
     static_assert(KinematicPolicyConcept<Corotational>);
+    static_assert(KinematicFormulationTraits<SmallStrain>::maturity == FormulationMaturity::implemented);
+    static_assert(KinematicFormulationTraits<TotalLagrangian>::maturity == FormulationMaturity::implemented);
+    static_assert(KinematicFormulationTraits<UpdatedLagrangian>::maturity == FormulationMaturity::partial);
+    static_assert(KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::placeholder);
+    static_assert(ReferencePlacement<3>::from_configuration == ConfigurationKind::material_body);
+    static_assert(ReferencePlacement<3>::to_configuration == ConfigurationKind::reference);
+    static_assert(CurrentPlacement<3>::to_configuration == ConfigurationKind::current);
+    static_assert(CorotatedPlacement<3>::to_configuration == ConfigurationKind::corotated);
 
     report("policy_traits_SmallStrain", true);
     report("policy_traits_TotalLagrangian", true);
-    report("policy_traits_placeholders", true);
+    report("policy_traits_audit_status", true);
 }
 
 
