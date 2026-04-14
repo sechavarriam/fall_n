@@ -46,6 +46,8 @@
 
 #include <Eigen/Dense>
 
+#include "../continuum/FormulationScopeAudit.hh"
+
 namespace beam {
 
 // =============================================================================
@@ -416,7 +418,47 @@ struct Corotational {
 
 static_assert(BeamKinematicPolicyConcept<Corotational>);
 
+template <typename Policy>
+struct BeamKinematicFormulationTraits;
+
+template <>
+struct BeamKinematicFormulationTraits<SmallRotation> {
+    static constexpr continuum::FormulationKind formulation_kind =
+        continuum::FormulationKind::small_strain;
+    static constexpr continuum::FamilyFormulationAuditScope audit_scope =
+        continuum::canonical_family_formulation_audit_scope(
+            continuum::ElementFamilyKind::beam_1d,
+            formulation_kind);
+};
+
+template <>
+struct BeamKinematicFormulationTraits<Corotational> {
+    static constexpr continuum::FormulationKind formulation_kind =
+        continuum::FormulationKind::corotational;
+    static constexpr continuum::FamilyFormulationAuditScope audit_scope =
+        continuum::canonical_family_formulation_audit_scope(
+            continuum::ElementFamilyKind::beam_1d,
+            formulation_kind);
+};
 
 } // namespace beam
+
+namespace continuum {
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::beam_1d, beam::SmallRotation> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        beam::BeamKinematicFormulationTraits<beam::SmallRotation>::audit_scope;
+};
+
+template <>
+struct FamilyKinematicPolicyAuditTraits<ElementFamilyKind::beam_1d, beam::Corotational> {
+    static constexpr bool available = true;
+    static constexpr FamilyFormulationAuditScope audit_scope =
+        beam::BeamKinematicFormulationTraits<beam::Corotational>::audit_scope;
+};
+
+} // namespace continuum
 
 #endif // FALL_N_BEAM_KINEMATIC_POLICY_HH

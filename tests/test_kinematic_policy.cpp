@@ -27,7 +27,11 @@
 #include <iostream>
 #include <random>
 
+#include "src/analysis/AnalysisRouteAudit.hh"
 #include "src/continuum/Continuum.hh"
+#include "src/elements/BeamKinematicPolicy.hh"
+#include "src/elements/MITCShellPolicy.hh"
+#include "src/elements/ShellKinematicPolicy.hh"
 
 using namespace continuum;
 
@@ -86,14 +90,96 @@ void test_policy_traits() {
     static_assert(KinematicFormulationTraits<UpdatedLagrangian>::audit_scope.requires_finite_kinematics_scope_disclaimer());
     static_assert(!KinematicFormulationTraits<SmallStrain>::audit_scope.supports_finite_kinematics);
     static_assert(!KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
+    static_assert(KinematicFormulationTraits<TotalLagrangian>::family_audit_scope.is_reference_geometric_nonlinearity_path());
+    static_assert(KinematicFormulationTraits<UpdatedLagrangian>::family_audit_scope.requires_geometric_nonlinearity_scope_disclaimer());
+    static_assert(beam::BeamKinematicFormulationTraits<beam::Corotational>::audit_scope.is_reference_geometric_nonlinearity_path());
+    static_assert(shell::ShellKinematicFormulationTraits<shell::Corotational>::audit_scope.requires_geometric_nonlinearity_scope_disclaimer());
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, SmallStrain>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, TotalLagrangian>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, UpdatedLagrangian>);
+    static_assert(!FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::continuum_solid_3d, Corotational>);
+    static_assert(FamilyReferenceGeometricNonlinearityKinematicPolicy<ElementFamilyKind::continuum_solid_3d, TotalLagrangian>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, beam::SmallRotation>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, beam::Corotational>);
+    static_assert(!FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, TotalLagrangian>);
+    static_assert(FamilyReferenceGeometricNonlinearityKinematicPolicy<ElementFamilyKind::beam_1d, beam::Corotational>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, shell::SmallRotation>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, shell::Corotational>);
+    static_assert(!FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, UpdatedLagrangian>);
+    static_assert(!canonical_family_formulation_audit_scope(
+        ElementFamilyKind::beam_1d, FormulationKind::total_lagrangian).supports_normatively());
+    static_assert(!canonical_family_formulation_audit_scope(
+        ElementFamilyKind::shell_2d, FormulationKind::updated_lagrangian).supports_normatively());
+    static_assert(canonical_family_formulation_audit_row(ElementFamilyKind::continuum_solid_3d).size() == 4);
+    static_assert(canonical_family_formulation_audit_table().size() == 12);
+    static_assert(count_normatively_supported_family_formulations(ElementFamilyKind::continuum_solid_3d) == 3);
+    static_assert(count_normatively_supported_family_formulations(ElementFamilyKind::beam_1d) == 2);
+    static_assert(count_normatively_supported_family_formulations(ElementFamilyKind::shell_2d) == 2);
+    static_assert(find_family_linear_reference_path(ElementFamilyKind::continuum_solid_3d).has_value());
+    static_assert(find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::continuum_solid_3d)
+                      .has_value());
+    static_assert(find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::continuum_solid_3d)
+                      ->formulation_kind == FormulationKind::total_lagrangian);
+    static_assert(find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::beam_1d)
+                      .has_value());
+    static_assert(find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::beam_1d)
+                      ->formulation_kind == FormulationKind::corotational);
+    static_assert(!find_family_geometric_nonlinearity_reference_path(ElementFamilyKind::shell_2d)
+                       .has_value());
     static_assert(ReferencePlacement<3>::from_configuration == ConfigurationKind::material_body);
     static_assert(ReferencePlacement<3>::to_configuration == ConfigurationKind::reference);
     static_assert(CurrentPlacement<3>::to_configuration == ConfigurationKind::current);
     static_assert(CorotatedPlacement<3>::to_configuration == ConfigurationKind::corotated);
+    static_assert(canonical_analysis_route_audit_scope(
+                      fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+                      .supports_checkpoint_restart);
+    static_assert(canonical_analysis_route_audit_scope(
+                      fall_n::AnalysisRouteKind::implicit_second_order_dynamics)
+                      .supports_inertial_terms);
+    static_assert(canonical_analysis_route_audit_scope(
+                      fall_n::AnalysisRouteKind::arc_length_continuation)
+                      .requires_scope_disclaimer());
+    static_assert(fall_n::canonical_family_formulation_analysis_route_row(
+                      ElementFamilyKind::continuum_solid_3d,
+                      FormulationKind::total_lagrangian).size() == 4);
+    static_assert(fall_n::canonical_family_formulation_analysis_route_table().size() == 48);
+    static_assert(fall_n::count_normatively_supported_analysis_routes(
+                      ElementFamilyKind::continuum_solid_3d,
+                      FormulationKind::total_lagrangian) == 1);
+    static_assert(fall_n::count_runtime_declared_analysis_routes(
+                      ElementFamilyKind::continuum_solid_3d,
+                      FormulationKind::total_lagrangian) == 3);
+    static_assert(canonical_family_formulation_analysis_route_audit_scope(
+                      ElementFamilyKind::continuum_solid_3d,
+                      FormulationKind::total_lagrangian,
+                      fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+                      .is_reference_route_for_scope());
+    static_assert(canonical_family_formulation_analysis_route_audit_scope(
+                      ElementFamilyKind::continuum_solid_3d,
+                      FormulationKind::total_lagrangian,
+                      fall_n::AnalysisRouteKind::implicit_second_order_dynamics)
+                      .requires_scope_disclaimer());
+    static_assert(canonical_family_formulation_analysis_route_audit_scope(
+                      ElementFamilyKind::beam_1d,
+                      FormulationKind::corotational,
+                      fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+                      .has_runtime_path);
+    static_assert(!canonical_family_formulation_analysis_route_audit_scope(
+                       ElementFamilyKind::beam_1d,
+                       FormulationKind::corotational,
+                       fall_n::AnalysisRouteKind::nonlinear_incremental_newton)
+                       .supports_normatively());
+    static_assert(canonical_family_formulation_analysis_route_audit_scope(
+                      ElementFamilyKind::shell_2d,
+                      FormulationKind::small_strain,
+                      fall_n::AnalysisRouteKind::linear_static)
+                      .is_reference_route_for_scope());
 
     report("policy_traits_SmallStrain", true);
     report("policy_traits_TotalLagrangian", true);
     report("policy_traits_audit_status", true);
+    report("policy_traits_family_audit_table_helpers", true);
+    report("policy_traits_analysis_route_audit_helpers", true);
 }
 
 
@@ -660,11 +746,16 @@ void test_gpkinematics_struct() {
 // =============================================================================
 
 void test_compatible_formulation() {
-    // These should all pass (permissive for now)
-    // We can't check SolidMaterial here since it's not included,
-    // but we can check the concept compiles with basic types.
+    // Continuum legacy alias
     static_assert(CompatibleFormulation<SmallStrain, SmallStrain>);
     static_assert(CompatibleFormulation<TotalLagrangian, TotalLagrangian>);
+    static_assert(!CompatibleFormulation<Corotational, Corotational>);
+
+    // Family-aware constraints are now the normative compile-time path.
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, beam::Corotational>);
+    static_assert(!FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::beam_1d, UpdatedLagrangian>);
+    static_assert(FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, shell::SmallRotation>);
+    static_assert(!FamilyNormativelySupportedKinematicPolicy<ElementFamilyKind::shell_2d, TotalLagrangian>);
     report("compatible_formulation_concept", true);
 }
 

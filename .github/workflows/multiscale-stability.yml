@@ -209,50 +209,58 @@ jobs:
             }
           }
 
-          $runtimePatterns = @(
-            "libpetsc*.dll",
-            "libmetis*.dll",
-            "libparmetis*.dll",
-            "libhwloc*.dll",
-            "libltdl*.dll",
-            "libopenblas*.dll",
-            "libgfortran*.dll",
-            "libquadmath*.dll",
-            "libstdc++*.dll",
-            "libgcc_s*.dll",
-            "libwinpthread*.dll",
-            "libgomp*.dll",
-            "libtbb*.dll"
-          )
-
-          foreach ($pattern in $runtimePatterns) {
-            Get-ChildItem -Path $ucrtBin -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
-              Copy-Item -Path $_.FullName -Destination (Join-Path ".\build" $_.Name) -Force
-            }
+          # Stage the full UCRT64 runtime surface next to the executables.
+          # This is intentionally broader than the curated list above: the
+          # deepest PETSc/VTK tests can pull in additional transitive DLLs on
+          # GitHub runners even when lighter harnesses succeed locally.
+          $ucrtDlls = Get-ChildItem -Path $ucrtBin -Filter "*.dll" -ErrorAction Stop
+          foreach ($dll in $ucrtDlls) {
+            Copy-Item -Path $dll.FullName -Destination (Join-Path ".\build" $dll.Name) -Force
           }
 
+          if ($msmpiDll) {
+            Copy-Item -Path $msmpiDll -Destination ".\build\msmpi.dll" -Force
+          }
+
+          Write-Host "Staged $($ucrtDlls.Count) UCRT64 runtime DLLs into the build directory."
+          $buildDir = (Resolve-Path ".\build").Path
+          $env:PATH = "$buildDir;$env:PATH"
+          Write-Host "Build runtime directory: $buildDir"
+
           $executables = @(
-            ".\build\fall_n_multiscale_api_test.exe",
-            ".\build\fall_n_micro_solve_executor_test.exe",
-            ".\build\fall_n_evolver_advanced_test.exe",
-            ".\build\fall_n_tangent_validation_benchmark_test.exe",
-            ".\build\fall_n_coupling_residual_benchmark_test.exe",
-            ".\build\fall_n_beam_test.exe",
-            ".\build\fall_n_steppable_solver_test.exe",
-            ".\build\fall_n_steppable_dynamic_test.exe"
+            "fall_n_multiscale_api_test.exe",
+            "fall_n_micro_solve_executor_test.exe",
+            "fall_n_evolver_advanced_test.exe",
+            "fall_n_tangent_validation_benchmark_test.exe",
+            "fall_n_coupling_residual_benchmark_test.exe",
+            "fall_n_beam_test.exe",
+            "fall_n_steppable_solver_test.exe",
+            "fall_n_steppable_dynamic_test.exe"
           )
 
-          foreach ($exe in $executables) {
-            & $exe
-            if ($LASTEXITCODE -ne 0) {
-              if ($LASTEXITCODE -eq -1073741515) {
-                Write-Warning "STATUS_DLL_NOT_FOUND while launching $exe"
-                Write-Host "Runtime PATH prefix: $($runtimeBins -join ';')"
-                Write-Host "MS-MPI DLL candidates:"
-                $msmpiDllCandidates | ForEach-Object { Write-Host "  $_ => $(Test-Path $_)" }
+          Push-Location $buildDir
+          try {
+            foreach ($exe in $executables) {
+              & ".\$exe"
+              if ($LASTEXITCODE -ne 0) {
+                if ($LASTEXITCODE -eq -1073741515) {
+                  Write-Warning "STATUS_DLL_NOT_FOUND while launching $exe"
+                  Write-Host "Runtime PATH prefix: $($runtimeBins -join ';')"
+                  Write-Host "Build directory runtime staging count: $((Get-ChildItem -Path . -Filter '*.dll').Count)"
+                  Write-Host "MS-MPI DLL candidates:"
+                  $msmpiDllCandidates | ForEach-Object { Write-Host "  $_ => $(Test-Path $_)" }
+                  if (Test-Path (Join-Path $ucrtBin "libpetsc-dmo.dll")) {
+                    Write-Host "objdump of libpetsc-dmo.dll transitive imports:"
+                    & (Join-Path $ucrtBin "objdump.exe") -p (Join-Path $ucrtBin "libpetsc-dmo.dll") |
+                      Select-String "DLL Name|msmpi|hwloc|ltdl|metis|parmetis|openblas|gfortran|quadmath"
+                  }
+                }
+                throw "Regression executable failed: $exe (exit $LASTEXITCODE)"
               }
-              throw "Regression executable failed: $exe (exit $LASTEXITCODE)"
             }
+          }
+          finally {
+            Pop-Location
           }
 
       - name: Compile documentation

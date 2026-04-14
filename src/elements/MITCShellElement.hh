@@ -51,10 +51,24 @@ template <
     typename          MITCPolicy,
     typename          KinematicPolicy = shell::SmallRotation,
     typename          AsmPolicy       = assembly::DirectAssembly>
+requires shell::ShellKinematicPolicyConcept<KinematicPolicy> &&
+         continuum::FamilyNormativelySupportedKinematicPolicy<
+             continuum::ElementFamilyKind::shell_2d,
+             KinematicPolicy>
 class MITCShellElement {
 
     // ========================= Constants & Types =============================
 
+public:
+    using kinematic_policy_type = KinematicPolicy;
+    static constexpr continuum::ElementFamilyKind element_family_kind =
+        continuum::ElementFamilyKind::shell_2d;
+    static constexpr continuum::FormulationKind formulation_kind =
+        shell::ShellKinematicFormulationTraits<KinematicPolicy>::formulation_kind;
+    static constexpr continuum::FamilyFormulationAuditScope family_formulation_audit_scope =
+        shell::ShellKinematicFormulationTraits<KinematicPolicy>::audit_scope;
+
+private:
     static constexpr std::size_t dim         = 3;
     static constexpr std::size_t num_strains = ShellPolicy::StrainT::num_components; // 8
 

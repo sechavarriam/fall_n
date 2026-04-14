@@ -59,10 +59,24 @@ template <typename BeamPolicy,
           std::size_t Dim = BeamPolicy::dim,
           typename KinematicPolicy = beam::SmallRotation,
           typename AsmPolicy = assembly::DirectAssembly>
+    requires beam::BeamKinematicPolicyConcept<KinematicPolicy> &&
+             continuum::FamilyNormativelySupportedKinematicPolicy<
+                 continuum::ElementFamilyKind::beam_1d,
+                 KinematicPolicy>
 class BeamElement {
 
     // ========================= Types =========================================
 
+public:
+    using kinematic_policy_type = KinematicPolicy;
+    static constexpr continuum::ElementFamilyKind element_family_kind =
+        continuum::ElementFamilyKind::beam_1d;
+    static constexpr continuum::FormulationKind formulation_kind =
+        beam::BeamKinematicFormulationTraits<KinematicPolicy>::formulation_kind;
+    static constexpr continuum::FamilyFormulationAuditScope family_formulation_audit_scope =
+        beam::BeamKinematicFormulationTraits<KinematicPolicy>::audit_scope;
+
+private:
     static constexpr auto dim          = Dim;
     static constexpr auto num_strains  = BeamPolicy::StrainT::num_components;
     static constexpr auto topological_dim = 1; // beam = 1D topology

@@ -45,12 +45,21 @@ template <
 class Model{
 
 public:    
+    using material_policy_type = MaterialPolicy;
+    using kinematic_policy_type = KinematicPolicy;
+    using element_policy_type  = ElemPolicy;
     using MaterialT         = Material<MaterialPolicy>;
     using element_type      = typename ElemPolicy::element_type;
     using container_type    = typename ElemPolicy::container_type;
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
+    static constexpr continuum::ElementFamilyKind element_family_kind =
+        element_type::element_family_kind;
+    static constexpr continuum::FormulationKind formulation_kind =
+        element_type::formulation_kind;
+    static constexpr continuum::FamilyFormulationAuditScope family_formulation_audit_scope =
+        element_type::family_formulation_audit_scope;
     using checkpoint_type   = ModelCheckpoint<dim, container_type>;
 
     // ── Explicitly non-copyable, movable ─────────────────────────────

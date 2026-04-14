@@ -73,8 +73,23 @@ static void create_unit_cube(Domain<DIM>& D) {
 }
 
 using Policy = ThreeDimensionalMaterial;
+using LinA   = LinearAnalysis<Policy, continuum::SmallStrain>;
 using NLA    = NonlinearAnalysis<Policy, continuum::SmallStrain>;
+using NLA_TL = NonlinearAnalysis<Policy, continuum::TotalLagrangian>;
+using NLA_UL = NonlinearAnalysis<Policy, continuum::UpdatedLagrangian>;
 using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
+using ModelTL = Model<Policy, continuum::TotalLagrangian, NDOF>;
+using ModelUL = Model<Policy, continuum::UpdatedLagrangian, NDOF>;
+using DynA   = DynamicAnalysis<Policy>;
+using DynTL  = DynamicAnalysis<Policy, continuum::TotalLagrangian>;
+using ArcTL  = fall_n::ArcLengthSolver<Policy, continuum::TotalLagrangian>;
+
+using ContSmallElem = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
+using ContTLElem    = ContinuumElement<Policy, NDOF, continuum::TotalLagrangian>;
+using ContULElem    = ContinuumElement<Policy, NDOF, continuum::UpdatedLagrangian>;
+using BeamCRElem    = BeamElement<TimoshenkoBeam3D, 3, beam::Corotational>;
+using ShellSRElem   = MITC4Shell<>;
+using ShellCRElem   = CorotationalMITC4Shell<>;
 
 /// Create a fresh Model with unit cube, BCs, and forces.
 struct NLFixture {
@@ -125,10 +140,67 @@ void test_concept_satisfaction() {
     check(true, "NonlinearAnalysis satisfies SteppableSolver");
 
     // DynamicAnalysis
-    using DynA = DynamicAnalysis<Policy>;
     static_assert(fall_n::SteppableSolver<DynA>,
         "DynamicAnalysis must satisfy SteppableSolver");
     check(true, "DynamicAnalysis satisfies SteppableSolver");
+
+    static_assert(fall_n::AnalysisRouteTaggedSolver<LinA>);
+    static_assert(fall_n::AnalysisRouteTaggedSolver<NLA>);
+    static_assert(fall_n::AnalysisRouteTaggedSolver<NLA_TL>);
+    static_assert(fall_n::AnalysisRouteTaggedSolver<DynA>);
+    static_assert(fall_n::AnalysisRouteTaggedSolver<DynTL>);
+    static_assert(fall_n::AnalysisRouteTaggedSolver<ArcTL>);
+    static_assert(fall_n::solver_analysis_route_kind_v<LinA> ==
+                  fall_n::AnalysisRouteKind::linear_static);
+    static_assert(fall_n::solver_analysis_route_kind_v<NLA> ==
+                  fall_n::AnalysisRouteKind::nonlinear_incremental_newton);
+    static_assert(fall_n::solver_analysis_route_kind_v<DynTL> ==
+                  fall_n::AnalysisRouteKind::implicit_second_order_dynamics);
+    static_assert(fall_n::solver_analysis_route_kind_v<ArcTL> ==
+                  fall_n::AnalysisRouteKind::arc_length_continuation);
+    static_assert(fall_n::solver_analysis_route_audit_scope_v<NLA_TL>.supports_checkpoint_restart);
+    static_assert(!fall_n::solver_analysis_route_audit_scope_v<ArcTL>.supports_checkpoint_restart);
+    check(true, "analysis solvers expose audited route tags");
+
+    static_assert(fall_n::AuditedFiniteElementType<ContSmallElem>);
+    static_assert(fall_n::AuditedFiniteElementType<ContTLElem>);
+    static_assert(fall_n::AuditedFiniteElementType<ContULElem>);
+    static_assert(fall_n::AuditedFiniteElementType<BeamCRElem>);
+    static_assert(fall_n::AuditedFiniteElementType<ShellSRElem>);
+    static_assert(fall_n::AuditedFiniteElementType<ShellCRElem>);
+
+    static_assert(fall_n::NormativelySupportedSolverElementPair<ContSmallElem, LinA>);
+    static_assert(fall_n::ReferenceLinearSolverElementPair<ContSmallElem, LinA>);
+    static_assert(fall_n::NormativelySupportedSolverElementPair<ContTLElem, NLA_TL>);
+    static_assert(fall_n::ReferenceGeometricNonlinearitySolverElementPair<ContTLElem, NLA_TL>);
+    static_assert(fall_n::NormativelySupportedSolverElementPair<ContULElem, NLA_UL>);
+    static_assert(!fall_n::ReferenceGeometricNonlinearitySolverElementPair<ContULElem, NLA_UL>);
+    static_assert(!fall_n::NormativelySupportedSolverElementPair<BeamCRElem, NLA>);
+    static_assert(fall_n::canonical_element_solver_audit_scope_v<BeamCRElem, NLA>.requires_scope_disclaimer());
+    static_assert(fall_n::NormativelySupportedSolverElementPair<ShellSRElem, LinA>);
+    static_assert(fall_n::ReferenceLinearSolverElementPair<ShellSRElem, LinA>);
+    static_assert(!fall_n::NormativelySupportedSolverElementPair<ShellCRElem, NLA>);
+    static_assert(fall_n::canonical_element_solver_audit_scope_v<ShellCRElem, NLA>.requires_scope_disclaimer());
+    check(true, "element and solver types compose into audited computational scopes");
+
+    static_assert(fall_n::AuditedComputationalModelType<ModelT>);
+    static_assert(fall_n::AuditedComputationalModelType<ModelTL>);
+    static_assert(fall_n::AuditedComputationalModelType<ModelUL>);
+    static_assert(fall_n::SolverWithAuditedModelSlice<LinA>);
+    static_assert(fall_n::SolverWithAuditedModelSlice<NLA_TL>);
+    static_assert(fall_n::SolverWithAuditedModelSlice<DynTL>);
+    static_assert(fall_n::SolverWithAuditedModelSlice<ArcTL>);
+    static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelT, LinA>);
+    static_assert(fall_n::ReferenceLinearModelSolverSlice<ModelT, LinA>);
+    static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelTL, NLA_TL>);
+    static_assert(fall_n::ReferenceGeometricNonlinearityModelSolverSlice<ModelTL, NLA_TL>);
+    static_assert(fall_n::NormativelySupportedModelSolverSlice<ModelUL, NLA_UL>);
+    static_assert(!fall_n::ReferenceGeometricNonlinearityModelSolverSlice<ModelUL, NLA_UL>);
+    static_assert(!fall_n::NormativelySupportedModelSolverSlice<ModelTL, DynTL>);
+    static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<ModelTL, DynTL>.requires_scope_disclaimer());
+    static_assert(!fall_n::NormativelySupportedModelSolverSlice<ModelTL, ArcTL>);
+    static_assert(fall_n::canonical_model_solver_slice_audit_scope_v<ModelTL, ArcTL>.requires_scope_disclaimer());
+    check(true, "model and solver types compose into audited computational slices");
 }
 
 // =============================================================================

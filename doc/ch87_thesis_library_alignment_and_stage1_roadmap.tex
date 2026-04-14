@@ -212,6 +212,17 @@ The versioned workspace recipe does not guarantee that the full manuscript is
 warning-free, but it does make the intended compilation chain explicit and
 reproducible from the repository itself.
 
+An analogous principle now governs the Windows/MSYS2 regression gate of the
+library itself.  The current workflow no longer relies exclusively on
+\texttt{PATH}-based runtime discovery for PETSc/VTK-heavy executables.  In
+addition to explicit MS-MPI discovery, the CI now stages the full
+\texttt{ucrt64/bin/*.dll} runtime surface next to the regression executables.
+This is an intentionally conservative operational choice: the audited GitHub
+failure mode was \texttt{STATUS\_DLL\_NOT\_FOUND} on the deep
+\texttt{fall\_n\_evolver\_advanced\_test.exe} surface, and a broader staging
+policy is preferable to repeatedly underestimating transitive runner
+dependencies and mistaking an environment failure for a scientific regression.
+
 \section{Finite-kinematics audit to be completed before the FEM rewrite}
 
 Stage 1 must not rewrite the FEM chapter before the finite-kinematics status is
@@ -246,6 +257,236 @@ This table matters because the current thesis text already treats TL and UL as
 available computational realizations of the continuum theory.  That is broadly
 true, but not yet with the same degree of scientific maturity across all
 material and element paths.
+
+\section{A fourth audit layer: concrete element--solver pairs}
+
+The previous audit layers remain necessary, but they still leave one
+methodological gap: a thesis can honestly state that a formulation is available
+for a family and that a solver route exists, while still failing to record
+whether the \emph{actual typed pair used in code} is treated as a normative,
+partial or merely declared computational path.  Stage~1 now closes part of
+that gap through a fourth compile-time layer in
+\texttt{src/analysis/ComputationalScopeAudit.hh}.
+
+The intent is deliberately practical.  The library must be able to express,
+without runtime overhead, statements such as:
+\begin{itemize}
+  \item \texttt{ContinuumElement<TL> + NonlinearAnalysis} is the current
+  reference finite-kinematics quasi-static path for continuum 3D;
+  \item \texttt{ContinuumElement<UL> + NonlinearAnalysis} is real, but not yet
+  a reference path;
+  \item \texttt{BeamElement<Corotational> + NonlinearAnalysis} has an actual
+  runtime route, but still carries a scope disclaimer at the present solver
+  evidence level;
+  \item \texttt{MITCShellElement<Corotational> + NonlinearAnalysis} is
+  available, but not promoted to the same status as the continuum TL baseline.
+\end{itemize}
+
+This is a stronger claim than the earlier family matrix because it binds the
+audit to the same C++ types that instantiate the numerical kernels.  In other
+words, the thesis no longer needs to trust that a family-level table is
+implicitly respected by the implementation: the implementation can now expose
+that same matrix through the types themselves.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative audited element--solver pairs after the Stage-1
+  composition layer.}
+  \label{tab:stage1-element-solver-audit}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Typed pair} & \textbf{Scientific reading} & \textbf{Status} &
+    \textbf{Interpretation} \\
+    \midrule
+    \texttt{ContinuumElement<TL>} + \texttt{NonlinearAnalysis}
+    & continuum 3D + TL + Newton
+    & reference
+    & current quasi-static finite-kinematics baseline \\
+
+    \texttt{ContinuumElement<UL>} + \texttt{NonlinearAnalysis}
+    & continuum 3D + UL + Newton
+    & partial
+    & real path with bounded evidence and explicit disclaimer \\
+
+    \texttt{ContinuumElement<small strain>} + \texttt{LinearAnalysis}
+    & continuum 3D + linearized + static
+    & reference
+    & current small-strain baseline \\
+
+    \texttt{BeamElement<corotational>} + \texttt{NonlinearAnalysis}
+    & beam 1D + CR + Newton
+    & partial
+    & runtime path exists, but solver-level promotion remains conservative \\
+
+    \texttt{MITCShellElement<corotational>} + \texttt{NonlinearAnalysis}
+    & shell 2D + CR + Newton
+    & partial
+    & available path, not yet a reference nonlinear shell route \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Conceptually, this fourth layer is important because it is the first one that
+lets the software answer a question of the form ``what is the audited status of
+the concrete computational model I am actually instantiating right now?''  That
+question will become central when Chapter~7 moves from architectural
+motivation to a real description of the computational model of
+\texttt{fall\_n}.
+
+\section{A fifth audit layer: typed model--solver slices}
+
+The element--solver layer is already much stronger than a purely editorial
+matrix, but one final methodological gap remains.  Users do not instantiate
+isolated element types in the abstract; they instantiate \emph{model slices}
+whose element policy, kinematic formulation, and solver route must remain
+coherent.  To make that slice explicit, Stage~1 now adds
+\texttt{src/analysis/ComputationalModelSliceAudit.hh}.
+
+This layer composes the previous audit over actual pairs of the form
+\[
+\texttt{Model<...>} + \texttt{Solver<...>},
+\]
+so the code can distinguish between
+\begin{itemize}
+  \item a formulation/route combination that is theoretically admissible,
+  \item an element--solver pair that is auditably available, and
+  \item the \emph{specific computational slice} that a user is truly running.
+\end{itemize}
+
+In practical terms, the new layer can now answer questions such as:
+\begin{itemize}
+  \item whether \texttt{Model<TL>} + \texttt{NonlinearAnalysis<TL>} is a
+  reference finite-kinematics continuum slice;
+  \item whether \texttt{Model<UL>} + \texttt{NonlinearAnalysis<UL>} is
+  available but still partial;
+  \item whether \texttt{Model<TL>} + \texttt{ArcLengthSolver<TL>} should still
+  carry a scope disclaimer even though the same model slice is normative under
+  Newton continuation.
+\end{itemize}
+
+This fifth layer is architecturally modest on purpose.  It does not add a new
+runtime registry or a reflective metadata system.  Instead, it reuses
+\texttt{element\_type}, \texttt{model\_type}, and existing audited traits as
+\texttt{constexpr} compile-time facts.  That keeps the numerical kernels free
+from dynamic dispatch while making the thesis language much more precise:
+claims can now be anchored not only to ``family/formulation/route'' but to the
+same typed computational slices that appear in user code and regression tests.
+
+During the present iteration this family-level audit also stopped being a
+purely switch-based internal convention. The library now exposes the same
+matrix as structured compile-time data through
+\texttt{canonical\_family\_formulation\_audit\_table()},
+\texttt{canonical\_family\_formulation\_audit\_row(...)} and the
+\texttt{find\_family\_*reference\_path(...)} helpers. This matters for the
+thesis because the FEM chapter can now cite a single computational source of
+truth rather than reproduce the family/formulation classification manually in
+multiple places.
+
+\paragraph{Family-level scope matrix.}
+The previous semantic lift was formulation-centric.  Stage~1 now adds a second,
+strictly separate layer in \texttt{FormulationScopeAudit.hh}, because the same
+formulation label does not mean the same thing across all element families.  In
+particular, \emph{corotational} is still a placeholder for continuum 3D, while
+beam corotational is the current reference nonlinear beam path and shell
+corotational is available but still not promoted to the same baseline status.
+This matrix is no longer merely documentary: the library now exposes
+\texttt{FamilyKinematicPolicyAuditTraits} together with the concepts
+\texttt{FamilyNormativelySupportedKinematicPolicy} and
+\texttt{FamilyReferenceGeometricNonlinearityKinematicPolicy}, so the audited
+scope can also act as a compile-time compatibility layer.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Family-level formulation audit encoded in
+  \texttt{canonical\_family\_formulation\_audit\_scope(...) }.}
+  \label{tab:stage1-family-formulation-audit}
+  \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Family} & \textbf{Formulation} & \textbf{Current code status}
+    & \textbf{Critical reading} \\
+    \midrule
+    Continuum 3D & Small strain & implemented & linear reference path only \\
+    Continuum 3D & Total Lagrangian & reference baseline & current nonlinear reference \\
+    Continuum 3D & Updated Lagrangian & partial & real path, still under scope disclaimer \\
+    Continuum 3D & Corotational & placeholder & not a usable 3D continuum formulation \\
+    Beam 1D & Small rotation & implemented & linearized beam baseline \\
+    Beam 1D & Corotational & reference baseline & current nonlinear beam reference \\
+    Shell 2D & Small rotation & reference baseline & current structural-shell baseline \\
+    Shell 2D & Corotational & partial & available and tested, but not yet promoted to the same status \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+This family-level matrix is no longer backed only by concept-level harnesses.
+During the present iteration it was also rechecked on structural targets that
+instantiate the normative templates directly: the beam regression surface
+(\texttt{fall\_n\_beam\_test.exe}, \(21/21\)), the MITC-shell regression
+surface (\texttt{fall\_n\_mitc\_shell\_test.exe}, \(12/12\)), and the seismic
+infrastructure harness (\texttt{fall\_n\_seismic\_infra\_test.exe},
+\(33/33\)) remained in green after the family-aware constraints were moved
+into \texttt{ContinuumElement}, \texttt{BeamElement}, and
+\texttt{MITCShellElement}.  Methodologically, this matters because it shows
+that the matrix is already acting as a compile-time boundary on the real
+structural types, not only as a declarative table attached to the thesis.
+
+\paragraph{A third audit layer: analysis routes.}
+The family--formulation matrix is necessary, but it is still not sufficient.
+A formulation being available for a family does not imply that every solver
+route is equally mature for that same scope.  The current codebase already
+distinguishes at least four routes with different lifecycle and evidence
+profiles:
+\begin{itemize}
+  \item \texttt{LinearAnalysis.hh} for linear-static solves;
+  \item \texttt{NLAnalysis.hh} for checkpointable incremental Newton solves;
+  \item \texttt{DynamicAnalysis.hh} for implicit second-order dynamics;
+  \item \texttt{ArcLengthSolver.hh} for continuation through limit points.
+\end{itemize}
+
+Stage~1 now records that distinction explicitly in
+\texttt{src/analysis/AnalysisRouteAudit.hh}.  This layer classifies
+\emph{family \(\times\) formulation \(\times\) route} rather than only
+\emph{family \(\times\) formulation}, and it records whether the route has a
+runtime path, whether it supports checkpoint/restart or directed stepping, and
+whether the current evidence is strong enough to treat it as a reference
+baseline.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative audited scopes after adding the analysis-route layer.}
+  \label{tab:stage1-family-formulation-route-audit}
+  \small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    \textbf{Family} & \textbf{Formulation} & \textbf{Route} & \textbf{Status}
+    & \textbf{Critical reading} \\
+    \midrule
+    Continuum 3D & Small strain & Linear static & reference baseline
+    & audited linear reference route \\
+    Continuum 3D & Total Lagrangian & Nonlinear Newton & reference baseline
+    & current finite-kinematics reference path \\
+    Continuum 3D & Updated Lagrangian & Nonlinear Newton & partial
+    & real route under validated-scope disclaimer \\
+    Continuum 3D & Total Lagrangian & Implicit dynamics & interface declared
+    & generic route exists, but not yet a reference claim \\
+    Continuum 3D & Total Lagrangian & Arc-length & partial
+    & implemented continuation class, still not normative baseline \\
+    Beam 1D & Small rotation & Nonlinear Newton & implemented
+    & structural route already exercised in current tests \\
+    Beam 1D & Corotational & Nonlinear Newton & partial
+    & formulation mature, solver-level evidence still lagging \\
+    Shell 2D & Corotational & Nonlinear Newton & partial
+    & element path exists, solver route not yet baseline \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+This third layer produces a useful scientific correction: it is still true
+that beam and shell corotational kinematics exist and matter, but it is no
+longer acceptable to infer from that fact alone that every global nonlinear
+solver route using those formulations has reached the same maturity as the
+continuum Total-Lagrangian/Newton baseline.
 
 \section{WP3 initial delivery: a first semantic lift of continuum theory}
 
@@ -311,7 +552,11 @@ compile-time semantics and not only as comments or implicit conventions:
   placeholder status;
   \item \texttt{ConstitutiveKinematics<dim>} now carries the corresponding
   semantic metadata together with the actual strain tensors, \(F\), and \(J\);
-  \item tests verify both numerical consistency and semantic consistency.
+  \item tests verify both numerical consistency and semantic consistency; and
+  \item the element templates \texttt{ContinuumElement},
+  \texttt{BeamElement}, and \texttt{MITCShellElement} now consume the family
+  audit layer directly, so unsupported formulation/family combinations are
+  rejected at instantiation time instead of being left to narrative warnings.
 \end{itemize}
 
 This is intentionally modest.  The semantic lift does \emph{not} yet close the

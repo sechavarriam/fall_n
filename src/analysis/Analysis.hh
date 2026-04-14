@@ -24,6 +24,9 @@
 #include "../model/Model.hh"
 
 // ── 2. Concepts and value types ─────────────────────────────────────────
+#include "AnalysisRouteAudit.hh"
+#include "ComputationalModelSliceAudit.hh"
+#include "ComputationalScopeAudit.hh"
 #include "AnalysisObserver.hh"
 #include "IncrementalControl.hh"
 #include "StepDirector.hh"
@@ -36,6 +39,7 @@
 #include "LinearAnalysis.hh"
 #include "NLAnalysis.hh"
 #include "DynamicAnalysis.hh"
+#include "ArcLengthSolver.hh"
 
 // ── 5. Orchestration ────────────────────────────────────────────────────
 #include "AnalysisDirector.hh"

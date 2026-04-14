@@ -8,6 +8,7 @@
 #include "../petsc/KspCompatibility.hh"
 #include "../petsc/PetscRaii.hh"
 #include "../utils/Benchmark.hh"
+#include "AnalysisRouteAudit.hh"
 
 // =============================================================================
 //  LinearAnalysis — PETSc KSP-driven linear static solver
@@ -41,6 +42,14 @@ class LinearAnalysis
     AnalysisTimer timer_;
 
 public:
+    using model_type = ModelT;
+    using element_type = typename ModelT::element_type;
+    using analysis_route_tag =
+        fall_n::AnalysisRouteTag<fall_n::AnalysisRouteKind::linear_static>;
+    static constexpr fall_n::AnalysisRouteKind analysis_route_kind =
+        fall_n::AnalysisRouteKind::linear_static;
+    static constexpr fall_n::AnalysisRouteAuditScope analysis_route_audit_scope =
+        fall_n::canonical_analysis_route_audit_scope(analysis_route_kind);
 
     /// Access the performance timer.
     const AnalysisTimer& timer() const { return timer_; }
