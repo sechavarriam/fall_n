@@ -73,10 +73,12 @@ in the next writing pass of the thesis.
       overloads the physical meaning of “material”. \\
 
     Continuum ontology of body/configuration/objective measures
-    & \texttt{ConstitutiveKinematics.hh}, \texttt{KinematicPolicy.hh},
+    & \texttt{ContinuumSemantics.hh}, \texttt{ConstitutiveKinematics.hh}, \texttt{KinematicPolicy.hh},
+      \texttt{BodyPoint}, \texttt{PlacementMap}, \texttt{MotionSnapshot},
       \texttt{Point.hh}, \texttt{Topology.hh}
     & partial
-    & Kinematic semantics are richer than topological semantics at present. \\
+    & A first compile-time semantic layer now exists, but the geometric and
+      topological ontology is still weaker than the continuum chapter. \\
 
     Total Lagrangian continuum path
     & \texttt{KinematicPolicy.hh}, \texttt{ContinuumElement.hh}
@@ -238,6 +240,101 @@ This table matters because the current thesis text already treats TL and UL as
 available computational realizations of the continuum theory.  That is broadly
 true, but not yet with the same degree of scientific maturity across all
 material and element paths.
+
+\section{WP3 initial delivery: a first semantic lift of continuum theory}
+
+Stage~1 now includes a first explicit semantic layer in
+\texttt{src/continuum/ContinuumSemantics.hh}.  The purpose of this layer is not
+to introduce a new runtime object model, but to encode three distinctions that
+were already present in Chapter~4 and only implicit in code:
+\begin{enumerate}
+  \item the \emph{description kind} (\emph{linearized}, \emph{material},
+  \emph{spatial}, or \emph{corotated});
+  \item the configuration over which a formulation is assembled; and
+  \item the strain--stress pair that is being treated as work-conjugate.
+\end{enumerate}
+
+Mathematically, this corresponds to making explicit the different virtual-work
+pairs already used throughout the library:
+\begin{align}
+  \delta W_{\mathrm{lin}} &= \int_{\Omega_0} \boldsymbol{\sigma} :
+    \delta\boldsymbol{\varepsilon}\,\mathrm{d}V,\\
+  \delta W_{\mathrm{TL}} &= \int_{\Omega_0} \mathbf{S} :
+    \delta\mathbf{E}\,\mathrm{d}V,\\
+  \delta W_{\mathrm{UL}} &= \int_{\Omega_t} \boldsymbol{\sigma} :
+    \delta\mathbf{e}\,\mathrm{d}v,
+\end{align}
+where \(\boldsymbol{\varepsilon}\) is the infinitesimal strain,
+\(\mathbf{E}\) the Green--Lagrange strain, \(\mathbf{e}\) the Almansi strain,
+\(\mathbf{S}\) the second Piola--Kirchhoff stress, and
+\(\boldsymbol{\sigma}\) the Cauchy stress.
+
+The key architectural point is that the code now records these distinctions as
+compile-time semantics and not only as comments or implicit conventions:
+\begin{itemize}
+  \item \texttt{KinematicFormulationTraits<Policy>} classifies each formulation
+  by description kind, assembly configuration, canonical conjugate pair, and
+  scientific maturity;
+  \item \texttt{BodyPoint}, \texttt{ReferencePoint}, \texttt{CurrentPoint},
+  \texttt{PlacementMap} and \texttt{MotionSnapshot} provide a first
+  computational vocabulary for the Chapter~4 notions of body, configuration,
+  placement, and motion;
+  \item \texttt{ConstitutiveKinematics<dim>} now carries the corresponding
+  semantic metadata together with the actual strain tensors, \(F\), and \(J\);
+  \item tests verify both numerical consistency and semantic consistency.
+\end{itemize}
+
+This is intentionally modest.  The semantic lift does \emph{not} yet close the
+entire Chapter~4 ontology in software.  It does, however, establish a truthful
+bridge between continuum theory and implementation, which is a necessary
+precondition for the later rewrite of the FEM chapter.
+
+\paragraph{Why the new carriers matter.}
+The added point/placement/motion carriers are intentionally shallow. They do
+not try to replace the existing geometric kernel, nor do they claim to encode
+the full differential-geometric structure of the continuum chapter. Their
+purpose is narrower and more pragmatic:
+\begin{itemize}
+  \item to distinguish, in code, between a point on the material body and its
+  images in reference/current/corotated configurations;
+  \item to make the placement gradient and its Jacobian explicit when a local
+  continuum state is passed through the constitutive interface; and
+  \item to prepare future compile-time checks on work-conjugacy, objectivity,
+  and formulation compatibility without adding polymorphic cost to the hot
+  path.
+\end{itemize}
+This is exactly the sort of semantic lift that the thesis needs before the FEM
+chapter can be rewritten in terms of the library itself instead of in generic
+textbook language.
+
+\section{WP4 interim audit: what the formulation status really means}
+
+The formulation labels now have an explicit computational meaning:
+\begin{itemize}
+  \item \textbf{implemented} means the formulation exists in code, participates
+  in the normative path, and has dedicated tests supporting its current claim;
+  \item \textbf{partial} means the formulation exists and is useful, but its
+  validated scientific scope is narrower than a full theoretical treatment;
+  \item \textbf{placeholder} means the architecture reserves the slot, but the
+  library does not yet provide a mature scientific realization.
+\end{itemize}
+
+For the present codebase, this leads to the following interpretation:
+\begin{itemize}
+  \item \textbf{Total Lagrangian continuum 3D} remains the finite-strain
+  reference path.
+  \item \textbf{Updated Lagrangian continuum 3D} is no longer called a
+  placeholder.  The spatial pathway, push-forward machinery, and dedicated
+  tests are real.  However, it remains \emph{partial} because the validated
+  scope is still narrower than the full rhetoric of a general UL continuum
+  formulation.
+  \item \textbf{Continuum corotational} remains a placeholder.  The beam and
+  shell corotational implementations must not be used as indirect evidence that
+  continuum corotational kinematics is already available.
+\end{itemize}
+
+This distinction is important for the thesis: it prevents the FEM chapter from
+making scientifically stronger claims than the current evidence supports.
 
 \section{Stage-1 work packages}
 

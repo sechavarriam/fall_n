@@ -18,8 +18,12 @@
 //                        Green-Lagrange E = ½(FᵀF − I), 2nd Piola-Kirchhoff S.
 //                        Nonlinear B(F), geometric stiffness K_σ.
 //
-//    UpdatedLagrangian — Current-configuration formulation (placeholder).
-//    Corotational      — Corotated frame formulation (placeholder).
+//    UpdatedLagrangian — Current-configuration formulation.
+//                        Implemented as a spatial pathway, but still treated
+//                        as partially validated at the scientific level.
+//    Corotational      — Corotated frame formulation placeholder for
+//                        continuum 3D. Beam/shell corotational paths are
+//                        tracked separately and are more mature.
 //
 //  ─── Integration pattern ───
 //
@@ -50,6 +54,7 @@
 #include "TensorOperations.hh"
 #include "StrainMeasures.hh"
 #include "StressMeasures.hh"
+#include "ContinuumSemantics.hh"
 
 // Forward-declare ElementGeometry (used only through pointer/reference).
 template <std::size_t dim>
@@ -767,6 +772,74 @@ struct Corotational {
 };
 
 static_assert(KinematicPolicyConcept<Corotational>);
+
+
+// =============================================================================
+//  KinematicFormulationTraits — honest formulation-level semantics and maturity
+// =============================================================================
+
+template <typename Policy>
+struct KinematicFormulationTraits;
+
+template <>
+struct KinematicFormulationTraits<SmallStrain> {
+    static constexpr FormulationKind formulation_kind = FormulationKind::small_strain;
+    static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::linearized;
+    static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::reference;
+    static constexpr ConjugateMeasureSemantics conjugate_pair{
+        StrainMeasureKind::infinitesimal,
+        StressMeasureKind::cauchy,
+        ConfigurationKind::reference,
+        ConfigurationKind::current
+    };
+    static constexpr FormulationMaturity maturity = FormulationMaturity::implemented;
+    static constexpr bool pair_is_normatively_audited = true;
+};
+
+template <>
+struct KinematicFormulationTraits<TotalLagrangian> {
+    static constexpr FormulationKind formulation_kind = FormulationKind::total_lagrangian;
+    static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::material;
+    static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::reference;
+    static constexpr ConjugateMeasureSemantics conjugate_pair{
+        StrainMeasureKind::green_lagrange,
+        StressMeasureKind::second_piola_kirchhoff,
+        ConfigurationKind::reference,
+        ConfigurationKind::reference
+    };
+    static constexpr FormulationMaturity maturity = FormulationMaturity::implemented;
+    static constexpr bool pair_is_normatively_audited = true;
+};
+
+template <>
+struct KinematicFormulationTraits<UpdatedLagrangian> {
+    static constexpr FormulationKind formulation_kind = FormulationKind::updated_lagrangian;
+    static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::spatial;
+    static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::current;
+    static constexpr ConjugateMeasureSemantics conjugate_pair{
+        StrainMeasureKind::almansi,
+        StressMeasureKind::cauchy,
+        ConfigurationKind::current,
+        ConfigurationKind::current
+    };
+    static constexpr FormulationMaturity maturity = FormulationMaturity::partial;
+    static constexpr bool pair_is_normatively_audited = true;
+};
+
+template <>
+struct KinematicFormulationTraits<Corotational> {
+    static constexpr FormulationKind formulation_kind = FormulationKind::corotational;
+    static constexpr KinematicDescriptionKind description_kind = KinematicDescriptionKind::corotated;
+    static constexpr ConfigurationKind assembly_configuration = ConfigurationKind::corotated;
+    static constexpr ConjugateMeasureSemantics conjugate_pair{
+        StrainMeasureKind::infinitesimal,
+        StressMeasureKind::cauchy,
+        ConfigurationKind::corotated,
+        ConfigurationKind::corotated
+    };
+    static constexpr FormulationMaturity maturity = FormulationMaturity::placeholder;
+    static constexpr bool pair_is_normatively_audited = false;
+};
 
 
 // =============================================================================

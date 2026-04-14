@@ -541,7 +541,7 @@ fall_n_add_test(TARGET fall_n_hyperelastic_test
 
 fall_n_add_test(TARGET fall_n_continuum_interface_test
     NAME continuum_constitutive_interface  SOURCE tests/test_continuum_constitutive_interface.cpp
-    LIBS CORE  LABEL unit)
+    LIBS FULL  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_continuum_local_problem_test
     NAME continuum_local_problem  SOURCE tests/test_continuum_local_problem.cpp

@@ -32,20 +32,10 @@
 #include <Eigen/Dense>
 
 #include "KinematicPolicy.hh"
+#include "ContinuumSemantics.hh"
 #include "../materials/ConstitutiveRelation.hh"
 
 namespace continuum {
-
-enum class StrainMeasureKind {
-    infinitesimal,
-    green_lagrange,
-    almansi
-};
-
-enum class StressMeasureKind {
-    cauchy,
-    second_piola_kirchhoff
-};
 
 template <std::size_t dim>
 struct ConstitutiveKinematics {
@@ -56,6 +46,13 @@ struct ConstitutiveKinematics {
 
     StrainMeasureKind active_strain_measure{StrainMeasureKind::infinitesimal};
     StressMeasureKind conjugate_stress_measure{StressMeasureKind::cauchy};
+    FormulationKind formulation_kind{FormulationKind::small_strain};
+    KinematicDescriptionKind description_kind{KinematicDescriptionKind::linearized};
+    ConfigurationKind assembly_configuration{ConfigurationKind::reference};
+    ConfigurationKind strain_measure_configuration{ConfigurationKind::reference};
+    ConfigurationKind stress_measure_configuration{ConfigurationKind::current};
+    FormulationMaturity formulation_maturity{FormulationMaturity::implemented};
+    bool measure_pair_is_normatively_audited{true};
 
     VoigtVectorT engineering_strain = VoigtVectorT::Zero();
     SymmetricTensor2<dim> infinitesimal_strain = SymmetricTensor2<dim>::zero();
@@ -80,6 +77,23 @@ struct ConstitutiveKinematics {
             return almansi_strain;
         }
         return infinitesimal_strain;
+    }
+
+    [[nodiscard]] ConjugateMeasureSemantics measure_semantics() const noexcept {
+        return {
+            active_strain_measure,
+            conjugate_stress_measure,
+            strain_measure_configuration,
+            stress_measure_configuration
+        };
+    }
+
+    [[nodiscard]] bool has_work_conjugate_measure_pair() const noexcept {
+        return measure_semantics().is_work_conjugate();
+    }
+
+    [[nodiscard]] bool has_normatively_audited_work_conjugacy() const noexcept {
+        return measure_pair_is_normatively_audited && has_work_conjugate_measure_pair();
     }
 };
 
@@ -156,20 +170,27 @@ template <typename Policy, std::size_t dim>
     const GPKinematics<dim>& gp)
 {
     ConstitutiveKinematics<dim> kin;
+    using Traits = KinematicFormulationTraits<Policy>;
+
+    kin.formulation_kind = Traits::formulation_kind;
+    kin.description_kind = Traits::description_kind;
+    kin.assembly_configuration = Traits::assembly_configuration;
+    kin.strain_measure_configuration = Traits::conjugate_pair.strain_configuration;
+    kin.stress_measure_configuration = Traits::conjugate_pair.stress_configuration;
+    kin.formulation_maturity = Traits::maturity;
+    kin.measure_pair_is_normatively_audited = Traits::pair_is_normatively_audited;
+    kin.active_strain_measure = Traits::conjugate_pair.strain_measure;
+    kin.conjugate_stress_measure = Traits::conjugate_pair.stress_measure;
     kin.engineering_strain = gp.strain_voigt;
     kin.F = gp.F;
     kin.detF = gp.detF;
 
     if constexpr (std::same_as<Policy, SmallStrain>) {
-        kin.active_strain_measure = StrainMeasureKind::infinitesimal;
-        kin.conjugate_stress_measure = StressMeasureKind::cauchy;
         kin.infinitesimal_strain = engineering_voigt_to_tensor<dim>(gp.strain_voigt);
         kin.green_lagrange_strain = kin.infinitesimal_strain;
         kin.almansi_strain = kin.infinitesimal_strain;
     }
     else if constexpr (std::same_as<Policy, UpdatedLagrangian>) {
-        kin.active_strain_measure = StrainMeasureKind::almansi;
-        kin.conjugate_stress_measure = StressMeasureKind::cauchy;
         kin.green_lagrange_strain = strain::green_lagrange(gp.F);
         kin.almansi_strain = strain::almansi(gp.F);
         kin.engineering_strain = kin.almansi_strain.voigt_engineering();
@@ -177,9 +198,7 @@ template <typename Policy, std::size_t dim>
             gp.F.symmetric_part() - Tensor2<dim>::identity().symmetric_part()
         };
     }
-    else {
-        kin.active_strain_measure = StrainMeasureKind::green_lagrange;
-        kin.conjugate_stress_measure = StressMeasureKind::second_piola_kirchhoff;
+    else if constexpr (std::same_as<Policy, TotalLagrangian>) {
         kin.green_lagrange_strain = strain::green_lagrange(gp.F);
         kin.almansi_strain = strain::almansi(gp.F);
         // For finite-strain formulations the infinitesimal strain is still
@@ -187,6 +206,15 @@ template <typename Policy, std::size_t dim>
         kin.infinitesimal_strain = SymmetricTensor2<dim>{
             gp.F.symmetric_part() - Tensor2<dim>::identity().symmetric_part()
         };
+    }
+    else {
+        // Corotational continuum semantics are currently a declared slot in the
+        // architecture rather than a validated formulation. Keep the carrier
+        // diagnostically rich without pretending to provide a mature finite-
+        // strain continuum interpretation.
+        kin.infinitesimal_strain = engineering_voigt_to_tensor<dim>(gp.strain_voigt);
+        kin.green_lagrange_strain = strain::green_lagrange(gp.F);
+        kin.almansi_strain = strain::almansi(gp.F);
     }
 
     return kin;
