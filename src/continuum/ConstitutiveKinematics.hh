@@ -51,8 +51,13 @@ struct ConstitutiveKinematics {
     ConfigurationKind assembly_configuration{ConfigurationKind::reference};
     ConfigurationKind strain_measure_configuration{ConfigurationKind::reference};
     ConfigurationKind stress_measure_configuration{ConfigurationKind::current};
+    VolumeMeasureKind volume_measure{VolumeMeasureKind::reference};
+    VirtualWorkCompatibilityKind virtual_work_compatibility{
+        VirtualWorkCompatibilityKind::linearized_equivalent};
     FormulationMaturity formulation_maturity{FormulationMaturity::implemented};
     bool measure_pair_is_normatively_audited{true};
+    FormulationAuditScope formulation_audit =
+        canonical_formulation_audit_scope(FormulationKind::small_strain);
 
     VoigtVectorT engineering_strain = VoigtVectorT::Zero();
     SymmetricTensor2<dim> infinitesimal_strain = SymmetricTensor2<dim>::zero();
@@ -94,6 +99,37 @@ struct ConstitutiveKinematics {
 
     [[nodiscard]] bool has_normatively_audited_work_conjugacy() const noexcept {
         return measure_pair_is_normatively_audited && has_work_conjugate_measure_pair();
+    }
+
+    [[nodiscard]] VirtualWorkSemantics virtual_work_semantics() const noexcept {
+        return {
+            formulation_kind,
+            measure_semantics(),
+            assembly_configuration,
+            volume_measure,
+            virtual_work_compatibility,
+            measure_pair_is_normatively_audited
+        };
+    }
+
+    [[nodiscard]] bool has_exact_virtual_work_semantics() const noexcept {
+        return virtual_work_semantics().is_exact();
+    }
+
+    [[nodiscard]] bool has_normatively_acceptable_virtual_work_semantics() const noexcept {
+        return virtual_work_semantics().is_normatively_acceptable();
+    }
+
+    [[nodiscard]] bool has_validated_continuum_3d_formulation_path() const noexcept {
+        return formulation_audit.validated_for_continuum_3d;
+    }
+
+    [[nodiscard]] bool is_reference_finite_kinematics_path() const noexcept {
+        return formulation_audit.is_reference_finite_kinematics_path();
+    }
+
+    [[nodiscard]] bool requires_finite_kinematics_scope_disclaimer() const noexcept {
+        return formulation_audit.requires_finite_kinematics_scope_disclaimer();
     }
 };
 
@@ -177,8 +213,11 @@ template <typename Policy, std::size_t dim>
     kin.assembly_configuration = Traits::assembly_configuration;
     kin.strain_measure_configuration = Traits::conjugate_pair.strain_configuration;
     kin.stress_measure_configuration = Traits::conjugate_pair.stress_configuration;
+    kin.volume_measure = Traits::volume_measure;
+    kin.virtual_work_compatibility = Traits::virtual_work_compatibility;
     kin.formulation_maturity = Traits::maturity;
     kin.measure_pair_is_normatively_audited = Traits::pair_is_normatively_audited;
+    kin.formulation_audit = Traits::audit_scope;
     kin.active_strain_measure = Traits::conjugate_pair.strain_measure;
     kin.conjugate_stress_measure = Traits::conjugate_pair.stress_measure;
     kin.engineering_strain = gp.strain_voigt;

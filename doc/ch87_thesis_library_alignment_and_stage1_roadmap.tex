@@ -215,8 +215,14 @@ reproducible from the repository itself.
 \section{Finite-kinematics audit to be completed before the FEM rewrite}
 
 Stage 1 must not rewrite the FEM chapter before the finite-kinematics status is
-honestly classified.  Table~\ref{tab:stage1-kinematics-status} records the
-current target classification.
+honestly classified.  A purely semantic statement such as ``this formulation
+uses a work-conjugate pair'' is not enough: the library also needs an explicit
+record of whether the formulation has a real continuum path, whether it has
+been regression tested, and whether it should be treated as a reference route
+or only as a partial implementation.  This is now encoded in
+\texttt{FormulationAuditScope} and exposed through
+\texttt{KinematicFormulationTraits<Policy>::audit\_scope}.  Table
+\ref{tab:stage1-kinematics-status} records the current target classification.
 
 \begin{table}[htbp]
   \centering
@@ -254,6 +260,26 @@ were already present in Chapter~4 and only implicit in code:
   \item the strain--stress pair that is being treated as work-conjugate.
 \end{enumerate}
 
+This layer now goes one step further by distinguishing \emph{mathematical
+semantics} from \emph{audited computational scope}.  In practice, the code now
+stores:
+\begin{itemize}
+  \item \texttt{VirtualWorkSemantics}, which captures the intended virtual-work
+  statement of a formulation;
+  \item \texttt{AuditEvidenceLevel}, which classifies the strength of the
+  current evidence (\emph{interface declared}, \emph{regression tested},
+  \emph{reference baseline}, etc.); and
+  \item \texttt{FormulationAuditScope}, which records whether the formulation
+  actually has a continuum 3D path, whether it supports finite kinematics, and
+  whether it should be used as the current reference route.
+\end{itemize}
+
+The practical consequence is important: the library can now state, at compile
+time, that Total Lagrangian is the current reference path for finite-kinematic
+continuum work, that Updated Lagrangian is real but still partial, and that
+continuum corotational remains a placeholder without pretending that all three
+carry the same computational weight.
+
 Mathematically, this corresponds to making explicit the different virtual-work
 pairs already used throughout the library:
 \begin{align}
@@ -279,6 +305,10 @@ compile-time semantics and not only as comments or implicit conventions:
   \texttt{PlacementMap} and \texttt{MotionSnapshot} provide a first
   computational vocabulary for the Chapter~4 notions of body, configuration,
   placement, and motion;
+  \item \texttt{VirtualWorkSemantics} and its associated compatibility/mass-
+  measure tags make explicit whether the formulation claims an exact
+  work-conjugate statement, only a linearized-equivalent one, or an unaudited
+  placeholder status;
   \item \texttt{ConstitutiveKinematics<dim>} now carries the corresponding
   semantic metadata together with the actual strain tensors, \(F\), and \(J\);
   \item tests verify both numerical consistency and semantic consistency.
@@ -306,6 +336,25 @@ purpose is narrower and more pragmatic:
 This is exactly the sort of semantic lift that the thesis needs before the FEM
 chapter can be rewritten in terms of the library itself instead of in generic
 textbook language.
+
+\paragraph{A subtle but important refinement.}
+The new virtual-work metadata is not redundant with the strain/stress pair
+alone.  Small strain, Total Lagrangian, and Updated Lagrangian all rely on
+work-conjugate pairs in a broad mechanical sense, but they do \emph{not} make
+the same claim:
+\begin{itemize}
+  \item TL and UL are treated as \emph{exact} statements on their natural
+  domains \(\Omega_0\) and \(\Omega_t\), respectively;
+  \item small strain is treated as a \emph{linearized-equivalent} statement,
+  because the use of \(\boldsymbol{\sigma}\) with
+  \(\boldsymbol{\varepsilon}\) rests on the kinematic simplification
+  \(\Omega_t \approx \Omega_0\);
+  \item continuum corotational remains an \emph{unaudited placeholder} rather
+  than a fully claimed virtual-work formulation.
+\end{itemize}
+This distinction is mathematically small but architecturally very important:
+it prevents the library from flattening all formulations into the same
+semantic bucket just because they share parts of the implementation pipeline.
 
 \section{WP4 interim audit: what the formulation status really means}
 

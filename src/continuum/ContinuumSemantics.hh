@@ -70,6 +70,26 @@ enum class FormulationMaturity {
     proposed
 };
 
+enum class VolumeMeasureKind {
+    reference,
+    current,
+    corotated
+};
+
+enum class VirtualWorkCompatibilityKind {
+    exact,
+    linearized_equivalent,
+    unaudited_placeholder
+};
+
+enum class AuditEvidenceLevel {
+    none,
+    interface_declared,
+    regression_tested,
+    validation_benchmarked,
+    reference_baseline
+};
+
 template <ConfigurationKind Kind>
 struct ConfigurationTag {
     static constexpr ConfigurationKind kind = Kind;
@@ -241,6 +261,35 @@ struct MotionSnapshot {
     return "unknown_maturity";
 }
 
+[[nodiscard]] constexpr std::string_view to_string(VolumeMeasureKind kind) noexcept {
+    switch (kind) {
+        case VolumeMeasureKind::reference:  return "reference";
+        case VolumeMeasureKind::current:    return "current";
+        case VolumeMeasureKind::corotated:  return "corotated";
+    }
+    return "unknown_volume_measure";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(VirtualWorkCompatibilityKind kind) noexcept {
+    switch (kind) {
+        case VirtualWorkCompatibilityKind::exact:                  return "exact";
+        case VirtualWorkCompatibilityKind::linearized_equivalent:  return "linearized_equivalent";
+        case VirtualWorkCompatibilityKind::unaudited_placeholder:  return "unaudited_placeholder";
+    }
+    return "unknown_virtual_work_compatibility";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(AuditEvidenceLevel level) noexcept {
+    switch (level) {
+        case AuditEvidenceLevel::none:                   return "none";
+        case AuditEvidenceLevel::interface_declared:     return "interface_declared";
+        case AuditEvidenceLevel::regression_tested:      return "regression_tested";
+        case AuditEvidenceLevel::validation_benchmarked: return "validation_benchmarked";
+        case AuditEvidenceLevel::reference_baseline:     return "reference_baseline";
+    }
+    return "unknown_audit_evidence";
+}
+
 [[nodiscard]] constexpr bool are_work_conjugate(
     StrainMeasureKind strain_measure,
     StressMeasureKind stress_measure) noexcept
@@ -264,6 +313,76 @@ struct ConjugateMeasureSemantics {
     }
 };
 
+struct VirtualWorkSemantics {
+    FormulationKind formulation_kind{FormulationKind::small_strain};
+    ConjugateMeasureSemantics conjugate_pair{};
+    ConfigurationKind integration_configuration{ConfigurationKind::reference};
+    VolumeMeasureKind volume_measure{VolumeMeasureKind::reference};
+    VirtualWorkCompatibilityKind compatibility{VirtualWorkCompatibilityKind::linearized_equivalent};
+    bool pair_is_normatively_audited{true};
+
+    [[nodiscard]] constexpr bool has_work_conjugate_pair() const noexcept {
+        return conjugate_pair.is_work_conjugate();
+    }
+
+    [[nodiscard]] constexpr bool is_exact() const noexcept {
+        return compatibility == VirtualWorkCompatibilityKind::exact &&
+               has_work_conjugate_pair();
+    }
+
+    [[nodiscard]] constexpr bool is_normatively_acceptable() const noexcept {
+        return pair_is_normatively_audited &&
+               compatibility != VirtualWorkCompatibilityKind::unaudited_placeholder &&
+               has_work_conjugate_pair();
+    }
+};
+
+struct FormulationAuditScope {
+    FormulationKind formulation_kind{FormulationKind::small_strain};
+    FormulationMaturity maturity{FormulationMaturity::proposed};
+    VirtualWorkSemantics virtual_work{};
+    AuditEvidenceLevel evidence_level{AuditEvidenceLevel::none};
+    bool has_continuum_3d_path{false};
+    bool supports_finite_kinematics{false};
+    bool validated_for_continuum_3d{false};
+    bool default_reference_path{false};
+    bool recommended_for_new_finite_kinematics_work{false};
+    bool has_dedicated_regression_tests{false};
+
+    [[nodiscard]] constexpr bool has_runtime_path() const noexcept {
+        return has_continuum_3d_path &&
+               maturity != FormulationMaturity::placeholder &&
+               maturity != FormulationMaturity::proposed;
+    }
+
+    [[nodiscard]] constexpr bool has_validation_evidence() const noexcept {
+        return evidence_level == AuditEvidenceLevel::regression_tested ||
+               evidence_level == AuditEvidenceLevel::validation_benchmarked ||
+               evidence_level == AuditEvidenceLevel::reference_baseline;
+    }
+
+    [[nodiscard]] constexpr bool is_reference_finite_kinematics_path() const noexcept {
+        return supports_finite_kinematics &&
+               default_reference_path &&
+               recommended_for_new_finite_kinematics_work &&
+               validated_for_continuum_3d &&
+               has_validation_evidence();
+    }
+
+    [[nodiscard]] constexpr bool supports_finite_kinematics_normatively() const noexcept {
+        return supports_finite_kinematics &&
+               has_runtime_path() &&
+               validated_for_continuum_3d &&
+               has_validation_evidence() &&
+               virtual_work.is_normatively_acceptable();
+    }
+
+    [[nodiscard]] constexpr bool requires_finite_kinematics_scope_disclaimer() const noexcept {
+        return !supports_finite_kinematics_normatively() ||
+               !recommended_for_new_finite_kinematics_work;
+    }
+};
+
 [[nodiscard]] constexpr ConjugateMeasureSemantics
 canonical_conjugate_pair(StrainMeasureKind strain_measure) noexcept
 {
@@ -283,6 +402,115 @@ canonical_conjugate_pair(StrainMeasureKind strain_measure) noexcept
                     StressMeasureKind::cauchy,
                     ConfigurationKind::current,
                     ConfigurationKind::current};
+    }
+    return {};
+}
+
+[[nodiscard]] constexpr VirtualWorkSemantics
+canonical_virtual_work_semantics(FormulationKind formulation_kind) noexcept
+{
+    switch (formulation_kind) {
+        case FormulationKind::small_strain:
+            return {
+                FormulationKind::small_strain,
+                canonical_conjugate_pair(StrainMeasureKind::infinitesimal),
+                ConfigurationKind::reference,
+                VolumeMeasureKind::reference,
+                VirtualWorkCompatibilityKind::linearized_equivalent,
+                true
+            };
+        case FormulationKind::total_lagrangian:
+            return {
+                FormulationKind::total_lagrangian,
+                canonical_conjugate_pair(StrainMeasureKind::green_lagrange),
+                ConfigurationKind::reference,
+                VolumeMeasureKind::reference,
+                VirtualWorkCompatibilityKind::exact,
+                true
+            };
+        case FormulationKind::updated_lagrangian:
+            return {
+                FormulationKind::updated_lagrangian,
+                canonical_conjugate_pair(StrainMeasureKind::almansi),
+                ConfigurationKind::current,
+                VolumeMeasureKind::current,
+                VirtualWorkCompatibilityKind::exact,
+                true
+            };
+        case FormulationKind::corotational:
+            return {
+                FormulationKind::corotational,
+                {
+                    StrainMeasureKind::infinitesimal,
+                    StressMeasureKind::cauchy,
+                    ConfigurationKind::corotated,
+                    ConfigurationKind::corotated
+                },
+                ConfigurationKind::corotated,
+                VolumeMeasureKind::corotated,
+                VirtualWorkCompatibilityKind::unaudited_placeholder,
+                false
+            };
+    }
+    return {};
+}
+
+[[nodiscard]] constexpr FormulationAuditScope
+canonical_formulation_audit_scope(FormulationKind formulation_kind) noexcept
+{
+    switch (formulation_kind) {
+        case FormulationKind::small_strain:
+            return {
+                FormulationKind::small_strain,
+                FormulationMaturity::implemented,
+                canonical_virtual_work_semantics(FormulationKind::small_strain),
+                AuditEvidenceLevel::regression_tested,
+                true,
+                false,
+                true,
+                false,
+                false,
+                true
+            };
+        case FormulationKind::total_lagrangian:
+            return {
+                FormulationKind::total_lagrangian,
+                FormulationMaturity::implemented,
+                canonical_virtual_work_semantics(FormulationKind::total_lagrangian),
+                AuditEvidenceLevel::reference_baseline,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true
+            };
+        case FormulationKind::updated_lagrangian:
+            return {
+                FormulationKind::updated_lagrangian,
+                FormulationMaturity::partial,
+                canonical_virtual_work_semantics(FormulationKind::updated_lagrangian),
+                AuditEvidenceLevel::regression_tested,
+                true,
+                true,
+                true,
+                false,
+                false,
+                true
+            };
+        case FormulationKind::corotational:
+            return {
+                FormulationKind::corotational,
+                FormulationMaturity::placeholder,
+                canonical_virtual_work_semantics(FormulationKind::corotational),
+                AuditEvidenceLevel::interface_declared,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            };
     }
     return {};
 }
