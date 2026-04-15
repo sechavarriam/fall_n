@@ -197,6 +197,31 @@ abstract route in isolation, nor about a typed slice in isolation, but about a
 concrete executable slice that inherits the audited status of a family, a
 formulation, and a solver route simultaneously.
 
+During the present iteration, one further gap was closed between the continuum
+and the solver narrative.  The library now exposes
+\texttt{src/analysis/ComputationalVariationalSliceAudit.hh} together with the
+representative catalog
+\texttt{src/analysis/ComputationalVariationalSliceCatalog.hh}.  This new layer
+combines the typed slice audit with the discrete variational semantics of the
+underlying family--formulation pair and with the incremental semantics of the
+solver route.  In practical terms, the code can now say, at compile time, not
+only \emph{which} slice is being executed, but also \emph{which global
+residual} that slice linearizes, \emph{which tangent topology} it assembles,
+\emph{how history is committed}, and \emph{whether structural effective
+operator injection is even admissible}.  This is precisely the level of
+traceability required to rewrite the FEM chapter as a theory of
+\texttt{fall\_n} rather than as a generic FEM survey.
+
+During the present stabilization step, that claim also stopped depending only
+on broader solver harnesses for its credibility.  A dedicated regression target,
+\texttt{tests/test\_computational\_variational\_slice\_catalog.cpp}, now checks
+that the route catalog, the typed model--solver slice catalog, the hard
+combined slice matrix and the discrete variational semantics remain mutually
+consistent.  The scope of that regression is intentionally narrow: it does not
+claim physical validation of any formulation, but it does freeze the semantic
+identity of the representative computational slices discussed throughout this
+roadmap.
+
 \paragraph{First proof that the abstraction is not rhetorical.}
 Stage~1 now includes a deliberately simple second realization:
 \texttt{AffineSectionSubscaleModel.hh}.  It does not solve a local continuum
@@ -661,6 +686,19 @@ compile-time semantics and not only as comments or implicit conventions:
   audit layer directly, so unsupported formulation/family combinations are
   rejected at instantiation time instead of being left to narrative warnings.
 \end{itemize}
+
+During the present iteration that semantic lift was pushed one level lower,
+from continuum statements to the discrete variational carriers actually
+assembled by the library, through
+\texttt{src/continuum/DiscreteVariationalSemantics.hh}.  This matters because
+the earlier semantic layers could already distinguish \( \mathbf{E}/\mathbf{S}
+\) from \( \mathbf{e}/\boldsymbol{\sigma} \), but they still did not state
+whether the discrete statement lived on a reference volume, a current volume,
+a beam line, or a shell midsurface, nor whether the tangent was canonically
+pointwise, sectional, or potentially augmented by an effective operator.  The
+new layer keeps those claims in compile-time metadata instead of burying them
+in prose, which is exactly the kind of traceability the rewritten FEM chapter
+needs.
 
 This is intentionally modest.  The semantic lift does \emph{not} yet close the
 entire Chapter~4 ontology in software.  It does, however, establish a truthful

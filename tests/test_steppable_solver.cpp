@@ -37,6 +37,7 @@
 #include "src/analysis/AnalysisRouteCatalog.hh"
 #include "src/analysis/ComputationalModelSliceCatalog.hh"
 #include "src/analysis/ComputationalSliceMatrixCatalog.hh"
+#include "src/analysis/ComputationalVariationalSliceCatalog.hh"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,8 @@ static constexpr auto representative_model_solver_slice_audit_table =
     fall_n::canonical_representative_model_solver_slice_audit_table_v;
 static constexpr auto representative_computational_slice_matrix =
     fall_n::canonical_representative_computational_slice_matrix_v;
+static constexpr auto representative_computational_variational_slice_matrix =
+    fall_n::canonical_representative_computational_variational_slice_matrix_v;
 
 /// Create a fresh Model with unit cube, BCs, and forces.
 struct NLFixture {
@@ -312,6 +315,69 @@ void test_concept_satisfaction() {
                   continuum::FamilyFormulationSupportLevel::reference_baseline);
     static_assert(representative_computational_slice_matrix[6].requires_scope_disclaimer());
     check(true, "model and solver types compose into audited computational slices");
+
+    static_assert(representative_computational_variational_slice_matrix.size() == 9);
+    static_assert(
+        fall_n::canonical_representative_computational_variational_slice_scope_disclaimer_count_v ==
+        5);
+    static_assert(
+        fall_n::canonical_representative_structural_reduction_variational_slice_count_v == 4);
+    static_assert(
+        fall_n::canonical_representative_effective_operator_predictor_variational_slice_count_v ==
+        1);
+    static_assert(representative_computational_variational_slice_matrix[1]
+                      .audit_scope.has_normative_variational_slice());
+    static_assert(representative_computational_variational_slice_matrix[1]
+                      .audit_scope.global_residual_operator ==
+                  fall_n::GlobalResidualOperatorKind::incremental_static_equilibrium);
+    static_assert(representative_computational_variational_slice_matrix[1]
+                      .audit_scope.global_tangent_operator ==
+                  fall_n::GlobalTangentOperatorKind::monolithic_incremental_consistent_tangent);
+    static_assert(representative_computational_variational_slice_matrix[1]
+                      .audit_scope.incremental_state_management ==
+                  fall_n::IncrementalStateManagementKind::checkpointable_converged_step_commit);
+    static_assert(representative_computational_variational_slice_matrix[1]
+                      .audit_scope.integrates_on_reference_like_domain());
+    static_assert(representative_computational_variational_slice_matrix[2]
+                      .audit_scope.global_residual_operator ==
+                  fall_n::GlobalResidualOperatorKind::incremental_static_equilibrium);
+    static_assert(representative_computational_variational_slice_matrix[2]
+                      .audit_scope.discrete_variational_semantics.integrates_on_current_like_domain());
+    static_assert(representative_computational_variational_slice_matrix[2]
+                      .requires_scope_disclaimer());
+    static_assert(representative_computational_variational_slice_matrix[3]
+                      .audit_scope.global_residual_operator ==
+                  fall_n::GlobalResidualOperatorKind::second_order_dynamic_equilibrium);
+    static_assert(representative_computational_variational_slice_matrix[3]
+                      .audit_scope.global_tangent_operator ==
+                  fall_n::GlobalTangentOperatorKind::effective_mass_damping_stiffness_tangent);
+    static_assert(representative_computational_variational_slice_matrix[3]
+                      .audit_scope.augments_with_inertial_terms);
+    static_assert(representative_computational_variational_slice_matrix[3]
+                      .requires_scope_disclaimer());
+    static_assert(representative_computational_variational_slice_matrix[4]
+                      .audit_scope.global_residual_operator ==
+                  fall_n::GlobalResidualOperatorKind::arc_length_augmented_equilibrium);
+    static_assert(representative_computational_variational_slice_matrix[4]
+                      .audit_scope.global_tangent_operator ==
+                  fall_n::GlobalTangentOperatorKind::bordered_arc_length_tangent);
+    static_assert(representative_computational_variational_slice_matrix[4]
+                      .audit_scope.augments_with_continuation_constraint);
+    static_assert(representative_computational_variational_slice_matrix[5]
+                      .audit_scope.is_structural_reduction_path());
+    static_assert(representative_computational_variational_slice_matrix[5]
+                      .audit_scope.integrates_on_reference_like_domain());
+    static_assert(representative_computational_variational_slice_matrix[6]
+                      .audit_scope.is_structural_reduction_path());
+    static_assert(representative_computational_variational_slice_matrix[6]
+                      .audit_scope.admits_effective_operator_predictor_injection);
+    static_assert(representative_computational_variational_slice_matrix[7]
+                      .audit_scope.discrete_variational_semantics.stress_carrier ==
+                  continuum::DiscreteStressCarrierKind::shell_section_resultants);
+    static_assert(representative_computational_variational_slice_matrix[8]
+                      .audit_scope.discrete_variational_semantics.integration_domain ==
+                  continuum::DiscreteIntegrationDomainKind::corotated_surface);
+    check(true, "computational slices now expose audited discrete variational semantics");
 }
 
 // =============================================================================
