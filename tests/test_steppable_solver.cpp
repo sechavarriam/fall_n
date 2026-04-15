@@ -34,7 +34,9 @@
 #include <petsc.h>
 
 #include "header_files.hh"
+#include "src/analysis/AnalysisRouteCatalog.hh"
 #include "src/analysis/ComputationalModelSliceCatalog.hh"
+#include "src/analysis/ComputationalSliceMatrixCatalog.hh"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -104,8 +106,12 @@ using BeamSRLin     = LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, B
 using BeamCRNLA     = NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
 using ShellSRLin    = LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
 using ShellCRNLA    = NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
+static constexpr auto representative_family_formulation_analysis_route_audit_table =
+    fall_n::canonical_representative_family_formulation_analysis_route_audit_table_v;
 static constexpr auto representative_model_solver_slice_audit_table =
     fall_n::canonical_representative_model_solver_slice_audit_table_v;
+static constexpr auto representative_computational_slice_matrix =
+    fall_n::canonical_representative_computational_slice_matrix_v;
 
 /// Create a fresh Model with unit cube, BCs, and forces.
 struct NLFixture {
@@ -176,6 +182,30 @@ void test_concept_satisfaction() {
                   fall_n::AnalysisRouteKind::arc_length_continuation);
     static_assert(fall_n::solver_analysis_route_audit_scope_v<NLA_TL>.supports_checkpoint_restart);
     static_assert(!fall_n::solver_analysis_route_audit_scope_v<ArcTL>.supports_checkpoint_restart);
+    static_assert(representative_family_formulation_analysis_route_audit_table.size() == 9);
+    static_assert(fall_n::canonical_representative_analysis_route_support_count_v<
+                      fall_n::AnalysisRouteSupportLevel::reference_baseline> == 2);
+    static_assert(fall_n::canonical_representative_analysis_route_support_count_v<
+                      fall_n::AnalysisRouteSupportLevel::implemented> == 2);
+    static_assert(fall_n::canonical_representative_analysis_route_support_count_v<
+                      fall_n::AnalysisRouteSupportLevel::partial> == 4);
+    static_assert(fall_n::canonical_representative_analysis_route_support_count_v<
+                      fall_n::AnalysisRouteSupportLevel::interface_declared> == 1);
+    static_assert(fall_n::canonical_representative_analysis_route_support_count_v<
+                      fall_n::AnalysisRouteSupportLevel::unavailable> == 0);
+    static_assert(
+        fall_n::canonical_representative_analysis_routes_requiring_scope_disclaimer_v ==
+        5);
+    static_assert(representative_family_formulation_analysis_route_audit_table[1]
+                      .audit_scope.is_reference_route_for_scope());
+    static_assert(representative_family_formulation_analysis_route_audit_table[2]
+                      .audit_scope.requires_scope_disclaimer());
+    static_assert(representative_family_formulation_analysis_route_audit_table[3]
+                      .audit_scope.requires_scope_disclaimer());
+    static_assert(representative_family_formulation_analysis_route_audit_table[6]
+                      .audit_scope.requires_scope_disclaimer());
+    static_assert(representative_family_formulation_analysis_route_audit_table[8]
+                      .audit_scope.requires_scope_disclaimer());
     check(true, "analysis solvers expose audited route tags");
 
     static_assert(fall_n::AuditedFiniteElementType<ContSmallElem>);
@@ -257,6 +287,30 @@ void test_concept_satisfaction() {
     static_assert(representative_model_solver_slice_audit_table[2].audit_scope.requires_scope_disclaimer());
     static_assert(representative_model_solver_slice_audit_table[3].audit_scope.requires_scope_disclaimer());
     static_assert(representative_model_solver_slice_audit_table[8].audit_scope.requires_scope_disclaimer());
+    static_assert(representative_computational_slice_matrix.size() == 9);
+    static_assert(fall_n::canonical_representative_computational_slice_matrix_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::reference_linear> == 3);
+    static_assert(fall_n::canonical_representative_computational_slice_matrix_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity> == 1);
+    static_assert(fall_n::canonical_representative_computational_slice_matrix_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::normative> == 1);
+    static_assert(fall_n::canonical_representative_computational_slice_matrix_support_count_v<
+                      fall_n::ComputationalModelSliceSupportLevel::unsupported_or_disclaimed> == 4);
+    static_assert(
+        fall_n::canonical_representative_computational_slice_matrix_scope_disclaimer_count_v ==
+        5);
+    static_assert(representative_computational_slice_matrix[1].family_support_level() ==
+                  continuum::FamilyFormulationSupportLevel::reference_baseline);
+    static_assert(representative_computational_slice_matrix[1].route_support_level() ==
+                  fall_n::AnalysisRouteSupportLevel::reference_baseline);
+    static_assert(representative_computational_slice_matrix[1].slice_support_level() ==
+                  fall_n::ComputationalModelSliceSupportLevel::reference_geometric_nonlinearity);
+    static_assert(representative_computational_slice_matrix[3].route_support_level() ==
+                  fall_n::AnalysisRouteSupportLevel::interface_declared);
+    static_assert(representative_computational_slice_matrix[3].requires_scope_disclaimer());
+    static_assert(representative_computational_slice_matrix[6].family_support_level() ==
+                  continuum::FamilyFormulationSupportLevel::reference_baseline);
+    static_assert(representative_computational_slice_matrix[6].requires_scope_disclaimer());
     check(true, "model and solver types compose into audited computational slices");
 }
 

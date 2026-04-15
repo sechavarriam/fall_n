@@ -184,7 +184,10 @@ jobs:
             $env:MSMPI_RUNTIME_DLL,
             (Join-Path (Join-Path $env:WINDIR "System32") "msmpi.dll"),
             "C:\Program Files\Microsoft MPI\Bin\msmpi.dll"
-          ) | Select-Object -Unique
+          ) | Where-Object {
+            $_ -and
+            (Test-Path -LiteralPath $_ -PathType Leaf)
+          } | Select-Object -Unique
           $msmpiDll = Find-FirstExistingFile -Candidates $msmpiDllCandidates
           if (-not $msmpiDll) {
             throw "MS-MPI runtime DLL (msmpi.dll) was not found in any configured runtime location."

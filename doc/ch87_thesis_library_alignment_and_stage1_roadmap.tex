@@ -179,6 +179,24 @@ deliberately outside the main analysis umbrella so that thesis-facing audit
 metadata can be reused as a canonical source without inflating the common
 include surface of the numerical hot path.
 
+The same design criterion now also applies one layer below the slices
+themselves.  The representative
+\emph{family $\times$ formulation $\times$ analysis-route} matrix is now
+available through \texttt{src/analysis/AnalysisRouteCatalog.hh}, again kept
+outside the common analysis umbrella so that the thesis and the regression
+surface can reuse one canonical route table without burdening the hot path
+with documentation-oriented metadata.
+
+During the present iteration, the remaining gap between those two catalogs was
+closed as well.  The library now exposes a representative hard matrix
+\emph{family $\times$ formulation $\times$ analysis-route $\times$ typed
+computational slice} through
+\texttt{src/analysis/ComputationalSliceMatrixCatalog.hh}.  This matters because
+the scientific claim that the thesis ultimately needs is never about an
+abstract route in isolation, nor about a typed slice in isolation, but about a
+concrete executable slice that inherits the audited status of a family, a
+formulation, and a solver route simultaneously.
+
 \paragraph{First proof that the abstraction is not rhetorical.}
 Stage~1 now includes a deliberately simple second realization:
 \texttt{AffineSectionSubscaleModel.hh}.  It does not solve a local continuum
