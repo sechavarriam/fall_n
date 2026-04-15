@@ -113,6 +113,7 @@ jobs:
             fall_n_tangent_validation_benchmark_test \
             fall_n_coupling_residual_benchmark_test \
             fall_n_beam_test \
+            fall_n_computational_variational_slice_catalog_test \
             fall_n_steppable_solver_test \
             fall_n_steppable_dynamic_test
           do
@@ -248,7 +249,7 @@ jobs:
           foreach ($dll in ($stagedRuntimeDlls | Select-Object -Unique)) {
             $candidateFiles = @((Join-Path $ucrtBin $dll))
             if ($dll -eq "msmpi.dll") {
-              $candidateFiles += $msmpiDllCandidates
+              $candidateFiles = @($msmpiDll)
             } else {
               foreach ($dir in $msmpiBinCandidates) {
                 $candidateFiles += (Join-Path $dir $dll)
@@ -287,6 +288,7 @@ jobs:
             "fall_n_tangent_validation_benchmark_test.exe",
             "fall_n_coupling_residual_benchmark_test.exe",
             "fall_n_beam_test.exe",
+            "fall_n_computational_variational_slice_catalog_test.exe",
             "fall_n_steppable_solver_test.exe",
             "fall_n_steppable_dynamic_test.exe"
           )

@@ -29,6 +29,7 @@
 
 #include "src/analysis/AnalysisRouteAudit.hh"
 #include "src/continuum/Continuum.hh"
+#include "src/continuum/DiscreteVariationalSemantics.hh"
 #include "src/elements/BeamKinematicPolicy.hh"
 #include "src/elements/MITCShellPolicy.hh"
 #include "src/elements/ShellKinematicPolicy.hh"
@@ -174,12 +175,110 @@ void test_policy_traits() {
                       FormulationKind::small_strain,
                       fall_n::AnalysisRouteKind::linear_static)
                       .is_reference_route_for_scope());
+    static_assert(canonical_family_formulation_discrete_variational_table().size() == 12);
+    static_assert(count_structural_reduction_discrete_variational_paths(
+                      ElementFamilyKind::continuum_solid_3d) == 0);
+    static_assert(count_structural_reduction_discrete_variational_paths(
+                      ElementFamilyKind::beam_1d) == 2);
+    static_assert(count_structural_reduction_discrete_variational_paths(
+                      ElementFamilyKind::shell_2d) == 2);
+    static_assert(count_effective_operator_augmentation_paths(
+                      ElementFamilyKind::beam_1d) == 2);
+    static_assert(count_effective_operator_augmentation_paths(
+                      ElementFamilyKind::shell_2d) == 0);
+
+    constexpr auto continuum_tl_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::total_lagrangian);
+    static_assert(continuum_tl_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::green_lagrange_tensor);
+    static_assert(continuum_tl_discrete.stress_carrier ==
+                  DiscreteStressCarrierKind::second_piola_kirchhoff_like_tensor);
+    static_assert(continuum_tl_discrete.integration_domain ==
+                  DiscreteIntegrationDomainKind::reference_volume);
+    static_assert(continuum_tl_discrete.residual_construction ==
+                  DiscreteResidualConstructionKind::continuum_domain_virtual_work);
+    static_assert(continuum_tl_discrete.tangent_composition ==
+                  DiscreteTangentCompositionKind::pointwise_constitutive_plus_geometric);
+    static_assert(continuum_tl_discrete.history_topology ==
+                  HistoryVariableTopologyKind::point_material_history);
+    static_assert(continuum_tl_discrete.algorithmic_tangent_source ==
+                  AlgorithmicTangentSourceKind::point_material_constitutive_update);
+    static_assert(continuum_tl_discrete.is_normatively_coherent());
+    static_assert(!continuum_tl_discrete.requires_scope_disclaimer());
+
+    constexpr auto continuum_ul_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::updated_lagrangian);
+    static_assert(continuum_ul_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::almansi_tensor);
+    static_assert(continuum_ul_discrete.integration_domain ==
+                  DiscreteIntegrationDomainKind::current_volume);
+    static_assert(continuum_ul_discrete.integrates_on_current_like_domain());
+    static_assert(continuum_ul_discrete.is_normatively_coherent());
+    static_assert(continuum_ul_discrete.requires_scope_disclaimer());
+
+    constexpr auto beam_cr_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::beam_1d,
+            FormulationKind::corotational);
+    static_assert(beam_cr_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::beam_generalized_section_strain);
+    static_assert(beam_cr_discrete.stress_carrier ==
+                  DiscreteStressCarrierKind::beam_section_resultants);
+    static_assert(beam_cr_discrete.integration_domain ==
+                  DiscreteIntegrationDomainKind::corotated_line);
+    static_assert(beam_cr_discrete.residual_construction ==
+                  DiscreteResidualConstructionKind::beam_section_virtual_work);
+    static_assert(beam_cr_discrete.tangent_composition ==
+                  DiscreteTangentCompositionKind::sectional_constitutive_plus_geometric);
+    static_assert(beam_cr_discrete.has_sectional_or_fiber_history());
+    static_assert(beam_cr_discrete.is_structural_reduction_path());
+    static_assert(beam_cr_discrete.admits_effective_operator_injection);
+    static_assert(beam_cr_discrete.is_normatively_coherent());
+
+    constexpr auto shell_sr_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::shell_2d,
+            FormulationKind::small_strain);
+    static_assert(shell_sr_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::shell_generalized_section_strain);
+    static_assert(shell_sr_discrete.stress_carrier ==
+                  DiscreteStressCarrierKind::shell_section_resultants);
+    static_assert(shell_sr_discrete.integration_domain ==
+                  DiscreteIntegrationDomainKind::reference_surface);
+    static_assert(shell_sr_discrete.residual_construction ==
+                  DiscreteResidualConstructionKind::shell_section_virtual_work);
+    static_assert(shell_sr_discrete.tangent_composition ==
+                  DiscreteTangentCompositionKind::sectional_constitutive);
+    static_assert(shell_sr_discrete.is_structural_reduction_path());
+    static_assert(!shell_sr_discrete.admits_effective_operator_injection);
+
+    constexpr auto continuum_corotational_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::continuum_solid_3d,
+            FormulationKind::corotational);
+    static_assert(continuum_corotational_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::corotated_infinitesimal_strain_tensor);
+    static_assert(!continuum_corotational_discrete.is_normatively_coherent());
+    static_assert(continuum_corotational_discrete.requires_scope_disclaimer());
+
+    constexpr auto beam_tl_discrete =
+        canonical_family_formulation_discrete_variational_semantics(
+            ElementFamilyKind::beam_1d,
+            FormulationKind::total_lagrangian);
+    static_assert(beam_tl_discrete.kinematic_carrier ==
+                  DiscreteKinematicCarrierKind::unavailable);
+    static_assert(!beam_tl_discrete.family_formulation_scope.has_runtime_path);
 
     report("policy_traits_SmallStrain", true);
     report("policy_traits_TotalLagrangian", true);
     report("policy_traits_audit_status", true);
     report("policy_traits_family_audit_table_helpers", true);
     report("policy_traits_analysis_route_audit_helpers", true);
+    report("policy_traits_discrete_variational_semantics", true);
 }
 
 

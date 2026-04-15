@@ -44,6 +44,7 @@ $regressionTargets = @(
     "fall_n_tangent_validation_benchmark_test",
     "fall_n_coupling_residual_benchmark_test",
     "fall_n_beam_test",
+    "fall_n_computational_variational_slice_catalog_test",
     "fall_n_steppable_solver_test",
     "fall_n_steppable_dynamic_test"
 )
@@ -65,6 +66,7 @@ $executables = @(
     "fall_n_tangent_validation_benchmark_test.exe",
     "fall_n_coupling_residual_benchmark_test.exe",
     "fall_n_beam_test.exe",
+    "fall_n_computational_variational_slice_catalog_test.exe",
     "fall_n_steppable_solver_test.exe",
     "fall_n_steppable_dynamic_test.exe"
 )

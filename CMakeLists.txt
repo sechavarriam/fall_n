@@ -591,6 +591,11 @@ fall_n_add_test(TARGET fall_n_steppable_solver_test
     NAME steppable_solver  SOURCE tests/test_steppable_solver.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_computational_variational_slice_catalog_test
+    NAME computational_variational_slice_catalog
+    SOURCE tests/test_computational_variational_slice_catalog.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp
     LIBS FULL  LABEL unit)
