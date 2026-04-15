@@ -596,6 +596,16 @@ fall_n_add_test(TARGET fall_n_computational_variational_slice_catalog_test
     SOURCE tests/test_computational_variational_slice_catalog.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_computational_claim_trace_catalog_test
+    NAME computational_claim_trace_catalog
+    SOURCE tests/test_computational_claim_trace_catalog.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_computational_validation_readiness_catalog_test
+    NAME computational_validation_readiness_catalog
+    SOURCE tests/test_computational_validation_readiness_catalog.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp
     LIBS FULL  LABEL unit)

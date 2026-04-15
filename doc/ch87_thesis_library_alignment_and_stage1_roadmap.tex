@@ -222,6 +222,238 @@ claim physical validation of any formulation, but it does freeze the semantic
 identity of the representative computational slices discussed throughout this
 roadmap.
 
+\paragraph{Claim traceability is now explicit as well.}
+During the present iteration a further catalog layer was added through
+\texttt{src/analysis/ComputationalClaimTraceCatalog.hh}.  This layer does not
+introduce new runtime behavior.  Instead, it turns a methodological demand of
+the thesis into audited data: each representative scientific claim is now tied
+to (i) a typed computational slice, (ii) a dominant evidence channel, and
+(iii) the next validation gate that still remains open.  This makes it harder
+to overstate the maturity of a route simply because the underlying formulation
+or solver exists in code.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=7mm and 9mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!4,
+                  minimum width=31mm, minimum height=8mm},
+      audit/.style={draw, rounded corners, align=center, fill=green!7,
+                    minimum width=34mm, minimum height=8mm},
+      ev/.style={draw, rounded corners, align=center, fill=orange!10,
+                 minimum width=33mm, minimum height=8mm},
+      arr/.style={-{Latex[length=2.3mm]}, thick}
+    ]
+    \node[box] (claim) {Theoretical claim\\(Chapters 4--6)};
+    \node[audit, right=of claim] (slice) {Typed computational slice\\and variational audit};
+    \node[ev, right=of slice] (evidence) {Current evidence channel\\(catalog / formulation / solver / structural)};
+    \node[box, below=of slice] (gate) {Next open gate\\before physical validation};
+
+    \draw[arr] (claim) -- (slice);
+    \draw[arr] (slice) -- (evidence);
+    \draw[arr] (slice) -- (gate);
+    \draw[arr] (evidence.south) |- (gate.east);
+  \end{tikzpicture}
+  \caption{Representative claim tracing used in Stage~1: the thesis no longer
+  jumps directly from a formulation label to a validation statement, but passes
+  through an audited typed slice and an explicit evidence channel.}
+  \label{fig:stage1-claim-trace}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative claim--artifact--evidence matrix used before the
+  physical-validation campaign.}
+  \label{tab:stage1-claim-trace}
+  \small
+  \begin{tabularx}{\textwidth}{@{}p{0.23\textwidth}p{0.18\textwidth}p{0.18\textwidth}p{0.15\textwidth}X@{}}
+    \toprule
+    \textbf{Claim} & \textbf{Typed slice} & \textbf{Primary evidence}
+    & \textbf{Evidence breadth} & \textbf{Next open gate} \\
+    \midrule
+    Linearized continuum baseline
+    & \texttt{continuum\_small\_strain\_linear}
+    & \texttt{fall\_n\_continuum\_interface\_test}
+    & solver slice
+    & none; frozen as linear baseline \\[1mm]
+
+    Finite-kinematics TL reference continuum
+    & \texttt{continuum\_total\_lagrangian\_nonlinear}
+    & \texttt{fall\_n\_kinematic\_test}
+    & solver slice
+    & structural/material physical validation campaign \\[1mm]
+
+    Finite-kinematics UL spatial continuum
+    & \texttt{continuum\_updated\_lagrangian\_nonlinear}
+    & \texttt{fall\_n\_ul\_test}
+    & formulation
+    & scope closure before campaign \\[1mm]
+
+    TL implicit dynamics
+    & \texttt{continuum\_total\_lagrangian\_dynamic}
+    & \texttt{fall\_n\_steppable\_dynamic\_test}
+    & solver slice
+    & dynamic-scope closure before campaign \\[1mm]
+
+    TL arc-length continuation
+    & \texttt{continuum\_total\_lagrangian\_arc\_length}
+    & \texttt{fall\_n\_computational\_variational\_slice\_catalog\_test}
+    & catalog only
+    & add dedicated runtime continuation regression \\[1mm]
+
+    Beam linear reduction baseline
+    & \texttt{beam\_small\_rotation\_linear}
+    & \texttt{fall\_n\_beam\_test}
+    & structural
+    & none; frozen as beam linear baseline \\[1mm]
+
+    Beam corotational structural slice
+    & \texttt{beam\_corotational\_nonlinear}
+    & \texttt{fall\_n\_beam\_test}
+    & structural
+    & close solver-route scope before campaign \\[1mm]
+
+    Shell linear reduction baseline
+    & \texttt{shell\_small\_rotation\_linear}
+    & \texttt{fall\_n\_mitc\_shell\_test}
+    & structural
+    & none; frozen as shell linear baseline \\[1mm]
+
+    Shell corotational structural slice
+    & \texttt{shell\_corotational\_nonlinear}
+    & \texttt{fall\_n\_mitc\_shell\_test}
+    & structural
+    & close solver-route scope before campaign \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The point of Table~\ref{tab:stage1-claim-trace} is not to create yet another
+taxonomy.  It is to stop a recurring methodological shortcut: equating
+``implemented in code'' with ``already validated for the thesis claim under
+discussion''.  The arc-length representative slice is the clearest example. It
+already has a real typed audit footprint, but its claim remains intentionally
+conservative because the present evidence is still catalog/contract level
+rather than a dedicated runtime regression.
+
+\begin{lstlisting}[language=C++,caption={Canonical representative claim trace rows.},label={lst:stage1-claim-trace}]
+constexpr auto claims =
+    fall_n::canonical_representative_computational_claim_trace_table_v;
+
+static_assert(
+    fall_n::canonical_representative_reference_computational_claim_count_v == 4);
+static_assert(
+    fall_n::canonical_representative_computational_claim_physical_validation_count_v == 6);
+
+// The current TL arc-length slice is audited, but not overclaimed.
+static_assert(
+    claims[4].evidence_breadth ==
+    fall_n::ComputationalClaimEvidenceBreadthKind::catalog_and_semantic_audit);
+\end{lstlisting}
+
+\paragraph{The claim is now tied to a concrete nonlinear problem statement as well.}
+For Stage~1 this was still not enough.  A thesis can remain semantically
+inaccurate even after fixing the claim--slice--evidence chain if it still
+speaks vaguely about ``the solver'' without stating what equilibrium problem is
+actually being solved, what role the tangent plays, and how constitutive
+history is committed.  The representative claim catalog therefore now freezes
+three additional commitments:
+\begin{enumerate}
+  \item the residual family that the slice solves globally;
+  \item the tangent interpretation that is allowed to support the claim; and
+  \item the history-commit topology assumed by the route.
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=7mm and 7mm,
+      block/.style={draw, rounded corners, align=center, fill=blue!4,
+                    minimum width=28mm, minimum height=8mm},
+      audit/.style={draw, rounded corners, align=center, fill=green!8,
+                    minimum width=28mm, minimum height=8mm},
+      arr/.style={-{Latex[length=2.3mm]}, thick}
+    ]
+    \node[block] (claim) {Representative\\claim};
+    \node[audit, right=of claim] (residual) {Residual\\commitment};
+    \node[audit, right=of residual] (tangent) {Tangent\\commitment};
+    \node[audit, right=of tangent] (history) {History\\commitment};
+    \node[block, below=of tangent] (evidence) {Evidence breadth\\and next gate};
+
+    \draw[arr] (claim) -- (residual);
+    \draw[arr] (residual) -- (tangent);
+    \draw[arr] (tangent) -- (history);
+    \draw[arr] (history.south) |- (evidence.east);
+    \draw[arr] (claim.south) |- (evidence.west);
+  \end{tikzpicture}
+  \caption{Representative claims are now traced not only to a typed slice and
+  an evidence channel, but also to the concrete residual/tangent/history
+  commitments that define the discrete nonlinear problem carried by that slice.}
+  \label{fig:stage1-claim-commitments}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative nonlinear-problem commitments frozen before the
+  physical-validation campaign.}
+  \label{tab:stage1-claim-commitments}
+  \small
+  \begin{tabularx}{\textwidth}{@{}p{0.18\textwidth}p{0.17\textwidth}p{0.20\textwidth}p{0.18\textwidth}X@{}}
+    \toprule
+    \textbf{Slice} & \textbf{Residual} & \textbf{Tangent}
+    & \textbf{History} & \textbf{Reading discipline} \\
+    \midrule
+    \texttt{continuum\_small\_strain\_linear}
+    & static global equilibrium
+    & assembled linear stiffness
+    & stateless/direct response
+    & frozen baseline; no nonlinear history claim is implied \\[1mm]
+
+    \texttt{continuum\_total\_lagrangian\_nonlinear}
+    & incremental global equilibrium
+    & monolithic consistent tangent
+    & checkpointable converged-step commit
+    & current reference continuum slice for finite-kinematics static problems \\[1mm]
+
+    \texttt{continuum\_total\_lagrangian\_dynamic}
+    & second-order dynamic equilibrium
+    & effective mass--damping--stiffness tangent
+    & checkpointable converged-step commit
+    & dynamic scope remains distinct from continuation scope \\[1mm]
+
+    \texttt{continuum\_total\_lagrangian\_arc\_length}
+    & arc-length augmented equilibrium
+    & bordered continuation tangent
+    & continuation-step commit
+    & audited semantically, but still awaiting dedicated runtime regression \\[1mm]
+
+    \texttt{beam\_corotational\_nonlinear}
+    & sectional incremental equilibrium
+    & sectional constitutive + geometric tangent
+    & section/fiber history commit
+    & structural-reduction claim; do not read it as a 3D continuum claim \\[1mm]
+
+    \texttt{shell\_corotational\_nonlinear}
+    & sectional incremental equilibrium
+    & sectional constitutive + geometric tangent
+    & section/fiber history commit
+    & same caution as above, now on shell reduction \\ 
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{lstlisting}[language=C++,caption={Representative claims now freeze residual, tangent, and history commitments as well.},label={lst:stage1-claim-commitments}]
+constexpr auto claims =
+    fall_n::canonical_representative_computational_claim_trace_table_v;
+
+static_assert(
+    claims[3].residual_commitment_label ==
+    std::string_view{"second_order_dynamic_equilibrium"});
+static_assert(
+    claims[4].history_commitment_label ==
+    std::string_view{"continuation_step_commit"});
+\end{lstlisting}
+
 \paragraph{First proof that the abstraction is not rhetorical.}
 Stage~1 now includes a deliberately simple second realization:
 \texttt{AffineSectionSubscaleModel.hh}.  It does not solve a local continuum
@@ -770,6 +1002,169 @@ For the present codebase, this leads to the following interpretation:
 
 This distinction is important for the thesis: it prevents the FEM chapter from
 making scientifically stronger claims than the current evidence supports.
+
+\section{A seventh audit layer: validation readiness before the campaign}
+
+The claim-trace layer already prevents the thesis from jumping directly from
+``implemented route'' to ``validated scientific statement''. Even so, one
+operational ambiguity remained open: a claim can be correctly located in the
+code and still not be ready to enter a physical-validation campaign. Before the
+cyclic and structural chapters are used as high-level evidence, the library
+therefore needs one more canonical statement:
+\[
+  \mathcal{V}(c)
+  =
+  \Big(\mathcal{E}_{\mathrm{num}}(c),
+       \mathcal{R}_{\mathrm{ready}}(c),
+       \mathcal{X}_{\mathrm{next}}(c)\Big),
+\]
+where \(\mathcal{E}_{\mathrm{num}}(c)\) is the current numerical evidence
+floor, \(\mathcal{R}_{\mathrm{ready}}(c)\) is the present readiness state, and
+\(\mathcal{X}_{\mathrm{next}}(c)\) is the missing numerical experiment or scope
+closure that still separates the slice from a physical-validation campaign.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=7mm and 8mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=31mm, minimum height=8mm},
+      gate/.style={draw, rounded corners, align=center, fill=orange!10,
+                   minimum width=34mm, minimum height=8mm},
+      ev/.style={draw, rounded corners, align=center, fill=green!8,
+                 minimum width=34mm, minimum height=8mm},
+      arr/.style={-{Latex[length=2.3mm]}, thick}
+    ]
+    \node[box] (claim) {Representative\\claim};
+    \node[ev, right=of claim] (evidence) {Current numerical\\evidence floor};
+    \node[gate, right=of evidence] (ready) {Validation\\readiness state};
+    \node[box, below=of evidence] (next) {Missing benchmark\\or scope-closure suite};
+
+    \draw[arr] (claim) -- (evidence);
+    \draw[arr] (evidence) -- (ready);
+    \draw[arr] (evidence) -- (next);
+    \draw[arr] (ready.south) |- (next.east);
+  \end{tikzpicture}
+  \caption{A claim is allowed to enter the validation chapters only after its
+  typed slice, current numerical evidence floor, and remaining gate are all
+  made explicit in the same canonical matrix.}
+  \label{fig:stage1-validation-readiness}
+\end{figure}
+
+This is not bureaucratic bookkeeping. It is the operational bridge between the
+continuum/material chapters and the future validation chapters. Once the
+residual, tangent, and history commitments are frozen, the next scientific
+question is no longer ``what object does the code solve?'', but rather ``is the
+available evidence already strong enough for the validation claim I want to
+make?'' The new catalog
+\texttt{src/analysis/ComputationalValidationReadinessCatalog.hh} answers that
+question conservatively.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Representative readiness matrix before the large physical-validation
+  campaign.}
+  \label{tab:stage1-validation-readiness}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabularx}{\textwidth}{@{}p{0.19\textwidth}p{0.18\textwidth}p{0.19\textwidth}p{0.16\textwidth}X@{}}
+    \toprule
+    \textbf{Slice} & \textbf{Evidence floor} & \textbf{Readiness}
+    & \textbf{Campaign entry} & \textbf{Next gate} \\
+    \midrule
+    \texttt{continuum\_small\_strain\_linear}
+    & solver-slice reference baseline
+    & frozen reference baseline
+    & no
+    & none; frozen baseline \\[0.5mm]
+
+    \texttt{continuum\_total\_lagrangian\_nonlinear}
+    & finite-kinematics solver slice
+    & ready for targeted physical validation
+    & yes
+    & structural/material validation campaign \\[0.5mm]
+
+    \texttt{continuum\_updated\_lagrangian\_nonlinear}
+    & formulation-level spatial path
+    & scope closure pending
+    & no
+    & dedicated UL scope-closure suite \\[0.5mm]
+
+    \texttt{continuum\_total\_lagrangian\_dynamic}
+    & dynamic solver slice, but still narrow
+    & scope closure pending
+    & no
+    & dynamic scope-closure suite \\[0.5mm]
+
+    \texttt{continuum\_total\_lagrangian\_arc\_length}
+    & catalog and variational audit only
+    & runtime regression pending
+    & no
+    & continuation runtime regression \\[0.5mm]
+
+    \texttt{beam\_small\_rotation\_linear}
+    & structural linear reference baseline
+    & frozen reference baseline
+    & no
+    & none; frozen baseline \\[0.5mm]
+
+    \texttt{beam\_corotational\_nonlinear}
+    & structural reduced regression evidence
+    & scope closure pending
+    & no
+    & beam corotational scope-closure suite \\[0.5mm]
+
+    \texttt{shell\_small\_rotation\_linear}
+    & structural linear reference baseline
+    & frozen reference baseline
+    & no
+    & none; frozen baseline \\[0.5mm]
+
+    \texttt{shell\_corotational\_nonlinear}
+    & structural reduced regression evidence
+    & scope closure pending
+    & no
+    & shell corotational scope-closure suite \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The interpretation of Table~\ref{tab:stage1-validation-readiness} is
+deliberately strict:
+\begin{itemize}
+  \item a \emph{frozen reference baseline} is valuable precisely because it is
+  not being oversold as a physical-validation claim;
+  \item \emph{ready for targeted physical validation} means that the present
+  numerical evidence is already coherent enough to support a deliberate
+  benchmark campaign;
+  \item \emph{scope closure pending} means the slice is real and useful, but
+  still scientifically narrower than the thesis rhetoric would like it to be;
+  \item \emph{runtime regression pending} is reserved for paths whose semantics
+  are already audited, but whose numerical harness still lags behind.
+\end{itemize}
+
+\begin{lstlisting}[caption={The readiness catalog freezes which claim may
+enter a targeted physical-validation campaign.},
+label={lst:stage1-validation-readiness}]
+constexpr auto readiness =
+    fall_n::canonical_representative_computational_validation_readiness_table_v;
+
+static_assert(
+    fall_n::canonical_representative_validation_baseline_count_v == 3);
+static_assert(
+    fall_n::canonical_representative_targeted_physical_validation_count_v == 1);
+static_assert(
+    readiness[1].can_enter_targeted_physical_validation);
+static_assert(
+    readiness[4].readiness_kind ==
+    fall_n::ComputationalValidationReadinessKind::runtime_regression_pending);
+\end{lstlisting}
+
+This seventh layer matters because it finally tells the thesis what it is
+allowed to say in the validation stage. It is no longer enough that a slice be
+implemented, audited, and regression-tested. The code now also states, in one
+place, whether that slice is mature enough to act as a baseline, mature enough
+to enter a targeted campaign, or still awaiting numerical closure.
 
 \section{Stage-1 work packages}
 
