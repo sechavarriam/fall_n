@@ -227,6 +227,7 @@ fall_n_use_multiscale_api(fall_n_table_multiscale)
 # ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
     src/validation/TableCyclicValidationStructural.cpp
     src/validation/TableCyclicValidationFE2Recorders.cpp
     src/validation/TableCyclicValidationFE2Setup.cpp
@@ -519,6 +520,10 @@ fall_n_add_test(TARGET fall_n_beam_test
     NAME beam_element  SOURCE tests/test_beam_element.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_beam_axis_quadrature_test
+    NAME beam_axis_quadrature  SOURCE tests/test_beam_axis_quadrature.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_beam_n_test
     NAME beam_n_element  SOURCE tests/test_timoshenko_beam_n.cpp
     LIBS FULL  LABEL unit)
@@ -610,6 +615,33 @@ fall_n_add_test(TARGET fall_n_validation_campaign_catalog_test
     NAME validation_campaign_catalog
     SOURCE tests/test_validation_campaign_catalog.cpp
     LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_structural_matrix_test
+    NAME reduced_rc_column_structural_matrix
+    SOURCE tests/test_reduced_rc_column_structural_matrix.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_structural_matrix_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_structural_matrix_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/TableCyclicValidationSupport.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_validation_claim_catalog_test
+    NAME reduced_rc_column_validation_claim_catalog
+    SOURCE tests/test_reduced_rc_column_validation_claim_catalog.cpp
+    LIBS FULL  LABEL unit)
+set_target_properties(fall_n_reduced_rc_column_validation_claim_catalog_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_benchmark_trace_catalog_test
+    NAME reduced_rc_column_benchmark_trace_catalog
+    SOURCE tests/test_reduced_rc_column_benchmark_trace_catalog.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_evidence_closure_catalog_test
+    NAME reduced_rc_column_evidence_closure_catalog
+    SOURCE tests/test_reduced_rc_column_evidence_closure_catalog.cpp
+    LIBS EIGEN  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp

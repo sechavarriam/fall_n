@@ -212,6 +212,717 @@ The new campaign is frozen in code through
   \label{fig:validation-reboot-dependency-graph}
 \end{figure}
 
+\section{Beam-axis quadrature family as a structural validation enabler}
+
+One concrete blocker identified during the reboot is subtle but important:
+for a section-based beam formulation, the axial quadrature rule is not merely
+an integration detail. It also defines the \emph{section stations} at which
+constitutive history lives and, for the current mixed Timoshenko formulation,
+the tying stations used by the reduced shear field. Changing the beam-axis rule
+therefore changes both
+\begin{enumerate}
+  \item the accuracy of the element integral, and
+  \item the discrete placement of sectional history.
+\end{enumerate}
+This is precisely why the reboot could not honestly validate a rectangular RC
+column while the beam path remained nominally tied to one quadrature family.
+
+The library now exposes an explicit compile-time beam-axis quadrature family in
+\texttt{src/numerics/numerical\_integration/BeamAxisQuadrature.hh}.  The
+current family includes:
+\begin{itemize}
+  \item Gauss--Legendre rules, exact for polynomials up to degree
+    \(2m-1\) with \(m\) stations;
+  \item Gauss--Lobatto rules, endpoint-inclusive and exact up to degree
+    \(2m-3\);
+  \item Gauss--Radau rules, single-endpoint-inclusive and exact up to degree
+    \(2m-2\).
+\end{itemize}
+These exactness properties are classical
+\cite{Crisfield1991_NLFEA_Vol1,bathe2014_FiniteElementProcedures} and matter
+here because the reduced-column campaign explicitly compares section-placement
+families as part of the model, not as a hidden numerical afterthought.
+
+For the degenerate one-station case (\(m=1\)), used by the 2-node beam family,
+the new API adopts a midpoint extension for Lobatto and Radau in order to keep
+the beam-axis contract uniform without introducing a pathological endpoint-only
+rule into the baseline structural path. This is a computational convenience,
+not a claim about classical one-point Lobatto/Radau theory, and it is
+documented as such.
+
+Architecturally, the key point is that the hot path remains static. The
+quadrature family is selected at compile time, and
+\texttt{TimoshenkoBeamN<N>} reconstructs its reduced shear interpolation from
+the actual station coordinates exposed by the bound geometry rule. No runtime
+dispatch is inserted in the quadrature loop.
+
+\begin{lstlisting}[language=C++,caption={Compile-time beam-axis quadrature selection used by the rebooted structural campaign.},label={lst:beam-axis-quadrature-selector}]
+using GL3  = BeamAxisQuadratureT<BeamAxisQuadratureFamily::GaussLegendre, 3>;
+using GLob = BeamAxisQuadratureT<BeamAxisQuadratureFamily::GaussLobatto, 3>;
+using GRad = BeamAxisQuadratureT<BeamAxisQuadratureFamily::GaussRadauLeft, 3>;
+
+static_assert(BeamAxisQuadratureTraits<
+    BeamAxisQuadratureFamily::GaussLegendre, 3>::polynomial_exactness_degree == 5);
+static_assert(BeamAxisQuadratureTraits<
+    BeamAxisQuadratureFamily::GaussLobatto, 3>::includes_left_endpoint);
+\end{lstlisting}
+
+This enabling layer is now frozen by
+\texttt{tests/test\_beam\_axis\_quadrature.cpp}.  The regression constrains:
+\begin{itemize}
+  \item monomial exactness of the three rule families;
+  \item mirror consistency of left/right Radau;
+  \item reuse of the same \texttt{TimoshenkoBeamN} formulation with Lobatto
+    and Radau section stations;
+  \item and symmetry of the resulting structural tangent.
+\end{itemize}
+Methodologically, that is the correct precondition for the next structural
+validation step: the column campaign may now compare integration families as an
+explicit modeling choice rather than inheriting one silently from the element
+implementation.
+
+\section{Reduced RC column structural matrix}
+
+The next layer of the reboot is no longer a generic workstream label but a
+concrete computational matrix.  For the reduced reinforced-concrete column, the
+current structural campaign is organized around the typed slice
+\begin{equation}
+  \mathcal{S}_{N,q,\mathcal{K}}
+  \;=\;
+  \texttt{TimoshenkoBeamN<N>}
+  \;+\;
+  q
+  \;+\;
+  \mathcal{K},
+\end{equation}
+where \(N \in \{2,\dots,10\}\) is the beam interpolation order,
+\(q \in \mathcal{Q}_{\text{beam}}\) is the beam-axis quadrature family, and
+\(\mathcal{K}\) is the beam kinematic/formulation slice under audit.
+
+The quadrature family set is now
+\begin{equation}
+  \mathcal{Q}_{\text{beam}}
+  =
+  \left\{
+    \text{Gauss--Legendre},
+    \text{Gauss--Lobatto},
+    \text{Gauss--Radau}_{L},
+    \text{Gauss--Radau}_{R}
+  \right\},
+\end{equation}
+while the formulation axis retained in the matrix is
+\begin{equation}
+  \mathcal{K}
+  \in
+  \left\{
+    \text{small strain},
+    \text{corotational},
+    \text{Total Lagrangian},
+    \text{Updated Lagrangian}
+  \right\}.
+\end{equation}
+The crucial point is that this axis is kept \emph{even when the runtime path
+does not exist}.  Otherwise the validation program would silently collapse the
+set of desirable claims to the subset that happens to be implemented today.
+
+This structural matrix now lives canonically in
+\texttt{src/validation/ReducedRCColumnStructuralMatrixCatalog.hh}.  Its present
+reading is intentionally conservative and can be summarized as follows:
+\begin{equation}
+  \mathfrak{B}_{\text{phase3}}
+  =
+  \left\{
+    \mathcal{S}_{N,q,\text{small strain}}
+    \;:\;
+    N=2,\dots,10,\;
+    q \in \mathcal{Q}_{\text{beam}}
+  \right\},
+\end{equation}
+that is, \(36\) runtime-ready baseline cases.
+The two remaining subsets are not hidden:
+\begin{align}
+  \mathfrak{E}_{\text{CR}}
+  &=
+  \left\{
+    \mathcal{S}_{N,q,\text{corotational}}
+  \right\},
+  &
+  |\mathfrak{E}_{\text{CR}}| &= 36,
+  \\
+  \mathfrak{U}_{\text{finite}}
+  &=
+  \left\{
+    \mathcal{S}_{N,q,\text{TL}},
+    \mathcal{S}_{N,q,\text{UL}}
+  \right\},
+  &
+  |\mathfrak{U}_{\text{finite}}| &= 72.
+\end{align}
+Here \(\mathfrak{E}_{\text{CR}}\) denotes a genuine \emph{family extension}
+frontier: beam corotational kinematics exist elsewhere in the library, but not
+yet as a \texttt{TimoshenkoBeamN<N>} family path.  By contrast,
+\(\mathfrak{U}_{\text{finite}}\) denotes a \emph{missing formulation family}:
+neither TL nor UL is currently a runtime beam formulation for this family, so
+claiming them would require more than a local patch.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Current structural-matrix interpretation for the reduced RC column.}
+  \label{tab:reduced-rc-column-structural-matrix}
+  \small
+  \begin{tabular}{@{}p{0.21\textwidth}p{0.15\textwidth}p{0.14\textwidth}p{0.15\textwidth}p{0.23\textwidth}@{}}
+    \toprule
+    \textbf{Slice family} & \textbf{Case count} & \textbf{Runtime path} &
+    \textbf{Phase-3 baseline} & \textbf{Meaning} \\
+    \midrule
+    \(\mathcal{S}_{N,q,\text{small strain}}\)
+    & 36 & yes & yes
+    & Current audited reduced-column baseline. \\
+
+    \(\mathcal{S}_{N,q,\text{corotational}}\)
+    & 36 & no & no
+    & Planned \texttt{TimoshenkoBeamN} kinematic extension; not yet a runtime
+      path. \\
+
+    \(\mathcal{S}_{N,q,\text{TL}}\),
+    \(\mathcal{S}_{N,q,\text{UL}}\)
+    & 72 & no & no
+    & Not available for the present beam family; requires a distinct
+      finite-kinematics beam formulation path. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 12mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      ext/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=34mm, minimum height=9mm},
+      miss/.style={draw, rounded corners, align=center, fill=red!8,
+                   minimum width=34mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (catalog) {ReducedRCColumn\\StructuralMatrixCatalog};
+    \node[box, right=of catalog] (baseline) {ReducedRCColumn\\StructuralBaseline};
+    \node[box, right=of baseline] (legacy) {Legacy wrapper\\TableCyclicValidationStructural};
+
+    \node[ext, below=of baseline] (cr) {Corotational\\family extension};
+    \node[miss, below=of cr] (finite) {TL / UL beam\\family absent};
+
+    \draw[arr] (catalog) -- (baseline);
+    \draw[arr] (baseline) -- (legacy);
+    \draw[arr] (catalog) -- (cr);
+    \draw[arr] (catalog) -- (finite);
+  \end{tikzpicture}
+  \caption{The new reduced-column layer separates the current runtime baseline
+  from two different kinds of missing scope: a planned corotational extension
+  and a genuinely absent finite-kinematics beam family.}
+  \label{fig:reduced-rc-column-structural-matrix}
+\end{figure}
+
+This split is not merely descriptive.  The runtime baseline is now also
+available through
+\texttt{src/validation/ReducedRCColumnStructuralBaseline.hh/.cpp}, so the
+legacy beam-column case no longer owns the only implementation of the reduced
+column path.
+
+\begin{lstlisting}[language=C++,caption={The reduced-column structural baseline now returns both global hysteresis and section-level observables through a clean runtime API.},label={lst:reduced-rc-column-structural-baseline-api}]
+using namespace fall_n::validation_reboot;
+
+auto result = run_reduced_rc_column_small_strain_beam_case_result(
+    ReducedRCColumnStructuralRunSpec{
+        .beam_nodes = 3,
+        .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLobatto,
+        .axial_compression_force_mn = 0.02,
+        .write_hysteresis_csv = false,
+        .write_section_response_csv = false,
+        .print_progress = false,
+    },
+    out_dir,
+    cfg);
+
+auto& hysteresis = result.hysteresis_records;
+auto& base_side_section_history = result.section_response_records;
+\end{lstlisting}
+
+The corresponding regression,
+\texttt{tests/test\_reduced\_rc\_column\_structural\_matrix.cpp}, freezes both
+the compile-time counts and a small runtime smoke pass over the new baseline.
+That smoke pass is intentionally modest: it does \emph{not} claim physical
+validation yet.  It only proves that the new structural baseline can traverse
+the same reduced-column path under the three audited quadrature families
+without relying on the legacy monolithic driver.
+
+\section{Reduced RC column claim--artifact--evidence matrix}
+
+Once the structural matrix exists, one more distinction becomes necessary.
+Knowing that a runtime slice is available does not yet answer what we are
+scientifically allowed to claim about that slice.  For the reduced RC column,
+the reboot therefore introduces an additional claim layer in
+\texttt{src/validation/ReducedRCColumnValidationClaimCatalog.hh}.
+
+Formally, the phase-3 reduced-column claim set can be written as
+\begin{equation}
+  \mathfrak{C}_{\text{RC},\,\mathrm{phase3}}
+  =
+  \left\{
+    C_q,\,
+    C_{\mathrm{rt}},\,
+    C_{N},\,
+    C_{\sigma_N},\,
+    C_{\mathrm{hys}},\,
+    C_{M\kappa},\,
+    C_{\mathrm{qsens}}
+  \right\},
+\end{equation}
+where:
+\begin{align}
+  C_q &:\text{ the beam-axis quadrature family is an explicit modelling axis,}
+  \\
+  C_{\mathrm{rt}} &:\text{ the runtime beam-column surface exists for } N=2,\dots,10,
+  \\
+  C_N &:\text{ a node-refinement convergence claim can eventually be posed,}
+  \\
+  C_{\sigma_N} &:\text{ an optional axial-compression path exists,}
+  \\
+  C_{\mathrm{hys}} &:\text{ a base-shear-vs-drift hysteresis observable exists,}
+  \\
+  C_{M\kappa} &:\text{ a base-side moment-curvature observable exists at the active}
+                 \text{ section station closest to the fixed end,}
+  \\
+  C_{\mathrm{qsens}} &:\text{ a quadrature-sensitivity claim can eventually be posed.}
+\end{align}
+The methodological point is that these claims are \emph{not} all at the same
+readiness level.
+
+For the reduced beam-column baseline, the moment-curvature observable is now
+defined explicitly as
+\begin{equation}
+  \mathcal{O}_{M\kappa}^{\mathrm{base}}
+  :=
+  \left\{
+    \bigl(\kappa_y^{(g_\star)}(t_n),\,M_y^{(g_\star)}(t_n)\bigr)
+  \right\}_{n=0}^{N_t},
+  \qquad
+  g_\star = \arg\min_g \xi_g,
+\end{equation}
+where \(\xi_g\) denotes the beam-axis coordinate of section station \(g\).
+This definition is deliberate: for Lobatto and left-Radau rules,
+\(g_\star\) may coincide with the boundary section, whereas for
+Gauss--Legendre and right-Radau it is the nearest active station on the fixed
+side.  The observable therefore exists cleanly at runtime, but its physical
+interpretation still remains coupled to the quadrature-sensitivity benchmark.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Claim--artifact--evidence matrix for the reduced RC column baseline
+  before physical benchmarking.}
+  \label{tab:reduced-rc-column-claim-trace}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}p{0.18\textwidth}p{0.18\textwidth}p{0.12\textwidth}X@{}}
+    \toprule
+    \textbf{Claim} & \textbf{Artifact} & \textbf{Current evidence} &
+    \textbf{Readiness} & \textbf{Next gate} \\
+    \midrule
+    Explicit beam-axis quadrature family
+    & \texttt{BeamAxisQuadrature.hh}
+    & exactness and station-symmetry regression
+    & frozen enabler
+    & none; this is an enabling contract, not a physical benchmark \\[0.4mm]
+
+    Runtime reduced-column surface for \(N=2,\dots,10\)
+    & \texttt{ReducedRCColumnStructuralBaseline}
+    & matrix counts + runtime smoke
+    & runtime-ready
+    & node-refinement benchmark suite \\[0.4mm]
+
+    Optional axial-compression path
+    & \texttt{ReducedRCColumnStructuralBaseline}
+    & finite axial-preload smoke run
+    & runtime-ready
+    & axial-load sensitivity suite \\[0.4mm]
+
+    Hysteresis observable
+    & \texttt{hysteresis.csv} writer contract
+    & output-contract regression
+    & runtime-ready
+    & hysteresis-shape / dissipation benchmark suite \\[0.4mm]
+
+    Base-side moment-curvature observable
+    & \texttt{ReducedRCColumnStructuralBaseline} +
+      \texttt{moment\_curvature\_base.csv}
+    & output-contract regression for the active base-side section station
+    & runtime-ready
+    & section benchmark suite + quadrature-sensitivity interpretation \\[0.4mm]
+
+    Node-refinement convergence
+    & same runtime baseline
+    & family exists, but no convergence benchmark
+    & benchmark pending
+    & close \(N=2 \rightarrow 10\) convergence table \\[0.4mm]
+
+    Quadrature-family sensitivity
+    & same runtime baseline + quadrature family
+    & family exists, but no sensitivity benchmark
+    & benchmark pending
+    & close Gauss/Lobatto/Radau comparison suite \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 11mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=33mm, minimum height=9mm},
+      ready/.style={draw, rounded corners, align=center, fill=green!8,
+                    minimum width=33mm, minimum height=9mm},
+      pend/.style={draw, rounded corners, align=center, fill=orange!10,
+                   minimum width=33mm, minimum height=9mm},
+      miss/.style={draw, rounded corners, align=center, fill=red!8,
+                   minimum width=33mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (matrix) {Structural matrix\\\(\mathfrak{B}_{\mathrm{phase3}}\)};
+    \node[ready, right=of matrix] (runtime) {Runtime-ready claims\\\(C_{\mathrm{rt}}, C_{\sigma_N}, C_{\mathrm{hys}}, C_{M\kappa}\)};
+    \node[pend, below=of runtime] (bench) {Benchmark-pending claims\\\(C_N, C_{\mathrm{qsens}}\)};
+    \node[pend, below=of matrix] (inst) {Prebenchmark caveat\\base-side station \(\neq\) exact boundary in general};
+    \node[box, above=of runtime] (enabler) {Frozen enabler\\\(C_q\)};
+
+    \draw[arr] (matrix) -- (runtime);
+    \draw[arr] (matrix) -- (inst);
+    \draw[arr] (runtime) -- (bench);
+    \draw[arr] (enabler) -- (runtime);
+  \end{tikzpicture}
+  \caption{The reduced RC column reboot now distinguishes between
+  runtime-ready claims and benchmark-pending claims while making explicit that
+  the moment-curvature observable now lives at the active base-side station,
+  not necessarily at the exact boundary section.  This prevents the structural
+  campaign from inheriting physical validation status from a mere smoke run.}
+  \label{fig:reduced-rc-column-claim-trace}
+\end{figure}
+
+The practical reading of Table~\ref{tab:reduced-rc-column-claim-trace} is
+strict.  No row is currently allowed to anchor a physical benchmark by itself.
+The catalog deliberately separates three states that are often blurred in
+validation work:
+\begin{enumerate}
+  \item the numerical surface exists and runs;
+  \item the corresponding observable exists and is exported cleanly;
+  \item the scientific claim supported by that observable has been benchmarked
+    against theory, refinement, or experiment.
+\end{enumerate}
+At the present stage of the reboot, the reduced RC column has reached
+State~1 for the full small-strain beam family and State~2 for both the global
+hysteresis and the base-side moment-curvature observables.  What remains open
+is State~3: benchmark closure.  In particular, the moment-curvature observable
+must still be interpreted against the quadrature family because the controlling
+station is the nearest active fixed-side section, not a quadrature-independent
+ideal boundary cut.  That is precisely why the campaign remains
+\emph{pre-benchmark} rather than already validated.
+
+\begin{lstlisting}[language=C++,caption={Canonical reduced-column claim matrix used by the reboot.},label={lst:reduced-rc-column-claim-trace}]
+constexpr auto claims =
+    fall_n::canonical_reduced_rc_column_validation_claim_table_v;
+
+static_assert(
+    fall_n::canonical_reduced_rc_column_claim_runtime_baseline_anchor_count_v == 5);
+static_assert(
+    fall_n::canonical_reduced_rc_column_claim_instrumentation_pending_count_v == 0);
+static_assert(
+    fall_n::canonical_reduced_rc_column_claim_physical_benchmark_anchor_count_v == 0);
+\end{lstlisting}
+
+\section{Reduced RC column claim-to-benchmark closure matrix}
+
+The claim matrix above is still not the full validation object.  It freezes
+what the code is allowed to claim and what evidence exists today, but it does
+not yet freeze the \emph{benchmark obligation} that remains attached to each
+open claim.  That extra bridge is now kept canonically in
+\texttt{src/validation/ReducedRCColumnBenchmarkTraceCatalog.hh}.
+
+For the reduced structural column, the benchmark-trace object can be written
+schematically as
+\begin{equation}
+  \mathfrak{T}_{\mathrm{RC},\,\mathrm{bench}}
+  =
+  \left\{
+    \bigl(C_i,\;B_i,\;\mathcal{O}_i,\;\mathcal{R}_i,\;G_i\bigr)
+  \right\}_{i=1}^{6},
+\end{equation}
+where \(C_i\) is an open reduced-column claim, \(B_i\) the benchmark family
+that must be executed, \(\mathcal{O}_i\) the primary observable used for the
+comparison, \(\mathcal{R}_i\) the corresponding reference class, and \(G_i\)
+the acceptance gate that would close if the benchmark passed.  This follows
+the same logic already fixed by the continuum and constitutive chapters:
+claims are not validated by existence alone, but by comparing an observable
+derived from an energetically consistent discrete object against a declared
+reference class \cite{Crisfield1991_NLFEA_Vol1,DeBorst2012_NonlinearFEM}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Claim-to-benchmark closure matrix for the reduced RC column reboot.}
+  \label{tab:reduced-rc-column-benchmark-trace}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabularx}{\textwidth}{@{}p{0.19\textwidth}p{0.19\textwidth}p{0.17\textwidth}p{0.17\textwidth}X@{}}
+    \toprule
+    \textbf{Open claim} & \textbf{Benchmark family} & \textbf{Primary observable}
+    & \textbf{Reference class} & \textbf{Acceptance gate closed if passed} \\
+    \midrule
+    Runtime reduced-column surface
+    & runtime-surface matrix
+    & base shear vs drift envelope across \(N\) and quadrature families
+    & internal runtime-matrix consistency
+    & every audited small-strain baseline slice completes with finite response
+      and auditable output contracts; this closes the claim itself but is not
+      yet a physical benchmark gate. \\[0.4mm]
+
+    Optional axial-compression path
+    & axial-load interaction suite
+    & base shear vs drift under constant axial preload
+    & audited experimental or literature datasets with reported axial-load level
+    & axial-load sensitivity becomes eligible to act as part of the phase-3
+      structural physical benchmark. \\[0.4mm]
+
+    Hysteresis observable
+    & cyclic hysteresis protocol suite
+    & base shear vs drift loops
+    & audited experimental or literature hysteresis envelopes
+    & loop shape, strength degradation, and cycle dissipation become eligible
+      to anchor the phase-3 structural physical benchmark. \\[0.4mm]
+
+    Base-side moment-curvature observable
+    & base-side section benchmark suite
+    & \(\mathcal{O}_{M\kappa}^{\mathrm{base}}\)
+    & independent section-level moment-curvature baseline
+    & the section observable ceases to be only a runtime contract and becomes
+      an audited structural benchmark channel. \\[0.4mm]
+
+    Node-refinement convergence
+    & node-refinement suite
+    & envelope strength/stiffness/dissipation versus \(N\)
+    & internal runtime matrix interpreted as a convergence study
+    & refinement no longer remains an unquantified aspiration; it becomes a
+      closed precondition for the phase-3 structural benchmark. \\[0.4mm]
+
+    Quadrature-family sensitivity
+    & quadrature-sensitivity suite
+    & response spread across Gauss/Lobatto/Radau families
+    & internal runtime matrix interpreted as a controlled section-placement study
+    & quadrature dependence is bounded and made explicit instead of being
+      hidden as numerical noise. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 10mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=33mm, minimum height=9mm},
+      bench/.style={draw, rounded corners, align=center, fill=green!8,
+                    minimum width=34mm, minimum height=9mm},
+      ref/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=35mm, minimum height=9mm},
+      gate/.style={draw, rounded corners, align=center, fill=red!8,
+                   minimum width=36mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (claim) {Open claim\\\(C_i\)};
+    \node[bench, right=of claim] (bench) {Benchmark family\\\(B_i\)};
+    \node[ref, right=of bench] (ref) {Reference class\\\(\mathcal{R}_i\)};
+    \node[gate, below=of bench] (gate) {Acceptance gate\\\(G_i\)};
+
+    \draw[arr] (claim) -- (bench);
+    \draw[arr] (bench) -- (ref);
+    \draw[arr] (bench) -- (gate);
+    \draw[arr] (ref.south) |- (gate.east);
+  \end{tikzpicture}
+  \caption{The reduced-column reboot is now traceable one step further:
+  every open claim is attached to a concrete benchmark family, a declared
+  reference class, and an explicit gate.  This prevents the campaign from
+  turning smoke runs or CSV contracts into de facto validation evidence.}
+  \label{fig:reduced-rc-column-benchmark-trace}
+\end{figure}
+
+Two consequences of Table~\ref{tab:reduced-rc-column-benchmark-trace} are worth
+stating explicitly.
+\begin{enumerate}
+  \item The runtime-surface benchmark is \emph{not} itself a physical benchmark
+    gate.  Its role is to prove that the auditable baseline family really
+    exists over the declared \(N \times q\) matrix.
+  \item The base-side moment-curvature benchmark is intentionally tied first to
+    an independent section baseline rather than directly to a full structural
+    experiment.  This is scientifically stricter: it isolates the beam-column
+    reduction error from the later physical discrepancy between model and test.
+\end{enumerate}
+
+\begin{lstlisting}[language=C++,caption={Canonical reduced-column benchmark trace used by the reboot.},label={lst:reduced-rc-column-benchmark-trace}]
+constexpr auto trace =
+    fall_n::canonical_reduced_rc_column_benchmark_trace_table_v;
+
+static_assert(trace.size() == 6);
+static_assert(
+    fall_n::canonical_reduced_rc_column_benchmark_external_reference_count_v == 2);
+static_assert(
+    fall_n::canonical_reduced_rc_column_benchmark_section_baseline_count_v == 1);
+static_assert(
+    fall_n::canonical_reduced_rc_column_phase3_structural_benchmark_gate_count_v == 5);
+\end{lstlisting}
+
+\section{Reduced RC column evidence-closure matrix}
+
+The benchmark-trace layer still answers only \emph{which} benchmark family must
+be executed.  A final layer is required before the campaign can be run as a
+scientific program instead of a roadmap:
+\begin{quote}
+  \emph{What evidence artifact already exists, what concrete numerical
+  experiment is still missing, and what closure artifact would transform the
+  open claim into benchmark evidence?}
+\end{quote}
+This additional bridge is now frozen canonically in
+\texttt{src/validation/ReducedRCColumnEvidenceClosureCatalog.hh}.
+
+For the reduced RC column, the evidence-closure object is represented as
+\begin{equation}
+  \mathfrak{E}_{\mathrm{RC}}
+  =
+  \left\{
+    \bigl(C_i,\;B_i,\;A_i^{\mathrm{now}},\;X_i^{\mathrm{miss}},\;A_i^{\mathrm{close}}\bigr)
+  \right\}_{i=1}^{6},
+\end{equation}
+where \(C_i\) is the open claim, \(B_i\) the benchmark family already declared
+in \(\mathfrak{T}_{\mathrm{RC},\,\mathrm{bench}}\), \(A_i^{\mathrm{now}}\) the
+current computational artifact, \(X_i^{\mathrm{miss}}\) the missing numerical
+experiment or benchmark dataset, and \(A_i^{\mathrm{close}}\) the closure
+artifact that would count as evidence.  This is the strict continuation of the
+logic established in Chapters~4--6: an observable is not merely exported, but
+must be connected to a reproducible evidence bundle
+\cite{Crisfield1991_NLFEA_Vol1,DeBorst2012_NonlinearFEM}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Evidence-closure matrix for the reduced RC column reboot.}
+  \label{tab:reduced-rc-column-evidence-closure}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabularx}{\textwidth}{@{}p{0.18\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.18\textwidth}X@{}}
+    \toprule
+    \textbf{Open claim} & \textbf{Current artifact} & \textbf{Missing experiment}
+    & \textbf{Closure artifact} & \textbf{Acceptance interpretation} \\
+    \midrule
+    Runtime reduced-column surface
+    & runtime matrix plus audited baseline CSV contracts
+    & execute the full \(N \times q\) sweep and summarize finite completion
+    & runtime-surface summary table and manifest
+    & every declared baseline slice exists and exports the required outputs;
+      this closes a runtime completeness obligation, not yet the physical
+      benchmark. \\[0.4mm]
+
+    Optional axial-compression path
+    & axial-preload branch already running
+    & sweep constant axial-load ratios and compare strength/stiffness/dissipation
+    & axial-load interaction summary bundle
+    & axial-load sensitivity becomes backed by benchmark evidence rather than
+      by a single finite smoke run. \\[0.4mm]
+
+    Global hysteresis observable
+    & audited hysteresis CSV contract
+    & execute the cyclic protocol and compare loop shape, degradation, and
+      dissipation against audited reference loops
+    & hysteresis comparison bundle
+    & the global loop observable becomes a benchmark channel instead of only a
+      reproducible export contract. \\[0.4mm]
+
+    Base-side moment-curvature observable
+    & \texttt{moment\_curvature\_base.csv}
+    & build an independent section-level \(M\)--\(\kappa\) baseline with the
+      same section and axial preload
+    & section-baseline comparison bundle
+    & the structural observable is first validated against a section baseline,
+      isolating structural-reduction error before later experiment-to-model
+      discrepancy. \\[0.4mm]
+
+    Node-refinement convergence
+    & runtime family over \(N=2,\dots,10\)
+    & reduce the family to convergence tables for stiffness, strength, and
+      dissipation
+    & node-refinement convergence bundle
+    & refinement becomes a quantified property of the reduced model family
+      instead of an assumed qualitative tendency. \\[0.4mm]
+
+    Quadrature-family sensitivity
+    & explicit Gauss/Lobatto/Radau model axis
+    & reduce the family sweep to spread tables for loops and base-side
+      moment--curvature
+    & quadrature-sensitivity bundle
+    & family dependence is bounded and interpreted explicitly rather than
+      hidden under the label of numerical noise. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 10mm,
+      claim/.style={draw, rounded corners, align=center, fill=blue!5,
+                    minimum width=29mm, minimum height=9mm},
+      art/.style={draw, rounded corners, align=center, fill=green!8,
+                  minimum width=33mm, minimum height=9mm},
+      miss/.style={draw, rounded corners, align=center, fill=orange!12,
+                   minimum width=35mm, minimum height=9mm},
+      close/.style={draw, rounded corners, align=center, fill=red!8,
+                    minimum width=34mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[claim] (claim) {Open claim\\\(C_i\)};
+    \node[art, right=of claim] (now) {Current artifact\\\(A_i^{\mathrm{now}}\)};
+    \node[miss, right=of now] (miss) {Missing experiment\\\(X_i^{\mathrm{miss}}\)};
+    \node[close, below=of miss] (close) {Closure artifact\\\(A_i^{\mathrm{close}}\)};
+
+    \draw[arr] (claim) -- (now);
+    \draw[arr] (now) -- (miss);
+    \draw[arr] (miss) -- (close);
+  \end{tikzpicture}
+  \caption{The reduced-column campaign now carries a fully explicit
+  evidence-closure layer.  This is stricter than a benchmark label alone:
+  it says what exists today, what still has to be executed, and what artifact
+  would count as closure.}
+  \label{fig:reduced-rc-column-evidence-closure}
+\end{figure}
+
+Two methodological consequences follow directly.
+\begin{enumerate}
+  \item The current runtime artifact is not yet evidence of validation.  It is
+    only the audited computational substrate from which evidence may later be
+    produced.
+  \item The same benchmark family can require different evidence classes:
+    internal runtime summaries, independent section baselines, or external
+    datasets.  The reboot therefore forbids collapsing them into one generic
+    label such as ``benchmark completed''.
+\end{enumerate}
+
+\begin{lstlisting}[language=C++,caption={Canonical reduced-column evidence-closure matrix used by the reboot.},label={lst:reduced-rc-column-evidence-closure}]
+constexpr auto evidence =
+    fall_n::canonical_reduced_rc_column_evidence_closure_table_v;
+
+static_assert(evidence.size() == 6);
+static_assert(
+    fall_n::canonical_reduced_rc_column_evidence_external_dataset_count_v == 2);
+static_assert(
+    fall_n::canonical_reduced_rc_column_evidence_section_baseline_count_v == 1);
+static_assert(
+    fall_n::canonical_reduced_rc_column_evidence_phase3_gate_count_v == 5);
+\end{lstlisting}
+
 \section{Why some attractive extensions remain conditional}
 
 The reboot is intentionally critical with respect to architectural ambition.

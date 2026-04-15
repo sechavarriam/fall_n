@@ -1,4 +1,5 @@
 #include "src/validation/TableCyclicValidationSupport.hh"
+#include "src/validation/ReducedRCColumnStructuralBaseline.hh"
 
 #include <array>
 #include <filesystem>
@@ -209,20 +210,16 @@ std::vector<StepRecord> run_case1_by_nodes(
     const std::string& out_dir,
     const CyclicValidationRunConfig& cfg)
 {
-    switch (nodes) {
-    case 2: return run_case1_impl<2>(out_dir, cfg);
-    case 3: return run_case1_impl<3>(out_dir, cfg);
-    case 4: return run_case1_impl<4>(out_dir, cfg);
-    case 5: return run_case1_impl<5>(out_dir, cfg);
-    case 6: return run_case1_impl<6>(out_dir, cfg);
-    case 7: return run_case1_impl<7>(out_dir, cfg);
-    case 8: return run_case1_impl<8>(out_dir, cfg);
-    case 9: return run_case1_impl<9>(out_dir, cfg);
-    case 10: return run_case1_impl<10>(out_dir, cfg);
-    default:
-        throw std::invalid_argument(
-            "Case 1 supports only TimoshenkoBeamN with N in [2, 10].");
-    }
+    return validation_reboot::run_reduced_rc_column_small_strain_beam_case(
+        {
+            .beam_nodes = nodes,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .axial_compression_force_mn = 0.0,
+            .write_hysteresis_csv = true,
+            .print_progress = true,
+        },
+        out_dir,
+        cfg);
 }
 
 static std::vector<StepRecord> run_case2_impl(
