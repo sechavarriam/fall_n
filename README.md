@@ -43,6 +43,7 @@ The most mature publication-path subsystem today is the multiscale module:
 - A sixth semantic layer now lifts the virtual-work statements of Chapters 4 and 5 into discrete FEM carriers through `src/continuum/DiscreteVariationalSemantics.hh`. It records, at compile time, which kinematic/stress carriers each `family x formulation` pair integrates, over which discrete domain it assembles the internal work, where constitutive history is expected to live, and whether the tangent is canonically pointwise, sectional, or augmented by geometric terms.
 - A seventh audit layer now lifts those discrete carriers up to the full typed computational slice through `src/analysis/ComputationalVariationalSliceAudit.hh` and `src/analysis/ComputationalVariationalSliceCatalog.hh`. For a concrete `Model + Solver` slice, the code can now state at compile time which global residual is being linearized, which tangent topology is assembled, how incremental state/history is managed, and whether structural effective-operator injection is even admissible for that slice.
 - That variational-slice layer is no longer stabilized only indirectly through broader solver tests. A dedicated regression target, `fall_n_computational_variational_slice_catalog_test`, now freezes the coherence between the route catalog, the model-slice catalog, the hard combined slice matrix, and the discrete variational semantics. This matters scientifically because it prevents the thesis and the code from drifting apart on what residual/tangent/history object a representative slice actually denotes.
+- A further traceability layer now ties representative scientific claims directly to typed slices, residual/tangent/history commitments, and evidence channels through `src/analysis/ComputationalClaimTraceCatalog.hh`. This makes the pre-validation status explicit in a scientifically stricter sense: we now freeze not only which slice supports a claim, but also which nonlinear problem that claim is allowed to denote, how its tangent is interpreted, and how internal history is committed before any physical-validation campaign is claimed.
 - `Model<>`, `LinearAnalysis`, `NonlinearAnalysis`, `DynamicAnalysis`, and `ArcLengthSolver` now expose the minimal type aliases needed for that audit (`element_type`, `model_type`, audited family/formulation tags), keeping the information in compile time metadata instead of rebuilding it in runtime registries.
 - One useful consequence of that stricter audit is that some structural claims are now intentionally more conservative than the formulation matrix alone: beam and shell corotational kinematics remain real and valuable, but the corresponding global solver routes are not all promoted to the same baseline status until solver-level evidence catches up.
 - That semantic lift also freezes a more honest finite-kinematics status: continuum `TotalLagrangian` is the current reference path, continuum `UpdatedLagrangian` is real but still classified as partial, and continuum `Corotational` remains a placeholder distinct from the implemented corotational beam/shell paths.
@@ -339,6 +340,29 @@ The fastest improvements with a good effort/impact ratio are:
 5. Clean generated artefacts and keep runtime output out of the repository root.
 6. Expand installable public targets beyond `fall_n::multiscale_api`.
 7. Clean the remaining LaTeX warnings and align old chapters with the current code.
+
+## Pre-Validation Readiness
+
+The repository now distinguishes three different questions that used to be too
+easy to blur together:
+
+1. What formulation/solver slice exists?
+2. What residual, tangent, and history commitments that slice actually carries?
+3. Is the resulting scientific claim already ready to enter a physical-validation campaign?
+
+The third question is now frozen in
+`src/analysis/ComputationalValidationReadinessCatalog.hh`.
+
+The current honest read is:
+
+- `continuum_total_lagrangian_nonlinear` is the only representative slice that is presently classified as ready for a targeted physical-validation campaign.
+- `continuum_updated_lagrangian_nonlinear`, `continuum_total_lagrangian_dynamic`, `beam_corotational_nonlinear`, and `shell_corotational_nonlinear` are real and useful, but still classified as scope-closure pending.
+- `continuum_total_lagrangian_arc_length` is semantically audited, but still classified as runtime-regression pending.
+- the linear continuum/beam/shell baselines are frozen references, not validation claims.
+
+This matters because the validation chapters should compare numerical evidence
+against the right object: not just a formulation name, but an audited slice
+with an explicit evidence floor and an explicit remaining gate.
 
 ## Cyclic Validation Direction
 
