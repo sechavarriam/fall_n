@@ -47,6 +47,7 @@ $regressionTargets = @(
     "fall_n_computational_variational_slice_catalog_test",
     "fall_n_computational_claim_trace_catalog_test",
     "fall_n_computational_validation_readiness_catalog_test",
+    "fall_n_validation_campaign_catalog_test",
     "fall_n_steppable_solver_test",
     "fall_n_steppable_dynamic_test"
 )
@@ -71,6 +72,7 @@ $executables = @(
     "fall_n_computational_variational_slice_catalog_test.exe",
     "fall_n_computational_claim_trace_catalog_test.exe",
     "fall_n_computational_validation_readiness_catalog_test.exe",
+    "fall_n_validation_campaign_catalog_test.exe",
     "fall_n_steppable_solver_test.exe",
     "fall_n_steppable_dynamic_test.exe"
 )

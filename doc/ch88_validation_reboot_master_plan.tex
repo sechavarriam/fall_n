@@ -1,0 +1,268 @@
+% ==========================================================================
+%  Chapter 88 -- Validation Reboot Master Plan
+% ==========================================================================
+
+\chapter{Validation Reboot Master Plan}
+\label{ch:validation-reboot-master-plan}
+
+\paragraph{Normative status.}
+This chapter defines the validation program that shall replace the current
+legacy mixture of exploratory drivers, partial regression surfaces, and
+large executables that do not yet provide a scientifically clean entry point.
+Its purpose is methodological before it is numerical: to prevent the library
+from inheriting validation authority from surfaces that were never designed as
+controlled benchmarks.
+
+\section{Why the validation campaign must restart from zero}
+
+The library already contains many tests and several large validation-oriented
+drivers.  That is valuable, but not sufficient.  A test only proves what it
+actually constrains, and a driver only validates what its inputs, outputs, and
+acceptance criteria make explicit.  If those criteria are weak, hidden, or
+historically accidental, the resulting evidence cannot be promoted to a
+scientific claim without re-audit.
+
+The new validation program therefore adopts the following rule:
+\begin{equation}
+  \text{claim}
+  \;\Longrightarrow\;
+  \text{computational artifact}
+  \;\Longrightarrow\;
+  \text{audited evidence}
+  \;\Longrightarrow\;
+  \text{acceptance gate}.
+\end{equation}
+The campaign is not allowed to skip any arrow in this chain.
+
+This rule follows directly from the continuum and finite-element structure
+already fixed elsewhere in the project.  The mechanical object is defined in
+terms of configuration, work-conjugate pairs, and history variables; the
+discrete object is defined in terms of residual, tangent, and incremental state
+commitment; and the validation object must therefore be defined in terms of a
+traceable relation between those theoretical statements and reproducible
+numerical evidence.  See, in particular,
+\cite{BonetWood2008,Crisfield1991_NLFEA_Vol1,DeBorst2012_NonlinearFEM}.
+
+\section{Legacy quarantine policy}
+
+The restart does \emph{not} imply immediate destructive deletion.  Current
+surfaces remain useful as audited input, but they are no longer allowed to act
+as normative validation anchors until the replacement baseline exists.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Legacy validation surfaces during the reboot.}
+  \label{tab:validation-legacy-policy}
+  \small
+  \begin{tabular}{@{}p{0.30\textwidth}p{0.23\textwidth}p{0.37\textwidth}@{}}
+    \toprule
+    \textbf{Legacy surface} & \textbf{Temporary status} & \textbf{Disposition rule} \\
+    \midrule
+    \texttt{src/validation/ComprehensiveCyclicValidation.cpp}
+    & audited input only
+    & keep available for provenance; quarantine to \texttt{.old} only after the
+      new single-column baseline is operational. \\
+
+    \texttt{src/validation/TableCyclicValidationStructural.cpp}
+    & audited input only
+    & useful as seed data because it already traverses beam columns from
+      \(N=2\) to \(N=10\), but it may not act as validated truth. \\
+
+    \texttt{doc/ch82\_cyclic\_validation.tex} and
+    \texttt{doc/ch85\_comprehensive\_cyclic\_multiscale\_validation.tex}
+    & historical record
+    & preserve as provenance; do not present as the normative validation
+      narrative once the rebooted campaign is in place. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{First scientific target}
+
+The first normative target is deliberately narrow:
+\begin{quote}
+  \emph{a single reinforced-concrete rectangular column subjected to
+  progressively amplified cyclic lateral displacement up to approximately
+  \(50\) to \(100\) mm, with optional axial compression, first in one lateral
+  direction and later, if justified, in two directions.}
+\end{quote}
+
+This target is small enough to be inspectable, rich enough to expose section
+nonlinearity, hysteresis, stiffness degradation, and eventually crack-driven
+continuum effects, and disciplined enough to support direct comparison between
+reduced structural models and full continuum models.
+
+\section{Canonical campaign phases}
+
+The new campaign is frozen in code through
+\texttt{src/validation/ValidationCampaignCatalog.hh}.  Table
+\ref{tab:validation-reboot-phases} summarizes the representative workstreams.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Canonical validation reboot workstreams.}
+  \label{tab:validation-reboot-phases}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabularx}{\textwidth}{@{}p{0.18\textwidth}p{0.12\textwidth}p{0.14\textwidth}p{0.25\textwidth}X@{}}
+    \toprule
+    \textbf{Workstream} & \textbf{Phase} & \textbf{Priority} &
+    \textbf{Primary objective} & \textbf{Gate impact} \\
+    \midrule
+    Governance reset and evidence protocol
+    & 0 & mandatory
+    & Freeze the rule that legacy surfaces may inform the campaign but cannot
+      anchor validation without re-audit.
+    & Blocks every later gate. \\
+
+    Formulation and solver scope audit
+    & 1 & mandatory
+    & Re-audit TL, UL, corotational, Newton, dynamics, and continuation as
+      computational slices.
+    & Blocks structural, continuum, and escalation stages. \\
+
+    Uniaxial material and section baseline
+    & 2 & mandatory
+    & Re-audit steel, concrete, and fiber-section ingredients before using them
+      in the reference column.
+    & Blocks both reduced and continuum column campaigns. \\
+
+    Reduced-order RC column matrix
+    & 3 & mandatory
+    & Validate the rectangular column with Timoshenko beam models from
+      \(N=2\) to \(N=10\), including hysteresis and moment-curvature outputs.
+    & First structural acceptance gate. \\
+
+    Beam integration family extension
+    & 3 & mandatory
+    & Replace the current one-rule beam integration path with an explicit
+      Gauss/Lobatto/Radau strategy family.
+    & Required before the structural column campaign can close honestly. \\
+
+    Continuum RC column matrix
+    & 4 & mandatory
+    & Build the equivalent 3D continuum column with Hex8/20/27 and consistent
+      top-face displacement control.
+    & Blocks continuum closure and escalation. \\
+
+    Reduced-versus-continuum equivalence
+    & 5 & mandatory
+    & Quantify agreement in stiffness, strength, dissipation, and loop shape
+      before reopening larger structural examples.
+    & Final gate before large structures. \\
+
+    Reinforcement discretization extension
+    & 4 & conditional
+    & Introduce \texttt{TrussElement<Nnodes>} or an equivalent richer
+      reinforcement carrier only if the bonded 2-node path proves insufficient.
+    & Does not block the first campaign by default. \\
+
+    Alternative concrete model extension
+    & 2 & conditional
+    & Add other concrete models only if the audited campaign shows that current
+      uniaxial or continuum concrete paths are not sufficient.
+    & Evidence-driven, not promise-driven. \\
+
+    Force-based structural element path
+    & 6 & deferred
+    & Open a later growth track toward flexibility-based/force-based elements.
+    & Valuable, but intentionally non-blocking for the first column baseline. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Dependency graph of the reboot}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 12mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      opt/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=34mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (gov) {Phase 0\\Governance};
+    \node[box, right=of gov] (scope) {Phase 1\\Formulation + solver audit};
+    \node[box, right=of scope] (mat) {Phase 2\\Materials + sections};
+
+    \node[box, below=of scope] (beam) {Phase 3\\Reduced RC column};
+    \node[box, right=of beam] (cont) {Phase 4\\Continuum RC column};
+    \node[box, right=of cont] (eqv) {Phase 5\\Cross-model equivalence};
+    \node[box, below=of eqv] (full) {Phase 6\\Large-structure escalation};
+
+    \node[opt, below=of beam] (rebar) {Conditional\\TrussElement<N> / richer rebar};
+    \node[opt, left=of rebar] (conc) {Conditional\\alternative concrete models};
+    \node[opt, below=of cont] (force) {Deferred\\force-based elements};
+
+    \draw[arr] (gov) -- (scope);
+    \draw[arr] (scope) -- (mat);
+    \draw[arr] (mat) -- (beam);
+    \draw[arr] (beam) -- (cont);
+    \draw[arr] (cont) -- (eqv);
+    \draw[arr] (eqv) -- (full);
+    \draw[arr] (beam) -- (rebar);
+    \draw[arr] (mat) -- (conc);
+    \draw[arr] (eqv) -- (force);
+  \end{tikzpicture}
+  \caption{Dependency structure of the validation reboot.  The first column
+  baseline is the mainline; richer reinforcement carriers, additional concrete
+  models, and force-based elements are controlled side tracks.}
+  \label{fig:validation-reboot-dependency-graph}
+\end{figure}
+
+\section{Why some attractive extensions remain conditional}
+
+The reboot is intentionally critical with respect to architectural ambition.
+Several features are scientifically attractive:
+\begin{itemize}
+  \item alternative cyclic concrete models or continuum damage-plasticity
+    variants \cite{LeeFenves1998_PlasticDamageModelCyclicConcrete,KoBathe2026};
+  \item richer reinforced-concrete section and confinement descriptions
+    \cite{Mander1988_ConfinedConcrete};
+  \item flexibility-based beam-column elements and plastic-hinge integration
+    schemes \cite{Spacone1996_FibreBeamColumnModel,Scott2008_SoftwarePatternsBeamColumnModels};
+  \item richer Timoshenko beam section placement rules and quadrature families
+    \cite{Li2013_FiberSectionTimoshenkoElementOpenSees}.
+\end{itemize}
+
+However, scientific precision requires a harder distinction:
+\begin{quote}
+  \emph{valuable future capability} is not the same as
+  \emph{current blocker to the first reference validation campaign}.
+\end{quote}
+The present plan therefore implements such features only when the audited
+campaign shows that the current baseline cannot close its gates honestly.
+
+\section{The first coding artifact of the reboot}
+
+The catalog itself is meant to stay lightweight and outside the hot numerical
+path:
+
+\begin{lstlisting}[language=C++,caption={Representative compile-time contract for the rebooted validation campaign.},label={lst:validation-reboot-catalog}]
+constexpr auto plan = fall_n::canonical_validation_reboot_workstream_table_v;
+
+static_assert(
+    fall_n::canonical_validation_workstream_priority_count_v<
+        fall_n::ValidationWorkstreamPriorityKind::mandatory_blocker> == 8);
+static_assert(
+    fall_n::canonical_validation_reference_structural_column_gate_count_v == 5);
+static_assert(
+    fall_n::canonical_validation_reference_continuum_column_gate_count_v == 7);
+\end{lstlisting}
+
+\section{Immediate execution policy}
+
+The immediate execution policy of this reboot is therefore:
+\begin{enumerate}
+  \item stabilize the methodological baseline;
+  \item validate the reduced-order rectangular RC column first;
+  \item build the equivalent continuum column second;
+  \item compare both routes quantitatively;
+  \item only then reopen walls, frames, subassemblages, FE\textsuperscript{2},
+    and building-scale simulations as normative validation targets.
+\end{enumerate}
+
+This is narrower than the current ambition of the repository, but also more
+scientifically defensible.  That tradeoff is intentional.

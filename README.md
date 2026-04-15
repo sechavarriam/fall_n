@@ -181,6 +181,43 @@ The repository also contains many executable validation drivers, including:
 - `fall_n_table_cyclic_validation`
 - `fall_n_rc_beam_validation`
 
+## Validation Reboot Program
+
+The repository is now carrying an explicit validation reboot plan instead of
+continuing to grow by inheriting authority from older drivers.
+
+The canonical compile-time contract for that reboot lives in:
+
+- `src/validation/ValidationCampaignCatalog.hh`
+- `tests/test_validation_campaign_catalog.cpp`
+
+The governing rule is simple and deliberately strict:
+
+1. No existing test, driver, or manuscript chapter is treated as validated
+   truth until it is re-audited against the actual computational claim it is
+   supposed to support.
+2. The first normative physical-validation target is a single reinforced-
+   concrete rectangular column under progressively amplified cyclic lateral
+   displacement, not a full structure.
+3. Reduced-order structural models must be closed first, then the equivalent
+   continuum column, then the reduced-versus-continuum equivalence gate, and
+   only after that may larger structural or FE2-heavy campaigns become
+   normative again.
+
+The representative reboot workstreams are currently classified as:
+
+- `mandatory_blocker`: must close before the reference column campaign or full
+  structural escalation can be claimed.
+- `conditional_enabler`: valuable extensions such as `TrussElement<Nnodes>` or
+  alternative concrete models, but only promoted if the audited campaign shows
+  they are truly needed.
+- `deferred_growth_path`: important future work such as force-based structural
+  elements, intentionally kept out of the first validation baseline.
+
+Legacy validation surfaces are therefore preserved as audited input, not
+destroyed immediately. They should be quarantined to `.old` only after the
+replacement campaign exists and covers the same scientific front more honestly.
+
 ## Tests and Stability Gate
 
 Focused multiscale regression executables include:
