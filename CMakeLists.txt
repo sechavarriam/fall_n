@@ -606,6 +606,11 @@ fall_n_add_test(TARGET fall_n_computational_validation_readiness_catalog_test
     SOURCE tests/test_computational_validation_readiness_catalog.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_validation_campaign_catalog_test
+    NAME validation_campaign_catalog
+    SOURCE tests/test_validation_campaign_catalog.cpp
+    LIBS NONE  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp
     LIBS FULL  LABEL unit)
