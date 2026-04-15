@@ -70,6 +70,13 @@
 #include "src/numerics/numerical_integration/Quadrature.hh"
 #include "src/numerics/numerical_integration/GaussLegendreNodes.hh"
 #include "src/numerics/numerical_integration/GaussLegendreWeights.hh"
+#include "src/numerics/numerical_integration/GaussLobattoNodes.hh"
+#include "src/numerics/numerical_integration/GaussLobattoWeights.hh"
+#include "src/numerics/numerical_integration/GaussLobattoCellIntegrator.hh"
+#include "src/numerics/numerical_integration/GaussRadauNodes.hh"
+#include "src/numerics/numerical_integration/GaussRadauWeights.hh"
+#include "src/numerics/numerical_integration/GaussRadauCellIntegrator.hh"
+#include "src/numerics/numerical_integration/BeamAxisQuadrature.hh"
 #include "src/numerics/numerical_integration/SimplexQuadrature.hh"
 #include "src/numerics/numerical_integration/StroudConicalProduct.hh"
 

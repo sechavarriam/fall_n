@@ -241,8 +241,10 @@ canonical_validation_reboot_workstream_table() noexcept
             " 2 to 10 nodes/sections under progressively amplified cyclic"
             " displacement, with optional axial compression.",
             "chapter6_structural_reduction_and_section_resultants",
-            "single-column beam benchmark suite + hysteresis + moment-curvature"
-            " + convergence matrix",
+            "ReducedRCColumnStructuralMatrixCatalog.hh +"
+            " ReducedRCColumnStructuralBaseline.hh/.cpp +"
+            " ReducedRCColumnValidationClaimCatalog.hh + hysteresis +"
+            " moment-curvature + convergence matrix",
             "TableCyclicValidationStructural.cpp ; test_timoshenko_cantilever_benchmark.cpp",
             ValidationRebootPhaseKind::phase3_reduced_order_rc_column,
             ValidationWorkstreamPriorityKind::mandatory_blocker,
@@ -259,8 +261,9 @@ canonical_validation_reboot_workstream_table() noexcept
             " strategies so the reference column can be validated against"
             " section-placement sensitivity instead of one hardcoded rule.",
             "distributed_plasticity_and_structural_quadrature",
-            "integration-rule abstraction + regression matrix for TimoshenkoBeamN",
-            "current hardcoded Gauss-Legendre path in TimoshenkoBeamN.hh",
+            "BeamAxisQuadrature.hh + ReducedRCColumnStructuralMatrixCatalog.hh"
+            " + regression matrix for TimoshenkoBeamN",
+            "legacy Gauss-Legendre-only structural validation path",
             ValidationRebootPhaseKind::phase3_reduced_order_rc_column,
             ValidationWorkstreamPriorityKind::mandatory_blocker,
             LegacyValidationSurfaceDispositionKind::retire_after_replacement_campaign,

@@ -7,7 +7,8 @@
 //
 //  N-node isoparametric Timoshenko beam with mixed interpolation:
 //  the transverse shear strains are interpolated with a REDUCED Lagrange
-//  basis (order p-1) evaluated at the (N-1) Gauss-Legendre points, while
+//  basis (order p-1) evaluated at the (N-1) section stations supplied by the
+//  bound 1D quadrature rule, while
 //  all other generalized strains (axial, bending, torsion) use the FULL
 //  N-node Lagrange basis (order p = N-1).
 //
@@ -23,7 +24,10 @@
 //  Geometry:
 //    - Supports curved beams: the isoparametric mapping and Jacobian come
 //      from ElementGeometry<3> with LagrangeElement<3, N>.
-//    - Integration: (N-1) Gauss-Legendre points (exact for order 2p-3 = 2N-5).
+//    - Integration: (N-1) beam-axis stations supplied by the geometry
+//      quadrature. The current reference path uses Gauss-Legendre, but
+//      Lobatto and Radau families are admissible as long as the geometry
+//      exposes exactly N-1 stations.
 //
 //  DOFs per node: 6  (u, v, w, θx, θy, θz) — always 3D.
 //
@@ -38,9 +42,10 @@
 //  Mixed interpolation strategy:
 //    - ε, κ_y, κ_z, φ' : standard N-node shape functions h_i(ξ)
 //       → dh_i/ds = (dh_i/dξ) / (ds/dξ)    where ds/dξ = ‖J(ξ)‖
-//    - γ_y, γ_z : evaluated at (N-1) Gauss (tying) points, then
+//    - γ_y, γ_z : evaluated at the (N-1) tying points delivered by the
+//      active beam-axis quadrature, then
 //       interpolated using the reduced (N-2)-order Lagrange basis h̄_j(ξ)
-//       built on those Gauss nodes.
+//       built on those station coordinates.
 //
 //  The element satisfies the FiniteElement concept for Model and NLAnalysis.
 //
@@ -61,7 +66,6 @@
 
 #include "../materials/Material.hh"
 #include "../numerics/Interpolation/LagrangeInterpolation.hh"
-#include "../numerics/numerical_integration/GaussLegendreNodes.hh"
 
 
 template <std::size_t N,
@@ -77,7 +81,7 @@ class TimoshenkoBeamN {
     static constexpr std::size_t dofs_per_node = 6;
     static constexpr std::size_t n_nodes       = N;
     static constexpr std::size_t total_dofs    = dofs_per_node * N;
-    static constexpr std::size_t n_gp          = N - 1; // Gauss-Legendre points
+    static constexpr std::size_t n_gp          = N - 1; // section stations / tying points
 
     using StateVariableT   = typename BeamPolicy::StateVariableT;
     using MaterialT        = Material<BeamPolicy>;
@@ -100,7 +104,7 @@ class TimoshenkoBeamN {
     // Element local frame (rotation matrix: rows = e₁, e₂, e₃)
     Eigen::Matrix3d R_ = Eigen::Matrix3d::Identity();
 
-    // Reduced basis for transverse shear (built on Gauss node positions)
+    // Reduced basis for transverse shear (built on the active section stations)
     ShearBasis shear_basis_{};
 
     // ── DOF index cache ─────────────────────────────────────────────────
@@ -491,14 +495,14 @@ public:
                 "TimoshenkoBeamN: geometry quadrature must use exactly N-1 integration points.");
         }
 
-        // Build reduced basis from Gauss point positions
+        // Build reduced basis from the active beam-axis station coordinates.
         std::array<double, n_gp> gp_coords;
         for (std::size_t j = 0; j < n_gp; ++j)
             gp_coords[j] = geometry_->reference_integration_point(j)[0];
 
         shear_basis_ = ShearBasis{gp_coords};
 
-        // Create material sections at each Gauss point
+        // Create one material section per active beam-axis station.
         if (geometry_->integration_points().size() != n_gp) {
             geometry_->setup_integration_points(0);
         }

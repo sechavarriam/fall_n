@@ -58,6 +58,10 @@ The most mature publication-path subsystem today is the multiscale module:
 - The same Windows gate now resolves staged runtime DLLs through explicit leaf-file checks before copying them into `build/`, so the workflow no longer assumes that every discovered MS-MPI runtime directory actually contains `msmpi.dll`. This closes a real GitHub runner failure mode where `System32` contained the runtime DLL but `C:\\Program Files\\Microsoft MPI\\Bin` did not.
 - The same gate now also carries the exact `MSMPI_RUNTIME_DLL` path across steps, so runtime staging and diagnostics are anchored to the actual file discovered during setup instead of reconstructing that path later from partially populated candidate directories.
 - A reproducible predefinitive physical-validation harness exists in `scripts/run_predefinitive_physical_validation.ps1`; it records both the current Case 4 short-run milestone and the current Case 5 frontier honestly.
+- The structural beam path now exposes a compile-time beam-axis quadrature family in `src/numerics/numerical_integration/BeamAxisQuadrature.hh`. `TimoshenkoBeamN` is no longer nominally tied to Gauss-Legendre stations: Gauss-Legendre, Gauss-Lobatto, and Gauss-Radau rules can now be exercised through the same element formulation, and the reduced shear basis is rebuilt from the actual station coordinates supplied by the bound geometry rule.
+- That beam-axis layer is frozen by `tests/test_beam_axis_quadrature.cpp`, which checks monomial exactness of the rule families, left/right Radau consistency, and reuse of the same `TimoshenkoBeamN` formulation with Lobatto and Radau station sets.
+- The reduced structural RC-column reboot now has its own canonical matrix in `src/validation/ReducedRCColumnStructuralMatrixCatalog.hh` and a clean runtime surface in `src/validation/ReducedRCColumnStructuralBaseline.hh/.cpp`. This matters because the library can now state, explicitly, that the current Phase-3 runtime baseline is `TimoshenkoBeamN<N> + small strain + {Gauss, Lobatto, Radau}` for `N=2..10`, while `TimoshenkoBeamN + corotational` remains a planned family extension and `TimoshenkoBeamN + TL/UL` remains unavailable rather than silently implied.
+- That structural reboot layer is frozen by `tests/test_reduced_rc_column_structural_matrix.cpp`, which constrains the case counts, the honest support split (`36` runtime baseline cases, `36` corotational extension rows, `72` finite-kinematics-unavailable rows), and a runtime smoke pass of the new reduced-column baseline under three beam-axis quadrature families with optional axial compression.
 - The Ko-Bathe 3D concrete path now exposes explicit crack-stabilization profiles so the paper-reference parameters and the stabilized FE2-production defaults are no longer conflated.
 - The Ko-Bathe 3D audit also closed a real constitutive-state bug: crack opening/closure is now refreshed from the final elastic strain after plastic correction, instead of silently inheriting a pre-return trial state.
 - The Ko-Bathe 3D path now classifies `compressive flow` versus `no-flow` explicitly from the trial octahedral invariants, so tensile states and compressive unloading no longer accumulate effective plastic flow spuriously.
@@ -170,6 +174,9 @@ ninja -C build fall_n_multiscale_api_test
 ninja -C build fall_n_evolver_advanced_test
 ninja -C build fall_n_tangent_validation_benchmark_test
 ninja -C build fall_n_coupling_residual_benchmark_test
+ninja -C build fall_n_beam_axis_quadrature_test
+ninja -C build fall_n_reduced_rc_column_structural_matrix_test
+ninja -C build fall_n_reduced_rc_column_validation_claim_catalog_test
 ninja -C build fall_n_table_cyclic_validation
 ```
 
@@ -190,6 +197,15 @@ The canonical compile-time contract for that reboot lives in:
 
 - `src/validation/ValidationCampaignCatalog.hh`
 - `tests/test_validation_campaign_catalog.cpp`
+- `src/validation/ReducedRCColumnStructuralMatrixCatalog.hh`
+- `src/validation/ReducedRCColumnStructuralBaseline.hh`
+- `src/validation/ReducedRCColumnValidationClaimCatalog.hh`
+- `src/validation/ReducedRCColumnBenchmarkTraceCatalog.hh`
+- `src/validation/ReducedRCColumnEvidenceClosureCatalog.hh`
+- `tests/test_reduced_rc_column_structural_matrix.cpp`
+- `tests/test_reduced_rc_column_validation_claim_catalog.cpp`
+- `tests/test_reduced_rc_column_benchmark_trace_catalog.cpp`
+- `tests/test_reduced_rc_column_evidence_closure_catalog.cpp`
 
 The governing rule is simple and deliberately strict:
 
@@ -203,6 +219,25 @@ The governing rule is simple and deliberately strict:
    continuum column, then the reduced-versus-continuum equivalence gate, and
    only after that may larger structural or FE2-heavy campaigns become
    normative again.
+
+The current structural reboot frontier is therefore intentionally explicit:
+
+- Baseline runtime-ready slice: `TimoshenkoBeamN<N> + continuum::SmallStrain + BeamAxisQuadratureFamily::{GaussLegendre, GaussLobatto, GaussRadauLeft, GaussRadauRight}` for `N=2..10`.
+- Planned but not yet runtime-ready family extension: `TimoshenkoBeamN<N> + beam::Corotational`.
+- Unavailable in the current beam family: `TimoshenkoBeamN<N> + continuum::TotalLagrangian` and `TimoshenkoBeamN<N> + continuum::UpdatedLagrangian`.
+
+That distinction is not cosmetic; it is the reason the validation reboot can stay scientifically honest while still remaining modular and extensible.
+
+The same reboot now also distinguishes between "the runtime surface exists"
+and "the scientific claim is already ready for a structural benchmark". The
+current honest read for the reduced RC column is:
+
+- Frozen enabling contract: the beam-axis quadrature family is now an explicit model axis and no longer a hidden implementation detail.
+- Runtime-baseline ready: the small-strain `TimoshenkoBeamN<N>` column path exists for `N=2..10`, the optional axial-compression load path exists, the base-shear-vs-drift hysteresis CSV contract exists, and a normative base-side moment-curvature observable is now exported through `moment_curvature_base.csv`.
+- Benchmark pending: node-refinement convergence and quadrature-sensitivity claims are still open and must be closed by explicit benchmark suites, not inferred from smoke runs.
+- Prebenchmark caveat: the moment-curvature observable is defined at the active section station closest to the fixed end, so it is now a clean runtime observable, but it still requires benchmark closure and quadrature-sensitivity interpretation before it can anchor physical validation.
+- The benchmark layer is now frozen explicitly as `claim -> benchmark -> reference class -> acceptance gate`, so the reduced-column campaign no longer jumps directly from runtime output contracts to physical-validation rhetoric.
+- The evidence-closure layer is now frozen explicitly as `claim -> current artifact -> missing experiment -> closure artifact`, so every open reduced-column claim carries a concrete numerical obligation instead of only a generic “future benchmark” label.
 
 The representative reboot workstreams are currently classified as:
 
