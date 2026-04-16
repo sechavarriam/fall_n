@@ -1,0 +1,10 @@
+reduced_rc_column_structural_matrix 3 0.0994212
+reduced_rc_column_section_baseline 2 0.0451608
+reduced_rc_column_moment_curvature_closure 4 0.174513
+reduced_rc_column_moment_curvature_closure_matrix 6 3.38601
+reduced_rc_column_validation_claim_catalog 5 0.00494524
+reduced_rc_column_benchmark_trace_catalog 5 0.0048158
+reduced_rc_column_evidence_closure_catalog 5 0.005185
+reduced_rc_column_node_refinement_study 3 3.26622
+reduced_rc_column_quadrature_sensitivity_study 1 19.5377
+---

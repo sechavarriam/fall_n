@@ -1,0 +1,46 @@
+Start testing: Apr 15 15:53 Hora est. Pacífico, Sudamérica
+----------------------------------------------------------
+44/81 Testing: beam_n_element
+44/81 Test: beam_n_element
+Command: "C:/MyLibs/fall_n/build_stage5_pch/fall_n_beam_n_test.exe"
+Directory: C:/MyLibs/fall_n/build_stage5_pch
+"beam_n_element" start time: Apr 15 15:53 Hora est. Pacífico, Sudamérica
+Output:
+----------------------------------------------------------
+=== TimoshenkoBeamN Tests ===
+  PASS  test_N2_K_equivalence_with_BeamElement
+  PASS  test_K_symmetry_N2
+  PASS  test_K_symmetry_N3
+  PASS  test_K_symmetry_N4
+  PASS  test_rigid_body_modes_N2
+  PASS  test_rigid_body_modes_N3
+  PASS  test_rigid_body_modes_N4
+  PASS  test_axial_stiffness_N2
+  PASS  test_axial_stiffness_N3
+  PASS  test_rotation_invariance_N3
+  PASS  test_sections_N3
+  PASS  test_shear_basis_N3
+  PASS  test_topology_queries_N2
+  PASS  test_topology_queries_N3
+  PASS  test_topology_queries_N4
+  PASS  test_quadrature_contract_N2
+  PASS  test_K_rank_N3
+  PASS  test_K_rank_N4
+  PASS  test_curved_beam_K_symmetry_N3
+  PASS  test_curved_beam_rigid_body_modes_N3
+  PASS  test_curved_beam_K_positive_semidefinite_N3
+  PASS  test_rotation_matrix_N3_curved
+
+=== 22 PASSED, 0 FAILED ===
+<end of output>
+Test time =   0.40 sec
+----------------------------------------------------------
+Test Passed.
+"beam_n_element" end time: Apr 15 15:53 Hora est. Pacífico, Sudamérica
+"beam_n_element" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Apr 15 15:53 Hora est. Pacífico, Sudamérica
+
+unit =   0.40 sec*proc
+

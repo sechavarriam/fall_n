@@ -272,7 +272,7 @@ namespace interpolation{
 
     //auto f = interpolation::LagrangeInterpolator_ND<2>{ interpolation::LagrangeBasis_ND<2>{ {-10, 10}} , {2.0,4.0}};
 
-    using namespace matplot;
+    // Legacy plotting snippets are kept only as commented pseudo-usage.
     auto xx  = linspace(-1 , 1, 101);
     //auto y  = transform(x, [=](double x) { return F(x); });
 
@@ -295,7 +295,7 @@ namespace interpolation{
                                                             5,-5,3,
                                                             2,3,4,
                                                             1,2,3})
-    using namespace matplot;
+    // Legacy plotting snippets are kept only as commented pseudo-usage.
     auto [X, Y] = meshgrid(linspace(-1, 1, 100), linspace(-1, 1, 100));
     auto Z = transform(X, Y, [=](double x, double y) {
         return F3_4({x,y});

@@ -4,7 +4,6 @@ project(fall_n VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(FetchContent) #
 include(CTest)
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
@@ -130,6 +129,12 @@ endif()
 
 option(FALL_N_ENABLE_COMMON_PCH
   "Enable shared precompiled headers for heavy fall_n targets" ON)
+option(FALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS
+  "Emit compile-time messages for legacy header_files.hh includes" OFF)
+
+if(FALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS)
+  add_compile_definitions(FALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS=1)
+endif()
 
 function(fall_n_enable_common_pch target_name)
   if(NOT FALL_N_ENABLE_COMMON_PCH)
@@ -137,7 +142,7 @@ function(fall_n_enable_common_pch target_name)
   endif()
 
   target_precompile_headers(${target_name} PRIVATE
-    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/header_files.hh>")
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/src/fall_n_common_pch.hh>")
 endfunction()
 
 function(fall_n_enable_cyclic_validation_pch target_name)
@@ -228,6 +233,8 @@ fall_n_use_multiscale_api(fall_n_table_multiscale)
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
     src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnSectionBaseline.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosure.cpp
     src/validation/TableCyclicValidationStructural.cpp
     src/validation/TableCyclicValidationFE2Recorders.cpp
     src/validation/TableCyclicValidationFE2Setup.cpp
@@ -623,8 +630,73 @@ fall_n_add_test(TARGET fall_n_reduced_rc_column_structural_matrix_test
 set_target_properties(fall_n_reduced_rc_column_structural_matrix_test PROPERTIES
     DISABLE_PRECOMPILE_HEADERS ON)
 target_sources(fall_n_reduced_rc_column_structural_matrix_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_section_baseline_test
+    NAME reduced_rc_column_section_baseline
+    SOURCE tests/test_reduced_rc_column_section_baseline.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_section_baseline_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_section_baseline_test PRIVATE
+    src/validation/ReducedRCColumnSectionBaseline.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_moment_curvature_closure_test
+    NAME reduced_rc_column_moment_curvature_closure
+    SOURCE tests/test_reduced_rc_column_moment_curvature_closure.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_moment_curvature_closure_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_moment_curvature_closure_test PRIVATE
     src/validation/ReducedRCColumnStructuralBaseline.cpp
-    src/validation/TableCyclicValidationSupport.cpp)
+    src/validation/ReducedRCColumnSectionBaseline.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosure.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_moment_curvature_closure_matrix_test
+    NAME reduced_rc_column_moment_curvature_closure_matrix
+    SOURCE tests/test_reduced_rc_column_moment_curvature_closure_matrix.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_moment_curvature_closure_matrix_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_moment_curvature_closure_matrix_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnSectionBaseline.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosure.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosureMatrix.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_node_refinement_study_test
+    NAME reduced_rc_column_node_refinement_study
+    SOURCE tests/test_reduced_rc_column_node_refinement_study.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_node_refinement_study_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_node_refinement_study_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnSectionBaseline.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosure.cpp
+    src/validation/ReducedRCColumnNodeRefinementStudy.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_cyclic_node_refinement_study_test
+    NAME reduced_rc_column_cyclic_node_refinement_study
+    SOURCE tests/test_reduced_rc_column_cyclic_node_refinement_study.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_cyclic_node_refinement_study_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_cyclic_node_refinement_study_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_quadrature_sensitivity_study_test
+    NAME reduced_rc_column_quadrature_sensitivity_study
+    SOURCE tests/test_reduced_rc_column_quadrature_sensitivity_study.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_quadrature_sensitivity_study_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_quadrature_sensitivity_study_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnSectionBaseline.cpp
+    src/validation/ReducedRCColumnMomentCurvatureClosure.cpp
+    src/validation/ReducedRCColumnQuadratureSensitivityStudy.cpp)
 
 fall_n_add_test(TARGET fall_n_reduced_rc_column_validation_claim_catalog_test
     NAME reduced_rc_column_validation_claim_catalog
@@ -702,29 +774,6 @@ set_tests_properties(
     case5_frontier_probe
     PROPERTIES TIMEOUT 600)
 
-
-# ===============================================================================
-# ============== Matplot++  =====================================================
-# ===============================================================================
-
-#if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") #Not workking on GNU.  
-  set(FETCHCONTENT_UPDATES_DISCONNECTED_MATPLOTPLUSPLUS ON)
-  FetchContent_Declare(
-      matplotplusplus
-      GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus
-      GIT_TAG origin/master) # or whatever tag you want
-
-  FetchContent_GetProperties(matplotplusplus)
-  if(NOT matplotplusplus_POPULATED)
-      FetchContent_Populate(matplotplusplus)
-      add_subdirectory(${matplotplusplus_SOURCE_DIR} ${matplotplusplus_BINARY_DIR} EXCLUDE_FROM_ALL)
-  endif()
-#endif()
-
-target_link_libraries(fall_n PUBLIC matplot)
-target_link_libraries(fall_n_seismic PUBLIC matplot)
-
-# ===============================================================================
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
