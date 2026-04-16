@@ -14,6 +14,8 @@
 //    - compile-time beam-axis quadrature family (Gauss / Lobatto / Radau)
 //    - small-strain beam formulation
 //    - lateral displacement control with optional axial compression force
+//    - optional equilibrated axial-preload stage held constant during the
+//      lateral branch
 //
 //  Future scope:
 //    - corotational TimoshenkoBeamN family
@@ -23,6 +25,7 @@
 
 #include "src/numerics/numerical_integration/BeamAxisQuadrature.hh"
 #include "src/validation/TableCyclicValidationAPI.hh"
+#include "src/validation/ReducedRCColumnReferenceSpec.hh"
 
 #include <cstddef>
 #include <string>
@@ -35,9 +38,24 @@ struct ReducedRCColumnStructuralRunSpec {
     BeamAxisQuadratureFamily beam_axis_quadrature_family{
         BeamAxisQuadratureFamily::GaussLegendre};
     double axial_compression_force_mn{0.0};
+    bool use_equilibrated_axial_preload_stage{true};
+    int axial_preload_steps{4};
     bool write_hysteresis_csv{true};
     bool write_section_response_csv{true};
     bool print_progress{true};
+    ReducedRCColumnReferenceSpec reference_spec{};
+
+    [[nodiscard]] bool has_axial_compression() const noexcept
+    {
+        return axial_compression_force_mn > 0.0;
+    }
+
+    [[nodiscard]] bool uses_equilibrated_axial_preload_stage() const noexcept
+    {
+        return has_axial_compression() &&
+               use_equilibrated_axial_preload_stage &&
+               axial_preload_steps > 0;
+    }
 };
 
 struct ReducedRCColumnSectionResponseRecord {

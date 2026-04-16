@@ -25,10 +25,9 @@
 
 #include <Eigen/Dense>
 
-#include "header_files.hh"
-
-#include "src/elements/TimoshenkoBeamN.hh"
-#include "src/elements/BeamElement.hh"
+// Narrow validation umbrella for the beam slice. This is the migration path
+// away from the repository-wide header_files.hh umbrella.
+#include "src/validation/BeamValidationSupport.hh"
 
 // ── Test harness ────────────────────────────────────────────────────────────
 

@@ -99,7 +99,7 @@ constexpr bool matrix_sweep_obligations_are_explicit()
     bool runtime_surface_requires_matrix = false;
     bool node_refinement_requires_matrix = false;
     bool quadrature_requires_matrix = false;
-    bool moment_curvature_does_not_require_matrix = false;
+    bool moment_curvature_requires_matrix = false;
 
     for (const auto& row : evidence_table) {
         if (row.benchmark_row.benchmark_label ==
@@ -113,12 +113,12 @@ constexpr bool matrix_sweep_obligations_are_explicit()
             quadrature_requires_matrix = row.requires_repeated_matrix_sweep;
         } else if (row.benchmark_row.benchmark_label ==
                    "reduced_column_base_side_moment_curvature_suite") {
-            moment_curvature_does_not_require_matrix = !row.requires_repeated_matrix_sweep;
+            moment_curvature_requires_matrix = row.requires_repeated_matrix_sweep;
         }
     }
 
     return runtime_surface_requires_matrix && node_refinement_requires_matrix &&
-           quadrature_requires_matrix && moment_curvature_does_not_require_matrix;
+           quadrature_requires_matrix && moment_curvature_requires_matrix;
 }
 
 constexpr bool evidence_kind_distribution_matches_the_intended_campaign()
@@ -145,7 +145,7 @@ constexpr bool evidence_kind_distribution_matches_the_intended_campaign()
            fall_n::canonical_reduced_rc_column_evidence_external_dataset_count_v == 2 &&
            fall_n::canonical_reduced_rc_column_evidence_section_baseline_count_v == 1 &&
            fall_n::canonical_reduced_rc_column_evidence_phase3_gate_count_v == 5 &&
-           fall_n::canonical_reduced_rc_column_evidence_matrix_sweep_count_v == 5;
+           fall_n::canonical_reduced_rc_column_evidence_matrix_sweep_count_v == 6;
 }
 
 static_assert(every_evidence_row_aligns_with_an_open_benchmark_trace_row());

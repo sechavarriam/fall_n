@@ -9,10 +9,9 @@
 
 #include <Eigen/Dense>
 
-#include "header_files.hh"
-
-#include "src/elements/TimoshenkoBeamN.hh"
-#include "src/numerics/numerical_integration/BeamAxisQuadrature.hh"
+// Narrow validation umbrella for the beam slice. This is the migration path
+// away from the repository-wide header_files.hh umbrella.
+#include "src/validation/BeamValidationSupport.hh"
 
 static int g_pass = 0;
 static int g_fail = 0;

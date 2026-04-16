@@ -623,8 +623,464 @@ hysteresis and the base-side moment-curvature observables.  What remains open
 is State~3: benchmark closure.  In particular, the moment-curvature observable
 must still be interpreted against the quadrature family because the controlling
 station is the nearest active fixed-side section, not a quadrature-independent
-ideal boundary cut.  That is precisely why the campaign remains
-\emph{pre-benchmark} rather than already validated.
+ideal boundary cut.  The reboot now also has an independent section-level
+baseline, solved by enforcing
+\(
+  N(\varepsilon_0,\kappa_y)=N^\star
+\)
+at each curvature step over the same fiber-section ingredients.  This improves
+the evidence hierarchy substantially.  The reboot now also has an explicit
+comparison artifact between both objects, implemented in
+\texttt{src/validation/ReducedRCColumnMomentCurvatureClosure.hh/.cpp}.  The
+comparison is carried out over the physically relevant control variable,
+curvature, not over the raw step counter, and it uses the sign of the active
+structural branch to map the first monotonic loading path to the canonical
+positive section branch.  For the current representative slice
+\((N=4,\;\text{Gauss--Lobatto})\), the closure bundle already shows tight
+flexural agreement, with
+\[
+  \eta_M
+  =
+  \frac{|M_{\mathrm{str}}-M_{\mathrm{sec}}|}
+       {\max(|M_{\mathrm{sec}}|,\varepsilon)}
+  \lesssim 2.3\times 10^{-3},
+  \qquad
+  \eta_{K_t}
+  =
+  \frac{|K_{t,\mathrm{str}}-K_{t,\mathrm{sec}}|}
+       {\max(|K_{t,\mathrm{sec}}|,\varepsilon)}
+  \lesssim 1.8\times 10^{-3},
+\]
+and secant-stiffness mismatch of the same order.  The reboot now also has the
+corresponding matrix-level artifact in
+\texttt{src/validation/ReducedRCColumnMomentCurvatureClosureMatrix.hh/.cpp},
+which sweeps the full runtime-ready family
+\(
+  \mathfrak{B}_{\text{phase3}}
+\)
+over \(N=2,\dots,10\) and the four explicit beam-axis quadrature families.
+For the current monotonic audit protocol, the matrix result is strong: all
+\(36\) runtime-ready slices complete, all \(36\) satisfy the representative
+closure tolerances including axial force, the worst moment/secant mismatch is
+about \(5.095\times 10^{-7}\) (at the
+\texttt{n05\_gauss\_radau\_left\_small\_strain} slice), the worst tangent
+mismatch is about \(2.178\times 10^{-9}\) (at
+\texttt{n08\_gauss\_legendre\_small\_strain}), and the worst axial-force
+mismatch is about \(2.677\times 10^{-7}\) (also at
+\texttt{n08\_gauss\_legendre\_small\_strain}).  The node-wise spread remains
+mild and now sits in the sub-micro range, while the quadrature-family
+averages remain clustered within the narrow band
+\(
+  3.378\times 10^{-7}
+  \lesssim
+  \overline{\eta_M}^{(q)}
+  \lesssim
+  4.518\times 10^{-7}
+\).
+
+That previous limitation has now been removed.  The structural baseline no
+longer injects the axial compression only as a nodal load superposed on the
+lateral branch.  Instead, it executes an explicit equilibrated axial-preload
+stage and then holds the converged preload during the lateral displacement
+history.  Re-running the full \(36\)-case matrix under that staged protocol
+collapses the axial diagnostic from order unity to
+\(2.677\times 10^{-7}\), while the worst moment/secant mismatch drops to
+\(5.095\times 10^{-7}\) and the worst tangent mismatch to
+\(2.178\times 10^{-9}\).  In other words, the internal structural-versus-
+section closure gate is now closed simultaneously in axial force, moment,
+secant stiffness and tangent stiffness over the full runtime-ready matrix.
+
+The campaign nevertheless remains \emph{pre-benchmark} in the strict sense of
+this reboot.  The open issue has moved: it is no longer preload consistency,
+but benchmark closure against refinement trends, quadrature sensitivity and
+external column-level reference data.
+
+\begin{lstlisting}[language=C++,caption={Independent section-level baseline now available for the reduced RC column reboot.},label={lst:reduced-rc-column-section-baseline}]
+using namespace fall_n::validation_reboot;
+
+const auto result =
+    run_reduced_rc_column_section_moment_curvature_baseline(
+        ReducedRCColumnSectionBaselineRunSpec{
+            .target_axial_compression_force_mn = 0.02,
+            .max_curvature_y = 0.03,
+            .steps = 120,
+        },
+        "data/output/cyclic_validation/reduced_column_section_baseline");
+\end{lstlisting}
+
+\begin{lstlisting}[language=C++,caption={Representative structural-versus-section closure bundle for the reduced RC column reboot.},label={lst:reduced-rc-column-moment-curvature-closure}]
+using namespace fall_n::validation_reboot;
+using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+
+const auto closure =
+    run_reduced_rc_column_moment_curvature_closure(
+        ReducedRCColumnMomentCurvatureClosureRunSpec{
+            .structural_spec = {
+                .beam_nodes = 4,
+                .beam_axis_quadrature_family =
+                    BeamAxisQuadratureFamily::GaussLobatto,
+                .axial_compression_force_mn = 0.02,
+                .use_equilibrated_axial_preload_stage = true,
+                .axial_preload_steps = 4,
+            },
+            .section_spec = {
+                .steps = 24,
+            },
+            .structural_protocol = CyclicValidationRunConfig{
+                .protocol_name = "reduced_moment_curvature_closure",
+                .execution_profile_name = "default",
+                .amplitudes_m = {2.5e-3},
+                .steps_per_segment = 8,
+                .max_bisections = 4,
+            },
+        },
+        "data/output/cyclic_validation/reduced_column_moment_curvature_closure");
+\end{lstlisting}
+
+\begin{lstlisting}[language=C++,caption={Matrix-wide structural-versus-section closure sweep for the reduced RC column reboot.},label={lst:reduced-rc-column-moment-curvature-closure-matrix}]
+using namespace fall_n::validation_reboot;
+using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+
+const auto matrix =
+    run_reduced_rc_column_moment_curvature_closure_matrix(
+        ReducedRCColumnMomentCurvatureClosureMatrixRunSpec{
+            .closure_spec = {
+                .structural_spec = {
+                    .axial_compression_force_mn = 0.02,
+                    .use_equilibrated_axial_preload_stage = true,
+                    .axial_preload_steps = 4,
+                },
+                .section_spec = {
+                    .steps = 12,
+                },
+                .structural_protocol = CyclicValidationRunConfig{
+                    .protocol_name = "reduced_moment_curvature_matrix",
+                    .execution_profile_name = "default",
+                    .amplitudes_m = {2.5e-3},
+                    .steps_per_segment = 4,
+                    .max_bisections = 4,
+                },
+            },
+        },
+        "data/output/cyclic_validation/reduced_column_moment_curvature_closure_matrix");
+\end{lstlisting}
+
+\paragraph{Internal node-refinement matrix.}
+The next internal obligation is no longer the structural-versus-section
+consistency gate, which is already closed, but the stabilization of the
+reduced family as the number of beam nodes/sections increases.  A first
+runtime artifact for that purpose is now kept in
+\texttt{src/validation/ReducedRCColumnNodeRefinementStudy.hh/.cpp}.  The
+study is intentionally internal: for each beam-axis quadrature family \(q\),
+it uses the highest runtime-ready slice \(N_{\mathrm{ref}}=10\) as an
+intrinsic reference and compares every lower-\(N\) branch against that slice
+on the common curvature interval.  The main drift measures are
+\begin{equation}
+  \eta_{M}^{(N,q)}
+  =
+  \max_{\kappa \in [0,\kappa_{\max}^{(N,q,\cap)}]}
+  \frac{|M_{N,q}(\kappa)-M_{N_{\mathrm{ref}},q}(\kappa)|}
+       {\max(|M_{N_{\mathrm{ref}},q}(\kappa)|,\varepsilon)},
+\end{equation}
+and
+\begin{equation}
+  \eta_{M,\mathrm{term}}^{(N,q)}
+  =
+  \frac{|M_{N,q}(\kappa_{\max}^{(N,q,\cap)})-
+         M_{N_{\mathrm{ref}},q}(\kappa_{\max}^{(N,q,\cap)})|}
+       {\max(|M_{N_{\mathrm{ref}},q}(\kappa_{\max}^{(N,q,\cap)})|,\varepsilon)},
+\end{equation}
+with analogous definitions for tangent and secant stiffness.  Here
+\(\kappa_{\max}^{(N,q,\cap)}\) is the largest curvature shared by the pair of
+branches.  This definition matters: it avoids confusing a true refinement
+effect with a mere mismatch in the terminal sampling point.
+
+On the current full monotonic runtime-ready matrix
+\(\{N=2,\dots,10\}\times\{\text{Gauss},\text{Lobatto},\text{Radau-left},\text{Radau-right}\}\),
+all \(36/36\) cases complete and all \(36/36\) satisfy the representative
+internal-refinement gate.  The worst terminal-moment drift is about
+\(1.41\times 10^{-4}\), the worst pointwise moment drift about
+\(2.14\times 10^{-4}\), the worst tangent drift about
+\(5.03\times 10^{-7}\), and the worst secant drift about
+\(5.04\times 10^{-5}\).  The drift decays strongly as \(N\) increases and is
+exactly zero at \(N=10\) by construction, because that slice is the family
+reference.  This closes the monotonic full-matrix part of the refinement
+question. What remained open after that result was not the monotonic matrix
+itself, but whether the same base-side observable would remain stable once
+unloading and reloading were introduced.
+
+\begin{lstlisting}[language=C++,caption={Internal monotonic node-refinement matrix for the reduced RC column reboot.},label={lst:reduced-rc-column-node-refinement-study}]
+using namespace fall_n::validation_reboot;
+using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+
+const auto refinement =
+    run_reduced_rc_column_node_refinement_study(
+        ReducedRCColumnNodeRefinementRunSpec{
+            .closure_spec = {
+                .structural_spec = {
+                    .axial_compression_force_mn = 0.02,
+                    .use_equilibrated_axial_preload_stage = true,
+                    .axial_preload_steps = 4,
+                },
+                .section_spec = {
+                    .steps = 12,
+                },
+                .structural_protocol = CyclicValidationRunConfig{
+                    .protocol_name = "reduced_node_refinement",
+                    .execution_profile_name = "default",
+                    .amplitudes_m = {2.5e-3},
+                    .steps_per_segment = 4,
+                    .max_bisections = 4,
+                },
+            },
+        },
+        "data/output/cyclic_validation/reduced_column_node_refinement");
+\end{lstlisting}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 10mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      proc/.style={draw, rounded corners, align=center, fill=green!8,
+                   minimum width=36mm, minimum height=9mm},
+      ref/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=38mm, minimum height=9mm},
+      resultbox/.style={draw, rounded corners, align=center, fill=red!8,
+                  minimum width=38mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (cases) {Runtime-ready cases\\\((N,q)\)};
+    \node[ref, right=of cases] (refcase) {Pick internal reference\\\(N_{\mathrm{ref}}=10\) per \(q\)};
+    \node[proc, right=of refcase] (interp) {Interpolate each branch\\on the common curvature interval};
+    \node[resultbox, below=of interp] (metrics) {Write drift tables\\\(\eta_M,\eta_{M,\mathrm{term}},\eta_{K_t},\eta_{K_s}\)};
+
+    \draw[arr] (cases) -- (refcase);
+    \draw[arr] (refcase) -- (interp);
+    \draw[arr] (interp) -- (metrics);
+  \end{tikzpicture}
+\caption{Internal node-refinement study used by the reduced RC column reboot.
+  The artifact does not yet claim external validation; it now quantifies over
+  the full monotonic runtime-ready matrix how the reduced family stabilizes
+  against its highest internal reference before any column-level benchmark is
+  called closed.}
+\label{fig:reduced-rc-column-node-refinement-study}
+\end{figure}
+
+\paragraph{Representative cyclic node-refinement pilot.}
+That next question is no longer open only in words. A second artifact,
+\texttt{src/validation/ReducedRCColumnCyclicNodeRefinementStudy.hh/.cpp},
+now executes a first representative cyclic refinement pilot over
+\(\{N=2,4,10\}\times\{\text{Gauss--Legendre},\text{Gauss--Lobatto}\}\)
+with two amplitudes \(\{1.25,2.50\}\,\mathrm{mm}\), axial preload
+\(0.02\,\mathrm{MN}\), and the same base-side section observable used by the
+monotonic study. The pilot reuses the highest-\(N\) case inside each
+quadrature family as the cyclic internal reference and reports:
+\begin{equation}
+  \eta_{M,\mathrm{return}}^{(N,q)}
+  =
+  \frac{|M_{N,q}^{\mathrm{return}}-
+         M_{N_{\mathrm{ref}},q}^{\mathrm{return}}|}
+       {\max(|M_{N_{\mathrm{ref}},q}^{\mathrm{return}}|,\varepsilon)},
+\end{equation}
+the full-history drift
+\begin{equation}
+  \eta_{M,\mathrm{hist}}^{(N,q)}
+  =
+  \max_{\tau \in \mathcal{T}_{\cap}}
+  \frac{|M_{N,q}(\tau)-M_{N_{\mathrm{ref}},q}(\tau)|}
+       {\max(|M_{N_{\mathrm{ref}},q}(\tau)|,\varepsilon)},
+\end{equation}
+the turning-point drift, the tangent-history drift, the axial-force-history
+drift, and the shift of the controlling base-side station. Here
+\(\mathcal{T}_{\cap}\) denotes the common pseudo-time support after aligning
+the cyclic histories case-by-case inside each family.
+
+The current pilot is already informative. All \(6/6\) cases complete, but
+only \(3/6\) satisfy the representative cyclic gate. The worst terminal return
+moment drift is about \(2.80\times 10^{-1}\), the worst full-history moment
+drift and worst turning-point drift are both about \(6.33\times 10^{-1}\),
+the worst tangent-history drift is about \(4.53\times 10^{-3}\), the worst
+axial-force-history drift only about \(1.74\times 10^{-5}\), and the worst
+base-side station shift is \(1.0\) in parent coordinates. This is a useful
+scientific separation: the current cyclic frontier is dominated by
+reversal-sensitive moment history and station migration, not by axial-force
+mismatch and not by tangent collapse.
+
+Methodologically, the pilot also forced one correction. The secant-history
+drift is still written to the CSV bundle, but it is no longer used as the
+representative cyclic acceptance gate. Near unloading and reloading
+crossings, the secant denominator becomes ill-conditioned as curvature passes
+near zero, so a full-history secant norm can report very large values even
+when the underlying cyclic response remains interpretable. The cyclic gate is
+therefore now based on return moment, history moment, turning-point,
+tangent-history, and axial-force-history drift, while secant drift remains an
+explicit diagnostic channel.
+
+\begin{lstlisting}[language=C++,caption={Representative cyclic node-refinement pilot for the reduced RC column reboot.},label={lst:reduced-rc-column-cyclic-node-refinement-study}]
+using namespace fall_n::validation_reboot;
+using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+
+const auto cyclic_refinement =
+    run_reduced_rc_column_cyclic_node_refinement_study(
+        ReducedRCColumnCyclicNodeRefinementRunSpec{
+            .structural_spec = {
+                .axial_compression_force_mn = 0.02,
+                .use_equilibrated_axial_preload_stage = true,
+                .axial_preload_steps = 4,
+                .write_section_response_csv = true,
+            },
+            .structural_protocol = CyclicValidationRunConfig{
+                .protocol_name = "reduced_node_refinement_cyclic_pilot",
+                .execution_profile_name = "default",
+                .amplitudes_m = {1.25e-3, 2.50e-3},
+                .steps_per_segment = 2,
+                .max_bisections = 4,
+            },
+            .beam_nodes_filter = {2, 4, 10},
+            .quadrature_family_filter = {
+                BeamAxisQuadratureFamily::GaussLegendre,
+                BeamAxisQuadratureFamily::GaussLobatto,
+            },
+        },
+        "data/output/cyclic_validation/reboot_cyclic_node_refinement_study_pilot");
+\end{lstlisting}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 10mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      ref/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=38mm, minimum height=9mm},
+      proc/.style={draw, rounded corners, align=center, fill=green!8,
+                   minimum width=38mm, minimum height=9mm},
+      resultbox/.style={draw, rounded corners, align=center, fill=red!8,
+                        minimum width=42mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (cases) {Pilot cases\\\((N,q)\in\{2,4,10\}\times\{\mathrm{GL},\mathrm{GLo}\}\)};
+    \node[ref, right=of cases] (refcase) {Pick cyclic family reference\\\(N_{\mathrm{ref}}=10\) per \(q\)};
+    \node[proc, right=of refcase] (interp) {Align cyclic histories\\and turning points};
+    \node[resultbox, below=of interp] (metrics) {Write cyclic drift tables\\\(\eta_{M,\mathrm{return}},\eta_{M,\mathrm{hist}},\eta_{K_t},\eta_{N},\Delta\xi_{\mathrm{base}}\)};
+
+    \draw[arr] (cases) -- (refcase);
+    \draw[arr] (refcase) -- (interp);
+    \draw[arr] (interp) -- (metrics);
+  \end{tikzpicture}
+  \caption{Representative cyclic node-refinement pilot used by the reduced RC
+  column reboot. The pilot does not yet close the full cyclic matrix, but it
+  already separates the dominant cyclic instability channel: reversal-sensitive
+  moment-history drift and station migration, not axial-force drift.}
+  \label{fig:reduced-rc-column-cyclic-node-refinement-study}
+\end{figure}
+
+\paragraph{Internal quadrature-sensitivity matrix.}
+The other internal ambiguity that had to be pulled out of the shadows is not
+refinement, but \emph{section-station placement}. For the reduced beam family,
+changing the beam-axis quadrature rule changes both the numerical integration
+and the location of the active base-side section station from which the
+moment-curvature observable is extracted. The quadrature-sensitivity study now
+kept in
+\texttt{src/validation/ReducedRCColumnQuadratureSensitivityStudy.hh/.cpp}
+therefore measures each family \(f\) against a declared reference family
+\(f_{\mathrm{ref}}=\) Gauss--Legendre at the same beam-node count \(N\). The
+main spread measures are
+\begin{equation}
+  \eta_{M}^{(N,f\mid f_{\mathrm{ref}})}
+  =
+  \max_{\kappa \in [0,\kappa_{\max}^{(N,f,\cap)}]}
+  \frac{|M_{N,f}(\kappa)-M_{N,f_{\mathrm{ref}}}(\kappa)|}
+       {\max(|M_{N,f_{\mathrm{ref}}}(\kappa)|,\varepsilon)},
+\end{equation}
+and the explicit station-shift observable
+\begin{equation}
+  \Delta \xi_{\mathrm{base}}^{(N,f\mid f_{\mathrm{ref}})}
+  =
+  \left|
+    \xi_{\mathrm{base}}^{(N,f)} -
+    \xi_{\mathrm{base}}^{(N,f_{\mathrm{ref}})}
+  \right|.
+\end{equation}
+This distinction matters scientifically: a family-to-family response spread is
+not interpreted honestly unless the displacement of the active base-side
+station is also reported.
+
+On the current full monotonic runtime-ready matrix
+\(\{N=2,\dots,10\}\times\{\text{Gauss},\text{Lobatto},\text{Radau-left},\text{Radau-right}\}\),
+all \(36/36\) cases complete and all \(36/36\) satisfy the representative
+internal-sensitivity gate. The worst terminal-moment spread is about
+\(1.17\times 10^{-4}\), the worst pointwise moment spread about
+\(2.41\times 10^{-4}\), the worst tangent spread about
+\(3.73\times 10^{-4}\), the worst secant spread about
+\(1.74\times 10^{-4}\), and the largest controlling-station shift about
+\(4.23\times 10^{-1}\) in parent coordinates. The \(N=2\) slices collapse to
+zero spread by symmetry, and both response spread and station shift decay as
+\(N\) grows. This closes the monotonic full-matrix part of the
+quadrature-sensitivity question. What remains open is the cyclic
+family-spread bundle and the interpretation of station movement under
+unloading and reloading.
+
+\begin{lstlisting}[language=C++,caption={Internal quadrature-sensitivity matrix for the reduced RC column reboot.},label={lst:reduced-rc-column-quadrature-sensitivity-study}]
+using namespace fall_n::validation_reboot;
+using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+
+const auto spread =
+    run_reduced_rc_column_quadrature_sensitivity_study(
+        ReducedRCColumnQuadratureSensitivityRunSpec{
+            .closure_spec = {
+                .structural_spec = {
+                    .axial_compression_force_mn = 0.02,
+                    .use_equilibrated_axial_preload_stage = true,
+                    .axial_preload_steps = 4,
+                },
+                .section_spec = {
+                    .steps = 12,
+                },
+                .structural_protocol = CyclicValidationRunConfig{
+                    .protocol_name = "reduced_quadrature_sensitivity",
+                    .execution_profile_name = "default",
+                    .amplitudes_m = {2.5e-3},
+                    .steps_per_segment = 4,
+                    .max_bisections = 4,
+                },
+            },
+            .reference_family = BeamAxisQuadratureFamily::GaussLegendre,
+        },
+        "data/output/cyclic_validation/reduced_column_quadrature_sensitivity");
+\end{lstlisting}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      node distance=8mm and 10mm,
+      box/.style={draw, rounded corners, align=center, fill=blue!5,
+                  minimum width=34mm, minimum height=9mm},
+      ref/.style={draw, rounded corners, align=center, fill=orange!10,
+                  minimum width=40mm, minimum height=9mm},
+      proc/.style={draw, rounded corners, align=center, fill=green!8,
+                   minimum width=38mm, minimum height=9mm},
+      resultbox/.style={draw, rounded corners, align=center, fill=red!8,
+                        minimum width=40mm, minimum height=9mm},
+      arr/.style={-{Latex[length=2.5mm]}, thick}
+    ]
+    \node[box] (cases) {Runtime-ready cases\\\((N,f)\)};
+    \node[ref, right=of cases] (refcase) {Pick reference family\\\(f_{\mathrm{ref}}=\) Gauss--Legendre};
+    \node[proc, right=of refcase] (interp) {Interpolate common branch\\and recover \(\xi_{\mathrm{base}}\)};
+    \node[resultbox, below=of interp] (metrics) {Write spread tables\\\(\eta_M,\eta_{K_t},\eta_{K_s},\Delta\xi_{\mathrm{base}}\)};
+
+    \draw[arr] (cases) -- (refcase);
+    \draw[arr] (refcase) -- (interp);
+    \draw[arr] (interp) -- (metrics);
+  \end{tikzpicture}
+  \caption{Internal quadrature-sensitivity study used by the reduced RC
+  column reboot. The artifact makes the family-to-family spread explicit and,
+  crucially, reports the shift of the active base-side section station instead
+  of hiding station-placement effects under a generic numerical-error label.}
+  \label{fig:reduced-rc-column-quadrature-sensitivity-study}
+\end{figure}
 
 \begin{lstlisting}[language=C++,caption={Canonical reduced-column claim matrix used by the reboot.},label={lst:reduced-rc-column-claim-trace}]
 constexpr auto claims =
@@ -706,14 +1162,14 @@ reference class \cite{Crisfield1991_NLFEA_Vol1,DeBorst2012_NonlinearFEM}.
 
     Node-refinement convergence
     & node-refinement suite
-    & envelope strength/stiffness/dissipation versus \(N\)
+    & base-side moment-curvature and terminal-moment drift versus \(N\)
     & internal runtime matrix interpreted as a convergence study
     & refinement no longer remains an unquantified aspiration; it becomes a
       closed precondition for the phase-3 structural benchmark. \\[0.4mm]
 
     Quadrature-family sensitivity
     & quadrature-sensitivity suite
-    & response spread across Gauss/Lobatto/Radau families
+    & base-side moment-curvature spread across Gauss/Lobatto/Radau families
     & internal runtime matrix interpreted as a controlled section-placement study
     & quadrature dependence is bounded and made explicit instead of being
       hidden as numerical noise. \\
@@ -842,29 +1298,34 @@ must be connected to a reproducible evidence bundle
       reproducible export contract. \\[0.4mm]
 
     Base-side moment-curvature observable
-    & \texttt{moment\_curvature\_base.csv}
-    & build an independent section-level \(M\)--\(\kappa\) baseline with the
-      same section and axial preload
-    & section-baseline comparison bundle
-    & the structural observable is first validated against a section baseline,
-      isolating structural-reduction error before later experiment-to-model
-      discrepancy. \\[0.4mm]
+    & \texttt{moment\_curvature\_base.csv} +
+      \texttt{moment\_curvature\_closure\_matrix\_summary.csv}
+    & freeze the preload-consistent matrix as the internal reference and
+      extend the suite toward node-refinement and quadrature-sensitivity
+      tables
+    & preload-consistent section-comparison bundle +
+      refinement/sensitivity bundle
+    & the internal reduction error is now jointly bounded in axial force,
+      moment, secant stiffness and tangent stiffness over the full runtime
+      matrix; what remains open is external benchmark closure. \\[0.4mm]
 
     Node-refinement convergence
-    & runtime family over \(N=2,\dots,10\)
-    & reduce the family to convergence tables for stiffness, strength, and
-      dissipation
-    & node-refinement convergence bundle
-    & refinement becomes a quantified property of the reduced model family
-      instead of an assumed qualitative tendency. \\[0.4mm]
+    & full monotonic refinement bundle plus a representative cyclic pilot
+      against the highest-\(N\) family reference
+    & extend the cyclic pilot to the full \(N=2..10\) runtime-ready matrix and
+      confirm stability of the same base-side observable during
+      unloading/reloading
+    & full cyclic node-refinement bundle + cyclic observable-stability note
+    & refinement is now a quantified monotonic property of the reduced family
+      and already has a first cyclic pilot; what remains open is the full
+      cyclic matrix closure. \\[0.4mm]
 
     Quadrature-family sensitivity
-    & explicit Gauss/Lobatto/Radau model axis
-    & reduce the family sweep to spread tables for loops and base-side
-      moment--curvature
-    & quadrature-sensitivity bundle
-    & family dependence is bounded and interpreted explicitly rather than
-      hidden under the label of numerical noise. \\
+    & full monotonic family-spread bundle against the Gauss--Legendre reference
+    & repeat the study under the cyclic protocol
+    & cyclic quadrature-sensitivity bundle + station-placement interpretation note
+    & family dependence is already bounded monotonically and now remains to be
+      interpreted under cyclic loading rather than hidden as numerical noise. \\
     \bottomrule
   \end{tabularx}
 \end{table}

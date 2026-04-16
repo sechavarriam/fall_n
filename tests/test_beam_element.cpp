@@ -22,11 +22,9 @@
 
 #include <Eigen/Dense>
 
-// Project includes through header_files.hh for Node, ElementGeometry, etc.
-#include "header_files.hh"
-
-// BeamElement and its dependencies
-#include "src/elements/BeamElement.hh"
+// Narrow validation umbrella for the beam slice. This is the migration path
+// away from the repository-wide header_files.hh umbrella.
+#include "src/validation/BeamValidationSupport.hh"
 
 // ── Test harness ────────────────────────────────────────────────────────────
 

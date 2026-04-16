@@ -142,7 +142,14 @@ The local continuum-material factory boundary supporting that surface is:
 - `src/materials/SubmodelMaterialFactory.hh`
 - `src/materials/SubmodelMaterialFactoryDefaults.hh`
 
-This is the recommended include/link surface for the multiscale subsystem. The older `header_files.hh` umbrella still exists and is still heavily used internally, but it should be treated as a transitional convenience rather than the long-term public API.
+This is the recommended include/link surface for the multiscale subsystem. The older `header_files.hh` umbrella still exists and is still heavily used internally, but it is now explicitly transitional: the shared PCH no longer goes through it, and new code should prefer direct includes or narrower module-local umbrellas.
+
+The current compile-time hygiene baseline is:
+
+- shared PCH surface: `src/fall_n_common_pch.hh`
+- legacy umbrella kept only for compatibility: `header_files.hh`
+- first narrow migration umbrella for the reduced-column beam slice: `src/validation/BeamValidationSupport.hh`
+- optional migration audit switch: `-DFALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS=ON`
 
 ## Main Dependencies
 
@@ -202,10 +209,20 @@ The canonical compile-time contract for that reboot lives in:
 - `src/validation/ReducedRCColumnValidationClaimCatalog.hh`
 - `src/validation/ReducedRCColumnBenchmarkTraceCatalog.hh`
 - `src/validation/ReducedRCColumnEvidenceClosureCatalog.hh`
+- `src/validation/ReducedRCColumnSectionBaseline.hh`
+- `src/validation/ReducedRCColumnMomentCurvatureClosure.hh`
+- `src/validation/ReducedRCColumnMomentCurvatureClosureMatrix.hh`
+- `src/validation/ReducedRCColumnNodeRefinementStudy.hh`
+- `src/validation/ReducedRCColumnQuadratureSensitivityStudy.hh`
 - `tests/test_reduced_rc_column_structural_matrix.cpp`
 - `tests/test_reduced_rc_column_validation_claim_catalog.cpp`
 - `tests/test_reduced_rc_column_benchmark_trace_catalog.cpp`
 - `tests/test_reduced_rc_column_evidence_closure_catalog.cpp`
+- `tests/test_reduced_rc_column_section_baseline.cpp`
+- `tests/test_reduced_rc_column_quadrature_sensitivity_study.cpp`
+- `tests/test_reduced_rc_column_moment_curvature_closure.cpp`
+- `tests/test_reduced_rc_column_moment_curvature_closure_matrix.cpp`
+- `tests/test_reduced_rc_column_node_refinement_study.cpp`
 
 The governing rule is simple and deliberately strict:
 
@@ -234,8 +251,15 @@ current honest read for the reduced RC column is:
 
 - Frozen enabling contract: the beam-axis quadrature family is now an explicit model axis and no longer a hidden implementation detail.
 - Runtime-baseline ready: the small-strain `TimoshenkoBeamN<N>` column path exists for `N=2..10`, the optional axial-compression load path exists, the base-shear-vs-drift hysteresis CSV contract exists, and a normative base-side moment-curvature observable is now exported through `moment_curvature_base.csv`.
-- Benchmark pending: node-refinement convergence and quadrature-sensitivity claims are still open and must be closed by explicit benchmark suites, not inferred from smoke runs.
-- Prebenchmark caveat: the moment-curvature observable is defined at the active section station closest to the fixed end, so it is now a clean runtime observable, but it still requires benchmark closure and quadrature-sensitivity interpretation before it can anchor physical validation.
+- The reboot now also has an independent section-level artifact in `src/validation/ReducedRCColumnSectionBaseline.hh/.cpp`, driven by axial-force equilibrium closure at each curvature step. That matters because the future `M`-`\kappa` comparison can now separate section constitutive behavior from beam discretization effects instead of collapsing both sources of error into one plot.
+- A third artifact, `src/validation/ReducedRCColumnMomentCurvatureClosure.hh/.cpp`, now compares the representative structural base-side branch against that independent section baseline on the physically relevant control variable, curvature. The structural baseline now uses an explicit equilibrated axial-preload stage and then holds that load during the lateral branch. On the current representative slice (`N = 4`, Gauss-Lobatto, monotonic `2.5 mm` tip displacement, `0.02 MN` axial compression), the closure is now fully tight: the maximum relative errors are about `6.59e-7` in moment/secant, `1.50e-9` in tangent, and `1.56e-8` in axial force.
+- That representative comparison is no longer the whole story. `src/validation/ReducedRCColumnMomentCurvatureClosureMatrix.hh/.cpp` now sweeps all `36` runtime-ready small-strain slices (`N = 2..10` crossed with `Gauss`, `Lobatto`, `Radau-left`, `Radau-right`) and writes case-level plus aggregate closure tables. The current preload-consistent matrix result is strong: `36/36` cases complete, `36/36` satisfy the representative closure tolerances including axial force, the worst moment/secant mismatch is about `5.095e-7` (at `n05_gauss_radau_left_small_strain`), the worst tangent mismatch is about `2.178e-9` (at `n08_gauss_legendre_small_strain`), and the worst axial-force mismatch is about `2.677e-7` (also at `n08_gauss_legendre_small_strain`).
+- A fourth artifact, `src/validation/ReducedRCColumnNodeRefinementStudy.hh/.cpp`, now turns the reduced family into a full internal monotonic refinement study instead of leaving refinement as a purely verbal expectation. The study now spans the entire runtime-ready matrix `N=2..10 × {GaussLegendre, GaussLobatto, GaussRadauLeft, GaussRadauRight}` and compares each base-side branch against the highest-`N` reference inside the same quadrature family. On the full monotonic bundle, all `36/36` cases complete and all `36/36` pass the representative internal refinement gate. The worst terminal-moment drift is about `1.41e-4`, the worst pointwise moment drift about `2.14e-4`, the worst tangent drift about `5.03e-7`, and the worst secant drift about `5.04e-5`. The drift decays strongly with `N` and is exactly zero at `N=10` by construction, so the remaining open gate is no longer the monotonic matrix itself but the cyclic refinement closure.
+- A sixth artifact, `src/validation/ReducedRCColumnCyclicNodeRefinementStudy.hh/.cpp`, now opens the same question under cyclic evolution instead of assuming that monotonic internal closure automatically survives unloading and reloading. The first representative pilot spans `{N=2,4,10} × {GaussLegendre, GaussLobatto}` with two amplitudes `{1.25, 2.50} mm`, `steps_per_segment = 2`, and `0.02 MN` axial compression. All `6/6` pilot cases complete, but only `3/6` pass the representative cyclic internal gate. The worst terminal return-moment drift is about `2.80e-1`, the worst history-moment drift about `6.33e-1`, the worst turning-point drift about `6.33e-1`, and the worst controlling-station shift is `1.0`; by contrast, the worst tangent-history drift is only about `4.53e-3` and the worst axial-force-history drift only about `1.74e-5`. This is a useful scientific result: the current cyclic frontier is dominated by reversal-sensitive base-side moment history, not by axial-force mismatch and not by tangent collapse.
+- The same cyclic pilot also forced a methodological correction: secant drift over the full cyclic history is now treated as diagnostic only, not as the representative cyclic gate, because reversal and near-zero-curvature crossings make that metric ill-conditioned even when the underlying response remains interpretable. The representative cyclic gate is now based on terminal return moment, full-history moment drift, turning-point drift, tangent drift, and axial-force drift.
+- A fifth artifact, `src/validation/ReducedRCColumnQuadratureSensitivityStudy.hh/.cpp`, now turns quadrature-family sensitivity into an explicit controlled study instead of leaving it as a warning in the structural matrix. The study now spans the full runtime-ready matrix `N=2..10 × {GaussLegendre, GaussLobatto, GaussRadauLeft, GaussRadauRight}` and compares every family against a Gauss-Legendre reference at the same `N`, while also recording the shift of the controlling base-side section station. On that full monotonic bundle, all `36/36` cases complete and all `36/36` pass the representative internal sensitivity gate. The worst terminal-moment spread is about `1.17e-4`, the worst pointwise moment spread about `2.41e-4`, the worst tangent spread about `3.73e-4`, the worst secant spread about `1.74e-4`, and the largest controlling-station shift about `4.23e-1` in parent coordinates. The `N=2` slices collapse to zero spread by symmetry, and both response spread and station shift decay as `N` grows. What remains open is the cyclic family-spread closure, not the monotonic matrix.
+- Benchmark pending: node-refinement convergence and quadrature-sensitivity claims are still open and must be closed by explicit benchmark suites, not inferred from smoke runs. For node refinement, the monotonic matrix is already closed and a representative cyclic pilot now exists; what remains open is the full cyclic matrix closure over the entire `N=2..10 × {Gauss, Lobatto, Radau-left, Radau-right}` family.
+- Prebenchmark caveat: the moment-curvature observable is still defined at the active section station closest to the fixed end rather than at the exact boundary in a continuous sense. The internal preload-consistent closure gate is therefore now closed, but external benchmark closure still depends on node-refinement tables, quadrature sensitivity, and column-level hysteretic reference data.
 - The benchmark layer is now frozen explicitly as `claim -> benchmark -> reference class -> acceptance gate`, so the reduced-column campaign no longer jumps directly from runtime output contracts to physical-validation rhetoric.
 - The evidence-closure layer is now frozen explicitly as `claim -> current artifact -> missing experiment -> closure artifact`, so every open reduced-column claim carries a concrete numerical obligation instead of only a generic “future benchmark” label.
 
@@ -395,7 +419,7 @@ The document compiles, but it still contains pre-existing warnings and historica
 - The 3D Ko-Bathe path now enforces the paper's top-level `flow / no-flow` classification and now carries an explicit Eq. (26b) no-flow tensor update, but the full crack-status `m`-loop from Table 1 is still approximated rather than transcribed literally.
 - The distributed MPI micro-solve engine is not implemented yet beyond contracts and communicator ownership.
 - The root `CMakeLists.txt` is still monolithic.
-- `header_files.hh` still causes avoidable build coupling and PCH invalidation.
+- `header_files.hh` still causes avoidable build coupling, even though the shared PCH no longer depends on it and the beam-validation slice already has a narrower replacement umbrella.
 - The dedicated `fall_n_case5_frontier_probe_test` target now builds again on the audited Windows/MSYS2 path after the probe-specific link cleanup, but it remains a runtime-limited artifact in the local harness and therefore is not yet a stable CI-speed oracle for the full Case 5 frontier.
 - The repository mixes naming styles such as `non_lineal` / `nonlinear` and `Homogenisation` / `Homogenized`.
 - The top-level documentation still contains historical drift and LaTeX warning debt.
@@ -405,7 +429,7 @@ The document compiles, but it still contains pre-existing warnings and historica
 
 The fastest improvements with a good effort/impact ratio are:
 
-1. Keep shrinking the use of `header_files.hh` and move toward module-local umbrellas.
+1. Keep shrinking the direct use of `header_files.hh` and move toward module-local umbrellas and explicit includes, following the new `src/validation/BeamValidationSupport.hh` migration pattern.
 2. Split `CMakeLists.txt` into smaller module-oriented fragments.
 3. Continue breaking up the FE2-heavy cyclic-validation translation units, because the setup split and the new FE2 step-postprocess split improved cost-of-change and ownership clarity but did not yet solve the heavy compile frontier.
 4. Normalize naming and spelling across directories and public types.

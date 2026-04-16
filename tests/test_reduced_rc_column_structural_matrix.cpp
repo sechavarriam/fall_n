@@ -201,6 +201,66 @@ bool axial_compression_option_preserves_finite_response()
         });
 }
 
+bool equilibrated_axial_preload_stage_seeds_step_zero_section_force()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_axial_preload_seed",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4},
+        .steps_per_segment = 1,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 4,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLobatto,
+            .axial_compression_force_mn = 0.02,
+            .use_equilibrated_axial_preload_stage = true,
+            .axial_preload_steps = 3,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_matrix_preload_seed",
+        cfg);
+
+    if (result.hysteresis_records.size() !=
+            static_cast<std::size_t>(cfg.total_steps()) + 1u ||
+        result.section_response_records.empty()) {
+        return false;
+    }
+
+    const auto first_step_count = static_cast<std::size_t>(std::count_if(
+        result.section_response_records.begin(),
+        result.section_response_records.end(),
+        [](const auto& row) { return row.step == 0; }));
+    if (first_step_count != 3u) {
+        return false;
+    }
+
+    constexpr double target_internal_force_mn = -0.02;
+    constexpr double rel_tol = 1.0e-4;
+    for (const auto& row : result.section_response_records) {
+        if (row.step != 0) {
+            continue;
+        }
+        const double rel_error =
+            std::abs(row.axial_force - target_internal_force_mn) /
+            std::max(std::abs(target_internal_force_mn), 1.0e-12);
+        if (!std::isfinite(rel_error) || rel_error > rel_tol) {
+            return false;
+        }
+    }
+
+    return std::abs(result.hysteresis_records.front().drift) <= 1.0e-14;
+}
+
 bool base_side_moment_curvature_observable_is_finite_and_ordered()
 {
     using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
@@ -340,6 +400,8 @@ int main(int argc, char** argv)
            run_small_strain_runtime_family_smoke());
     report("axial_compression_option_preserves_finite_response",
            axial_compression_option_preserves_finite_response());
+    report("equilibrated_axial_preload_stage_seeds_step_zero_section_force",
+           equilibrated_axial_preload_stage_seeds_step_zero_section_force());
     report("base_side_moment_curvature_observable_is_finite_and_ordered",
            base_side_moment_curvature_observable_is_finite_and_ordered());
     report("section_observable_csv_contract_is_written",

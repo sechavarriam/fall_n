@@ -1,0 +1,284 @@
+Start testing: Apr 15 15:53 Hora est. Pac�fico, Sudam�rica
+----------------------------------------------------------
+70/81 Testing: analysis_director
+70/81 Test: analysis_director
+Command: "C:/MyLibs/fall_n/build_stage5_pch_diag/fall_n_analysis_director_test.exe"
+Directory: C:/MyLibs/fall_n/build_stage5_pch_diag
+"analysis_director" start time: Apr 15 15:53 Hora est. Pac�fico, Sudam�rica
+Output:
+----------------------------------------------------------
+=======================================================
+  AnalysisDirector Verification (Phase D)
+=======================================================
+
+Test 1: Empty director
+  [PASS] num_phases() == 0
+  [PASS] report.phases is empty
+  [PASS] all_succeeded() is false for empty
+  [PASS] num_succeeded() == 0
+  [PASS] num_failed() == 0
+
+Test 2: Single phase (static)
+  [PASS] num_phases() == 1
+  Incremental solve: 5 steps, max bisection depth = 4
+
+  ── Step 1/5: p = 0.0000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 2/5: p = 0.2000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 3/5: p = 0.4000 → 0.6000 ──
+    p=0.600000  converged  (reason=3, 1 iterations)
+
+  ── Step 4/5: p = 0.6000 → 0.8000 ──
+    p=0.800000  converged  (reason=3, 1 iterations)
+
+  ── Step 5/5: p = 0.8000 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] NL solve converged
+  [PASS] all_succeeded()
+  [PASS] one phase in report
+  [PASS] phase status == Succeeded
+  [PASS] output displacement is not null
+  [PASS] output velocity is null (static)
+  [PASS] output time == 1.0 (full load)
+
+Test 3: Two-phase state threading
+  begin_incremental: 10 steps (dp=0.100000), max bisection depth = 4
+
+  ── Step 1: p = 0.0000 → 0.1000 ──
+    p=0.100000  converged  (reason=3, 1 iterations)
+
+  ── Step 2: p = 0.1000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 3: p = 0.2000 → 0.3000 ──
+    p=0.300000  converged  (reason=3, 1 iterations)
+
+  ── Step 4: p = 0.3000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 5: p = 0.4000 → 0.5000 ──
+    p=0.500000  converged  (reason=3, 1 iterations)
+  [PASS] phase2 receives displacement from phase1
+  [PASS] phase2 receives time==0.5 from phase1
+  begin_incremental: 10 steps (dp=0.100000), max bisection depth = 4
+
+  ── Step 1: p = 0.0000 → 0.1000 ──
+    p=0.100000  converged  (reason=3, 1 iterations)
+
+  ── Step 2: p = 0.1000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 3: p = 0.2000 → 0.3000 ──
+    p=0.300000  converged  (reason=3, 1 iterations)
+
+  ── Step 4: p = 0.3000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 5: p = 0.4000 → 0.5000 ──
+    p=0.500000  converged  (reason=3, 1 iterations)
+
+  ── Step 6: p = 0.5000 → 0.6000 ──
+    p=0.600000  converged  (reason=3, 1 iterations)
+
+  ── Step 7: p = 0.6000 → 0.7000 ──
+    p=0.700000  converged  (reason=3, 1 iterations)
+
+  ── Step 8: p = 0.7000 → 0.8000 ──
+    p=0.800000  converged  (reason=3, 1 iterations)
+
+  ── Step 9: p = 0.8000 → 0.9000 ──
+    p=0.900000  converged  (reason=3, 1 iterations)
+
+  ── Step 10: p = 0.9000 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  [PASS] both phases succeeded
+  [PASS] two phases in report
+  [PASS] phase1 reached p=0.5
+  [PASS] phase2 reached p=1.0
+
+Test 4: Static preload -> Dynamic excitation
+  Incremental solve: 5 steps, max bisection depth = 4
+
+  ── Step 1/5: p = 0.0000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 2/5: p = 0.2000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 3/5: p = 0.4000 → 0.6000 ──
+    p=0.600000  converged  (reason=3, 1 iterations)
+
+  ── Step 4/5: p = 0.6000 → 0.8000 ──
+    p=0.800000  converged  (reason=3, 1 iterations)
+
+  ── Step 5/5: p = 0.8000 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] preload converged
+  [PASS] dynamic phase receives displacement
+  [PASS] dynamic displacement not null
+  [PASS] dynamic velocity not null
+  [PASS] dynamic time > 0
+  [PASS] dynamic step == 5
+  [PASS] both phases succeeded
+  [PASS] static phase has no velocity
+  [PASS] dynamic phase has velocity
+
+Test 5: Abort-on-failure
+  [PASS] not all succeeded
+  [PASS] 1 failed phase
+  [PASS] only 1 phase recorded (aborted)
+  [PASS] phase2 did not run
+
+Test 6: Continue-on-failure
+  Incremental solve: 3 steps, max bisection depth = 4
+
+  ── Step 1/3: p = 0.0000 → 0.3333 ──
+    p=0.333333  converged  (reason=3, 1 iterations)
+
+  ── Step 2/3: p = 0.3333 → 0.6667 ──
+    p=0.666667  converged  (reason=3, 1 iterations)
+
+  ── Step 3/3: p = 0.6667 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] not all succeeded
+  [PASS] both phases recorded
+  [PASS] 1 failed
+  [PASS] 1 succeeded
+  [PASS] first phase failed
+  [PASS] second phase succeeded despite first failure
+
+Test 7: Phase gate callback
+  Incremental solve: 3 steps, max bisection depth = 4
+
+  ── Step 1/3: p = 0.0000 → 0.3333 ──
+    p=0.333333  converged  (reason=3, 1 iterations)
+
+  ── Step 2/3: p = 0.3333 → 0.6667 ──
+    p=0.666667  converged  (reason=3, 1 iterations)
+
+  ── Step 3/3: p = 0.6667 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] all phases succeeded
+  [PASS] gated phase ran (gate passed)
+  begin_incremental: 10 steps (dp=0.100000), max bisection depth = 4
+
+  ── Step 1: p = 0.0000 → 0.1000 ──
+    p=0.100000  converged  (reason=3, 1 iterations)
+
+  ── Step 2: p = 0.1000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 3: p = 0.2000 → 0.3000 ──
+    p=0.300000  converged  (reason=3, 1 iterations)
+  [PASS] gated phase was skipped (gate failed)
+  [PASS] both phases recorded
+  [PASS] blocked phase status == Skipped
+
+Test 8: DirectorReport summary
+  Incremental solve: 3 steps, max bisection depth = 4
+
+  ── Step 1/3: p = 0.0000 → 0.3333 ──
+    p=0.333333  converged  (reason=3, 1 iterations)
+
+  ── Step 2/3: p = 0.3333 → 0.6667 ──
+    p=0.666667  converged  (reason=3, 1 iterations)
+
+  ── Step 3/3: p = 0.6667 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  Incremental solve: 3 steps, max bisection depth = 4
+
+  ── Step 1/3: p = 0.0000 → 0.3333 ──
+    p=0.333333  converged  (reason=3, 1 iterations)
+
+  ── Step 2/3: p = 0.3333 → 0.6667 ──
+    p=0.666667  converged  (reason=3, 1 iterations)
+
+  ── Step 3/3: p = 0.6667 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] 3 phases in report
+  [PASS] num_succeeded == 2
+  [PASS] num_failed == 1
+  [PASS] not all succeeded
+
+Test 9: Three-phase pipeline
+  Incremental solve: 5 steps, max bisection depth = 4
+
+  ── Step 1/5: p = 0.0000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 2/5: p = 0.2000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 3/5: p = 0.4000 → 0.6000 ──
+    p=0.600000  converged  (reason=3, 1 iterations)
+
+  ── Step 4/5: p = 0.6000 → 0.8000 ──
+    p=0.800000  converged  (reason=3, 1 iterations)
+
+  ── Step 5/5: p = 0.8000 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] redistribution receives displacement
+  [PASS] redistribution receives velocity
+  Incremental solve: 3 steps, max bisection depth = 4
+
+  ── Step 1/3: p = 0.0000 → 0.3333 ──
+    p=0.333333  converged  (reason=3, 1 iterations)
+
+  ── Step 2/3: p = 0.3333 → 0.6667 ──
+    p=0.666667  converged  (reason=3, 1 iterations)
+
+  ── Step 3/3: p = 0.6667 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] all 3 phases succeeded
+  [PASS] 3 phases in report
+  [PASS] phase 0 name
+  [PASS] phase 1 name
+  [PASS] phase 2 name
+
+Test 10: Phase timing
+  Incremental solve: 5 steps, max bisection depth = 4
+
+  ── Step 1/5: p = 0.0000 → 0.2000 ──
+    p=0.200000  converged  (reason=3, 1 iterations)
+
+  ── Step 2/5: p = 0.2000 → 0.4000 ──
+    p=0.400000  converged  (reason=3, 1 iterations)
+
+  ── Step 3/5: p = 0.4000 → 0.6000 ──
+    p=0.600000  converged  (reason=3, 1 iterations)
+
+  ── Step 4/5: p = 0.6000 → 0.8000 ──
+    p=0.800000  converged  (reason=3, 1 iterations)
+
+  ── Step 5/5: p = 0.8000 → 1.0000 ──
+    p=1.000000  converged  (reason=3, 1 iterations)
+  Incremental solve COMPLETED at p = 1.0000
+  [PASS] elapsed_seconds > 0 for real computation
+    elapsed: 0.0611083 s
+
+=======================================================
+  Summary: 55 passed, 0 failed
+=======================================================
+<end of output>
+Test time =   1.44 sec
+----------------------------------------------------------
+Test Passed.
+"analysis_director" end time: Apr 15 15:53 Hora est. Pac�fico, Sudam�rica
+"analysis_director" time elapsed: 00:00:01
+----------------------------------------------------------
+
+End testing: Apr 15 15:53 Hora est. Pac�fico, Sudam�rica
+
+unit =   1.44 sec*proc
+

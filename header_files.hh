@@ -1,3 +1,25 @@
+// =============================================================================
+//  header_files.hh
+// =============================================================================
+//
+//  Legacy repository umbrella header.
+//
+//  Status:
+//    - kept for backward compatibility with older tests and examples,
+//    - no longer used as the shared project-wide precompiled header,
+//    - should be treated as transitional and progressively replaced by
+//      module-local includes or narrower umbrellas.
+//
+//  New code should prefer direct includes or focused module umbrellas.
+//  To surface uses intentionally during migration work, define
+//  FALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS before including this header.
+//
+// =============================================================================
+
+#if defined(FALL_N_ENABLE_HEADER_FILES_DIAGNOSTICS)
+  #pragma message("fall_n: header_files.hh is deprecated; prefer direct includes or module-local umbrellas.")
+#endif
+
 #include <Eigen/Dense>
 #include <petsc.h>
 

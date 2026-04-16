@@ -210,9 +210,12 @@ ninja -j8         # build everything (main + seismic + all 48 tests)
 ninja -j8 fall_n  # build only the main executable
 \end{lstlisting}
 
-On a modern 8-core machine the full build (including the Matplot++ dependency
-fetched via \texttt{FetchContent}) takes approximately 4--6 minutes.  The
-following executables are produced in the build directory:
+On a modern 8-core machine the full build takes approximately 4--6 minutes.
+The project no longer fetches the legacy C++ plotting dependency as part of
+the configured dependency surface; plotting for validation and post-processing
+is handled outside the core build through CSV export plus Python/VTK-oriented
+tooling.
+The following executables are produced in the build directory:
 
 \begin{itemize}
   \item \texttt{fall\_n.exe} --- main structural analysis executable;
