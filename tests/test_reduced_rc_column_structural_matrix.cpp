@@ -373,9 +373,440 @@ bool section_observable_csv_contract_is_written()
 
     return section_header ==
                "step,p,drift_m,section_gp,xi,axial_strain,curvature_y,curvature_z,"
-               "axial_force_MN,moment_y_MNm,moment_z_MNm,tangent_ea,tangent_eiy,tangent_eiz" &&
+               "axial_force_MN,moment_y_MNm,moment_z_MNm,tangent_ea,tangent_eiy,"
+               "tangent_eiz,tangent_eiy_direct_raw,tangent_eiz_direct_raw,"
+               "raw_k00,raw_k0y,raw_ky0,raw_kyy" &&
            mk_header ==
                "step,p,drift_m,section_gp,xi,curvature_y,moment_y_MNm,axial_force_MN,tangent_eiy";
+}
+
+bool element_tangent_audit_csv_contract_is_written()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const auto out_dir =
+        std::filesystem::path{
+            "data/output/cyclic_validation/reboot_structural_matrix_tangent_csv"};
+    std::filesystem::remove_all(out_dir);
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_tangent_csv",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4},
+        .steps_per_segment = 1,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 3,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .axial_compression_force_mn = 0.02,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .write_section_fiber_history_csv = false,
+            .write_element_tangent_audit_csv = true,
+            .print_progress = false,
+        },
+        out_dir.string(),
+        cfg);
+
+    const auto tangent_csv = out_dir / "element_tangent_audit.csv";
+    const auto section_tangent_csv = out_dir / "section_tangent_audit.csv";
+    if (!std::filesystem::exists(tangent_csv) ||
+        !std::filesystem::exists(section_tangent_csv) ||
+        result.element_tangent_audit_records.empty() ||
+        result.section_tangent_audit_records.empty()) {
+        return false;
+    }
+
+    std::ifstream tangent_stream(tangent_csv);
+    std::ifstream section_tangent_stream(section_tangent_csv);
+    std::string tangent_header;
+    std::string section_tangent_header;
+    std::getline(tangent_stream, tangent_header);
+    std::getline(section_tangent_stream, section_tangent_header);
+
+    return tangent_header ==
+           "runtime_step,step,p,runtime_p,drift_m,failed_attempt,fd_step_reference,"
+           "displacement_inf_norm,internal_force_norm,tangent_frobenius_norm,"
+           "fd_tangent_frobenius_norm,tangent_fd_rel_error,max_column_rel_error,"
+           "worst_column_index,worst_column_node,worst_column_local_dof,"
+           "worst_column_tangent_norm,worst_column_fd_norm,"
+           "top_control_column_rel_error,top_bending_rotation_column_rel_error" &&
+           section_tangent_header ==
+               "runtime_step,step,p,runtime_p,drift_m,failed_attempt,section_gp,xi,"
+               "axial_strain,curvature_y,curvature_z,fd_step_reference,"
+               "tangent_frobenius_norm,fd_tangent_frobenius_norm,tangent_fd_rel_error,"
+               "max_column_rel_error,worst_column_index,axial_column_rel_error,"
+               "curvature_y_column_rel_error,shear_z_column_rel_error,"
+               "raw_tangent_k00,raw_tangent_k0y,raw_tangent_ky0,raw_tangent_kyy,"
+               "fd_tangent_k00,fd_tangent_k0y,fd_tangent_ky0,fd_tangent_kyy,"
+               "rel_error_k00,rel_error_k0y,rel_error_ky0,rel_error_kyy";
+}
+
+bool elasticized_tangent_audits_remain_frozen_and_consistent()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralMaterialMode;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const auto out_dir =
+        std::filesystem::path{
+            "data/output/cyclic_validation/reboot_structural_matrix_tangent_frozen"};
+    std::filesystem::remove_all(out_dir);
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_tangent_frozen",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4},
+        .steps_per_segment = 1,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .material_mode = ReducedRCColumnStructuralMaterialMode::elasticized,
+            .beam_nodes = 3,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .axial_compression_force_mn = 0.02,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .write_section_fiber_history_csv = false,
+            .write_element_tangent_audit_csv = true,
+            .print_progress = false,
+        },
+        out_dir.string(),
+        cfg);
+
+    if (result.element_tangent_audit_records.empty() ||
+        result.section_tangent_audit_records.empty()) {
+        return false;
+    }
+
+    const auto element_ok = std::all_of(
+        result.element_tangent_audit_records.begin(),
+        result.element_tangent_audit_records.end(),
+        [](const auto& row) {
+            return std::isfinite(row.tangent_fd_rel_error) &&
+                   std::isfinite(row.max_column_rel_error) &&
+                   row.tangent_fd_rel_error < 1.0e-8 &&
+                   row.max_column_rel_error < 1.0e-8;
+        });
+    const auto section_ok = std::all_of(
+        result.section_tangent_audit_records.begin(),
+        result.section_tangent_audit_records.end(),
+        [](const auto& row) {
+            return std::isfinite(row.tangent_fd_rel_error) &&
+                   std::isfinite(row.max_column_rel_error) &&
+                   std::isfinite(row.rel_error_k00) &&
+                   std::isfinite(row.rel_error_k0y) &&
+                   std::isfinite(row.rel_error_ky0) &&
+                   std::isfinite(row.rel_error_kyy) &&
+                   row.tangent_fd_rel_error < 1.0e-8 &&
+                   row.max_column_rel_error < 1.0e-8 &&
+                   row.rel_error_k00 < 1.0e-8 &&
+                   row.rel_error_k0y < 1.0e-8 &&
+                   row.rel_error_ky0 < 1.0e-8 &&
+                   row.rel_error_kyy < 1.0e-8;
+        });
+
+    return element_ok && section_ok;
+}
+
+bool segmented_continuation_preserves_the_baseline_history_contract()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnContinuationKind;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_segmented_continuation",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4, 5.0e-4},
+        .steps_per_segment = 2,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 3,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .continuation_kind =
+                ReducedRCColumnContinuationKind::
+                    segmented_incremental_displacement_control,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_matrix_segmented",
+        cfg);
+
+    return result.hysteresis_records.size() ==
+               static_cast<std::size_t>(cfg.total_steps()) + 1u &&
+           std::all_of(
+               result.hysteresis_records.begin(),
+               result.hysteresis_records.end(),
+               [](const auto& row) {
+                   return std::isfinite(row.base_shear) &&
+                          std::isfinite(row.drift);
+               });
+}
+
+bool reversal_guarded_continuation_refines_the_cyclic_history()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnContinuationKind;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_guarded_continuation",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4, 5.0e-4},
+        .steps_per_segment = 2,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 3,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .continuation_kind =
+                ReducedRCColumnContinuationKind::
+                    reversal_guarded_incremental_displacement_control,
+            .continuation_segment_substep_factor = 2,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_matrix_guarded",
+        cfg);
+
+    const auto expected_history_points =
+        static_cast<std::size_t>(
+            fall_n::cyclic_segment_count(cfg.amplitudes_m.size()) *
+                cfg.steps_per_segment * 2 +
+            1);
+
+    return result.hysteresis_records.size() == expected_history_points &&
+           std::all_of(
+               result.hysteresis_records.begin(),
+               result.hysteresis_records.end(),
+               [](const auto& row) {
+                   return std::isfinite(row.base_shear) &&
+                          std::isfinite(row.drift);
+               });
+}
+
+bool structural_control_state_exports_increment_diagnostics()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnContinuationKind;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_structural_control_trace",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4, 5.0e-4},
+        .steps_per_segment = 2,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 4,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .axial_compression_force_mn = 0.02,
+            .use_equilibrated_axial_preload_stage = true,
+            .axial_preload_steps = 3,
+            .continuation_kind =
+                ReducedRCColumnContinuationKind::
+                    reversal_guarded_incremental_displacement_control,
+            .continuation_segment_substep_factor = 2,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_control_trace",
+        cfg);
+
+    if (!result.completed_successfully ||
+        result.control_state_records.size() != result.hysteresis_records.size() ||
+        result.control_state_records.empty()) {
+        return false;
+    }
+
+    bool saw_reversal = false;
+    for (const auto& row : result.control_state_records) {
+        if (row.runtime_step < 0 ||
+            row.runtime_p < -1.0e-14 ||
+            row.runtime_p > 1.0 + 1.0e-14 ||
+            row.accepted_substep_count < 0 ||
+            row.max_bisection_level < 0 ||
+            row.newton_iterations < 0.0 ||
+            row.last_snes_reason < 0 ||
+            !std::isfinite(row.last_function_norm) ||
+            !row.converged) {
+            return false;
+        }
+
+        if (row.step == 0) {
+            continue;
+        }
+
+        if (row.protocol_branch_id < 1 ||
+            row.branch_step_index < 1 ||
+            row.target_increment_direction == 0 ||
+            row.accepted_substep_count < 1 ||
+            row.newton_iterations < static_cast<double>(row.accepted_substep_count)) {
+            return false;
+        }
+
+        saw_reversal = saw_reversal || row.reversal_index > 0;
+    }
+
+    return saw_reversal;
+}
+
+bool structural_monotonic_protocol_uses_declared_history()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "monotonic_smoke",
+        .execution_profile_name = "default",
+        .amplitudes_m = {5.0e-4},
+        .steps_per_segment = 4,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 4,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLobatto,
+            .axial_compression_force_mn = 0.02,
+            .use_equilibrated_axial_preload_stage = true,
+            .axial_preload_steps = 3,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_monotonic_smoke",
+        cfg);
+
+    if (!result.completed_successfully ||
+        result.hysteresis_records.size() !=
+            static_cast<std::size_t>(cfg.steps_per_segment) + 1u ||
+        result.control_state_records.size() != result.hysteresis_records.size()) {
+        return false;
+    }
+
+    for (std::size_t i = 1; i < result.hysteresis_records.size(); ++i) {
+        if (result.hysteresis_records[i].drift + 1.0e-14 <
+            result.hysteresis_records[i - 1].drift) {
+            return false;
+        }
+
+        const auto& row = result.control_state_records[i];
+        if (row.reversal_index != 0 ||
+            row.protocol_branch_id > 1 ||
+            row.target_increment_direction < 0 ||
+            row.actual_increment_direction < 0) {
+            return false;
+        }
+    }
+
+    const double final_target = cfg.max_amplitude_m();
+    const double final_drift = result.hysteresis_records.back().drift;
+    return std::isfinite(final_drift) &&
+           std::abs(final_drift - final_target) <=
+               std::max(1.0e-12, 1.0e-8 * std::abs(final_target));
+}
+
+bool structural_baseline_reports_positive_timing_surface()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_timing_surface",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4},
+        .steps_per_segment = 1,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .beam_nodes = 3,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_matrix_timing",
+        cfg);
+
+    return result.completed_successfully &&
+           result.timing.total_wall_seconds > 0.0 &&
+           result.timing.solve_wall_seconds > 0.0 &&
+           result.timing.output_write_wall_seconds >= 0.0 &&
+           result.timing.total_wall_seconds >= result.timing.solve_wall_seconds;
+}
+
+bool structural_elasticized_mode_preserves_finite_response()
+{
+    using fall_n::table_cyclic_validation::CyclicValidationRunConfig;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralMaterialMode;
+    using fall_n::validation_reboot::ReducedRCColumnStructuralRunSpec;
+    using fall_n::validation_reboot::run_reduced_rc_column_small_strain_beam_case_result;
+
+    const CyclicValidationRunConfig cfg{
+        .protocol_name = "reboot_structural_elasticized",
+        .execution_profile_name = "default",
+        .amplitudes_m = {2.5e-4},
+        .steps_per_segment = 1,
+        .max_steps = 0,
+        .max_bisections = 3,
+    };
+
+    const auto result = run_reduced_rc_column_small_strain_beam_case_result(
+        ReducedRCColumnStructuralRunSpec{
+            .material_mode = ReducedRCColumnStructuralMaterialMode::elasticized,
+            .beam_nodes = 4,
+            .beam_axis_quadrature_family = BeamAxisQuadratureFamily::GaussLegendre,
+            .axial_compression_force_mn = 0.02,
+            .write_hysteresis_csv = false,
+            .write_section_response_csv = false,
+            .print_progress = false,
+        },
+        "data/output/cyclic_validation/reboot_structural_matrix_elasticized",
+        cfg);
+
+    return result.completed_successfully &&
+           std::all_of(
+               result.hysteresis_records.begin(),
+               result.hysteresis_records.end(),
+               [](const auto& row) {
+                   return std::isfinite(row.base_shear) &&
+                          std::isfinite(row.drift);
+               });
 }
 
 static_assert(reduced_rc_column_matrix_counts_are_honest());
@@ -406,6 +837,22 @@ int main(int argc, char** argv)
            base_side_moment_curvature_observable_is_finite_and_ordered());
     report("section_observable_csv_contract_is_written",
            section_observable_csv_contract_is_written());
+    report("element_tangent_audit_csv_contract_is_written",
+           element_tangent_audit_csv_contract_is_written());
+    report("elasticized_tangent_audits_remain_frozen_and_consistent",
+           elasticized_tangent_audits_remain_frozen_and_consistent());
+    report("segmented_continuation_preserves_the_baseline_history_contract",
+           segmented_continuation_preserves_the_baseline_history_contract());
+    report("reversal_guarded_continuation_refines_the_cyclic_history",
+           reversal_guarded_continuation_refines_the_cyclic_history());
+    report("structural_control_state_exports_increment_diagnostics",
+           structural_control_state_exports_increment_diagnostics());
+    report("structural_monotonic_protocol_uses_declared_history",
+           structural_monotonic_protocol_uses_declared_history());
+    report("structural_baseline_reports_positive_timing_surface",
+           structural_baseline_reports_positive_timing_surface());
+    report("structural_elasticized_mode_preserves_finite_response",
+           structural_elasticized_mode_preserves_finite_response());
 
     std::cout << "\nSummary: " << passed << " passed, " << failed << " failed.\n";
 

@@ -1,0 +1,211 @@
+{
+  "protocol": {
+    "analysis": "cyclic",
+    "amplitudes_mm": [
+      50.0,
+      100.0,
+      150.0,
+      200.0
+    ],
+    "monotonic_tip_mm": 20.0,
+    "monotonic_steps": 12,
+    "steps_per_segment": 2,
+    "continuation": "reversal-guarded",
+    "continuation_segment_substep_factor": 2,
+    "axial_compression_mn": 0.02,
+    "axial_preload_steps": 4
+  },
+  "structural_reference": {
+    "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\structural",
+    "beam_nodes": 4,
+    "beam_integration": "lobatto",
+    "top_rotation_mode": "clamped",
+    "section_fiber_profile": "canonical",
+    "solver_policy": "newton-l2-lu-symbolic-reuse-only",
+    "process_wall_seconds": 2.1551216000225395,
+    "reported_total_wall_seconds": 1.6581591,
+    "reported_solve_wall_seconds": 1.1924315,
+    "nominal_selected_steel_bar": {
+      "fiber_index": 87,
+      "y": 0.095,
+      "z": 0.095,
+      "area": 0.00020106193,
+      "zone": "longitudinal_steel",
+      "material_role": "reinforcing_steel"
+    },
+    "structural_active_coordinate": "z",
+    "target_continuum_bar_coordinates": {
+      "bar_y_local_x": -0.095,
+      "bar_z_local_y": 0.095,
+      "mapping": "structural active coordinate maps with opposite sign to continuum RebarBar::ly; structural passive coordinate maps directly to RebarBar::lz"
+    }
+  },
+  "continuum_cases": {
+    "hex8": {
+      "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8",
+      "process_wall_seconds": 396.4703892999678,
+      "reported_total_wall_seconds": 396.411218,
+      "reported_solve_wall_seconds": 396.2806995,
+      "completed_successfully": true,
+      "matched_structural_station": {
+        "target_position_z_m": 0.0845299462,
+        "lower_section_gp": 0,
+        "upper_section_gp": 1,
+        "lower_position_z_m": 0.0,
+        "upper_position_z_m": 1.6,
+        "interpolation_alpha": 0.052831216375,
+        "fiber_index": 87,
+        "y": 0.095,
+        "z": 0.095
+      },
+      "selected_structural_fiber": {
+        "fiber_index": 87,
+        "y": 0.095,
+        "z": 0.095,
+        "area": 0.00020106193,
+        "zone": "longitudinal_steel",
+        "material_role": "reinforcing_steel"
+      },
+      "selected_bar": {
+        "bar_index": 2,
+        "bar_element_layer": 0,
+        "gp_index": 0,
+        "bar_y": -0.095,
+        "bar_z": 0.095,
+        "position_z_m": 0.0845299462
+      }
+    }
+  },
+  "continuum_reference_spec": {
+    "nx": 4,
+    "ny": 4,
+    "nz": 4,
+    "longitudinal_bias_power": 1.5,
+    "material_mode": "cyclic-crack-band-concrete",
+    "kinematics": "corotational",
+    "concrete_tension_stiffness_ratio": 0.1,
+    "concrete_fracture_energy_nmm": 0.06,
+    "concrete_reference_length_mm": 100.0,
+    "concrete_crack_band_residual_tension_ratio": 1e-06,
+    "concrete_crack_band_residual_shear_ratio": 0.2,
+    "concrete_crack_band_large_opening_residual_shear_ratio": -1.0,
+    "concrete_crack_band_shear_retention_decay_strain": 1.0,
+    "concrete_crack_band_open_compression_transfer_ratio": 0.05,
+    "concrete_profile": "production-stabilized",
+    "concrete_tangent_mode": "fracture-secant",
+    "characteristic_length_mode": "fixed-end-longitudinal-host-edge-mm",
+    "host_concrete_zoning_mode": "cover-core-split",
+    "transverse_mesh_mode": "cover-aligned",
+    "rebar_layout": "structural-matched-eight-bar",
+    "rebar_interpolation": "automatic",
+    "embedded_boundary_mode": "dirichlet-rebar-endcap",
+    "axial_preload_transfer_mode": "composite-section-force-split",
+    "top_cap_mode": "lateral-translation-only",
+    "top_cap_penalty_alpha_scale_over_ec": 10000.0,
+    "penalty_alpha_scale_over_ec": 10000.0,
+    "structural_to_continuum_axis_map": {
+      "continuum_bar_y_field": "RebarBar::ly, prism local x",
+      "continuum_bar_z_field": "RebarBar::lz, prism local y",
+      "active_bending_sign": "structural active = -continuum bar_y",
+      "passive_bending_sign": "structural passive = continuum bar_z"
+    }
+  },
+  "global_comparison": {
+    "hex8": {
+      "max_rel_base_shear_error": 40.821977754974064,
+      "rms_rel_base_shear_error": 2.031656067020914,
+      "peak_normalized_max_base_shear_error": 1.617659764146417,
+      "peak_normalized_rms_base_shear_error": 0.6594024221367618
+    }
+  },
+  "steel_local_comparison": {
+    "hex8": {
+      "max_rel_stress_vs_drift_error": 16.60180692092729,
+      "rms_rel_stress_vs_drift_error": 0.7684340375726367,
+      "peak_normalized_max_stress_vs_drift_error": 0.3648436366019646,
+      "peak_normalized_rms_stress_vs_drift_error": 0.10822334105368236,
+      "max_rel_strain_vs_drift_error": 279.15135940758444,
+      "rms_rel_strain_vs_drift_error": 9.718026521089683,
+      "peak_normalized_max_strain_vs_drift_error": 0.30646290094204104,
+      "peak_normalized_rms_strain_vs_drift_error": 0.16925132059585626,
+      "structural_loop_work_mpa": 28.173778542700703,
+      "continuum_loop_work_mpa": 28.561478595161223,
+      "continuum_to_structural_loop_work_ratio": 1.0137610243465538
+    }
+  },
+  "steel_hinge_band": {
+    "length_m": 0.5333333333333333,
+    "selection_rule": "one-structural-element-length",
+    "note": "Fixed-end steel histories are averaged over the first structural element length. This avoids treating a mesh-dependent continuum Gauss point as the whole plastic-hinge story."
+  },
+  "steel_hinge_band_comparison": {
+    "hex8": {
+      "max_rel_stress_vs_drift_error": 15.211442871702612,
+      "rms_rel_stress_vs_drift_error": 0.7089326742030261,
+      "peak_normalized_max_stress_vs_drift_error": 0.3820128240250697,
+      "peak_normalized_rms_stress_vs_drift_error": 0.10711159530672862,
+      "max_rel_strain_vs_drift_error": 238.75785887573494,
+      "rms_rel_strain_vs_drift_error": 8.842418006729652,
+      "peak_normalized_max_strain_vs_drift_error": 0.32613616214829155,
+      "peak_normalized_rms_strain_vs_drift_error": 0.17234331004143658,
+      "structural_loop_work_mpa": 31.40498082407776,
+      "continuum_loop_work_mpa": 28.561478595161223,
+      "continuum_to_structural_loop_work_ratio": 0.9094569665606526,
+      "band_length_m": 0.5333333333333333,
+      "selection_rule": "one-structural-element-length",
+      "structural_unique_position_count": 1.0,
+      "continuum_unique_position_count": 2.0
+    }
+  },
+  "embedded_transfer_comparison": {
+    "hex8": {
+      "max_abs_host_bar_axial_strain_gap": 9.35598914e-10,
+      "rms_abs_host_bar_axial_strain_gap": 4.4554066258473814e-10,
+      "max_abs_rebar_kinematic_consistency_gap": 0.0,
+      "max_abs_projected_axial_gap_m": 7.90861258e-11,
+      "max_abs_projected_gap_norm_m": 7.90861258e-11
+    }
+  },
+  "artifacts": {
+    "structural_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\matched_structural_steel_trace.csv",
+    "amplitude_suffix": "corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm",
+    "figure_hysteresis_overlay": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_hysteresis_overlay_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_steel_hysteresis_overlay": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_hysteresis_overlay_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_steel_stress_vs_drift": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_stress_vs_drift_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_steel_strain_vs_drift": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_strain_vs_drift_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_embedded_transfer_strain": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_embedded_transfer_strain_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_embedded_transfer_gap": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_embedded_transfer_gap_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_steel_hinge_band_hysteresis": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_hinge_band_hysteresis_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "figure_steel_hinge_band_stress_vs_drift": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_hinge_band_stress_vs_drift_corotational_cyclic_crack_band_concrete_ts0p1_4x4x4_bias1p5_cap_lateral_translation_only_struct_clamped_n4_e6_lobatto_200mm.png",
+    "hex8_orientation_candidates_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\structural_orientation_candidates.csv",
+    "hex8_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\selected_continuum_steel_trace.csv",
+    "hex8_matched_structural_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\matched_structural_steel_trace.csv",
+    "hex8_hinge_band_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\selected_continuum_steel_hinge_band_trace.csv",
+    "hex8_matched_structural_hinge_band_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\matched_structural_steel_hinge_band_trace.csv"
+  },
+  "selected_structural_fibers": {
+    "hex8": {
+      "fiber_index": 87,
+      "y": 0.095,
+      "z": 0.095,
+      "area": 0.00020106193,
+      "zone": "longitudinal_steel",
+      "material_role": "reinforcing_steel"
+    }
+  },
+  "structural_orientation_candidates": {
+    "hex8": [
+      {
+        "fiber_index": 87,
+        "y": 0.095,
+        "z": 0.095,
+        "active_coordinate_name": "z",
+        "active_coordinate_value": 0.095,
+        "passive_coordinate_name": "y",
+        "passive_coordinate_value": 0.095,
+        "elastic_rms_stress_error": 24.09951189386687,
+        "elastic_rms_strain_error": 6.016691012301139
+      }
+    ]
+  }
+}

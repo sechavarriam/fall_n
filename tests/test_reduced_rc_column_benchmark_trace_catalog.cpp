@@ -97,7 +97,7 @@ constexpr bool reference_classes_are_honest()
             if (row.reference_kind !=
                     fall_n::ReducedRCColumnBenchmarkReferenceKind::
                         analytical_or_section_baseline_reference ||
-                row.requires_external_reference_dataset ||
+                !row.requires_external_reference_dataset ||
                 !row.requires_independent_section_baseline) {
                 return false;
             }
@@ -181,7 +181,7 @@ constexpr bool benchmark_count_summary_matches_the_intended_mix()
            fall_n::canonical_reduced_rc_column_benchmark_reference_count_v<
                fall_n::ReducedRCColumnBenchmarkReferenceKind::
                    experimental_or_literature_reference> == 2 &&
-           fall_n::canonical_reduced_rc_column_benchmark_external_reference_count_v == 2 &&
+           fall_n::canonical_reduced_rc_column_benchmark_external_reference_count_v == 3 &&
            fall_n::canonical_reduced_rc_column_benchmark_section_baseline_count_v == 1 &&
            fall_n::canonical_reduced_rc_column_phase3_structural_benchmark_gate_count_v == 5;
 }

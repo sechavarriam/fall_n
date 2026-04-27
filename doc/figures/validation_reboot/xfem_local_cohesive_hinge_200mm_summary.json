@@ -1,0 +1,266 @@
+{
+  "benchmark_scope": "reduced_rc_xfem_local_cohesive_hinge_200mm",
+  "status": "completed",
+  "interpretation": "First XFEM-in-benchmark branch. It uses a local cohesive base crack and Menegotto-Pinto steel crossing the crack. Runtime manifests now also audit that shifted-Heaviside host-node DOFs are real PETSc section DOFs and that the shifted-Heaviside solid element assembles nonzero volumetric plus cohesive residual/tangent contributions. When present, the global branch is a full PETSc/SNES solve of the shifted-Heaviside solid with concrete, a cohesive crack plane, and Menegotto-Pinto truss bars coupled through the enriched host interpolation. The remaining benchmark gap is promoting the host concrete from the elastic proxy to a nonlinear damage/cracking law.",
+  "flexural_branch": {
+    "bundle": "data\\output\\cyclic_validation\\xfem_local_cohesive_hinge_200mm_flexural",
+    "peak_abs_base_shear_mn": 0.03917424852,
+    "loop_work_mn_mm": 25.67716645136875,
+    "peak_abs_steel_stress_mpa": 475.1998612,
+    "max_damage": 1.0,
+    "manifest": {
+      "tool": "fall_n",
+      "status": "completed",
+      "driver_kind": "xfem_local_cohesive_hinge_reference_benchmark",
+      "completed_successfully": true,
+      "local_model_taxonomy": {
+        "discretization_kind": "xfem_local_cohesive_hinge_surrogate",
+        "fracture_representation_kind": "explicit_cohesive_crack_plane",
+        "reinforcement_representation_kind": "section_crossing_menegotto_pinto_bars",
+        "maturity_kind": "future_extension_benchmark_candidate",
+        "supports_discrete_crack_geometry": true,
+        "requires_enriched_dofs": true,
+        "notes": "The main plotted hysteresis uses the local base-hinge surrogate. A separate global_xfem_newton_hysteresis.csv artifact now exercises the PETSc/SNES shifted-Heaviside solid element as a full global solve with Menegotto-Pinto truss bars coupled through the enriched host interpolation."
+      },
+      "global_petsc_xfem_dof_layout_audit": {
+        "completed": true,
+        "global_xfem_solid_kernel_completed": true,
+        "solid_elements": 2,
+        "total_nodes": 12,
+        "enriched_nodes": 8,
+        "standard_node_dofs": 3,
+        "enriched_node_dofs": 6,
+        "first_cut_element_gather_dofs": 48,
+        "first_cut_element_expected_xfem_dofs": 48,
+        "enriched_x_local_index": 3,
+        "enriched_x_global_index": 3,
+        "trial_enriched_residual_norm": 3.17278537089,
+        "trial_enriched_tangent_norm": 30111.6875578,
+        "interpretation": "The enriched host-node unknowns are real PETSc section DOFs and the shifted-Heaviside solid element now assembles volumetric plus cohesive residual/tangent contributions on those DOFs."
+      },
+      "global_xfem_newton_column_trial": {
+        "attempted": true,
+        "completed_successfully": true,
+        "status": "completed",
+        "mesh_elements": 48,
+        "mesh_nodes": 85,
+        "enriched_nodes": 18,
+        "solver_global_dofs": 197,
+        "rebar_bar_count": 8,
+        "rebar_element_count": 32,
+        "rebar_coupling_count": 24,
+        "point_count": 97,
+        "peak_abs_base_shear_mn": 0.317590195788,
+        "peak_abs_steel_stress_mpa": 455.749914602,
+        "wall_seconds": 11.5286218,
+        "manifest": "global_xfem_newton_manifest.json",
+        "hysteresis_csv": "global_xfem_newton_hysteresis.csv"
+      },
+      "protocol": {
+        "amplitudes_mm": "50,100,150,200",
+        "steps_per_segment": 8,
+        "point_count": 97,
+        "peak_drift_mm": 200
+      },
+      "reference_spec": {
+        "column_height_m": 3.2,
+        "section_b_m": 0.25,
+        "section_h_m": 0.25,
+        "concrete_fpc_mpa": 30,
+        "steel_fy_mpa": 420
+      },
+      "xfem_surrogate": {
+        "section_cells_x": 24,
+        "section_cells_y": 24,
+        "top_rotation_drift_ratio": 0.5,
+        "tangential_slip_drift_ratio": 0,
+        "characteristic_length_mm": 100,
+        "residual_shear_fraction": 0.05,
+        "shear_transfer_law": "compression-gated-opening",
+        "shear_cap_mpa": 6,
+        "compression_cap_mpa": 36.3,
+        "steel_gauge_length_mm": 100
+      },
+      "observables": {
+        "max_abs_base_shear_mn": 0.0391742485171,
+        "max_damage": 1,
+        "last_base_shear_mn": 0.0148915261691,
+        "last_drift_mm": 0
+      },
+      "timing": {
+        "total_wall_seconds": 12.8811856
+      },
+      "artifacts": {
+        "hysteresis_csv": "hysteresis.csv",
+        "global_xfem_newton_hysteresis_csv": "global_xfem_newton_hysteresis.csv",
+        "global_xfem_newton_manifest": "global_xfem_newton_manifest.json",
+        "cohesive_section_state_csv": "cohesive_section_state.csv",
+        "steel_history_csv": "steel_history.csv"
+      }
+    }
+  },
+  "global_xfem_newton_trial": {
+    "bundle": "data\\output\\cyclic_validation\\xfem_local_cohesive_hinge_200mm_flexural",
+    "peak_abs_base_shear_mn": 0.3175901958,
+    "loop_work_mn_mm": 16.808802499071877,
+    "peak_abs_steel_stress_mpa": 455.7499146,
+    "manifest": {
+      "tool": "fall_n",
+      "driver_kind": "global_shifted_heaviside_xfem_newton_column_trial",
+      "attempted": true,
+      "completed_successfully": true,
+      "status": "completed",
+      "failure_reason": "",
+      "mesh": {
+        "hex_order": "Hex8",
+        "nx": 2,
+        "ny": 2,
+        "nz": 4,
+        "longitudinal_bias_power": 2,
+        "element_count": 48,
+        "node_count": 85,
+        "enriched_node_count": 18
+      },
+      "dofs": {
+        "local_state_dofs": 309,
+        "solver_global_dofs": 197
+      },
+      "reinforcement": {
+        "bar_count": 8,
+        "truss_element_count": 32,
+        "xfem_enriched_penalty_coupling_count": 24,
+        "total_area_m2": 0.00160849543864,
+        "coupling_alpha_scale_over_ec": 10000
+      },
+      "physics": {
+        "host_material": "linear_elastic_concrete_proxy",
+        "fracture_representation": "shifted_heaviside_planar_base_crack_with_cohesive_surface",
+        "reinforcement_representation": "menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling",
+        "crack_z_m": 0.1,
+        "axial_compression_mn": 0.02,
+        "concrete_fpc_mpa": 30
+      },
+      "protocol": {
+        "amplitudes_mm": "50,100,150,200",
+        "steps_per_segment": 8,
+        "point_count": 97,
+        "peak_abs_drift_mm": 200
+      },
+      "observables": {
+        "peak_abs_base_shear_mn": 0.317590195788,
+        "peak_abs_steel_stress_mpa": 455.749914602
+      },
+      "timing": {
+        "total_wall_seconds": 11.5286218
+      },
+      "artifacts": {
+        "hysteresis_csv": "global_xfem_newton_hysteresis.csv"
+      }
+    },
+    "diagnostic_note": "This is the first full global shifted-Heaviside solid solve. Steel is now coupled through the enriched host interpolation. The host concrete is still the elastic proxy, so this is not yet the final nonlinear local model."
+  },
+  "direct_shear_transfer_sensitivity": {
+    "bundle": "data\\output\\cyclic_validation\\xfem_local_cohesive_hinge_200mm",
+    "peak_abs_base_shear_mn": 0.4141737534,
+    "loop_work_mn_mm": 25.67307215812501,
+    "peak_abs_steel_stress_mpa": 475.1998612,
+    "max_damage": 1.0,
+    "manifest": {
+      "tool": "fall_n",
+      "status": "completed",
+      "driver_kind": "xfem_local_cohesive_hinge_reference_benchmark",
+      "completed_successfully": true,
+      "local_model_taxonomy": {
+        "discretization_kind": "xfem_local_cohesive_hinge_surrogate",
+        "fracture_representation_kind": "explicit_cohesive_crack_plane",
+        "reinforcement_representation_kind": "section_crossing_menegotto_pinto_bars",
+        "maturity_kind": "future_extension_benchmark_candidate",
+        "supports_discrete_crack_geometry": true,
+        "requires_enriched_dofs": true,
+        "notes": "The main plotted hysteresis uses the local base-hinge surrogate. A separate global_xfem_newton_hysteresis.csv artifact now exercises the PETSc/SNES shifted-Heaviside solid element as a full global solve with Menegotto-Pinto truss bars coupled through the enriched host interpolation."
+      },
+      "global_petsc_xfem_dof_layout_audit": {
+        "completed": true,
+        "global_xfem_solid_kernel_completed": true,
+        "solid_elements": 2,
+        "total_nodes": 12,
+        "enriched_nodes": 8,
+        "standard_node_dofs": 3,
+        "enriched_node_dofs": 6,
+        "first_cut_element_gather_dofs": 48,
+        "first_cut_element_expected_xfem_dofs": 48,
+        "enriched_x_local_index": 3,
+        "enriched_x_global_index": 3,
+        "trial_enriched_residual_norm": 3.17278537089,
+        "trial_enriched_tangent_norm": 30111.6875578,
+        "interpretation": "The enriched host-node unknowns are real PETSc section DOFs and the shifted-Heaviside solid element now assembles volumetric plus cohesive residual/tangent contributions on those DOFs."
+      },
+      "global_xfem_newton_column_trial": {
+        "attempted": true,
+        "completed_successfully": true,
+        "status": "completed",
+        "mesh_elements": 48,
+        "mesh_nodes": 85,
+        "enriched_nodes": 18,
+        "solver_global_dofs": 197,
+        "rebar_bar_count": 8,
+        "rebar_element_count": 32,
+        "rebar_coupling_count": 24,
+        "point_count": 97,
+        "peak_abs_base_shear_mn": 0.317590195788,
+        "peak_abs_steel_stress_mpa": 455.749914602,
+        "wall_seconds": 11.5556994,
+        "manifest": "global_xfem_newton_manifest.json",
+        "hysteresis_csv": "global_xfem_newton_hysteresis.csv"
+      },
+      "protocol": {
+        "amplitudes_mm": "50,100,150,200",
+        "steps_per_segment": 8,
+        "point_count": 97,
+        "peak_drift_mm": 200
+      },
+      "reference_spec": {
+        "column_height_m": 3.2,
+        "section_b_m": 0.25,
+        "section_h_m": 0.25,
+        "concrete_fpc_mpa": 30,
+        "steel_fy_mpa": 420
+      },
+      "xfem_surrogate": {
+        "section_cells_x": 24,
+        "section_cells_y": 24,
+        "top_rotation_drift_ratio": 0.5,
+        "tangential_slip_drift_ratio": 0.02,
+        "characteristic_length_mm": 100,
+        "residual_shear_fraction": 0.05,
+        "shear_transfer_law": "compression-gated-opening",
+        "shear_cap_mpa": 6,
+        "compression_cap_mpa": 36.3,
+        "steel_gauge_length_mm": 100
+      },
+      "observables": {
+        "max_abs_base_shear_mn": 0.414173753415,
+        "max_damage": 1,
+        "last_base_shear_mn": 0.0148915261691,
+        "last_drift_mm": 0
+      },
+      "timing": {
+        "total_wall_seconds": 12.93599
+      },
+      "artifacts": {
+        "hysteresis_csv": "hysteresis.csv",
+        "global_xfem_newton_hysteresis_csv": "global_xfem_newton_hysteresis.csv",
+        "global_xfem_newton_manifest": "global_xfem_newton_manifest.json",
+        "cohesive_section_state_csv": "cohesive_section_state.csv",
+        "steel_history_csv": "steel_history.csv"
+      }
+    },
+    "diagnostic_note": "This branch is intentionally not promoted: direct crack-plane shear transfer saturates the current cap and dominates the base shear. It is retained as a sensitivity guardrail."
+  },
+  "artifacts": {
+    "png": "doc\\figures\\validation_reboot\\xfem_local_cohesive_hinge_200mm_hysteresis.png",
+    "secondary_png": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_local_cohesive_hinge_200mm_hysteresis.png",
+    "pdf": "doc\\figures\\validation_reboot\\xfem_local_cohesive_hinge_200mm_hysteresis.pdf",
+    "secondary_pdf": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_local_cohesive_hinge_200mm_hysteresis.pdf"
+  }
+}

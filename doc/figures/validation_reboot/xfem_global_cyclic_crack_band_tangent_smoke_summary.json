@@ -1,0 +1,90 @@
+{
+  "scope": "global_xfem_cyclic_crack_band_tangent_and_amplitude_smoke_audit",
+  "cases": {
+    "secant_2mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_2mm_smoke",
+      "completed_successfully": true,
+      "tangent": "secant",
+      "peak_abs_drift_mm": 2,
+      "point_count": 7,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.00162034912517,
+      "peak_abs_steel_stress_mpa": 15.9616640377,
+      "max_host_damage": 0.600394549272,
+      "wall_seconds": 0.5317883,
+      "sum_reported_newton_iterations": 35,
+      "sum_accepted_substeps": 6
+    },
+    "central_2mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_central_2mm_smoke",
+      "completed_successfully": true,
+      "tangent": "central",
+      "peak_abs_drift_mm": 2,
+      "point_count": 7,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.00162034886675,
+      "peak_abs_steel_stress_mpa": 15.9616635267,
+      "max_host_damage": 0.60039455324,
+      "wall_seconds": 32.7142028,
+      "sum_reported_newton_iterations": 62,
+      "sum_accepted_substeps": 17
+    },
+    "central_fallback_2mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_central_fallback_2mm_smoke",
+      "completed_successfully": true,
+      "tangent": "central-fallback",
+      "peak_abs_drift_mm": 2,
+      "point_count": 7,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.00162034886675,
+      "peak_abs_steel_stress_mpa": 15.9616635267,
+      "max_host_damage": 0.60039455324,
+      "wall_seconds": 35.0235007,
+      "sum_reported_newton_iterations": 62,
+      "sum_accepted_substeps": 17
+    },
+    "secant_10mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_10mm_smoke",
+      "completed_successfully": true,
+      "tangent": "secant",
+      "peak_abs_drift_mm": 10,
+      "point_count": 13,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.00550943909767,
+      "peak_abs_steel_stress_mpa": 105.192602779,
+      "max_host_damage": 0.964230922386,
+      "wall_seconds": 0.784292,
+      "sum_reported_newton_iterations": 59,
+      "sum_accepted_substeps": 12
+    },
+    "secant_50mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_50mm_smoke",
+      "completed_successfully": true,
+      "tangent": "secant",
+      "peak_abs_drift_mm": 50,
+      "point_count": 19,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.0192947298911,
+      "peak_abs_steel_stress_mpa": 420.392552947,
+      "max_host_damage": 0.98,
+      "wall_seconds": 11.5366564,
+      "sum_reported_newton_iterations": 212,
+      "sum_accepted_substeps": 18
+    },
+    "secant_200mm": {
+      "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_200mm_smoke",
+      "completed_successfully": true,
+      "tangent": "secant",
+      "peak_abs_drift_mm": 200,
+      "point_count": 73,
+      "solver_global_dofs": 60,
+      "peak_abs_base_shear_mn": 0.0260874813662,
+      "peak_abs_steel_stress_mpa": 431.712157959,
+      "max_host_damage": 0.98,
+      "wall_seconds": 21.0680044,
+      "sum_reported_newton_iterations": 996,
+      "sum_accepted_substeps": 72
+    }
+  },
+  "interpretation": "The central-difference tangent is constitutively more faithful and is regression-tested, but in the current global XFEM crack-band branch it is too expensive and does not improve the small-cycle Newton path. The secant tangent remains the operational smoke path; it reaches 200 mm on a coarse mesh and should be refined next."
+}

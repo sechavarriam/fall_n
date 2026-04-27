@@ -111,6 +111,23 @@ constexpr bool force_based_path_is_growth_only_and_not_a_baseline_blocker()
     return false;
 }
 
+constexpr bool geometrically_exact_path_is_growth_only_and_not_a_baseline_blocker()
+{
+    for (const auto& row : plan) {
+        if (row.row_label != "geometrically_exact_beam_family_path") {
+            continue;
+        }
+
+        return row.is_growth_only_path() &&
+               !row.required_for_reference_structural_column &&
+               !row.required_for_reference_continuum_column &&
+               !row.required_for_full_structure_escalation &&
+               row.requires_new_implementation;
+    }
+
+    return false;
+}
+
 constexpr bool gate_counts_match_the_reboot_strategy()
 {
     return fall_n::canonical_validation_workstream_priority_count_v<
@@ -121,7 +138,7 @@ constexpr bool gate_counts_match_the_reboot_strategy()
                2 &&
            fall_n::canonical_validation_workstream_priority_count_v<
                    fall_n::ValidationWorkstreamPriorityKind::deferred_growth_path> ==
-               1 &&
+               2 &&
            fall_n::canonical_validation_reference_structural_column_gate_count_v == 5 &&
            fall_n::canonical_validation_reference_continuum_column_gate_count_v == 7 &&
            fall_n::canonical_validation_full_structure_escalation_gate_count_v ==
@@ -132,6 +149,7 @@ static_assert(governance_row_is_first_and_quarantines_legacy_only_after_replacem
 static_assert(reduced_order_column_precedes_continuum_column_and_both_block_escalation());
 static_assert(conditional_enablers_do_not_block_the_first_column_campaign_by_default());
 static_assert(force_based_path_is_growth_only_and_not_a_baseline_blocker());
+static_assert(geometrically_exact_path_is_growth_only_and_not_a_baseline_blocker());
 static_assert(gate_counts_match_the_reboot_strategy());
 
 } // namespace
@@ -148,6 +166,8 @@ int main()
            conditional_enablers_do_not_block_the_first_column_campaign_by_default());
     report("force_based_path_is_growth_only_and_not_a_baseline_blocker",
            force_based_path_is_growth_only_and_not_a_baseline_blocker());
+    report("geometrically_exact_path_is_growth_only_and_not_a_baseline_blocker",
+           geometrically_exact_path_is_growth_only_and_not_a_baseline_blocker());
     report("gate_counts_match_the_reboot_strategy",
            gate_counts_match_the_reboot_strategy());
 

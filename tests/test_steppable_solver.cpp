@@ -151,6 +151,24 @@ struct DynFixture {
     }
 };
 
+struct ArcFixture {
+    Domain<DIM>                               domain;
+    ContinuumIsotropicElasticMaterial         mat_site{200.0, 0.3};
+    Material<Policy>                          mat{mat_site, ElasticUpdate{}};
+    std::unique_ptr<ModelTL>                  model;
+
+    ArcFixture() {
+        create_unit_cube(domain);
+        model = std::make_unique<ModelTL>(domain, mat);
+        model->fix_x(0.0);
+        model->setup();
+
+        const double f_per_node = 1.0 / 4.0;
+        for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
+            model->apply_node_force(id, f_per_node, 0.0, 0.0);
+    }
+};
+
 
 // =============================================================================
 //  Test 1: SteppableSolver concept satisfaction (compile-time)
@@ -540,6 +558,24 @@ void test_nl_set_increment_size() {
     check(nl.current_step() == 3, "step count == 3");
 }
 
+void test_nl_step_to_clamps_requested_target() {
+    std::cout << "\nTest 7b: NL step_to clamps requested target under large dp\n";
+
+    NLFixture f;
+    NLA nl{f.model.get()};
+
+    nl.begin_incremental(10);  // nominal dp = 0.1
+    nl.set_increment_size(0.25);
+
+    const auto verdict = nl.step_to(0.3);
+    check(verdict == fall_n::StepVerdict::Continue,
+          "step_to(0.3) returned Continue under oversized dp");
+    check(std::abs(nl.current_time() - 0.3) < 1e-12,
+          "step_to(0.3) does not overshoot the requested target");
+    check(nl.current_step() == 2,
+          "step_to(0.3) advances in as many logical steps as needed");
+}
+
 // =============================================================================
 //  Test 8: NL equivalence — step-by-step vs solve_incremental
 // =============================================================================
@@ -645,6 +681,43 @@ void test_dynamic_analysis_state() {
     check(state.time > 0.0, "time > 0");
 }
 
+// =============================================================================
+//  Test 11: Arc-length continuation hook smoke test
+// =============================================================================
+
+void test_arc_length_hook_smoke() {
+    std::cout << "\nTest 11: ArcLengthSolver hook smoke test\n";
+
+    ArcFixture f;
+    ArcTL arc{f.model.get()};
+    arc.set_arc_length(1.0e-3);
+    arc.set_psi(1.0);
+    arc.set_max_iterations(20);
+    arc.set_tolerances(1.0e-8, 1.0e-10);
+
+    int local_residual_calls = 0;
+    int global_residual_calls = 0;
+    int jacobian_calls = 0;
+
+    arc.set_residual_hook(
+        [&](Vec, Vec, DM) { ++local_residual_calls; });
+    arc.set_global_residual_hook(
+        [&](Vec, Vec, DM) { ++global_residual_calls; });
+    arc.set_jacobian_hook(
+        [&](Vec, Mat, DM) { ++jacobian_calls; });
+
+    const auto result = arc.solve_step();
+    check(result.converged, "arc-length step converged on elastic TL cube");
+    check(std::abs(result.lambda) > 0.0,
+          "arc-length step advances the load parameter");
+    check(local_residual_calls > 0,
+          "arc-length local residual hook is executed");
+    check(global_residual_calls > 0,
+          "arc-length global residual hook is executed");
+    check(jacobian_calls > 0,
+          "arc-length Jacobian hook is executed");
+}
+
 
 // =============================================================================
 //  main
@@ -664,9 +737,11 @@ int main(int argc, char** argv) {
     test_nl_pause_at_times();
     test_nl_pause_on();
     test_nl_set_increment_size();
+    test_nl_step_to_clamps_requested_target();
     test_nl_equivalence();
     test_nl_analysis_state();
     test_dynamic_analysis_state();
+    test_arc_length_hook_smoke();
 
     std::cout << "\n" << std::string(55, '=') << "\n"
               << "  Summary: " << passed << " passed, " << failed << " failed\n"

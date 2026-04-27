@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "bundle": "data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8",
+  "crack_state_csv": "data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_200mm_clamped_dirichlet_composite_audit\\hex8\\crack_state.csv",
+  "figures": {
+    "png": "doc\\figures\\validation_reboot\\structural_continuum_crack_gate_200mm.png",
+    "pdf": "doc\\figures\\validation_reboot\\structural_continuum_crack_gate_200mm.pdf"
+  },
+  "record_count": 49,
+  "max_cracked_fraction": 1.0,
+  "max_open_cracked_fraction": 1.0,
+  "max_crack_opening_mm": 23.2205644,
+  "first_full_cracking_runtime_p": 0.115384615,
+  "first_full_cracking_equivalent_drift_mm": 23.076923,
+  "first_full_open_cracking_runtime_p": 0.115384615,
+  "first_full_open_cracking_equivalent_drift_mm": 23.076923,
+  "diagnosis": "The promoted 200 mm continuum gate preserves axial balance and steel transfer, but the host crack field is fully smeared early in the protocol. The next model-form target is objective hinge localization and crack shear-transfer, not embedded-bar kinematics."
+}

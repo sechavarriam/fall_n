@@ -5,6 +5,9 @@
 #include "src/analysis/AnalysisRouteAudit.hh"
 #include "src/continuum/Continuum.hh"
 #include "src/continuum/HyperelasticRelation.hh"
+#include "src/elements/BeamKinematicPolicy.hh"
+#include "src/elements/MITCShellPolicy.hh"
+#include "src/elements/ShellKinematicPolicy.hh"
 #include "src/materials/LinealElasticMaterial.hh"
 #include "src/materials/Material.hh"
 
@@ -310,8 +313,8 @@ void test_kinematic_formulation_trait_audit() {
         KinematicFormulationTraits<TotalLagrangian>::maturity == FormulationMaturity::implemented);
     report("trait_ul_maturity_partial",
         KinematicFormulationTraits<UpdatedLagrangian>::maturity == FormulationMaturity::partial);
-    report("trait_corotational_maturity_placeholder",
-        KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::placeholder);
+    report("trait_corotational_maturity_partial",
+        KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::partial);
     report("trait_canonical_pairs_work_conjugate",
         KinematicFormulationTraits<SmallStrain>::conjugate_pair.is_work_conjugate() &&
         KinematicFormulationTraits<TotalLagrangian>::conjugate_pair.is_work_conjugate() &&
@@ -334,7 +337,8 @@ void test_kinematic_formulation_trait_audit() {
         !KinematicFormulationTraits<SmallStrain>::audit_scope.supports_finite_kinematics &&
         KinematicFormulationTraits<TotalLagrangian>::audit_scope.is_reference_finite_kinematics_path() &&
         KinematicFormulationTraits<UpdatedLagrangian>::audit_scope.requires_finite_kinematics_scope_disclaimer() &&
-        !KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
+        KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path() &&
+        KinematicFormulationTraits<Corotational>::audit_scope.requires_finite_kinematics_scope_disclaimer());
     report("trait_canonical_formulation_audit_helper",
         canonical_formulation_audit_scope(FormulationKind::total_lagrangian).is_reference_finite_kinematics_path() &&
         canonical_formulation_audit_scope(FormulationKind::updated_lagrangian).has_validation_evidence() &&

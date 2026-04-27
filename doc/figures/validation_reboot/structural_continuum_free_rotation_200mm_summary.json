@@ -1,0 +1,174 @@
+{
+  "protocol": {
+    "analysis": "cyclic",
+    "amplitudes_mm": [
+      50.0,
+      100.0,
+      150.0,
+      200.0
+    ],
+    "monotonic_tip_mm": 20.0,
+    "monotonic_steps": 12,
+    "steps_per_segment": 2,
+    "continuation": "reversal-guarded",
+    "continuation_segment_substep_factor": 2,
+    "axial_compression_mn": 0.02,
+    "axial_preload_steps": 4
+  },
+  "structural_reference": {
+    "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_free_structural_audit\\structural",
+    "beam_nodes": 10,
+    "beam_integration": "lobatto",
+    "top_rotation_mode": "free",
+    "section_fiber_profile": "fine",
+    "solver_policy": "newton-l2-lu-symbolic-reuse-only",
+    "process_wall_seconds": 152.98329130001366,
+    "reported_total_wall_seconds": 148.2625511,
+    "reported_solve_wall_seconds": 142.3227035,
+    "nominal_selected_steel_bar": {
+      "fiber_index": 339,
+      "y": 0.095,
+      "z": 0.095,
+      "area": 0.00020106193,
+      "zone": "longitudinal_steel",
+      "material_role": "reinforcing_steel"
+    },
+    "structural_active_coordinate": "z",
+    "target_continuum_bar_coordinates": {
+      "bar_y_local_x": -0.095,
+      "bar_z_local_y": 0.095,
+      "mapping": "structural active coordinate maps with opposite sign to continuum RebarBar::ly; structural passive coordinate maps directly to RebarBar::lz"
+    }
+  },
+  "continuum_cases": {
+    "hex8": {
+      "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_audit\\hex8",
+      "process_wall_seconds": null,
+      "reported_total_wall_seconds": 1345.884757,
+      "reported_solve_wall_seconds": 1345.559788,
+      "completed_successfully": true,
+      "matched_structural_station": {
+        "target_position_z_m": 0.00469610812,
+        "lower_section_gp": 0,
+        "upper_section_gp": 1,
+        "lower_position_z_m": 0.0,
+        "upper_position_z_m": 0.16038720800000006,
+        "interpolation_alpha": 0.029279817128558018,
+        "fiber_index": 339,
+        "y": 0.095,
+        "z": 0.095
+      },
+      "selected_structural_fiber": {
+        "fiber_index": 339,
+        "y": 0.095,
+        "z": 0.095,
+        "area": 0.00020106193,
+        "zone": "longitudinal_steel",
+        "material_role": "reinforcing_steel"
+      },
+      "selected_bar": {
+        "bar_index": 2,
+        "bar_element_layer": 0,
+        "gp_index": 0,
+        "bar_y": -0.095,
+        "bar_z": 0.095,
+        "position_z_m": 0.00469610812
+      }
+    }
+  },
+  "continuum_reference_spec": {
+    "nx": 6,
+    "ny": 6,
+    "nz": 12,
+    "longitudinal_bias_power": 2.0,
+    "material_mode": "tensile-crack-band-damage-proxy",
+    "kinematics": "corotational",
+    "concrete_tension_stiffness_ratio": 0.1,
+    "concrete_profile": "production-stabilized",
+    "concrete_tangent_mode": "fracture-secant",
+    "characteristic_length_mode": "fixed-end-longitudinal-host-edge-mm",
+    "host_concrete_zoning_mode": "cover-core-split",
+    "transverse_mesh_mode": "cover-aligned",
+    "rebar_layout": "structural-matched-eight-bar",
+    "rebar_interpolation": "two-node",
+    "embedded_boundary_mode": "full-penalty-coupling",
+    "axial_preload_transfer_mode": "host-surface-only",
+    "penalty_alpha_scale_over_ec": 10000.0,
+    "structural_to_continuum_axis_map": {
+      "continuum_bar_y_field": "RebarBar::ly, prism local x",
+      "continuum_bar_z_field": "RebarBar::lz, prism local y",
+      "active_bending_sign": "structural active = -continuum bar_y",
+      "passive_bending_sign": "structural passive = continuum bar_z"
+    }
+  },
+  "global_comparison": {
+    "hex8": {
+      "max_rel_base_shear_error": 183203.39135433704,
+      "rms_rel_base_shear_error": 3273.926029529159,
+      "peak_normalized_max_base_shear_error": 0.3415210316030416,
+      "peak_normalized_rms_base_shear_error": 0.15863024118910868
+    }
+  },
+  "steel_local_comparison": {
+    "hex8": {
+      "max_rel_stress_vs_drift_error": 78.29412194645961,
+      "rms_rel_stress_vs_drift_error": 3.2180942987051404,
+      "peak_normalized_max_stress_vs_drift_error": 0.6846873709271782,
+      "peak_normalized_rms_stress_vs_drift_error": 0.2090163583716369,
+      "max_rel_strain_vs_drift_error": 572.0218867908972,
+      "rms_rel_strain_vs_drift_error": 14.98957852726844,
+      "peak_normalized_max_strain_vs_drift_error": 0.7285551181130312,
+      "peak_normalized_rms_strain_vs_drift_error": 0.26119027278144596,
+      "structural_loop_work_mpa": 113.31181572896543,
+      "continuum_loop_work_mpa": 135.81636786014457,
+      "continuum_to_structural_loop_work_ratio": 1.1986072854485765
+    }
+  },
+  "embedded_transfer_comparison": {
+    "hex8": {
+      "max_abs_host_bar_axial_strain_gap": 2.40536353e-09,
+      "rms_abs_host_bar_axial_strain_gap": 8.111585920571086e-10,
+      "max_abs_rebar_kinematic_consistency_gap": 0.0,
+      "max_abs_projected_axial_gap_m": 1.12958472e-11,
+      "max_abs_projected_gap_norm_m": 1.12958472e-11
+    }
+  },
+  "artifacts": {
+    "structural_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_free_structural_audit\\hex8\\matched_structural_steel_trace.csv",
+    "amplitude_suffix": "corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm",
+    "figure_hysteresis_overlay": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_hysteresis_overlay_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "figure_steel_hysteresis_overlay": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_hysteresis_overlay_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "figure_steel_stress_vs_drift": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_stress_vs_drift_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "figure_steel_strain_vs_drift": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_steel_strain_vs_drift_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "figure_embedded_transfer_strain": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_embedded_transfer_strain_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "figure_embedded_transfer_gap": "doc\\figures\\validation_reboot\\reduced_rc_structural_continuum_embedded_transfer_gap_corotational_tensile_crack_band_damage_proxy_et0p1_6x6x12_bias2_200mm.png",
+    "hex8_orientation_candidates_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_free_structural_audit\\hex8\\structural_orientation_candidates.csv",
+    "hex8_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_free_structural_audit\\hex8\\selected_continuum_steel_trace.csv",
+    "hex8_matched_structural_trace_csv": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_continuum_damage_proxy_cyclic_200mm_6x6x12_hex8_bias2_free_structural_audit\\hex8\\matched_structural_steel_trace.csv"
+  },
+  "selected_structural_fibers": {
+    "hex8": {
+      "fiber_index": 339,
+      "y": 0.095,
+      "z": 0.095,
+      "area": 0.00020106193,
+      "zone": "longitudinal_steel",
+      "material_role": "reinforcing_steel"
+    }
+  },
+  "structural_orientation_candidates": {
+    "hex8": [
+      {
+        "fiber_index": 339,
+        "y": 0.095,
+        "z": 0.095,
+        "active_coordinate_name": "z",
+        "active_coordinate_value": 0.095,
+        "passive_coordinate_name": "y",
+        "passive_coordinate_value": 0.095,
+        "elastic_rms_stress_error": 70.5338374039121,
+        "elastic_rms_strain_error": 781.3838340937764
+      }
+    ]
+  }
+}

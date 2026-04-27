@@ -1,0 +1,49 @@
+{
+  "control": "reduced_rc_elastic_axis_stiffness",
+  "diagnostic_conclusion": "The current continuum top face prescribes lateral translation only; it is therefore kinematically comparable to the free-rotation structural beam.  The uniform-axial-penalty top cap is an explicit guided-cap audit branch that suppresses top-face axial warping without prescribing the mean axial shortening.",
+  "stiffness_ratios": {
+    "continuum_over_structural_free": 1.2168159476547182,
+    "continuum_guided_cap_over_structural_free": 6.036624212799722,
+    "structural_clamped_over_structural_free": 3.9386220787462856,
+    "continuum_over_structural_clamped": 0.30894458095406974,
+    "continuum_guided_cap_over_structural_clamped": 1.532674141389381
+  },
+  "cases": [
+    {
+      "key": "structural_free",
+      "label": "Structural free top rotation",
+      "output_dir": "data\\output\\cyclic_validation\\reboot_elastic_axis_stiffness_control_guided_cap\\structural_free",
+      "process_wall_seconds": 1.9139503000187688,
+      "terminal_drift_mm": 5.0,
+      "terminal_base_shear_kn": -5.420145440000001,
+      "secant_stiffness_kn_per_mm": 1.084029088
+    },
+    {
+      "key": "structural_clamped",
+      "label": "Structural clamped top rotation",
+      "output_dir": "data\\output\\cyclic_validation\\reboot_elastic_axis_stiffness_control_guided_cap\\structural_clamped",
+      "process_wall_seconds": 1.9153453999897465,
+      "terminal_drift_mm": 5.0,
+      "terminal_base_shear_kn": -21.347904500000002,
+      "secant_stiffness_kn_per_mm": 4.2695809
+    },
+    {
+      "key": "continuum_lateral_top_face",
+      "label": "Continuum lateral top face",
+      "output_dir": "data\\output\\cyclic_validation\\reboot_elastic_axis_stiffness_control_guided_cap\\continuum_lateral_top_face",
+      "process_wall_seconds": 45.506361199950334,
+      "terminal_drift_mm": 5.0,
+      "terminal_base_shear_kn": -6.59531941,
+      "secant_stiffness_kn_per_mm": 1.319063882
+    },
+    {
+      "key": "continuum_uniform_axial_top_cap",
+      "label": "Continuum guided axial top cap",
+      "output_dir": "data\\output\\cyclic_validation\\reboot_elastic_axis_stiffness_control_guided_cap\\continuum_uniform_axial_top_cap",
+      "process_wall_seconds": 50.97505020000972,
+      "terminal_drift_mm": 5.0,
+      "terminal_base_shear_kn": -32.7193812,
+      "secant_stiffness_kn_per_mm": 6.54387624
+    }
+  ]
+}

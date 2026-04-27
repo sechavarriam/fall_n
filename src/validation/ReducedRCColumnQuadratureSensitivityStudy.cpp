@@ -25,6 +25,84 @@ struct QuadratureSensitivityCasePayload {
     std::vector<ReducedRCColumnMomentCurvatureClosureRecord> closure_records{};
 };
 
+struct ScalarSpreadStats {
+    double min{std::numeric_limits<double>::infinity()};
+    double max{0.0};
+    double sum{0.0};
+
+    void observe(double value) noexcept
+    {
+        min = std::min(min, value);
+        max = std::max(max, value);
+        sum += value;
+    }
+};
+
+struct QuadratureSummaryAccumulator {
+    std::size_t case_count{0};
+    std::size_t completed_case_count{0};
+    std::size_t representative_pass_count{0};
+    double max_abs_station_xi_shift{0.0};
+    ScalarSpreadStats terminal_moment{};
+    ScalarSpreadStats moment{};
+    ScalarSpreadStats tangent{};
+    ScalarSpreadStats secant{};
+
+    void observe(const ReducedRCColumnQuadratureSensitivityCaseRow& row) noexcept
+    {
+        ++case_count;
+        if (!row.execution_ok) {
+            return;
+        }
+
+        ++completed_case_count;
+        if (row.representative_internal_sensitivity_passes()) {
+            ++representative_pass_count;
+        }
+
+        terminal_moment.observe(row.rel_terminal_moment_spread);
+        moment.observe(row.max_rel_moment_spread);
+        tangent.observe(row.max_rel_tangent_spread);
+        secant.observe(row.max_rel_secant_spread);
+        max_abs_station_xi_shift =
+            std::max(max_abs_station_xi_shift, row.abs_station_xi_shift);
+    }
+
+    template <typename SummaryRowT>
+    void assign_to(SummaryRowT& row) const noexcept
+    {
+        row.case_count = case_count;
+        row.completed_case_count = completed_case_count;
+        row.representative_pass_count = representative_pass_count;
+        row.max_abs_station_xi_shift = max_abs_station_xi_shift;
+
+        if (completed_case_count == 0) {
+            row.min_rel_terminal_moment_spread = 0.0;
+            row.min_max_rel_moment_spread = 0.0;
+            row.min_max_rel_tangent_spread = 0.0;
+            row.min_max_rel_secant_spread = 0.0;
+            return;
+        }
+
+        const double denom = static_cast<double>(completed_case_count);
+        row.min_rel_terminal_moment_spread = terminal_moment.min;
+        row.max_rel_terminal_moment_spread = terminal_moment.max;
+        row.avg_rel_terminal_moment_spread = terminal_moment.sum / denom;
+
+        row.min_max_rel_moment_spread = moment.min;
+        row.max_max_rel_moment_spread = moment.max;
+        row.avg_max_rel_moment_spread = moment.sum / denom;
+
+        row.min_max_rel_tangent_spread = tangent.min;
+        row.max_max_rel_tangent_spread = tangent.max;
+        row.avg_max_rel_tangent_spread = tangent.sum / denom;
+
+        row.min_max_rel_secant_spread = secant.min;
+        row.max_max_rel_secant_spread = secant.max;
+        row.avg_max_rel_secant_spread = secant.sum / denom;
+    }
+};
+
 [[nodiscard]] constexpr bool matches_beam_nodes_filter(
     const std::vector<std::size_t>& filter,
     std::size_t beam_nodes) noexcept
@@ -416,6 +494,13 @@ void compare_against_reference(
         payload.row.reference_terminal_structural_moment_y,
         spec.relative_error_floor);
 
+    auto update_peak = [](double& peak, double candidate) noexcept {
+        peak = std::max(peak, candidate);
+    };
+    auto within_tolerance = [](double value, double tolerance) noexcept {
+        return value <= tolerance;
+    };
+
     double squared_rel_moment_spread_sum = 0.0;
 
     for (const auto& ref_row : reference.closure_records) {
@@ -430,22 +515,18 @@ void compare_against_reference(
             compared.structural_moment_y,
             ref_row.structural_moment_y,
             spec.relative_error_floor);
+        const double rel_tangent = safe_relative_error(
+            compared.structural_tangent_eiy,
+            ref_row.structural_tangent_eiy,
+            spec.relative_error_floor);
+        const double rel_secant = safe_relative_error(
+            compared.structural_secant_eiy,
+            ref_row.structural_secant_eiy,
+            spec.relative_error_floor);
 
-        payload.row.max_rel_moment_spread = std::max(
-            payload.row.max_rel_moment_spread,
-            rel_moment);
-        payload.row.max_rel_tangent_spread = std::max(
-            payload.row.max_rel_tangent_spread,
-            safe_relative_error(
-                compared.structural_tangent_eiy,
-                ref_row.structural_tangent_eiy,
-                spec.relative_error_floor));
-        payload.row.max_rel_secant_spread = std::max(
-            payload.row.max_rel_secant_spread,
-            safe_relative_error(
-                compared.structural_secant_eiy,
-                ref_row.structural_secant_eiy,
-                spec.relative_error_floor));
+        update_peak(payload.row.max_rel_moment_spread, rel_moment);
+        update_peak(payload.row.max_rel_tangent_spread, rel_tangent);
+        update_peak(payload.row.max_rel_secant_spread, rel_secant);
 
         squared_rel_moment_spread_sum += rel_moment * rel_moment;
         ++payload.row.overlap_point_count;
@@ -458,17 +539,21 @@ void compare_against_reference(
     }
 
     payload.row.terminal_moment_within_representative_tolerance =
-        payload.row.rel_terminal_moment_spread <=
-        spec.representative_terminal_moment_relative_spread_tolerance;
+        within_tolerance(
+            payload.row.rel_terminal_moment_spread,
+            spec.representative_terminal_moment_relative_spread_tolerance);
     payload.row.moment_spread_within_representative_tolerance =
-        payload.row.max_rel_moment_spread <=
-        spec.representative_max_rel_moment_spread_tolerance;
+        within_tolerance(
+            payload.row.max_rel_moment_spread,
+            spec.representative_max_rel_moment_spread_tolerance);
     payload.row.tangent_spread_within_representative_tolerance =
-        payload.row.max_rel_tangent_spread <=
-        spec.representative_max_rel_tangent_spread_tolerance;
+        within_tolerance(
+            payload.row.max_rel_tangent_spread,
+            spec.representative_max_rel_tangent_spread_tolerance);
     payload.row.secant_spread_within_representative_tolerance =
-        payload.row.max_rel_secant_spread <=
-        spec.representative_max_rel_secant_spread_tolerance;
+        within_tolerance(
+            payload.row.max_rel_secant_spread,
+            spec.representative_max_rel_secant_spread_tolerance);
 }
 
 [[nodiscard]] ReducedRCColumnQuadratureSensitivitySummary summarize_cases(
@@ -476,6 +561,15 @@ void compare_against_reference(
 {
     ReducedRCColumnQuadratureSensitivitySummary summary{};
     summary.total_case_count = rows.size();
+    auto update_worst = [](double candidate,
+                           const std::string& case_id,
+                           double& worst_value,
+                           std::string& worst_case_id) noexcept {
+        if (candidate >= worst_value) {
+            worst_value = candidate;
+            worst_case_id = case_id;
+        }
+    };
 
     for (const auto& row : rows) {
         if (row.execution_ok) {
@@ -484,28 +578,31 @@ void compare_against_reference(
                 ++summary.representative_pass_count;
             }
 
-            if (row.rel_terminal_moment_spread >=
-                summary.worst_rel_terminal_moment_spread) {
-                summary.worst_rel_terminal_moment_spread =
-                    row.rel_terminal_moment_spread;
-                summary.worst_terminal_moment_case_id = row.case_id;
-            }
-            if (row.max_rel_moment_spread >= summary.worst_max_rel_moment_spread) {
-                summary.worst_max_rel_moment_spread = row.max_rel_moment_spread;
-                summary.worst_moment_case_id = row.case_id;
-            }
-            if (row.max_rel_tangent_spread >= summary.worst_max_rel_tangent_spread) {
-                summary.worst_max_rel_tangent_spread = row.max_rel_tangent_spread;
-                summary.worst_tangent_case_id = row.case_id;
-            }
-            if (row.max_rel_secant_spread >= summary.worst_max_rel_secant_spread) {
-                summary.worst_max_rel_secant_spread = row.max_rel_secant_spread;
-                summary.worst_secant_case_id = row.case_id;
-            }
-            if (row.abs_station_xi_shift >= summary.worst_abs_station_xi_shift) {
-                summary.worst_abs_station_xi_shift = row.abs_station_xi_shift;
-                summary.worst_station_shift_case_id = row.case_id;
-            }
+            update_worst(
+                row.rel_terminal_moment_spread,
+                row.case_id,
+                summary.worst_rel_terminal_moment_spread,
+                summary.worst_terminal_moment_case_id);
+            update_worst(
+                row.max_rel_moment_spread,
+                row.case_id,
+                summary.worst_max_rel_moment_spread,
+                summary.worst_moment_case_id);
+            update_worst(
+                row.max_rel_tangent_spread,
+                row.case_id,
+                summary.worst_max_rel_tangent_spread,
+                summary.worst_tangent_case_id);
+            update_worst(
+                row.max_rel_secant_spread,
+                row.case_id,
+                summary.worst_max_rel_secant_spread,
+                summary.worst_secant_case_id);
+            update_worst(
+                row.abs_station_xi_shift,
+                row.case_id,
+                summary.worst_abs_station_xi_shift,
+                summary.worst_station_shift_case_id);
         } else {
             ++summary.failed_case_count;
         }
@@ -520,70 +617,17 @@ template <typename PredicateT>
     const std::vector<ReducedRCColumnQuadratureSensitivityCaseRow>& rows,
     PredicateT&& predicate)
 {
-    ReducedRCColumnQuadratureSensitivityNodeRow out{};
-    out.beam_nodes = beam_nodes;
-    out.min_rel_terminal_moment_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_moment_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_tangent_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_secant_spread = std::numeric_limits<double>::infinity();
+    ReducedRCColumnQuadratureSensitivityNodeRow out{.beam_nodes = beam_nodes};
+    QuadratureSummaryAccumulator accumulator{};
 
     for (const auto& row : rows) {
         if (!predicate(row)) {
             continue;
         }
-        ++out.case_count;
-        if (!row.execution_ok) {
-            continue;
-        }
-
-        ++out.completed_case_count;
-        if (row.representative_internal_sensitivity_passes()) {
-            ++out.representative_pass_count;
-        }
-
-        out.min_rel_terminal_moment_spread =
-            std::min(out.min_rel_terminal_moment_spread,
-                     row.rel_terminal_moment_spread);
-        out.max_rel_terminal_moment_spread =
-            std::max(out.max_rel_terminal_moment_spread,
-                     row.rel_terminal_moment_spread);
-        out.avg_rel_terminal_moment_spread += row.rel_terminal_moment_spread;
-
-        out.min_max_rel_moment_spread =
-            std::min(out.min_max_rel_moment_spread, row.max_rel_moment_spread);
-        out.max_max_rel_moment_spread =
-            std::max(out.max_max_rel_moment_spread, row.max_rel_moment_spread);
-        out.avg_max_rel_moment_spread += row.max_rel_moment_spread;
-
-        out.min_max_rel_tangent_spread =
-            std::min(out.min_max_rel_tangent_spread, row.max_rel_tangent_spread);
-        out.max_max_rel_tangent_spread =
-            std::max(out.max_max_rel_tangent_spread, row.max_rel_tangent_spread);
-        out.avg_max_rel_tangent_spread += row.max_rel_tangent_spread;
-
-        out.min_max_rel_secant_spread =
-            std::min(out.min_max_rel_secant_spread, row.max_rel_secant_spread);
-        out.max_max_rel_secant_spread =
-            std::max(out.max_max_rel_secant_spread, row.max_rel_secant_spread);
-        out.avg_max_rel_secant_spread += row.max_rel_secant_spread;
-
-        out.max_abs_station_xi_shift =
-            std::max(out.max_abs_station_xi_shift, row.abs_station_xi_shift);
+        accumulator.observe(row);
     }
 
-    if (out.completed_case_count == 0u) {
-        out.min_rel_terminal_moment_spread = 0.0;
-        out.min_max_rel_moment_spread = 0.0;
-        out.min_max_rel_tangent_spread = 0.0;
-        out.min_max_rel_secant_spread = 0.0;
-        return out;
-    }
-
-    const double denom = static_cast<double>(out.completed_case_count);
-    out.avg_rel_terminal_moment_spread /= denom;
-    out.avg_max_rel_moment_spread /= denom;
-    out.avg_max_rel_tangent_spread /= denom;
-    out.avg_max_rel_secant_spread /= denom;
+    accumulator.assign_to(out);
     return out;
 }
 
@@ -607,70 +651,18 @@ template <typename PredicateT>
     const std::vector<ReducedRCColumnQuadratureSensitivityCaseRow>& rows,
     PredicateT&& predicate)
 {
-    ReducedRCColumnQuadratureSensitivityFamilyRow out{};
-    out.beam_axis_quadrature_family = family;
-    out.min_rel_terminal_moment_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_moment_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_tangent_spread = std::numeric_limits<double>::infinity();
-    out.min_max_rel_secant_spread = std::numeric_limits<double>::infinity();
+    ReducedRCColumnQuadratureSensitivityFamilyRow out{
+        .beam_axis_quadrature_family = family};
+    QuadratureSummaryAccumulator accumulator{};
 
     for (const auto& row : rows) {
         if (!predicate(row)) {
             continue;
         }
-        ++out.case_count;
-        if (!row.execution_ok) {
-            continue;
-        }
-
-        ++out.completed_case_count;
-        if (row.representative_internal_sensitivity_passes()) {
-            ++out.representative_pass_count;
-        }
-
-        out.min_rel_terminal_moment_spread =
-            std::min(out.min_rel_terminal_moment_spread,
-                     row.rel_terminal_moment_spread);
-        out.max_rel_terminal_moment_spread =
-            std::max(out.max_rel_terminal_moment_spread,
-                     row.rel_terminal_moment_spread);
-        out.avg_rel_terminal_moment_spread += row.rel_terminal_moment_spread;
-
-        out.min_max_rel_moment_spread =
-            std::min(out.min_max_rel_moment_spread, row.max_rel_moment_spread);
-        out.max_max_rel_moment_spread =
-            std::max(out.max_max_rel_moment_spread, row.max_rel_moment_spread);
-        out.avg_max_rel_moment_spread += row.max_rel_moment_spread;
-
-        out.min_max_rel_tangent_spread =
-            std::min(out.min_max_rel_tangent_spread, row.max_rel_tangent_spread);
-        out.max_max_rel_tangent_spread =
-            std::max(out.max_max_rel_tangent_spread, row.max_rel_tangent_spread);
-        out.avg_max_rel_tangent_spread += row.max_rel_tangent_spread;
-
-        out.min_max_rel_secant_spread =
-            std::min(out.min_max_rel_secant_spread, row.max_rel_secant_spread);
-        out.max_max_rel_secant_spread =
-            std::max(out.max_max_rel_secant_spread, row.max_rel_secant_spread);
-        out.avg_max_rel_secant_spread += row.max_rel_secant_spread;
-
-        out.max_abs_station_xi_shift =
-            std::max(out.max_abs_station_xi_shift, row.abs_station_xi_shift);
+        accumulator.observe(row);
     }
 
-    if (out.completed_case_count == 0u) {
-        out.min_rel_terminal_moment_spread = 0.0;
-        out.min_max_rel_moment_spread = 0.0;
-        out.min_max_rel_tangent_spread = 0.0;
-        out.min_max_rel_secant_spread = 0.0;
-        return out;
-    }
-
-    const double denom = static_cast<double>(out.completed_case_count);
-    out.avg_rel_terminal_moment_spread /= denom;
-    out.avg_max_rel_moment_spread /= denom;
-    out.avg_max_rel_tangent_spread /= denom;
-    out.avg_max_rel_secant_spread /= denom;
+    accumulator.assign_to(out);
     return out;
 }
 
@@ -708,21 +700,18 @@ build_reference_rows(
             continue;
         }
 
-        std::size_t compared_case_count = 0;
-        for (const auto& payload : payloads) {
-            if (payload.row.execution_ok &&
-                payload.row.beam_nodes == beam_nodes &&
-                payload.row.formulation_kind ==
-                    continuum::FormulationKind::small_strain) {
-                ++compared_case_count;
-            }
-        }
-
         rows.push_back({
             .beam_nodes = beam_nodes,
             .reference_family = reference_family,
             .reference_case_id = reference->row.case_id,
-            .compared_case_count = compared_case_count,
+            .compared_case_count = static_cast<std::size_t>(std::ranges::count_if(
+                payloads,
+                [beam_nodes](const auto& payload) {
+                    return payload.row.execution_ok &&
+                           payload.row.beam_nodes == beam_nodes &&
+                           payload.row.formulation_kind ==
+                               continuum::FormulationKind::small_strain;
+                })),
             .reference_max_curvature_y =
                 reference->closure_records.empty()
                     ? 0.0

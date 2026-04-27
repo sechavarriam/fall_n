@@ -25,6 +25,79 @@ struct NodeRefinementCasePayload {
     std::vector<ReducedRCColumnMomentCurvatureClosureRecord> closure_records{};
 };
 
+struct ScalarSpreadStats {
+    double min{std::numeric_limits<double>::infinity()};
+    double max{0.0};
+    double sum{0.0};
+
+    void observe(double value) noexcept
+    {
+        min = std::min(min, value);
+        max = std::max(max, value);
+        sum += value;
+    }
+};
+
+struct NodeRefinementSummaryAccumulator {
+    std::size_t case_count{0};
+    std::size_t completed_case_count{0};
+    std::size_t representative_pass_count{0};
+    ScalarSpreadStats terminal_moment{};
+    ScalarSpreadStats moment{};
+    ScalarSpreadStats tangent{};
+    ScalarSpreadStats secant{};
+
+    void observe(const ReducedRCColumnNodeRefinementCaseRow& row) noexcept
+    {
+        ++case_count;
+        if (!row.execution_ok) {
+            return;
+        }
+
+        ++completed_case_count;
+        if (row.representative_internal_refinement_passes()) {
+            ++representative_pass_count;
+        }
+
+        terminal_moment.observe(row.rel_terminal_moment_drift);
+        moment.observe(row.max_rel_moment_drift);
+        tangent.observe(row.max_rel_tangent_drift);
+        secant.observe(row.max_rel_secant_drift);
+    }
+
+    void assign_to(ReducedRCColumnNodeRefinementSummaryRow& row) const noexcept
+    {
+        row.case_count = case_count;
+        row.completed_case_count = completed_case_count;
+        row.representative_pass_count = representative_pass_count;
+
+        if (completed_case_count == 0) {
+            row.min_rel_terminal_moment_drift = 0.0;
+            row.min_max_rel_moment_drift = 0.0;
+            row.min_max_rel_tangent_drift = 0.0;
+            row.min_max_rel_secant_drift = 0.0;
+            return;
+        }
+
+        const double denom = static_cast<double>(completed_case_count);
+        row.min_rel_terminal_moment_drift = terminal_moment.min;
+        row.max_rel_terminal_moment_drift = terminal_moment.max;
+        row.avg_rel_terminal_moment_drift = terminal_moment.sum / denom;
+
+        row.min_max_rel_moment_drift = moment.min;
+        row.max_max_rel_moment_drift = moment.max;
+        row.avg_max_rel_moment_drift = moment.sum / denom;
+
+        row.min_max_rel_tangent_drift = tangent.min;
+        row.max_max_rel_tangent_drift = tangent.max;
+        row.avg_max_rel_tangent_drift = tangent.sum / denom;
+
+        row.min_max_rel_secant_drift = secant.min;
+        row.max_max_rel_secant_drift = secant.max;
+        row.avg_max_rel_secant_drift = secant.sum / denom;
+    }
+};
+
 [[nodiscard]] constexpr bool matches_beam_nodes_filter(
     const std::vector<std::size_t>& filter,
     std::size_t beam_nodes) noexcept
@@ -354,6 +427,13 @@ void compare_against_reference(
         payload.row.reference_terminal_structural_moment_y,
         spec.relative_error_floor);
 
+    auto update_peak = [](double& peak, double candidate) noexcept {
+        peak = std::max(peak, candidate);
+    };
+    auto within_tolerance = [](double value, double tolerance) noexcept {
+        return value <= tolerance;
+    };
+
     double squared_rel_moment_drift_sum = 0.0;
 
     for (const auto& ref_row : reference.closure_records) {
@@ -377,12 +457,9 @@ void compare_against_reference(
             ref_row.structural_secant_eiy,
             spec.relative_error_floor);
 
-        payload.row.max_rel_moment_drift =
-            std::max(payload.row.max_rel_moment_drift, rel_moment);
-        payload.row.max_rel_tangent_drift =
-            std::max(payload.row.max_rel_tangent_drift, rel_tangent);
-        payload.row.max_rel_secant_drift =
-            std::max(payload.row.max_rel_secant_drift, rel_secant);
+        update_peak(payload.row.max_rel_moment_drift, rel_moment);
+        update_peak(payload.row.max_rel_tangent_drift, rel_tangent);
+        update_peak(payload.row.max_rel_secant_drift, rel_secant);
 
         squared_rel_moment_drift_sum += rel_moment * rel_moment;
         ++payload.row.overlap_point_count;
@@ -399,17 +476,21 @@ void compare_against_reference(
         static_cast<double>(payload.row.overlap_point_count));
 
     payload.row.terminal_moment_within_representative_tolerance =
-        payload.row.rel_terminal_moment_drift <=
-        spec.representative_terminal_moment_relative_drift_tolerance;
+        within_tolerance(
+            payload.row.rel_terminal_moment_drift,
+            spec.representative_terminal_moment_relative_drift_tolerance);
     payload.row.moment_drift_within_representative_tolerance =
-        payload.row.max_rel_moment_drift <=
-        spec.representative_max_rel_moment_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_moment_drift,
+            spec.representative_max_rel_moment_drift_tolerance);
     payload.row.tangent_drift_within_representative_tolerance =
-        payload.row.max_rel_tangent_drift <=
-        spec.representative_max_rel_tangent_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_tangent_drift,
+            spec.representative_max_rel_tangent_drift_tolerance);
     payload.row.secant_drift_within_representative_tolerance =
-        payload.row.max_rel_secant_drift <=
-        spec.representative_max_rel_secant_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_secant_drift,
+            spec.representative_max_rel_secant_drift_tolerance);
 }
 
 [[nodiscard]] ReducedRCColumnNodeRefinementSummary summarize_cases(
@@ -417,6 +498,15 @@ void compare_against_reference(
 {
     ReducedRCColumnNodeRefinementSummary summary{};
     summary.total_case_count = rows.size();
+    auto update_worst = [](double candidate,
+                           const std::string& case_id,
+                           double& worst_value,
+                           std::string& worst_case_id) noexcept {
+        if (candidate >= worst_value) {
+            worst_value = candidate;
+            worst_case_id = case_id;
+        }
+    };
 
     for (const auto& row : rows) {
         if (row.execution_ok) {
@@ -425,22 +515,26 @@ void compare_against_reference(
                 ++summary.representative_pass_count;
             }
 
-            if (row.rel_terminal_moment_drift >= summary.worst_rel_terminal_moment_drift) {
-                summary.worst_rel_terminal_moment_drift = row.rel_terminal_moment_drift;
-                summary.worst_terminal_moment_case_id = row.case_id;
-            }
-            if (row.max_rel_moment_drift >= summary.worst_max_rel_moment_drift) {
-                summary.worst_max_rel_moment_drift = row.max_rel_moment_drift;
-                summary.worst_moment_case_id = row.case_id;
-            }
-            if (row.max_rel_tangent_drift >= summary.worst_max_rel_tangent_drift) {
-                summary.worst_max_rel_tangent_drift = row.max_rel_tangent_drift;
-                summary.worst_tangent_case_id = row.case_id;
-            }
-            if (row.max_rel_secant_drift >= summary.worst_max_rel_secant_drift) {
-                summary.worst_max_rel_secant_drift = row.max_rel_secant_drift;
-                summary.worst_secant_case_id = row.case_id;
-            }
+            update_worst(
+                row.rel_terminal_moment_drift,
+                row.case_id,
+                summary.worst_rel_terminal_moment_drift,
+                summary.worst_terminal_moment_case_id);
+            update_worst(
+                row.max_rel_moment_drift,
+                row.case_id,
+                summary.worst_max_rel_moment_drift,
+                summary.worst_moment_case_id);
+            update_worst(
+                row.max_rel_tangent_drift,
+                row.case_id,
+                summary.worst_max_rel_tangent_drift,
+                summary.worst_tangent_case_id);
+            update_worst(
+                row.max_rel_secant_drift,
+                row.case_id,
+                summary.worst_max_rel_secant_drift,
+                summary.worst_secant_case_id);
         } else {
             ++summary.failed_case_count;
         }
@@ -455,66 +549,17 @@ template <typename PredicateT>
     const std::vector<ReducedRCColumnNodeRefinementCaseRow>& rows,
     PredicateT&& predicate)
 {
-    ReducedRCColumnNodeRefinementSummaryRow out{};
-    out.beam_nodes = beam_nodes;
-    out.min_rel_terminal_moment_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_moment_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_tangent_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_secant_drift = std::numeric_limits<double>::infinity();
+    ReducedRCColumnNodeRefinementSummaryRow out{.beam_nodes = beam_nodes};
+    NodeRefinementSummaryAccumulator accumulator{};
 
     for (const auto& row : rows) {
         if (!predicate(row)) {
             continue;
         }
-
-        ++out.case_count;
-        if (!row.execution_ok) {
-            continue;
-        }
-
-        ++out.completed_case_count;
-        if (row.representative_internal_refinement_passes()) {
-            ++out.representative_pass_count;
-        }
-
-        out.min_rel_terminal_moment_drift =
-            std::min(out.min_rel_terminal_moment_drift, row.rel_terminal_moment_drift);
-        out.max_rel_terminal_moment_drift =
-            std::max(out.max_rel_terminal_moment_drift, row.rel_terminal_moment_drift);
-        out.avg_rel_terminal_moment_drift += row.rel_terminal_moment_drift;
-
-        out.min_max_rel_moment_drift =
-            std::min(out.min_max_rel_moment_drift, row.max_rel_moment_drift);
-        out.max_max_rel_moment_drift =
-            std::max(out.max_max_rel_moment_drift, row.max_rel_moment_drift);
-        out.avg_max_rel_moment_drift += row.max_rel_moment_drift;
-
-        out.min_max_rel_tangent_drift =
-            std::min(out.min_max_rel_tangent_drift, row.max_rel_tangent_drift);
-        out.max_max_rel_tangent_drift =
-            std::max(out.max_max_rel_tangent_drift, row.max_rel_tangent_drift);
-        out.avg_max_rel_tangent_drift += row.max_rel_tangent_drift;
-
-        out.min_max_rel_secant_drift =
-            std::min(out.min_max_rel_secant_drift, row.max_rel_secant_drift);
-        out.max_max_rel_secant_drift =
-            std::max(out.max_max_rel_secant_drift, row.max_rel_secant_drift);
-        out.avg_max_rel_secant_drift += row.max_rel_secant_drift;
+        accumulator.observe(row);
     }
 
-    if (out.completed_case_count == 0) {
-        out.min_rel_terminal_moment_drift = 0.0;
-        out.min_max_rel_moment_drift = 0.0;
-        out.min_max_rel_tangent_drift = 0.0;
-        out.min_max_rel_secant_drift = 0.0;
-        return out;
-    }
-
-    const double denom = static_cast<double>(out.completed_case_count);
-    out.avg_rel_terminal_moment_drift /= denom;
-    out.avg_max_rel_moment_drift /= denom;
-    out.avg_max_rel_tangent_drift /= denom;
-    out.avg_max_rel_secant_drift /= denom;
+    accumulator.assign_to(out);
     return out;
 }
 
@@ -544,19 +589,16 @@ build_reference_rows(const std::vector<NodeRefinementCasePayload>& payloads)
             continue;
         }
 
-        std::size_t compared_case_count = 0;
-        for (const auto& payload : payloads) {
-            if (payload.row.execution_ok &&
-                payload.row.beam_axis_quadrature_family == family) {
-                ++compared_case_count;
-            }
-        }
-
         rows.push_back({
             .beam_axis_quadrature_family = family,
             .reference_beam_nodes = ref->row.beam_nodes,
             .reference_case_id = ref->row.case_id,
-            .compared_case_count = compared_case_count,
+            .compared_case_count = static_cast<std::size_t>(std::ranges::count_if(
+                payloads,
+                [family](const auto& payload) {
+                    return payload.row.execution_ok &&
+                           payload.row.beam_axis_quadrature_family == family;
+                })),
             .reference_max_curvature_y =
                 ref->closure_records.empty()
                     ? 0.0

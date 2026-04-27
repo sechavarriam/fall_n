@@ -1,7 +1,8 @@
 // =============================================================================
 //  test_truss_element.cpp
 //
-//  Tests for the TrussElement<3> 2-node bar element.
+//  Tests for the TrussElement axial bar family, including the quadratic
+//  TrussElement<3,3> variant.
 //
 //  Verifies:
 //    1. Concept satisfaction (FiniteElement)
@@ -108,6 +109,34 @@ struct TrussTestFixture {
     }
 };
 
+struct QuadraticTrussTestFixture {
+    Domain<3> domain;
+    double area;
+
+    explicit QuadraticTrussTestFixture(
+        std::array<double, 3> p0,
+        std::array<double, 3> p1,
+        std::array<double, 3> p2,
+        double A = 1.0e-4)
+        : area{A}
+    {
+        domain.add_node(0, p0[0], p0[1], p0[2]);
+        domain.add_node(1, p1[0], p1[1], p1[2]);
+        domain.add_node(2, p2[0], p2[1], p2[2]);
+
+        PetscInt conn[3] = {0, 1, 2};
+        domain.make_element<LagrangeElement3D<3>>(
+            GaussLegendreCellIntegrator<3>{}, 0, conn);
+
+        domain.assemble_sieve();
+    }
+
+    TrussElement<3, 3> make_truss(Material<UniaxialMaterial> mat)
+    {
+        return TrussElement<3, 3>{&domain.element(0), std::move(mat), area};
+    }
+};
+
 
 // =============================================================================
 //  Test 1: Concept satisfaction (compile-time, verified in TrussElement.hh)
@@ -130,7 +159,7 @@ void test_geometry_x_aligned() {
     auto truss = fix.make_truss(make_elastic_steel());
 
     check(truss.num_nodes() == 2,              "num_nodes = 2");
-    check(truss.num_integration_points() == 1, "num_integration_points = 1");
+    check(truss.num_integration_points() == 2, "num_integration_points = 2");
     check(approx_eq(truss.length(), 2.0),      "length = 2.0");
 }
 
@@ -147,6 +176,94 @@ void test_geometry_diagonal() {
 
     double expected_L = std::sqrt(3.0);
     check(approx_eq(truss.length(), expected_L), "length = sqrt(3)");
+}
+
+void test_quadratic_truss_stiffness_and_force() {
+    std::cout << "\n--- Test 3b: Quadratic truss (3-node) ---\n";
+
+    const double L = 2.0;
+    const double A = 1.0e-4;
+    QuadraticTrussTestFixture fix({0, 0, 0}, {L / 2.0, 0, 0}, {L, 0, 0}, A);
+    auto truss = fix.make_truss(make_elastic_steel());
+    truss.set_num_dof_in_nodes();
+
+    check(truss.num_nodes() == 3, "quadratic truss num_nodes = 3");
+    check(truss.num_integration_points() == 3, "quadratic truss num_gp = 3");
+    check(approx_eq(truss.length(), L), "quadratic truss length = 2.0");
+
+    DMSetVecType(fix.domain.mesh.dm, VECSTANDARD);
+    DMSetDimension(fix.domain.mesh.dm, 3);
+    DMSetBasicAdjacency(fix.domain.mesh.dm, PETSC_FALSE, PETSC_TRUE);
+
+    PetscSection section;
+    PetscSectionCreate(PETSC_COMM_WORLD, &section);
+    PetscInt pStart, pEnd;
+    DMPlexGetChart(fix.domain.mesh.dm, &pStart, &pEnd);
+    PetscSectionSetChart(section, pStart, pEnd);
+    for (auto& node : fix.domain.nodes()) {
+        PetscSectionSetDof(section, node.sieve_id.value(), 3);
+    }
+    PetscSectionSetUp(section);
+    DMSetLocalSection(fix.domain.mesh.dm, section);
+    DMSetUp(fix.domain.mesh.dm);
+
+    for (auto& node : fix.domain.nodes()) {
+        PetscInt ndof, offset;
+        PetscSectionGetDof(section, node.sieve_id.value(), &ndof);
+        PetscSectionGetOffset(section, node.sieve_id.value(), &offset);
+        node.set_dof_index(std::ranges::iota_view{offset, offset + ndof});
+    }
+
+    Mat K;
+    DMCreateMatrix(fix.domain.mesh.dm, &K);
+    MatSetOption(K, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+    MatZeroEntries(K);
+    truss.inject_K(K);
+    MatAssemblyBegin(K, MAT_FINAL_ASSEMBLY);
+    MatAssemblyEnd(K, MAT_FINAL_ASSEMBLY);
+
+    const double EA_over_3L = E_STEEL * A / (3.0 * L);
+    check(
+        approx_eq(mat_val(K, 0, 0), 7.0 * EA_over_3L, 1e-4),
+        "quadratic K[0,0] = 7EA/(3L)");
+    check(
+        approx_eq(mat_val(K, 0, 3), -8.0 * EA_over_3L, 1e-4),
+        "quadratic K[0,3] = -8EA/(3L)");
+    check(
+        approx_eq(mat_val(K, 0, 6), 1.0 * EA_over_3L, 1e-4),
+        "quadratic K[0,6] = EA/(3L)");
+
+    Vec u;
+    DMCreateLocalVector(fix.domain.mesh.dm, &u);
+    VecSet(u, 0.0);
+    VecSetValue(u, 3, 0.001, INSERT_VALUES);
+    VecSetValue(u, 6, 0.002, INSERT_VALUES);
+    VecAssemblyBegin(u);
+    VecAssemblyEnd(u);
+
+    Vec f;
+    VecDuplicate(u, &f);
+    VecSet(f, 0.0);
+    truss.compute_internal_forces(u, f);
+
+    const double expected_force = E_STEEL * A * 0.001;
+    PetscScalar f_vals[9];
+    PetscInt idx[9] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    VecGetValues(f, 9, idx, f_vals);
+    check(
+        approx_eq(f_vals[0], -expected_force, 1e-4),
+        "quadratic truss left-end reaction = -EAe");
+    check(
+        approx_eq(f_vals[3], 0.0, 1e-8),
+        "quadratic truss mid-node force = 0 for constant strain");
+    check(
+        approx_eq(f_vals[6], expected_force, 1e-4),
+        "quadratic truss right-end force = EAe");
+
+    VecDestroy(&u);
+    VecDestroy(&f);
+    MatDestroy(&K);
+    PetscSectionDestroy(&section);
 }
 
 
@@ -442,6 +559,65 @@ void test_tangent_stiffness() {
 
 
 // =============================================================================
+//  Test 7b: Quadratic truss local tangent consistency under nonuniform strain
+// =============================================================================
+
+void test_quadratic_truss_nonlinear_local_tangent_consistency() {
+    std::cout << "\n--- Test 7b: Quadratic truss local tangent consistency ---\n";
+
+    const double L = 2.0;
+    const double A = 1.0e-4;
+    QuadraticTrussTestFixture fix({0, 0, 0}, {L / 2.0, 0, 0}, {L, 0, 0}, A);
+    auto truss = fix.make_truss(make_elastic_steel());
+
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(9);
+    // Quadratic axial field u(x) = a x^2, represented exactly by the 3-node bar.
+    // This produces a linearly varying compressive strain field, so the test
+    // exercises the quadratic interpolation and the Gauss-point material loop
+    // away from the uniform-strain special case.
+    u[3] = -8.0e-4;
+    u[6] = -3.2e-3;
+
+    const auto gauss_fields = truss.collect_gauss_fields(u);
+    double min_gp_strain = gauss_fields.front().strain[0];
+    double max_gp_strain = gauss_fields.front().strain[0];
+    for (const auto& record : gauss_fields) {
+        min_gp_strain = std::min(min_gp_strain, record.strain[0]);
+        max_gp_strain = std::max(max_gp_strain, record.strain[0]);
+    }
+    check(
+        std::abs(max_gp_strain - min_gp_strain) > 1.0e-4,
+        "quadratic local state produces a nonuniform Gauss-point strain field");
+
+    const Eigen::VectorXd force = truss.compute_internal_force_vector(u);
+    const Eigen::MatrixXd tangent = truss.compute_tangent_stiffness_matrix(u);
+    const Eigen::VectorXd residual = force - tangent * u;
+
+    const double h = 1.0e-8;
+    double max_column_error = 0.0;
+    for (const int dof : {0, 3, 6}) {
+        Eigen::VectorXd u_plus = u;
+        Eigen::VectorXd u_minus = u;
+        u_plus[dof] += h;
+        u_minus[dof] -= h;
+
+        const Eigen::VectorXd f_plus = truss.compute_internal_force_vector(u_plus);
+        const Eigen::VectorXd f_minus = truss.compute_internal_force_vector(u_minus);
+        const Eigen::VectorXd fd_column = (f_plus - f_minus) / (2.0 * h);
+        const Eigen::VectorXd column_error = fd_column - tangent.col(dof);
+        max_column_error = std::max(max_column_error, column_error.cwiseAbs().maxCoeff());
+    }
+
+    check(
+        residual.cwiseAbs().maxCoeff() < 1.0e-10,
+        "quadratic truss nonuniform force path closes with K*u in the elastic distributed state");
+    check(
+        max_column_error < 1.0e-6,
+        "quadratic truss tangent matches finite-difference columns in the nonuniform distributed state");
+}
+
+
+// =============================================================================
 //  Test 8: Commit / revert cycle
 // =============================================================================
 
@@ -525,7 +701,7 @@ void test_fem_element_wrapping() {
     FEM_Element fem{std::move(truss)};
 
     check(fem.num_nodes() == 2,              "FEM wrapped: num_nodes = 2");
-    check(fem.num_integration_points() == 1, "FEM wrapped: num_gp = 1");
+    check(fem.num_integration_points() == 2, "FEM wrapped: num_gp = 2");
     check(fem.sieve_id() >= 0,              "FEM wrapped: sieve_id >= 0");
 }
 
@@ -610,10 +786,12 @@ int main(int argc, char** argv) {
 
     test_geometry_x_aligned();
     test_geometry_diagonal();
+    test_quadratic_truss_stiffness_and_force();
     test_stiffness_x_aligned();
     test_stiffness_diagonal();
     test_internal_forces();
     test_tangent_stiffness();
+    test_quadratic_truss_nonlinear_local_tangent_consistency();
     test_commit_revert();
     test_fem_element_wrapping();
     test_mass_matrix();
