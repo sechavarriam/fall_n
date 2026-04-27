@@ -21,9 +21,9 @@
 //    UpdatedLagrangian — Current-configuration formulation.
 //                        Implemented as a spatial pathway, but still treated
 //                        as partially validated at the scientific level.
-//    Corotational      — Corotated frame formulation placeholder for
-//                        continuum 3D. Beam/shell corotational paths are
-//                        tracked separately and are more mature.
+//    Corotational      — Corotated small-strain continuum path with a
+//                        frozen-rotation tangent. Beam/shell corotational
+//                        paths are tracked separately and are more mature.
 //
 //  ─── Integration pattern ───
 //
@@ -48,6 +48,7 @@
 #include <concepts>
 
 #include <Eigen/Dense>
+#include <Eigen/SVD>
 
 #include "Tensor2.hh"
 #include "SymmetricTensor2.hh"
@@ -89,6 +90,8 @@ struct GPKinematics {
     BMatrixT    B;              ///< Strain-displacement operator (N × n_dof)
     VoigtVecT   strain_voigt;   ///< Strain in engineering Voigt notation
     Tensor2<dim> F;             ///< Deformation gradient (I for SmallStrain)
+    Tensor2<dim> corotational_rotation = Tensor2<dim>::identity();
+                                ///< Rotation extracted from F for corotated policies
     double       detF{1.0};     ///< det(F) — volume ratio
 };
 
@@ -353,6 +356,19 @@ struct TotalLagrangian {
     {
         auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
         return compute_F_from_gradients<dim>(grad, u_e);
+    }
+
+    // Linearized setup seed. Nonlinear TL assembly uses evaluate() and B_NL;
+    // model setup paths still need a displacement-independent B on Omega_0.
+    template <std::size_t dim>
+    static auto compute_B(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi)
+        -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
+    {
+        return SmallStrain::compute_B<dim>(geo, num_nodes, ndof, Xi);
     }
 
     // ── Nonlinear B matrix from gradient data (testable) ────────────────────
@@ -650,6 +666,19 @@ struct UpdatedLagrangian {
             geo, num_nodes, ndof, Xi, S_matrix);
     }
 
+    // Linearized setup seed. The nonlinear UL path uses evaluate() with
+    // spatial gradients; setup occurs before a displacement state exists.
+    template <std::size_t dim>
+    static auto compute_B(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi)
+        -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
+    {
+        return SmallStrain::compute_B<dim>(geo, num_nodes, ndof, Xi);
+    }
+
     // ── Spatial assembly: f_int + K_total from reference gradients ──────────
     //
     //  Full Updated Lagrangian pathway at a single Gauss point:
@@ -753,26 +782,237 @@ static_assert(KinematicPolicyConcept<UpdatedLagrangian>);
 
 
 // =============================================================================
-//  Corotational  — corotated frame formulation (placeholder)
+//  Corotational  — corotated small-strain continuum formulation
 // =============================================================================
 //
-//  Extracts the rotation R from the polar decomposition F = R·U and
-//  evaluates strains/stresses in the corotated frame.  This allows reuse
-//  of small-strain constitutive models for moderate rotations.
+//  Extracts the rotation R from the polar decomposition F = R*U and evaluates
+//  a Biot-like strain e_hat = sym(R^T F) - I in the corotated frame. The
+//  material stress and tangent are then rotated back to the assembly frame.
 //
-//  Particularly useful for beams and shells (Phase 5).
+//  The tangent currently freezes R during the linearization. This is useful
+//  for benchmarking rigid-rotation filtering, but TL remains the reference
+//  finite-kinematics solid formulation until dR/du terms are audited.
 //
 // -----------------------------------------------------------------------------
 
 struct Corotational {
     static constexpr bool is_geometrically_linear    = false;
-    static constexpr bool needs_geometric_stiffness  = true;
+    static constexpr bool needs_geometric_stiffness  = false;
     static constexpr bool needs_current_volume_factor = false;
 
-    // TODO: Phase 7+ — implement evaluate(), extract_rotation(), etc.
+    template <std::size_t dim>
+    static Tensor2<dim> extract_rotation(const Tensor2<dim>& F)
+    {
+        using MatrixT = Eigen::Matrix<double, static_cast<int>(dim),
+                                      static_cast<int>(dim)>;
+
+        if constexpr (dim == 1) {
+            return Tensor2<dim>::identity();
+        }
+        else {
+            Eigen::JacobiSVD<MatrixT> svd(
+                F.matrix(), Eigen::ComputeFullU | Eigen::ComputeFullV);
+            MatrixT U = svd.matrixU();
+            const MatrixT V = svd.matrixV();
+            MatrixT R = U * V.transpose();
+
+            // Keep the extracted frame proper. If det(F) is negative, the
+            // inversion remains visible through gp.detF diagnostics.
+            if (R.determinant() < 0.0) {
+                U.col(static_cast<Eigen::Index>(dim - 1)) *= -1.0;
+                R = U * V.transpose();
+            }
+            return Tensor2<dim>{R};
+        }
+    }
+
+    template <std::size_t dim>
+    static SymmetricTensor2<dim> compute_corotated_strain(
+        const Tensor2<dim>& F,
+        const Tensor2<dim>& R)
+    {
+        using MatrixT = Eigen::Matrix<double, static_cast<int>(dim),
+                                      static_cast<int>(dim)>;
+        const MatrixT stretch = (R.matrix().transpose() * F.matrix()).eval();
+        const MatrixT e_hat =
+            (0.5 * (stretch + stretch.transpose()) - MatrixT::Identity()).eval();
+        return SymmetricTensor2<dim>{Tensor2<dim>{e_hat}};
+    }
+
+    template <std::size_t dim>
+    static auto compute_B(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi)
+        -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
+    {
+        return SmallStrain::compute_B<dim>(geo, num_nodes, ndof, Xi);
+    }
+
+    template <std::size_t dim>
+    static auto compute_B_from_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad,
+        std::size_t ndof)
+        -> Eigen::Matrix<double, static_cast<int>(voigt_size<dim>()), Eigen::Dynamic>
+    {
+        return SmallStrain::compute_B_from_gradients<dim>(grad, ndof);
+    }
+
+    template <std::size_t dim>
+    static GPKinematics<dim> evaluate_from_gradients(
+        const Eigen::Matrix<double, Eigen::Dynamic, static_cast<int>(dim)>& grad,
+        std::size_t ndof,
+        const Eigen::VectorXd& u_e)
+    {
+        GPKinematics<dim> gp;
+        gp.F = TotalLagrangian::compute_F_from_gradients<dim>(grad, u_e);
+        gp.detF = gp.F.determinant();
+        gp.corotational_rotation = extract_rotation<dim>(gp.F);
+        gp.strain_voigt =
+            compute_corotated_strain<dim>(gp.F, gp.corotational_rotation)
+                .voigt_engineering();
+        gp.B = compute_B_from_gradients<dim>(grad, ndof);
+        return gp;
+    }
+
+    template <std::size_t dim>
+    static GPKinematics<dim> evaluate(
+        ElementGeometry<dim>* geo,
+        std::size_t num_nodes,
+        std::size_t ndof,
+        const std::array<double, dim>& Xi,
+        const Eigen::VectorXd& u_e)
+    {
+        auto grad = detail::physical_gradients<dim>(geo, num_nodes, Xi);
+        return evaluate_from_gradients<dim>(grad, ndof, u_e);
+    }
+
+    template <std::size_t dim, typename Derived>
+    static Eigen::Vector<double, static_cast<int>(voigt_size<dim>())>
+    rotate_stress_to_global(
+        const Eigen::MatrixBase<Derived>& stress_hat_voigt,
+        const Tensor2<dim>& R)
+    {
+        SymmetricTensor2<dim> stress_hat;
+        for (std::size_t k = 0; k < voigt_size<dim>(); ++k) {
+            stress_hat.voigt()(static_cast<Eigen::Index>(k)) =
+                stress_hat_voigt(static_cast<Eigen::Index>(k));
+        }
+
+        const Tensor2<dim> stress_global{
+            (R.matrix() * stress_hat.matrix() * R.matrix().transpose()).eval()};
+        return SymmetricTensor2<dim>{stress_global}.voigt();
+    }
+
+    template <std::size_t dim, typename Derived>
+    static Eigen::Vector<double, static_cast<int>(voigt_size<dim>())>
+    rotate_engineering_strain_to_corotated(
+        const Eigen::MatrixBase<Derived>& strain_global_voigt,
+        const Tensor2<dim>& R)
+    {
+        SymmetricTensor2<dim> strain_global;
+        Eigen::Vector<double, static_cast<int>(voigt_size<dim>())> v =
+            strain_global_voigt;
+        strain_global.set_from_engineering_voigt(v);
+
+        const Tensor2<dim> strain_hat{
+            (R.matrix().transpose() * strain_global.matrix() * R.matrix()).eval()};
+        return SymmetricTensor2<dim>{strain_hat}.voigt_engineering();
+    }
+
+    template <std::size_t dim>
+    static Eigen::Matrix<double,
+                         static_cast<int>(voigt_size<dim>()),
+                         static_cast<int>(voigt_size<dim>())>
+    stress_rotation_to_global_matrix(const Tensor2<dim>& R)
+    {
+        constexpr auto NV = voigt_size<dim>();
+        using MatrixT = Eigen::Matrix<double, static_cast<int>(NV),
+                                      static_cast<int>(NV)>;
+        using VectorT = Eigen::Vector<double, static_cast<int>(NV)>;
+
+        MatrixT T = MatrixT::Zero();
+        for (std::size_t j = 0; j < NV; ++j) {
+            VectorT basis = VectorT::Zero();
+            basis(static_cast<Eigen::Index>(j)) = 1.0;
+            T.col(static_cast<Eigen::Index>(j)) =
+                rotate_stress_to_global<dim>(basis, R);
+        }
+        return T;
+    }
+
+    template <std::size_t dim>
+    static Eigen::Matrix<double,
+                         static_cast<int>(voigt_size<dim>()),
+                         static_cast<int>(voigt_size<dim>())>
+    strain_rotation_to_corotated_matrix(const Tensor2<dim>& R)
+    {
+        constexpr auto NV = voigt_size<dim>();
+        using MatrixT = Eigen::Matrix<double, static_cast<int>(NV),
+                                      static_cast<int>(NV)>;
+        using VectorT = Eigen::Vector<double, static_cast<int>(NV)>;
+
+        MatrixT T = MatrixT::Zero();
+        for (std::size_t j = 0; j < NV; ++j) {
+            VectorT basis = VectorT::Zero();
+            basis(static_cast<Eigen::Index>(j)) = 1.0;
+            T.col(static_cast<Eigen::Index>(j)) =
+                rotate_engineering_strain_to_corotated<dim>(basis, R);
+        }
+        return T;
+    }
+
+    template <std::size_t dim, typename Derived>
+    static Eigen::Matrix<double,
+                         static_cast<int>(voigt_size<dim>()),
+                         static_cast<int>(voigt_size<dim>())>
+    rotate_tangent_to_global(
+        const Eigen::MatrixBase<Derived>& C_hat,
+        const Tensor2<dim>& R)
+    {
+        const auto T_sigma = stress_rotation_to_global_matrix<dim>(R);
+        const auto T_eps = strain_rotation_to_corotated_matrix<dim>(R);
+        return (T_sigma * C_hat * T_eps).eval();
+    }
+
 };
 
 static_assert(KinematicPolicyConcept<Corotational>);
+
+template <typename Policy, std::size_t dim, typename Derived>
+    requires ValidDim<dim>
+[[nodiscard]] inline Eigen::Vector<double, static_cast<int>(voigt_size<dim>())>
+assembly_stress_voigt(
+    const Eigen::MatrixBase<Derived>& stress_voigt,
+    const GPKinematics<dim>& gp)
+{
+    if constexpr (std::same_as<Policy, Corotational>) {
+        return Corotational::rotate_stress_to_global<dim>(
+            stress_voigt, gp.corotational_rotation);
+    }
+    else {
+        return stress_voigt;
+    }
+}
+
+template <typename Policy, std::size_t dim, typename Derived>
+    requires ValidDim<dim>
+[[nodiscard]] inline Eigen::Matrix<double,
+                                   static_cast<int>(voigt_size<dim>()),
+                                   static_cast<int>(voigt_size<dim>())>
+assembly_tangent_matrix(
+    const Eigen::MatrixBase<Derived>& tangent_matrix,
+    const GPKinematics<dim>& gp)
+{
+    if constexpr (std::same_as<Policy, Corotational>) {
+        return Corotational::rotate_tangent_to_global<dim>(
+            tangent_matrix, gp.corotational_rotation);
+    }
+    else {
+        return tangent_matrix;
+    }
+}
 
 
 // =============================================================================
@@ -887,7 +1127,7 @@ struct KinematicFormulationTraits<Corotational> {
         ConfigurationKind::corotated,
         ConfigurationKind::corotated
     };
-    static constexpr FormulationMaturity maturity = FormulationMaturity::placeholder;
+    static constexpr FormulationMaturity maturity = FormulationMaturity::partial;
     static constexpr bool pair_is_normatively_audited = false;
     static constexpr VirtualWorkCompatibilityKind virtual_work_compatibility =
         VirtualWorkCompatibilityKind::unaudited_placeholder;

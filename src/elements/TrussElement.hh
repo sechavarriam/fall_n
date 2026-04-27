@@ -1,351 +1,506 @@
 #ifndef FALL_N_TRUSS_ELEMENT_HH
 #define FALL_N_TRUSS_ELEMENT_HH
 
-// =============================================================================
-//  TrussElement<Dim> — 2-node bar element for embedded reinforcement
-// =============================================================================
-//
-//  Axial-only finite element: 2 nodes, Dim translational DOFs per node,
-//  no rotational DOFs.  Uses UniaxialMaterial (scalar σ-ε).
-//
-//  Intended for embedded rebar in continuum sub-models.  When truss
-//  nodes coincide with hex element nodes (perfect bond), the two
-//  element types share DOFs through the DMPlex sieve automatically.
-//
-//  The B-matrix is constant (linear shape functions) and precomputed
-//  from nodal coordinates.  One Gauss point suffices for exact
-//  integration of a 2-node element.
-//
-//  Satisfies the FiniteElement concept (FiniteElementConcept.hh).
-//
-// =============================================================================
-
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include <Eigen/Dense>
 #include <petsc.h>
 
-#include "element_geometry/ElementGeometry.hh"
 #include "FiniteElementConcept.hh"
+#include "element_geometry/ElementGeometry.hh"
 
 #include "../materials/InternalFieldSnapshot.hh"
 #include "../materials/Material.hh"
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Strain.hh"
 
-
-template <std::size_t Dim = 3>
+template <std::size_t Dim = 3, std::size_t NNodes = 2>
 class TrussElement {
     static_assert(Dim == 2 || Dim == 3, "TrussElement supports 2D or 3D space");
+    static_assert(
+        NNodes == 2 || NNodes == 3,
+        "TrussElement currently supports 2-node and 3-node interpolation");
 
-    // ── Constants ─────────────────────────────────────────────────────
-    static constexpr std::size_t num_nodes_  = 2;
+    static constexpr std::size_t num_nodes_ = NNodes;
     static constexpr std::size_t total_dofs_ = num_nodes_ * Dim;
-
     static constexpr int TD = static_cast<int>(total_dofs_);
 
-    using BMatrixT = Eigen::RowVector<double, TD>;
+    using BMatrixT = Eigen::Matrix<double, 1, TD>;
     using KMatrixT = Eigen::Matrix<double, TD, TD>;
-    using FVectorT = Eigen::Vector<double, TD>;
+    using FVectorT = Eigen::Matrix<double, TD, 1>;
 
-    // ── Data members ──────────────────────────────────────────────────
-    ElementGeometry<Dim>*      geometry_;
-    Material<UniaxialMaterial> material_;   // 1 material instance (1 GP)
-    double                     area_;       // cross-sectional area [length²]
-    double                     L_;          // element length
-    BMatrixT                   B_;          // precomputed B-matrix (1 × 2·Dim)
-    double                     density_{0.0};
+    struct AxialQuadratureState {
+        BMatrixT B = BMatrixT::Zero();
+        double strain = 0.0;
+        double measure = 0.0;
+        double weight = 0.0;
+        double weight_measure = 0.0;
+    };
 
-    // ── DOF index cache ───────────────────────────────────────────────
-    std::vector<PetscInt> dof_indices_;
-    bool                  dofs_cached_{false};
+    ElementGeometry<Dim>* geometry_{};
+    std::vector<Material<UniaxialMaterial>> materials_{};
+    double area_{0.0};
+    double reference_length_{0.0};
+    double density_{0.0};
 
-    void ensure_dof_cache() noexcept {
-        if (dofs_cached_) return;
-        dof_indices_.clear();
-        dof_indices_.reserve(total_dofs_);
-        for (std::size_t i = 0; i < num_nodes_; ++i)
-            for (const auto idx : geometry_->node_p(i).dof_index())
-                dof_indices_.push_back(idx);
-        dofs_cached_ = true;
-    }
+    std::vector<PetscInt> dof_indices_{};
+    bool dofs_cached_{false};
 
-    // ── Precompute geometry ───────────────────────────────────────────
-    void precompute() noexcept {
-        // Direction vector: x₁ − x₀
-        Eigen::Vector<double, static_cast<int>(Dim)> dx;
-        for (std::size_t d = 0; d < Dim; ++d)
-            dx[static_cast<Eigen::Index>(d)] =
-                geometry_->node_p(1).coord(d) - geometry_->node_p(0).coord(d);
-
-        L_ = dx.norm();
-
-        // Unit direction
-        Eigen::Vector<double, static_cast<int>(Dim)> e = dx / L_;
-
-        // B-matrix: ε = [−ê/L , ê/L] · u
-        //   3D: B = [−l/L, −m/L, −n/L, l/L, m/L, n/L]
-        B_.setZero();
-        for (std::size_t d = 0; d < Dim; ++d) {
-            auto di = static_cast<Eigen::Index>(d);
-            B_[di]                                  = -e[di] / L_;
-            B_[static_cast<Eigen::Index>(Dim) + di] =  e[di] / L_;
+    void ensure_geometry_compatibility_() const
+    {
+        if (geometry_ == nullptr) {
+            throw std::invalid_argument("TrussElement requires a valid geometry.");
+        }
+        if (geometry_->topological_dimension() != 1) {
+            throw std::invalid_argument(
+                "TrussElement requires a one-dimensional geometry.");
+        }
+        if (geometry_->num_nodes() != num_nodes_) {
+            throw std::invalid_argument(
+                "TrussElement geometry/node-count mismatch.");
+        }
+        if (geometry_->num_integration_points() == 0) {
+            throw std::invalid_argument(
+                "TrussElement requires at least one integration point.");
         }
     }
 
-    // ── Extract element DOFs from a local PETSc vector ────────────────
-    FVectorT extract_element_dofs_fixed_(Vec u_local) {
+    void initialize_material_sites_(Material<UniaxialMaterial> prototype)
+    {
+        materials_.clear();
+        materials_.reserve(geometry_->num_integration_points());
+        for (std::size_t gp = 0; gp < geometry_->num_integration_points(); ++gp) {
+            materials_.push_back(prototype);
+        }
+    }
+
+    void compute_reference_length_()
+    {
+        reference_length_ = 0.0;
+        for (std::size_t gp = 0; gp < geometry_->num_integration_points(); ++gp) {
+            const auto xi = geometry_->reference_integration_point(gp);
+            reference_length_ +=
+                geometry_->weight(gp) * geometry_->differential_measure(xi);
+        }
+    }
+
+    void ensure_dof_cache()
+    {
+        if (dofs_cached_) {
+            return;
+        }
+        dof_indices_.clear();
+        dof_indices_.reserve(total_dofs_);
+        for (std::size_t node = 0; node < num_nodes_; ++node) {
+            const auto node_dofs = geometry_->node_p(node).dof_index();
+            if (node_dofs.size() < Dim) {
+                throw std::runtime_error(
+                    "TrussElement found a node with fewer translational DOFs than required.");
+            }
+
+            // Mixed continuum/XFEM models may append enriched solid DOFs to
+            // an otherwise ordinary displacement node.  A truss bar owns only
+            // the translational block; any bond/slip/enrichment coupling must
+            // be assembled by a dedicated coupling policy.
+            for (std::size_t dim = 0; dim < Dim; ++dim) {
+                dof_indices_.push_back(node_dofs[dim]);
+            }
+        }
+        dofs_cached_ = true;
+    }
+
+    [[nodiscard]] FVectorT extract_element_dofs_fixed_(Vec u_local)
+    {
         ensure_dof_cache();
-        FVectorT u_e;
-        VecGetValues(u_local, static_cast<PetscInt>(total_dofs_),
-                     dof_indices_.data(), u_e.data());
+        FVectorT u_e = FVectorT::Zero();
+        VecGetValues(
+            u_local,
+            static_cast<PetscInt>(total_dofs_),
+            dof_indices_.data(),
+            u_e.data());
         return u_e;
     }
 
-public:
-
-    // ── Constructor ───────────────────────────────────────────────────
-    //
-    //  geometry:  Pointer to a 2-node line geometry in Dim-dimensional space.
-    //  mat:       Uniaxial constitutive handle (e.g. MenegottoPinto steel).
-    //  area:      Bar cross-sectional area [length²].
-    //
-    TrussElement(ElementGeometry<Dim>* geometry,
-                 Material<UniaxialMaterial> mat,
-                 double area)
-        : geometry_{geometry}, material_{std::move(mat)}, area_{area}
+    [[nodiscard]] AxialQuadratureState evaluate_quadrature_state_(
+        std::size_t gp,
+        const FVectorT& u_e) const
     {
-        precompute();
+        AxialQuadratureState state{};
+        const auto xi = geometry_->reference_integration_point(gp);
+        state.weight = geometry_->weight(gp);
+        state.measure = geometry_->differential_measure(xi);
+        state.weight_measure = state.weight * state.measure;
+
+        const auto jacobian = geometry_->evaluate_jacobian(xi);
+        if (jacobian.cols() < 1) {
+            throw std::runtime_error(
+                "TrussElement Jacobian does not expose a line tangent.");
+        }
+
+        Eigen::Matrix<double, static_cast<int>(Dim), 1> tangent =
+            jacobian.col(0);
+        const double tangent_norm = tangent.norm();
+        if (tangent_norm <= 1.0e-14) {
+            throw std::runtime_error(
+                "TrussElement encountered a degenerate line geometry.");
+        }
+        tangent /= tangent_norm;
+
+        for (std::size_t node = 0; node < num_nodes_; ++node) {
+            const double dN_ds = geometry_->dH_dx(node, 0, xi) / tangent_norm;
+            for (std::size_t dim = 0; dim < Dim; ++dim) {
+                state.B[static_cast<Eigen::Index>(node * Dim + dim)] =
+                    dN_ds * tangent[static_cast<Eigen::Index>(dim)];
+            }
+        }
+
+        state.strain = state.B.dot(u_e);
+        return state;
+    }
+
+    void commit_material_state_(const FVectorT& u_e)
+    {
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            Strain<1> strain(state.strain);
+            materials_[gp].commit(strain);
+            materials_[gp].update_state(std::move(strain));
+        }
+    }
+
+    [[nodiscard]] std::vector<GaussFieldRecord> collect_gauss_fields_(
+        const FVectorT& u_e) const
+    {
+        std::vector<GaussFieldRecord> records;
+        records.reserve(materials_.size());
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            const auto sigma =
+                materials_[gp].compute_response(Strain<1>{state.strain});
+
+            GaussFieldRecord rec;
+            rec.strain = {state.strain, 0.0, 0.0, 0.0, 0.0, 0.0};
+            rec.stress = {sigma.components(), 0.0, 0.0, 0.0, 0.0, 0.0};
+            rec.snapshot = materials_[gp].internal_field_snapshot();
+            records.push_back(std::move(rec));
+        }
+        return records;
+    }
+
+public:
+    TrussElement(
+        ElementGeometry<Dim>* geometry,
+        Material<UniaxialMaterial> material,
+        double area)
+        : geometry_{geometry}
+        , area_{area}
+    {
+        ensure_geometry_compatibility_();
+        initialize_material_sites_(std::move(material));
+        compute_reference_length_();
     }
 
     TrussElement() = delete;
     ~TrussElement() = default;
 
-    // ── Topology queries (FiniteElement concept) ──────────────────────
-    constexpr std::size_t num_nodes()              const noexcept { return num_nodes_; }
-    constexpr std::size_t num_integration_points() const noexcept { return 1; }
-    PetscInt              sieve_id()               const noexcept { return geometry_->sieve_id(); }
+    [[nodiscard]] constexpr std::size_t num_nodes() const noexcept
+    {
+        return num_nodes_;
+    }
 
-    // ── Extra accessors ──────────────────────────────────────────────
-    const auto& geometry() const noexcept { return *geometry_; }
-    double area()   const noexcept { return area_; }
-    double length() const noexcept { return L_; }
+    [[nodiscard]] std::size_t num_integration_points() const noexcept
+    {
+        return geometry_->num_integration_points();
+    }
 
-    const Material<UniaxialMaterial>& material() const noexcept { return material_; }
-          Material<UniaxialMaterial>& material()       noexcept { return material_; }
+    [[nodiscard]] PetscInt sieve_id() const noexcept { return geometry_->sieve_id(); }
 
-    const std::string& physical_group() const noexcept { return geometry_->physical_group(); }
-    bool has_physical_group() const noexcept { return geometry_->has_physical_group(); }
+    [[nodiscard]] const auto& geometry() const noexcept { return *geometry_; }
+    [[nodiscard]] double area() const noexcept { return area_; }
+    [[nodiscard]] double length() const noexcept { return reference_length_; }
 
-    Eigen::VectorXd extract_element_dofs(Vec u_local) {
+    [[nodiscard]] const Material<UniaxialMaterial>& material() const noexcept
+    {
+        return materials_.front();
+    }
+
+    [[nodiscard]] Material<UniaxialMaterial>& material() noexcept
+    {
+        return materials_.front();
+    }
+
+    [[nodiscard]] const std::vector<Material<UniaxialMaterial>>& materials() const
+        noexcept
+    {
+        return materials_;
+    }
+
+    [[nodiscard]] std::vector<Material<UniaxialMaterial>>& materials() noexcept
+    {
+        return materials_;
+    }
+
+    [[nodiscard]] const std::string& physical_group() const noexcept
+    {
+        return geometry_->physical_group();
+    }
+
+    [[nodiscard]] bool has_physical_group() const noexcept
+    {
+        return geometry_->has_physical_group();
+    }
+
+    [[nodiscard]] Eigen::VectorXd extract_element_dofs(Vec u_local)
+    {
         const auto u_e_fixed = extract_element_dofs_fixed_(u_local);
         Eigen::VectorXd u_e(total_dofs_);
         u_e = u_e_fixed;
         return u_e;
     }
 
-    // ── DOF setup (FiniteElement concept) ─────────────────────────────
-    void set_num_dof_in_nodes() noexcept {
-        for (std::size_t i = 0; i < num_nodes_; ++i)
-            geometry_->node_p(i).set_num_dof(Dim);
+    void set_num_dof_in_nodes() noexcept
+    {
+        for (std::size_t node = 0; node < num_nodes_; ++node) {
+            geometry_->node_p(node).set_num_dof(Dim);
+        }
     }
 
-    // ── Linear elastic stiffness (FiniteElement concept) ─────────────
-    //
-    //  K_e = A · L · Bᵀ · E · B
-    //
-    //  Integration: 1 GP with w·|J| = 2 · (L/2) = L.
-    //  B is constant for 2-node element ⇒ exact.
-    //
-    void inject_K(Mat K) {
+    void inject_K(Mat K)
+    {
         ensure_dof_cache();
-        double E = material_.C()(0, 0);
-        KMatrixT K_e = (area_ * L_ * E) * (B_.transpose() * B_);
+        KMatrixT K_e = KMatrixT::Zero();
+
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state =
+                evaluate_quadrature_state_(gp, FVectorT::Zero());
+            const double E = materials_[gp].C()(0, 0);
+            K_e += (area_ * state.weight_measure * E) *
+                   (state.B.transpose() * state.B);
+        }
 
         const auto n = static_cast<PetscInt>(total_dofs_);
-        MatSetValuesLocal(K, n, dof_indices_.data(),
-                          n, dof_indices_.data(),
-                          K_e.data(), ADD_VALUES);
+        MatSetValuesLocal(
+            K,
+            n,
+            dof_indices_.data(),
+            n,
+            dof_indices_.data(),
+            K_e.data(),
+            ADD_VALUES);
     }
 
-    // ── Nonlinear internal forces (FiniteElement concept) ─────────────
-    //
-    //  f_e = A · L · Bᵀ · σ(ε)
-    //
-    void compute_internal_forces(Vec u_local, Vec f_local) {
-        FVectorT u_e = extract_element_dofs_fixed_(u_local);
+    void compute_internal_forces(Vec u_local, Vec f_local)
+    {
+        const FVectorT u_e = extract_element_dofs_fixed_(u_local);
+        FVectorT f_e = FVectorT::Zero();
 
-        double eps = B_.dot(u_e);
-        Strain<1> strain(eps);
-
-        auto sigma = material_.compute_response(strain);
-        double sig = sigma.components();   // scalar for UniaxialMaterial
-
-        FVectorT f_e = (area_ * L_ * sig) * B_.transpose();
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            const auto sigma =
+                materials_[gp].compute_response(Strain<1>{state.strain});
+            f_e += (area_ * state.weight_measure * sigma.components()) *
+                   state.B.transpose();
+        }
 
         ensure_dof_cache();
-        VecSetValues(f_local, static_cast<PetscInt>(total_dofs_),
-                     dof_indices_.data(), f_e.data(), ADD_VALUES);
+        VecSetValues(
+            f_local,
+            static_cast<PetscInt>(total_dofs_),
+            dof_indices_.data(),
+            f_e.data(),
+            ADD_VALUES);
     }
 
-    Eigen::VectorXd
-    compute_internal_force_vector(const Eigen::VectorXd& u_e_dyn) {
+    [[nodiscard]] Eigen::VectorXd
+    compute_internal_force_vector(const Eigen::VectorXd& u_e_dyn)
+    {
         if (u_e_dyn.size() != TD) {
             return {};
         }
 
         const FVectorT u_e = u_e_dyn;
-        const double eps = B_.dot(u_e);
-        Strain<1> strain(eps);
+        FVectorT f_e = FVectorT::Zero();
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            const auto sigma =
+                materials_[gp].compute_response(Strain<1>{state.strain});
+            f_e += (area_ * state.weight_measure * sigma.components()) *
+                   state.B.transpose();
+        }
 
-        const auto sigma = material_.compute_response(strain);
-        const double sig = sigma.components();
-
-        const FVectorT f_e = (area_ * L_ * sig) * B_.transpose();
         Eigen::VectorXd out(total_dofs_);
         out = f_e;
         return out;
     }
 
-    // ── Nonlinear tangent stiffness (FiniteElement concept) ───────────
-    //
-    //  K_t = A · L · Bᵀ · E_t(ε) · B
-    //
-    void inject_tangent_stiffness(Vec u_local, Mat K) {
-        FVectorT u_e = extract_element_dofs_fixed_(u_local);
+    void inject_tangent_stiffness(Vec u_local, Mat K)
+    {
+        const FVectorT u_e = extract_element_dofs_fixed_(u_local);
+        KMatrixT K_e = KMatrixT::Zero();
 
-        double eps = B_.dot(u_e);
-        Strain<1> strain(eps);
-
-        double Et = material_.tangent(strain)(0, 0);
-
-        KMatrixT K_e = (area_ * L_ * Et) * (B_.transpose() * B_);
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            const double Et =
+                materials_[gp].tangent(Strain<1>{state.strain})(0, 0);
+            K_e += (area_ * state.weight_measure * Et) *
+                   (state.B.transpose() * state.B);
+        }
 
         ensure_dof_cache();
         const auto n = static_cast<PetscInt>(total_dofs_);
-        MatSetValuesLocal(K, n, dof_indices_.data(),
-                          n, dof_indices_.data(),
-                          K_e.data(), ADD_VALUES);
+        MatSetValuesLocal(
+            K,
+            n,
+            dof_indices_.data(),
+            n,
+            dof_indices_.data(),
+            K_e.data(),
+            ADD_VALUES);
     }
 
-    Eigen::MatrixXd
-    compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e_dyn) {
+    [[nodiscard]] Eigen::MatrixXd
+    compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e_dyn)
+    {
         if (u_e_dyn.size() != TD) {
             return {};
         }
 
         const FVectorT u_e = u_e_dyn;
-        const double eps = B_.dot(u_e);
-        Strain<1> strain(eps);
-
-        const double Et = material_.tangent(strain)(0, 0);
-        const KMatrixT K_e = (area_ * L_ * Et) * (B_.transpose() * B_);
+        KMatrixT K_e = KMatrixT::Zero();
+        for (std::size_t gp = 0; gp < materials_.size(); ++gp) {
+            const auto state = evaluate_quadrature_state_(gp, u_e);
+            const double Et =
+                materials_[gp].tangent(Strain<1>{state.strain})(0, 0);
+            K_e += (area_ * state.weight_measure * Et) *
+                   (state.B.transpose() * state.B);
+        }
 
         Eigen::MatrixXd out(total_dofs_, total_dofs_);
         out = K_e;
         return out;
     }
 
-    const std::vector<PetscInt>& get_dof_indices() {
+    [[nodiscard]] const std::vector<PetscInt>& get_dof_indices()
+    {
         ensure_dof_cache();
         return dof_indices_;
     }
 
-    // ── Material state management (FiniteElement concept) ─────────────
-
-    void commit_material_state(Vec u_local) {
-        FVectorT u_e = extract_element_dofs_fixed_(u_local);
-        double eps = B_.dot(u_e);
-        Strain<1> strain(eps);
-
-        material_.commit(strain);
-        material_.update_state(std::move(strain));
+    void commit_material_state(Vec u_local)
+    {
+        const FVectorT u_e = extract_element_dofs_fixed_(u_local);
+        commit_material_state_(u_e);
     }
 
-    void revert_material_state() {
-        material_.revert();
+    void commit_material_state(const Eigen::VectorXd& u_e_dyn)
+    {
+        if (u_e_dyn.size() != TD) {
+            throw std::invalid_argument(
+                "TrussElement local commit requires an element vector with the exact truss DOF count.");
+        }
+        const FVectorT u_e = u_e_dyn;
+        commit_material_state_(u_e);
     }
 
-    /// Inject a type-erased internal state into the single material point.
-    /// The StateRef must reference the correct InternalVariablesT for the
-    /// underlying constitutive model (e.g. MenegottoPintoState).
-    void inject_material_state(impl::StateRef state) {
-        material_.inject_internal_state(state);
+    void revert_material_state()
+    {
+        for (auto& material : materials_) {
+            material.revert();
+        }
     }
 
-    [[nodiscard]] bool supports_state_injection() const noexcept {
-        return material_.supports_state_injection();
+    void inject_material_state(impl::StateRef state)
+    {
+        for (auto& material : materials_) {
+            material.inject_internal_state(state);
+        }
     }
 
-    // ── Post-processing: Gauss-point field export for VTK ─────────
-    //
-    //  Promotes uniaxial σ/ε to 6-component Voigt vectors:
-    //    [σ_axial, 0, 0, 0, 0, 0]
-    //
-    //  Returns exactly 1 record (1 material point).  The VTK exporter
-    //  handles padding to the domain geometry's GP count.
+    [[nodiscard]] bool supports_state_injection() const noexcept
+    {
+        return !materials_.empty() &&
+               std::ranges::all_of(
+                   materials_,
+                   [](const auto& material) {
+                       return material.supports_state_injection();
+                   });
+    }
 
-    std::vector<GaussFieldRecord> collect_gauss_fields(Vec u_local) const {
-        // Need mutable access to extract element DOFs (dof cache)
+    [[nodiscard]] std::vector<GaussFieldRecord> collect_gauss_fields(Vec u_local) const
+    {
         auto& self = const_cast<TrussElement&>(*this);
-        FVectorT u_e = self.extract_element_dofs_fixed_(u_local);
-
-        double eps = B_.dot(u_e);
-        Strain<1> strain_val(eps);
-
-        auto sigma = material_.compute_response(strain_val);
-        double sig = sigma.components();
-
-        GaussFieldRecord rec;
-        rec.strain = {eps, 0.0, 0.0, 0.0, 0.0, 0.0};
-        rec.stress = {sig, 0.0, 0.0, 0.0, 0.0, 0.0};
-        rec.snapshot = material_.internal_field_snapshot();
-
-        return {std::move(rec)};
+        const FVectorT u_e = self.extract_element_dofs_fixed_(u_local);
+        return collect_gauss_fields_(u_e);
     }
 
-    // ── Mass matrix (optional — for dynamics) ─────────────────────────
-    //
-    //  Consistent mass for a 2-node bar:
-    //   M = (ρ·A·L / 6) · [2I  I ]
-    //                      [ I 2I ]
-    //
-    //  where I is the Dim × Dim identity block.
+    [[nodiscard]] std::vector<GaussFieldRecord> collect_gauss_fields(
+        const Eigen::VectorXd& u_e_dyn) const
+    {
+        if (u_e_dyn.size() != TD) {
+            throw std::invalid_argument(
+                "TrussElement local Gauss-field extraction requires an element vector with the exact truss DOF count.");
+        }
+        const FVectorT u_e = u_e_dyn;
+        return collect_gauss_fields_(u_e);
+    }
 
     void set_density(double rho) noexcept { density_ = rho; }
-    double density() const noexcept { return density_; }
+    [[nodiscard]] double density() const noexcept { return density_; }
 
-    void inject_mass(Mat M) {
-        if (density_ <= 0.0) return;
+    void inject_mass(Mat M)
+    {
+        if (density_ <= 0.0) {
+            return;
+        }
         ensure_dof_cache();
 
         KMatrixT M_e = KMatrixT::Zero();
-        const double m = density_ * area_ * L_ / 6.0;
-
-        for (std::size_t d = 0; d < Dim; ++d) {
-            auto di = static_cast<Eigen::Index>(d);
-            auto dj = static_cast<Eigen::Index>(Dim) + di;
-            M_e(di, di) = 2.0 * m;    // N₁·N₁
-            M_e(di, dj) = 1.0 * m;    // N₁·N₂
-            M_e(dj, di) = 1.0 * m;    // N₂·N₁
-            M_e(dj, dj) = 2.0 * m;    // N₂·N₂
+        for (std::size_t gp = 0; gp < geometry_->num_integration_points(); ++gp) {
+            const auto xi = geometry_->reference_integration_point(gp);
+            const double weight_measure =
+                geometry_->weight(gp) * geometry_->differential_measure(xi);
+            for (std::size_t a = 0; a < num_nodes_; ++a) {
+                const double Na = geometry_->H(a, xi);
+                for (std::size_t b = 0; b < num_nodes_; ++b) {
+                    const double Nb = geometry_->H(b, xi);
+                    const double coeff = density_ * area_ * weight_measure * Na * Nb;
+                    for (std::size_t dim = 0; dim < Dim; ++dim) {
+                        const auto row =
+                            static_cast<Eigen::Index>(a * Dim + dim);
+                        const auto col =
+                            static_cast<Eigen::Index>(b * Dim + dim);
+                        M_e(row, col) += coeff;
+                    }
+                }
+            }
         }
 
         const auto n = static_cast<PetscInt>(total_dofs_);
-        MatSetValuesLocal(M, n, dof_indices_.data(),
-                          n, dof_indices_.data(),
-                          M_e.data(), ADD_VALUES);
+        MatSetValuesLocal(
+            M,
+            n,
+            dof_indices_.data(),
+            n,
+            dof_indices_.data(),
+            M_e.data(),
+            ADD_VALUES);
     }
 };
 
-
-// ── Concept verification ─────────────────────────────────────────────────────
-static_assert(FiniteElement<TrussElement<3>>,
+static_assert(
+    FiniteElement<TrussElement<3>>,
     "TrussElement<3> must satisfy the FiniteElement concept");
-static_assert(FiniteElement<TrussElement<2>>,
+static_assert(
+    FiniteElement<TrussElement<2>>,
     "TrussElement<2> must satisfy the FiniteElement concept");
-
+static_assert(
+    FiniteElement<TrussElement<3, 3>>,
+    "TrussElement<3,3> must satisfy the FiniteElement concept");
 
 #endif // FALL_N_TRUSS_ELEMENT_HH

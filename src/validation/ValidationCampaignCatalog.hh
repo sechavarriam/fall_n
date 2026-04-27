@@ -346,11 +346,32 @@ canonical_validation_reboot_workstream_table() noexcept
         make_validation_campaign_workstream_row(
             "force_based_structural_element_path",
             "structural_growth_path",
-            "Keep force-based beam-column elements as a planned growth path, but"
-            " do not let them block the first reference column validation unless"
-            " the displacement-based route fails its evidence gate.",
+            "Keep a force-based Timoshenko beam-column family as a planned"
+            " growth path, but do not let it block the first reference-column"
+            " validation unless the displacement-based route fails its"
+            " evidence gate.",
             "distributed_plasticity_beyond_displacement_based_reference",
-            "force-based element research track after baseline column closure",
+            "force-based Timoshenko element research track after baseline"
+            " column closure",
+            "no normative current path; literature-driven future module",
+            ValidationRebootPhaseKind::phase6_full_structure_escalation,
+            ValidationWorkstreamPriorityKind::deferred_growth_path,
+            LegacyValidationSurfaceDispositionKind::exploratory_only_do_not_anchor_claims,
+            false,
+            false,
+            false,
+            true,
+            false),
+        make_validation_campaign_workstream_row(
+            "geometrically_exact_beam_family_path",
+            "structural_growth_path",
+            "Introduce a geometrically exact beam family of Simo type only"
+            " after the small-strain reference column is closed, so large"
+            " rotations and objective beam kinematics can be benchmarked"
+            " without overloading the first reduced-column gate.",
+            "geometrically_exact_beam_kinematics_and_objectivity",
+            "Simo-Reissner / geometrically exact beam research track after"
+            " baseline column closure",
             "no normative current path; literature-driven future module",
             ValidationRebootPhaseKind::phase6_full_structure_escalation,
             ValidationWorkstreamPriorityKind::deferred_growth_path,

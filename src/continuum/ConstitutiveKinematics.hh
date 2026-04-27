@@ -64,7 +64,9 @@ struct ConstitutiveKinematics {
     SymmetricTensor2<dim> green_lagrange_strain = SymmetricTensor2<dim>::zero();
     SymmetricTensor2<dim> almansi_strain = SymmetricTensor2<dim>::zero();
     Tensor2<dim> F = Tensor2<dim>::identity();
+    Tensor2<dim> corotational_rotation = Tensor2<dim>::identity();
     double detF{1.0};
+    bool has_corotational_frame{false};
 
     [[nodiscard]] bool is_finite_strain() const noexcept {
         return active_strain_measure != StrainMeasureKind::infinitesimal;
@@ -222,6 +224,7 @@ template <typename Policy, std::size_t dim>
     kin.conjugate_stress_measure = Traits::conjugate_pair.stress_measure;
     kin.engineering_strain = gp.strain_voigt;
     kin.F = gp.F;
+    kin.corotational_rotation = gp.corotational_rotation;
     kin.detF = gp.detF;
 
     if constexpr (std::same_as<Policy, SmallStrain>) {
@@ -246,11 +249,15 @@ template <typename Policy, std::size_t dim>
             gp.F.symmetric_part() - Tensor2<dim>::identity().symmetric_part()
         };
     }
+    else if constexpr (std::same_as<Policy, Corotational>) {
+        kin.has_corotational_frame = true;
+        kin.infinitesimal_strain = engineering_voigt_to_tensor<dim>(gp.strain_voigt);
+        kin.green_lagrange_strain = strain::green_lagrange(gp.F);
+        kin.almansi_strain = strain::almansi(gp.F);
+    }
     else {
-        // Corotational continuum semantics are currently a declared slot in the
-        // architecture rather than a validated formulation. Keep the carrier
-        // diagnostically rich without pretending to provide a mature finite-
-        // strain continuum interpretation.
+        // Future continuum policies should at least keep all diagnostic strain
+        // measures populated until they get a dedicated constitutive branch.
         kin.infinitesimal_strain = engineering_voigt_to_tensor<dim>(gp.strain_voigt);
         kin.green_lagrange_strain = strain::green_lagrange(gp.F);
         kin.almansi_strain = strain::almansi(gp.F);

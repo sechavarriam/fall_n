@@ -88,6 +88,13 @@ make_steel_fiber_material(double E, double fy, double b) {
     };
 }
 
+/// Create a linear-elastic uniaxial fiber material.
+inline Material<UniaxialMaterial>
+make_elastic_uniaxial_material(double E) {
+    MaterialInstance<ElasticRelation<UniaxialMaterial>> elastic_inst(E);
+    return Material<UniaxialMaterial>{std::move(elastic_inst), ElasticUpdate{}};
+}
+
 /// Create an unconfined Kent-Park concrete material.
 ///
 /// Residual strength = 10% of f'c.
@@ -95,6 +102,17 @@ inline Material<UniaxialMaterial>
 make_unconfined_concrete(double fpc) {
     return Material<UniaxialMaterial>{
         InelasticMaterial<KentParkConcrete>{fpc, 0.10 * fpc},
+        InelasticUpdate{}
+    };
+}
+
+inline Material<UniaxialMaterial>
+make_unconfined_concrete(double fpc, KentParkConcreteTensionConfig tension) {
+    if (tension.tensile_strength <= 0.0) {
+        tension.tensile_strength = 0.10 * fpc;
+    }
+    return Material<UniaxialMaterial>{
+        InelasticMaterial<KentParkConcrete>{fpc, tension},
         InelasticUpdate{}
     };
 }
@@ -111,6 +129,23 @@ make_confined_concrete(double fpc, double rho_s,
                        double fyh, double h_prime, double sh) {
     return Material<UniaxialMaterial>{
         InelasticMaterial<KentParkConcrete>{fpc, 0.10 * fpc, rho_s, fyh, h_prime, sh},
+        InelasticUpdate{}
+    };
+}
+
+inline Material<UniaxialMaterial>
+make_confined_concrete(double fpc,
+                       KentParkConcreteTensionConfig tension,
+                       double rho_s,
+                       double fyh,
+                       double h_prime,
+                       double sh) {
+    if (tension.tensile_strength <= 0.0) {
+        tension.tensile_strength = 0.10 * fpc;
+    }
+    return Material<UniaxialMaterial>{
+        InelasticMaterial<KentParkConcrete>{
+            fpc, tension, rho_s, fyh, h_prime, sh},
         InelasticUpdate{}
     };
 }

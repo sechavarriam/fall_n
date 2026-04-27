@@ -752,64 +752,8 @@ class NonlinearSubModelEvolver {
 
         // ── Penalty stiffness for embedded rebar coupling ────────
         if (ctx->penalty_couplings && !ctx->penalty_couplings->empty()) {
-            PetscSection g_sec;
-            DMGetGlobalSection(dm, &g_sec);
-
-            const double alpha = ctx->alpha_penalty;
-            for (const auto& pc : *ctx->penalty_couplings) {
-                PetscInt r_dof;
-                PetscSectionGetDof(g_sec, pc.rebar_sieve_pt, &r_dof);
-                if (r_dof <= 0) continue;
-                PetscInt r_off;
-                PetscSectionGetOffset(g_sec, pc.rebar_sieve_pt, &r_off);
-
-                // K_rr += α·I₃
-                for (int d = 0; d < 3; ++d) {
-                    PetscInt idx = r_off + d;
-                    PetscScalar v = alpha;
-                    MatSetValues(J_mat, 1, &idx, 1, &idx, &v, ADD_VALUES);
-                }
-
-                for (const auto& [sp, Ni] : pc.hex_weights) {
-                    PetscInt h_dof;
-                    PetscSectionGetDof(g_sec, sp, &h_dof);
-                    if (h_dof <= 0) continue;
-                    PetscInt h_off;
-                    PetscSectionGetOffset(g_sec, sp, &h_off);
-
-                    // K_rh += -α·Nᵢ·I₃  and  K_hr += -α·Nᵢ·I₃
-                    for (int d = 0; d < 3; ++d) {
-                        PetscScalar v = -alpha * Ni;
-                        PetscInt ri = r_off + d, hi = h_off + d;
-                        MatSetValues(J_mat, 1, &ri, 1, &hi, &v, ADD_VALUES);
-                        MatSetValues(J_mat, 1, &hi, 1, &ri, &v, ADD_VALUES);
-                    }
-                }
-
-                // K_hh += α·Nᵢ·Nⱼ·I₃
-                for (const auto& [si, Ni] : pc.hex_weights) {
-                    PetscInt gi_dof;
-                    PetscSectionGetDof(g_sec, si, &gi_dof);
-                    if (gi_dof <= 0) continue;
-                    PetscInt gi_off;
-                    PetscSectionGetOffset(g_sec, si, &gi_off);
-
-                    for (const auto& [sj, Nj] : pc.hex_weights) {
-                        PetscInt gj_dof;
-                        PetscSectionGetDof(g_sec, sj, &gj_dof);
-                        if (gj_dof <= 0) continue;
-                        PetscInt gj_off;
-                        PetscSectionGetOffset(g_sec, sj, &gj_off);
-
-                        for (int d = 0; d < 3; ++d) {
-                            PetscScalar v = alpha * Ni * Nj;
-                            PetscInt ri = gi_off + d, ci = gj_off + d;
-                            MatSetValues(J_mat, 1, &ri, 1, &ci,
-                                         &v, ADD_VALUES);
-                        }
-                    }
-                }
-            }
+            add_penalty_coupling_entries_to_jacobian(
+                *ctx->penalty_couplings, ctx->alpha_penalty, J_mat, dm);
         }
 
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);

@@ -38,6 +38,7 @@
 #include <cstddef>
 #include <functional>
 #include <print>
+#include <utility>
 
 #include <petscksp.h>
 #include <petscmat.h>
@@ -87,6 +88,9 @@ public:
     using ElementT = typename ModelT::element_type;
     using model_type = ModelT;
     using element_type = ElementT;
+    using ResidualHook = std::function<void(Vec, Vec, DM)>;
+    using GlobalResidualHook = std::function<void(Vec, Vec, DM)>;
+    using JacobianHook = std::function<void(Vec, Mat, DM)>;
 
 private:
     ModelT* model_{nullptr};
@@ -120,6 +124,13 @@ private:
     double rtol_{1e-6};             ///< relative residual tolerance
     double atol_{1e-10};            ///< absolute residual tolerance
 
+    // Optional coupling hooks mirror NonlinearAnalysis. They are essential for
+    // continuation of enriched or embedded models whose residual terms live
+    // outside the standard element loop, e.g. XFEM rebar-host penalty coupling.
+    ResidualHook residual_hook_{};
+    GlobalResidualHook global_residual_hook_{};
+    JacobianHook jacobian_hook_{};
+
     bool is_setup_{false};
 
     // ─── Internal: assemble residual R(u, λ) = f_int(u) − λ·f_ref ───
@@ -140,8 +151,15 @@ private:
         for (auto& elem : model_->elements())
             elem.compute_internal_forces(u_local, f_int_local);
 
+        if (residual_hook_)
+            residual_hook_(u_local, f_int_local, dm);
+
         VecSet(R_, 0.0);
         DMLocalToGlobal(dm, f_int_local, ADD_VALUES, R_);
+        if (global_residual_hook_)
+            global_residual_hook_(u_local, R_, dm);
+        VecAssemblyBegin(R_);
+        VecAssemblyEnd(R_);
         VecAXPY(R_, -1.0, f_ext_);   // R = f_int − λ·f_ref
 
         DMRestoreLocalVector(dm, &u_local);
@@ -162,6 +180,9 @@ private:
 
         for (auto& elem : model_->elements())
             elem.inject_tangent_stiffness(u_local, K_);
+
+        if (jacobian_hook_)
+            jacobian_hook_(u_local, K_, dm);
 
         MatAssemblyBegin(K_, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd(K_, MAT_FINAL_ASSEMBLY);
@@ -240,6 +261,9 @@ public:
         , variant_{o.variant_}, delta_ell_{o.delta_ell_}
         , psi_{o.psi_}, f_ref_norm_sq_{o.f_ref_norm_sq_}
         , max_iter_{o.max_iter_}, rtol_{o.rtol_}, atol_{o.atol_}
+        , residual_hook_{std::move(o.residual_hook_)}
+        , global_residual_hook_{std::move(o.global_residual_hook_)}
+        , jacobian_hook_{std::move(o.jacobian_hook_)}
         , is_setup_{o.is_setup_}
     { o.is_setup_ = false; }
 
@@ -250,6 +274,11 @@ public:
     void set_variant(ArcLengthVariant v) { variant_ = v; }
     void set_max_iterations(int n)       { max_iter_ = n; }
     void set_tolerances(double rtol, double atol) { rtol_ = rtol; atol_ = atol; }
+    void set_residual_hook(ResidualHook hook) { residual_hook_ = std::move(hook); }
+    void set_global_residual_hook(GlobalResidualHook hook) {
+        global_residual_hook_ = std::move(hook);
+    }
+    void set_jacobian_hook(JacobianHook hook) { jacobian_hook_ = std::move(hook); }
 
     [[nodiscard]] double lambda() const noexcept { return lambda_; }
 

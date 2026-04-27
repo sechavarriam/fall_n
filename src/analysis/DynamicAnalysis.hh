@@ -91,6 +91,7 @@
 #include "AnalysisRouteAudit.hh"
 #include "Damping.hh"
 #include "AnalysisObserver.hh"
+#include "NonlinearSolvePolicy.hh"
 #include "StepDirector.hh"
 #include "SteppableSolver.hh"
 
@@ -167,6 +168,8 @@ private:
     double   last_post_time_{-std::numeric_limits<double>::infinity()};
     bool     auto_commit_{true};
     bool     observer_notifications_enabled_{true};
+    std::vector<fall_n::NonlinearSolveProfile> nonlinear_solve_profiles_{};
+    std::size_t active_nonlinear_solve_profile_index_{0};
 
     // Ground motion influence vectors (one per direction with ground motion)
     struct GroundMotionInfo {
@@ -198,6 +201,31 @@ private:
         ModelT*          model;
     };
     Context ctx_{};
+
+    [[nodiscard]] const std::vector<fall_n::NonlinearSolveProfile>&
+    active_nonlinear_solve_profiles_() const noexcept
+    {
+        return fall_n::active_nonlinear_solve_profiles(nonlinear_solve_profiles_);
+    }
+
+    [[nodiscard]] const fall_n::NonlinearSolveProfile&
+    active_nonlinear_solve_profile_() const noexcept
+    {
+        return fall_n::select_nonlinear_solve_profile(
+            nonlinear_solve_profiles_,
+            active_nonlinear_solve_profile_index_);
+    }
+
+    void apply_active_nonlinear_solve_profile_()
+    {
+        SNES snes{nullptr};
+        FALL_N_PETSC_CHECK(TSGetSNES(ts_, &snes));
+        if (snes != nullptr) {
+            fall_n::apply_nonlinear_solve_profile(
+                snes,
+                active_nonlinear_solve_profile_());
+        }
+    }
 
 
     // =================================================================
@@ -548,6 +576,52 @@ public:
     /// Get the PETSc TS handle (for advanced configuration).
     TS get_ts() const { return ts_; }
 
+    /// Declare the nonlinear solve profiles used by the SNES embedded in TS.
+    ///
+    /// The dynamic route currently activates one declared profile at a time,
+    /// which keeps the extension point explicit without yet coupling stepwise
+    /// retry logic to PETSc TS internals.  The shared profile representation
+    /// is the same one used by NonlinearAnalysis, so future quasi-Newton,
+    /// trust-region, or least-squares-style strategies can be introduced in a
+    /// consistent way across quasi-static and dynamic paths.
+    void set_nonlinear_solve_profiles(
+        std::vector<fall_n::NonlinearSolveProfile> profiles)
+    {
+        nonlinear_solve_profiles_ = std::move(profiles);
+        if (is_setup_) {
+            apply_active_nonlinear_solve_profile_();
+        }
+    }
+
+    [[nodiscard]] const std::vector<fall_n::NonlinearSolveProfile>&
+    nonlinear_solve_profiles() const noexcept
+    {
+        return active_nonlinear_solve_profiles_();
+    }
+
+    void set_active_nonlinear_solve_profile_index(std::size_t index)
+    {
+        active_nonlinear_solve_profile_index_ = index;
+        if (is_setup_) {
+            apply_active_nonlinear_solve_profile_();
+        }
+    }
+
+    [[nodiscard]] std::size_t
+    active_nonlinear_solve_profile_index() const noexcept
+    {
+        const auto& profiles = active_nonlinear_solve_profiles_();
+        return std::min(active_nonlinear_solve_profile_index_,
+                        profiles.empty() ? std::size_t{0}
+                                         : profiles.size() - 1);
+    }
+
+    [[nodiscard]] const fall_n::NonlinearSolveProfile&
+    active_nonlinear_solve_profile() const noexcept
+    {
+        return active_nonlinear_solve_profile_();
+    }
+
     /// Set density uniformly on all elements.
     void set_density(double rho) {
         model_->set_density(rho);
@@ -705,6 +779,7 @@ public:
 
         // ── Apply TS options from command line ───────────────────────
         FALL_N_PETSC_CHECK(TSSetFromOptions(ts_));
+        apply_active_nonlinear_solve_profile_();
 
         is_setup_ = true;
         timer_.stop("setup");

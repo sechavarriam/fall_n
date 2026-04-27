@@ -115,6 +115,41 @@ make_concrete_cyclic_protocol(const std::vector<double>& compression_amplitudes,
     return protocol;
 }
 
+/// Generate a purely compressive return protocol.
+/// Each level: 0 -> -A -> 0.
+inline std::vector<StrainPoint>
+make_compression_return_protocol(
+    const std::vector<double>& compression_amplitudes,
+    int steps_per_branch = 20)
+{
+    std::vector<StrainPoint> protocol;
+    protocol.reserve(
+        compression_amplitudes.size() *
+        2U * static_cast<std::size_t>(steps_per_branch));
+
+    int step = 0;
+    double current = 0.0;
+
+    for (double A : compression_amplitudes) {
+        // current -> -A
+        for (int i = 1; i <= steps_per_branch; ++i) {
+            const double t =
+                static_cast<double>(i) / static_cast<double>(steps_per_branch);
+            protocol.push_back({++step, current + t * (-A - current)});
+        }
+        current = -A;
+
+        // -A -> 0
+        for (int i = 1; i <= steps_per_branch; ++i) {
+            const double t =
+                static_cast<double>(i) / static_cast<double>(steps_per_branch);
+            protocol.push_back({++step, -A * (1.0 - t)});
+        }
+        current = 0.0;
+    }
+    return protocol;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  Uniaxial material record
 // ═════════════════════════════════════════════════════════════════════════════
@@ -140,18 +175,20 @@ struct KentParkCyclicResult {
 
 inline KentParkCyclicResult
 drive_kent_park_cyclic(double fpc,
+                       KentParkConcreteTensionConfig tension,
                        const std::vector<StrainPoint>& protocol,
-                       double ft = -1.0,
                        double rho_s = 0.0,
                        double fyh = 0.0,
                        double h_prime = 0.0,
                        double sh = 0.0)
 {
-    if (ft < 0.0) ft = 0.10 * fpc;
+    if (tension.tensile_strength <= 0.0) {
+        tension.tensile_strength = 0.10 * fpc;
+    }
 
     Material<UniaxialMaterial> mat = (rho_s > 0.0)
-        ? make_confined_concrete(fpc, rho_s, fyh, h_prime, sh)
-        : make_unconfined_concrete(fpc);
+        ? make_confined_concrete(fpc, tension, rho_s, fyh, h_prime, sh)
+        : make_unconfined_concrete(fpc, tension);
 
     KentParkCyclicResult result;
     result.records.reserve(protocol.size() + 1);
@@ -159,7 +196,6 @@ drive_kent_park_cyclic(double fpc,
     result.peak_compressive_strain = 0.0;
     result.total_energy = 0.0;
 
-    // Initial state
     result.records.push_back({0, 0.0, 0.0, 0.0, 0.0});
 
     double prev_strain = 0.0;
@@ -174,8 +210,7 @@ drive_kent_park_cyclic(double fpc,
         double Et  = mat.tangent(eps)(0, 0);
         mat.commit(eps);
 
-        // Trapezoidal rule energy increment
-        double dE = 0.5 * (sig + prev_stress) * (pt.strain - prev_strain);
+        const double dE = 0.5 * (sig + prev_stress) * (pt.strain - prev_strain);
         result.total_energy += dE;
 
         result.records.push_back(
@@ -191,6 +226,27 @@ drive_kent_park_cyclic(double fpc,
     }
 
     return result;
+}
+
+inline KentParkCyclicResult
+drive_kent_park_cyclic(double fpc,
+                       const std::vector<StrainPoint>& protocol,
+                       double ft = -1.0,
+                       double rho_s = 0.0,
+                       double fyh = 0.0,
+                       double h_prime = 0.0,
+                       double sh = 0.0)
+{
+    return drive_kent_park_cyclic(
+        fpc,
+        KentParkConcreteTensionConfig{
+            .tensile_strength = ft < 0.0 ? 0.10 * fpc : ft,
+        },
+        protocol,
+        rho_s,
+        fyh,
+        h_prime,
+        sh);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

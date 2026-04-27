@@ -61,6 +61,10 @@ struct ReducedRCColumnCyclicNodeRefinementCaseRow {
         BeamAxisQuadratureFamily::GaussLegendre};
     continuum::FormulationKind formulation_kind{
         continuum::FormulationKind::small_strain};
+    ReducedRCColumnContinuationKind continuation_kind{
+        ReducedRCColumnContinuationKind::
+            monolithic_incremental_displacement_control};
+    int continuation_segment_substep_factor{1};
     std::string case_id{};
     std::string reference_case_id{};
     std::string case_out_dir{};

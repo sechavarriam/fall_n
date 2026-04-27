@@ -1,58 +1,317 @@
 #ifndef FALL_N_SRC_ANALYSIS_PENALTYCOUPLING_HH
 #define FALL_N_SRC_ANALYSIS_PENALTYCOUPLING_HH
 
+#include <array>
 #include <cmath>
 #include <print>
-#include <vector>
+#include <span>
 #include <utility>
+#include <vector>
+
 #include <petscdm.h>
-#include <petscvec.h>
+#include <petscis.h>
 #include <petscmat.h>
+#include <petscvec.h>
 
 #include "../model/PrismaticDomainBuilder.hh"
 
-// =============================================================================
-//  PenaltyCoupling — penalty-based rebar–continuum coupling
-// =============================================================================
-//
-//  Standalone penalty coupling handler for embedded rebar inside a
-//  hexahedral continuum mesh.  Adds penalty spring contributions to
-//  the residual and Jacobian:
-//
-//      gap_d  = u^rebar_d  −  Σ_i N_i(ξ,η,ζ) · u^hex_{i,d}
-//
-//      F^rebar_d  +=  α · gap_d
-//      F^hex_{i,d} −= α · N_i · gap_d
-//
-//      K_rr  +=  α · I_3
-//      K_rh  +=  −α · N_i · I_3      (and symmetric K_hr)
-//      K_hh  +=  α · N_i · N_j · I_3
-//
-//  This class is designed to work as a hook in NonlinearAnalysis via
-//  set_residual_hook() / set_jacobian_hook().
-//
-// =============================================================================
-
 namespace fall_n {
+
+// Penalty-based transfer between an embedded 1D rebar node and its host
+// hexahedral interpolation point:
+//
+//   gap = u_rebar - sum_i N_i u_host_i
+//
+// The global residual/Jacobian helpers intentionally map each local component
+// through PETSc's local-to-global map. This is essential when a boundary node
+// has only some constrained components: offset + component is not a valid
+// global-index rule after PETSc compresses constrained DOFs.
+
+inline double penalty_coupling_shape_value_1d(int n, int i, double t) noexcept
+{
+    if (n == 2) {
+        return (i == 0) ? 0.5 * (1.0 - t) : 0.5 * (1.0 + t);
+    }
+
+    switch (i) {
+        case 0:
+            return 0.5 * t * (t - 1.0);
+        case 1:
+            return (1.0 - t) * (1.0 + t);
+        case 2:
+            return 0.5 * t * (t + 1.0);
+        default:
+            return 0.0;
+    }
+}
+
+inline double penalty_coupling_hex20_shape(
+    int i0,
+    int i1,
+    int i2,
+    double xi,
+    double eta,
+    double zeta) noexcept
+{
+    const double xn = static_cast<double>(i0) - 1.0;
+    const double yn = static_cast<double>(i1) - 1.0;
+    const double zn = static_cast<double>(i2) - 1.0;
+    const int n_mid = (i0 == 1) + (i1 == 1) + (i2 == 1);
+
+    if (n_mid == 0) {
+        return 0.125 * (1.0 + xn * xi) * (1.0 + yn * eta) *
+               (1.0 + zn * zeta) *
+               (xn * xi + yn * eta + zn * zeta - 2.0);
+    }
+    if (i0 == 1) {
+        return 0.25 * (1.0 - xi * xi) *
+               (1.0 + yn * eta) * (1.0 + zn * zeta);
+    }
+    if (i1 == 1) {
+        return 0.25 * (1.0 + xn * xi) *
+               (1.0 - eta * eta) * (1.0 + zn * zeta);
+    }
+    return 0.25 * (1.0 + xn * xi) *
+           (1.0 + yn * eta) * (1.0 - zeta * zeta);
+}
+
+inline std::vector<std::pair<PetscInt, double>> penalty_coupling_host_weights(
+    const Domain<3>& domain,
+    const PrismaticGrid& grid,
+    const RebarNodeEmbedding& emb,
+    HexOrder order)
+{
+    const int step = grid.step;
+    const int n_per = (step == 1) ? 2 : 3;
+    const bool is_serendipity = (order == HexOrder::Serendipity);
+
+    std::vector<std::pair<PetscInt, double>> weights;
+    weights.reserve(static_cast<std::size_t>(n_per * n_per * n_per));
+
+    for (int i2 = 0; i2 < n_per; ++i2) {
+        for (int i1 = 0; i1 < n_per; ++i1) {
+            for (int i0 = 0; i0 < n_per; ++i0) {
+                if (is_serendipity &&
+                    (i0 == 1) + (i1 == 1) + (i2 == 1) > 1) {
+                    continue;
+                }
+
+                const int gix = step * emb.host_elem_ix + i0;
+                const int giy = step * emb.host_elem_iy + i1;
+                const int giz = step * emb.host_elem_iz + i2;
+                const PetscInt node_id = grid.node_id(gix, giy, giz);
+                const PetscInt sieve_point =
+                    domain.node(static_cast<std::size_t>(node_id))
+                        .sieve_id.value();
+
+                const double Ni = is_serendipity
+                    ? penalty_coupling_hex20_shape(
+                          i0, i1, i2, emb.xi, emb.eta, emb.zeta)
+                    : penalty_coupling_shape_value_1d(n_per, i0, emb.xi) *
+                          penalty_coupling_shape_value_1d(
+                              n_per, i1, emb.eta) *
+                          penalty_coupling_shape_value_1d(
+                              n_per, i2, emb.zeta);
+                if (std::abs(Ni) > 1.0e-15) {
+                    weights.emplace_back(sieve_point, Ni);
+                }
+            }
+        }
+    }
+
+    return weights;
+}
 
 struct PenaltyCouplingEntry {
     PetscInt rebar_sieve_pt{-1};
     std::vector<std::pair<PetscInt, double>> hex_weights;
 };
 
+struct PenaltyDofTieEntry {
+    PetscInt anchor_sieve_pt{-1};
+    PetscInt slave_sieve_pt{-1};
+    int component{0};
+};
+
+inline PetscInt penalty_coupling_local_dof_index(
+    PetscSection local_section,
+    PetscInt sieve_point,
+    int component) noexcept
+{
+    PetscInt local_dof = 0;
+    PetscSectionGetDof(local_section, sieve_point, &local_dof);
+    if (component < 0 || component >= local_dof) {
+        return -1;
+    }
+
+    PetscInt local_offset = 0;
+    PetscSectionGetOffset(local_section, sieve_point, &local_offset);
+    if (local_offset < 0) {
+        return -1;
+    }
+
+    return local_offset + component;
+}
+
+inline PetscInt penalty_coupling_global_dof_index(
+    PetscSection local_section,
+    ISLocalToGlobalMapping local_to_global,
+    PetscInt sieve_point,
+    int component) noexcept
+{
+    const PetscInt local_index = penalty_coupling_local_dof_index(
+        local_section, sieve_point, component);
+    if (local_index < 0) {
+        return -1;
+    }
+
+    PetscInt global_index = -1;
+    ISLocalToGlobalMappingApply(
+        local_to_global, 1, &local_index, &global_index);
+    return global_index;
+}
+
+inline std::array<double, 3> penalty_coupling_gap(
+    const PenaltyCouplingEntry& pc,
+    PetscSection local_section,
+    const PetscScalar* u_arr) noexcept
+{
+    std::array<double, 3> gap{0.0, 0.0, 0.0};
+    for (int d = 0; d < 3; ++d) {
+        const PetscInt r_index = penalty_coupling_local_dof_index(
+            local_section, pc.rebar_sieve_pt, d);
+        gap[static_cast<std::size_t>(d)] =
+            r_index >= 0 ? static_cast<double>(u_arr[r_index]) : 0.0;
+    }
+
+    for (const auto& [sp, Ni] : pc.hex_weights) {
+        for (int d = 0; d < 3; ++d) {
+            const PetscInt h_index = penalty_coupling_local_dof_index(
+                local_section, sp, d);
+            if (h_index >= 0) {
+                gap[static_cast<std::size_t>(d)] -=
+                    Ni * static_cast<double>(u_arr[h_index]);
+            }
+        }
+    }
+    return gap;
+}
+
+inline void add_penalty_coupling_entries_to_global_residual(
+    const std::vector<PenaltyCouplingEntry>& couplings,
+    double alpha,
+    Vec u_local,
+    Vec residual_global,
+    DM dm)
+{
+    if (couplings.empty()) {
+        return;
+    }
+
+    PetscSection local_section = nullptr;
+    ISLocalToGlobalMapping local_to_global = nullptr;
+    DMGetLocalSection(dm, &local_section);
+    DMGetLocalToGlobalMapping(dm, &local_to_global);
+
+    const PetscScalar* u_arr = nullptr;
+    VecGetArrayRead(u_local, &u_arr);
+
+    for (const auto& pc : couplings) {
+        const auto gap = penalty_coupling_gap(pc, local_section, u_arr);
+
+        for (int d = 0; d < 3; ++d) {
+            const PetscInt r_global = penalty_coupling_global_dof_index(
+                local_section, local_to_global, pc.rebar_sieve_pt, d);
+            if (r_global >= 0) {
+                const PetscScalar value =
+                    alpha * gap[static_cast<std::size_t>(d)];
+                VecSetValues(
+                    residual_global, 1, &r_global, &value, ADD_VALUES);
+            }
+
+            for (const auto& [sp, Ni] : pc.hex_weights) {
+                const PetscInt h_global = penalty_coupling_global_dof_index(
+                    local_section, local_to_global, sp, d);
+                if (h_global < 0) {
+                    continue;
+                }
+                const PetscScalar value =
+                    -alpha * Ni * gap[static_cast<std::size_t>(d)];
+                VecSetValues(
+                    residual_global, 1, &h_global, &value, ADD_VALUES);
+            }
+        }
+    }
+
+    VecRestoreArrayRead(u_local, &u_arr);
+}
+
+inline void add_penalty_coupling_entries_to_jacobian(
+    const std::vector<PenaltyCouplingEntry>& couplings,
+    double alpha,
+    Mat jacobian,
+    DM dm)
+{
+    if (couplings.empty()) {
+        return;
+    }
+
+    PetscSection local_section = nullptr;
+    ISLocalToGlobalMapping local_to_global = nullptr;
+    DMGetLocalSection(dm, &local_section);
+    DMGetLocalToGlobalMapping(dm, &local_to_global);
+
+    for (const auto& pc : couplings) {
+        for (int d = 0; d < 3; ++d) {
+            const PetscInt r_global = penalty_coupling_global_dof_index(
+                local_section, local_to_global, pc.rebar_sieve_pt, d);
+            if (r_global >= 0) {
+                const PetscScalar value = alpha;
+                MatSetValues(
+                    jacobian, 1, &r_global, 1, &r_global, &value, ADD_VALUES);
+            }
+        }
+
+        for (const auto& [sp, Ni] : pc.hex_weights) {
+            for (int d = 0; d < 3; ++d) {
+                const PetscInt r_global = penalty_coupling_global_dof_index(
+                    local_section, local_to_global, pc.rebar_sieve_pt, d);
+                const PetscInt h_global = penalty_coupling_global_dof_index(
+                    local_section, local_to_global, sp, d);
+                if (r_global < 0 || h_global < 0) {
+                    continue;
+                }
+                const PetscScalar value = -alpha * Ni;
+                MatSetValues(
+                    jacobian, 1, &r_global, 1, &h_global, &value, ADD_VALUES);
+                MatSetValues(
+                    jacobian, 1, &h_global, 1, &r_global, &value, ADD_VALUES);
+            }
+        }
+
+        for (const auto& [si, Ni] : pc.hex_weights) {
+            for (const auto& [sj, Nj] : pc.hex_weights) {
+                for (int d = 0; d < 3; ++d) {
+                    const PetscInt row = penalty_coupling_global_dof_index(
+                        local_section, local_to_global, si, d);
+                    const PetscInt col = penalty_coupling_global_dof_index(
+                        local_section, local_to_global, sj, d);
+                    if (row < 0 || col < 0) {
+                        continue;
+                    }
+                    const PetscScalar value = alpha * Ni * Nj;
+                    MatSetValues(
+                        jacobian, 1, &row, 1, &col, &value, ADD_VALUES);
+                }
+            }
+        }
+    }
+}
+
 class PenaltyCoupling {
 public:
     PenaltyCoupling() = default;
 
-    /// Compute coupling data from a reinforced domain result.
-    /// Skips nodes on MinZ / MaxZ faces (assumed Dirichlet).
-    /// @param domain    The reinforced domain (already assembled).
-    /// @param grid      The prismatic grid from the domain builder.
-    /// @param embeddings  Per-rebar-node embedding data.
-    /// @param num_bars  Number of rebar bars.
-    /// @param alpha     Penalty stiffness parameter.
-    /// @param skip_minz_maxz  If true, skip rebar nodes on bottom/top faces.
-    /// @param order     Hex element order (default: Quadratic = Hex27).
     void setup(const Domain<3>& domain,
                const PrismaticGrid& grid,
                const std::vector<RebarNodeEmbedding>& embeddings,
@@ -64,227 +323,299 @@ public:
         alpha_ = alpha;
         couplings_.clear();
 
-        const int step  = grid.step;
-        const int nz    = grid.nz;
-        const int n_per = (step == 1) ? 2 : 3;
-        const std::size_t rpb =
-            static_cast<std::size_t>(step * nz + 1);
+        const int step = grid.step;
+        const std::size_t rebar_nodes_per_bar =
+            static_cast<std::size_t>(step * grid.nz + 1);
 
-        for (std::size_t b = 0; b < num_bars; ++b) {
-            for (std::size_t iz = 0; iz < rpb; ++iz) {
-                if (skip_minz_maxz && (iz == 0 || iz == rpb - 1))
+        for (std::size_t bar = 0; bar < num_bars; ++bar) {
+            for (std::size_t iz = 0; iz < rebar_nodes_per_bar; ++iz) {
+                if (skip_minz_maxz &&
+                    (iz == 0 || iz + 1 == rebar_nodes_per_bar)) {
                     continue;
+                }
 
-                const std::size_t idx = b * rpb + iz;
-                const auto& emb = embeddings[idx];
-
+                const std::size_t embedding_index =
+                    bar * rebar_nodes_per_bar + iz;
+                const auto& emb = embeddings.at(embedding_index);
                 const auto& rebar_node = domain.node(
                     static_cast<std::size_t>(emb.rebar_node_id));
 
-                // Skip rebar nodes not connected to any element
-                // (e.g. mid-point nodes for step=2 with Line2 trusses).
-                if (rebar_node.num_dof() == 0)
+                // Line2 on a quadratic grid creates geometric midpoint records
+                // that intentionally carry no truss DOFs. Truss<3> midpoint
+                // nodes do carry DOFs and therefore remain coupled.
+                if (rebar_node.num_dof() == 0) {
                     continue;
-
-                PetscInt rebar_sieve = rebar_node.sieve_id.value();
-
-                PenaltyCouplingEntry pc;
-                pc.rebar_sieve_pt = rebar_sieve;
-
-                const bool is_serendipity =
-                    (order == HexOrder::Serendipity);
-
-                for (int i2 = 0; i2 < n_per; ++i2) {
-                    for (int i1 = 0; i1 < n_per; ++i1) {
-                        for (int i0 = 0; i0 < n_per; ++i0) {
-                            // Skip face-center and body-center nodes
-                            // for Hex20 serendipity.
-                            if (is_serendipity &&
-                                (i0==1) + (i1==1) + (i2==1) > 1)
-                                continue;
-
-                            int gix = step * emb.host_elem_ix + i0;
-                            int giy = step * emb.host_elem_iy + i1;
-                            int giz = step * emb.host_elem_iz + i2;
-
-                            PetscInt hnid = grid.node_id(gix, giy, giz);
-                            PetscInt hsieve =
-                                domain.node(static_cast<std::size_t>(hnid))
-                                      .sieve_id.value();
-
-                            double Ni = is_serendipity
-                                ? hex20_shape(i0, i1, i2,
-                                              emb.xi, emb.eta, emb.zeta)
-                                : shape_value_1d(n_per, i0, emb.xi)
-                                * shape_value_1d(n_per, i1, emb.eta)
-                                * shape_value_1d(n_per, i2, emb.zeta);
-
-                            if (std::abs(Ni) > 1e-15)
-                                pc.hex_weights.emplace_back(hsieve, Ni);
-                        }
-                    }
                 }
 
-                couplings_.push_back(std::move(pc));
+                couplings_.push_back(PenaltyCouplingEntry{
+                    .rebar_sieve_pt = rebar_node.sieve_id.value(),
+                    .hex_weights =
+                        penalty_coupling_host_weights(domain, grid, emb, order),
+                });
             }
         }
 
-        std::println("  Penalty coupling: {} interior rebar nodes, α = {:.1e}",
-                     couplings_.size(), alpha_);
+        std::println(
+            "  Penalty coupling: {} active rebar nodes, alpha = {:.1e}",
+            couplings_.size(),
+            alpha_);
     }
 
-    /// Add penalty residual contributions to the local force vector.
-    /// Signature matches NonlinearAnalysis::ResidualHook(Vec u_local, Vec f_local, DM).
-    void add_to_residual(Vec u_local, Vec f_local, DM dm) const
+    void setup_embedded_nodes(const Domain<3>& domain,
+                              const PrismaticGrid& grid,
+                              const std::vector<RebarNodeEmbedding>& embeddings,
+                              double alpha,
+                              HexOrder order = HexOrder::Quadratic)
     {
-        if (couplings_.empty()) return;
+        alpha_ = alpha;
+        couplings_.clear();
+        couplings_.reserve(embeddings.size());
 
-        PetscSection sec;
-        DMGetLocalSection(dm, &sec);
-
-        const PetscScalar* u_arr;
-        VecGetArrayRead(u_local, &u_arr);
-        PetscScalar* f_arr;
-        VecGetArray(f_local, &f_arr);
-
-        for (const auto& pc : couplings_) {
-            PetscInt r_off;
-            PetscSectionGetOffset(sec, pc.rebar_sieve_pt, &r_off);
-
-            double u_interp[3] = {0.0, 0.0, 0.0};
-            for (const auto& [sp, Ni] : pc.hex_weights) {
-                PetscInt h_off;
-                PetscSectionGetOffset(sec, sp, &h_off);
-                for (int d = 0; d < 3; ++d)
-                    u_interp[d] += Ni * u_arr[h_off + d];
+        for (const auto& emb : embeddings) {
+            const auto& rebar_node = domain.node(
+                static_cast<std::size_t>(emb.rebar_node_id));
+            if (rebar_node.num_dof() == 0) {
+                continue;
             }
 
-            for (int d = 0; d < 3; ++d) {
-                const double gap = u_arr[r_off + d] - u_interp[d];
-                f_arr[r_off + d] += alpha_ * gap;
-                for (const auto& [sp, Ni] : pc.hex_weights) {
-                    PetscInt h_off;
-                    PetscSectionGetOffset(sec, sp, &h_off);
-                    f_arr[h_off + d] -= alpha_ * Ni * gap;
-                }
-            }
+            couplings_.push_back(PenaltyCouplingEntry{
+                .rebar_sieve_pt = rebar_node.sieve_id.value(),
+                .hex_weights =
+                    penalty_coupling_host_weights(domain, grid, emb, order),
+            });
         }
 
-        VecRestoreArrayRead(u_local, &u_arr);
-        VecRestoreArray(f_local, &f_arr);
+        std::println(
+            "  Penalty coupling: {} active arbitrary embedded nodes, alpha = {:.1e}",
+            couplings_.size(),
+            alpha_);
     }
 
-    /// Add penalty Jacobian contributions to the global stiffness matrix.
-    /// Signature matches NonlinearAnalysis::JacobianHook(Vec u_local, Mat J, DM).
-    void add_to_jacobian(Vec /*u_local*/, Mat J_mat, DM dm) const
+    void add_to_global_residual(Vec u_local, Vec residual_global, DM dm) const
     {
-        if (couplings_.empty()) return;
-
-        PetscSection g_sec;
-        DMGetGlobalSection(dm, &g_sec);
-
-        for (const auto& pc : couplings_) {
-            PetscInt r_dof;
-            PetscSectionGetDof(g_sec, pc.rebar_sieve_pt, &r_dof);
-            if (r_dof <= 0) continue;
-            PetscInt r_off;
-            PetscSectionGetOffset(g_sec, pc.rebar_sieve_pt, &r_off);
-
-            // K_rr += α·I₃
-            for (int d = 0; d < 3; ++d) {
-                PetscInt idx = r_off + d;
-                PetscScalar v = alpha_;
-                MatSetValues(J_mat, 1, &idx, 1, &idx, &v, ADD_VALUES);
-            }
-
-            for (const auto& [sp, Ni] : pc.hex_weights) {
-                PetscInt h_dof;
-                PetscSectionGetDof(g_sec, sp, &h_dof);
-                if (h_dof <= 0) continue;
-                PetscInt h_off;
-                PetscSectionGetOffset(g_sec, sp, &h_off);
-
-                // K_rh += -α·Nᵢ·I₃  and  K_hr += -α·Nᵢ·I₃
-                for (int d = 0; d < 3; ++d) {
-                    PetscScalar v = -alpha_ * Ni;
-                    PetscInt ri = r_off + d, hi = h_off + d;
-                    MatSetValues(J_mat, 1, &ri, 1, &hi, &v, ADD_VALUES);
-                    MatSetValues(J_mat, 1, &hi, 1, &ri, &v, ADD_VALUES);
-                }
-            }
-
-            // K_hh += α·Nᵢ·Nⱼ·I₃
-            for (const auto& [si, Ni] : pc.hex_weights) {
-                PetscInt gi_dof;
-                PetscSectionGetDof(g_sec, si, &gi_dof);
-                if (gi_dof <= 0) continue;
-                PetscInt gi_off;
-                PetscSectionGetOffset(g_sec, si, &gi_off);
-
-                for (const auto& [sj, Nj] : pc.hex_weights) {
-                    PetscInt gj_dof;
-                    PetscSectionGetDof(g_sec, sj, &gj_dof);
-                    if (gj_dof <= 0) continue;
-                    PetscInt gj_off;
-                    PetscSectionGetOffset(g_sec, sj, &gj_off);
-
-                    for (int d = 0; d < 3; ++d) {
-                        PetscScalar v = alpha_ * Ni * Nj;
-                        PetscInt ri = gi_off + d, ci = gj_off + d;
-                        MatSetValues(J_mat, 1, &ri, 1, &ci,
-                                     &v, ADD_VALUES);
-                    }
-                }
-            }
-        }
+        add_penalty_coupling_entries_to_global_residual(
+            couplings_, alpha_, u_local, residual_global, dm);
     }
 
-    std::size_t num_couplings() const { return couplings_.size(); }
-    double alpha() const { return alpha_; }
+    void add_to_residual(Vec u_local, Vec residual_local, DM dm) const
+    {
+        if (couplings_.empty()) {
+            return;
+        }
+
+        Vec residual_global = nullptr;
+        Vec coupling_local = nullptr;
+        DMGetGlobalVector(dm, &residual_global);
+        DMGetLocalVector(dm, &coupling_local);
+        VecSet(residual_global, 0.0);
+        VecSet(coupling_local, 0.0);
+
+        add_to_global_residual(u_local, residual_global, dm);
+
+        VecAssemblyBegin(residual_global);
+        VecAssemblyEnd(residual_global);
+        DMGlobalToLocal(dm, residual_global, INSERT_VALUES, coupling_local);
+        VecAXPY(residual_local, 1.0, coupling_local);
+
+        DMRestoreGlobalVector(dm, &residual_global);
+        DMRestoreLocalVector(dm, &coupling_local);
+    }
+
+    void add_to_jacobian(Vec /*u_local*/, Mat jacobian, DM dm) const
+    {
+        add_penalty_coupling_entries_to_jacobian(
+            couplings_, alpha_, jacobian, dm);
+    }
+
+    [[nodiscard]] std::size_t num_couplings() const noexcept
+    {
+        return couplings_.size();
+    }
+
+    [[nodiscard]] double alpha() const noexcept
+    {
+        return alpha_;
+    }
 
 private:
-    static double shape_value_1d(int n, int i, double t) noexcept
-    {
-        if (n == 2)
-            return (i == 0) ? (1.0-t)*0.5 : (1.0+t)*0.5;
-        // Quadratic (n == 3)
-        switch (i) {
-            case 0: return t*(t-1.0)*0.5;
-            case 1: return (1.0-t)*(1.0+t);
-            case 2: return t*(t+1.0)*0.5;
-            default: return 0.0;
-        }
-    }
-
-    /// 20-node serendipity (Hex20) shape function.
-    /// Grid indices (i0,i1,i2) ∈ {0,1,2} map to natural coords {-1,0,+1}.
-    /// Valid only for corner nodes (all at 0 or 2) and edge midpoints
-    /// (exactly one index == 1).
-    static double hex20_shape(int i0, int i1, int i2,
-                              double xi, double eta, double zeta) noexcept
-    {
-        const double xn = i0 - 1.0;
-        const double yn = i1 - 1.0;
-        const double zn = i2 - 1.0;
-
-        const int n_mid = (i0 == 1) + (i1 == 1) + (i2 == 1);
-
-        if (n_mid == 0) {
-            // Corner node: ⅛(1+xn·ξ)(1+yn·η)(1+zn·ζ)(xn·ξ+yn·η+zn·ζ−2)
-            return 0.125 * (1.0+xn*xi) * (1.0+yn*eta) * (1.0+zn*zeta)
-                        * (xn*xi + yn*eta + zn*zeta - 2.0);
-        }
-        // Edge midpoint (exactly one index is 1):
-        if (i0 == 1)
-            return 0.25 * (1.0 - xi*xi)   * (1.0+yn*eta) * (1.0+zn*zeta);
-        if (i1 == 1)
-            return 0.25 * (1.0+xn*xi) * (1.0 - eta*eta) * (1.0+zn*zeta);
-        // i2 == 1
-        return 0.25 * (1.0+xn*xi) * (1.0+yn*eta) * (1.0 - zeta*zeta);
-    }
-
     double alpha_{1.0e6};
-    std::vector<PenaltyCouplingEntry> couplings_;
+    std::vector<PenaltyCouplingEntry> couplings_{};
+};
+
+inline double penalty_dof_tie_gap(
+    const PenaltyDofTieEntry& tie,
+    PetscSection local_section,
+    const PetscScalar* u_arr) noexcept
+{
+    const PetscInt anchor_index = penalty_coupling_local_dof_index(
+        local_section, tie.anchor_sieve_pt, tie.component);
+    const PetscInt slave_index = penalty_coupling_local_dof_index(
+        local_section, tie.slave_sieve_pt, tie.component);
+
+    const double anchor_value = anchor_index >= 0
+        ? static_cast<double>(u_arr[anchor_index])
+        : 0.0;
+    const double slave_value = slave_index >= 0
+        ? static_cast<double>(u_arr[slave_index])
+        : 0.0;
+    return slave_value - anchor_value;
+}
+
+inline void add_penalty_dof_ties_to_global_residual(
+    const std::vector<PenaltyDofTieEntry>& ties,
+    double alpha,
+    Vec u_local,
+    Vec residual_global,
+    DM dm)
+{
+    if (ties.empty()) {
+        return;
+    }
+
+    PetscSection local_section = nullptr;
+    ISLocalToGlobalMapping local_to_global = nullptr;
+    DMGetLocalSection(dm, &local_section);
+    DMGetLocalToGlobalMapping(dm, &local_to_global);
+
+    const PetscScalar* u_arr = nullptr;
+    VecGetArrayRead(u_local, &u_arr);
+
+    for (const auto& tie : ties) {
+        const double gap = penalty_dof_tie_gap(tie, local_section, u_arr);
+        const PetscInt anchor_global = penalty_coupling_global_dof_index(
+            local_section, local_to_global, tie.anchor_sieve_pt, tie.component);
+        const PetscInt slave_global = penalty_coupling_global_dof_index(
+            local_section, local_to_global, tie.slave_sieve_pt, tie.component);
+
+        if (slave_global >= 0) {
+            const PetscScalar value = alpha * gap;
+            VecSetValues(
+                residual_global, 1, &slave_global, &value, ADD_VALUES);
+        }
+        if (anchor_global >= 0) {
+            const PetscScalar value = -alpha * gap;
+            VecSetValues(
+                residual_global, 1, &anchor_global, &value, ADD_VALUES);
+        }
+    }
+
+    VecRestoreArrayRead(u_local, &u_arr);
+}
+
+inline void add_penalty_dof_ties_to_jacobian(
+    const std::vector<PenaltyDofTieEntry>& ties,
+    double alpha,
+    Mat jacobian,
+    DM dm)
+{
+    if (ties.empty()) {
+        return;
+    }
+
+    PetscSection local_section = nullptr;
+    ISLocalToGlobalMapping local_to_global = nullptr;
+    DMGetLocalSection(dm, &local_section);
+    DMGetLocalToGlobalMapping(dm, &local_to_global);
+
+    for (const auto& tie : ties) {
+        const PetscInt anchor_global = penalty_coupling_global_dof_index(
+            local_section, local_to_global, tie.anchor_sieve_pt, tie.component);
+        const PetscInt slave_global = penalty_coupling_global_dof_index(
+            local_section, local_to_global, tie.slave_sieve_pt, tie.component);
+        if (anchor_global < 0 || slave_global < 0) {
+            continue;
+        }
+
+        const PetscScalar diag = alpha;
+        const PetscScalar offdiag = -alpha;
+        MatSetValues(
+            jacobian, 1, &slave_global, 1, &slave_global, &diag, ADD_VALUES);
+        MatSetValues(
+            jacobian, 1, &anchor_global, 1, &anchor_global, &diag, ADD_VALUES);
+        MatSetValues(
+            jacobian, 1, &slave_global, 1, &anchor_global, &offdiag, ADD_VALUES);
+        MatSetValues(
+            jacobian, 1, &anchor_global, 1, &slave_global, &offdiag, ADD_VALUES);
+    }
+}
+
+class PenaltyDofTie {
+public:
+    PenaltyDofTie() = default;
+
+    void setup(const Domain<3>& domain,
+               std::span<const std::size_t> slave_nodes,
+               std::size_t anchor_node_id,
+               int component,
+               double alpha)
+    {
+        alpha_ = alpha;
+        ties_.clear();
+        component_ = component;
+        anchor_node_id_ = anchor_node_id;
+
+        const auto anchor_sieve =
+            domain.node(anchor_node_id).sieve_id.value();
+        ties_.reserve(slave_nodes.size());
+        for (const auto node_id : slave_nodes) {
+            if (node_id == anchor_node_id) {
+                continue;
+            }
+            const auto& slave = domain.node(node_id);
+            if (slave.num_dof() == 0) {
+                continue;
+            }
+            ties_.push_back(PenaltyDofTieEntry{
+                .anchor_sieve_pt = anchor_sieve,
+                .slave_sieve_pt = slave.sieve_id.value(),
+                .component = component,
+            });
+        }
+
+        std::println(
+            "  Penalty DOF tie: {} slave nodes tied to anchor {} on component {}, alpha = {:.1e}",
+            ties_.size(),
+            anchor_node_id_,
+            component_,
+            alpha_);
+    }
+
+    void add_to_global_residual(Vec u_local, Vec residual_global, DM dm) const
+    {
+        add_penalty_dof_ties_to_global_residual(
+            ties_, alpha_, u_local, residual_global, dm);
+    }
+
+    void add_to_jacobian(Vec /*u_local*/, Mat jacobian, DM dm) const
+    {
+        add_penalty_dof_ties_to_jacobian(ties_, alpha_, jacobian, dm);
+    }
+
+    [[nodiscard]] std::size_t num_ties() const noexcept
+    {
+        return ties_.size();
+    }
+
+    [[nodiscard]] double alpha() const noexcept
+    {
+        return alpha_;
+    }
+
+    [[nodiscard]] int component() const noexcept
+    {
+        return component_;
+    }
+
+    [[nodiscard]] std::size_t anchor_node_id() const noexcept
+    {
+        return anchor_node_id_;
+    }
+
+private:
+    double alpha_{1.0e6};
+    int component_{0};
+    std::size_t anchor_node_id_{0};
+    std::vector<PenaltyDofTieEntry> ties_{};
 };
 
 }  // namespace fall_n

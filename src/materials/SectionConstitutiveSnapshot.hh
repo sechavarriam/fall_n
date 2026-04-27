@@ -1,15 +1,21 @@
 #ifndef FALL_N_SECTION_CONSTITUTIVE_SNAPSHOT_HH
 #define FALL_N_SECTION_CONSTITUTIVE_SNAPSHOT_HH
 
+#include <cstddef>
 #include <optional>
 #include <span>
 
+#include "InternalFieldSnapshot.hh"
+
 struct FiberSectionSample {
+    std::size_t fiber_index{0};
     double y{0.0};
     double z{0.0};
     double area{0.0};
     double strain_xx{0.0};
     double stress_xx{0.0};
+    double tangent_xx{0.0};
+    InternalFieldSnapshot internal_fields{};
 };
 
 struct BeamSectionConstitutiveSnapshot {

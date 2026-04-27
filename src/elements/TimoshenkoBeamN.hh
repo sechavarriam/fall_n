@@ -385,7 +385,7 @@ public:
 
     // ── Standalone-vector interface (parallel assembly in NLAnalysis) ───
 
-    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) {
+    Eigen::VectorXd compute_internal_force_vector(const Eigen::VectorXd& u_e) const {
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;
 
@@ -408,7 +408,7 @@ public:
         return (T.transpose() * f_loc).eval();
     }
 
-    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) {
+    Eigen::MatrixXd compute_tangent_stiffness_matrix(const Eigen::VectorXd& u_e) const {
         assert(u_e.size() == total_dofs && "compute_tangent_stiffness_matrix: u_e size mismatch");
         auto T = transformation_matrix();
         Eigen::Vector<double, total_dofs> u_loc = T * u_e;

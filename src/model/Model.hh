@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -54,6 +55,7 @@ public:
     using ConstraintDofInfo = std::map<PetscInt, std::pair<std::vector<PetscInt>, std::vector<PetscScalar>>>; 
     
     static constexpr std::size_t dim{MaterialPolicy::dim};
+    using DofLayoutHook     = std::function<void(Domain<dim>&)>;
     static constexpr continuum::ElementFamilyKind element_family_kind =
         element_type::element_family_kind;
     static constexpr continuum::FormulationKind formulation_kind =
@@ -84,6 +86,12 @@ private:
     petsc::OwnedMat Kt_{};
 
 public:
+
+    struct ImposedValueUpdate {
+        std::size_t node_idx;
+        std::size_t local_dof;
+        double value;
+    };
 
     // ── Element access ───────────────────────────────────────────────
     const container_type& elements() const noexcept { return elements_; }
@@ -156,6 +164,13 @@ public:
 private:
 
     void set_num_dofs_in_elements(){ for (auto &element : elements_) element.set_num_dof_in_nodes();}
+
+    void apply_dof_layout_hook(const DofLayoutHook& dof_layout_hook)
+    {
+        if (dof_layout_hook) {
+            dof_layout_hook(*domain_);
+        }
+    }
 
     void set_dof_index(){
         PetscSection local_section;
@@ -321,18 +336,44 @@ public:
     /// or fix_node) BEFORE setup() was called, so that the DM section
     /// already accounts for it.  This method never mutates the section.
     ///
-    /// Complexity: O(log n) map update + O(1) VecSetValueLocal.
-    /// Safe to call inside an incremental stepping loop.
+    /// Safe convenience wrapper for one prescribed DOF edit inside an
+    /// incremental stepping loop. Batches with exactly one entry and
+    /// finalizes the PETSc local vector immediately.
     void update_imposed_value(std::size_t node_idx, std::size_t local_dof,
                               double value) noexcept
     {
+        set_imposed_value_unassembled(node_idx, local_dof, value);
+        finalize_imposed_solution();
+    }
+
+    /// Queue one imposed-value edit without assembling the PETSc vector yet.
+    ///
+    /// This is the low-level path for incremental-control policies that touch
+    /// several constrained DOFs inside one runtime step. Call
+    /// finalize_imposed_solution() once after batching all edits.
+    void set_imposed_value_unassembled(std::size_t node_idx,
+                                       std::size_t local_dof,
+                                       double value) noexcept
+    {
         constrain_dof(node_idx, local_dof, value);
 
-        auto& node    = domain_->node(node_idx);
-        auto  all_dofs = node.dof_index();
+        auto& node = domain_->node(node_idx);
+        auto all_dofs = node.dof_index();
         VecSetValueLocal(global_imposed_solution_.get(),
                          all_dofs[local_dof],
-                         static_cast<PetscScalar>(value), INSERT_VALUES);
+                         static_cast<PetscScalar>(value),
+                         INSERT_VALUES);
+    }
+
+    /// Finalize imposed-solution edits so PETSc residual/Jacobian callbacks
+    /// always see an assembled local vector.
+    void finalize_imposed_solution() noexcept
+    {
+        if (!global_imposed_solution_) {
+            return;
+        }
+        VecAssemblyBegin(global_imposed_solution_.get());
+        VecAssemblyEnd(global_imposed_solution_.get());
     }
 
     /// Constrain ALL DOFs of a node (homogeneous by default).
@@ -698,7 +739,9 @@ public:
     // Constructor 1: auto-creates elements from domain geometries + material.
     //   Works for ContinuumElement, BeamElement, or any concrete element type
     //   constructible from (ElementGeometry<dim>*, MaterialT).
-    Model(Domain<dim> &domain, MaterialT default_mat)
+    Model(Domain<dim> &domain,
+          MaterialT default_mat,
+          DofLayoutHook dof_layout_hook = {})
         requires (std::constructible_from<element_type, ElementGeometry<dim>*, MaterialT>)
         : domain_(std::addressof(domain))
     {
@@ -714,14 +757,17 @@ public:
         DMSetDimension(domain_->mesh.dm, static_cast<PetscInt>(domain_->plex_dimension()));
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE); // Set the adjacency information for the FEM mesh.
 
-        set_num_dofs_in_elements(); // 1. Set the number of dofs per node in the elements (FEM_Elements) // TODO: AVOID THIS!.
+        set_num_dofs_in_elements(); // 1. Set standard element DOFs.
+        apply_dof_layout_hook(dof_layout_hook); // 1b. Optional family-specific DOF extensions.
         set_sieve_layout();         // 2. Set the sieve layout for the mesh
     }
 
     // Constructor 2: takes pre-built elements (for type-erased wrappers
     //   like StructuralElement, or any case where element construction
     //   differs from the simple (geometry*, material) pattern).
-    Model(Domain<dim> &domain, container_type pre_built)
+    Model(Domain<dim> &domain,
+          container_type pre_built,
+          DofLayoutHook dof_layout_hook = {})
         : domain_(std::addressof(domain)),
           elements_(std::move(pre_built))
     {
@@ -731,6 +777,7 @@ public:
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
 
         set_num_dofs_in_elements();
+        apply_dof_layout_hook(dof_layout_hook);
         set_sieve_layout();
     }
 
@@ -748,8 +795,10 @@ public:
     //     };
     //     Model M{domain, mats};
     //
-    Model(Domain<dim> &domain, const std::map<std::string, MaterialT>& material_map,
-          std::optional<MaterialT> default_mat = std::nullopt)
+    Model(Domain<dim> &domain,
+          const std::map<std::string, MaterialT>& material_map,
+          std::optional<MaterialT> default_mat = std::nullopt,
+          DofLayoutHook dof_layout_hook = {})
         requires (std::constructible_from<element_type, ElementGeometry<dim>*, MaterialT>)
         : domain_(std::addressof(domain))
     {
@@ -775,6 +824,7 @@ public:
         DMSetBasicAdjacency(domain_->mesh.dm, PETSC_FALSE, PETSC_TRUE);
 
         set_num_dofs_in_elements();
+        apply_dof_layout_hook(dof_layout_hook);
         set_sieve_layout();
     }
 

@@ -1,8 +1,13 @@
 #ifndef FALL_N_SRC_ANALYSIS_NLANALYSIS_HH
 #define FALL_N_SRC_ANALYSIS_NLANALYSIS_HH
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <functional>
+#include <string>
+#include <utility>
+#include <vector>
 #include <petscsnes.h>
 
 #include "../model/Model.hh"
@@ -11,6 +16,7 @@
 #include "AnalysisRouteAudit.hh"
 #include "AnalysisObserver.hh"
 #include "IncrementalControl.hh"
+#include "NonlinearSolvePolicy.hh"
 #include "StepDirector.hh"
 #include "SteppableSolver.hh"
 
@@ -73,6 +79,9 @@ private:
 public:
     using model_type = ModelT;
     using element_type = ElementT;
+    using NonlinearSolveProfile = fall_n::NonlinearSolveProfile;
+    using IncrementPredictorKind = fall_n::IncrementPredictorKind;
+    using IncrementPredictorSettings = fall_n::IncrementPredictorSettings;
 
 private:
 
@@ -97,11 +106,65 @@ private:
     // ─── Performance timing ───────────────────────────────────────
     AnalysisTimer timer_;
 
+public:
+
     // ─── Step callback (optional) ─────────────────────────────────
     //  Invoked after each converged load step in solve_incremental().
     //  Arguments: (step_number, lambda, model_ref)
+    struct IncrementStepDiagnostics {
+        double p_start{0.0};
+        double p_target{0.0};
+        double last_attempt_p_start{0.0};
+        double last_attempt_p_target{0.0};
+        int accepted_substep_count{0};
+        int max_bisection_level{0};
+        int total_newton_iterations{0};
+        int failed_attempt_count{0};
+        int solver_profile_attempt_count{0};
+        int last_snes_reason{0};
+        double last_function_norm{0.0};
+        std::string last_solver_profile_label{};
+        std::string last_solver_snes_type{};
+        std::string last_solver_linesearch_type{};
+        std::string last_solver_ksp_type{};
+        std::string last_solver_pc_type{};
+        double last_solver_ksp_rtol{PETSC_DETERMINE};
+        double last_solver_ksp_atol{PETSC_DETERMINE};
+        double last_solver_ksp_dtol{PETSC_DETERMINE};
+        int last_solver_ksp_max_iterations{PETSC_DETERMINE};
+        int last_solver_ksp_reason{0};
+        int last_solver_ksp_iterations{0};
+        std::string last_solver_factor_mat_ordering_type{};
+        int last_solver_factor_levels{-1};
+        bool last_solver_factor_reuse_ordering{false};
+        bool last_solver_factor_reuse_fill{false};
+        bool last_solver_ksp_reuse_preconditioner{false};
+        int last_solver_snes_lag_preconditioner{0};
+        int last_solver_snes_lag_jacobian{0};
+        bool converged{false};
+        bool accepted_by_small_residual_policy{false};
+        double accepted_function_norm_threshold{0.0};
+    };
+
+    struct IncrementAdaptationSettings {
+        bool enabled{false};
+        double min_increment_size{0.0};
+        double max_increment_size{0.0};
+        double cutback_factor{0.5};
+        double growth_factor{1.25};
+        int max_cutbacks_per_step{8};
+        int easy_newton_iterations{6};
+        int difficult_newton_iterations{12};
+        int easy_steps_before_growth{2};
+    };
+
+private:
+
     using StepCallback = std::function<void(int, double, const ModelT&)>;
     StepCallback step_callback_{};
+    using FailedAttemptCallback =
+        std::function<void(const ModelT&, const IncrementStepDiagnostics&)>;
+    FailedAttemptCallback failed_attempt_callback_{};
 
     // ─── Observer protocol (optional) ─────────────────────────────
     //  Structured alternative to StepCallback, supporting start/step/end
@@ -119,18 +182,36 @@ private:
     int           max_bisections_{4};
     bool          incremental_active_{false};
     bool          auto_commit_{true};
+    bool          incremental_logging_enabled_{true};
+    IncrementAdaptationSettings increment_adaptation_{};
+    double        initial_dp_{0.0};
+    int           easy_step_streak_{0};
     fall_n::StepDirector<ModelT> director_{};
+    std::vector<NonlinearSolveProfile> solve_profiles_{};
+    IncrementPredictorSettings increment_predictor_{};
+    petsc::OwnedVec previous_converged_u_{};
+    petsc::OwnedVec predictor_delta_u_{};
+    petsc::OwnedVec predictor_linear_rhs_{};
+    petsc::OwnedVec predictor_linear_step_{};
+    petsc::OwnedKSP predictor_linear_ksp_{};
+    double previous_converged_p_{0.0};
+    bool has_previous_converged_u_{false};
+    IncrementStepDiagnostics previous_requested_step_diagnostics_{};
 
 public:
     struct SolverCheckpoint {
         typename ModelT::checkpoint_type model{};
         petsc::OwnedVec displacement{};
         petsc::OwnedVec external_force{};
+        petsc::OwnedVec previous_converged_displacement{};
         double p_done{0.0};
+        double previous_converged_p{0.0};
         int    step_count{0};
         double dp{0.0};
         int    max_bisections{0};
         bool   incremental_active{false};
+        bool   has_previous_converged_displacement{false};
+        IncrementStepDiagnostics previous_requested_step_diagnostics{};
     };
 
     using checkpoint_type = SolverCheckpoint;
@@ -143,9 +224,350 @@ private:
     //    residual_hook_(u_local, f_int_local, dm)
     //    jacobian_hook_(u_local, J_mat, dm)
     using ResidualHook = std::function<void(Vec, Vec, DM)>;
+    using GlobalResidualHook = std::function<void(Vec, Vec, DM)>;
     using JacobianHook = std::function<void(Vec, Mat, DM)>;
     ResidualHook residual_hook_{};
+    GlobalResidualHook global_residual_hook_{};
     JacobianHook jacobian_hook_{};
+    IncrementStepDiagnostics last_increment_step_diagnostics_{};
+
+    template <typename... Args>
+    void incremental_printf_(const char* format, Args&&... args) const
+    {
+        if (incremental_logging_enabled_) {
+            PetscPrintf(
+                PETSC_COMM_WORLD,
+                format,
+                std::forward<Args>(args)...);
+        }
+    }
+
+    [[nodiscard]] double minimum_increment_size_() const noexcept
+    {
+        if (!increment_adaptation_.enabled) {
+            return 0.0;
+        }
+        if (increment_adaptation_.min_increment_size > 0.0) {
+            return increment_adaptation_.min_increment_size;
+        }
+        const auto bisection_floor =
+            std::ldexp(initial_dp_ > 0.0 ? initial_dp_ : dp_,
+                       -(std::max(max_bisections_, 0) + 3));
+        return std::max(bisection_floor, 1.0e-12);
+    }
+
+    [[nodiscard]] double maximum_increment_size_() const noexcept
+    {
+        if (!increment_adaptation_.enabled) {
+            return 1.0;
+        }
+        if (increment_adaptation_.max_increment_size > 0.0) {
+            return increment_adaptation_.max_increment_size;
+        }
+        return initial_dp_ > 0.0 ? initial_dp_ : 1.0;
+    }
+
+    [[nodiscard]] double clamp_increment_size_(double value) const noexcept
+    {
+        if (!increment_adaptation_.enabled) {
+            return value;
+        }
+        return std::clamp(
+            value,
+            minimum_increment_size_(),
+            maximum_increment_size_());
+    }
+
+    void reset_increment_predictor_history_()
+    {
+        previous_converged_u_ = petsc::OwnedVec{};
+        predictor_delta_u_ = petsc::OwnedVec{};
+        predictor_linear_rhs_ = petsc::OwnedVec{};
+        predictor_linear_step_ = petsc::OwnedVec{};
+        predictor_linear_ksp_ = petsc::OwnedKSP{};
+        previous_converged_p_ = 0.0;
+        has_previous_converged_u_ = false;
+        previous_requested_step_diagnostics_ = IncrementStepDiagnostics{};
+    }
+
+    void capture_previous_converged_state_(Vec u_previous, double p_previous)
+    {
+        if (!u_previous) {
+            return;
+        }
+        if (!previous_converged_u_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(u_previous, previous_converged_u_.ptr()));
+        }
+        FALL_N_PETSC_CHECK(VecCopy(u_previous, previous_converged_u_.get()));
+        previous_converged_p_ = p_previous;
+        has_previous_converged_u_ = true;
+    }
+
+    bool apply_linearized_equilibrium_predictor_(
+        Vec current_state,
+        const NonlinearSolveProfile& profile)
+    {
+        if (!current_state) {
+            return false;
+        }
+
+        if (!predictor_linear_rhs_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(current_state, predictor_linear_rhs_.ptr()));
+        }
+        if (!predictor_linear_step_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(current_state, predictor_linear_step_.ptr()));
+        }
+        if (!predictor_linear_ksp_) {
+            FALL_N_PETSC_CHECK(KSPCreate(PETSC_COMM_WORLD, predictor_linear_ksp_.ptr()));
+        }
+
+        FALL_N_PETSC_CHECK(VecCopy(current_state, U));
+        FALL_N_PETSC_CHECK(SNESComputeFunction(snes_.get(), U.get(), predictor_linear_rhs_.get()));
+
+        PetscReal residual_norm = 0.0;
+        FALL_N_PETSC_CHECK(VecNorm(predictor_linear_rhs_.get(), NORM_2, &residual_norm));
+        if (!(residual_norm > 0.0)) {
+            return false;
+        }
+
+        FALL_N_PETSC_CHECK(
+            SNESComputeJacobian(snes_.get(), U.get(), J.get(), J.get()));
+        fall_n::apply_linear_solver_profile(predictor_linear_ksp_.get(), profile);
+        FALL_N_PETSC_CHECK(
+            KSPSetOperators(predictor_linear_ksp_.get(), J.get(), J.get()));
+
+        FALL_N_PETSC_CHECK(VecCopy(predictor_linear_rhs_.get(), predictor_linear_step_.get()));
+        FALL_N_PETSC_CHECK(VecScale(predictor_linear_step_.get(), -1.0));
+        FALL_N_PETSC_CHECK(VecSet(predictor_linear_rhs_.get(), 0.0));
+        FALL_N_PETSC_CHECK(
+            KSPSolve(
+                predictor_linear_ksp_.get(),
+                predictor_linear_step_.get(),
+                predictor_linear_rhs_.get()));
+
+        KSPConvergedReason ksp_reason{KSP_CONVERGED_ITERATING};
+        FALL_N_PETSC_CHECK(KSPGetConvergedReason(predictor_linear_ksp_.get(), &ksp_reason));
+        if (ksp_reason <= 0) {
+            FALL_N_PETSC_CHECK(VecCopy(current_state, U));
+            return false;
+        }
+
+        PetscReal correction_norm = 0.0;
+        FALL_N_PETSC_CHECK(VecNorm(predictor_linear_rhs_.get(), NORM_2, &correction_norm));
+        if (!(correction_norm > 0.0)) {
+            FALL_N_PETSC_CHECK(VecCopy(current_state, U));
+            return false;
+        }
+
+        FALL_N_PETSC_CHECK(VecAXPY(U, 1.0, predictor_linear_rhs_.get()));
+        return true;
+    }
+
+    bool apply_increment_predictor_(Vec current_state,
+                                    double p_current,
+                                    double p_target,
+                                    int bisection_level,
+                                    const NonlinearSolveProfile& profile)
+    {
+        FALL_N_PETSC_CHECK(VecCopy(current_state, U));
+
+        if (!increment_predictor_.enabled ||
+            increment_predictor_.kind == IncrementPredictorKind::current_state) {
+            return false;
+        }
+
+        if (increment_predictor_.kind ==
+            IncrementPredictorKind::linearized_equilibrium_seed) {
+            if (increment_predictor_.disable_during_bisection &&
+                bisection_level > 0) {
+                return false;
+            }
+            return apply_linearized_equilibrium_predictor_(current_state, profile);
+        }
+
+        if (increment_predictor_.kind ==
+                IncrementPredictorKind::secant_with_linearized_fallback &&
+            !has_previous_converged_u_) {
+            if (increment_predictor_.disable_during_bisection &&
+                bisection_level > 0) {
+                return false;
+            }
+            return apply_linearized_equilibrium_predictor_(current_state, profile);
+        }
+
+        if (!has_previous_converged_u_) {
+            return false;
+        }
+
+        if (increment_predictor_.disable_during_bisection &&
+            bisection_level > 0) {
+            return false;
+        }
+
+        if (increment_predictor_.kind ==
+                IncrementPredictorKind::adaptive_secant_extrapolation &&
+            increment_predictor_.disable_after_cutback &&
+            (previous_requested_step_diagnostics_.failed_attempt_count > 0 ||
+             previous_requested_step_diagnostics_.max_bisection_level > 0)) {
+            return false;
+        }
+
+        const double previous_increment = p_current - previous_converged_p_;
+        const double requested_increment = p_target - p_current;
+        if (previous_increment <= 1.0e-14 || requested_increment <= 1.0e-14) {
+            return false;
+        }
+
+        if (increment_predictor_.kind ==
+            IncrementPredictorKind::adaptive_secant_extrapolation)
+        {
+            const auto accepted_substeps = std::max(
+                previous_requested_step_diagnostics_.accepted_substep_count,
+                1);
+            const auto average_newton_iterations =
+                static_cast<double>(
+                    previous_requested_step_diagnostics_.total_newton_iterations) /
+                static_cast<double>(accepted_substeps);
+            if (average_newton_iterations >
+                static_cast<double>(
+                    increment_predictor_.difficult_newton_iterations)) {
+                return false;
+            }
+        }
+
+        double scale = requested_increment / previous_increment;
+        scale = std::clamp(
+            scale,
+            0.0,
+            std::max(0.0, increment_predictor_.max_scale_factor));
+        scale = std::min(scale, increment_predictor_.max_relative_increment_norm);
+
+        if (!(scale > 0.0)) {
+            return false;
+        }
+
+        if (!predictor_delta_u_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(current_state, predictor_delta_u_.ptr()));
+        }
+        FALL_N_PETSC_CHECK(VecCopy(current_state, predictor_delta_u_.get()));
+        FALL_N_PETSC_CHECK(
+            VecAXPY(predictor_delta_u_.get(), -1.0, previous_converged_u_.get()));
+
+        PetscReal last_increment_norm = 0.0;
+        FALL_N_PETSC_CHECK(
+            VecNorm(predictor_delta_u_.get(), NORM_2, &last_increment_norm));
+        if (!(last_increment_norm > 0.0)) {
+            return false;
+        }
+
+        FALL_N_PETSC_CHECK(VecAXPY(U, scale, predictor_delta_u_.get()));
+        return true;
+    }
+
+    void adapt_next_increment_after_requested_step_(
+        double final_substep_size,
+        bool used_cutback)
+    {
+        if (!increment_adaptation_.enabled) {
+            return;
+        }
+
+        const auto accepted_substeps = std::max(
+            last_increment_step_diagnostics_.accepted_substep_count,
+            1);
+        const auto average_newton_iterations =
+            static_cast<double>(
+                last_increment_step_diagnostics_.total_newton_iterations) /
+            static_cast<double>(accepted_substeps);
+
+        if (used_cutback ||
+            last_increment_step_diagnostics_.max_bisection_level > 0 ||
+            average_newton_iterations >=
+                static_cast<double>(
+                    increment_adaptation_.difficult_newton_iterations)) {
+            dp_ = clamp_increment_size_(final_substep_size);
+            easy_step_streak_ = 0;
+            return;
+        }
+
+        if (average_newton_iterations <=
+            static_cast<double>(
+                increment_adaptation_.easy_newton_iterations)) {
+            ++easy_step_streak_;
+            if (easy_step_streak_ >=
+                std::max(increment_adaptation_.easy_steps_before_growth, 1)) {
+                dp_ = clamp_increment_size_(
+                    std::max(dp_, final_substep_size) *
+                    increment_adaptation_.growth_factor);
+                easy_step_streak_ = 0;
+                return;
+            }
+        } else {
+            easy_step_streak_ = 0;
+        }
+
+        dp_ = clamp_increment_size_(std::max(dp_, final_substep_size));
+    }
+
+    [[nodiscard]] const std::vector<NonlinearSolveProfile>&
+    active_solve_profiles_() const noexcept
+    {
+        return fall_n::active_nonlinear_solve_profiles(solve_profiles_);
+    }
+
+    void apply_solve_profile_(const NonlinearSolveProfile& profile)
+    {
+        fall_n::apply_nonlinear_solve_profile(snes_.get(), profile);
+    }
+
+    void record_solver_profile_diagnostics_(
+        const NonlinearSolveProfile& profile,
+        SNESConvergedReason reason,
+        double residual_norm,
+        const fall_n::NonlinearSolveAttemptAssessment& acceptance)
+    {
+        auto& diag = last_increment_step_diagnostics_;
+        diag.solver_profile_attempt_count += 1;
+        diag.last_solver_profile_label = profile.label;
+        diag.last_solver_snes_type = profile.resolved_snes_type();
+        diag.last_solver_linesearch_type = profile.resolved_linesearch_type();
+        diag.last_solver_ksp_type = profile.ksp_type;
+        diag.last_solver_pc_type = profile.pc_type;
+        diag.last_solver_ksp_rtol = profile.linear_tuning.ksp_rtol;
+        diag.last_solver_ksp_atol = profile.linear_tuning.ksp_atol;
+        diag.last_solver_ksp_dtol = profile.linear_tuning.ksp_dtol;
+        diag.last_solver_ksp_max_iterations =
+            profile.linear_tuning.ksp_max_iterations;
+        KSP ksp{nullptr};
+        FALL_N_PETSC_CHECK(SNESGetKSP(snes_.get(), &ksp));
+        KSPConvergedReason ksp_reason{KSP_CONVERGED_ITERATING};
+        PetscInt ksp_iterations{0};
+        if (ksp != nullptr) {
+            FALL_N_PETSC_CHECK(KSPGetConvergedReason(ksp, &ksp_reason));
+            FALL_N_PETSC_CHECK(KSPGetIterationNumber(ksp, &ksp_iterations));
+        }
+        diag.last_solver_ksp_reason = static_cast<int>(ksp_reason);
+        diag.last_solver_ksp_iterations = static_cast<int>(ksp_iterations);
+        diag.last_solver_factor_mat_ordering_type =
+            profile.linear_tuning.factor_mat_ordering_type;
+        diag.last_solver_factor_levels = profile.linear_tuning.factor_levels;
+        diag.last_solver_factor_reuse_ordering =
+            profile.linear_tuning.factor_reuse_ordering;
+        diag.last_solver_factor_reuse_fill =
+            profile.linear_tuning.factor_reuse_fill;
+        diag.last_solver_ksp_reuse_preconditioner =
+            profile.linear_tuning.ksp_reuse_preconditioner;
+        diag.last_solver_snes_lag_preconditioner =
+            profile.linear_tuning.snes_lag_preconditioner;
+        diag.last_solver_snes_lag_jacobian =
+            profile.linear_tuning.snes_lag_jacobian;
+        diag.last_snes_reason = static_cast<int>(reason);
+        diag.last_function_norm = residual_norm;
+        diag.accepted_by_small_residual_policy =
+            acceptance.accepted_by_small_residual_policy;
+        diag.accepted_function_norm_threshold =
+            acceptance.accepted_function_norm_threshold;
+    }
 
     // ─── SNES callback context ────────────────────────────────────
 
@@ -153,6 +575,7 @@ private:
         ModelT* model;
         Vec     f_ext;
         ResidualHook* residual_hook;
+        GlobalResidualHook* global_residual_hook;
         JacobianHook* jacobian_hook;
     } ctx_{};
 
@@ -218,16 +641,27 @@ private:
             }
         }
 
-        // Penalty coupling hook (e.g. embedded rebar)
-        if (ctx->residual_hook && *ctx->residual_hook)
-            (*ctx->residual_hook)(u_local, f_int_local, dm);
+          // Penalty coupling hook (e.g. embedded rebar)
+          if (ctx->residual_hook && *ctx->residual_hook)
+              (*ctx->residual_hook)(u_local, f_int_local, dm);
 
-        // Scatter local f_int → global residual
-        VecSet(R_out, 0.0);
-        DMLocalToGlobal(dm, f_int_local, ADD_VALUES, R_out);
+          // Scatter local f_int → global residual
+          VecSet(R_out, 0.0);
+          DMLocalToGlobal(dm, f_int_local, ADD_VALUES, R_out);
 
-        // R = f_int − f_ext
-        VecAXPY(R_out, -1.0, ctx->f_ext);
+          // Global residual hook for contributions whose constrained scatter
+          // is better represented directly in the reduced algebraic space.
+          if (ctx->global_residual_hook && *ctx->global_residual_hook)
+              (*ctx->global_residual_hook)(u_local, R_out, dm);
+
+          // The global hook injects ADD_VALUES directly into the reduced
+          // algebraic vector, so it must be explicitly assembled before PETSc
+          // can interpret the residual consistently inside SNES.
+          VecAssemblyBegin(R_out);
+          VecAssemblyEnd(R_out);
+
+          // R = f_int − f_ext
+          VecAXPY(R_out, -1.0, ctx->f_ext);
 
         DMRestoreLocalVector(dm, &u_local);
         DMRestoreLocalVector(dm, &f_int_local);
@@ -382,13 +816,26 @@ public:
             FALL_N_PETSC_CHECK(VecCopy(f_ext.get(),
                                        checkpoint.external_force.get()));
         }
+        if (has_previous_converged_u_ && previous_converged_u_) {
+            FALL_N_PETSC_CHECK(VecDuplicate(
+                previous_converged_u_.get(),
+                checkpoint.previous_converged_displacement.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(
+                previous_converged_u_.get(),
+                checkpoint.previous_converged_displacement.get()));
+        }
 
         checkpoint.model = model_->capture_checkpoint();
         checkpoint.p_done = p_done_;
+        checkpoint.previous_converged_p = previous_converged_p_;
         checkpoint.step_count = step_count_;
         checkpoint.dp = dp_;
         checkpoint.max_bisections = max_bisections_;
         checkpoint.incremental_active = incremental_active_;
+        checkpoint.has_previous_converged_displacement =
+            has_previous_converged_u_;
+        checkpoint.previous_requested_step_diagnostics =
+            previous_requested_step_diagnostics_;
         return checkpoint;
     }
 
@@ -407,19 +854,39 @@ public:
 
         ctx_.f_ext = f_ext;
         p_done_ = checkpoint.p_done;
+        previous_converged_p_ = checkpoint.previous_converged_p;
         step_count_ = checkpoint.step_count;
         dp_ = checkpoint.dp;
         max_bisections_ = checkpoint.max_bisections;
         incremental_active_ = checkpoint.incremental_active;
+        has_previous_converged_u_ =
+            checkpoint.has_previous_converged_displacement;
+        previous_requested_step_diagnostics_ =
+            checkpoint.previous_requested_step_diagnostics;
+        previous_converged_u_ = petsc::OwnedVec{};
+        if (checkpoint.previous_converged_displacement) {
+            FALL_N_PETSC_CHECK(VecDuplicate(
+                checkpoint.previous_converged_displacement.get(),
+                previous_converged_u_.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(
+                checkpoint.previous_converged_displacement.get(),
+                previous_converged_u_.get()));
+        }
         model_->restore_checkpoint(checkpoint.model);
     }
 
     /// Register a callback invoked after each converged load step.
     /// Signature: void(int step, double lambda, const ModelT& model).
     void set_step_callback(StepCallback cb) { step_callback_ = std::move(cb); }
+    void set_failed_attempt_callback(FailedAttemptCallback cb) {
+        failed_attempt_callback_ = std::move(cb);
+    }
 
     /// Register penalty coupling hooks called after standard element assembly.
     void set_residual_hook(ResidualHook hook) { residual_hook_ = std::move(hook); }
+    void set_global_residual_hook(GlobalResidualHook hook) {
+        global_residual_hook_ = std::move(hook);
+    }
     void set_jacobian_hook(JacobianHook hook) { jacobian_hook_ = std::move(hook); }
 
     /// Register a structured observer (start/step/end lifecycle).
@@ -485,7 +952,7 @@ public:
         VecSet(f_ext, 0.0);
         DMLocalToGlobal(dm, model_->force_vector(), ADD_VALUES, f_ext);
 
-        ctx_ = {model_, f_ext, &residual_hook_, &jacobian_hook_};
+          ctx_ = {model_, f_ext, &residual_hook_, &global_residual_hook_, &jacobian_hook_};
 
         SNESSetFunction(snes_, R_vec, FormResidual, &ctx_);
         SNESSetJacobian(snes_, J, J, FormJacobian, &ctx_);
@@ -506,6 +973,34 @@ public:
     //  After calling solve(), you can always query converged_reason()
     //  and num_iterations() for diagnostics.
 
+    [[nodiscard]] const IncrementStepDiagnostics&
+    last_increment_step_diagnostics() const noexcept
+    {
+        return last_increment_step_diagnostics_;
+    }
+
+    void set_solve_profiles(std::vector<NonlinearSolveProfile> profiles)
+    {
+        solve_profiles_ = std::move(profiles);
+    }
+
+    [[nodiscard]] const std::vector<NonlinearSolveProfile>&
+    solve_profiles() const noexcept
+    {
+        return solve_profiles_;
+    }
+
+    void set_increment_predictor(IncrementPredictorSettings settings)
+    {
+        increment_predictor_ = settings;
+    }
+
+    [[nodiscard]] const IncrementPredictorSettings&
+    increment_predictor() const noexcept
+    {
+        return increment_predictor_;
+    }
+
     /// Access the performance timer (read timing data after solve).
     const AnalysisTimer& timer() const { return timer_; }
           AnalysisTimer& timer()       { return timer_; }
@@ -515,16 +1010,30 @@ public:
         setup();
         timer_.stop("setup");
 
+        last_increment_step_diagnostics_ = IncrementStepDiagnostics{};
         VecSet(U, 0.0);
 
         timer_.start("solve");
-        SNESSolve(snes_, nullptr, U);
+        SNESConvergedReason reason{SNES_CONVERGED_ITERATING};
+        double residual_norm = 0.0;
+        fall_n::NonlinearSolveAttemptAssessment acceptance{};
+        for (const auto& profile : active_solve_profiles_()) {
+            apply_solve_profile_(profile);
+            SNESSolve(snes_, nullptr, U);
+            SNESGetConvergedReason(snes_, &reason);
+            residual_norm = function_norm();
+            acceptance =
+                fall_n::assess_nonlinear_solve_attempt(
+                    profile, reason, residual_norm);
+            record_solver_profile_diagnostics_(
+                profile, reason, residual_norm, acceptance);
+            if (acceptance.accepted) {
+                break;
+            }
+        }
         timer_.stop("solve");
 
-        SNESConvergedReason reason;
-        SNESGetConvergedReason(snes_, &reason);
-
-        if (reason > 0) {
+        if (acceptance.accepted) {
             // Converged — safe to commit
             timer_.start("commit");
             if (auto_commit_)
@@ -532,13 +1041,22 @@ public:
             else
                 sync_model_state_from_solution_();
             timer_.stop("commit");
+            last_increment_step_diagnostics_.converged = true;
+            if (acceptance.accepted_by_small_residual_policy) {
+                incremental_printf_(
+                    "  NonlinearAnalysis::solve() accepted small-residual "
+                    "policy (reason=%d, ||F||=%.6e <= %.6e)\n",
+                    static_cast<int>(reason),
+                    residual_norm,
+                    acceptance.accepted_function_norm_threshold);
+            }
             model_->update_elements_state();
             return true;
         }
 
         // Diverged — revert material state and do NOT commit
         revert_state();
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "  *** NonlinearAnalysis::solve() DIVERGED (reason=%d) ***\n",
             static_cast<int>(reason));
         model_->update_elements_state();  // update for post-processing (u may be garbage)
@@ -592,47 +1110,30 @@ public:
         static_assert(IncrementalControlPolicy<CS, ModelT>,
             "CS must satisfy IncrementalControlPolicy<CS, ModelT>");
 
-        setup();
-        VecSet(U, 0.0);
+        begin_incremental(num_steps, max_bisections, std::move(scheme));
+        bool all_ok = true;
 
-        // Save a copy of the full (un-scaled) external force vector.
-        // This is the reference load at p = 1.0.
-        petsc::OwnedVec f_full{};
-        VecDuplicate(f_ext, f_full.ptr());
-        VecCopy(f_ext, f_full);
-
-        double p_done = 0.0;   // last converged control parameter
-        bool   all_ok = true;
-        int    steps_done = 0;
-
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "  Incremental solve: %d steps, max bisection depth = %d\n",
             num_steps, max_bisections);
 
         if (observer_.on_start) observer_.on_start(*model_);
 
         for (int step = 1; step <= num_steps; ++step) {
-            double p_target = static_cast<double>(step) / num_steps;
+            const double p_target = static_cast<double>(step) / num_steps;
 
-            PetscPrintf(PETSC_COMM_WORLD,
+            incremental_printf_(
                 "\n  ── Step %d/%d: p = %.4f → %.4f ──\n",
-                step, num_steps, p_done, p_target);
+                step, num_steps, p_done_, p_target);
 
-            bool ok = advance_to_p_(scheme, f_full.get(), p_done, p_target,
-                                    max_bisections);
+            last_increment_step_diagnostics_ = IncrementStepDiagnostics{
+                .p_start = p_done_,
+                .p_target = p_target,
+            };
 
-            if (ok) {
-                p_done = p_target;
-                ++steps_done;
-                if (auto_commit_ && step_callback_)
-                    step_callback_(step, p_done, *model_);
-                if (auto_commit_ && observer_.on_step) {
-                    fall_n::StepEvent ev{step, p_done, U.get(), nullptr};
-                    observer_.on_step(ev, *model_);
-                }
-            } else {
+            if (!advance_requested_step_(p_target)) {
                 all_ok = false;
-                PetscPrintf(PETSC_COMM_WORLD,
+                incremental_printf_(
                     "\n  *** ABORT at step %d/%d (p=%.4f) — "
                     "bisection exhausted after %d levels ***\n",
                     step, num_steps, p_target, max_bisections);
@@ -640,17 +1141,9 @@ public:
             }
         }
 
-        model_->update_elements_state();
-
-        // Synchronise single-step state so get_analysis_state()
-        // reflects the terminal position even when called after
-        // the batch solve_incremental() path.
-        p_done_     = p_done;
-        step_count_ = steps_done;
-
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "  Incremental solve %s at p = %.4f\n",
-            all_ok ? "COMPLETED" : "ABORTED", p_done);
+            all_ok ? "COMPLETED" : "ABORTED", p_done_);
 
         if (observer_.on_end) observer_.on_end(*model_);
 
@@ -695,19 +1188,28 @@ private:
         SNESGetConvergedReason(snes_, &reason);
         PetscInt its;
         SNESGetIterationNumber(snes_, &its);
+        const double residual_norm = function_norm();
+        const auto& profile =
+            fall_n::select_nonlinear_solve_profile(active_solve_profiles_(), 0);
+        const auto acceptance =
+            fall_n::assess_nonlinear_solve_attempt(
+                profile, reason, residual_norm);
 
         // ── 3. Converged? Commit and return ──────────────────────
-        if (reason > 0) {
+        if (acceptance.accepted) {
             if (auto_commit_)
                 commit_state();
             else
                 sync_model_state_from_solution_();
 
-            PetscPrintf(PETSC_COMM_WORLD,
-                "    p=%.6f  converged  (reason=%d, %d iterations)\n",
+            incremental_printf_(
+                "    p=%.6f  converged  (reason=%d, %d iterations%s)\n",
                 p_target,
                 static_cast<int>(reason),
-                static_cast<int>(its));
+                static_cast<int>(its),
+                acceptance.accepted_by_small_residual_policy
+                    ? ", accepted-by-small-residual-policy"
+                    : "");
             return true;
         }
 
@@ -720,7 +1222,7 @@ private:
         scheme.apply(p_current, f_full, f_ext, model_);
         ctx_.f_ext = f_ext;
 
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "    p=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
             p_target,
             static_cast<int>(reason),
@@ -728,7 +1230,7 @@ private:
 
         // ── 5. Bisection budget exhausted? ───────────────────────
         if (bisections_left <= 0) {
-            PetscPrintf(PETSC_COMM_WORLD,
+            incremental_printf_(
                 "    No bisection budget remaining at p=%.6f.\n",
                 p_target);
             return false;
@@ -737,7 +1239,7 @@ private:
         // ── 6. Bisect: split [p_current → p_target] into halves ──
         double p_mid = 0.5 * (p_current + p_target);
 
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "    Bisecting: p = %.6f → %.6f → %.6f  "
             "(depth remaining: %d)\n",
             p_current, p_mid, p_target,
@@ -762,33 +1264,77 @@ private:
     //  and f_full_ members instead of template parameters.
 
     bool advance_step_impl_(double p_current, double p_target,
-                            int bisections_left)
+                            int bisections_left,
+                            int bisection_level = 0)
     {
+        last_increment_step_diagnostics_.last_attempt_p_start = p_current;
+        last_increment_step_diagnostics_.last_attempt_p_target = p_target;
+
         petsc::OwnedVec U_snap{};
         VecDuplicate(U, U_snap.ptr());
         VecCopy(U, U_snap);
 
-        apply_fn_(p_target, f_full_, f_ext, model_);
-        ctx_.f_ext = f_ext;
+        SNESConvergedReason reason{SNES_CONVERGED_ITERATING};
+        PetscInt its{0};
+        double residual_norm = 0.0;
 
-        SNESSolve(snes_, nullptr, U);
+        for (const auto& profile : active_solve_profiles_()) {
+            revert_state();
+            apply_fn_(p_target, f_full_, f_ext, model_);
+            ctx_.f_ext = f_ext;
+            const bool used_predictor = apply_increment_predictor_(
+                U_snap.get(), p_current, p_target, bisection_level, profile);
+            apply_solve_profile_(profile);
 
-        SNESConvergedReason reason;
-        SNESGetConvergedReason(snes_, &reason);
-        PetscInt its;
-        SNESGetIterationNumber(snes_, &its);
-
-        if (reason > 0) {
-            if (auto_commit_)
-                commit_state();
-            else
-                sync_model_state_from_solution_();
-            PetscPrintf(PETSC_COMM_WORLD,
-                "    p=%.6f  converged  (reason=%d, %d iterations)\n",
+            incremental_printf_(
+                "    trying solver profile '%s' at p=%.6f (%s guess)\n",
+                profile.label.c_str(),
                 p_target,
-                static_cast<int>(reason),
-                static_cast<int>(its));
-            return true;
+                used_predictor ? "predicted" : "current-state");
+
+            SNESSolve(snes_, nullptr, U);
+
+            SNESGetConvergedReason(snes_, &reason);
+            SNESGetIterationNumber(snes_, &its);
+            residual_norm = function_norm();
+            const auto acceptance =
+                fall_n::assess_nonlinear_solve_attempt(
+                    profile, reason, residual_norm);
+            record_solver_profile_diagnostics_(
+                profile, reason, residual_norm, acceptance);
+            last_increment_step_diagnostics_.max_bisection_level =
+                std::max(last_increment_step_diagnostics_.max_bisection_level,
+                         bisection_level);
+
+            if (acceptance.accepted) {
+                if (auto_commit_)
+                    commit_state();
+                else
+                    sync_model_state_from_solution_();
+                capture_previous_converged_state_(U_snap.get(), p_current);
+                last_increment_step_diagnostics_.accepted_substep_count += 1;
+                last_increment_step_diagnostics_.total_newton_iterations +=
+                    static_cast<int>(its);
+                last_increment_step_diagnostics_.converged = true;
+                incremental_printf_(
+                    "    p=%.6f  converged  (profile=%s, reason=%d, %d iterations%s)\n",
+                    p_target,
+                    profile.label.c_str(),
+                    static_cast<int>(reason),
+                    static_cast<int>(its),
+                    acceptance.accepted_by_small_residual_policy
+                        ? ", accepted-by-small-residual-policy"
+                        : "");
+                return true;
+            }
+        }
+
+        // Capture the failed trial state before rollback so validation audits
+        // can inspect the exact section/fiber configuration that exhausted
+        // the current continuation slice.
+        sync_model_state_from_solution_();
+        if (failed_attempt_callback_) {
+            failed_attempt_callback_(*model_, last_increment_step_diagnostics_);
         }
 
         VecCopy(U_snap, U);
@@ -796,15 +1342,19 @@ private:
 
         apply_fn_(p_current, f_full_, f_ext, model_);
         ctx_.f_ext = f_ext;
+        sync_model_state_from_solution_();
 
-        PetscPrintf(PETSC_COMM_WORLD,
-            "    p=%.6f  DIVERGED   (reason=%d, %d iterations)\n",
+        incremental_printf_(
+            "    p=%.6f  DIVERGED   (profile=%s, reason=%d, %d iterations)\n",
             p_target,
+            last_increment_step_diagnostics_.last_solver_profile_label.c_str(),
             static_cast<int>(reason),
             static_cast<int>(its));
+        last_increment_step_diagnostics_.failed_attempt_count += 1;
+        last_increment_step_diagnostics_.converged = false;
 
         if (bisections_left <= 0) {
-            PetscPrintf(PETSC_COMM_WORLD,
+            incremental_printf_(
                 "    No bisection budget remaining at p=%.6f.\n",
                 p_target);
             return false;
@@ -812,20 +1362,106 @@ private:
 
         double p_mid = 0.5 * (p_current + p_target);
 
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "    Bisecting: p = %.6f → %.6f → %.6f  "
             "(depth remaining: %d)\n",
             p_current, p_mid, p_target,
             bisections_left - 1);
 
         if (!advance_step_impl_(p_current, p_mid,
-                                bisections_left - 1))
+                                bisections_left - 1,
+                                bisection_level + 1))
             return false;
 
         if (!advance_step_impl_(p_mid, p_target,
-                                bisections_left - 1))
+                                bisections_left - 1,
+                                bisection_level + 1))
             return false;
 
+        return true;
+    }
+
+    void emit_requested_step_callbacks_()
+    {
+        if (auto_commit_ && step_callback_) {
+            step_callback_(step_count_, p_done_, *model_);
+        }
+        if (auto_commit_ && observer_.on_step) {
+            fall_n::StepEvent ev{
+                static_cast<PetscInt>(step_count_),
+                p_done_,
+                U.get(),
+                nullptr};
+            observer_.on_step(ev, *model_);
+        }
+    }
+
+    bool advance_requested_step_(double requested_target)
+    {
+        constexpr double tol = 1.0e-14;
+
+        const double outer_target = std::clamp(requested_target, p_done_, 1.0);
+        if (outer_target <= p_done_ + tol) {
+            return false;
+        }
+
+        const auto outer_checkpoint = capture_checkpoint();
+        double local_increment = outer_target - p_done_;
+        if (increment_adaptation_.enabled) {
+            local_increment = std::min(
+                clamp_increment_size_(std::max(dp_, minimum_increment_size_())),
+                local_increment);
+        }
+
+        bool used_cutback = false;
+        int cutbacks_used = 0;
+
+        while (p_done_ < outer_target - tol) {
+            local_increment = std::min(local_increment, outer_target - p_done_);
+            const double p_subtarget = p_done_ + local_increment;
+
+            if (advance_step_impl_(p_done_, p_subtarget, max_bisections_, 0)) {
+                p_done_ = p_subtarget;
+                continue;
+            }
+
+            if (!increment_adaptation_.enabled ||
+                cutbacks_used >= increment_adaptation_.max_cutbacks_per_step) {
+                restore_checkpoint(outer_checkpoint);
+                last_increment_step_diagnostics_.converged = false;
+                model_->update_elements_state();
+                return false;
+            }
+
+            const double next_increment =
+                clamp_increment_size_(
+                    local_increment * increment_adaptation_.cutback_factor);
+            if (next_increment >= local_increment - tol ||
+                next_increment < minimum_increment_size_() - tol) {
+                restore_checkpoint(outer_checkpoint);
+                last_increment_step_diagnostics_.converged = false;
+                model_->update_elements_state();
+                return false;
+            }
+
+            used_cutback = true;
+            ++cutbacks_used;
+            incremental_printf_(
+                "    Requested-step cutback: Δp = %.6f → %.6f  "
+                "(remaining to target: %.6f, cutback %d/%d)\n",
+                local_increment,
+                next_increment,
+                outer_target - p_done_,
+                cutbacks_used,
+                increment_adaptation_.max_cutbacks_per_step);
+            local_increment = next_increment;
+        }
+
+        ++step_count_;
+        adapt_next_increment_after_requested_step_(local_increment, used_cutback);
+        previous_requested_step_diagnostics_ = last_increment_step_diagnostics_;
+        emit_requested_step_callbacks_();
+        model_->update_elements_state();
         return true;
     }
 
@@ -861,9 +1497,13 @@ public:
         VecCopy(f_ext, f_full_);
 
         dp_              = 1.0 / num_steps;
+        initial_dp_      = dp_;
         max_bisections_  = max_bisections;
         p_done_          = 0.0;
         step_count_      = 0;
+        easy_step_streak_ = 0;
+        last_increment_step_diagnostics_ = IncrementStepDiagnostics{};
+        reset_increment_predictor_history_();
 
         // Type-erase the scheme into a std::function
         apply_fn_ = [s = std::move(scheme)](
@@ -873,7 +1513,7 @@ public:
 
         incremental_active_ = true;
 
-        PetscPrintf(PETSC_COMM_WORLD,
+        incremental_printf_(
             "  begin_incremental: %d steps (dp=%.6f), "
             "max bisection depth = %d\n",
             num_steps, dp_, max_bisections_);
@@ -887,28 +1527,22 @@ public:
         assert(incremental_active_ &&
             "call begin_incremental() before step()");
 
-        double p_target = p_done_ + dp_;
-        if (p_target > 1.0 + 1e-14) return false;  // already done
+        if (p_done_ >= 1.0 - 1.0e-14) {
+            return false;
+        }
 
-        PetscPrintf(PETSC_COMM_WORLD,
+        const double p_target = std::min(p_done_ + dp_, 1.0);
+
+        incremental_printf_(
             "\n  ── Step %d: p = %.4f → %.4f ──\n",
             step_count_ + 1, p_done_, p_target);
 
-        bool ok = advance_step_impl_(p_done_, p_target, max_bisections_);
+        last_increment_step_diagnostics_ = IncrementStepDiagnostics{
+            .p_start = p_done_,
+            .p_target = p_target,
+        };
 
-        if (ok) {
-            p_done_ = p_target;
-            ++step_count_;
-            if (auto_commit_ && step_callback_)
-                step_callback_(step_count_, p_done_, *model_);
-            if (auto_commit_ && observer_.on_step) {
-                fall_n::StepEvent ev{step_count_, p_done_, U.get(), nullptr};
-                observer_.on_step(ev, *model_);
-            }
-        }
-
-        model_->update_elements_state();
-        return ok;
+        return advance_requested_step_(p_target);
     }
 
     /// Advance until p >= p_target, respecting the StepDirector.
@@ -929,7 +1563,15 @@ public:
             "call begin_incremental() before step_to()");
 
         while (p_done_ < p_target - 1e-14) {
-            if (!step()) {
+            const double step_target =
+                std::min(p_done_ + std::max(dp_, 0.0), p_target);
+
+            last_increment_step_diagnostics_ = IncrementStepDiagnostics{
+                .p_start = p_done_,
+                .p_target = step_target,
+            };
+
+            if (!advance_requested_step_(step_target)) {
                 return fall_n::StepVerdict::Stop;
             }
 
@@ -1008,6 +1650,26 @@ public:
 
     /// Change the increment size at runtime.
     void set_increment_size(double dp) { dp_ = dp; }
+
+    void set_increment_adaptation(IncrementAdaptationSettings settings)
+    {
+        increment_adaptation_ = std::move(settings);
+    }
+
+    [[nodiscard]] const IncrementAdaptationSettings&
+    increment_adaptation() const noexcept
+    {
+        return increment_adaptation_;
+    }
+
+    /// Enable or silence the incremental-step trace emitted by this solver.
+    ///
+    /// This only affects the solver's own progress messages; higher-level
+    /// observers and validation summaries remain under their own control.
+    void set_incremental_logging(bool enabled) noexcept
+    {
+        incremental_logging_enabled_ = enabled;
+    }
 
 
     // =================================================================

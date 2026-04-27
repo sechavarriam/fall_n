@@ -501,15 +501,15 @@ canonical_formulation_audit_scope(FormulationKind formulation_kind) noexcept
         case FormulationKind::corotational:
             return {
                 FormulationKind::corotational,
-                FormulationMaturity::placeholder,
+                FormulationMaturity::partial,
                 canonical_virtual_work_semantics(FormulationKind::corotational),
-                AuditEvidenceLevel::interface_declared,
+                AuditEvidenceLevel::regression_tested,
+                true,
+                true,
                 false,
                 false,
                 false,
-                false,
-                false,
-                false
+                true
             };
     }
     return {};
