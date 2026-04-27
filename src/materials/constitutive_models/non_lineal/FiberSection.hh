@@ -453,13 +453,17 @@ public:
             Strain<1> strain_1d;
             strain_1d.set_components(eps_f);
             const auto stress_1d = fiber.material.compute_response(strain_1d);
+            const auto tangent_1d = fiber.material.tangent(strain_1d);
 
             fiber_field_cache_[i] = FiberSectionSample{
+                    .fiber_index = i,
                     .y = fiber.y,
                     .z = fiber.z,
                     .area = fiber.A,
                     .strain_xx = eps_f,
                     .stress_xx = stress_1d.components(),
+                    .tangent_xx = tangent_1d(0, 0),
+                    .internal_fields = fiber.material.internal_field_snapshot(),
                 };
         }
         return fiber_field_cache_;

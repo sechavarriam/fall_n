@@ -152,10 +152,37 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
    // direct public member (`damage`) or through a semantic accessor (`d()`).
    // The snapshot stays layout-agnostic and only records the scalar when the
    // constitutive state exposes one of those compile-time signatures.
-   if constexpr (requires { material.internal_state().damage; }) {
+   if constexpr (requires {
+      { material.internal_state().damage } -> std::convertible_to<double>;
+   }) {
       snap.damage = material.internal_state().damage;
-   } else if constexpr (requires { material.internal_state().d(); }) {
+   } else if constexpr (requires {
+      { material.internal_state().d() } -> std::convertible_to<double>;
+   }) {
       snap.damage = material.internal_state().d();
+   }
+
+   if constexpr (requires {
+      material.internal_state().eps_min;
+      material.internal_state().sig_at_eps_min;
+      material.internal_state().eps_pl;
+      material.internal_state().eps_t_max;
+      material.internal_state().sig_at_eps_t_max;
+      material.internal_state().state;
+      material.internal_state().eps_committed;
+      material.internal_state().sig_committed;
+      material.internal_state().cracked;
+   }) {
+      const auto& alpha = material.internal_state();
+      snap.history_state_code = alpha.state;
+      snap.history_min_strain = alpha.eps_min;
+      snap.history_min_stress = alpha.sig_at_eps_min;
+      snap.history_closure_strain = alpha.eps_pl;
+      snap.history_max_tensile_strain = alpha.eps_t_max;
+      snap.history_max_tensile_stress = alpha.sig_at_eps_t_max;
+      snap.history_committed_strain = alpha.eps_committed;
+      snap.history_committed_stress = alpha.sig_committed;
+      snap.history_cracked = alpha.cracked;
    }
 
    // ── Smeared cracking state (Ko-Bathe concrete and similar models) ─────

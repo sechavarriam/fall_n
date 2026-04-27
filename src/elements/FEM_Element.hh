@@ -223,9 +223,9 @@ class FEM_Element {
 
         std::vector<GaussPointSnapshot>
         gauss_point_snapshots([[maybe_unused]] Vec u_local) const override {
-            // Elements that expose material_points() (ContinuumElement) can
-            // be queried for per-GP crack/damage state.  Others return {}.
             if constexpr (requires { element_.material_points(); }) {
+                // Elements that expose material_points() (ContinuumElement) can
+                // be queried for per-GP crack/damage state.  Others return {}.
                 std::vector<GaussPointSnapshot> out;
                 const auto& mps = element_.material_points();
                 out.reserve(mps.size());

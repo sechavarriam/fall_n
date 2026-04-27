@@ -16,7 +16,10 @@
 //
 
 #include "FiberSectionFactory.hh"
+#include "RCSectionLayout.hh"
 #include "../utils/SectionProperties.hh"
+
+#include <utility>
 
 namespace fall_n {
 
@@ -24,31 +27,42 @@ namespace fall_n {
 //  RC column section specification
 // ═════════════════════════════════════════════════════════════════════════
 
-struct RCColumnSpec {
-    // Section geometry
-    double b;               // width  (m)
-    double h;               // height (m)
-    double cover;           // clear cover to stirrup centre (m)
-    double bar_diameter;    // longitudinal bar diameter (m)
-    double tie_spacing;     // transverse tie spacing (m)
+template <typename UnconfinedFactory,
+          typename ConfinedFactory,
+          typename SteelFactory>
+[[nodiscard]] inline std::vector<Fiber>
+build_rc_column_fibers(const RCColumnSpec& s,
+                       UnconfinedFactory&& make_unconfined,
+                       ConfinedFactory&& make_confined,
+                       SteelFactory&& make_steel)
+{
+    std::vector<Fiber> fibers;
+    fibers.reserve(rc_column_fiber_count(s));
 
-    // Concrete
-    double fpc;             // unconfined cylinder strength (MPa)
-    double nu;              // Poisson's ratio (for shear modulus)
+    for (const auto& patch : rc_column_patch_layout(s)) {
+        add_patch_fibers(
+            fibers,
+            patch.y_min,
+            patch.y_max,
+            patch.ny,
+            patch.z_min,
+            patch.z_max,
+            patch.nz,
+            [&]() {
+                return patch.material_role ==
+                               RCSectionMaterialRole::confined_concrete
+                           ? make_confined()
+                           : make_unconfined();
+            });
+    }
 
-    // Steel
-    double steel_E;         // Young's modulus (MPa)
-    double steel_fy;        // yield strength (MPa)
-    double steel_b;         // strain-hardening ratio
-
-    // Transverse reinforcement
-    double tie_fy;          // tie yield strength (MPa)
-    double rho_s = 0.015;   // volumetric transverse reinforcement ratio
-
-    // Shear correction factors
-    double kappa_y = 5.0/6.0;
-    double kappa_z = 5.0/6.0;
-};
+    add_rebar_fibers(
+        fibers,
+        rc_column_longitudinal_bar_positions(s),
+        rc_column_longitudinal_bar_area(s),
+        make_steel);
+    return fibers;
+}
 
 /// Build a nonlinear fiber-section material for a rectangular RC column.
 ///
@@ -58,48 +72,31 @@ make_rc_column_section(const RCColumnSpec& s) {
     const double Ec = concrete_initial_modulus(s.fpc);
     const double Gc = isotropic_shear_modulus(Ec, s.nu);
     const double J  = rectangular_torsion_constant(s.b, s.h);
+    const double y_core = 0.5 * s.b - s.cover;
+    const double z_core = 0.5 * s.h - s.cover;
+    const KentParkConcreteTensionConfig concrete_tension{
+        .tensile_strength = s.concrete_ft_ratio * s.fpc,
+        .softening_multiplier = s.concrete_tension_softening_multiplier,
+        .residual_tangent_ratio = s.concrete_tension_residual_tangent_ratio,
+        .crack_transition_multiplier = s.concrete_tension_transition_multiplier,
+    };
 
-    std::vector<Fiber> fibers;
-    fibers.reserve(48);
-
-    const double y_edge = 0.5 * s.b;
-    const double z_edge = 0.5 * s.h;
-    const double y_core = y_edge - s.cover;
-    const double z_core = z_edge - s.cover;
-
-    // Cover concrete (4 patches — top/bottom strips + side strips)
-    auto unconfined = [&] { return make_unconfined_concrete(s.fpc); };
-
-    add_patch_fibers(fibers, -y_edge, y_edge, 8, -z_edge, -z_core, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, y_edge, 8,  z_core,  z_edge, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 4, unconfined);
-    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 4, unconfined);
-
-    // Confined core
-    add_patch_fibers(
-        fibers, -y_core, y_core, 6, -z_core, z_core, 6,
+    auto fibers = build_rc_column_fibers(
+        s,
+        [&] { return make_unconfined_concrete(s.fpc, concrete_tension); },
         [&] {
             return make_confined_concrete(
-                s.fpc, s.rho_s, s.tie_fy,
+                s.fpc,
+                concrete_tension,
+                s.rho_s,
+                s.tie_fy,
                 2.0 * std::min(y_core, z_core),
                 s.tie_spacing);
+        },
+        [&] {
+            return make_steel_fiber_material(
+                s.steel_E, s.steel_fy, s.steel_b);
         });
-
-    // 8-bar reinforcement pattern (corners + face centres)
-    const double y_bar = y_edge - s.cover;
-    const double z_bar = z_edge - s.cover;
-    const double A_bar = bar_area(s.bar_diameter);
-
-    const std::array<std::pair<double, double>, 8> bars = {{
-        {-y_bar, -z_bar}, { y_bar, -z_bar},
-        {-y_bar,  z_bar}, { y_bar,  z_bar},
-        { 0.0,   -z_bar}, { 0.0,    z_bar},
-        {-y_bar,  0.0  }, { y_bar,   0.0  }
-    }};
-
-    add_rebar_fibers(
-        fibers, bars, A_bar,
-        [&] { return make_steel_fiber_material(s.steel_E, s.steel_fy, s.steel_b); });
 
     FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
     return Material<TimoshenkoBeam3D>{
@@ -112,6 +109,31 @@ make_rc_column_section(const RCColumnSpec& s) {
 // ═════════════════════════════════════════════════════════════════════════
 //  RC rectangular column section (12 bars)
 // ═════════════════════════════════════════════════════════════════════════
+
+/// Build an elasticized control section over the same RC fiber layout.
+///
+/// The geometry, patch subdivision, and rebar placement match the nonlinear
+/// column section exactly; only the constitutive fibers collapse to linear
+/// elastic laws. This is useful as a parity slice when comparing section-level
+/// observables against external tools.
+inline Material<TimoshenkoBeam3D>
+make_rc_column_section_elasticized(const RCColumnSpec& s) {
+    const double Ec = concrete_initial_modulus(s.fpc);
+    const double Gc = isotropic_shear_modulus(Ec, s.nu);
+    const double J  = rectangular_torsion_constant(s.b, s.h);
+
+    auto fibers = build_rc_column_fibers(
+        s,
+        [&] { return make_elastic_uniaxial_material(Ec); },
+        [&] { return make_elastic_uniaxial_material(Ec); },
+        [&] { return make_elastic_uniaxial_material(s.steel_E); });
+
+    FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
+    return Material<TimoshenkoBeam3D>{
+        InelasticMaterial<FiberSection3D>{std::move(section)},
+        InelasticUpdate{}
+    };
+}
 
 struct RCRectColumnSpec {
     // Section geometry

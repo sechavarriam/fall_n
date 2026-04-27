@@ -102,6 +102,19 @@ struct InternalFieldSnapshot {
     std::optional<int> no_flow_crack_state_switches{};
     std::optional<bool> no_flow_stabilized{};
 
+    // -- Generic uniaxial concrete history surface ---------------------------------
+    //  Used today by Kent-Park style concrete laws to expose closure/reopening
+    //  state without forcing the validation layer to downcast the constitutive site.
+    std::optional<int> history_state_code{};
+    std::optional<double> history_min_strain{};
+    std::optional<double> history_min_stress{};
+    std::optional<double> history_closure_strain{};
+    std::optional<double> history_max_tensile_strain{};
+    std::optional<double> history_max_tensile_stress{};
+    std::optional<double> history_committed_strain{};
+    std::optional<double> history_committed_stress{};
+    std::optional<bool> history_cracked{};
+
     // ── Query helpers ────────────────────────────────────────────────────
     [[nodiscard]] bool has_plastic_strain()            const noexcept { return plastic_strain.has_value(); }
     [[nodiscard]] bool has_equivalent_plastic_strain()  const noexcept { return equivalent_plastic_strain.has_value(); }
@@ -111,6 +124,11 @@ struct InternalFieldSnapshot {
     [[nodiscard]] bool has_no_flow_diagnostics()         const noexcept {
         return no_flow_stabilization_iterations.has_value()
             || no_flow_stabilized.has_value();
+    }
+    [[nodiscard]] bool has_uniaxial_concrete_history()    const noexcept {
+        return history_state_code.has_value()
+            || history_closure_strain.has_value()
+            || history_max_tensile_strain.has_value();
     }
 };
 

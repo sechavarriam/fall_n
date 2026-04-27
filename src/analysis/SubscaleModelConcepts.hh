@@ -37,6 +37,8 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "LocalModelTaxonomy.hh"
+
 namespace fall_n {
 
 template <typename T>
@@ -67,6 +69,51 @@ concept ObservableSubscaleModel = requires(const T& t)
 {
     { t.parent_element_id() } -> std::convertible_to<std::size_t>;
 };
+
+template <typename T>
+concept TaxonomyAwareSubscaleModel =
+    requires(const std::remove_cvref_t<T>& t)
+{
+    { t.local_model_taxonomy() } -> std::same_as<LocalModelTaxonomy>;
+} || requires
+{
+    { std::remove_cvref_t<T>::local_model_taxonomy() }
+        -> std::same_as<LocalModelTaxonomy>;
+};
+
+template <typename T>
+[[nodiscard]] constexpr LocalModelTaxonomy
+describe_subscale_model_taxonomy(
+    const std::remove_cvref_t<T>& model) noexcept
+{
+    if constexpr (requires(const std::remove_cvref_t<T>& t)
+                  {
+                      { t.local_model_taxonomy() }
+                          -> std::same_as<LocalModelTaxonomy>;
+                  }) {
+        return model.local_model_taxonomy();
+    } else if constexpr (requires
+                         {
+                             { std::remove_cvref_t<T>::local_model_taxonomy() }
+                                 -> std::same_as<LocalModelTaxonomy>;
+                         }) {
+        return std::remove_cvref_t<T>::local_model_taxonomy();
+    } else {
+        return {};
+    }
+}
+
+template <typename T>
+    requires requires
+    {
+        { std::remove_cvref_t<T>::local_model_taxonomy() }
+            -> std::same_as<LocalModelTaxonomy>;
+    }
+[[nodiscard]] constexpr LocalModelTaxonomy
+describe_subscale_model_taxonomy() noexcept
+{
+    return std::remove_cvref_t<T>::local_model_taxonomy();
+}
 
 template <typename T, typename DrivingStateT>
 concept DrivenSubscaleModel = requires(T& t, const DrivingStateT& driving_state)

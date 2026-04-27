@@ -4,6 +4,7 @@
 #include <memory>
 #include <array>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 #ifdef __clang__ 
@@ -23,7 +24,7 @@
 
 template <typename MaterialPolicy, std::size_t ndof,
           typename KinematicPolicy = continuum::SmallStrain>
-    requires continuum::FamilyNormativelySupportedKinematicPolicy<
+    requires continuum::FamilyRuntimeKinematicPolicy<
         continuum::ElementFamilyKind::continuum_solid_3d,
         KinematicPolicy>
 class ContinuumElement
@@ -66,18 +67,31 @@ class ContinuumElement
   std::vector<PetscInt> dof_indices_;
   bool                  dofs_cached_{false};
 
-  void ensure_dof_cache() noexcept {
+  void ensure_dof_cache() {
       if (dofs_cached_) return;
       collect_dof_indices();
   }
 
-  void collect_dof_indices() noexcept {
+  void collect_dof_indices() {
       const auto total = ndof * num_nodes();
       dof_indices_.clear();
       dof_indices_.reserve(total);
-      for (std::size_t i = 0; i < num_nodes(); ++i)
-          for (const auto idx : geometry_->node_p(i).dof_index())
-              dof_indices_.push_back(idx);
+      for (std::size_t i = 0; i < num_nodes(); ++i) {
+          const auto node_dofs = geometry_->node_p(i).dof_index();
+          if (node_dofs.size() < ndof) {
+              throw std::runtime_error(
+                  "ContinuumElement found a node with fewer standard displacement DOFs than required.");
+          }
+
+          // A node may carry extra family-specific unknowns, e.g. shifted
+          // Heaviside XFEM coefficients appended after the standard
+          // displacement block.  The ordinary continuum kernel must assemble
+          // only its own ndof block; enriched kernels add their contribution
+          // through their own PETSc mappings.
+          for (std::size_t c = 0; c < ndof; ++c) {
+              dof_indices_.push_back(node_dofs[c]);
+          }
+      }
       dofs_cached_ = true;
   }
 
@@ -259,9 +273,12 @@ public:
           auto constitutive_kin =
               continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
           auto sigma = material_points_[gp].compute_response(constitutive_kin);
+          auto sigma_assembly =
+              continuum::assembly_stress_voigt<KinematicPolicy, dim>(
+                  sigma.components(), kin);
           const double volume_factor =
               KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
-          f_e += w * Jdet * volume_factor * (kin.B.transpose() * sigma.components());
+          f_e += w * Jdet * volume_factor * (kin.B.transpose() * sigma_assembly);
       }
       return f_e;
   }
@@ -285,11 +302,13 @@ public:
           auto constitutive_kin =
               continuum::make_constitutive_kinematics<KinematicPolicy>(kin);
           auto C_t = material_points_[gp].tangent(constitutive_kin);
+          auto C_assembly =
+              continuum::assembly_tangent_matrix<KinematicPolicy, dim>(C_t, kin);
           const double volume_factor =
               KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
 
           // Material stiffness: K_mat = ∫ Bᵀ C B dV
-          K_e += w * Jdet * volume_factor * (kin.B.transpose() * C_t * kin.B);
+          K_e += w * Jdet * volume_factor * (kin.B.transpose() * C_assembly * kin.B);
 
           // Geometric stiffness K_σ (only for nonlinear formulations)
           if constexpr (KinematicPolicy::needs_geometric_stiffness) {
@@ -469,7 +488,7 @@ public:
 // =================================== Solution manipulation =====================================
 
 
-  auto get_current_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
+  auto get_current_state(const auto &model) { // CONSTRAIN WITH MODEL CONCEPT
     ensure_dof_cache();
     std::vector<PetscScalar> u(dof_indices_.size());
     VecGetValues(model.state_vector(), static_cast<PetscInt>(dof_indices_.size()),
@@ -478,7 +497,7 @@ public:
   };
 
   // Templatize this method with an AnalisisT concept
-  auto compute_strain(const Array &X, const auto &model) noexcept{
+  auto compute_strain(const Array &X, const auto &model) {
     typename MaterialPolicy::StateVariableT e_h;
     using EigenMap = Eigen::Map<Eigen::Vector<double,Eigen::Dynamic>>;
 
@@ -495,7 +514,7 @@ public:
     return e_h; 
   };
 
-  void set_material_point_state(const auto &model) noexcept{ // CONSTRAIN WITH MODEL CONCEPT
+  void set_material_point_state(const auto &model) { // CONSTRAIN WITH MODEL CONCEPT
     // Extract element DOFs once — identical to commit_material_state path
     Eigen::VectorXd u_e = extract_element_dofs(model.state_vector());
 

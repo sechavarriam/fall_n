@@ -318,6 +318,16 @@ public:
                                     int d, double val,
                                     double tol = 1.0e-6)
     {
+        create_boundary_from_plane(
+            group_name, d, val, tol, 0, elements_.size());
+    }
+
+    void create_boundary_from_plane(const std::string& group_name,
+                                    int d, double val,
+                                    double tol,
+                                    std::size_t element_begin,
+                                    std::size_t element_end)
+    {
         // 1. Collect IDs of nodes on the plane — O(1) lookup via unordered_set
         std::unordered_set<PetscInt> plane_node_ids;
         plane_node_ids.reserve(vertices_.size() / 4); // heuristic
@@ -330,8 +340,11 @@ public:
 
         // 2. For each volume element, check each face via generic subentity topology
         std::size_t surf_tag = 900000;
+        const auto safe_begin = std::min(element_begin, elements_.size());
+        const auto safe_end = std::min(element_end, elements_.size());
 
-        for (auto& elem : elements_) {
+        for (std::size_t e = safe_begin; e < safe_end; ++e) {
+            auto& elem = elements_[e];
             const auto nf = elem.num_faces();
 
             for (std::size_t f = 0; f < nf; ++f) {

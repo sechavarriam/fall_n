@@ -1,273 +1,325 @@
 #ifndef FN_KENT_PARK_CONCRETE_HH
 #define FN_KENT_PARK_CONCRETE_HH
 
-// =============================================================================
-//  KentParkConcrete — Uniaxial cyclic concrete model
-// =============================================================================
-//
-//  Implementation of the modified Kent-Park model (Scott, Park & Priestley
-//  1982), with tension cut-off and linear unloading/reloading.
-//
-//  This model captures the essential features of concrete behavior under
-//  cyclic loading relevant for reinforced concrete fiber sections:
-//    - Parabolic compression ascending branch
-//    - Linear softening descending branch
-//    - Linear unloading/reloading to the origin
-//    - Optional tension capacity with linear descending
-//    - Confinement effect via K parameter
-//
-//  ─── Compressive envelope ───────────────────────────────────────────────
-//
-//  The compression envelope (ε < 0 in sign convention) consists of two
-//  regions. Using f'c  = peak compressive strength (positive value),
-//  ε_0 = strain at peak (negative), ε_u = ultimate strain (negative):
-//
-//  Region 1: Ascending parabola (ε_0 ≤ ε ≤ 0)
-//
-//    σ = K·f'c · [ 2·(ε/ε_0) − (ε/ε_0)² ]
-//
-//  Region 2: Linear descending (ε < ε_0)
-//
-//    σ = K·f'c · [ 1 − Z·(ε − ε_0) ]  ≥  0.2·K·f'c
-//
-//  where Z is the slope of the descending branch:
-//
-//    Z = 0.5 / (ε_50u + ε_50h − ε_0)
-//
-//  Parameters K, ε_50u, ε_50h account for confinement:
-//    K     = 1 + ρ_s · f_yh / f'c        (strength enhancement)
-//    ε_0   = −0.002 · K                   (strain at peak)
-//    ε_50u = (3 + 0.29·f'c) / (145·f'c − 1000)   (unconfined)
-//    ε_50h = 0.75 · ρ_s · √(h'/s_h)              (confinement term)
-//
-//  For unconfined concrete (K = 1, ε_50h = 0):
-//    ε_0   = −0.002
-//    Z     = 0.5 / (ε_50u − ε_0)
-//
-//  ─── Tensile behavior ───────────────────────────────────────────────────
-//
-//  Linear elastic up to f_t = 0.1·f'c (default), then immediate drop
-//  to zero (tension cut-off).  The tensile stiffness is the initial
-//  compressive stiffness E_c = 2·K·f'c / ε_0.
-//
-//  ─── Cyclic behavior (simplified) ───────────────────────────────────────
-//
-//  Unloading from the compression envelope follows a straight line back
-//  toward (ε_pl, 0), where ε_pl is the plastic strain:
-//
-//    ε_pl = ε_unload − σ_unload / E_c
-//
-//  Reloading follows the same line back to the envelope.  This simplified
-//  rule captures the essential behavior without the complexity of Karsan-Jirsa
-//  or Palermo-Vecchio rules.
-//
-//  ─── Sign convention ────────────────────────────────────────────────────
-//
-//  Following structural engineering convention:
-//    Compression: ε < 0, σ < 0
-//    Tension:     ε > 0, σ > 0
-//
-//  Note: f'c and f_t are stored as POSITIVE values internally.
-//
-//  ─── Satisfies ──────────────────────────────────────────────────────────
-//
-//    ConstitutiveRelation (Level 1)
-//    InelasticConstitutiveRelation (Level 2b)
-//    ExternallyStateDrivenConstitutiveRelation (Level 3)
-//
-//  ─── References ─────────────────────────────────────────────────────────
-//
-//  [1] Kent, D.C. and Park, R. (1971). "Flexural members with confined
-//      concrete." ASCE J. Struct. Div., 97(7), 1969-1990.
-//
-//  [2] Scott, B.D., Park, R. and Priestley, M.J.N. (1982). "Stress-strain
-//      behavior of concrete confined by overlapping hoops at low and high
-//      strain rates." ACI J., 79(1), 13-27.
-//
-//  [3] Park, R., Priestley, M.J.N. and Gill, W.D. (1982). "Ductility of
-//      square-confined concrete columns." ASCE J. Struct. Div., 108(4).
-//
-// =============================================================================
-
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
-#include <algorithm>
 
 #include <Eigen/Dense>
 
-#include "../../MaterialPolicy.hh"
 #include "../../ConstitutiveRelation.hh"
-
-
-// =============================================================================
-//  KentParkState — Internal variables for concrete history
-// =============================================================================
+#include "../../MaterialPolicy.hh"
 
 struct KentParkState {
-    // ── Envelope tracking ─────────────────────────────────────────────
-    double eps_min{0.0};       // minimum strain ever reached (compression = negative)
-    double sig_at_eps_min{0.0}; // stress at eps_min (on envelope)
+    double eps_min{0.0};
+    double sig_at_eps_min{0.0};
 
-    // ── Unloading/reloading reference ─────────────────────────────────
-    double eps_pl{0.0};         // current plastic strain (compression residual)
-    double eps_unload{0.0};     // strain at start of unloading
-    double sig_unload{0.0};     // stress at start of unloading
+    double eps_pl{0.0};
+    double eps_unload{0.0};
+    double sig_unload{0.0};
 
-    // ── Loading state ─────────────────────────────────────────────────
-    //   0 = virgin
-    //   1 = on compression envelope
-    //   2 = unloading from compression
-    //   3 = reloading toward compression envelope
-    //   4 = tension (cracked or uncracked)
-    int    state{0};
+    int state{0};
 
-    // ── Committed values ──────────────────────────────────────────────
     double eps_committed{0.0};
     double sig_committed{0.0};
 
-    // ── Tension cracking ──────────────────────────────────────────────
-    bool   cracked{false};      // has tension cracking occurred?
+    bool cracked{false};
+    double eps_t_max{0.0};
+    double sig_at_eps_t_max{0.0};
 };
 
-
-// =============================================================================
-//  KentParkConcrete
-// =============================================================================
+struct KentParkConcreteTensionConfig {
+    double tensile_strength{0.0};
+    double softening_multiplier{0.0};
+    double residual_tangent_ratio{1.0e-6};
+    double crack_transition_multiplier{0.0};
+};
 
 class KentParkConcrete {
-
 public:
-    // ── Concept-required type aliases ─────────────────────────────────
-    using MaterialPolicyT    = UniaxialMaterial;
-    using KinematicT         = Strain<1>;
-    using ConjugateT         = Stress<1>;
-    using TangentT           = Eigen::Matrix<double, 1, 1>;
+    using MaterialPolicyT = UniaxialMaterial;
+    using KinematicT = Strain<1>;
+    using ConjugateT = Stress<1>;
+    using TangentT = Eigen::Matrix<double, 1, 1>;
     using InternalVariablesT = KentParkState;
 
-    static constexpr std::size_t N   = 1;
+    static constexpr std::size_t N = 1;
     static constexpr std::size_t dim = 1;
 
 private:
-    // ── Material parameters ───────────────────────────────────────────
+    double fpc_{0.0};
+    double eps0_{-0.002};
+    double Ec_{0.0};
+    double ft_{0.0};
+    double Zslope_{0.0};
+    double Kconf_{1.0};
 
-    double fpc_;    // Peak compressive strength f'c (POSITIVE value, MPa)
-    double eps0_;   // Strain at peak (NEGATIVE value)
-    double Ec_;     // Initial tangent modulus = 2·K·f'c / |ε_0|
-    double ft_;     // Tensile strength (POSITIVE value)
-    double Zslope_; // Softening slope parameter Z
-    double Kconf_;  // Confinement factor K (1.0 for unconfined)
+    double fpc_residual_{0.0};
+    double eps_u_{-0.01};
 
-    // Derived
-    double fpc_residual_; // Residual compressive stress = 0.2·K·f'c
-    double eps_u_;        // Ultimate strain (where stress = residual)
+    double eps_t_crack_{0.0};
+    double eps_t_zero_{0.0};
+    double Ets_{0.0};
+    double tension_softening_multiplier_{0.0};
+    double tension_residual_tangent_{0.0};
+    double crack_transition_multiplier_{0.0};
+    double eps_t_transition_end_{0.0};
 
-    // ── Internal state ────────────────────────────────────────────────
     KentParkState state_{};
 
-    // (Cache removed: const methods are now truly const and thread-safe.
-    //  The 2-arg overloads used through MaterialInstance never needed it.)
+    void initialize_tension_branch(const KentParkConcreteTensionConfig& tension) noexcept
+    {
+        ft_ = tension.tensile_strength > 0.0 ? tension.tensile_strength : 0.10 * fpc_;
+        tension_softening_multiplier_ = std::max(tension.softening_multiplier, 0.0);
+        tension_residual_tangent_ =
+            std::max(tension.residual_tangent_ratio, 0.0) * Ec_;
+        crack_transition_multiplier_ =
+            std::clamp(tension.crack_transition_multiplier, 0.0, 1.0);
+        eps_t_crack_ = ft_ / std::max(Ec_, 1.0e-12);
 
-
-    // =================================================================
-    //  Compression envelope: σ = f(ε) for ε ≤ 0
-    // =================================================================
-
-    void compression_envelope(double eps, double& sig, double& Et) const {
-        // eps is negative, eps0_ is negative
-        double eta = eps / eps0_;  // ratio ε/ε_0  (positive in compression)
-
-        if (eps >= eps0_) {
-            // Region 1: Ascending parabola  σ = Kf'c · [2η − η²]
-            double fpc_K = Kconf_ * fpc_;
-            sig = -fpc_K * (2.0 * eta - eta * eta);
-            Et  = -fpc_K * (2.0 - 2.0 * eta) / eps0_;
-            // Note: sig < 0 (compression), Et > 0 (stiffness)
+        if (tension_softening_multiplier_ > 0.0) {
+            const double softening_span =
+                std::max(tension_softening_multiplier_ * eps_t_crack_, 1.0e-12);
+            eps_t_zero_ = eps_t_crack_ + softening_span;
+            Ets_ = ft_ / softening_span;
+            eps_t_transition_end_ = std::min(
+                eps_t_crack_ + crack_transition_multiplier_ * softening_span,
+                eps_t_zero_);
         } else {
-            // Region 2: Linear descending  σ = Kf'c · [1 − Z·(ε_0 − ε)]
-            // Note: (eps0_ - eps) > 0 since eps < eps0_ (more negative)
-            double fpc_K = Kconf_ * fpc_;
-            double descent = 1.0 - Zslope_ * (eps0_ - eps);
-            double residual_ratio = 0.2;  // 20% residual strength
-
-            if (descent >= residual_ratio) {
-                sig = -fpc_K * descent;
-                Et  = -fpc_K * Zslope_;  // negative (softening)
-            } else {
-                // Residual plateau
-                sig = -fpc_K * residual_ratio;
-                Et  = 1e-6 * Ec_;  // small but nonzero for numerical stability
-            }
+            eps_t_zero_ = eps_t_crack_;
+            Ets_ = 0.0;
+            eps_t_transition_end_ = eps_t_crack_;
         }
     }
 
-
-    // =================================================================
-    //  Full evaluation: stress and tangent at given strain
-    // =================================================================
-
-    void evaluate(double eps, double& sig, double& Et,
-                  KentParkState local_state) const
+    void tensile_softening_response(double eps, double& sig, double& Et) const noexcept
     {
-        // ══════════════════════════════════════════════════════════════
-        //  TENSION (ε > 0)
-        // ══════════════════════════════════════════════════════════════
-
-        if (eps > 0.0) {
-            if (local_state.cracked) {
-                // Cracked: zero tension
-                sig = 0.0;
-                Et  = 1e-6 * Ec_;
-                return;
-            }
-
-            // Uncracked: linear elastic up to f_t
-            sig = Ec_ * eps;
-            Et  = Ec_;
-            if (sig > ft_) {
-                // Tension cut-off
-                sig = 0.0;
-                Et  = 1e-6 * Ec_;
-            }
+        if (tension_softening_multiplier_ > 0.0 && eps < eps_t_zero_) {
+            sig = std::max(ft_ - Ets_ * (eps - eps_t_crack_), 0.0);
+            Et = -Ets_;
             return;
         }
 
-        // ══════════════════════════════════════════════════════════════
-        //  COMPRESSION (ε ≤ 0)
-        // ══════════════════════════════════════════════════════════════
+        sig = 0.0;
+        Et = tension_residual_tangent_;
+    }
 
-        // Check if on envelope or unloading/reloading
+    void tension_crack_transition_response(
+        double eps,
+        double& sig,
+        double& Et) const noexcept
+    {
+        const double x0 = eps_t_crack_;
+        const double x1 = std::max(eps_t_transition_end_, x0 + 1.0e-12);
+        const double span = x1 - x0;
+
+        if (span <= 1.0e-12) {
+            tensile_softening_response(eps, sig, Et);
+            return;
+        }
+
+        double sig1 = 0.0;
+        double Et1 = 0.0;
+        tensile_softening_response(x1, sig1, Et1);
+
+        const double t = std::clamp((eps - x0) / span, 0.0, 1.0);
+        const double t2 = t * t;
+        const double t3 = t2 * t;
+
+        const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+        const double h10 = t3 - 2.0 * t2 + t;
+        const double h01 = -2.0 * t3 + 3.0 * t2;
+        const double h11 = t3 - t2;
+
+        sig = h00 * ft_ +
+              h10 * span * Ec_ +
+              h01 * sig1 +
+              h11 * span * Et1;
+
+        const double dh00 = 6.0 * t2 - 6.0 * t;
+        const double dh10 = 3.0 * t2 - 4.0 * t + 1.0;
+        const double dh01 = -6.0 * t2 + 6.0 * t;
+        const double dh11 = 3.0 * t2 - 2.0 * t;
+
+        Et = (dh00 * ft_ +
+              dh10 * span * Ec_ +
+              dh01 * sig1 +
+              dh11 * span * Et1) /
+             span;
+    }
+
+    void initialize_compression_branch_unconfined() noexcept
+    {
+        const double eps_50u = std::max(
+            (3.0 + 0.29 * fpc_) / (145.0 * fpc_ - 1000.0),
+            1.0e-6);
+        const double denom_z = std::max(eps_50u + eps0_, 1.0e-6);
+        Zslope_ = 0.5 / denom_z;
+        fpc_residual_ = 0.2 * Kconf_ * fpc_;
+        eps_u_ = eps0_ - (1.0 - 0.2) / Zslope_;
+    }
+
+    void initialize_compression_branch_confined(
+        double rho_s,
+        double /*fyh*/,
+        double h_prime,
+        double sh) noexcept
+    {
+        const double eps_50u = std::max(
+            (3.0 + 0.29 * fpc_) / (145.0 * fpc_ - 1000.0),
+            1.0e-6);
+        const double eps_50h = 0.75 * rho_s * std::sqrt(h_prime / sh);
+        const double denom_z = std::max(eps_50u + eps_50h + eps0_, 1.0e-6);
+        Zslope_ = 0.5 / denom_z;
+        fpc_residual_ = 0.2 * Kconf_ * fpc_;
+        eps_u_ = eps0_ - (1.0 - 0.2) / Zslope_;
+    }
+
+    void compression_envelope(double eps, double& sig, double& Et) const noexcept
+    {
+        const double eta = eps / eps0_;
+        const double fpc_K = Kconf_ * fpc_;
+
+        if (eps >= eps0_) {
+            sig = -fpc_K * (2.0 * eta - eta * eta);
+            Et = -fpc_K * (2.0 - 2.0 * eta) / eps0_;
+            return;
+        }
+
+        const double descent = 1.0 - Zslope_ * (eps0_ - eps);
+        if (descent >= 0.2) {
+            sig = -fpc_K * descent;
+            Et = -fpc_K * Zslope_;
+            return;
+        }
+
+        sig = -fpc_residual_;
+        Et = 1.0e-6 * Ec_;
+    }
+
+    void tension_envelope(double eps, double& sig, double& Et) const noexcept
+    {
+        if (eps <= eps_t_crack_) {
+            sig = Ec_ * eps;
+            Et = Ec_;
+            return;
+        }
+
+        if (eps_t_transition_end_ > eps_t_crack_ && eps < eps_t_transition_end_) {
+            tension_crack_transition_response(eps, sig, Et);
+            return;
+        }
+
+        tensile_softening_response(eps, sig, Et);
+    }
+
+    [[nodiscard]] double compression_unloading_slope(
+        const KentParkState& local_state) const noexcept
+    {
+        const double denom = local_state.eps_min - local_state.eps_pl;
+        if (std::abs(denom) < 1.0e-30) {
+            return Ec_;
+        }
+        return local_state.sig_at_eps_min / denom;
+    }
+
+    void tension_reclosure_bridge(
+        double eps,
+        const KentParkState& local_state,
+        double& sig,
+        double& Et) const noexcept
+    {
+        const double x0 = std::min(local_state.eps_pl, 0.0);
+        const double x1 = std::max(local_state.eps_t_max, x0 + 1.0e-12);
+        const double span = x1 - x0;
+
+        if (span <= 1.0e-12) {
+            tension_envelope(std::max(eps, 0.0), sig, Et);
+            return;
+        }
+
+        double sig_t_max = 0.0;
+        double Et_t_max = 0.0;
+        tension_envelope(local_state.eps_t_max, sig_t_max, Et_t_max);
+
+        const double m0 = compression_unloading_slope(local_state);
+        const double m1 = Et_t_max;
+        const double t = std::clamp((eps - x0) / span, 0.0, 1.0);
+        const double t2 = t * t;
+        const double t3 = t2 * t;
+
+        const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+        const double h10 = t3 - 2.0 * t2 + t;
+        const double h01 = -2.0 * t3 + 3.0 * t2;
+        const double h11 = t3 - t2;
+
+        sig = h00 * 0.0 +
+              h10 * span * m0 +
+              h01 * sig_t_max +
+              h11 * span * m1;
+
+        const double dh00 = 6.0 * t2 - 6.0 * t;
+        const double dh10 = 3.0 * t2 - 4.0 * t + 1.0;
+        const double dh01 = -6.0 * t2 + 6.0 * t;
+        const double dh11 = 3.0 * t2 - 2.0 * t;
+
+        Et = (dh00 * 0.0 +
+              dh10 * span * m0 +
+              dh01 * sig_t_max +
+              dh11 * span * m1) /
+             span;
+    }
+
+    void evaluate(double eps, double& sig, double& Et, KentParkState local_state) const
+    {
         if (eps <= local_state.eps_min) {
-            // On or extending the envelope
             compression_envelope(eps, sig, Et);
             return;
         }
 
-        // Unloading/reloading: linear between (eps_min, sig_at_eps_min) and (eps_pl, 0)
-        double denom = local_state.eps_min - local_state.eps_pl;
-        if (std::abs(denom) < 1e-30) {
-            sig = 0.0;
-            Et  = Ec_;
+        const bool has_tension_history =
+            local_state.eps_t_max > 1.0e-14 &&
+            local_state.sig_at_eps_t_max > 1.0e-14;
+        const double closure_strain = std::min(local_state.eps_pl, 0.0);
+
+        if (has_tension_history && eps >= closure_strain - 1.0e-14) {
+            if (eps >= local_state.eps_t_max - 1.0e-14) {
+                tension_envelope(std::max(eps, 0.0), sig, Et);
+                return;
+            }
+
+            tension_reclosure_bridge(eps, local_state, sig, Et);
             return;
         }
 
-        // If strain has passed the plastic strain point, stress is zero
-        // (fully unloaded from compression)
+        if (eps > 0.0) {
+            tension_envelope(eps, sig, Et);
+            return;
+        }
+
+        const double denom = local_state.eps_min - local_state.eps_pl;
+        if (std::abs(denom) < 1.0e-30) {
+            sig = 0.0;
+            Et = Ec_;
+            return;
+        }
+
         if (eps >= local_state.eps_pl) {
             sig = 0.0;
-            Et  = 1e-6 * Ec_;
+            Et = 1.0e-6 * Ec_;
             return;
         }
 
-        // Linear path: σ = sig_at_eps_min · (ε − ε_pl) / (ε_min − ε_pl)
-        double ratio = (eps - local_state.eps_pl) / denom;
+        const double ratio = (eps - local_state.eps_pl) / denom;
         sig = local_state.sig_at_eps_min * ratio;
-        Et  = local_state.sig_at_eps_min / denom;
+        Et = local_state.sig_at_eps_min / denom;
     }
 
-    void commit_state(KentParkState& state, double eps, double sig) const {
+    void commit_state(KentParkState& state, double eps, double sig) const noexcept
+    {
         if (eps < state.eps_min) {
-            double Et_env;
+            double Et_env = 0.0;
             state.eps_min = eps;
             compression_envelope(eps, state.sig_at_eps_min, Et_env);
             state.eps_pl = eps - state.sig_at_eps_min / Ec_;
@@ -277,9 +329,14 @@ private:
         }
 
         if (eps > 0.0) {
-            if (!state.cracked && Ec_ * eps > ft_) {
-                state.cracked = true;
+            double sig_t = 0.0;
+            double Et_t = 0.0;
+            tension_envelope(eps, sig_t, Et_t);
+            if (eps > state.eps_t_max) {
+                state.eps_t_max = eps;
+                state.sig_at_eps_t_max = sig_t;
             }
+            state.cracked = state.cracked || (eps >= eps_t_crack_ - 1.0e-14);
             state.state = 4;
         }
 
@@ -289,21 +346,68 @@ private:
         state.sig_committed = sig;
     }
 
-
 public:
+    KentParkConcrete() = default;
 
-    // =================================================================
-    //  ConstitutiveRelation interface (Level 1) — const
-    // =================================================================
+    explicit KentParkConcrete(double fpc, KentParkConcreteTensionConfig tension = {})
+        : fpc_{fpc}, eps0_{-0.002}, Kconf_{1.0}
+    {
+        Ec_ = 2.0 * fpc_ / std::abs(eps0_);
+        initialize_tension_branch(tension);
+        initialize_compression_branch_unconfined();
+    }
+
+    KentParkConcrete(double fpc, double ft)
+        : KentParkConcrete(
+              fpc,
+              KentParkConcreteTensionConfig{.tensile_strength = ft})
+    {}
+
+    KentParkConcrete(
+        double fpc,
+        KentParkConcreteTensionConfig tension,
+        double rho_s,
+        double fyh,
+        double h_prime,
+        double sh)
+        : fpc_{fpc},
+          eps0_{-0.002 * (1.0 + rho_s * fyh / fpc)},
+          Kconf_{1.0 + rho_s * fyh / fpc}
+    {
+        Ec_ = 2.0 * Kconf_ * fpc_ / std::abs(eps0_);
+        initialize_tension_branch(tension);
+        initialize_compression_branch_confined(rho_s, fyh, h_prime, sh);
+    }
+
+    KentParkConcrete(
+        double fpc,
+        double ft,
+        double rho_s,
+        double fyh,
+        double h_prime,
+        double sh)
+        : KentParkConcrete(
+              fpc,
+              KentParkConcreteTensionConfig{.tensile_strength = ft},
+              rho_s,
+              fyh,
+              h_prime,
+              sh)
+    {}
+
+    ~KentParkConcrete() = default;
+    KentParkConcrete(const KentParkConcrete&) = default;
+    KentParkConcrete(KentParkConcrete&&) noexcept = default;
+    KentParkConcrete& operator=(const KentParkConcrete&) = default;
+    KentParkConcrete& operator=(KentParkConcrete&&) noexcept = default;
 
     [[nodiscard]] ConjugateT compute_response(
         const KinematicT& strain,
         const InternalVariablesT& state) const
     {
-        double eps = strain.components();
-        double sig, Et;
-        evaluate(eps, sig, Et, state);
-
+        double sig = 0.0;
+        double Et = 0.0;
+        evaluate(strain.components(), sig, Et, state);
         ConjugateT stress;
         stress.set_components(sig);
         return stress;
@@ -313,161 +417,84 @@ public:
         const KinematicT& strain,
         const InternalVariablesT& state) const
     {
-        double eps = strain.components();
-        double sig, Et;
-        evaluate(eps, sig, Et, state);
-
+        double sig = 0.0;
+        double Et = 0.0;
+        evaluate(strain.components(), sig, Et, state);
         TangentT C;
         C(0, 0) = Et;
         return C;
     }
 
-    void commit(InternalVariablesT& state, const KinematicT& strain) const {
-        double eps = strain.components();
-        double sig, Et;
+    void commit(InternalVariablesT& state, const KinematicT& strain) const
+    {
+        double sig = 0.0;
+        double Et = 0.0;
+        const double eps = strain.components();
         evaluate(eps, sig, Et, state);
         commit_state(state, eps, sig);
     }
 
-    [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const {
-        double eps = strain.components();
-        double sig, Et;
-        evaluate(eps, sig, Et, state_);
-
-        ConjugateT stress;
-        stress.set_components(sig);
-        return stress;
+    [[nodiscard]] ConjugateT compute_response(const KinematicT& strain) const
+    {
+        return compute_response(strain, state_);
     }
 
-    [[nodiscard]] TangentT tangent(const KinematicT& strain) const {
-        double eps = strain.components();
-        double sig, Et;
-        evaluate(eps, sig, Et, state_);
-
-        TangentT C;
-        C(0, 0) = Et;
-        return C;
+    [[nodiscard]] TangentT tangent(const KinematicT& strain) const
+    {
+        return tangent(strain, state_);
     }
 
-    // =================================================================
-    //  InelasticConstitutiveRelation interface (Level 2b)
-    // =================================================================
-
-    void update(const KinematicT& strain) {
-        double eps = strain.components();
-        double sig, Et;
+    void update(const KinematicT& strain)
+    {
+        double sig = 0.0;
+        double Et = 0.0;
+        const double eps = strain.components();
         evaluate(eps, sig, Et, state_);
         commit_state(state_, eps, sig);
     }
 
-    [[nodiscard]] const InternalVariablesT& internal_state() const {
+    [[nodiscard]] const InternalVariablesT& internal_state() const
+    {
         return state_;
     }
 
-
-    // =================================================================
-    //  Parameter accessors
-    // =================================================================
-
-    [[nodiscard]] double peak_compressive_strength()  const noexcept { return fpc_; }
-    [[nodiscard]] double strain_at_peak()             const noexcept { return eps0_; }
-    [[nodiscard]] double initial_modulus()             const noexcept { return Ec_; }
-    [[nodiscard]] double tensile_strength()            const noexcept { return ft_; }
-    [[nodiscard]] double confinement_factor()          const noexcept { return Kconf_; }
-    [[nodiscard]] double softening_slope()             const noexcept { return Zslope_; }
-
-
-    // =================================================================
-    //  Constructors
-    // =================================================================
-
-    /// Unconfined concrete constructor.
-    ///
-    /// @param fpc  Peak compressive strength f'c (POSITIVE, MPa)
-    /// @param ft   Tensile strength (POSITIVE, default = 0.1·f'c)
-    ///
-    /// For unconfined concrete: K=1, ε_0 = −0.002, Z from f'c.
-    KentParkConcrete(double fpc, double ft = 0.0)
-        : fpc_{fpc},
-          eps0_{-0.002},
-          ft_{(ft > 0.0) ? ft : 0.1 * fpc},
-          Kconf_{1.0}
+    [[nodiscard]] double peak_compressive_strength() const noexcept { return fpc_; }
+    [[nodiscard]] double strain_at_peak() const noexcept { return eps0_; }
+    [[nodiscard]] double initial_modulus() const noexcept { return Ec_; }
+    [[nodiscard]] double tensile_strength() const noexcept { return ft_; }
+    [[nodiscard]] double tensile_cracking_strain() const noexcept { return eps_t_crack_; }
+    [[nodiscard]] double tensile_zero_stress_strain() const noexcept { return eps_t_zero_; }
+    [[nodiscard]] double tension_softening_stiffness() const noexcept { return Ets_; }
+    [[nodiscard]] double tension_softening_multiplier() const noexcept
     {
-        Ec_ = 2.0 * fpc_ / std::abs(eps0_);
-
-        // Z for unconfined concrete (Scott et al. 1982)
-        // ε_50u from Park et al. (f'c in MPa, formula from psi-based original):
-        double eps_50u = (3.0 + 0.29 * fpc_) / (145.0 * fpc_ - 1000.0);
-        if (eps_50u < 1e-6) eps_50u = 1e-6;
-        // Z = 0.5 / (ε_50u − |ε_0|);  since eps0_ < 0: |ε_0| = -eps0_
-        double denom_z = eps_50u + eps0_;  // = eps_50u - |eps0_|
-        if (denom_z < 1e-6) denom_z = 1e-6;
-        Zslope_ = 0.5 / denom_z;
-
-        fpc_residual_ = 0.2 * Kconf_ * fpc_;
-        eps_u_ = eps0_ - (1.0 - 0.2) / Zslope_;  // where σ reaches 0.2·f'c
+        return tension_softening_multiplier_;
     }
-
-    /// Confined concrete constructor.
-    ///
-    /// @param fpc       Peak compressive strength of UNCONFINED concrete (POSITIVE, MPa)
-    /// @param ft        Tensile strength (POSITIVE)
-    /// @param rho_s     Ratio of volume of transverse reinforcement to volume of core
-    /// @param fyh       Yield stress of transverse reinforcement (MPa)
-    /// @param h_prime   Width of core (center-to-center of ties, mm)
-    /// @param sh        Spacing of ties (mm)
-    KentParkConcrete(double fpc, double ft,
-                     double rho_s, double fyh,
-                     double h_prime, double sh)
-        : fpc_{fpc},
-          ft_{(ft > 0.0) ? ft : 0.1 * fpc},
-          Kconf_{1.0 + rho_s * fyh / fpc}
+    [[nodiscard]] double tension_crack_transition_multiplier() const noexcept
     {
-        eps0_ = -0.002 * Kconf_;
-        Ec_ = 2.0 * Kconf_ * fpc_ / std::abs(eps0_);
-
-        double eps_50u = (3.0 + 0.29 * fpc_) / (145.0 * fpc_ - 1000.0);
-        if (eps_50u < 1e-6) eps_50u = 1e-6;
-        double eps_50h = 0.75 * rho_s * std::sqrt(h_prime / sh);
-        // Z = 0.5 / (ε_50u + ε_50h − |ε_0|);  since eps0_ < 0: +eps0_ = -|eps0_|
-        double denom_z = eps_50u + eps_50h + eps0_;
-        if (denom_z < 1e-6) denom_z = 1e-6;
-        Zslope_ = 0.5 / denom_z;
-
-        fpc_residual_ = 0.2 * Kconf_ * fpc_;
-        eps_u_ = eps0_ - (1.0 - 0.2) / Zslope_;
+        return crack_transition_multiplier_;
     }
+    [[nodiscard]] double tension_transition_end_strain() const noexcept
+    {
+        return eps_t_transition_end_;
+    }
+    [[nodiscard]] double confinement_factor() const noexcept { return Kconf_; }
+    [[nodiscard]] double softening_slope() const noexcept { return Zslope_; }
 
-    constexpr KentParkConcrete() : fpc_{0}, eps0_{-0.002}, Ec_{0}, ft_{0},
-                                   Zslope_{0}, Kconf_{1.0}, fpc_residual_{0},
-                                   eps_u_{-0.01} {}
-    ~KentParkConcrete() = default;
-
-    KentParkConcrete(const KentParkConcrete&)               = default;
-    KentParkConcrete(KentParkConcrete&&) noexcept           = default;
-    KentParkConcrete& operator=(const KentParkConcrete&)    = default;
-    KentParkConcrete& operator=(KentParkConcrete&&) noexcept = default;
-
-
-    // =================================================================
-    //  Diagnostics
-    // =================================================================
-
-    void print_constitutive_parameters() const {
-        std::cout << "=== Kent-Park Concrete ===" << std::endl;
-        std::cout << "f'c  = " << fpc_   << " MPa (positive)" << std::endl;
-        std::cout << "ε_0  = " << eps0_  << std::endl;
-        std::cout << "E_c  = " << Ec_    << " MPa" << std::endl;
-        std::cout << "f_t  = " << ft_    << " MPa" << std::endl;
-        std::cout << "K    = " << Kconf_ << "  (confinement)" << std::endl;
-        std::cout << "Z    = " << Zslope_ << std::endl;
+    void print_constitutive_parameters() const
+    {
+        std::cout << "=== Kent-Park Concrete ===\n";
+        std::cout << "f'c  = " << fpc_ << " MPa\n";
+        std::cout << "eps0 = " << eps0_ << "\n";
+        std::cout << "Ec   = " << Ec_ << " MPa\n";
+        std::cout << "ft   = " << ft_ << " MPa\n";
+        std::cout << "eps_t_crack = " << eps_t_crack_ << "\n";
+        std::cout << "eps_t_zero  = " << eps_t_zero_ << "\n";
+        std::cout << "eps_t_transition_end = " << eps_t_transition_end_ << "\n";
+        std::cout << "Ets  = " << Ets_ << " MPa\n";
+        std::cout << "K    = " << Kconf_ << "\n";
+        std::cout << "Z    = " << Zslope_ << "\n";
     }
 };
-
-
-// =============================================================================
-//  Static concept verification
-// =============================================================================
 
 static_assert(
     ConstitutiveRelation<KentParkConcrete>,
@@ -480,6 +507,5 @@ static_assert(
 static_assert(
     ExternallyStateDrivenConstitutiveRelation<KentParkConcrete>,
     "KentParkConcrete must satisfy ExternallyStateDrivenConstitutiveRelation");
-
 
 #endif // FN_KENT_PARK_CONCRETE_HH

@@ -9,9 +9,14 @@
 
 // Specific relations — needed by convenience aliases at the bottom
 #include "constitutive_models/lineal/IsotropicRelation.hh"
+#include "constitutive_models/lineal/OrthotropicBimodularConcreteProxy.hh"
 #include "constitutive_models/lineal/TimoshenkoBeamSection.hh"
 #include "constitutive_models/lineal/MindlinShellSection.hh"
 #include "constitutive_models/non_lineal/InelasticRelation.hh"
+#include "constitutive_models/non_lineal/ComponentwiseKentParkConcrete3D.hh"
+#include "constitutive_models/non_lineal/CyclicCrackBandConcrete3D.hh"
+#include "constitutive_models/non_lineal/FixedCrackBandConcrete3D.hh"
+#include "constitutive_models/non_lineal/TensileCrackBandDamageConcreteProxy3D.hh"
 #include "../continuum/FiniteStrainDamageRelation.hh"
 
 namespace constitutive_site_detail {
@@ -389,6 +394,16 @@ using CircularHistoryInelasticMaterial = CircularHistoryConstitutiveSite<R, Capa
 // =============================================================================
 
 using ContinuumIsotropicElasticMaterial = ElasticMaterial<ContinuumIsotropicRelation>;
+using ContinuumOrthotropicBimodularConcreteProxyMaterial =
+    ConstitutiveSite<OrthotropicBimodularConcreteProxy, CommittedState>;
+using ContinuumTensileCrackBandDamageConcreteProxyMaterial =
+    InelasticMaterial<TensileCrackBandDamageConcreteProxy3D>;
+using ContinuumCyclicCrackBandConcreteMaterial =
+    InelasticMaterial<CyclicCrackBandConcrete3D>;
+using ContinuumFixedCrackBandConcreteMaterial =
+    InelasticMaterial<FixedCrackBandConcrete3D>;
+using ContinuumComponentwiseKentParkConcreteMaterial =
+    InelasticMaterial<ComponentwiseKentParkConcrete3D>;
 using UniaxialIsotropicElasticMaterial  = ElasticMaterial<UniaxialIsotropicRelation>;
 
 

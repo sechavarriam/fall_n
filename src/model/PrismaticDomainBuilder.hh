@@ -32,8 +32,13 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cmath>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -54,6 +59,26 @@ enum class HexOrder {
     Serendipity,  // Hex20 — 20-node serendipity (quadratic, no interior nodes)
     Quadratic     // Hex27 — 27-node triquadratic
 };
+
+enum class LongitudinalBiasLocation {
+    FixedEnd,
+    LoadedEnd,
+    BothEnds
+};
+
+[[nodiscard]] constexpr const char*
+to_string(LongitudinalBiasLocation location) noexcept
+{
+    switch (location) {
+        case LongitudinalBiasLocation::FixedEnd:
+            return "fixed_end";
+        case LongitudinalBiasLocation::LoadedEnd:
+            return "loaded_end";
+        case LongitudinalBiasLocation::BothEnds:
+            return "both_ends";
+    }
+    return "unknown_longitudinal_bias_location";
+}
 
 // ─────────────────────────────────────────────────────────────────────
 //  Face identifiers for the six faces of the prism
@@ -77,15 +102,50 @@ enum class PrismFace { MinX, MaxX, MinY, MaxY, MinZ, MaxZ };
 struct PrismaticGrid {
     int nx, ny, nz;          // number of elements per direction
     int step;                // 1 for linear, 2 for quadratic
-    double dx, dy, dz;       // element sizes
+    double dx, dy, dz;       // nominal element sizes
     double width, height, length;
     HexOrder hex_order;
+    double longitudinal_bias_power{1.0};
+    LongitudinalBiasLocation longitudinal_bias_location{
+        LongitudinalBiasLocation::FixedEnd};
+    std::vector<double> x_coordinates{};
+    std::vector<double> y_coordinates{};
+    std::vector<double> z_coordinates{};
 
     int nodes_x() const noexcept { return step * nx + 1; }
     int nodes_y() const noexcept { return step * ny + 1; }
     int nodes_z() const noexcept { return step * nz + 1; }
     int total_nodes()    const noexcept { return nodes_x() * nodes_y() * nodes_z(); }
     int total_elements() const noexcept { return nx * ny * nz; }
+
+    double x_coordinate(int ix) const noexcept {
+        if (!x_coordinates.empty() &&
+            ix >= 0 &&
+            ix < static_cast<int>(x_coordinates.size())) {
+            return x_coordinates[static_cast<std::size_t>(ix)];
+        }
+        return -0.5 * width +
+               static_cast<double>(ix) * (dx / static_cast<double>(step));
+    }
+
+    double y_coordinate(int iy) const noexcept {
+        if (!y_coordinates.empty() &&
+            iy >= 0 &&
+            iy < static_cast<int>(y_coordinates.size())) {
+            return y_coordinates[static_cast<std::size_t>(iy)];
+        }
+        return -0.5 * height +
+               static_cast<double>(iy) * (dy / static_cast<double>(step));
+    }
+
+    double z_coordinate(int iz) const noexcept {
+        if (!z_coordinates.empty() &&
+            iz >= 0 &&
+            iz < static_cast<int>(z_coordinates.size())) {
+            return z_coordinates[static_cast<std::size_t>(iz)];
+        }
+        return static_cast<double>(iz) * (dz / static_cast<double>(step));
+    }
 
     /// O(1) node ID from structured grid indices.
     ///  For linear:    ix ∈ [0, nx],  iy ∈ [0, ny],  iz ∈ [0, nz]
@@ -162,6 +222,18 @@ struct PrismaticSpec {
     // Element polynomial order (default: linear Hex8)
     HexOrder hex_order = HexOrder::Linear;
 
+    // Bias power for the longitudinal grid. 1.0 is uniform. Values > 1.0
+    // cluster nodes near the selected longitudinal end(s) without changing
+    // connectivity.
+    double longitudinal_bias_power = 1.0;
+    LongitudinalBiasLocation longitudinal_bias_location =
+        LongitudinalBiasLocation::FixedEnd;
+
+    // Optional user-supplied local corner levels in the cross-section.
+    // When empty, the builder falls back to a uniform centred axis.
+    std::vector<double> x_corner_levels_local{};
+    std::vector<double> y_corner_levels_local{};
+
     // Optional origin and rotation (default: centred at origin, aligned
     // with global axes: X = width, Y = height, Z = length).
     std::array<double, 3> origin = {0.0, 0.0, 0.0};
@@ -175,6 +247,160 @@ struct PrismaticSpec {
     std::string physical_group = "Solid";
 };
 
+inline std::vector<double>
+build_prismatic_corner_axis_levels(
+    double length,
+    int subdivisions,
+    double bias_power,
+    LongitudinalBiasLocation bias_location = LongitudinalBiasLocation::FixedEnd)
+{
+    if (subdivisions <= 0) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires positive longitudinal subdivisions.");
+    }
+    if (!(bias_power > 0.0)) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires longitudinal_bias_power > 0.");
+    }
+
+    std::vector<double> levels(static_cast<std::size_t>(subdivisions + 1), 0.0);
+    for (int i = 0; i <= subdivisions; ++i) {
+        const double s =
+            static_cast<double>(i) / static_cast<double>(subdivisions);
+        double biased_s = s;
+        switch (bias_location) {
+            case LongitudinalBiasLocation::FixedEnd:
+                biased_s = std::pow(s, bias_power);
+                break;
+            case LongitudinalBiasLocation::LoadedEnd:
+                biased_s = 1.0 - std::pow(1.0 - s, bias_power);
+                break;
+            case LongitudinalBiasLocation::BothEnds:
+                biased_s = s <= 0.5
+                    ? 0.5 * std::pow(2.0 * s, bias_power)
+                    : 1.0 - 0.5 * std::pow(2.0 * (1.0 - s), bias_power);
+                break;
+        }
+        levels[static_cast<std::size_t>(i)] =
+            length * biased_s;
+    }
+    levels.front() = 0.0;
+    levels.back() = length;
+    return levels;
+}
+
+inline std::vector<double>
+build_prismatic_uniform_corner_axis_levels(
+    double min_value,
+    double max_value,
+    int subdivisions)
+{
+    if (subdivisions <= 0) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires positive subdivisions.");
+    }
+    if (!(max_value > min_value)) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires increasing axis bounds.");
+    }
+
+    std::vector<double> levels(static_cast<std::size_t>(subdivisions + 1), 0.0);
+    const double delta =
+        (max_value - min_value) / static_cast<double>(subdivisions);
+    for (int i = 0; i <= subdivisions; ++i) {
+        levels[static_cast<std::size_t>(i)] =
+            min_value + delta * static_cast<double>(i);
+    }
+    levels.front() = min_value;
+    levels.back() = max_value;
+    return levels;
+}
+
+inline void validate_prismatic_corner_axis_levels(
+    const std::vector<double>& levels,
+    int subdivisions,
+    std::string_view axis_name)
+{
+    if (levels.size() != static_cast<std::size_t>(subdivisions + 1)) {
+        throw std::invalid_argument(
+            std::string{"PrismaticDomainBuilder requires "} +
+            std::string{axis_name} +
+            " corner levels to match the number of elements + 1.");
+    }
+    for (std::size_t i = 1; i < levels.size(); ++i) {
+        if (!(levels[i] > levels[i - 1])) {
+            throw std::invalid_argument(
+                std::string{"PrismaticDomainBuilder requires strictly "}
+                + "increasing " + std::string{axis_name} + " corner levels.");
+        }
+    }
+}
+
+inline std::vector<double> expand_prismatic_axis_levels(
+    const std::vector<double>& corner_levels,
+    int step)
+{
+    if (corner_levels.size() < 2) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires at least two corner levels.");
+    }
+    if (step != 1 && step != 2) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder supports only linear or quadratic z-level expansion.");
+    }
+
+    if (step == 1) {
+        return corner_levels;
+    }
+
+    const auto element_count = corner_levels.size() - 1;
+    std::vector<double> levels(2 * element_count + 1, 0.0);
+    for (std::size_t e = 0; e < element_count; ++e) {
+        const auto i0 = static_cast<std::size_t>(2 * e);
+        const auto i1 = i0 + 1;
+        const auto i2 = i0 + 2;
+        levels[i0] = corner_levels[e];
+        levels[i1] = 0.5 * (corner_levels[e] + corner_levels[e + 1]);
+        levels[i2] = corner_levels[e + 1];
+    }
+    levels.back() = corner_levels.back();
+    return levels;
+}
+
+struct PrismaticAxisLocation {
+    int element_index{0};
+    double parent_coordinate{0.0};
+};
+
+inline PrismaticAxisLocation locate_prismatic_axis_interval(
+    const std::vector<double>& corner_levels,
+    double coordinate)
+{
+    if (corner_levels.size() < 2) {
+        throw std::invalid_argument(
+            "PrismaticDomainBuilder requires at least two axis levels.");
+    }
+
+    if (coordinate <= corner_levels.front()) {
+        return {0, -1.0};
+    }
+    if (coordinate >= corner_levels.back()) {
+        return {static_cast<int>(corner_levels.size()) - 2, 1.0};
+    }
+
+    const auto upper =
+        std::upper_bound(corner_levels.begin(), corner_levels.end(), coordinate);
+    const auto element_index =
+        static_cast<int>(std::distance(corner_levels.begin(), upper) - 1);
+    const double x0 = corner_levels[static_cast<std::size_t>(element_index)];
+    const double x1 = corner_levels[static_cast<std::size_t>(element_index + 1)];
+    const double local = (coordinate - x0) / (x1 - x0);
+    return {
+        element_index,
+        std::clamp(2.0 * local - 1.0, -1.0, 1.0),
+    };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  make_prismatic_domain — construct a structured hex mesh (Hex8/20/27)
 // ─────────────────────────────────────────────────────────────────────
@@ -185,13 +411,43 @@ make_prismatic_domain(const PrismaticSpec& spec)
     const double dx = spec.width  / static_cast<double>(spec.nx);
     const double dy = spec.height / static_cast<double>(spec.ny);
     const double dz = spec.length / static_cast<double>(spec.nz);
+    const auto x_corner_levels = spec.x_corner_levels_local.empty()
+                                     ? build_prismatic_uniform_corner_axis_levels(
+                                           -0.5 * spec.width,
+                                           0.5 * spec.width,
+                                           spec.nx)
+                                     : spec.x_corner_levels_local;
+    validate_prismatic_corner_axis_levels(x_corner_levels, spec.nx, "x");
+    const auto y_corner_levels = spec.y_corner_levels_local.empty()
+                                     ? build_prismatic_uniform_corner_axis_levels(
+                                           -0.5 * spec.height,
+                                           0.5 * spec.height,
+                                           spec.ny)
+                                     : spec.y_corner_levels_local;
+    validate_prismatic_corner_axis_levels(y_corner_levels, spec.ny, "y");
+    const auto z_corner_levels = build_prismatic_corner_axis_levels(
+        spec.length,
+        spec.nz,
+        spec.longitudinal_bias_power,
+        spec.longitudinal_bias_location);
+    const auto x_coordinates =
+        expand_prismatic_axis_levels(x_corner_levels, step);
+    const auto y_coordinates =
+        expand_prismatic_axis_levels(y_corner_levels, step);
+    const auto z_coordinates =
+        expand_prismatic_axis_levels(z_corner_levels, step);
 
     PrismaticGrid grid{
         spec.nx, spec.ny, spec.nz,
         step,
         dx, dy, dz,
         spec.width, spec.height, spec.length,
-        spec.hex_order
+        spec.hex_order,
+        spec.longitudinal_bias_power,
+        spec.longitudinal_bias_location,
+        x_coordinates,
+        y_coordinates,
+        z_coordinates
     };
 
     Domain<3> domain;
@@ -206,18 +462,12 @@ make_prismatic_domain(const PrismaticSpec& spec)
     domain.preallocate_node_capacity(total);
 
     // Local coordinates: x ∈ [-w/2, w/2], y ∈ [-h/2, h/2], z ∈ [0, L]
-    const double x0 = -spec.width  / 2.0;
-    const double y0 = -spec.height / 2.0;
-    const double sub_dx = dx / static_cast<double>(step);
-    const double sub_dy = dy / static_cast<double>(step);
-    const double sub_dz = dz / static_cast<double>(step);
-
     for (int iz = 0; iz < grid.nodes_z(); ++iz) {
         for (int iy = 0; iy < grid.nodes_y(); ++iy) {
             for (int ix = 0; ix < grid.nodes_x(); ++ix) {
-                const double lx = x0 + static_cast<double>(ix) * sub_dx;
-                const double ly = y0 + static_cast<double>(iy) * sub_dy;
-                const double lz =      static_cast<double>(iz) * sub_dz;
+                const double lx = grid.x_coordinate(ix);
+                const double ly = grid.y_coordinate(iy);
+                const double lz = grid.z_coordinate(iz);
 
                 const double gx = spec.origin[0]
                     + lx * spec.e_x[0] + ly * spec.e_y[0] + lz * spec.e_z[0];
@@ -427,6 +677,78 @@ struct RebarSpec {
     std::vector<RebarBar> bars;
 };
 
+// Generic embedded one-dimensional reinforcement paths.
+//
+// Longitudinal bars are still represented by RebarSpec because they have a
+// structured relationship with the prism axis and produce rich validation
+// histories. These polylines cover the complementary case: transverse ties,
+// stirrup legs, boundary bars, and future arbitrary embedded fibers whose
+// nodes must be placed at exact physical coordinates and tied to the host by
+// the same interpolation/penalty machinery.
+struct EmbeddedRebarPolyline {
+    std::vector<std::array<double, 3>> local_points{};
+    bool closed{false};
+    double area{0.0};
+    double diameter{0.0};
+    std::string group{"EmbeddedRebar"};
+};
+
+struct EmbeddedRebarSpec {
+    std::vector<EmbeddedRebarPolyline> polylines{};
+};
+
+struct EmbeddedRebarElementMetadata {
+    std::size_t polyline_index{0};
+    std::size_t segment_index{0};
+    double area{0.0};
+    double diameter{0.0};
+    std::string group{"EmbeddedRebar"};
+};
+
+enum class RebarLineInterpolation {
+    automatic,
+    two_node_linear,
+    three_node_quadratic
+};
+
+[[nodiscard]] constexpr const char*
+to_string(RebarLineInterpolation interpolation) noexcept
+{
+    switch (interpolation) {
+        case RebarLineInterpolation::automatic:
+            return "automatic";
+        case RebarLineInterpolation::two_node_linear:
+            return "two_node_linear";
+        case RebarLineInterpolation::three_node_quadratic:
+            return "three_node_quadratic";
+    }
+    return "unknown_rebar_line_interpolation";
+}
+
+[[nodiscard]] inline std::size_t resolve_rebar_line_num_nodes(
+    HexOrder hex_order,
+    RebarLineInterpolation interpolation)
+{
+    switch (interpolation) {
+        case RebarLineInterpolation::automatic:
+            // The validated default keeps 2-node bars for Hex8/Hex20 and
+            // only promotes to 3-node interpolation for the full triquadratic
+            // Hex27 host. Serendipity Hex20 keeps an explicit override path
+            // for research probes, but not as the canonical baseline.
+            return hex_order == HexOrder::Quadratic ? 3u : 2u;
+        case RebarLineInterpolation::two_node_linear:
+            return 2u;
+        case RebarLineInterpolation::three_node_quadratic:
+            if (hex_order == HexOrder::Linear) {
+                throw std::invalid_argument(
+                    "Three-node embedded rebar interpolation requires a "
+                    "quadratic host mesh.");
+            }
+            return 3u;
+    }
+    throw std::invalid_argument("Unsupported rebar line interpolation.");
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  make_reinforced_prismatic_domain — hex mesh with embedded rebar
 // ─────────────────────────────────────────────────────────────────────
@@ -459,6 +781,10 @@ struct ReinforcedDomainResult {
     Domain<3>          domain;
     PrismaticGrid      grid;
     RebarElementRange  rebar_range;
+    RebarElementRange  embedded_rebar_range{0, 0};
+    RebarLineInterpolation rebar_line_interpolation{
+        RebarLineInterpolation::automatic};
+    std::size_t rebar_line_num_nodes{2};
 
     /// Per-bar embedding info: host hex element + parent coordinates.
     /// Size = num_bars × (nz + 1) rebar nodes.
@@ -466,23 +792,97 @@ struct ReinforcedDomainResult {
 
     /// Per-bar diameters: one per bar (same order as RebarSpec::bars).
     std::vector<double> bar_diameters;
+
+    /// Arbitrary embedded polyline nodes/elements, e.g. stirrup loops.
+    std::vector<RebarNodeEmbedding> embedded_rebar_embeddings;
+    std::vector<EmbeddedRebarElementMetadata> embedded_rebar_elements;
 };
+
+inline std::array<double, 3> prismatic_local_to_global(
+    const PrismaticSpec& spec,
+    const std::array<double, 3>& local) noexcept
+{
+    return {
+        spec.origin[0] + local[0] * spec.e_x[0] +
+            local[1] * spec.e_y[0] + local[2] * spec.e_z[0],
+        spec.origin[1] + local[0] * spec.e_x[1] +
+            local[1] * spec.e_y[1] + local[2] * spec.e_z[1],
+        spec.origin[2] + local[0] * spec.e_x[2] +
+            local[1] * spec.e_y[2] + local[2] * spec.e_z[2],
+    };
+}
+
+inline RebarNodeEmbedding make_prismatic_point_embedding(
+    const std::vector<double>& x_corner_levels,
+    const std::vector<double>& y_corner_levels,
+    const std::vector<double>& z_corner_levels,
+    PetscInt node_id,
+    const std::array<double, 3>& local)
+{
+    const auto x_location =
+        locate_prismatic_axis_interval(x_corner_levels, local[0]);
+    const auto y_location =
+        locate_prismatic_axis_interval(y_corner_levels, local[1]);
+    const auto z_location =
+        locate_prismatic_axis_interval(z_corner_levels, local[2]);
+    return RebarNodeEmbedding{
+        node_id,
+        x_location.element_index,
+        y_location.element_index,
+        z_location.element_index,
+        x_location.parent_coordinate,
+        y_location.parent_coordinate,
+        z_location.parent_coordinate};
+}
 
 inline ReinforcedDomainResult
 make_reinforced_prismatic_domain(const PrismaticSpec& spec,
-                                 const RebarSpec& rebar)
+                                 const RebarSpec& rebar,
+                                 RebarLineInterpolation rebar_line_interpolation =
+                                     RebarLineInterpolation::automatic,
+                                 const EmbeddedRebarSpec& embedded_rebar = {})
 {
     const int step = (spec.hex_order == HexOrder::Linear) ? 1 : 2;
     const double dx = spec.width  / static_cast<double>(spec.nx);
     const double dy = spec.height / static_cast<double>(spec.ny);
     const double dz = spec.length / static_cast<double>(spec.nz);
+    const auto x_corner_levels = spec.x_corner_levels_local.empty()
+                                     ? build_prismatic_uniform_corner_axis_levels(
+                                           -0.5 * spec.width,
+                                           0.5 * spec.width,
+                                           spec.nx)
+                                     : spec.x_corner_levels_local;
+    validate_prismatic_corner_axis_levels(x_corner_levels, spec.nx, "x");
+    const auto y_corner_levels = spec.y_corner_levels_local.empty()
+                                     ? build_prismatic_uniform_corner_axis_levels(
+                                           -0.5 * spec.height,
+                                           0.5 * spec.height,
+                                           spec.ny)
+                                     : spec.y_corner_levels_local;
+    validate_prismatic_corner_axis_levels(y_corner_levels, spec.ny, "y");
+    const auto z_corner_levels = build_prismatic_corner_axis_levels(
+        spec.length,
+        spec.nz,
+        spec.longitudinal_bias_power,
+        spec.longitudinal_bias_location);
+    const auto x_coordinates =
+        expand_prismatic_axis_levels(x_corner_levels, step);
+    const auto y_coordinates =
+        expand_prismatic_axis_levels(y_corner_levels, step);
+    const auto z_coordinates =
+        expand_prismatic_axis_levels(z_corner_levels, step);
 
     PrismaticGrid grid{
         spec.nx, spec.ny, spec.nz,
         step,
         dx, dy, dz,
         spec.width, spec.height, spec.length,
-        spec.hex_order
+        spec.hex_order,
+        spec.longitudinal_bias_power,
+        spec.longitudinal_bias_location,
+        x_coordinates,
+        y_coordinates,
+        z_coordinates
     };
 
     Domain<3> domain;
@@ -493,21 +893,22 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
     const auto rebar_nodes_per_bar =
         static_cast<std::size_t>(step * spec.nz + 1);
     const auto total_rebar_nodes = num_bars * rebar_nodes_per_bar;
+    std::size_t total_embedded_rebar_nodes = 0;
+    for (const auto& polyline : embedded_rebar.polylines) {
+        total_embedded_rebar_nodes += polyline.local_points.size();
+    }
+    const auto rebar_line_num_nodes =
+        resolve_rebar_line_num_nodes(spec.hex_order, rebar_line_interpolation);
 
-    domain.preallocate_node_capacity(total_hex_nodes + total_rebar_nodes);
-
-    const double x0 = -spec.width  / 2.0;
-    const double y0 = -spec.height / 2.0;
-    const double sub_dx = dx / static_cast<double>(step);
-    const double sub_dy = dy / static_cast<double>(step);
-    const double sub_dz = dz / static_cast<double>(step);
+    domain.preallocate_node_capacity(
+        total_hex_nodes + total_rebar_nodes + total_embedded_rebar_nodes);
 
     for (int iz = 0; iz < grid.nodes_z(); ++iz) {
         for (int iy = 0; iy < grid.nodes_y(); ++iy) {
             for (int ix = 0; ix < grid.nodes_x(); ++ix) {
-                const double lx = x0 + static_cast<double>(ix) * sub_dx;
-                const double ly = y0 + static_cast<double>(iy) * sub_dy;
-                const double lz =      static_cast<double>(iz) * sub_dz;
+                const double lx = grid.x_coordinate(ix);
+                const double ly = grid.y_coordinate(iy);
+                const double lz = grid.z_coordinate(iz);
 
                 const double gx = spec.origin[0]
                     + lx * spec.e_x[0] + ly * spec.e_y[0] + lz * spec.e_z[0];
@@ -617,22 +1018,19 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
         // Map physical (ly, lz) → host hex element in cross-section
         //   ly ∈ [-width/2, width/2] → X direction
         //   lz ∈ [-height/2, height/2] → Y direction
-        const double fx = (bar.ly - x0) / dx;  // fractional element index
-        const double fy = (bar.lz - y0) / dy;
-
-        int ix_host = static_cast<int>(std::floor(fx));
-        int iy_host = static_cast<int>(std::floor(fy));
-        ix_host = std::clamp(ix_host, 0, spec.nx - 1);
-        iy_host = std::clamp(iy_host, 0, spec.ny - 1);
-
-        // Parent coordinates (ξ, η) ∈ [-1, 1] within the host element
-        const double xi  = 2.0 * (fx - static_cast<double>(ix_host)) - 1.0;
-        const double eta = 2.0 * (fy - static_cast<double>(iy_host)) - 1.0;
+        const auto x_location =
+            locate_prismatic_axis_interval(x_corner_levels, bar.ly);
+        const auto y_location =
+            locate_prismatic_axis_interval(y_corner_levels, bar.lz);
+        const int ix_host = x_location.element_index;
+        const int iy_host = y_location.element_index;
+        const double xi = x_location.parent_coordinate;
+        const double eta = y_location.parent_coordinate;
 
         // Create rebar nodes along the z-axis at each z sub-level
         for (std::size_t iz = 0; iz < rebar_nodes_per_bar; ++iz) {
             const PetscInt nid = rebar_base_id++;
-            const double lz_pos = static_cast<double>(iz) * sub_dz;
+            const double lz_pos = grid.z_coordinate(static_cast<int>(iz));
 
             const double gx = spec.origin[0]
                 + bar.ly * spec.e_x[0] + bar.lz * spec.e_y[0]
@@ -669,28 +1067,109 @@ make_reinforced_prismatic_domain(const PrismaticSpec& spec,
 
     for (std::size_t b = 0; b < num_bars; ++b) {
         const PetscInt bar_start =
-            rebar_nodes_base
-            + static_cast<PetscInt>(b * rebar_nodes_per_bar);
+            rebar_nodes_base + static_cast<PetscInt>(b * rebar_nodes_per_bar);
 
         for (int iz = 0; iz < spec.nz; ++iz) {
-            PetscInt conn[2] = {
-                bar_start + static_cast<PetscInt>(step * iz),
-                bar_start + static_cast<PetscInt>(step * (iz + 1)),
+            if (rebar_line_num_nodes == 2) {
+                PetscInt conn[2] = {
+                    bar_start + static_cast<PetscInt>(step * iz),
+                    bar_start + static_cast<PetscInt>(step * (iz + 1)),
+                };
+                auto& geom = domain.make_element<LagrangeElement3D<2>>(
+                    GaussLegendreCellIntegrator<2>{}, tag++, conn);
+                geom.set_physical_group(rebar.bars[b].group);
+                continue;
+            }
+
+            if (step != 2) {
+                throw std::invalid_argument(
+                    "Three-node embedded rebar interpolation requires "
+                    "quadratic z-level subdivision.");
+            }
+
+            PetscInt conn[3] = {
+                bar_start + static_cast<PetscInt>(2 * iz),
+                bar_start + static_cast<PetscInt>(2 * iz + 1),
+                bar_start + static_cast<PetscInt>(2 * iz + 2),
             };
-            auto& geom = domain.make_element<LagrangeElement3D<2>>(
-                GaussLegendreCellIntegrator<2>{}, tag++, conn);
+            auto& geom = domain.make_element<LagrangeElement3D<3>>(
+                GaussLegendreCellIntegrator<3>{}, tag++, conn);
             geom.set_physical_group(rebar.bars[b].group);
         }
     }
 
     const std::size_t rebar_last = domain.num_elements();
 
+    const std::size_t embedded_rebar_first = domain.num_elements();
+    std::vector<RebarNodeEmbedding> embedded_rebar_embeddings;
+    embedded_rebar_embeddings.reserve(total_embedded_rebar_nodes);
+    std::vector<EmbeddedRebarElementMetadata> embedded_rebar_elements;
+
+    PetscInt embedded_rebar_base_id = rebar_base_id;
+    for (std::size_t p = 0; p < embedded_rebar.polylines.size(); ++p) {
+        const auto& polyline = embedded_rebar.polylines[p];
+        const auto point_count = polyline.local_points.size();
+        if (point_count < 2) {
+            throw std::invalid_argument(
+                "Embedded rebar polylines require at least two local points.");
+        }
+        if (!(polyline.area > 0.0)) {
+            throw std::invalid_argument(
+                "Embedded rebar polylines require a positive cross-section area.");
+        }
+
+        std::vector<PetscInt> polyline_node_ids;
+        polyline_node_ids.reserve(point_count);
+        for (const auto& local : polyline.local_points) {
+            const PetscInt nid = embedded_rebar_base_id++;
+            const auto global = prismatic_local_to_global(spec, local);
+            domain.add_node(nid, global[0], global[1], global[2]);
+            polyline_node_ids.push_back(nid);
+            embedded_rebar_embeddings.push_back(
+                make_prismatic_point_embedding(
+                    x_corner_levels,
+                    y_corner_levels,
+                    z_corner_levels,
+                    nid,
+                    local));
+        }
+
+        const auto segment_count =
+            polyline.closed ? point_count : point_count - 1;
+        embedded_rebar_elements.reserve(
+            embedded_rebar_elements.size() + segment_count);
+        for (std::size_t s = 0; s < segment_count; ++s) {
+            const auto next = (s + 1) % point_count;
+            PetscInt conn[2] = {
+                polyline_node_ids[s],
+                polyline_node_ids[next],
+            };
+            auto& geom = domain.make_element<LagrangeElement3D<2>>(
+                GaussLegendreCellIntegrator<2>{}, tag++, conn);
+            geom.set_physical_group(polyline.group);
+            embedded_rebar_elements.push_back({
+                .polyline_index = p,
+                .segment_index = s,
+                .area = polyline.area,
+                .diameter = polyline.diameter,
+                .group = polyline.group});
+        }
+    }
+
+    const std::size_t embedded_rebar_last = domain.num_elements();
+
     domain.assemble_sieve();
 
-    return {std::move(domain), std::move(grid),
+    return {std::move(domain),
+            std::move(grid),
             RebarElementRange{rebar_first, rebar_last},
+            RebarElementRange{embedded_rebar_first, embedded_rebar_last},
+            rebar_line_interpolation,
+            rebar_line_num_nodes,
             std::move(embeddings),
-            std::move(bar_diameters)};
+            std::move(bar_diameters),
+            std::move(embedded_rebar_embeddings),
+            std::move(embedded_rebar_elements)};
 }
 
 } // namespace fall_n

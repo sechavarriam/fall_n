@@ -108,8 +108,9 @@ struct DisplacementControl {
 
         // Update each controlled DOF to p · target
         for (const auto& [node, dof, target] : controlled_dofs) {
-            model->update_imposed_value(node, dof, p * target);
+            model->set_imposed_value_unassembled(node, dof, p * target);
         }
+        model->finalize_imposed_solution();
     }
 };
 
