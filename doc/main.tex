@@ -9,10 +9,15 @@
 \documentclass[11pt,a4paper]{report}
 
 % ─── Packages ────────────────────────────────────────────────────────────
+\usepackage{iftex}
+\ifPDFTeX
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[english]{babel}
 \usepackage{lmodern}
+\else
+\usepackage{fontspec}
+\fi
+\usepackage[english]{babel}
 
 \usepackage{amsmath,amssymb,amsthm,mathtools}
 \usepackage{bm}
@@ -35,6 +40,7 @@
 \usetikzlibrary{calc,positioning,arrows.meta}
 
 % Unicode fallbacks used by several chapters in verbatim/text blocks.
+\ifPDFTeX
 \DeclareUnicodeCharacter{2500}{-}
 \DeclareUnicodeCharacter{2502}{|}
 \DeclareUnicodeCharacter{250C}{+}
@@ -50,6 +56,7 @@
 \DeclareUnicodeCharacter{03B5}{\ensuremath{\varepsilon}}
 \DeclareUnicodeCharacter{03B1}{\ensuremath{\alpha}}
 \DeclareUnicodeCharacter{2208}{\ensuremath{\in}}
+\fi
 
 \geometry{margin=2.5cm}
 

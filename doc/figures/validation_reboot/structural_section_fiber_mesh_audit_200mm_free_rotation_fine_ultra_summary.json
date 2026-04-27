@@ -1,0 +1,342 @@
+{
+  "protocol": {
+    "analysis": "cyclic",
+    "beam_nodes": 10,
+    "beam_integration": "lobatto",
+    "top_rotation_mode": "free",
+    "solver_policy": "newton-l2-lu-symbolic-reuse-only",
+    "axial_compression_mn": 0.02,
+    "axial_preload_steps": 4,
+    "continuation": "reversal-guarded",
+    "continuation_segment_substep_factor": 2,
+    "amplitudes_mm": "50,100,150,200",
+    "steps_per_segment": 2,
+    "max_bisections": 8,
+    "reference_profile": "ultra"
+  },
+  "summary_rows": [
+    {
+      "profile": "fine",
+      "completed_successfully": true,
+      "concrete_fiber_count": 336,
+      "total_section_fiber_count": 344,
+      "hysteresis_point_count": 49,
+      "peak_abs_drift_mm": 200.0,
+      "peak_abs_base_shear_kN": 23.5319818,
+      "signed_loop_work_MN_m": -0.014527308331305099,
+      "reported_total_wall_seconds": 162.0850043,
+      "reported_solve_wall_seconds": 156.2398253,
+      "process_wall_seconds": 167.92012999998406,
+      "matched_point_count_vs_reference": 49,
+      "peak_normalized_max_base_shear_error_vs_reference": 0.0030701610490478036,
+      "peak_normalized_rms_base_shear_error_vs_reference": 0.0008403034762905036,
+      "mean_signed_base_shear_error_MN_vs_reference": -2.541216935487918e-06,
+      "concrete_area_m2": 0.06249999993599992,
+      "steel_area_m2": 0.00160849544,
+      "first_moment_y_m3": 2.0328790734103208e-20,
+      "first_moment_z_m3": 2.710505431213761e-20,
+      "steel_bar_count": 8
+    },
+    {
+      "profile": "ultra",
+      "completed_successfully": true,
+      "concrete_fiber_count": 756,
+      "total_section_fiber_count": 764,
+      "hysteresis_point_count": 49,
+      "peak_abs_drift_mm": 200.0,
+      "peak_abs_base_shear_kN": 23.5459635,
+      "signed_loop_work_MN_m": -0.014540853850467493,
+      "reported_total_wall_seconds": 174.5815478,
+      "reported_solve_wall_seconds": 161.5634201,
+      "process_wall_seconds": 190.41841230000136,
+      "matched_point_count_vs_reference": 49,
+      "peak_normalized_max_base_shear_error_vs_reference": 0.0,
+      "peak_normalized_rms_base_shear_error_vs_reference": 0.0,
+      "mean_signed_base_shear_error_MN_vs_reference": 0.0,
+      "concrete_area_m2": 0.06249999996719916,
+      "steel_area_m2": 0.00160849544,
+      "first_moment_y_m3": 2.371692252312041e-20,
+      "first_moment_z_m3": 3.3881317890172014e-20,
+      "steel_bar_count": 8
+    }
+  ],
+  "case_payloads": {
+    "fine": {
+      "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_section_fiber_mesh_audit_200mm_free_rotation_fine_ultra\\fine",
+      "process_wall_seconds": 167.92012999998406,
+      "runtime_manifest": {
+        "tool": "fall_n",
+        "status": "completed",
+        "manifest_contract": "fall_n_reduced_rc_benchmark_manifest_v1",
+        "input_surface": {
+          "manifest_contract": "fall_n_reduced_rc_benchmark_manifest_v1",
+          "driver_kind": "structural_reference_benchmark",
+          "analysis_kind": "cyclic",
+          "wrapper_surface_readiness": "schema_stable_for_wrappers",
+          "stable_manifest_contract": true,
+          "stable_resolved_input_block": true,
+          "intended_for_future_python_julia_wrappers": true,
+          "notes": "Typed structural reduced-column benchmark surface intended to remain stable enough for future Python/Julia wrappers."
+        },
+        "local_model_taxonomy": {
+          "discretization_kind": "structural_section_surrogate",
+          "fracture_representation_kind": "none",
+          "reinforcement_representation_kind": "constitutive_section_fibers",
+          "maturity_kind": "promoted_baseline",
+          "supports_discrete_crack_geometry": false,
+          "requires_enriched_dofs": false,
+          "requires_skeleton_trace_unknowns": false,
+          "suitable_for_future_multiscale_local_model": false,
+          "notes": "Reduced-column structural surrogate based on TimoshenkoBeamN and fiber-section constitutive response."
+        },
+        "analysis": "cyclic",
+        "material_mode": "nonlinear",
+        "beam_nodes": 10,
+        "beam_integration": "lobatto",
+        "clamp_top_bending_rotation": false,
+        "element_formulation": "TimoshenkoBeamN mixed-interpolation displacement-based beam slice",
+        "element_assembly_policy": "DirectAssembly (no element-level static condensation in this validation slice)",
+        "beam_theory_note": "The current reduced structural benchmark uses a mixed-interpolation Timoshenko beam with explicit shear strains and direct global assembly; no element-level internal-DOF condensation is active on this slice.",
+        "section_tangent_policy": "primary tangent_eiy is the axial-force-condensed dMy/dkappa_y|N=const; raw Kyy and coupling terms are exported separately for audit",
+        "reinforcement_area": {
+          "bar_count": 8,
+          "single_bar_area_m2": 0.00020106192983,
+          "total_steel_area_m2": 0.00160849543864,
+          "gross_section_area_m2": 0.0625,
+          "steel_ratio": 0.0257359270182
+        },
+        "section_fiber_mesh": {
+          "profile": "fine",
+          "cover_top_bottom_ny": 16,
+          "cover_top_bottom_nz": 4,
+          "cover_side_ny": 4,
+          "cover_side_nz": 8,
+          "core_ny": 12,
+          "core_nz": 12,
+          "concrete_fiber_count": 336,
+          "total_section_fiber_count": 344,
+          "invariant_reinforcement_policy": "steel bar area and bar coordinates are independent of concrete fiber refinement"
+        },
+        "continuation_kind": "reversal_guarded_incremental_displacement_control",
+        "solver_policy_kind": "newton_l2_lu_symbolic_reuse_only",
+        "solver_policy": {
+          "increment_control": "adaptive requested-step cutback over monotone pseudo-time with PETSc SNES profile cascade",
+          "profiles": [
+            "newton_l2_lu_symbolic_reuse"
+          ]
+        },
+        "axial_compression_mn": 0.02,
+        "protocol_point_count": 49,
+        "hysteresis_point_count": 49,
+        "section_record_count": 441,
+        "control_state_record_count": 49,
+        "fiber_history_record_count": 151704,
+        "element_tangent_audit_record_count": 0,
+        "section_tangent_audit_record_count": 0,
+        "comparison_hysteresis_point_count": 49,
+        "comparison_section_record_count": 441,
+        "comparison_control_state_point_count": 49,
+        "comparison_fiber_history_point_count": 151704,
+        "failed_attempt_section_record_count": 0,
+        "failed_attempt_fiber_history_point_count": 0,
+        "has_failed_attempt_element_tangent_audit": false,
+        "has_failed_attempt_section_tangent_audit": false,
+        "comparison_branch_kind": "full_declared_history",
+        "timing": {
+          "total_wall_seconds": 162.0850043,
+          "analysis_wall_seconds": 156.2398253,
+          "output_write_wall_seconds": 5.8451676
+        },
+        "benchmark_note": "The structural baseline compares the full declared cyclic history against the external computational reference."
+      },
+      "section_invariants": {
+        "concrete_area_m2": 0.06249999993599992,
+        "steel_area_m2": 0.00160849544,
+        "first_moment_y_m3": 2.0328790734103208e-20,
+        "first_moment_z_m3": 2.710505431213761e-20,
+        "steel_bar_count": 8,
+        "steel_positions": [
+          {
+            "y": -0.095,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": -0.095,
+            "z": 0.0,
+            "area": 0.00020106193
+          },
+          {
+            "y": -0.095,
+            "z": 0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.0,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.0,
+            "z": 0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": 0.0,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": 0.095,
+            "area": 0.00020106193
+          }
+        ]
+      }
+    },
+    "ultra": {
+      "bundle_dir": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_section_fiber_mesh_audit_200mm_free_rotation_fine_ultra\\ultra",
+      "process_wall_seconds": 190.41841230000136,
+      "runtime_manifest": {
+        "tool": "fall_n",
+        "status": "completed",
+        "manifest_contract": "fall_n_reduced_rc_benchmark_manifest_v1",
+        "input_surface": {
+          "manifest_contract": "fall_n_reduced_rc_benchmark_manifest_v1",
+          "driver_kind": "structural_reference_benchmark",
+          "analysis_kind": "cyclic",
+          "wrapper_surface_readiness": "schema_stable_for_wrappers",
+          "stable_manifest_contract": true,
+          "stable_resolved_input_block": true,
+          "intended_for_future_python_julia_wrappers": true,
+          "notes": "Typed structural reduced-column benchmark surface intended to remain stable enough for future Python/Julia wrappers."
+        },
+        "local_model_taxonomy": {
+          "discretization_kind": "structural_section_surrogate",
+          "fracture_representation_kind": "none",
+          "reinforcement_representation_kind": "constitutive_section_fibers",
+          "maturity_kind": "promoted_baseline",
+          "supports_discrete_crack_geometry": false,
+          "requires_enriched_dofs": false,
+          "requires_skeleton_trace_unknowns": false,
+          "suitable_for_future_multiscale_local_model": false,
+          "notes": "Reduced-column structural surrogate based on TimoshenkoBeamN and fiber-section constitutive response."
+        },
+        "analysis": "cyclic",
+        "material_mode": "nonlinear",
+        "beam_nodes": 10,
+        "beam_integration": "lobatto",
+        "clamp_top_bending_rotation": false,
+        "element_formulation": "TimoshenkoBeamN mixed-interpolation displacement-based beam slice",
+        "element_assembly_policy": "DirectAssembly (no element-level static condensation in this validation slice)",
+        "beam_theory_note": "The current reduced structural benchmark uses a mixed-interpolation Timoshenko beam with explicit shear strains and direct global assembly; no element-level internal-DOF condensation is active on this slice.",
+        "section_tangent_policy": "primary tangent_eiy is the axial-force-condensed dMy/dkappa_y|N=const; raw Kyy and coupling terms are exported separately for audit",
+        "reinforcement_area": {
+          "bar_count": 8,
+          "single_bar_area_m2": 0.00020106192983,
+          "total_steel_area_m2": 0.00160849543864,
+          "gross_section_area_m2": 0.0625,
+          "steel_ratio": 0.0257359270182
+        },
+        "section_fiber_mesh": {
+          "profile": "ultra",
+          "cover_top_bottom_ny": 24,
+          "cover_top_bottom_nz": 6,
+          "cover_side_ny": 6,
+          "cover_side_nz": 12,
+          "core_ny": 18,
+          "core_nz": 18,
+          "concrete_fiber_count": 756,
+          "total_section_fiber_count": 764,
+          "invariant_reinforcement_policy": "steel bar area and bar coordinates are independent of concrete fiber refinement"
+        },
+        "continuation_kind": "reversal_guarded_incremental_displacement_control",
+        "solver_policy_kind": "newton_l2_lu_symbolic_reuse_only",
+        "solver_policy": {
+          "increment_control": "adaptive requested-step cutback over monotone pseudo-time with PETSc SNES profile cascade",
+          "profiles": [
+            "newton_l2_lu_symbolic_reuse"
+          ]
+        },
+        "axial_compression_mn": 0.02,
+        "protocol_point_count": 49,
+        "hysteresis_point_count": 49,
+        "section_record_count": 441,
+        "control_state_record_count": 49,
+        "fiber_history_record_count": 336924,
+        "element_tangent_audit_record_count": 0,
+        "section_tangent_audit_record_count": 0,
+        "comparison_hysteresis_point_count": 49,
+        "comparison_section_record_count": 441,
+        "comparison_control_state_point_count": 49,
+        "comparison_fiber_history_point_count": 336924,
+        "failed_attempt_section_record_count": 0,
+        "failed_attempt_fiber_history_point_count": 0,
+        "has_failed_attempt_element_tangent_audit": false,
+        "has_failed_attempt_section_tangent_audit": false,
+        "comparison_branch_kind": "full_declared_history",
+        "timing": {
+          "total_wall_seconds": 174.5815478,
+          "analysis_wall_seconds": 161.5634201,
+          "output_write_wall_seconds": 13.0181171
+        },
+        "benchmark_note": "The structural baseline compares the full declared cyclic history against the external computational reference."
+      },
+      "section_invariants": {
+        "concrete_area_m2": 0.06249999996719916,
+        "steel_area_m2": 0.00160849544,
+        "first_moment_y_m3": 2.371692252312041e-20,
+        "first_moment_z_m3": 3.3881317890172014e-20,
+        "steel_bar_count": 8,
+        "steel_positions": [
+          {
+            "y": -0.095,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": -0.095,
+            "z": 0.0,
+            "area": 0.00020106193
+          },
+          {
+            "y": -0.095,
+            "z": 0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.0,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.0,
+            "z": 0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": -0.095,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": 0.0,
+            "area": 0.00020106193
+          },
+          {
+            "y": 0.095,
+            "z": 0.095,
+            "area": 0.00020106193
+          }
+        ]
+      }
+    }
+  },
+  "invariant_statement": "Across section-fiber profiles, steel area and bar coordinates are held fixed; only concrete patch subdivisions vary."
+}

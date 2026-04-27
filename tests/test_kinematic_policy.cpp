@@ -78,7 +78,7 @@ void test_policy_traits() {
     static_assert(KinematicFormulationTraits<SmallStrain>::maturity == FormulationMaturity::implemented);
     static_assert(KinematicFormulationTraits<TotalLagrangian>::maturity == FormulationMaturity::implemented);
     static_assert(KinematicFormulationTraits<UpdatedLagrangian>::maturity == FormulationMaturity::partial);
-    static_assert(KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::placeholder);
+    static_assert(KinematicFormulationTraits<Corotational>::maturity == FormulationMaturity::partial);
     static_assert(KinematicFormulationTraits<SmallStrain>::virtual_work_compatibility ==
                   VirtualWorkCompatibilityKind::linearized_equivalent);
     static_assert(KinematicFormulationTraits<TotalLagrangian>::virtual_work_compatibility ==
@@ -90,7 +90,7 @@ void test_policy_traits() {
     static_assert(KinematicFormulationTraits<TotalLagrangian>::audit_scope.is_reference_finite_kinematics_path());
     static_assert(KinematicFormulationTraits<UpdatedLagrangian>::audit_scope.requires_finite_kinematics_scope_disclaimer());
     static_assert(!KinematicFormulationTraits<SmallStrain>::audit_scope.supports_finite_kinematics);
-    static_assert(!KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
+    static_assert(KinematicFormulationTraits<Corotational>::audit_scope.has_runtime_path());
     static_assert(KinematicFormulationTraits<TotalLagrangian>::family_audit_scope.is_reference_geometric_nonlinearity_path());
     static_assert(KinematicFormulationTraits<UpdatedLagrangian>::family_audit_scope.requires_geometric_nonlinearity_scope_disclaimer());
     static_assert(beam::BeamKinematicFormulationTraits<beam::Corotational>::audit_scope.is_reference_geometric_nonlinearity_path());
@@ -1026,6 +1026,145 @@ void test_TL_rigid_rotation_zero_strain_3D() {
     report("TL_rigid_rotation_zero_E_3D", max_strain < 1e-10);
 }
 
+void test_corotational_rotation_filter_and_assembly_transforms() {
+    const double theta = M_PI / 2.0;
+    const double c = std::cos(theta), s = std::sin(theta);
+
+    Eigen::Matrix<double, Eigen::Dynamic, 2> grad(3, 2);
+    grad << -1.0, -1.0,
+             1.0,  0.0,
+             0.0,  1.0;
+
+    Eigen::VectorXd u_e(6);
+    u_e << 0.0, 0.0,
+           c - 1.0, s,
+          -s, c - 1.0;
+
+    auto gp = Corotational::evaluate_from_gradients<2>(grad, 2, u_e);
+    report("CR_rotation_filter_det1_2D", approx(gp.detF, 1.0, 1e-10));
+    report("CR_rigid_rotation_zero_corotated_strain_2D",
+        gp.strain_voigt.cwiseAbs().maxCoeff() < 1e-10);
+    report("CR_rotation_extraction_orthogonal_2D",
+        (gp.corotational_rotation.matrix().transpose() *
+             gp.corotational_rotation.matrix() -
+         Eigen::Matrix2d::Identity()).norm() < 1e-10);
+
+    Eigen::Vector3d sigma_hat = Eigen::Vector3d::Zero();
+    sigma_hat(0) = 1.0;
+    const auto sigma_global =
+        Corotational::rotate_stress_to_global<2>(
+            sigma_hat, gp.corotational_rotation);
+    report("CR_stress_rotation_local_x_to_global_y_2D",
+        approx(sigma_global(0), 0.0, 1e-10) &&
+        approx(sigma_global(1), 1.0, 1e-10) &&
+        approx(sigma_global(2), 0.0, 1e-10));
+
+    auto C_hat = Eigen::Matrix3d::Identity();
+    const auto C_global =
+        Corotational::rotate_tangent_to_global<2>(
+            C_hat, gp.corotational_rotation);
+    report("CR_tangent_rotation_finite_2D",
+        C_global.allFinite() &&
+        (C_global - C_global.transpose()).norm() < 1e-10);
+}
+
+void test_corotational_small_deformation_limit_3D() {
+    Eigen::Matrix<double, Eigen::Dynamic, 3> grad(4, 3);
+    grad << -1.0, -1.0, -1.0,
+             1.0,  0.0,  0.0,
+             0.0,  1.0,  0.0,
+             0.0,  0.0,  1.0;
+
+    Eigen::VectorXd u_e(12);
+    u_e << 0.0, 0.0, 0.0,
+           1.0e-8, 0.0, 0.0,
+           0.0, 2.0e-9, 0.0,
+           0.0, 0.0, 3.0e-9;
+
+    const auto gp_ss = SmallStrain::evaluate_from_gradients<3>(grad, 3, u_e);
+    const auto gp_cr = Corotational::evaluate_from_gradients<3>(grad, 3, u_e);
+    const double max_diff =
+        (gp_ss.strain_voigt - gp_cr.strain_voigt).cwiseAbs().maxCoeff();
+    report("CR_small_deformation_limit_3D", max_diff < 1e-14);
+}
+
+void test_corotational_superposed_rotation_invariance_3D() {
+    Eigen::Matrix<double, Eigen::Dynamic, 3> grad(4, 3);
+    grad << -1.0, -1.0, -1.0,
+             1.0,  0.0,  0.0,
+             0.0,  1.0,  0.0,
+             0.0,  0.0,  1.0;
+
+    auto nodal_displacements_from_F = [](
+        const Eigen::Matrix3d& F) {
+        Eigen::VectorXd u_e(12);
+        u_e.setZero();
+        u_e.segment<3>(3) = F.col(0) - Eigen::Vector3d::UnitX();
+        u_e.segment<3>(6) = F.col(1) - Eigen::Vector3d::UnitY();
+        u_e.segment<3>(9) = F.col(2) - Eigen::Vector3d::UnitZ();
+        return u_e;
+    };
+
+    const Eigen::Matrix3d U =
+        (Eigen::Vector3d{1.08, 0.96, 1.03}).asDiagonal();
+    const double theta = 0.73;
+    const double c = std::cos(theta), s = std::sin(theta);
+    Eigen::Matrix3d Q = Eigen::Matrix3d::Identity();
+    Q(0, 0) = c;  Q(0, 1) = -s;
+    Q(1, 0) = s;  Q(1, 1) = c;
+
+    const auto gp_unrotated = Corotational::evaluate_from_gradients<3>(
+        grad, 3, nodal_displacements_from_F(U));
+    const auto gp_superposed = Corotational::evaluate_from_gradients<3>(
+        grad, 3, nodal_displacements_from_F(Q * U));
+
+    const Eigen::Vector<double, 6> expected =
+        (Eigen::Vector<double, 6>() << 0.08, -0.04, 0.03, 0.0, 0.0, 0.0)
+            .finished();
+    report("CR_superposed_rotation_keeps_biot_strain_3D",
+        (gp_superposed.strain_voigt - expected).cwiseAbs().maxCoeff() < 1e-10);
+    report("CR_superposed_rotation_matches_unrotated_stretch_3D",
+        (gp_superposed.strain_voigt - gp_unrotated.strain_voigt)
+            .cwiseAbs().maxCoeff() < 1e-10);
+    report("CR_superposed_rotation_extracts_Q_3D",
+        (gp_superposed.corotational_rotation.matrix() - Q).norm() < 1e-10);
+}
+
+void test_corotational_tangent_action_matches_stress_increment_3D() {
+    const double theta = 0.41;
+    const double c = std::cos(theta), s = std::sin(theta);
+    Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+    R(0, 0) = c;  R(0, 1) = -s;
+    R(1, 0) = s;  R(1, 1) = c;
+    const Tensor2<3> rotation{R};
+
+    Eigen::Matrix<double, 6, 6> C_hat = Eigen::Matrix<double, 6, 6>::Zero();
+    C_hat.diagonal() << 10.0, 11.0, 12.0, 4.0, 5.0, 6.0;
+    C_hat(0, 1) = C_hat(1, 0) = 2.0;
+    C_hat(0, 2) = C_hat(2, 0) = 1.5;
+    C_hat(1, 2) = C_hat(2, 1) = 1.25;
+    C_hat(3, 4) = C_hat(4, 3) = 0.20;
+    C_hat(4, 5) = C_hat(5, 4) = 0.15;
+
+    const auto C_global =
+        Corotational::rotate_tangent_to_global<3>(C_hat, rotation);
+
+    Eigen::Vector<double, 6> delta_eps_global;
+    delta_eps_global << 0.003, -0.002, 0.001, 0.004, -0.005, 0.002;
+
+    const auto delta_eps_hat =
+        Corotational::rotate_engineering_strain_to_corotated<3>(
+            delta_eps_global, rotation);
+    const auto delta_sigma_hat = C_hat * delta_eps_hat;
+    const auto delta_sigma_global =
+        Corotational::rotate_stress_to_global<3>(
+            delta_sigma_hat, rotation);
+
+    report("CR_tangent_action_matches_rotated_stress_increment_3D",
+        (C_global * delta_eps_global - delta_sigma_global)
+            .cwiseAbs().maxCoeff() < 1e-12);
+}
+
 
 // =============================================================================
 //  main
@@ -1106,6 +1245,10 @@ int main() {
     std::cout << "\n── Objectivity (rigid rotation → zero strain) ──\n";
     test_TL_rigid_rotation_zero_strain_2D();
     test_TL_rigid_rotation_zero_strain_3D();
+    test_corotational_rotation_filter_and_assembly_transforms();
+    test_corotational_small_deformation_limit_3D();
+    test_corotational_superposed_rotation_invariance_3D();
+    test_corotational_tangent_action_matches_stress_increment_3D();
 
     // Summary
     std::cout << "\n══════════════════════════════════════════════════════\n"

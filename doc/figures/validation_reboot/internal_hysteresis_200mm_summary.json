@@ -1,0 +1,53 @@
+{
+  "status": "completed",
+  "return_code": 0,
+  "command": [
+    "C:\\MyLibs\\fall_n\\build\\fall_n_reduced_rc_column_reference_benchmark.exe",
+    "--analysis",
+    "cyclic",
+    "--output-dir",
+    "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_internal_hysteresis_200mm",
+    "--material-mode",
+    "nonlinear",
+    "--solver-policy",
+    "canonical-cascade",
+    "--beam-nodes",
+    "4",
+    "--beam-integration",
+    "legendre",
+    "--axial-compression-mn",
+    "0.02",
+    "--axial-preload-steps",
+    "4",
+    "--continuation",
+    "reversal-guarded",
+    "--continuation-segment-substep-factor",
+    "2",
+    "--amplitudes-mm",
+    "50,100,150,200",
+    "--steps-per-segment",
+    "2",
+    "--max-bisections",
+    "8",
+    "--print-progress"
+  ],
+  "solver_policy": "canonical-cascade",
+  "reported_status": "completed",
+  "reported_timing": {
+    "total_wall_seconds": 5.0342609,
+    "analysis_wall_seconds": 4.5833886,
+    "output_write_wall_seconds": 0.4508476
+  },
+  "process_wall_seconds": 5.550567300000694,
+  "max_abs_tip_drift_mm": 200.0,
+  "max_abs_base_shear_kn": 25.0478356,
+  "max_abs_base_moment_knm": 71.1196889,
+  "max_newton_iterations": 33.0,
+  "max_bisection_level": 1,
+  "active_solver_profiles": [
+    "newton_backtracking",
+    "newton_l2"
+  ],
+  "hysteresis_point_count": 49,
+  "control_state_count": 49
+}

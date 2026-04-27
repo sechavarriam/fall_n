@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="560" viewBox="0 0 860 560">
+<rect width="100%" height="100%" fill="white"/>
+<style>text{font-family:Georgia,serif;fill:#171717}.axis{stroke:#222;stroke-width:1.2}.grid{stroke:#ddd;stroke-width:1}.curve{fill:none;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}.marker{stroke:white;stroke-width:1.1}</style>
+<text x="430.0" y="28" text-anchor="middle" font-size="20">Reduced RC continuum hysteresis after component-wise coupling fix</text>
+<line class="grid" x1="86.00" y1="54" x2="86.00" y2="488"/>
+<line class="grid" x1="86" y1="54.00" x2="826" y2="54.00"/>
+<line class="grid" x1="271.00" y1="54" x2="271.00" y2="488"/>
+<line class="grid" x1="86" y1="162.50" x2="826" y2="162.50"/>
+<line class="grid" x1="456.00" y1="54" x2="456.00" y2="488"/>
+<line class="grid" x1="86" y1="271.00" x2="826" y2="271.00"/>
+<line class="grid" x1="641.00" y1="54" x2="641.00" y2="488"/>
+<line class="grid" x1="86" y1="379.50" x2="826" y2="379.50"/>
+<line class="grid" x1="826.00" y1="54" x2="826.00" y2="488"/>
+<line class="grid" x1="86" y1="488.00" x2="826" y2="488.00"/>
+<line class="axis" x1="456.00" y1="54" x2="456.00" y2="488"/>
+<line class="axis" x1="86" y1="270.96" x2="826" y2="270.96"/>
+<rect x="86" y="54" width="740" height="434" fill="none" stroke="#222" stroke-width="1.2"/>
+<polyline class="curve" stroke="#1f77b4" points="456.00,270.96 538.59,328.18 621.18,373.24 703.77,412.89 786.36,451.83 621.18,345.26 456.00,254.16 290.82,170.89 125.64,90.17 208.23,143.73 290.82,193.13 373.41,241.62 456.00,285.89"/>
+<circle class="marker" cx="456.00" cy="270.96" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="538.59" cy="328.18" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="621.18" cy="373.24" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="703.77" cy="412.89" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="786.36" cy="451.83" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="621.18" cy="345.26" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="456.00" cy="254.16" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="290.82" cy="170.89" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="125.64" cy="90.17" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="208.23" cy="143.73" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="290.82" cy="193.13" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="373.41" cy="241.62" r="3.5" fill="#1f77b4"/>
+<circle class="marker" cx="456.00" cy="285.89" r="3.5" fill="#1f77b4"/>
+<polyline class="curve" stroke="#ff7f0e" points="456.00,270.96 538.59,326.78 621.18,370.72 703.77,410.44 786.36,449.53 621.18,345.23 456.00,254.26 290.82,172.10 125.64,91.75 208.23,144.20 290.82,193.17 373.41,241.67 456.00,285.87"/>
+<circle class="marker" cx="456.00" cy="270.96" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="538.59" cy="326.78" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="621.18" cy="370.72" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="703.77" cy="410.44" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="786.36" cy="449.53" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="621.18" cy="345.23" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="456.00" cy="254.26" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="290.82" cy="172.10" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="125.64" cy="91.75" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="208.23" cy="144.20" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="290.82" cy="193.17" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="373.41" cy="241.67" r="3.5" fill="#ff7f0e"/>
+<circle class="marker" cx="456.00" cy="285.87" r="3.5" fill="#ff7f0e"/>
+<polyline class="curve" stroke="#2ca02c" points="456.00,270.96 538.59,301.14 621.18,317.69 703.77,329.58 786.36,340.25 621.18,290.21 456.00,253.99 290.82,227.07 125.64,202.18 208.23,227.04 290.82,250.16 373.41,270.31 456.00,286.22"/>
+<circle class="marker" cx="456.00" cy="270.96" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="538.59" cy="301.14" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="621.18" cy="317.69" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="703.77" cy="329.58" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="786.36" cy="340.25" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="621.18" cy="290.21" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="456.00" cy="253.99" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="290.82" cy="227.07" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="125.64" cy="202.18" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="208.23" cy="227.04" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="290.82" cy="250.16" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="373.41" cy="270.31" r="3.5" fill="#2ca02c"/>
+<circle class="marker" cx="456.00" cy="286.22" r="3.5" fill="#2ca02c"/>
+<text x="86.00" y="512" text-anchor="middle" font-size="13">-224</text>
+<text x="76" y="492.00" text-anchor="end" font-size="13">-189</text>
+<text x="271.00" y="512" text-anchor="middle" font-size="13">-112</text>
+<text x="76" y="383.50" text-anchor="end" font-size="13">-95</text>
+<text x="456.00" y="512" text-anchor="middle" font-size="13">0</text>
+<text x="76" y="275.00" text-anchor="end" font-size="13">-0</text>
+<text x="641.00" y="512" text-anchor="middle" font-size="13">112</text>
+<text x="76" y="166.50" text-anchor="end" font-size="13">95</text>
+<text x="826.00" y="512" text-anchor="middle" font-size="13">224</text>
+<text x="76" y="58.00" text-anchor="end" font-size="13">189</text>
+<text x="456.0" y="538" text-anchor="middle" font-size="15">Tip drift [mm]</text>
+<text x="22" y="271.0" transform="rotate(-90 22 271.0)" text-anchor="middle" font-size="15">Base shear [kN]</text>
+<rect x="616" y="58" width="198" height="76" fill="white" stroke="#bbb"/>
+<line x1="628" y1="74" x2="658" y2="74" stroke="#1f77b4" stroke-width="3"/>
+<text x="666" y="79" font-size="14">Hex8 2x2x4 CR</text>
+<line x1="628" y1="96" x2="658" y2="96" stroke="#ff7f0e" stroke-width="3"/>
+<text x="666" y="101" font-size="14">Hex8 2x2x4 TL</text>
+<line x1="628" y1="118" x2="658" y2="118" stroke="#2ca02c" stroke-width="3"/>
+<text x="666" y="123" font-size="14">Hex8 4x4x8 CR</text>
+</svg>

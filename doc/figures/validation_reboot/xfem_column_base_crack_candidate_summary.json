@@ -1,0 +1,13 @@
+{
+  "status": "completed",
+  "crack_z": 0.25,
+  "element_count": 2,
+  "cut_element_count": 1,
+  "enriched_node_count": 4,
+  "standard_node_count": 2,
+  "figures": {
+    "png": "doc\\figures\\validation_reboot\\xfem_column_base_crack_candidate.png",
+    "pdf": "doc\\figures\\validation_reboot\\xfem_column_base_crack_candidate.pdf"
+  },
+  "notes": "This is a wrapper-side visualization of the XFEM mask contract: only crack-cut cells should receive enriched displacement support."
+}

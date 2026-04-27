@@ -1,0 +1,26 @@
+{
+  "status": "completed",
+  "cases": [
+    {
+      "bundle": "data\\output\\cyclic_validation\\continuum_external_elastic_with_steel_200mm_bbarBrick_refined_6x6x12",
+      "status": "completed",
+      "falln_max_abs_drift_mm": 200.0,
+      "opensees_max_abs_drift_mm": 199.99999999999997,
+      "base_shear_rms_error_MN": 0.013871740985550869,
+      "steel_stress_rms_error_MPa": 3.5002439470142908
+    },
+    {
+      "bundle": "data\\output\\cyclic_validation\\continuum_external_asd_cyclic_200mm_SSPbrick_coarse_v1",
+      "status": "failed_with_partial_artifacts",
+      "falln_max_abs_drift_mm": 200.0,
+      "opensees_max_abs_drift_mm": 50.0,
+      "base_shear_rms_error_MN": 0.015085726865962322,
+      "steel_stress_rms_error_MPa": 211.421527199998
+    }
+  ],
+  "figures": {
+    "png": "doc\\figures\\validation_reboot\\continuum_external_hysteresis_200mm_panel.png",
+    "pdf": "doc\\figures\\validation_reboot\\continuum_external_hysteresis_200mm_panel.pdf",
+    "svg": "doc\\figures\\validation_reboot\\continuum_external_hysteresis_200mm_panel.svg"
+  }
+}

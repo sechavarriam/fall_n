@@ -1,0 +1,89 @@
+{
+  "scope": "global_xfem_secant_vs_structural_reference_200mm",
+  "status": "completed",
+  "structural_bundle": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_reference_n10_lobatto_200mm_for_xfem_secant_compare",
+  "xfem_bundle": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_200mm_structural_compare",
+  "sign_convention": {
+    "applied_to_structural_base_shear": -1.0,
+    "raw_rms_error_MN": 0.029081741052242805,
+    "sign_aligned_rms_error_MN": 0.0019275141134068648,
+    "interpretation": "A factor of -1 indicates opposite base-shear reaction conventions between the structural and XFEM artifacts."
+  },
+  "metrics": {
+    "point_count": 145,
+    "peak_abs_structural_base_shear_MN": 0.023563403283780385,
+    "peak_abs_xfem_base_shear_MN": 0.02608742767,
+    "xfem_to_structural_peak_base_shear_ratio": 1.1071162919813455,
+    "max_abs_base_shear_error_MN": 0.005192034041826284,
+    "rms_base_shear_error_MN": 0.0019275141134068648,
+    "peak_normalized_max_base_shear_error": 0.1990243770870907,
+    "peak_normalized_rms_base_shear_error": 0.07388670656951993,
+    "structural_loop_work_MN_mm": 15.238795954698665,
+    "xfem_loop_work_MN_mm": 16.430853733441065
+  },
+  "structural_manifest": {
+    "beam_nodes": 10,
+    "beam_integration": "lobatto",
+    "section_fiber_mesh": {
+      "profile": "fine",
+      "cover_top_bottom_ny": 16,
+      "cover_top_bottom_nz": 4,
+      "cover_side_ny": 4,
+      "cover_side_nz": 8,
+      "core_ny": 12,
+      "core_nz": 12,
+      "concrete_fiber_count": 336,
+      "total_section_fiber_count": 344,
+      "invariant_reinforcement_policy": "steel bar area and bar coordinates are independent of concrete fiber refinement"
+    },
+    "continuation_kind": "reversal_guarded_incremental_displacement_control",
+    "timing": {
+      "total_wall_seconds": 242.913553,
+      "analysis_wall_seconds": 228.5781876,
+      "output_write_wall_seconds": 14.3353509
+    }
+  },
+  "xfem_manifest": {
+    "mesh": {
+      "hex_order": "Hex8",
+      "nx": 1,
+      "ny": 1,
+      "nz": 2,
+      "longitudinal_bias_power": 2,
+      "element_count": 18,
+      "node_count": 36,
+      "enriched_node_count": 8
+    },
+    "physics": {
+      "host_material": "cyclic-crack-band",
+      "residual_tension_fraction": 0.02,
+      "crack_band_tangent": "secant",
+      "fracture_representation": "shifted_heaviside_planar_base_crack_with_cohesive_surface",
+      "reinforcement_representation": "menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling",
+      "crack_z_m": 0.4,
+      "axial_compression_mn": 0.02,
+      "concrete_fpc_mpa": 30
+    },
+    "solve_control": {
+      "max_bisections": 8,
+      "solver_max_iterations": 120,
+      "solver_cascade": true,
+      "adaptive_increments": true
+    },
+    "observables": {
+      "peak_abs_base_shear_mn": 0.0260874276681,
+      "peak_abs_steel_stress_mpa": 431.712211361,
+      "max_host_damage": 0.98,
+      "max_damaged_host_points": 16
+    },
+    "timing": {
+      "total_wall_seconds": 42.6705516
+    }
+  },
+  "artifacts": {
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.png",
+    "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.png",
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.pdf",
+    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.pdf"
+  }
+}

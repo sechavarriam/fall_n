@@ -154,6 +154,14 @@ function(fall_n_enable_cyclic_validation_pch target_name)
     "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/src/validation/TableCyclicValidationPch.hh>")
 endfunction()
 
+function(fall_n_reduce_benchmark_debug_info target_name)
+  if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(${target_name} PRIVATE
+      $<$<CONFIG:Debug>:-g0>
+      $<$<CONFIG:Debug>:-fno-var-tracking-assignments>)
+  endif()
+endfunction()
+
 # ==============================================================================
 # ============== Public Multiscale API target ==================================
 # ==============================================================================
@@ -261,6 +269,119 @@ set_source_files_properties(
     src/validation/ComprehensiveCyclicValidation.cpp
     PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON)
+
+# -- Reduced RC-column benchmark runner (fall_n vs external bridge)
+add_executable(
+    fall_n_reduced_rc_column_reference_benchmark
+    main_reduced_rc_column_reference_benchmark.cpp
+    src/validation/ReducedRCColumnStructuralBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_column_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_column_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_column_reference_benchmark PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_column_reference_benchmark
+  MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(
+      fall_n_reduced_rc_column_reference_benchmark PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(
+    fall_n_reduced_rc_column_continuum_reference_benchmark
+    main_reduced_rc_column_continuum_reference_benchmark.cpp
+    src/validation/ReducedRCColumnContinuumBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_column_continuum_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_column_continuum_reference_benchmark PRIVATE
+    ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_column_continuum_reference_benchmark PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_column_continuum_reference_benchmark
+  MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(
+      fall_n_reduced_rc_column_continuum_reference_benchmark PUBLIC
+      OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(
+    fall_n_reduced_rc_column_section_reference_benchmark
+    main_reduced_rc_column_section_reference_benchmark.cpp
+    src/validation/ReducedRCColumnSectionBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_column_section_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_column_section_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_column_section_reference_benchmark PUBLIC
+    PkgConfig::PETSC
+    Eigen3::Eigen)
+
+add_executable(
+    fall_n_reduced_rc_material_reference_benchmark
+    main_reduced_rc_material_reference_benchmark.cpp
+    src/validation/ReducedRCColumnMaterialBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_material_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_material_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_material_reference_benchmark PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen)
+
+add_executable(
+    fall_n_reduced_rc_truss_reference_benchmark
+    main_reduced_rc_truss_reference_benchmark.cpp
+    src/validation/ReducedRCColumnMaterialBaseline.cpp
+    src/validation/ReducedRCColumnTrussBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_truss_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_truss_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_truss_reference_benchmark PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_truss_reference_benchmark
+  MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(
+      fall_n_reduced_rc_truss_reference_benchmark PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(
+    fall_n_reduced_rc_xfem_reference_benchmark
+    main_reduced_rc_xfem_reference_benchmark.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_xfem_reference_benchmark)
+target_include_directories(
+    fall_n_reduced_rc_xfem_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_xfem_reference_benchmark PUBLIC
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_xfem_reference_benchmark
+  MODULES ${VTK_LIBRARIES})
 
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
@@ -439,6 +560,31 @@ fall_n_add_test(TARGET fall_n_ko_bathe_concrete_test
 fall_n_add_test(TARGET fall_n_ko_bathe_concrete_3d_test
     NAME ko_bathe_concrete_3d  SOURCE tests/test_ko_bathe_concrete_3d.cpp
     LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+    NAME tensile_crack_band_damage_concrete_proxy_3d
+    SOURCE tests/test_tensile_crack_band_damage_concrete_proxy_3d.cpp
+    LIBS FULL LABEL unit)
+
+fall_n_add_test(TARGET fall_n_cyclic_crack_band_concrete_3d_test
+    NAME cyclic_crack_band_concrete_3d
+    SOURCE tests/test_cyclic_crack_band_concrete_3d.cpp
+    LIBS FULL LABEL unit)
+
+fall_n_add_test(TARGET fall_n_fixed_crack_band_concrete_3d_test
+    NAME fixed_crack_band_concrete_3d
+    SOURCE tests/test_fixed_crack_band_concrete_3d.cpp
+    LIBS FULL LABEL unit)
+
+fall_n_add_test(TARGET fall_n_crack_shear_transfer_law_test
+    NAME crack_shear_transfer_law
+    SOURCE tests/test_crack_shear_transfer_law.cpp
+    LIBS NONE LABEL unit)
+
+fall_n_add_test(TARGET fall_n_componentwise_kent_park_concrete_3d_test
+    NAME componentwise_kent_park_concrete_3d
+    SOURCE tests/test_componentwise_kent_park_concrete_3d.cpp
+    LIBS FULL LABEL unit)
 
 fall_n_add_test(TARGET fall_n_state_injection_test
     NAME state_injection  SOURCE tests/test_state_injection.cpp
@@ -641,6 +787,24 @@ set_target_properties(fall_n_reduced_rc_column_section_baseline_test PROPERTIES
 target_sources(fall_n_reduced_rc_column_section_baseline_test PRIVATE
     src/validation/ReducedRCColumnSectionBaseline.cpp)
 
+fall_n_add_test(TARGET fall_n_reduced_rc_column_material_baseline_test
+    NAME reduced_rc_column_material_baseline
+    SOURCE tests/test_reduced_rc_column_material_baseline.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_material_baseline_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_material_baseline_test PRIVATE
+    src/validation/ReducedRCColumnMaterialBaseline.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_continuum_baseline_test
+    NAME reduced_rc_column_continuum_baseline
+    SOURCE tests/test_reduced_rc_column_continuum_baseline.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_continuum_baseline_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_continuum_baseline_test PRIVATE
+    src/validation/ReducedRCColumnContinuumBaseline.cpp)
+
 fall_n_add_test(TARGET fall_n_reduced_rc_column_moment_curvature_closure_test
     NAME reduced_rc_column_moment_curvature_closure
     SOURCE tests/test_reduced_rc_column_moment_curvature_closure.cpp
@@ -686,6 +850,17 @@ target_sources(fall_n_reduced_rc_column_cyclic_node_refinement_study_test PRIVAT
     src/validation/ReducedRCColumnStructuralBaseline.cpp
     src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp)
 
+fall_n_add_test(TARGET fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+    NAME reduced_rc_column_cyclic_continuation_sensitivity_study
+    SOURCE tests/test_reduced_rc_column_cyclic_continuation_sensitivity_study.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp
+    src/validation/ReducedRCColumnCyclicContinuationSensitivityStudy.cpp)
+
 fall_n_add_test(TARGET fall_n_reduced_rc_column_quadrature_sensitivity_study_test
     NAME reduced_rc_column_quadrature_sensitivity_study
     SOURCE tests/test_reduced_rc_column_quadrature_sensitivity_study.cpp
@@ -697,6 +872,16 @@ target_sources(fall_n_reduced_rc_column_quadrature_sensitivity_study_test PRIVAT
     src/validation/ReducedRCColumnSectionBaseline.cpp
     src/validation/ReducedRCColumnMomentCurvatureClosure.cpp
     src/validation/ReducedRCColumnQuadratureSensitivityStudy.cpp)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+    NAME reduced_rc_column_cyclic_quadrature_sensitivity_study
+    SOURCE tests/test_reduced_rc_column_cyclic_quadrature_sensitivity_study.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test PRIVATE
+    src/validation/ReducedRCColumnStructuralBaseline.cpp
+    src/validation/ReducedRCColumnCyclicQuadratureSensitivityStudy.cpp)
 
 fall_n_add_test(TARGET fall_n_reduced_rc_column_validation_claim_catalog_test
     NAME reduced_rc_column_validation_claim_catalog
@@ -714,6 +899,33 @@ fall_n_add_test(TARGET fall_n_reduced_rc_column_evidence_closure_catalog_test
     NAME reduced_rc_column_evidence_closure_catalog
     SOURCE tests/test_reduced_rc_column_evidence_closure_catalog.cpp
     LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_benchmark_surface_test
+    NAME reduced_rc_benchmark_surface
+    SOURCE tests/test_reduced_rc_benchmark_surface.cpp
+    LIBS FULL  LABEL unit)
+set_target_properties(fall_n_reduced_rc_benchmark_surface_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_column_truss_baseline_test
+    NAME reduced_rc_column_truss_baseline
+    SOURCE tests/test_reduced_rc_column_truss_baseline.cpp
+    LIBS FULL  LABEL integration)
+set_target_properties(fall_n_reduced_rc_column_truss_baseline_test PROPERTIES
+    DISABLE_PRECOMPILE_HEADERS ON)
+target_sources(fall_n_reduced_rc_column_truss_baseline_test PRIVATE
+    src/validation/ReducedRCColumnMaterialBaseline.cpp
+    src/validation/ReducedRCColumnTrussBaseline.cpp)
+
+fall_n_add_test(TARGET fall_n_rc_section_layout_test
+    NAME rc_section_layout
+    SOURCE tests/test_rc_section_layout.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_xfem_enrichment_test
+    NAME xfem_enrichment
+    SOURCE tests/test_xfem_enrichment.cpp
+    LIBS FULL LABEL unit)
 
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp

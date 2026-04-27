@@ -308,6 +308,130 @@ void test_concrete_tension_cutoff() {
            std::abs(sig) < 1e-3 * fpc);
 }
 
+// =============================================================================
+//  TEST 7b: KentParkConcrete - tensile softening branch is smooth and stateful
+// =============================================================================
+
+void test_concrete_tension_softening_branch() {
+    double fpc = 30.0;
+    KentParkConcreteTensionConfig tension{
+        .tensile_strength = 0.02 * fpc,
+        .softening_multiplier = 0.50,
+        .residual_tangent_ratio = 1.0e-6,
+    };
+
+    KentParkConcrete concrete(fpc, tension);
+
+    const double eps_crack = concrete.tensile_cracking_strain();
+    const double eps_zero = concrete.tensile_zero_stress_strain();
+    const double eps_mid = 0.5 * (eps_crack + eps_zero);
+
+    Strain<1> strain;
+    strain.set_components(eps_mid);
+
+    const double sig_mid = concrete.compute_response(strain).components();
+    const auto C_mid = concrete.tangent(strain);
+
+    report("Concrete: softening branch keeps positive residual stress",
+           sig_mid > 0.0 && sig_mid < concrete.tensile_strength());
+    report("Concrete: softening branch has negative tangent",
+           C_mid(0,0) < 0.0);
+
+    concrete.update(strain);
+
+    Strain<1> unload;
+    unload.set_components(0.25 * eps_mid);
+    const double sig_unload = concrete.compute_response(unload).components();
+    report("Concrete: softened unloading still carries positive residual stress",
+           sig_unload > 0.0);
+
+    Strain<1> reopen;
+    reopen.set_components(eps_zero * 1.10);
+    const double sig_reopen = concrete.compute_response(reopen).components();
+    report("Concrete: softened branch reaches near-zero stress beyond zero-crossing",
+           std::abs(sig_reopen) < 1.0e-3 * fpc);
+}
+
+void test_concrete_tension_reclosure_branch_is_tangent_consistent() {
+    double fpc = 30.0;
+    KentParkConcreteTensionConfig tension{
+        .tensile_strength = 0.02 * fpc,
+        .softening_multiplier = 0.50,
+        .residual_tangent_ratio = 1.0e-6,
+    };
+
+    KentParkConcrete concrete(fpc, tension);
+
+    Strain<1> strain;
+
+    // Seed a compression history first so the closure strain eps_pl becomes
+    // meaningful and the later tension excursion has to bridge back into the
+    // compressive branch.
+    strain.set_components(-0.0015);
+    concrete.update(strain);
+
+    // Then open the tensile side so the model stores a positive eps_t_max.
+    const double eps_t_peak = 0.75 * concrete.tensile_zero_stress_strain();
+    strain.set_components(eps_t_peak);
+    concrete.update(strain);
+
+    const auto& state = concrete.internal_state();
+    const double closure_strain = std::min(state.eps_pl, 0.0);
+    const double bridge_probe = 0.5 * (closure_strain + state.eps_t_max);
+
+    strain.set_components(bridge_probe);
+    const double sig = concrete.compute_response(strain).components();
+    const double Et = concrete.tangent(strain)(0, 0);
+
+    const double h = 1.0e-8;
+    Strain<1> plus, minus;
+    plus.set_components(bridge_probe + h);
+    minus.set_components(bridge_probe - h);
+    const double sig_plus = concrete.compute_response(plus).components();
+    const double sig_minus = concrete.compute_response(minus).components();
+    const double Et_fd = (sig_plus - sig_minus) / (2.0 * h);
+
+    report("Concrete: reclosure bridge keeps positive residual stress",
+           sig > 0.0);
+    report("Concrete: reclosure bridge tangent matches finite differences",
+           std::abs(Et - Et_fd) <= 1.0e-4 * std::max({1.0, std::abs(Et), std::abs(Et_fd)}));
+}
+
+void test_concrete_tension_crack_transition_is_tangent_consistent() {
+    double fpc = 30.0;
+    KentParkConcreteTensionConfig tension{
+        .tensile_strength = 0.02 * fpc,
+        .softening_multiplier = 0.50,
+        .residual_tangent_ratio = 1.0e-6,
+        .crack_transition_multiplier = 0.50,
+    };
+
+    KentParkConcrete concrete(fpc, tension);
+
+    const double eps_crack = concrete.tensile_cracking_strain();
+    const double eps_transition_end = concrete.tension_transition_end_strain();
+    const double probe = eps_crack + 0.4 * (eps_transition_end - eps_crack);
+
+    Strain<1> strain;
+    strain.set_components(probe);
+
+    const double sig = concrete.compute_response(strain).components();
+    const double Et = concrete.tangent(strain)(0, 0);
+
+    const double h = 1.0e-9;
+    Strain<1> plus, minus;
+    plus.set_components(probe + h);
+    minus.set_components(probe - h);
+    const double sig_plus = concrete.compute_response(plus).components();
+    const double sig_minus = concrete.compute_response(minus).components();
+    const double Et_fd = (sig_plus - sig_minus) / (2.0 * h);
+
+    report("Concrete: crack-transition probe remains in positive tensile branch",
+           sig > 0.0);
+    report("Concrete: crack-transition tangent matches finite differences",
+           std::abs(Et - Et_fd) <= 1.0e-4 * std::max({1.0, std::abs(Et), std::abs(Et_fd)}));
+}
+
 
 // =============================================================================
 //  TEST 8: KentParkConcrete — Unloading/reloading
@@ -927,6 +1051,9 @@ int main() {
     test_concrete_compression_ascending();
     test_concrete_compression_descending();
     test_concrete_tension_cutoff();
+    test_concrete_tension_softening_branch();
+    test_concrete_tension_reclosure_branch_is_tangent_consistent();
+    test_concrete_tension_crack_transition_is_tangent_consistent();
     test_concrete_unloading();
     test_concrete_confined();
     test_steel_external_algorithmic_state_path();

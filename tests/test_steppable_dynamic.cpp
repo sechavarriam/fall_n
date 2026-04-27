@@ -447,6 +447,54 @@ static void test_10_stop_on() {
 
 
 // =============================================================================
+//  Test 11: Shared nonlinear solve profile config reaches TS/SNES
+// =============================================================================
+
+static void test_11_nonlinear_solve_profile_config() {
+    std::cout << "\n--- Test 11: dynamic nonlinear solve profile config ---\n";
+
+    TestFixture fix;
+    DynamicAnalysis<Policy> dyn(fix.model.get());
+    apply_ic(dyn);
+
+    dyn.set_nonlinear_solve_profiles({
+        fall_n::NonlinearSolveProfile{
+            .label = "dynamic_trust_region",
+            .method_kind =
+                fall_n::NonlinearSolveMethodKind::newton_trust_region,
+            .linesearch_kind = fall_n::NonlinearLineSearchKind::none,
+            .rtol = 1.0e-8,
+            .atol = 1.0e-10,
+            .stol = 1.0e-12,
+            .max_iterations = 80,
+            .max_function_evaluations = PETSC_DEFAULT,
+            .ksp_type = KSPPREONLY,
+            .pc_type = PCLU,
+            .factor_solver_type = ""}});
+
+    double dt = T_est / 50.0;
+    dyn.set_time_step(dt);
+
+    check(dyn.nonlinear_solve_profiles().size() == 1,
+          "One dynamic nonlinear solve profile declared");
+    check(dyn.active_nonlinear_solve_profile().label == "dynamic_trust_region",
+          "Active dynamic nonlinear solve profile preserved");
+
+    bool ok = dyn.step();
+    check(ok, "Dynamic step converged with declared nonlinear solve profile");
+
+    SNES snes{nullptr};
+    FALL_N_PETSC_CHECK(TSGetSNES(dyn.get_ts(), &snes));
+    check(snes != nullptr, "Dynamic TS exposes an internal SNES handle");
+
+    SNESType snes_type{nullptr};
+    FALL_N_PETSC_CHECK(SNESGetType(snes, &snes_type));
+    check(snes_type != nullptr && std::strcmp(snes_type, SNESNEWTONTR) == 0,
+          "Declared trust-region profile reached the TS SNES");
+}
+
+
+// =============================================================================
 //  Main
 // =============================================================================
 
@@ -468,6 +516,7 @@ int main(int argc, char* argv[]) {
     test_8_time_step_reconfig();
     test_9_equivalence();
     test_10_stop_on();
+    test_11_nonlinear_solve_profile_config();
 
     std::cout << "\n═══════════════════════════════════════════════════════\n"
               << "  Summary: " << passed << " passed, " << failed << " failed\n"

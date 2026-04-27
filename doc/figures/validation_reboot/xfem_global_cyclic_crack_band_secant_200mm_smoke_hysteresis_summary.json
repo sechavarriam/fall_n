@@ -1,0 +1,13 @@
+{
+  "bundle": "data\\output\\cyclic_validation\\xfem_global_cyclic_crack_band_secant_200mm_smoke",
+  "figure_png": "doc\\figures\\validation_reboot\\xfem_global_cyclic_crack_band_secant_200mm_smoke_hysteresis.png",
+  "figure_pdf": "doc\\figures\\validation_reboot\\xfem_global_cyclic_crack_band_secant_200mm_smoke_hysteresis.pdf",
+  "status": "completed",
+  "completed_successfully": true,
+  "peak_abs_base_shear_mn": 0.0260874813662,
+  "peak_abs_steel_stress_mpa": 431.712157959,
+  "max_host_damage": 0.98,
+  "point_count": 73,
+  "wall_seconds": 21.0680044,
+  "interpretation": "Coarse global XFEM smoke trial; validates algorithmic survival to 200 mm, not final mesh-converged physics."
+}

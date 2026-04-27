@@ -72,7 +72,7 @@ constexpr bool internal_vs_external_evidence_classes_are_honest()
             }
         } else if (row.benchmark_row.benchmark_label ==
                    "reduced_column_base_side_moment_curvature_suite") {
-            if (row.requires_external_dataset ||
+            if (!row.requires_external_dataset ||
                 !row.requires_independent_section_baseline ||
                 !row.closes_phase3_structural_physical_benchmark) {
                 return false;
@@ -142,7 +142,7 @@ constexpr bool evidence_kind_distribution_matches_the_intended_campaign()
            fall_n::canonical_reduced_rc_column_missing_evidence_count_v<
                fall_n::ReducedRCColumnMissingEvidenceKind::
                    quadrature_sensitivity_bundle> == 1 &&
-           fall_n::canonical_reduced_rc_column_evidence_external_dataset_count_v == 2 &&
+           fall_n::canonical_reduced_rc_column_evidence_external_dataset_count_v == 3 &&
            fall_n::canonical_reduced_rc_column_evidence_section_baseline_count_v == 1 &&
            fall_n::canonical_reduced_rc_column_evidence_phase3_gate_count_v == 5 &&
            fall_n::canonical_reduced_rc_column_evidence_matrix_sweep_count_v == 6;

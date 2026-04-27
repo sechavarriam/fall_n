@@ -1,0 +1,73 @@
+{
+  "status": "completed",
+  "csv": "doc\\figures\\validation_reboot\\structural_continuum_crack_shear_retention_audit.csv",
+  "figures": {
+    "png": "doc\\figures\\validation_reboot\\structural_continuum_crack_shear_retention_audit.png",
+    "pdf": "doc\\figures\\validation_reboot\\structural_continuum_crack_shear_retention_audit.pdf",
+    "hysteresis_png": "doc\\figures\\validation_reboot\\structural_continuum_crack_shear_retention_hysteresis.png",
+    "hysteresis_pdf": "doc\\figures\\validation_reboot\\structural_continuum_crack_shear_retention_hysteresis.pdf"
+  },
+  "cases": [
+    {
+      "key": "shear005",
+      "label": "0.05",
+      "bundle": "data\\output\\cyclic_validation\\kinematic_gate_lateral_only_struct_ratio0p5_4x4x4_100mm_both_ends_bias2_shear005",
+      "residual_shear_ratio": 0.05,
+      "global_rms_base_shear_error": 0.293359319455707,
+      "global_max_base_shear_error": 0.4244689788878937,
+      "steel_hinge_work_ratio": 0.8282529377707025,
+      "steel_local_work_ratio": 0.26260765970730743,
+      "host_bar_rms_strain_gap": 3.970054644277389e-10,
+      "continuum_total_wall_seconds": 522.8356099
+    },
+    {
+      "key": "shear010",
+      "label": "0.10",
+      "bundle": "data\\output\\cyclic_validation\\kinematic_gate_lateral_only_struct_ratio0p5_4x4x4_100mm_both_ends_bias2_shear010",
+      "residual_shear_ratio": 0.1,
+      "global_rms_base_shear_error": 0.23239876546747187,
+      "global_max_base_shear_error": 0.42941901195287424,
+      "steel_hinge_work_ratio": 0.9607423213327257,
+      "steel_local_work_ratio": 0.3046150289137888,
+      "host_bar_rms_strain_gap": 4.821981814329734e-10,
+      "continuum_total_wall_seconds": 148.8080598
+    },
+    {
+      "key": "shear020",
+      "label": "0.20",
+      "bundle": "data\\output\\cyclic_validation\\kinematic_gate_lateral_only_struct_ratio0p5_4x4x4_100mm_both_ends_bias2",
+      "residual_shear_ratio": 0.2,
+      "global_rms_base_shear_error": 0.39438973508501163,
+      "global_max_base_shear_error": 0.6298695202638722,
+      "steel_hinge_work_ratio": 1.0495039769348617,
+      "steel_local_work_ratio": 0.3327579905459709,
+      "host_bar_rms_strain_gap": 5.492021272694118e-10,
+      "continuum_total_wall_seconds": 117.7146735
+    },
+    {
+      "key": "shear040",
+      "label": "0.40",
+      "bundle": "data\\output\\cyclic_validation\\kinematic_gate_lateral_only_struct_ratio0p5_4x4x4_100mm_both_ends_bias2_shear04",
+      "residual_shear_ratio": 0.4,
+      "global_rms_base_shear_error": 0.9999751219132323,
+      "global_max_base_shear_error": 1.5488617308371744,
+      "steel_hinge_work_ratio": 1.1072681719275408,
+      "steel_local_work_ratio": 0.3510728305786947,
+      "host_bar_rms_strain_gap": 5.914575721749364e-10,
+      "continuum_total_wall_seconds": 93.4317013
+    }
+  ],
+  "best_global_case": {
+    "key": "shear010",
+    "label": "0.10",
+    "bundle": "data\\output\\cyclic_validation\\kinematic_gate_lateral_only_struct_ratio0p5_4x4x4_100mm_both_ends_bias2_shear010",
+    "residual_shear_ratio": 0.1,
+    "global_rms_base_shear_error": 0.23239876546747187,
+    "global_max_base_shear_error": 0.42941901195287424,
+    "steel_hinge_work_ratio": 0.9607423213327257,
+    "steel_local_work_ratio": 0.3046150289137888,
+    "host_bar_rms_strain_gap": 4.821981814329734e-10,
+    "continuum_total_wall_seconds": 148.8080598
+  },
+  "diagnosis": "A constant residual shear ratio is influential but not a complete closure mechanism. The 0.10 case gives the best global 100 mm match in this matrix while keeping the steel hinge work near unity. Larger residual shear over-stiffens the global loop, and very low residual shear becomes expensive and under-dissipates steel work. The next constitutive improvement should make shear transfer depend on crack opening and normal compression instead of using a single constant residual factor."
+}

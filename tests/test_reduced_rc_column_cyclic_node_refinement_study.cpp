@@ -39,7 +39,7 @@ make_cyclic_node_refinement_protocol()
 }
 
 fall_n::validation_reboot::ReducedRCColumnCyclicNodeRefinementRunSpec
-make_pilot_cyclic_node_refinement_spec()
+make_full_cyclic_node_refinement_spec()
 {
     using fall_n::validation_reboot::ReducedRCColumnCyclicNodeRefinementRunSpec;
 
@@ -51,16 +51,108 @@ make_pilot_cyclic_node_refinement_spec()
             .print_progress = false,
         },
         .structural_protocol = make_cyclic_node_refinement_protocol(),
-        .beam_nodes_filter = {2, 4, 10},
-        .quadrature_filter = {
-            BeamAxisQuadratureFamily::GaussLegendre,
-            BeamAxisQuadratureFamily::GaussLobatto,
-        },
         .include_only_phase3_runtime_baseline = true,
         .write_case_outputs = true,
         .write_csv = true,
         .print_progress = false,
     };
+}
+
+fall_n::validation_reboot::ReducedRCColumnCyclicNodeRefinementRunSpec
+make_pilot_cyclic_node_refinement_spec()
+{
+    auto spec = make_full_cyclic_node_refinement_spec();
+    spec.beam_nodes_filter = {2, 4, 10};
+    spec.quadrature_filter = {
+        BeamAxisQuadratureFamily::GaussLegendre,
+        BeamAxisQuadratureFamily::GaussLobatto,
+    };
+    return spec;
+}
+
+fall_n::validation_reboot::ReducedRCColumnCyclicNodeRefinementRunSpec
+make_guarded_pilot_cyclic_node_refinement_spec()
+{
+    auto spec = make_pilot_cyclic_node_refinement_spec();
+    spec.structural_spec.continuation_kind =
+        fall_n::validation_reboot::ReducedRCColumnContinuationKind::
+            reversal_guarded_incremental_displacement_control;
+    spec.structural_spec.continuation_segment_substep_factor = 2;
+    return spec;
+}
+
+bool reduced_rc_column_cyclic_node_refinement_study_completes_full_runtime_matrix()
+{
+    using fall_n::canonical_reduced_rc_column_phase3_baseline_case_count_v;
+    using fall_n::validation_reboot::run_reduced_rc_column_cyclic_node_refinement_study;
+
+    const auto result = run_reduced_rc_column_cyclic_node_refinement_study(
+        make_full_cyclic_node_refinement_spec(),
+        "data/output/cyclic_validation/reboot_cyclic_node_refinement_study_full");
+
+    if (result.empty() ||
+        result.case_rows.size() !=
+            canonical_reduced_rc_column_phase3_baseline_case_count_v ||
+        result.summary.total_case_count !=
+            canonical_reduced_rc_column_phase3_baseline_case_count_v ||
+        result.summary.completed_case_count !=
+            canonical_reduced_rc_column_phase3_baseline_case_count_v ||
+        result.summary.failed_case_count != 0u ||
+        result.summary_rows.size() != 9u ||
+        result.reference_rows.size() != 4u) {
+        return false;
+    }
+
+    for (const auto& row : result.case_rows) {
+        if (!row.execution_ok ||
+            row.continuation_kind !=
+                fall_n::validation_reboot::ReducedRCColumnContinuationKind::
+                    monolithic_incremental_displacement_control ||
+            row.continuation_segment_substep_factor != 1 ||
+            row.case_id.empty() ||
+            row.reference_case_id.empty() ||
+            row.case_out_dir.empty() ||
+            row.history_point_count != 13u ||
+            row.turning_point_count != 6u ||
+            !std::isfinite(row.controlling_station_xi) ||
+            !std::isfinite(row.reference_controlling_station_xi) ||
+            !std::isfinite(row.abs_station_xi_shift) ||
+            !std::isfinite(row.rel_terminal_return_moment_drift) ||
+            !std::isfinite(row.max_rel_moment_history_drift) ||
+            !std::isfinite(row.rms_rel_moment_history_drift) ||
+            !std::isfinite(row.max_rel_tangent_history_drift) ||
+            !std::isfinite(row.max_rel_secant_history_drift) ||
+            !std::isfinite(row.max_rel_turning_point_moment_drift) ||
+            !std::isfinite(row.max_rel_axial_force_history_drift)) {
+            return false;
+        }
+    }
+
+    for (const auto& row : result.summary_rows) {
+        if (row.case_count != 4u || row.completed_case_count != 4u) {
+            return false;
+        }
+    }
+
+    for (const auto& row : result.reference_rows) {
+        if (row.reference_beam_nodes != 10u ||
+            row.reference_case_id.find("n10_") != 0 ||
+            row.compared_case_count != 9u ||
+            row.history_point_count != 13u ||
+            row.turning_point_count != 6u ||
+            !std::isfinite(row.reference_controlling_station_xi) ||
+            !std::isfinite(row.reference_terminal_return_moment_y)) {
+            return false;
+        }
+    }
+
+    return std::isfinite(result.summary.worst_rel_terminal_return_moment_drift) &&
+           std::isfinite(result.summary.worst_max_rel_moment_history_drift) &&
+           std::isfinite(result.summary.worst_max_rel_tangent_history_drift) &&
+           std::isfinite(result.summary.worst_max_rel_secant_history_drift) &&
+           std::isfinite(result.summary.worst_max_rel_turning_point_moment_drift) &&
+           std::isfinite(result.summary.worst_max_rel_axial_force_history_drift) &&
+           std::isfinite(result.summary.worst_abs_station_xi_shift);
 }
 
 bool reduced_rc_column_cyclic_node_refinement_study_completes_pilot_frontier()
@@ -86,6 +178,10 @@ bool reduced_rc_column_cyclic_node_refinement_study_completes_pilot_frontier()
             row.case_id.empty() ||
             row.reference_case_id.empty() ||
             row.case_out_dir.empty() ||
+            row.continuation_kind !=
+                fall_n::validation_reboot::ReducedRCColumnContinuationKind::
+                    monolithic_incremental_displacement_control ||
+            row.continuation_segment_substep_factor != 1 ||
             row.history_point_count != 13u ||
             row.turning_point_count != 6u ||
             !std::isfinite(row.controlling_station_xi) ||
@@ -173,7 +269,7 @@ bool reduced_rc_column_cyclic_node_refinement_study_writes_csv_contract()
 
     return
         cases_header ==
-            "case_id,reference_case_id,beam_nodes,beam_axis_quadrature_family,formulation_kind,execution_ok,history_point_count,turning_point_count,controlling_station_xi,reference_controlling_station_xi,abs_station_xi_shift,terminal_return_moment_y,reference_terminal_return_moment_y,rel_terminal_return_moment_drift,max_rel_moment_history_drift,rms_rel_moment_history_drift,max_rel_tangent_history_drift,max_rel_secant_history_drift,max_rel_turning_point_moment_drift,max_rel_axial_force_history_drift,terminal_return_within_representative_tolerance,moment_history_within_representative_tolerance,tangent_history_within_representative_tolerance,secant_history_within_representative_tolerance,turning_point_within_representative_tolerance,axial_force_history_within_representative_tolerance,representative_internal_cyclic_refinement_passes,scope_label,error_message" &&
+            "case_id,reference_case_id,beam_nodes,beam_axis_quadrature_family,formulation_kind,continuation_kind,continuation_segment_substep_factor,execution_ok,history_point_count,turning_point_count,controlling_station_xi,reference_controlling_station_xi,abs_station_xi_shift,terminal_return_moment_y,reference_terminal_return_moment_y,rel_terminal_return_moment_drift,max_rel_moment_history_drift,rms_rel_moment_history_drift,max_rel_tangent_history_drift,max_rel_secant_history_drift,max_rel_turning_point_moment_drift,max_rel_axial_force_history_drift,terminal_return_within_representative_tolerance,moment_history_within_representative_tolerance,tangent_history_within_representative_tolerance,secant_history_within_representative_tolerance,turning_point_within_representative_tolerance,axial_force_history_within_representative_tolerance,representative_internal_cyclic_refinement_passes,scope_label,error_message" &&
         summary_header ==
             "beam_nodes,case_count,completed_case_count,representative_pass_count,min_rel_terminal_return_moment_drift,max_rel_terminal_return_moment_drift,avg_rel_terminal_return_moment_drift,min_max_rel_moment_history_drift,max_max_rel_moment_history_drift,avg_max_rel_moment_history_drift,min_max_rel_tangent_history_drift,max_max_rel_tangent_history_drift,avg_max_rel_tangent_history_drift,min_max_rel_secant_history_drift,max_max_rel_secant_history_drift,avg_max_rel_secant_history_drift,min_max_rel_turning_point_moment_drift,max_max_rel_turning_point_moment_drift,avg_max_rel_turning_point_moment_drift,min_max_rel_axial_force_history_drift,max_max_rel_axial_force_history_drift,avg_max_rel_axial_force_history_drift,max_abs_station_xi_shift" &&
         refs_header ==
@@ -274,6 +370,41 @@ bool reduced_rc_column_cyclic_node_refinement_study_produces_finite_history_metr
     return active_summary_rows == 3u;
 }
 
+bool reduced_rc_column_cyclic_node_refinement_study_supports_reversal_guarded_continuation()
+{
+    using fall_n::validation_reboot::ReducedRCColumnContinuationKind;
+    using fall_n::validation_reboot::run_reduced_rc_column_cyclic_node_refinement_study;
+
+    const auto result = run_reduced_rc_column_cyclic_node_refinement_study(
+        make_guarded_pilot_cyclic_node_refinement_spec(),
+        "data/output/cyclic_validation/reboot_cyclic_node_refinement_study_guarded");
+
+    if (result.case_rows.size() != 6u ||
+        result.summary.total_case_count != 6u ||
+        result.summary.completed_case_count != 6u ||
+        result.summary.failed_case_count != 0u) {
+        return false;
+    }
+
+    for (const auto& row : result.case_rows) {
+        if (!row.execution_ok ||
+            row.continuation_kind !=
+                ReducedRCColumnContinuationKind::
+                    reversal_guarded_incremental_displacement_control ||
+            row.continuation_segment_substep_factor != 2 ||
+            row.history_point_count != 25u ||
+            row.turning_point_count != 6u ||
+            !std::isfinite(row.rel_terminal_return_moment_drift) ||
+            !std::isfinite(row.max_rel_moment_history_drift) ||
+            !std::isfinite(row.max_rel_tangent_history_drift) ||
+            !std::isfinite(row.max_rel_turning_point_moment_drift)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -282,6 +413,9 @@ int main(int argc, char** argv)
 
     std::cout << "=== Reduced RC Column Cyclic Node-Refinement Study Tests ===\n";
 
+    report(
+        "reduced_rc_column_cyclic_node_refinement_study_completes_full_runtime_matrix",
+        reduced_rc_column_cyclic_node_refinement_study_completes_full_runtime_matrix());
     report(
         "reduced_rc_column_cyclic_node_refinement_study_completes_pilot_frontier",
         reduced_rc_column_cyclic_node_refinement_study_completes_pilot_frontier());
@@ -294,6 +428,9 @@ int main(int argc, char** argv)
     report(
         "reduced_rc_column_cyclic_node_refinement_study_produces_finite_history_metrics",
         reduced_rc_column_cyclic_node_refinement_study_produces_finite_history_metrics());
+    report(
+        "reduced_rc_column_cyclic_node_refinement_study_supports_reversal_guarded_continuation",
+        reduced_rc_column_cyclic_node_refinement_study_supports_reversal_guarded_continuation());
 
     std::cout << "\nSummary: " << passed << " passed, " << failed << " failed.\n";
 

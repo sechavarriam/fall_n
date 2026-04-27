@@ -9,6 +9,7 @@
 #include <print>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 
 namespace fall_n::validation_reboot {
 
@@ -30,6 +31,196 @@ struct CyclicNodeRefinementCasePayload {
     ReducedRCColumnCyclicNodeRefinementCaseRow row{};
     std::vector<BaseSideHistoryPoint> history{};
 };
+
+struct SpreadStats {
+    double min{std::numeric_limits<double>::infinity()};
+    double max{0.0};
+    double sum{0.0};
+
+    void observe(double value) noexcept
+    {
+        min = std::min(min, value);
+        max = std::max(max, value);
+        sum += value;
+    }
+
+    void finalize(std::size_t sample_count) noexcept
+    {
+        if (sample_count == 0u) {
+            min = 0.0;
+            return;
+        }
+        sum /= static_cast<double>(sample_count);
+    }
+};
+
+struct GroupDriftAccumulator {
+    std::size_t case_count{0};
+    std::size_t completed_case_count{0};
+    std::size_t representative_pass_count{0};
+    SpreadStats terminal_return{};
+    SpreadStats moment_history{};
+    SpreadStats tangent_history{};
+    SpreadStats secant_history{};
+    SpreadStats turning_point{};
+    SpreadStats axial_force{};
+    double max_abs_station_xi_shift{0.0};
+
+    void observe(const ReducedRCColumnCyclicNodeRefinementCaseRow& row) noexcept
+    {
+        ++case_count;
+        if (!row.execution_ok) {
+            return;
+        }
+
+        ++completed_case_count;
+        if (row.representative_internal_cyclic_refinement_passes()) {
+            ++representative_pass_count;
+        }
+
+        terminal_return.observe(row.rel_terminal_return_moment_drift);
+        moment_history.observe(row.max_rel_moment_history_drift);
+        tangent_history.observe(row.max_rel_tangent_history_drift);
+        secant_history.observe(row.max_rel_secant_history_drift);
+        turning_point.observe(row.max_rel_turning_point_moment_drift);
+        axial_force.observe(row.max_rel_axial_force_history_drift);
+        max_abs_station_xi_shift =
+            std::max(max_abs_station_xi_shift, row.abs_station_xi_shift);
+    }
+
+    void finalize() noexcept
+    {
+        terminal_return.finalize(completed_case_count);
+        moment_history.finalize(completed_case_count);
+        tangent_history.finalize(completed_case_count);
+        secant_history.finalize(completed_case_count);
+        turning_point.finalize(completed_case_count);
+        axial_force.finalize(completed_case_count);
+    }
+};
+
+struct SummaryAccumulator {
+    ReducedRCColumnCyclicNodeRefinementSummary summary{};
+
+    void observe(const ReducedRCColumnCyclicNodeRefinementCaseRow& row)
+    {
+        ++summary.total_case_count;
+
+        if (!row.execution_ok) {
+            ++summary.failed_case_count;
+            return;
+        }
+
+        ++summary.completed_case_count;
+        if (row.representative_internal_cyclic_refinement_passes()) {
+            ++summary.representative_pass_count;
+        }
+
+        const auto observe_worst =
+            [&](double candidate,
+                double& current_worst,
+                std::string& current_case_id) {
+                if (candidate >= current_worst) {
+                    current_worst = candidate;
+                    current_case_id = row.case_id;
+                }
+            };
+
+        observe_worst(
+            row.rel_terminal_return_moment_drift,
+            summary.worst_rel_terminal_return_moment_drift,
+            summary.worst_terminal_return_case_id);
+        observe_worst(
+            row.max_rel_moment_history_drift,
+            summary.worst_max_rel_moment_history_drift,
+            summary.worst_moment_history_case_id);
+        observe_worst(
+            row.max_rel_tangent_history_drift,
+            summary.worst_max_rel_tangent_history_drift,
+            summary.worst_tangent_history_case_id);
+        observe_worst(
+            row.max_rel_secant_history_drift,
+            summary.worst_max_rel_secant_history_drift,
+            summary.worst_secant_history_case_id);
+        observe_worst(
+            row.max_rel_turning_point_moment_drift,
+            summary.worst_max_rel_turning_point_moment_drift,
+            summary.worst_turning_point_case_id);
+        observe_worst(
+            row.max_rel_axial_force_history_drift,
+            summary.worst_max_rel_axial_force_history_drift,
+            summary.worst_axial_force_history_case_id);
+        observe_worst(
+            row.abs_station_xi_shift,
+            summary.worst_abs_station_xi_shift,
+            summary.worst_station_shift_case_id);
+    }
+};
+
+template <typename RowT>
+void assign_group_drift_metrics(
+    RowT& out,
+    const GroupDriftAccumulator& acc) noexcept
+{
+    out.case_count = acc.case_count;
+    out.completed_case_count = acc.completed_case_count;
+    out.representative_pass_count = acc.representative_pass_count;
+
+    out.min_rel_terminal_return_moment_drift = acc.terminal_return.min;
+    out.max_rel_terminal_return_moment_drift = acc.terminal_return.max;
+    out.avg_rel_terminal_return_moment_drift = acc.terminal_return.sum;
+
+    out.min_max_rel_moment_history_drift = acc.moment_history.min;
+    out.max_max_rel_moment_history_drift = acc.moment_history.max;
+    out.avg_max_rel_moment_history_drift = acc.moment_history.sum;
+
+    out.min_max_rel_tangent_history_drift = acc.tangent_history.min;
+    out.max_max_rel_tangent_history_drift = acc.tangent_history.max;
+    out.avg_max_rel_tangent_history_drift = acc.tangent_history.sum;
+
+    out.min_max_rel_secant_history_drift = acc.secant_history.min;
+    out.max_max_rel_secant_history_drift = acc.secant_history.max;
+    out.avg_max_rel_secant_history_drift = acc.secant_history.sum;
+
+    out.min_max_rel_turning_point_moment_drift = acc.turning_point.min;
+    out.max_max_rel_turning_point_moment_drift = acc.turning_point.max;
+    out.avg_max_rel_turning_point_moment_drift = acc.turning_point.sum;
+
+    out.min_max_rel_axial_force_history_drift = acc.axial_force.min;
+    out.max_max_rel_axial_force_history_drift = acc.axial_force.max;
+    out.avg_max_rel_axial_force_history_drift = acc.axial_force.sum;
+
+    out.max_abs_station_xi_shift = acc.max_abs_station_xi_shift;
+}
+
+template <typename PredicateT>
+[[nodiscard]] GroupDriftAccumulator accumulate_group_drifts(
+    const std::vector<ReducedRCColumnCyclicNodeRefinementCaseRow>& rows,
+    PredicateT&& predicate)
+{
+    GroupDriftAccumulator acc{};
+    for (const auto& row : rows) {
+        if (predicate(row)) {
+            acc.observe(row);
+        }
+    }
+    acc.finalize();
+    return acc;
+}
+
+template <typename RowT, typename PredicateT, typename ConfigureT>
+[[nodiscard]] RowT make_group_row(
+    const std::vector<ReducedRCColumnCyclicNodeRefinementCaseRow>& rows,
+    PredicateT&& predicate,
+    ConfigureT&& configure)
+{
+    RowT out{};
+    configure(out);
+    assign_group_drift_metrics(
+        out,
+        accumulate_group_drifts(rows, std::forward<PredicateT>(predicate)));
+    return out;
+}
 
 [[nodiscard]] constexpr bool matches_beam_nodes_filter(
     const std::vector<std::size_t>& filter,
@@ -101,6 +292,25 @@ beam_axis_quadrature_family_key(BeamAxisQuadratureFamily family) noexcept
     return moment_y / curvature_y;
 }
 
+[[nodiscard]] int effective_steps_per_segment(
+    const ReducedRCColumnCyclicNodeRefinementRunSpec& spec) noexcept
+{
+    int steps = std::max(spec.structural_protocol.steps_per_segment, 1);
+    if (spec.structural_spec.continuation_kind ==
+        ReducedRCColumnContinuationKind::
+            reversal_guarded_incremental_displacement_control) {
+        steps *= std::max(spec.structural_spec.continuation_segment_substep_factor, 1);
+    }
+    return steps;
+}
+
+[[nodiscard]] bool is_turning_point_step(
+    int step,
+    const ReducedRCColumnCyclicNodeRefinementRunSpec& spec) noexcept
+{
+    return step > 0 && (step % effective_steps_per_segment(spec)) == 0;
+}
+
 [[nodiscard]] std::vector<BaseSideHistoryPoint>
 extract_controlling_base_side_history(
     const ReducedRCColumnStructuralRunResult& structural_result)
@@ -157,7 +367,8 @@ void write_case_rows_csv(
 {
     std::ofstream ofs(path);
     ofs << "case_id,reference_case_id,beam_nodes,beam_axis_quadrature_family,"
-           "formulation_kind,execution_ok,history_point_count,turning_point_count,"
+           "formulation_kind,continuation_kind,continuation_segment_substep_factor,"
+           "execution_ok,history_point_count,turning_point_count,"
            "controlling_station_xi,reference_controlling_station_xi,"
            "abs_station_xi_shift,terminal_return_moment_y,"
            "reference_terminal_return_moment_y,rel_terminal_return_moment_drift,"
@@ -179,6 +390,8 @@ void write_case_rows_csv(
             << row.beam_nodes << ","
             << beam_axis_quadrature_family_key(row.beam_axis_quadrature_family) << ","
             << continuum::to_string(row.formulation_kind) << ","
+            << to_string(row.continuation_kind) << ","
+            << row.continuation_segment_substep_factor << ","
             << (row.execution_ok ? 1 : 0) << ","
             << row.history_point_count << ","
             << row.turning_point_count << ","
@@ -373,6 +586,9 @@ void compare_against_reference(
     payload.row.history_point_count = payload.history.size();
 
     double squared_rel_moment_history_sum = 0.0;
+    const auto observe_max = [](double& current, double candidate) {
+        current = std::max(current, candidate);
+    };
 
     for (std::size_t i = 0; i < reference.history.size(); ++i) {
         const auto& ref_row = reference.history[i];
@@ -400,12 +616,9 @@ void compare_against_reference(
             ref_row.axial_force,
             spec.relative_error_floor);
 
-        payload.row.max_rel_moment_history_drift =
-            std::max(payload.row.max_rel_moment_history_drift, rel_moment);
-        payload.row.max_rel_tangent_history_drift =
-            std::max(payload.row.max_rel_tangent_history_drift, rel_tangent);
-        payload.row.max_rel_axial_force_history_drift =
-            std::max(payload.row.max_rel_axial_force_history_drift, rel_axial_force);
+        observe_max(payload.row.max_rel_moment_history_drift, rel_moment);
+        observe_max(payload.row.max_rel_tangent_history_drift, rel_tangent);
+        observe_max(payload.row.max_rel_axial_force_history_drift, rel_axial_force);
 
         const bool secant_is_active =
             std::abs(row.curvature_y) >
@@ -425,18 +638,14 @@ void compare_against_reference(
                     spec.relative_error_floor,
                     ref_row.tangent_eiy),
                 spec.relative_error_floor);
-            payload.row.max_rel_secant_history_drift =
-                std::max(payload.row.max_rel_secant_history_drift, rel_secant);
+            observe_max(payload.row.max_rel_secant_history_drift, rel_secant);
         }
 
         squared_rel_moment_history_sum += rel_moment * rel_moment;
 
-        if (spec.structural_protocol.is_turning_point_step(row.step)) {
+        if (is_turning_point_step(row.step, spec)) {
             ++payload.row.turning_point_count;
-            payload.row.max_rel_turning_point_moment_drift =
-                std::max(
-                    payload.row.max_rel_turning_point_moment_drift,
-                    rel_moment);
+            observe_max(payload.row.max_rel_turning_point_moment_drift, rel_moment);
         }
     }
 
@@ -452,85 +661,43 @@ void compare_against_reference(
         payload.row.reference_terminal_return_moment_y,
         spec.relative_error_floor);
 
+    const auto within_tolerance = [](double metric, double tolerance) {
+        return metric <= tolerance;
+    };
     payload.row.terminal_return_within_representative_tolerance =
-        payload.row.rel_terminal_return_moment_drift <=
-        spec.representative_terminal_return_relative_drift_tolerance;
+        within_tolerance(
+            payload.row.rel_terminal_return_moment_drift,
+            spec.representative_terminal_return_relative_drift_tolerance);
     payload.row.moment_history_within_representative_tolerance =
-        payload.row.max_rel_moment_history_drift <=
-        spec.representative_max_rel_moment_history_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_moment_history_drift,
+            spec.representative_max_rel_moment_history_drift_tolerance);
     payload.row.tangent_history_within_representative_tolerance =
-        payload.row.max_rel_tangent_history_drift <=
-        spec.representative_max_rel_tangent_history_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_tangent_history_drift,
+            spec.representative_max_rel_tangent_history_drift_tolerance);
     payload.row.secant_history_within_representative_tolerance =
-        payload.row.max_rel_secant_history_drift <=
-        spec.representative_max_rel_secant_history_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_secant_history_drift,
+            spec.representative_max_rel_secant_history_drift_tolerance);
     payload.row.turning_point_within_representative_tolerance =
-        payload.row.max_rel_turning_point_moment_drift <=
-        spec.representative_max_rel_turning_point_moment_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_turning_point_moment_drift,
+            spec.representative_max_rel_turning_point_moment_drift_tolerance);
     payload.row.axial_force_history_within_representative_tolerance =
-        payload.row.max_rel_axial_force_history_drift <=
-        spec.representative_max_rel_axial_force_history_drift_tolerance;
+        within_tolerance(
+            payload.row.max_rel_axial_force_history_drift,
+            spec.representative_max_rel_axial_force_history_drift_tolerance);
 }
 
 [[nodiscard]] ReducedRCColumnCyclicNodeRefinementSummary summarize_cases(
     const std::vector<ReducedRCColumnCyclicNodeRefinementCaseRow>& rows)
 {
-    ReducedRCColumnCyclicNodeRefinementSummary summary{};
-    summary.total_case_count = rows.size();
-
+    SummaryAccumulator accumulator{};
     for (const auto& row : rows) {
-        if (row.execution_ok) {
-            ++summary.completed_case_count;
-            if (row.representative_internal_cyclic_refinement_passes()) {
-                ++summary.representative_pass_count;
-            }
-
-            if (row.rel_terminal_return_moment_drift >=
-                summary.worst_rel_terminal_return_moment_drift) {
-                summary.worst_rel_terminal_return_moment_drift =
-                    row.rel_terminal_return_moment_drift;
-                summary.worst_terminal_return_case_id = row.case_id;
-            }
-            if (row.max_rel_moment_history_drift >=
-                summary.worst_max_rel_moment_history_drift) {
-                summary.worst_max_rel_moment_history_drift =
-                    row.max_rel_moment_history_drift;
-                summary.worst_moment_history_case_id = row.case_id;
-            }
-            if (row.max_rel_tangent_history_drift >=
-                summary.worst_max_rel_tangent_history_drift) {
-                summary.worst_max_rel_tangent_history_drift =
-                    row.max_rel_tangent_history_drift;
-                summary.worst_tangent_history_case_id = row.case_id;
-            }
-            if (row.max_rel_secant_history_drift >=
-                summary.worst_max_rel_secant_history_drift) {
-                summary.worst_max_rel_secant_history_drift =
-                    row.max_rel_secant_history_drift;
-                summary.worst_secant_history_case_id = row.case_id;
-            }
-            if (row.max_rel_turning_point_moment_drift >=
-                summary.worst_max_rel_turning_point_moment_drift) {
-                summary.worst_max_rel_turning_point_moment_drift =
-                    row.max_rel_turning_point_moment_drift;
-                summary.worst_turning_point_case_id = row.case_id;
-            }
-            if (row.max_rel_axial_force_history_drift >=
-                summary.worst_max_rel_axial_force_history_drift) {
-                summary.worst_max_rel_axial_force_history_drift =
-                    row.max_rel_axial_force_history_drift;
-                summary.worst_axial_force_history_case_id = row.case_id;
-            }
-            if (row.abs_station_xi_shift >= summary.worst_abs_station_xi_shift) {
-                summary.worst_abs_station_xi_shift = row.abs_station_xi_shift;
-                summary.worst_station_shift_case_id = row.case_id;
-            }
-        } else {
-            ++summary.failed_case_count;
-        }
+        accumulator.observe(row);
     }
-
-    return summary;
+    return accumulator.summary;
 }
 
 template <typename PredicateT>
@@ -539,118 +706,10 @@ template <typename PredicateT>
     const std::vector<ReducedRCColumnCyclicNodeRefinementCaseRow>& rows,
     PredicateT&& predicate)
 {
-    ReducedRCColumnCyclicNodeRefinementSummaryRow out{};
-    out.beam_nodes = beam_nodes;
-    out.min_rel_terminal_return_moment_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_moment_history_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_tangent_history_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_secant_history_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_turning_point_moment_drift = std::numeric_limits<double>::infinity();
-    out.min_max_rel_axial_force_history_drift = std::numeric_limits<double>::infinity();
-
-    for (const auto& row : rows) {
-        if (!predicate(row)) {
-            continue;
-        }
-
-        ++out.case_count;
-        if (!row.execution_ok) {
-            continue;
-        }
-
-        ++out.completed_case_count;
-        if (row.representative_internal_cyclic_refinement_passes()) {
-            ++out.representative_pass_count;
-        }
-
-        out.min_rel_terminal_return_moment_drift =
-            std::min(
-                out.min_rel_terminal_return_moment_drift,
-                row.rel_terminal_return_moment_drift);
-        out.max_rel_terminal_return_moment_drift =
-            std::max(
-                out.max_rel_terminal_return_moment_drift,
-                row.rel_terminal_return_moment_drift);
-        out.avg_rel_terminal_return_moment_drift +=
-            row.rel_terminal_return_moment_drift;
-
-        out.min_max_rel_moment_history_drift =
-            std::min(
-                out.min_max_rel_moment_history_drift,
-                row.max_rel_moment_history_drift);
-        out.max_max_rel_moment_history_drift =
-            std::max(
-                out.max_max_rel_moment_history_drift,
-                row.max_rel_moment_history_drift);
-        out.avg_max_rel_moment_history_drift +=
-            row.max_rel_moment_history_drift;
-
-        out.min_max_rel_tangent_history_drift =
-            std::min(
-                out.min_max_rel_tangent_history_drift,
-                row.max_rel_tangent_history_drift);
-        out.max_max_rel_tangent_history_drift =
-            std::max(
-                out.max_max_rel_tangent_history_drift,
-                row.max_rel_tangent_history_drift);
-        out.avg_max_rel_tangent_history_drift +=
-            row.max_rel_tangent_history_drift;
-
-        out.min_max_rel_secant_history_drift =
-            std::min(
-                out.min_max_rel_secant_history_drift,
-                row.max_rel_secant_history_drift);
-        out.max_max_rel_secant_history_drift =
-            std::max(
-                out.max_max_rel_secant_history_drift,
-                row.max_rel_secant_history_drift);
-        out.avg_max_rel_secant_history_drift +=
-            row.max_rel_secant_history_drift;
-
-        out.min_max_rel_turning_point_moment_drift =
-            std::min(
-                out.min_max_rel_turning_point_moment_drift,
-                row.max_rel_turning_point_moment_drift);
-        out.max_max_rel_turning_point_moment_drift =
-            std::max(
-                out.max_max_rel_turning_point_moment_drift,
-                row.max_rel_turning_point_moment_drift);
-        out.avg_max_rel_turning_point_moment_drift +=
-            row.max_rel_turning_point_moment_drift;
-
-        out.min_max_rel_axial_force_history_drift =
-            std::min(
-                out.min_max_rel_axial_force_history_drift,
-                row.max_rel_axial_force_history_drift);
-        out.max_max_rel_axial_force_history_drift =
-            std::max(
-                out.max_max_rel_axial_force_history_drift,
-                row.max_rel_axial_force_history_drift);
-        out.avg_max_rel_axial_force_history_drift +=
-            row.max_rel_axial_force_history_drift;
-
-        out.max_abs_station_xi_shift =
-            std::max(out.max_abs_station_xi_shift, row.abs_station_xi_shift);
-    }
-
-    if (out.completed_case_count == 0u) {
-        out.min_rel_terminal_return_moment_drift = 0.0;
-        out.min_max_rel_moment_history_drift = 0.0;
-        out.min_max_rel_tangent_history_drift = 0.0;
-        out.min_max_rel_secant_history_drift = 0.0;
-        out.min_max_rel_turning_point_moment_drift = 0.0;
-        out.min_max_rel_axial_force_history_drift = 0.0;
-        return out;
-    }
-
-    const double denom = static_cast<double>(out.completed_case_count);
-    out.avg_rel_terminal_return_moment_drift /= denom;
-    out.avg_max_rel_moment_history_drift /= denom;
-    out.avg_max_rel_tangent_history_drift /= denom;
-    out.avg_max_rel_secant_history_drift /= denom;
-    out.avg_max_rel_turning_point_moment_drift /= denom;
-    out.avg_max_rel_axial_force_history_drift /= denom;
-    return out;
+    return make_group_row<ReducedRCColumnCyclicNodeRefinementSummaryRow>(
+        rows,
+        std::forward<PredicateT>(predicate),
+        [beam_nodes](auto& out) { out.beam_nodes = beam_nodes; });
 }
 
 [[nodiscard]] std::vector<ReducedRCColumnCyclicNodeRefinementSummaryRow>
@@ -679,13 +738,13 @@ build_reference_rows(const std::vector<CyclicNodeRefinementCasePayload>& payload
             continue;
         }
 
-        std::size_t compared_case_count = 0;
-        for (const auto& payload : payloads) {
-            if (payload.row.execution_ok &&
-                payload.row.beam_axis_quadrature_family == family) {
-                ++compared_case_count;
-            }
-        }
+        const auto compared_case_count = static_cast<std::size_t>(
+            std::ranges::count_if(
+                payloads,
+                [family](const auto& payload) {
+                    return payload.row.execution_ok &&
+                           payload.row.beam_axis_quadrature_family == family;
+                }));
 
         rows.push_back({
             .beam_axis_quadrature_family = family,
@@ -736,6 +795,9 @@ run_reduced_rc_column_cyclic_node_refinement_study(
         payload.row.beam_axis_quadrature_family =
             matrix_row.beam_axis_quadrature_family;
         payload.row.formulation_kind = matrix_row.formulation_kind;
+        payload.row.continuation_kind = spec.structural_spec.continuation_kind;
+        payload.row.continuation_segment_substep_factor =
+            spec.structural_spec.continuation_segment_substep_factor;
         payload.row.case_id = make_case_id(
             matrix_row.beam_nodes,
             matrix_row.beam_axis_quadrature_family,

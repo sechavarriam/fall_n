@@ -481,6 +481,64 @@ void test_adaptive_material_tangent_can_fallback_to_secant_3d() {
           "Zero validation tolerance forces the adaptive tangent back to the fracture-sec tangent");
 }
 
+void test_characteristic_length_modulates_tension_softening_3d() {
+    std::cout << "\n-- Test 5fa: characteristic length modulates 3D tension softening --\n";
+
+    const KoBatheParameters short_band_params{30.0, 0.0, 0.06, 100.0};
+    const KoBatheParameters long_band_params{30.0, 0.0, 0.06, 400.0};
+    const auto stabilization = KoBathe3DCrackStabilization::stabilized_default();
+
+    KoBatheConcrete3D short_band_model(short_band_params, stabilization);
+    KoBatheConcrete3D long_band_model(long_band_params, stabilization);
+
+    const double ft = short_band_params.tp * short_band_params.fc;
+    const double eps_tp =
+        ft / (short_band_params.Ke + 4.0 / 3.0 * short_band_params.Ge);
+    const double eps_tu_short =
+        2.0 * short_band_params.Gf / (ft * short_band_params.lb);
+    const double eps_tu_long =
+        2.0 * long_band_params.Gf / (ft * long_band_params.lb);
+
+    check(eps_tu_short > eps_tu_long,
+          "Shorter crack-band length keeps a longer post-peak tensile branch");
+
+    const double eps_probe = 0.5 * (eps_tu_short + eps_tu_long);
+    check(eps_probe > eps_tu_long && eps_probe < eps_tu_short,
+          "Probe strain lies between the two crack-band softening cutoffs");
+
+    KoBatheState3D short_state{};
+    KoBatheState3D long_state{};
+    Strain<6> eps;
+    Eigen::Matrix<double, 6, 1> v = Eigen::Matrix<double, 6, 1>::Zero();
+
+    const int n_steps = 120;
+    for (int i = 1; i <= n_steps; ++i) {
+        v.setZero();
+        v[0] = eps_probe * static_cast<double>(i) / static_cast<double>(n_steps);
+        eps.set_components(v);
+        short_band_model.commit(short_state, eps);
+        long_band_model.commit(long_state, eps);
+    }
+
+    eps.set_components(v);
+    const auto sigma_short = short_band_model.compute_response(eps, short_state);
+    const auto sigma_long = long_band_model.compute_response(eps, long_state);
+
+    std::cout << "  eps_tp       = " << eps_tp << "\n"
+              << "  eps_tu_short = " << eps_tu_short << "\n"
+              << "  eps_tu_long  = " << eps_tu_long << "\n"
+              << "  eps_probe    = " << eps_probe << "\n"
+              << "  sigma_short  = " << sigma_short[0] << " MPa\n"
+              << "  sigma_long   = " << sigma_long[0] << " MPa\n";
+
+    check(short_state.num_cracks > 0 && long_state.num_cracks > 0,
+          "Both crack-band variants enter the tensile cracking branch");
+    check(sigma_short[0] > sigma_long[0] + 1.0e-4,
+          "Shorter crack-band length retains more tensile stress at the same post-peak strain");
+    check(short_state.crack_strain_max[0] >= long_state.crack_strain_max[0] - 1.0e-12,
+          "Shorter crack-band length does not reduce the tracked peak crack opening");
+}
+
 void test_unloading_is_classified_as_no_flow_3d() {
     std::cout << "\n-- Test 5g: unloading is classified as no-flow --\n";
 
@@ -897,6 +955,7 @@ int main() {
     test_crack_kinematics_follow_final_elastic_state_3d();
     test_adaptive_material_tangent_matches_elastic_response_3d();
     test_adaptive_material_tangent_can_fallback_to_secant_3d();
+    test_characteristic_length_modulates_tension_softening_3d();
     test_unloading_is_classified_as_no_flow_3d();
     test_tension_is_classified_as_no_flow_3d();
     test_last_evaluation_diagnostics_follow_no_flow_branch_3d();

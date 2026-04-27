@@ -1,0 +1,12 @@
+{
+  "status": "completed",
+  "root": "data\\output\\cyclic_validation",
+  "pattern": "continuum_external_*",
+  "case_count": 18,
+  "csv": "doc\\figures\\validation_reboot\\continuum_external_benchmark_matrix.csv",
+  "figures": {
+    "base_shear": "doc\\figures\\validation_reboot\\continuum_external_benchmark_base_shear_error.png",
+    "steel_stress": "doc\\figures\\validation_reboot\\continuum_external_benchmark_steel_error.png",
+    "timing": "doc\\figures\\validation_reboot\\continuum_external_benchmark_timing.png"
+  }
+}

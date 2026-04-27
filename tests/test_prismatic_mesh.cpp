@@ -217,6 +217,92 @@ void test_single_element() {
     report("all faces have 4 nodes", true);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+//  7. Quadratic longitudinal bias keeps straight-sided elements
+// ─────────────────────────────────────────────────────────────────────
+void test_quadratic_longitudinal_bias_midpoints() {
+    std::println(
+        "\n── Test: quadratic longitudinal bias preserves midpoint placement ──");
+
+    auto [domain, grid] = fall_n::make_prismatic_domain({
+        .width  = 0.25,
+        .height = 0.25,
+        .length = 3.20,
+        .nx = 1, .ny = 1, .nz = 2,
+        .hex_order = fall_n::HexOrder::Serendipity,
+        .longitudinal_bias_power = 2.0,
+    });
+
+    const double z0 = grid.z_coordinate(0);
+    const double z1 = grid.z_coordinate(1);
+    const double z2 = grid.z_coordinate(2);
+    const double z3 = grid.z_coordinate(3);
+    const double z4 = grid.z_coordinate(4);
+
+    report("quadratic mesh has 5 z-levels", grid.nodes_z() == 5);
+    report("first mid-node is midpoint of first biased element",
+           std::abs(z1 - 0.5 * (z0 + z2)) < tol);
+    report("second mid-node is midpoint of second biased element",
+           std::abs(z3 - 0.5 * (z2 + z4)) < tol);
+    report("biased first corner span remains positive and ordered",
+           z0 < z2 && z2 < z4);
+
+    const auto& first_bottom = domain.node(grid.node_id(0, 0, 0));
+    const auto& first_mid = domain.node(grid.node_id(0, 0, 1));
+    const auto& first_top = domain.node(grid.node_id(0, 0, 2));
+    report("geometry uses the same midpoint placement in physical z",
+           std::abs(first_mid.coord(2) -
+                        0.5 * (first_bottom.coord(2) + first_top.coord(2))) <
+               tol);
+}
+
+void test_longitudinal_bias_location() {
+    std::println("\n── Test: longitudinal bias location policy ──");
+
+    auto [fixed_domain, fixed_grid] = fall_n::make_prismatic_domain({
+        .width = 0.25,
+        .height = 0.25,
+        .length = 4.0,
+        .nx = 1, .ny = 1, .nz = 4,
+        .longitudinal_bias_power = 2.0,
+        .longitudinal_bias_location =
+            fall_n::LongitudinalBiasLocation::FixedEnd,
+    });
+    (void)fixed_domain;
+    auto [loaded_domain, loaded_grid] = fall_n::make_prismatic_domain({
+        .width = 0.25,
+        .height = 0.25,
+        .length = 4.0,
+        .nx = 1, .ny = 1, .nz = 4,
+        .longitudinal_bias_power = 2.0,
+        .longitudinal_bias_location =
+            fall_n::LongitudinalBiasLocation::LoadedEnd,
+    });
+    (void)loaded_domain;
+    auto [both_domain, both_grid] = fall_n::make_prismatic_domain({
+        .width = 0.25,
+        .height = 0.25,
+        .length = 4.0,
+        .nx = 1, .ny = 1, .nz = 4,
+        .longitudinal_bias_power = 2.0,
+        .longitudinal_bias_location =
+            fall_n::LongitudinalBiasLocation::BothEnds,
+    });
+    (void)both_domain;
+
+    const auto span = [](const fall_n::PrismaticGrid& grid, int i) {
+        return grid.z_coordinate(i + 1) - grid.z_coordinate(i);
+    };
+
+    report("fixed-end bias refines near z=0",
+           span(fixed_grid, 0) < span(fixed_grid, 3));
+    report("loaded-end bias refines near z=L",
+           span(loaded_grid, 0) > span(loaded_grid, 3));
+    report("both-ends bias refines both boundaries",
+           span(both_grid, 0) < span(both_grid, 1) &&
+               span(both_grid, 3) < span(both_grid, 2));
+}
+
 
 } // namespace
 
@@ -234,6 +320,8 @@ int main(int argc, char** argv) {
     test_align_to_beam_vertical();
     test_align_to_beam_horizontal();
     test_single_element();
+    test_quadratic_longitudinal_bias_midpoints();
+    test_longitudinal_bias_location();
 
     std::println("\n=== {} PASSED, {} FAILED ===\n", g_pass, g_fail);
 

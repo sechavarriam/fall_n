@@ -1,0 +1,49 @@
+{
+  "status": "completed",
+  "csv": "doc\\figures\\validation_reboot\\structural_continuum_equivalence_diagnosis.csv",
+  "figures": {
+    "png": "doc\\figures\\validation_reboot\\structural_continuum_equivalence_diagnosis.png",
+    "pdf": "doc\\figures\\validation_reboot\\structural_continuum_equivalence_diagnosis.pdf"
+  },
+  "cases": [
+    {
+      "key": "legacy_full_penalty",
+      "label": "full penalty",
+      "bundle": "data\\output\\cyclic_validation\\reboot_structural_continuum_multielement_cyclic_crack_band_4x4x4_50mm_free_audit",
+      "completed_successfully": true,
+      "embedded_boundary_mode": "full_penalty_coupling",
+      "axial_preload_transfer_mode": "host_surface_only",
+      "support_reaction_node_count": 25,
+      "base_shear_peak_normalized_rms_error": 0.6841780640755438,
+      "steel_hinge_loop_work_ratio": 61.6172229680705,
+      "host_bar_rms_strain_gap": 8.756243269251039e-10,
+      "reported_total_wall_seconds": 36.197053,
+      "notes": "Historical structural-continuum gate; fails axial-resultant balance under lateral cycling.",
+      "record_count": 13.0,
+      "min_base_axial_reaction_MN": -0.000104650548,
+      "max_base_axial_reaction_MN": 0.259831511,
+      "max_axial_deviation_MN": 0.23983151100000002,
+      "rms_axial_deviation_MN": 0.112280349417686
+    },
+    {
+      "key": "dirichlet_composite",
+      "label": "Dirichlet + split",
+      "bundle": "data\\output\\cyclic_validation\\reboot_structural_continuum_cyclic_crack_band_4x4x4_50mm_clamped_dirichlet_composite_audit",
+      "completed_successfully": true,
+      "embedded_boundary_mode": "dirichlet_rebar_endcap",
+      "axial_preload_transfer_mode": "composite_section_force_split",
+      "support_reaction_node_count": 33,
+      "base_shear_peak_normalized_rms_error": 0.21941188276862927,
+      "steel_hinge_loop_work_ratio": 0.49913345118590935,
+      "host_bar_rms_strain_gap": 3.367993820587445e-10,
+      "reported_total_wall_seconds": 48.0990792,
+      "notes": "Current equivalence gate candidate; preserves axial resultant and embedded-bar kinematics.",
+      "record_count": 13.0,
+      "min_base_axial_reaction_MN": 0.0199999991,
+      "max_base_axial_reaction_MN": 0.02,
+      "max_axial_deviation_MN": 9.000000016079479e-10,
+      "rms_axial_deviation_MN": 2.8554940332778847e-10
+    }
+  ],
+  "diagnosis": "The old full-penalty coupling path is not valid equivalence evidence because it violates the imposed axial resultant. The Dirichlet endcap plus composite preload split restores axial balance; remaining discrepancies should be treated as material/kinematic localization gaps, not load-application artifacts."
+}
