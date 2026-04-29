@@ -172,6 +172,18 @@ struct CouplingIterationReport {
     double max_tangent_column_residual_rel{0.0};
     double macro_solve_seconds{0.0};
     double micro_solve_seconds{0.0};
+    bool local_runtime_adaptive_activation_enabled{false};
+    bool local_runtime_seed_reuse_enabled{false};
+    int local_runtime_active_sites{0};
+    int local_runtime_inactive_sites{0};
+    int local_runtime_solve_attempts{0};
+    int local_runtime_failed_solve_attempts{0};
+    int local_runtime_skipped_by_activation{0};
+    int local_runtime_seed_restores{0};
+    int local_runtime_checkpoint_saves{0};
+    double local_runtime_total_solve_seconds{0.0};
+    double local_runtime_mean_site_solve_seconds{0.0};
+    double local_runtime_max_site_solve_seconds{0.0};
     int macro_solver_reason{0};
     int macro_solver_iterations{0};
     double macro_solver_function_norm{0.0};

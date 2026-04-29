@@ -1,5 +1,6 @@
 #include "src/xfem/CohesiveCrackLaw.hh"
 #include "src/xfem/CrackKinematics.hh"
+#include "src/xfem/ShiftedHeavisideCrackCrossingRebarElement.hh"
 #include "src/xfem/ShiftedHeavisideSolidElement.hh"
 #include "src/xfem/XFEMDofManager.hh"
 #include "src/xfem/XFEMEnrichedApproximation.hh"
@@ -77,6 +78,8 @@ int main(int argc, char** argv)
     using fall_n::xfem::element_is_cut_by_crack;
     using fall_n::xfem::crack_band_opening_mm;
     using fall_n::xfem::make_crack_band_consistent_cohesive_law;
+    using fall_n::xfem::
+        make_metre_jump_crack_band_consistent_cohesive_law_from_mpa_n_per_mm;
     using fall_n::xfem::mark_heaviside_enriched_nodes;
     using fall_n::xfem::apply_shifted_heaviside_dof_layout;
     using fall_n::xfem::node_has_shifted_heaviside_enrichment;
@@ -84,6 +87,10 @@ int main(int argc, char** argv)
     using fall_n::xfem::petsc_local_dof_index;
     using fall_n::xfem::shifted_heaviside_enriched_component;
     using fall_n::xfem::split_crack_jump;
+    using fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement;
+    using fall_n::xfem::BoundedSlipBridgeParameters;
+    using fall_n::xfem::BoundedSlipBridgeState;
+    using fall_n::xfem::evaluate_bounded_slip_bridge_law;
 
     const PlaneCrackLevelSet crack{
         Eigen::Vector3d::Zero(),
@@ -284,6 +291,39 @@ int main(int argc, char** argv)
         check(std::abs(softening.traction.x() - 5.0) < 1.0e-12,
               "cohesive softening traction lies on the descending branch");
 
+        auto central_tangent_cohesive = cohesive;
+        central_tangent_cohesive.tangent_mode =
+            fall_n::xfem::CohesiveCrackTangentMode::
+                adaptive_central_difference_with_secant_fallback;
+        const auto softening_with_tangent = evaluate_bilinear_cohesive_law(
+            central_tangent_cohesive,
+            elastic.updated_state,
+            n,
+            0.015,
+            Eigen::Vector3d::Zero());
+        check(softening_with_tangent.tangent_stiffness(0, 0) < 0.0,
+              "cohesive central tangent captures negative tensile softening");
+        check(std::abs(softening_with_tangent.secant_stiffness(0, 0) -
+                       softening.secant_stiffness(0, 0)) < 1.0e-10,
+              "cohesive central tangent preserves the secant response field");
+
+        auto active_set_cohesive = cohesive;
+        active_set_cohesive.tangent_mode =
+            fall_n::xfem::CohesiveCrackTangentMode::
+                active_set_consistent;
+        const auto active_set_softening = evaluate_bilinear_cohesive_law(
+            active_set_cohesive,
+            elastic.updated_state,
+            n,
+            0.015,
+            Eigen::Vector3d::Zero());
+        check(active_set_softening.tangent_stiffness(0, 0) < 0.0,
+              "cohesive active-set tangent captures normal tensile softening");
+        check(std::abs(active_set_softening.tangent_stiffness(0, 0) -
+                       softening_with_tangent.tangent_stiffness(0, 0)) <
+                  1.0e-3,
+              "cohesive active-set tangent matches central tangent in pure normal loading");
+
         const auto closed = evaluate_bilinear_cohesive_law(
             cohesive,
             softening.updated_state,
@@ -303,6 +343,35 @@ int main(int argc, char** argv)
               "cohesive history reaches full damage at critical separation");
         check(std::abs(failed_shear.traction.y() - 1.0) < 1.0e-12,
               "cohesive law keeps only the residual shear transfer after failure");
+
+        auto capped_shear_cohesive = cohesive;
+        capped_shear_cohesive.shear_traction_cap = 0.25;
+        const auto capped_shear = evaluate_bilinear_cohesive_law(
+            capped_shear_cohesive,
+            CohesiveCrackState{},
+            n,
+            0.0,
+            Eigen::Vector3d{0.0, 0.010, 0.0});
+        check(std::abs(capped_shear.traction.y() - 0.25) < 1.0e-12,
+              "cohesive law caps tangential crack transfer consistently");
+
+        capped_shear_cohesive.tangent_mode =
+            fall_n::xfem::CohesiveCrackTangentMode::
+                active_set_consistent;
+        const auto capped_shear_active_tangent = evaluate_bilinear_cohesive_law(
+            capped_shear_cohesive,
+            CohesiveCrackState{},
+            n,
+            0.0,
+            Eigen::Vector3d{0.0, 0.010, 0.0});
+        check(std::abs(
+                  capped_shear_active_tangent.tangent_stiffness(1, 1)) <
+                  1.0e-10,
+              "cohesive active-set tangent freezes capped slip direction");
+        check(std::abs(
+                  capped_shear_active_tangent.tangent_stiffness(2, 2) -
+                  25.0) < 1.0e-10,
+              "cohesive active-set tangent keeps transverse capped-slip stiffness");
 
         const auto crack_band_cohesive =
             make_crack_band_consistent_cohesive_law(
@@ -324,6 +393,29 @@ int main(int argc, char** argv)
         check(std::abs(crack_band_cohesive.residual_shear_fraction - 0.15) <
                   1.0e-14,
               "cohesive factory preserves residual shear transfer fraction");
+
+        const auto metre_jump_cohesive =
+            make_metre_jump_crack_band_consistent_cohesive_law_from_mpa_n_per_mm(
+                30000.0,
+                12500.0,
+                2.0,
+                0.06,
+                0.40,
+                1.0,
+                1.0,
+                1.0,
+                0.15);
+        check(std::abs(metre_jump_cohesive.normal_stiffness - 75000.0) <
+                  1.0e-10,
+              "metre-jump cohesive factory maps Ec/lc to MPa per metre");
+        check(std::abs(metre_jump_cohesive.fracture_energy - 6.0e-5) <
+                  1.0e-14,
+              "metre-jump cohesive factory converts N/mm to MN/m");
+        check(std::abs(
+                  2.0 * metre_jump_cohesive.fracture_energy /
+                      metre_jump_cohesive.tensile_strength -
+                  6.0e-5) < 1.0e-14,
+              "metre-jump cohesive factory returns delta_f in metres");
 
         auto contact_cohesive = cohesive;
         contact_cohesive.shear_transfer_law = {
@@ -350,6 +442,31 @@ int main(int argc, char** argv)
             Eigen::Vector3d{0.0, 0.010, 0.0});
         check(closed_sliding.traction.y() > open_sliding.traction.y(),
               "XFEM cohesive law can reuse compression-gated shear transfer");
+    }
+
+    {
+        const BoundedSlipBridgeParameters bounded{
+            .initial_stiffness_mn_per_m = 10.0,
+            .yield_force_mn = 1.0e-3,
+            .hardening_ratio = 0.0,
+            .force_cap_mn = 1.0e-3};
+        const auto elastic = evaluate_bounded_slip_bridge_law(
+            bounded,
+            BoundedSlipBridgeState{},
+            5.0e-5);
+        check(std::abs(elastic.force_mn - 5.0e-4) < 1.0e-14,
+              "bounded-slip crack bridge is elastic before yield");
+        check(std::abs(elastic.tangent_mn_per_m - 10.0) < 1.0e-14,
+              "bounded-slip crack bridge exposes its elastic tangent");
+
+        const auto plastic = evaluate_bounded_slip_bridge_law(
+            bounded,
+            BoundedSlipBridgeState{},
+            2.0e-4);
+        check(std::abs(plastic.force_mn - 1.0e-3) < 1.0e-14,
+              "bounded-slip crack bridge caps the localized transfer force");
+        check(std::abs(plastic.tangent_mn_per_m) < 1.0e-14,
+              "bounded-slip crack bridge returns a plastic tangent at the cap");
     }
 
     {
@@ -482,6 +599,104 @@ int main(int argc, char** argv)
               "global XFEM cohesive/volumetric residual acts on enriched DOFs");
         check(K.bottomRightCorner(24, 24).norm() > 0.0,
               "global XFEM tangent couples enriched DOFs");
+    }
+
+    {
+        Domain<3> domain;
+        make_unit_hex8_domain(domain);
+
+        MaterialInstance<ElasticRelation<UniaxialMaterial>> elastic_steel{
+            200000.0};
+        Material<UniaxialMaterial> steel{
+            std::move(elastic_steel),
+            ElasticUpdate{}};
+        ShiftedHeavisideCrackCrossingRebarElement bridge{
+            &domain.element(0),
+            steel,
+            std::array<double, 3>{0.0, 0.0, 0.0},
+            Eigen::Vector3d::UnitZ(),
+            1.0e-4,
+            0.10};
+        bridge.set_num_dof_in_nodes();
+
+        int next_dof = 0;
+        for (auto& node : domain.nodes()) {
+            std::vector<PetscInt> dofs(node.num_dof());
+            for (auto& dof : dofs) {
+                dof = next_dof++;
+            }
+            node.set_dof_index(dofs);
+        }
+
+        check(domain.node(0).num_dof() == 6,
+              "crack-crossing rebar bridge declares enriched host DOFs");
+        check(bridge.get_dof_indices().size() == 8,
+              "crack-crossing rebar bridge gathers only axial enriched components");
+
+        Eigen::VectorXd u =
+            Eigen::VectorXd::Constant(
+                static_cast<Eigen::Index>(bridge.get_dof_indices().size()),
+                5.0e-5);
+        const auto f = bridge.compute_internal_force_vector(u);
+        const auto K = bridge.compute_tangent_stiffness_matrix(u);
+        check(f.norm() > 0.0,
+              "crack-crossing rebar bridge contributes internal force");
+        check(K.rows() == f.size() && K.cols() == f.size(),
+              "crack-crossing rebar bridge tangent matches local residual size");
+        check(K.norm() > 0.0,
+              "crack-crossing rebar bridge contributes a material tangent");
+
+        const auto gauss = bridge.collect_gauss_fields(u);
+        check(gauss.size() == 1 &&
+                  std::abs(gauss.front().stress[0]) > 0.0,
+              "crack-crossing rebar bridge exports uniaxial steel stress");
+    }
+
+    {
+        Domain<3> domain;
+        make_unit_hex8_domain(domain);
+
+        ShiftedHeavisideCrackCrossingRebarElement bridge{
+            &domain.element(0),
+            std::array<double, 3>{0.0, 0.0, 0.0},
+            Eigen::Vector3d::UnitZ(),
+            1.0e-4,
+            0.10,
+            BoundedSlipBridgeParameters{
+                .initial_stiffness_mn_per_m = 2.0,
+                .yield_force_mn = 1.0e-4,
+                .hardening_ratio = 0.0,
+                .force_cap_mn = 1.0e-4}};
+        bridge.set_num_dof_in_nodes();
+
+        int next_dof = 0;
+        for (auto& node : domain.nodes()) {
+            std::vector<PetscInt> dofs(node.num_dof());
+            for (auto& dof : dofs) {
+                dof = next_dof++;
+            }
+            node.set_dof_index(dofs);
+        }
+
+        Eigen::VectorXd small_u =
+            Eigen::VectorXd::Constant(
+                static_cast<Eigen::Index>(bridge.get_dof_indices().size()),
+                1.0e-5);
+        const auto K = bridge.compute_tangent_stiffness_matrix(small_u);
+        check(K.norm() > 0.0,
+              "bounded-slip crack bridge contributes an elastic tangent before yield");
+
+        Eigen::VectorXd large_u =
+            Eigen::VectorXd::Constant(
+                static_cast<Eigen::Index>(bridge.get_dof_indices().size()),
+                1.0e-3);
+        const auto f = bridge.compute_internal_force_vector(large_u);
+        const auto gauss = bridge.collect_gauss_fields(large_u);
+        check(f.norm() > 0.0,
+              "bounded-slip crack bridge contributes capped internal force");
+        check(gauss.size() == 1 &&
+                  std::abs(gauss.front().stress[0] - 1.0) < 1.0e-12,
+              "bounded-slip crack bridge reports force-over-area equivalent stress");
     }
 
     {

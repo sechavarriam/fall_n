@@ -730,6 +730,264 @@ build fall_n_table_cyclic_validation.exe: CXX_EXECUTABLE_LINKER__fall_n_table_cy
   TARGET_PDB = fall_n_table_cyclic_validation.exe.dbg
 
 # =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_column_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_reference_benchmark.dir/main_reduced_rc_column_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_column_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir\main_reduced_rc_column_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_reference_benchmark.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnStructuralBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir\src\validation\ReducedRCColumnStructuralBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_reference_benchmark.exe
+
+build fall_n_reduced_rc_column_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_column_reference_benchmark.dir/main_reduced_rc_column_reference_benchmark.cpp.obj CMakeFiles/fall_n_reduced_rc_column_reference_benchmark.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_reference_benchmark.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_continuum_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_continuum_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_column_continuum_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_continuum_reference_benchmark.dir/main_reduced_rc_column_continuum_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_continuum_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_column_continuum_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir\main_reduced_rc_column_continuum_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_continuum_reference_benchmark.dir/src/validation/ReducedRCColumnContinuumBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_continuum_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnContinuumBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir\src\validation\ReducedRCColumnContinuumBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_continuum_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+
+build fall_n_reduced_rc_column_continuum_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_continuum_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_column_continuum_reference_benchmark.dir/main_reduced_rc_column_continuum_reference_benchmark.cpp.obj CMakeFiles/fall_n_reduced_rc_column_continuum_reference_benchmark.dir/src/validation/ReducedRCColumnContinuumBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_continuum_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_continuum_reference_benchmark.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_section_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_section_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_section_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_column_section_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_section_reference_benchmark.dir/main_reduced_rc_column_section_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_section_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_column_section_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_section_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir\main_reduced_rc_column_section_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_section_reference_benchmark.dir/src/validation/ReducedRCColumnSectionBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_section_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnSectionBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_section_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir\src\validation\ReducedRCColumnSectionBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_section_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_section_reference_benchmark.exe
+
+build fall_n_reduced_rc_column_section_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_section_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_column_section_reference_benchmark.dir/main_reduced_rc_column_section_reference_benchmark.cpp.obj CMakeFiles/fall_n_reduced_rc_column_section_reference_benchmark.dir/src/validation/ReducedRCColumnSectionBaseline.cpp.obj | C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_section_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_section_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_section_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_section_reference_benchmark.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_material_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_material_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_material_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_material_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_material_reference_benchmark.dir/main_reduced_rc_material_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_material_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_material_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_material_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir\main_reduced_rc_material_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_material_reference_benchmark.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_material_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnMaterialBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_material_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir\src\validation\ReducedRCColumnMaterialBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_material_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_material_reference_benchmark.exe
+
+build fall_n_reduced_rc_material_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_material_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_material_reference_benchmark.dir/main_reduced_rc_material_reference_benchmark.cpp.obj CMakeFiles/fall_n_reduced_rc_material_reference_benchmark.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_material_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_material_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_material_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_material_reference_benchmark.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_truss_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_truss_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_truss_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/main_reduced_rc_truss_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_truss_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_truss_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_truss_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir\main_reduced_rc_truss_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_truss_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnMaterialBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_truss_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir\src\validation\ReducedRCColumnMaterialBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir\src\validation
+
+build CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/src/validation/ReducedRCColumnTrussBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_truss_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnTrussBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_truss_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir\src\validation\ReducedRCColumnTrussBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_truss_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_truss_reference_benchmark.exe
+
+build fall_n_reduced_rc_truss_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_truss_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/main_reduced_rc_truss_reference_benchmark.cpp.obj CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj CMakeFiles/fall_n_reduced_rc_truss_reference_benchmark.dir/src/validation/ReducedRCColumnTrussBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_truss_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_truss_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_truss_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_truss_reference_benchmark.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_xfem_reference_benchmark
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_xfem_reference_benchmark
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_xfem_reference_benchmark: phony || CMakeFiles/fall_n_reduced_rc_xfem_reference_benchmark.dir
+
+build CMakeFiles/fall_n_reduced_rc_xfem_reference_benchmark.dir/main_reduced_rc_xfem_reference_benchmark.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_xfem_reference_benchmark_unscanned_ C$:/MyLibs/fall_n/main_reduced_rc_xfem_reference_benchmark.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_xfem_reference_benchmark
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_xfem_reference_benchmark.dir\main_reduced_rc_xfem_reference_benchmark.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_xfem_reference_benchmark.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_xfem_reference_benchmark.dir
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_xfem_reference_benchmark
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_xfem_reference_benchmark.exe
+
+build fall_n_reduced_rc_xfem_reference_benchmark.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_xfem_reference_benchmark_ CMakeFiles/fall_n_reduced_rc_xfem_reference_benchmark.dir/main_reduced_rc_xfem_reference_benchmark.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_xfem_reference_benchmark.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_xfem_reference_benchmark.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_xfem_reference_benchmark.dll.a
+  TARGET_PDB = fall_n_reduced_rc_xfem_reference_benchmark.exe.dbg
+
+# =============================================================================
 # Object build statements for EXECUTABLE target fall_n_tests
 
 
@@ -1558,6 +1816,51 @@ build fall_n_micro_solve_executor_test.exe: CXX_EXECUTABLE_LINKER__fall_n_micro_
   TARGET_PDB = fall_n_micro_solve_executor_test.exe.dbg
 
 # =============================================================================
+# Object build statements for EXECUTABLE target fall_n_local_subproblem_runtime_test
+
+
+#############################################
+# Order-only phony target for fall_n_local_subproblem_runtime_test
+
+build cmake_object_order_depends_target_fall_n_local_subproblem_runtime_test: phony || CMakeFiles/fall_n_local_subproblem_runtime_test.dir
+
+build CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_local_subproblem_runtime_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_local_subproblem_runtime_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_local_subproblem_runtime_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_local_subproblem_runtime_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_local_subproblem_runtime_test.dir
+
+build CMakeFiles/fall_n_local_subproblem_runtime_test.dir/tests/test_local_subproblem_runtime.cpp.obj: CXX_COMPILER__fall_n_local_subproblem_runtime_test_unscanned_ C$:/MyLibs/fall_n/tests/test_local_subproblem_runtime.cpp | CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_local_subproblem_runtime_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_local_subproblem_runtime_test.dir\tests\test_local_subproblem_runtime.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_local_subproblem_runtime_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_local_subproblem_runtime_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_local_subproblem_runtime_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_local_subproblem_runtime_test
+
+
+#############################################
+# Link the executable fall_n_local_subproblem_runtime_test.exe
+
+build fall_n_local_subproblem_runtime_test.exe: CXX_EXECUTABLE_LINKER__fall_n_local_subproblem_runtime_test_ CMakeFiles/fall_n_local_subproblem_runtime_test.dir/tests/test_local_subproblem_runtime.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_local_subproblem_runtime_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_local_subproblem_runtime_test.exe
+  TARGET_IMPLIB = libfall_n_local_subproblem_runtime_test.dll.a
+  TARGET_PDB = fall_n_local_subproblem_runtime_test.exe.dbg
+
+# =============================================================================
 # Object build statements for EXECUTABLE target fall_n_strategy_test
 
 
@@ -1736,6 +2039,222 @@ build fall_n_ko_bathe_concrete_3d_test.exe: CXX_EXECUTABLE_LINKER__fall_n_ko_bat
   TARGET_FILE = fall_n_ko_bathe_concrete_3d_test.exe
   TARGET_IMPLIB = libfall_n_ko_bathe_concrete_3d_test.dll.a
   TARGET_PDB = fall_n_ko_bathe_concrete_3d_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+
+
+#############################################
+# Order-only phony target for fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+
+build cmake_object_order_depends_target_fall_n_tensile_crack_band_damage_concrete_proxy_3d_test: phony || CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir
+
+build CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_tensile_crack_band_damage_concrete_proxy_3d_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir
+
+build CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/tests/test_tensile_crack_band_damage_concrete_proxy_3d.cpp.obj: CXX_COMPILER__fall_n_tensile_crack_band_damage_concrete_proxy_3d_test_unscanned_ C$:/MyLibs/fall_n/tests/test_tensile_crack_band_damage_concrete_proxy_3d.cpp | CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir\tests\test_tensile_crack_band_damage_concrete_proxy_3d.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_tensile_crack_band_damage_concrete_proxy_3d_test
+
+
+#############################################
+# Link the executable fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe
+
+build fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe: CXX_EXECUTABLE_LINKER__fall_n_tensile_crack_band_damage_concrete_proxy_3d_test_ CMakeFiles/fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir/tests/test_tensile_crack_band_damage_concrete_proxy_3d.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe
+  TARGET_IMPLIB = libfall_n_tensile_crack_band_damage_concrete_proxy_3d_test.dll.a
+  TARGET_PDB = fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_cyclic_crack_band_concrete_3d_test
+
+
+#############################################
+# Order-only phony target for fall_n_cyclic_crack_band_concrete_3d_test
+
+build cmake_object_order_depends_target_fall_n_cyclic_crack_band_concrete_3d_test: phony || CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_cyclic_crack_band_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_cyclic_crack_band_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/tests/test_cyclic_crack_band_concrete_3d.cpp.obj: CXX_COMPILER__fall_n_cyclic_crack_band_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/tests/test_cyclic_crack_band_concrete_3d.cpp | CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_cyclic_crack_band_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir\tests\test_cyclic_crack_band_concrete_3d.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_cyclic_crack_band_concrete_3d_test
+
+
+#############################################
+# Link the executable fall_n_cyclic_crack_band_concrete_3d_test.exe
+
+build fall_n_cyclic_crack_band_concrete_3d_test.exe: CXX_EXECUTABLE_LINKER__fall_n_cyclic_crack_band_concrete_3d_test_ CMakeFiles/fall_n_cyclic_crack_band_concrete_3d_test.dir/tests/test_cyclic_crack_band_concrete_3d.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_cyclic_crack_band_concrete_3d_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_cyclic_crack_band_concrete_3d_test.exe
+  TARGET_IMPLIB = libfall_n_cyclic_crack_band_concrete_3d_test.dll.a
+  TARGET_PDB = fall_n_cyclic_crack_band_concrete_3d_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_fixed_crack_band_concrete_3d_test
+
+
+#############################################
+# Order-only phony target for fall_n_fixed_crack_band_concrete_3d_test
+
+build cmake_object_order_depends_target_fall_n_fixed_crack_band_concrete_3d_test: phony || CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_fixed_crack_band_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_fixed_crack_band_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/tests/test_fixed_crack_band_concrete_3d.cpp.obj: CXX_COMPILER__fall_n_fixed_crack_band_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/tests/test_fixed_crack_band_concrete_3d.cpp | CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_fixed_crack_band_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir\tests\test_fixed_crack_band_concrete_3d.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_fixed_crack_band_concrete_3d_test
+
+
+#############################################
+# Link the executable fall_n_fixed_crack_band_concrete_3d_test.exe
+
+build fall_n_fixed_crack_band_concrete_3d_test.exe: CXX_EXECUTABLE_LINKER__fall_n_fixed_crack_band_concrete_3d_test_ CMakeFiles/fall_n_fixed_crack_band_concrete_3d_test.dir/tests/test_fixed_crack_band_concrete_3d.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_fixed_crack_band_concrete_3d_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_fixed_crack_band_concrete_3d_test.exe
+  TARGET_IMPLIB = libfall_n_fixed_crack_band_concrete_3d_test.dll.a
+  TARGET_PDB = fall_n_fixed_crack_band_concrete_3d_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_crack_shear_transfer_law_test
+
+
+#############################################
+# Order-only phony target for fall_n_crack_shear_transfer_law_test
+
+build cmake_object_order_depends_target_fall_n_crack_shear_transfer_law_test: phony || CMakeFiles/fall_n_crack_shear_transfer_law_test.dir
+
+build CMakeFiles/fall_n_crack_shear_transfer_law_test.dir/tests/test_crack_shear_transfer_law.cpp.obj: CXX_COMPILER__fall_n_crack_shear_transfer_law_test_unscanned_ C$:/MyLibs/fall_n/tests/test_crack_shear_transfer_law.cpp || cmake_object_order_depends_target_fall_n_crack_shear_transfer_law_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_crack_shear_transfer_law_test.dir\tests\test_crack_shear_transfer_law.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj
+  INCLUDES = -IC:/MyLibs/fall_n
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_crack_shear_transfer_law_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_crack_shear_transfer_law_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_crack_shear_transfer_law_test
+
+
+#############################################
+# Link the executable fall_n_crack_shear_transfer_law_test.exe
+
+build fall_n_crack_shear_transfer_law_test.exe: CXX_EXECUTABLE_LINKER__fall_n_crack_shear_transfer_law_test_ CMakeFiles/fall_n_crack_shear_transfer_law_test.dir/tests/test_crack_shear_transfer_law.cpp.obj
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_crack_shear_transfer_law_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_crack_shear_transfer_law_test.exe
+  TARGET_IMPLIB = libfall_n_crack_shear_transfer_law_test.dll.a
+  TARGET_PDB = fall_n_crack_shear_transfer_law_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_componentwise_kent_park_concrete_3d_test
+
+
+#############################################
+# Order-only phony target for fall_n_componentwise_kent_park_concrete_3d_test
+
+build cmake_object_order_depends_target_fall_n_componentwise_kent_park_concrete_3d_test: phony || CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_componentwise_kent_park_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_componentwise_kent_park_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir
+
+build CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/tests/test_componentwise_kent_park_concrete_3d.cpp.obj: CXX_COMPILER__fall_n_componentwise_kent_park_concrete_3d_test_unscanned_ C$:/MyLibs/fall_n/tests/test_componentwise_kent_park_concrete_3d.cpp | CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_componentwise_kent_park_concrete_3d_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir\tests\test_componentwise_kent_park_concrete_3d.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_componentwise_kent_park_concrete_3d_test
+
+
+#############################################
+# Link the executable fall_n_componentwise_kent_park_concrete_3d_test.exe
+
+build fall_n_componentwise_kent_park_concrete_3d_test.exe: CXX_EXECUTABLE_LINKER__fall_n_componentwise_kent_park_concrete_3d_test_ CMakeFiles/fall_n_componentwise_kent_park_concrete_3d_test.dir/tests/test_componentwise_kent_park_concrete_3d.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_componentwise_kent_park_concrete_3d_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_componentwise_kent_park_concrete_3d_test.exe
+  TARGET_IMPLIB = libfall_n_componentwise_kent_park_concrete_3d_test.dll.a
+  TARGET_PDB = fall_n_componentwise_kent_park_concrete_3d_test.exe.dbg
 
 # =============================================================================
 # Object build statements for EXECUTABLE target fall_n_state_injection_test
@@ -3718,6 +4237,96 @@ build fall_n_reduced_rc_column_section_baseline_test.exe: CXX_EXECUTABLE_LINKER_
   TARGET_PDB = fall_n_reduced_rc_column_section_baseline_test.exe.dbg
 
 # =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_material_baseline_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_material_baseline_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_material_baseline_test: phony || CMakeFiles/fall_n_reduced_rc_column_material_baseline_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_material_baseline_test.dir/tests/test_reduced_rc_column_material_baseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_material_baseline_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_column_material_baseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_material_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir\tests\test_reduced_rc_column_material_baseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir\tests
+
+build CMakeFiles/fall_n_reduced_rc_column_material_baseline_test.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_material_baseline_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnMaterialBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_material_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir\src\validation\ReducedRCColumnMaterialBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_material_baseline_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_material_baseline_test.exe
+
+build fall_n_reduced_rc_column_material_baseline_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_material_baseline_test_ CMakeFiles/fall_n_reduced_rc_column_material_baseline_test.dir/tests/test_reduced_rc_column_material_baseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_material_baseline_test.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_material_baseline_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_material_baseline_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_material_baseline_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_material_baseline_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_continuum_baseline_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_continuum_baseline_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_baseline_test: phony || CMakeFiles/fall_n_reduced_rc_column_continuum_baseline_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_continuum_baseline_test.dir/tests/test_reduced_rc_column_continuum_baseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_continuum_baseline_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_column_continuum_baseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir\tests\test_reduced_rc_column_continuum_baseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir\tests
+
+build CMakeFiles/fall_n_reduced_rc_column_continuum_baseline_test.dir/src/validation/ReducedRCColumnContinuumBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_continuum_baseline_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnContinuumBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_continuum_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir\src\validation\ReducedRCColumnContinuumBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_continuum_baseline_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_continuum_baseline_test.exe
+
+build fall_n_reduced_rc_column_continuum_baseline_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_continuum_baseline_test_ CMakeFiles/fall_n_reduced_rc_column_continuum_baseline_test.dir/tests/test_reduced_rc_column_continuum_baseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_continuum_baseline_test.dir/src/validation/ReducedRCColumnContinuumBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_continuum_baseline_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_continuum_baseline_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_continuum_baseline_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_continuum_baseline_test.exe.dbg
+
+# =============================================================================
 # Object build statements for EXECUTABLE target fall_n_reduced_rc_column_moment_curvature_closure_test
 
 
@@ -3979,6 +4588,69 @@ build fall_n_reduced_rc_column_cyclic_node_refinement_study_test.exe: CXX_EXECUT
   TARGET_PDB = fall_n_reduced_rc_column_cyclic_node_refinement_study_test.exe.dbg
 
 # =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test: phony || CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/tests/test_reduced_rc_column_cyclic_continuation_sensitivity_study.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_column_cyclic_continuation_sensitivity_study.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\tests\test_reduced_rc_column_cyclic_continuation_sensitivity_study.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\tests
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnStructuralBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation\ReducedRCColumnStructuralBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation\ReducedRCColumnCyclicNodeRefinementStudy.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicContinuationSensitivityStudy.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnCyclicContinuationSensitivityStudy.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation\ReducedRCColumnCyclicContinuationSensitivityStudy.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe
+
+build fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test_ CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/tests/test_reduced_rc_column_cyclic_continuation_sensitivity_study.cpp.obj CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicNodeRefinementStudy.cpp.obj CMakeFiles/fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicContinuationSensitivityStudy.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe.dbg
+
+# =============================================================================
 # Object build statements for EXECUTABLE target fall_n_reduced_rc_column_quadrature_sensitivity_study_test
 
 
@@ -4049,6 +4721,60 @@ build fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe: CXX_EXECUT
   TARGET_FILE = fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe
   TARGET_IMPLIB = libfall_n_reduced_rc_column_quadrature_sensitivity_study_test.dll.a
   TARGET_PDB = fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test: phony || CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/tests/test_reduced_rc_column_cyclic_quadrature_sensitivity_study.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_column_cyclic_quadrature_sensitivity_study.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\tests\test_reduced_rc_column_cyclic_quadrature_sensitivity_study.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\tests
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnStructuralBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\src\validation\ReducedRCColumnStructuralBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\src\validation
+
+build CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicQuadratureSensitivityStudy.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnCyclicQuadratureSensitivityStudy.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\src\validation\ReducedRCColumnCyclicQuadratureSensitivityStudy.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe
+
+build fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test_ CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/tests/test_reduced_rc_column_cyclic_quadrature_sensitivity_study.cpp.obj CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/src/validation/ReducedRCColumnStructuralBaseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir/src/validation/ReducedRCColumnCyclicQuadratureSensitivityStudy.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe.dbg
 
 # =============================================================================
 # Object build statements for EXECUTABLE target fall_n_reduced_rc_column_validation_claim_catalog_test
@@ -4157,6 +4883,393 @@ build fall_n_reduced_rc_column_evidence_closure_catalog_test.exe: CXX_EXECUTABLE
   TARGET_FILE = fall_n_reduced_rc_column_evidence_closure_catalog_test.exe
   TARGET_IMPLIB = libfall_n_reduced_rc_column_evidence_closure_catalog_test.dll.a
   TARGET_PDB = fall_n_reduced_rc_column_evidence_closure_catalog_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_local_model_promotion_catalog_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_local_model_promotion_catalog_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_local_model_promotion_catalog_test: phony || CMakeFiles/fall_n_reduced_rc_local_model_promotion_catalog_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_local_model_promotion_catalog_test.dir/tests/test_reduced_rc_local_model_promotion_catalog.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_local_model_promotion_catalog_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_local_model_promotion_catalog.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_local_model_promotion_catalog_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_local_model_promotion_catalog_test.dir\tests\test_reduced_rc_local_model_promotion_catalog.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/include/eigen3
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_local_model_promotion_catalog_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_local_model_promotion_catalog_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_local_model_promotion_catalog_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_local_model_promotion_catalog_test.exe
+
+build fall_n_reduced_rc_local_model_promotion_catalog_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_local_model_promotion_catalog_test_ CMakeFiles/fall_n_reduced_rc_local_model_promotion_catalog_test.dir/tests/test_reduced_rc_local_model_promotion_catalog.cpp.obj | C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_local_model_promotion_catalog_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_local_model_promotion_catalog_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_local_model_promotion_catalog_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_local_model_promotion_catalog_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_benchmark_surface_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_benchmark_surface_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_benchmark_surface_test: phony || CMakeFiles/fall_n_reduced_rc_benchmark_surface_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_benchmark_surface_test.dir/tests/test_reduced_rc_benchmark_surface.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_benchmark_surface_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_benchmark_surface.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_benchmark_surface_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_benchmark_surface_test.dir\tests\test_reduced_rc_benchmark_surface.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_benchmark_surface_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_benchmark_surface_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_benchmark_surface_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_benchmark_surface_test.exe
+
+build fall_n_reduced_rc_benchmark_surface_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_benchmark_surface_test_ CMakeFiles/fall_n_reduced_rc_benchmark_surface_test.dir/tests/test_reduced_rc_benchmark_surface.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_benchmark_surface_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_benchmark_surface_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_benchmark_surface_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_benchmark_surface_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_mixed_control_arc_length_test
+
+
+#############################################
+# Order-only phony target for fall_n_mixed_control_arc_length_test
+
+build cmake_object_order_depends_target_fall_n_mixed_control_arc_length_test: phony || CMakeFiles/fall_n_mixed_control_arc_length_test.dir
+
+build CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_mixed_control_arc_length_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_mixed_control_arc_length_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_mixed_control_arc_length_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_mixed_control_arc_length_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_mixed_control_arc_length_test.dir
+
+build CMakeFiles/fall_n_mixed_control_arc_length_test.dir/tests/test_mixed_control_arc_length.cpp.obj: CXX_COMPILER__fall_n_mixed_control_arc_length_test_unscanned_ C$:/MyLibs/fall_n/tests/test_mixed_control_arc_length.cpp | CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_mixed_control_arc_length_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_mixed_control_arc_length_test.dir\tests\test_mixed_control_arc_length.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_mixed_control_arc_length_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_mixed_control_arc_length_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_mixed_control_arc_length_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_mixed_control_arc_length_test
+
+
+#############################################
+# Link the executable fall_n_mixed_control_arc_length_test.exe
+
+build fall_n_mixed_control_arc_length_test.exe: CXX_EXECUTABLE_LINKER__fall_n_mixed_control_arc_length_test_ CMakeFiles/fall_n_mixed_control_arc_length_test.dir/tests/test_mixed_control_arc_length.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_mixed_control_arc_length_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_mixed_control_arc_length_test.exe
+  TARGET_IMPLIB = libfall_n_mixed_control_arc_length_test.dll.a
+  TARGET_PDB = fall_n_mixed_control_arc_length_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_bordered_mixed_control_newton_test
+
+
+#############################################
+# Order-only phony target for fall_n_bordered_mixed_control_newton_test
+
+build cmake_object_order_depends_target_fall_n_bordered_mixed_control_newton_test: phony || CMakeFiles/fall_n_bordered_mixed_control_newton_test.dir
+
+build CMakeFiles/fall_n_bordered_mixed_control_newton_test.dir/tests/test_bordered_mixed_control_newton.cpp.obj: CXX_COMPILER__fall_n_bordered_mixed_control_newton_test_unscanned_ C$:/MyLibs/fall_n/tests/test_bordered_mixed_control_newton.cpp || cmake_object_order_depends_target_fall_n_bordered_mixed_control_newton_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_bordered_mixed_control_newton_test.dir\tests\test_bordered_mixed_control_newton.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/include/eigen3
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_bordered_mixed_control_newton_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_bordered_mixed_control_newton_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_bordered_mixed_control_newton_test
+
+
+#############################################
+# Link the executable fall_n_bordered_mixed_control_newton_test.exe
+
+build fall_n_bordered_mixed_control_newton_test.exe: CXX_EXECUTABLE_LINKER__fall_n_bordered_mixed_control_newton_test_ CMakeFiles/fall_n_bordered_mixed_control_newton_test.dir/tests/test_bordered_mixed_control_newton.cpp.obj | C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_bordered_mixed_control_newton_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_bordered_mixed_control_newton_test.exe
+  TARGET_IMPLIB = libfall_n_bordered_mixed_control_newton_test.dll.a
+  TARGET_PDB = fall_n_bordered_mixed_control_newton_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_petsc_bordered_mixed_control_newton_test
+
+
+#############################################
+# Order-only phony target for fall_n_petsc_bordered_mixed_control_newton_test
+
+build cmake_object_order_depends_target_fall_n_petsc_bordered_mixed_control_newton_test: phony || CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir
+
+build CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_petsc_bordered_mixed_control_newton_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_petsc_bordered_mixed_control_newton_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir
+
+build CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/tests/test_petsc_bordered_mixed_control_newton.cpp.obj: CXX_COMPILER__fall_n_petsc_bordered_mixed_control_newton_test_unscanned_ C$:/MyLibs/fall_n/tests/test_petsc_bordered_mixed_control_newton.cpp | CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_petsc_bordered_mixed_control_newton_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN
+  DEP_FILE = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir\tests\test_petsc_bordered_mixed_control_newton.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_petsc_bordered_mixed_control_newton_test
+
+
+#############################################
+# Link the executable fall_n_petsc_bordered_mixed_control_newton_test.exe
+
+build fall_n_petsc_bordered_mixed_control_newton_test.exe: CXX_EXECUTABLE_LINKER__fall_n_petsc_bordered_mixed_control_newton_test_ CMakeFiles/fall_n_petsc_bordered_mixed_control_newton_test.dir/tests/test_petsc_bordered_mixed_control_newton.cpp.obj | C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_bordered_mixed_control_newton_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_petsc_bordered_mixed_control_newton_test.exe
+  TARGET_IMPLIB = libfall_n_petsc_bordered_mixed_control_newton_test.dll.a
+  TARGET_PDB = fall_n_petsc_bordered_mixed_control_newton_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+
+
+#############################################
+# Order-only phony target for fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+
+build cmake_object_order_depends_target_fall_n_petsc_nonlinear_analysis_bordered_adapter_test: phony || CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir
+
+build CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_petsc_nonlinear_analysis_bordered_adapter_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir
+
+build CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/tests/test_petsc_nonlinear_analysis_bordered_adapter.cpp.obj: CXX_COMPILER__fall_n_petsc_nonlinear_analysis_bordered_adapter_test_unscanned_ C$:/MyLibs/fall_n/tests/test_petsc_nonlinear_analysis_bordered_adapter.cpp | CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir\tests\test_petsc_nonlinear_analysis_bordered_adapter.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+
+
+#############################################
+# Link the executable fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe
+
+build fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe: CXX_EXECUTABLE_LINKER__fall_n_petsc_nonlinear_analysis_bordered_adapter_test_ CMakeFiles/fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir/tests/test_petsc_nonlinear_analysis_bordered_adapter.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_petsc_nonlinear_analysis_bordered_adapter_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe
+  TARGET_IMPLIB = libfall_n_petsc_nonlinear_analysis_bordered_adapter_test.dll.a
+  TARGET_PDB = fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_reduced_rc_column_truss_baseline_test
+
+
+#############################################
+# Order-only phony target for fall_n_reduced_rc_column_truss_baseline_test
+
+build cmake_object_order_depends_target_fall_n_reduced_rc_column_truss_baseline_test: phony || CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir
+
+build CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/tests/test_reduced_rc_column_truss_baseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_truss_baseline_test_unscanned_ C$:/MyLibs/fall_n/tests/test_reduced_rc_column_truss_baseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_truss_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\tests\test_reduced_rc_column_truss_baseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\tests
+
+build CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_truss_baseline_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnMaterialBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_truss_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\src\validation\ReducedRCColumnMaterialBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\src\validation
+
+build CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/src/validation/ReducedRCColumnTrussBaseline.cpp.obj: CXX_COMPILER__fall_n_reduced_rc_column_truss_baseline_test_unscanned_ C$:/MyLibs/fall_n/src/validation/ReducedRCColumnTrussBaseline.cpp || cmake_object_order_depends_target_fall_n_reduced_rc_column_truss_baseline_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\src\validation\ReducedRCColumnTrussBaseline.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir\src\validation
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_reduced_rc_column_truss_baseline_test
+
+
+#############################################
+# Link the executable fall_n_reduced_rc_column_truss_baseline_test.exe
+
+build fall_n_reduced_rc_column_truss_baseline_test.exe: CXX_EXECUTABLE_LINKER__fall_n_reduced_rc_column_truss_baseline_test_ CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/tests/test_reduced_rc_column_truss_baseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/src/validation/ReducedRCColumnMaterialBaseline.cpp.obj CMakeFiles/fall_n_reduced_rc_column_truss_baseline_test.dir/src/validation/ReducedRCColumnTrussBaseline.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_reduced_rc_column_truss_baseline_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_reduced_rc_column_truss_baseline_test.exe
+  TARGET_IMPLIB = libfall_n_reduced_rc_column_truss_baseline_test.dll.a
+  TARGET_PDB = fall_n_reduced_rc_column_truss_baseline_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_rc_section_layout_test
+
+
+#############################################
+# Order-only phony target for fall_n_rc_section_layout_test
+
+build cmake_object_order_depends_target_fall_n_rc_section_layout_test: phony || CMakeFiles/fall_n_rc_section_layout_test.dir
+
+build CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_rc_section_layout_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_rc_section_layout_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_rc_section_layout_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_rc_section_layout_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_rc_section_layout_test.dir
+
+build CMakeFiles/fall_n_rc_section_layout_test.dir/tests/test_rc_section_layout.cpp.obj: CXX_COMPILER__fall_n_rc_section_layout_test_unscanned_ C$:/MyLibs/fall_n/tests/test_rc_section_layout.cpp | CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_rc_section_layout_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_rc_section_layout_test.dir\tests\test_rc_section_layout.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_rc_section_layout_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_rc_section_layout_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_rc_section_layout_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_rc_section_layout_test
+
+
+#############################################
+# Link the executable fall_n_rc_section_layout_test.exe
+
+build fall_n_rc_section_layout_test.exe: CXX_EXECUTABLE_LINKER__fall_n_rc_section_layout_test_ CMakeFiles/fall_n_rc_section_layout_test.dir/tests/test_rc_section_layout.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_rc_section_layout_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_rc_section_layout_test.exe
+  TARGET_IMPLIB = libfall_n_rc_section_layout_test.dll.a
+  TARGET_PDB = fall_n_rc_section_layout_test.exe.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target fall_n_xfem_enrichment_test
+
+
+#############################################
+# Order-only phony target for fall_n_xfem_enrichment_test
+
+build cmake_object_order_depends_target_fall_n_xfem_enrichment_test: phony || CMakeFiles/fall_n_xfem_enrichment_test.dir
+
+build CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx.gch: CXX_COMPILER__fall_n_xfem_enrichment_test_unscanned_ C$:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx.cxx | CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx || cmake_object_order_depends_target_fall_n_xfem_enrichment_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_xfem_enrichment_test.dir\cmake_pch.hxx.gch.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -x c++-header -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_xfem_enrichment_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_xfem_enrichment_test.dir
+
+build CMakeFiles/fall_n_xfem_enrichment_test.dir/tests/test_xfem_enrichment.cpp.obj: CXX_COMPILER__fall_n_xfem_enrichment_test_unscanned_ C$:/MyLibs/fall_n/tests/test_xfem_enrichment.cpp | CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx.gch || cmake_object_order_depends_target_fall_n_xfem_enrichment_test
+  DEFINES = -DFALL_N_SOURCE_DIR=\"C:/MyLibs/fall_n\" -DKISSFFT_DLL_IMPORT=1 -DPETSC_CXX_RESTRICT=__restrict__ -DPETSC_FUNCTION_NAME_CXX=__PRETTY_FUNCTION__ -DVTK_AOS_DATA_ARRAY_TEMPLATE_EXTERN -DVTK_GDA_TEMPLATE_EXTERN -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles\fall_n_xfem_enrichment_test.dir\tests\test_xfem_enrichment.cpp.obj.d
+  FLAGS = -Wall -Wextra -Wpedantic -Werror -std=gnu++23 -Wa,-mbig-obj -fopenmp -fopenmp -Winvalid-pch -include C:/MyLibs/fall_n/build_stage8_validation/CMakeFiles/fall_n_xfem_enrichment_test.dir/cmake_pch.hxx
+  INCLUDES = -IC:/MyLibs/fall_n -isystem C:/msys64/ucrt64/bin/../include/petsc/dmo -isystem C:/msys64/ucrt64/bin/../include/petsc -isystem C:/msys64/ucrt64/bin/../include/openblas -isystem C:/msys64/ucrt64/include/eigen3 -isystem C:/msys64/ucrt64/include/vtk -isystem C:/msys64/ucrt64/include/vtk/token -isystem C:/msys64/ucrt64/include/vtk/vtkkissfft
+  LAUNCHER = C:\Strawberry\c\bin\ccache.exe 
+  OBJECT_DIR = CMakeFiles\fall_n_xfem_enrichment_test.dir
+  OBJECT_FILE_DIR = CMakeFiles\fall_n_xfem_enrichment_test.dir\tests
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target fall_n_xfem_enrichment_test
+
+
+#############################################
+# Link the executable fall_n_xfem_enrichment_test.exe
+
+build fall_n_xfem_enrichment_test.exe: CXX_EXECUTABLE_LINKER__fall_n_xfem_enrichment_test_ CMakeFiles/fall_n_xfem_enrichment_test.dir/tests/test_xfem_enrichment.cpp.obj | C$:/msys64/ucrt64/lib/libvtkIOXML.dll.a C$:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a C$:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a C$:/msys64/ucrt64/lib/libmsmpi.dll.a C$:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a C$:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkIOCore.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a C$:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a C$:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a C$:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a C$:/msys64/ucrt64/lib/libvtkCommonMath.dll.a C$:/msys64/ucrt64/lib/libvtkkissfft.dll.a C$:/msys64/ucrt64/lib/libvtkCommonCore.dll.a C$:/msys64/ucrt64/lib/libgomp.dll.a C$:/msys64/ucrt64/lib/libmingwthrd.a C$:/msys64/ucrt64/lib/libvtktoken.dll.a C$:/msys64/ucrt64/lib/libtbb12.dll.a C$:/msys64/ucrt64/lib/libvtksys.dll.a
+  FLAGS = -Wall -Wextra -Wpedantic -Werror
+  LINK_LIBRARIES = -lstdc++exp  C:/msys64/ucrt64/lib/libvtkIOXML.dll.a  C:/msys64/ucrt64/lib/libvtkIOXMLParser.dll.a  C:/msys64/ucrt64/lib/libvtkIOLegacy.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersGeneral.dll.a  C:/msys64/ucrt64/lib/libmsmpi.dll.a  C:/msys64/ucrt64/lib/petsc/dmo/libpetsc.dll.a  C:/msys64/ucrt64/lib/libvtkIOCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkIOCore.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCellGrid.dll.a  C:/msys64/ucrt64/lib/libvtkFiltersCore.dll.a  C:/msys64/ucrt64/lib/libvtkCommonExecutionModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonDataModel.dll.a  C:/msys64/ucrt64/lib/libvtkCommonTransforms.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMisc.dll.a  C:/msys64/ucrt64/lib/libvtkCommonMath.dll.a  C:/msys64/ucrt64/lib/libvtkkissfft.dll.a  C:/msys64/ucrt64/lib/libvtkCommonCore.dll.a  C:/msys64/ucrt64/lib/libgomp.dll.a  C:/msys64/ucrt64/lib/libmingwthrd.a  C:/msys64/ucrt64/lib/libvtktoken.dll.a  C:/msys64/ucrt64/lib/libtbb12.dll.a  C:/msys64/ucrt64/lib/libvtksys.dll.a  -lgdi32  -lws2_32  -lpsapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  OBJECT_DIR = CMakeFiles\fall_n_xfem_enrichment_test.dir
+  POST_BUILD = cd .
+  PRE_LINK = cd .
+  TARGET_FILE = fall_n_xfem_enrichment_test.exe
+  TARGET_IMPLIB = libfall_n_xfem_enrichment_test.dll.a
+  TARGET_PDB = fall_n_xfem_enrichment_test.exe.dbg
 
 # =============================================================================
 # Object build statements for EXECUTABLE target fall_n_analysis_director_test
@@ -5003,9 +6116,13 @@ build fall_n_beam_test: phony fall_n_beam_test.exe
 
 build fall_n_benchmark_test: phony fall_n_benchmark_test.exe
 
+build fall_n_bordered_mixed_control_newton_test: phony fall_n_bordered_mixed_control_newton_test.exe
+
 build fall_n_case5_frontier_probe_test: phony fall_n_case5_frontier_probe_test.exe
 
 build fall_n_commit_chain_test: phony fall_n_commit_chain_test.exe
+
+build fall_n_componentwise_kent_park_concrete_3d_test: phony fall_n_componentwise_kent_park_concrete_3d_test.exe
 
 build fall_n_computational_claim_trace_catalog_test: phony fall_n_computational_claim_trace_catalog_test.exe
 
@@ -5022,6 +6139,10 @@ build fall_n_continuum_local_problem_test: phony fall_n_continuum_local_problem_
 build fall_n_continuum_test: phony fall_n_continuum_test.exe
 
 build fall_n_coupling_residual_benchmark_test: phony fall_n_coupling_residual_benchmark_test.exe
+
+build fall_n_crack_shear_transfer_law_test: phony fall_n_crack_shear_transfer_law_test.exe
+
+build fall_n_cyclic_crack_band_concrete_3d_test: phony fall_n_cyclic_crack_band_concrete_3d_test.exe
 
 build fall_n_cyclic_protocol_test: phony fall_n_cyclic_protocol_test.exe
 
@@ -5040,6 +6161,8 @@ build fall_n_evolver_advanced_test: phony fall_n_evolver_advanced_test.exe
 build fall_n_field_transfer_test: phony fall_n_field_transfer_test.exe
 
 build fall_n_finite_strain_damage_test: phony fall_n_finite_strain_damage_test.exe
+
+build fall_n_fixed_crack_band_concrete_3d_test: phony fall_n_fixed_crack_band_concrete_3d_test.exe
 
 build fall_n_ground_motion_parsers_test: phony fall_n_ground_motion_parsers_test.exe
 
@@ -5061,6 +6184,8 @@ build fall_n_l_shaped_building_test: phony fall_n_l_shaped_building_test.exe
 
 build fall_n_linear_nl_transition_test: phony fall_n_linear_nl_transition_test.exe
 
+build fall_n_local_subproblem_runtime_test: phony fall_n_local_subproblem_runtime_test.exe
+
 build fall_n_lshaped_multiscale: phony fall_n_lshaped_multiscale.exe
 
 build fall_n_lshaped_multiscale_16: phony fall_n_lshaped_multiscale_16.exe
@@ -5072,6 +6197,8 @@ build fall_n_material_curves_test: phony fall_n_material_curves_test.exe
 build fall_n_micro_solve_executor_test: phony fall_n_micro_solve_executor_test.exe
 
 build fall_n_mitc_shell_test: phony fall_n_mitc_shell_test.exe
+
+build fall_n_mixed_control_arc_length_test: phony fall_n_mixed_control_arc_length_test.exe
 
 build fall_n_multiscale: phony fall_n_multiscale.exe
 
@@ -5086,6 +6213,10 @@ build fall_n_newton_test: phony fall_n_newton_test.exe
 build fall_n_nl_validation_test: phony fall_n_nl_validation_test.exe
 
 build fall_n_node_test: phony fall_n_node_test.exe
+
+build fall_n_petsc_bordered_mixed_control_newton_test: phony fall_n_petsc_bordered_mixed_control_newton_test.exe
+
+build fall_n_petsc_nonlinear_analysis_bordered_adapter_test: phony fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe
 
 build fall_n_phase4_hysteretic_test: phony fall_n_phase4_hysteretic_test.exe
 
@@ -5103,11 +6234,25 @@ build fall_n_rc_beam_validation: phony fall_n_rc_beam_validation.exe
 
 build fall_n_rc_fiber_frame_test: phony fall_n_rc_fiber_frame_test.exe
 
+build fall_n_rc_section_layout_test: phony fall_n_rc_section_layout_test.exe
+
+build fall_n_reduced_rc_benchmark_surface_test: phony fall_n_reduced_rc_benchmark_surface_test.exe
+
 build fall_n_reduced_rc_column_benchmark_trace_catalog_test: phony fall_n_reduced_rc_column_benchmark_trace_catalog_test.exe
+
+build fall_n_reduced_rc_column_continuum_baseline_test: phony fall_n_reduced_rc_column_continuum_baseline_test.exe
+
+build fall_n_reduced_rc_column_continuum_reference_benchmark: phony fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+
+build fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test: phony fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe
 
 build fall_n_reduced_rc_column_cyclic_node_refinement_study_test: phony fall_n_reduced_rc_column_cyclic_node_refinement_study_test.exe
 
+build fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test: phony fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe
+
 build fall_n_reduced_rc_column_evidence_closure_catalog_test: phony fall_n_reduced_rc_column_evidence_closure_catalog_test.exe
+
+build fall_n_reduced_rc_column_material_baseline_test: phony fall_n_reduced_rc_column_material_baseline_test.exe
 
 build fall_n_reduced_rc_column_moment_curvature_closure_matrix_test: phony fall_n_reduced_rc_column_moment_curvature_closure_matrix_test.exe
 
@@ -5117,11 +6262,25 @@ build fall_n_reduced_rc_column_node_refinement_study_test: phony fall_n_reduced_
 
 build fall_n_reduced_rc_column_quadrature_sensitivity_study_test: phony fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe
 
+build fall_n_reduced_rc_column_reference_benchmark: phony fall_n_reduced_rc_column_reference_benchmark.exe
+
 build fall_n_reduced_rc_column_section_baseline_test: phony fall_n_reduced_rc_column_section_baseline_test.exe
+
+build fall_n_reduced_rc_column_section_reference_benchmark: phony fall_n_reduced_rc_column_section_reference_benchmark.exe
 
 build fall_n_reduced_rc_column_structural_matrix_test: phony fall_n_reduced_rc_column_structural_matrix_test.exe
 
+build fall_n_reduced_rc_column_truss_baseline_test: phony fall_n_reduced_rc_column_truss_baseline_test.exe
+
 build fall_n_reduced_rc_column_validation_claim_catalog_test: phony fall_n_reduced_rc_column_validation_claim_catalog_test.exe
+
+build fall_n_reduced_rc_local_model_promotion_catalog_test: phony fall_n_reduced_rc_local_model_promotion_catalog_test.exe
+
+build fall_n_reduced_rc_material_reference_benchmark: phony fall_n_reduced_rc_material_reference_benchmark.exe
+
+build fall_n_reduced_rc_truss_reference_benchmark: phony fall_n_reduced_rc_truss_reference_benchmark.exe
+
+build fall_n_reduced_rc_xfem_reference_benchmark: phony fall_n_reduced_rc_xfem_reference_benchmark.exe
 
 build fall_n_reinforced_submodel_test: phony fall_n_reinforced_submodel_test.exe
 
@@ -5161,6 +6320,8 @@ build fall_n_table_multiscale: phony fall_n_table_multiscale.exe
 
 build fall_n_tangent_validation_benchmark_test: phony fall_n_tangent_validation_benchmark_test.exe
 
+build fall_n_tensile_crack_band_damage_concrete_proxy_3d_test: phony fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe
+
 build fall_n_tests: phony fall_n_tests.exe
 
 build fall_n_tl_integration_test: phony fall_n_tl_integration_test.exe
@@ -5179,6 +6340,8 @@ build fall_n_vtk_gauss_cloud_test: phony fall_n_vtk_gauss_cloud_test.exe
 
 build fall_n_vtk_tensor_fields_test: phony fall_n_vtk_tensor_fields_test.exe
 
+build fall_n_xfem_enrichment_test: phony fall_n_xfem_enrichment_test.exe
+
 # =============================================================================
 # Folder targets.
 
@@ -5187,7 +6350,7 @@ build fall_n_vtk_tensor_fields_test: phony fall_n_vtk_tensor_fields_test.exe
 #############################################
 # Folder: C:/MyLibs/fall_n/build_stage8_validation
 
-build all: phony fall_n.exe fall_n_seismic.exe fall_n_multiscale.exe fall_n_multiscale_seismic.exe fall_n_lshaped_multiscale.exe fall_n_lshaped_multiscale_16.exe fall_n_lshaped_rc.exe fall_n_rc_beam_validation.exe fall_n_table_multiscale.exe fall_n_table_cyclic_validation.exe fall_n_tests.exe fall_n_simplex_test.exe fall_n_vtk_tensor_fields_test.exe fall_n_vtk_gauss_cloud_test.exe fall_n_material_curves_test.exe fall_n_structural_reconstruction_test.exe fall_n_structural_vtm_test.exe fall_n_structural_mixed_vtm_test.exe fall_n_mitc_shell_test.exe fall_n_seismic_infra_test.exe fall_n_ground_motion_parsers_test.exe fall_n_l_shaped_building_test.exe fall_n_prismatic_mesh_test.exe fall_n_linear_nl_transition_test.exe fall_n_field_transfer_test.exe fall_n_multiscale_coordinator_test.exe fall_n_multiscale_api_test.exe fall_n_affine_section_subscale_model_test.exe fall_n_micro_solve_executor_test.exe fall_n_strategy_test.exe fall_n_plasticity_test.exe fall_n_ko_bathe_concrete_test.exe fall_n_ko_bathe_concrete_3d_test.exe fall_n_state_injection_test.exe fall_n_truss_element_test.exe fall_n_reinforced_submodel_test.exe fall_n_evolver_advanced_test.exe fall_n_tangent_validation_benchmark_test.exe fall_n_coupling_residual_benchmark_test.exe fall_n_point_test.exe fall_n_cyclic_protocol_test.exe fall_n_cyclic_validation_api_test.exe fall_n_case5_frontier_probe_test.exe fall_n_node_test.exe fall_n_domain_test.exe fall_n_dmplex_mixed_test.exe fall_n_condensation_test.exe fall_n_assembly_test.exe fall_n_section_test.exe fall_n_integration_sites_test.exe fall_n_element_concept_test.exe fall_n_beam_test.exe fall_n_beam_axis_quadrature_test.exe fall_n_beam_n_test.exe fall_n_rc_fiber_frame_test.exe fall_n_continuum_test.exe fall_n_kinematic_test.exe fall_n_hyperelastic_test.exe fall_n_continuum_interface_test.exe fall_n_continuum_local_problem_test.exe fall_n_finite_strain_damage_test.exe fall_n_tl_integration_test.exe fall_n_newton_test.exe fall_n_ul_test.exe fall_n_subentity_test.exe fall_n_uniaxial_fiber_test.exe fall_n_commit_chain_test.exe fall_n_heterogeneity_test.exe fall_n_incremental_control_test.exe fall_n_steppable_dynamic_test.exe fall_n_steppable_solver_test.exe fall_n_computational_variational_slice_catalog_test.exe fall_n_computational_claim_trace_catalog_test.exe fall_n_computational_validation_readiness_catalog_test.exe fall_n_validation_campaign_catalog_test.exe fall_n_reduced_rc_column_structural_matrix_test.exe fall_n_reduced_rc_column_section_baseline_test.exe fall_n_reduced_rc_column_moment_curvature_closure_test.exe fall_n_reduced_rc_column_moment_curvature_closure_matrix_test.exe fall_n_reduced_rc_column_node_refinement_study_test.exe fall_n_reduced_rc_column_cyclic_node_refinement_study_test.exe fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe fall_n_reduced_rc_column_validation_claim_catalog_test.exe fall_n_reduced_rc_column_benchmark_trace_catalog_test.exe fall_n_reduced_rc_column_evidence_closure_catalog_test.exe fall_n_analysis_director_test.exe fall_n_phase4_hysteretic_test.exe fall_n_sub_model_solver_test.exe fall_n_snes_test.exe fall_n_benchmark_test.exe fall_n_phase6_mpi_test.exe fall_n_serendipity_test.exe fall_n_dynamic_test.exe fall_n_nl_validation_test.exe fall_n_phase5_dynamic_test.exe fall_n_vertical_slice_test.exe fall_n_bc_test.exe
+build all: phony fall_n.exe fall_n_seismic.exe fall_n_multiscale.exe fall_n_multiscale_seismic.exe fall_n_lshaped_multiscale.exe fall_n_lshaped_multiscale_16.exe fall_n_lshaped_rc.exe fall_n_rc_beam_validation.exe fall_n_table_multiscale.exe fall_n_table_cyclic_validation.exe fall_n_reduced_rc_column_reference_benchmark.exe fall_n_reduced_rc_column_continuum_reference_benchmark.exe fall_n_reduced_rc_column_section_reference_benchmark.exe fall_n_reduced_rc_material_reference_benchmark.exe fall_n_reduced_rc_truss_reference_benchmark.exe fall_n_reduced_rc_xfem_reference_benchmark.exe fall_n_tests.exe fall_n_simplex_test.exe fall_n_vtk_tensor_fields_test.exe fall_n_vtk_gauss_cloud_test.exe fall_n_material_curves_test.exe fall_n_structural_reconstruction_test.exe fall_n_structural_vtm_test.exe fall_n_structural_mixed_vtm_test.exe fall_n_mitc_shell_test.exe fall_n_seismic_infra_test.exe fall_n_ground_motion_parsers_test.exe fall_n_l_shaped_building_test.exe fall_n_prismatic_mesh_test.exe fall_n_linear_nl_transition_test.exe fall_n_field_transfer_test.exe fall_n_multiscale_coordinator_test.exe fall_n_multiscale_api_test.exe fall_n_affine_section_subscale_model_test.exe fall_n_micro_solve_executor_test.exe fall_n_local_subproblem_runtime_test.exe fall_n_strategy_test.exe fall_n_plasticity_test.exe fall_n_ko_bathe_concrete_test.exe fall_n_ko_bathe_concrete_3d_test.exe fall_n_tensile_crack_band_damage_concrete_proxy_3d_test.exe fall_n_cyclic_crack_band_concrete_3d_test.exe fall_n_fixed_crack_band_concrete_3d_test.exe fall_n_crack_shear_transfer_law_test.exe fall_n_componentwise_kent_park_concrete_3d_test.exe fall_n_state_injection_test.exe fall_n_truss_element_test.exe fall_n_reinforced_submodel_test.exe fall_n_evolver_advanced_test.exe fall_n_tangent_validation_benchmark_test.exe fall_n_coupling_residual_benchmark_test.exe fall_n_point_test.exe fall_n_cyclic_protocol_test.exe fall_n_cyclic_validation_api_test.exe fall_n_case5_frontier_probe_test.exe fall_n_node_test.exe fall_n_domain_test.exe fall_n_dmplex_mixed_test.exe fall_n_condensation_test.exe fall_n_assembly_test.exe fall_n_section_test.exe fall_n_integration_sites_test.exe fall_n_element_concept_test.exe fall_n_beam_test.exe fall_n_beam_axis_quadrature_test.exe fall_n_beam_n_test.exe fall_n_rc_fiber_frame_test.exe fall_n_continuum_test.exe fall_n_kinematic_test.exe fall_n_hyperelastic_test.exe fall_n_continuum_interface_test.exe fall_n_continuum_local_problem_test.exe fall_n_finite_strain_damage_test.exe fall_n_tl_integration_test.exe fall_n_newton_test.exe fall_n_ul_test.exe fall_n_subentity_test.exe fall_n_uniaxial_fiber_test.exe fall_n_commit_chain_test.exe fall_n_heterogeneity_test.exe fall_n_incremental_control_test.exe fall_n_steppable_dynamic_test.exe fall_n_steppable_solver_test.exe fall_n_computational_variational_slice_catalog_test.exe fall_n_computational_claim_trace_catalog_test.exe fall_n_computational_validation_readiness_catalog_test.exe fall_n_validation_campaign_catalog_test.exe fall_n_reduced_rc_column_structural_matrix_test.exe fall_n_reduced_rc_column_section_baseline_test.exe fall_n_reduced_rc_column_material_baseline_test.exe fall_n_reduced_rc_column_continuum_baseline_test.exe fall_n_reduced_rc_column_moment_curvature_closure_test.exe fall_n_reduced_rc_column_moment_curvature_closure_matrix_test.exe fall_n_reduced_rc_column_node_refinement_study_test.exe fall_n_reduced_rc_column_cyclic_node_refinement_study_test.exe fall_n_reduced_rc_column_cyclic_continuation_sensitivity_study_test.exe fall_n_reduced_rc_column_quadrature_sensitivity_study_test.exe fall_n_reduced_rc_column_cyclic_quadrature_sensitivity_study_test.exe fall_n_reduced_rc_column_validation_claim_catalog_test.exe fall_n_reduced_rc_column_benchmark_trace_catalog_test.exe fall_n_reduced_rc_column_evidence_closure_catalog_test.exe fall_n_reduced_rc_local_model_promotion_catalog_test.exe fall_n_reduced_rc_benchmark_surface_test.exe fall_n_mixed_control_arc_length_test.exe fall_n_bordered_mixed_control_newton_test.exe fall_n_petsc_bordered_mixed_control_newton_test.exe fall_n_petsc_nonlinear_analysis_bordered_adapter_test.exe fall_n_reduced_rc_column_truss_baseline_test.exe fall_n_rc_section_layout_test.exe fall_n_xfem_enrichment_test.exe fall_n_analysis_director_test.exe fall_n_phase4_hysteretic_test.exe fall_n_sub_model_solver_test.exe fall_n_snes_test.exe fall_n_benchmark_test.exe fall_n_phase6_mpi_test.exe fall_n_serendipity_test.exe fall_n_dynamic_test.exe fall_n_nl_validation_test.exe fall_n_phase5_dynamic_test.exe fall_n_vertical_slice_test.exe fall_n_bc_test.exe
 
 # =============================================================================
 # Built-in targets

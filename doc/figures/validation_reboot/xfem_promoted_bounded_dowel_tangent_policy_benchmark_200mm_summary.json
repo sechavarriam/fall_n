@@ -1,0 +1,52 @@
+{
+  "scope": "promoted_xfem_bounded_dowel_cohesive_tangent_policy_benchmark_200mm",
+  "status": "completed",
+  "interpretation": "All compared tangent policies preserve the promoted bounded-dowel XFEM physics at plotting precision, but they differ in nonlinear robustness and wall time. central-fallback remains the robust canonical reference; secant is the faster candidate; active-set is not promoted yet.",
+  "cases": [
+    {
+      "cohesive_tangent": "central-fallback",
+      "role": "robust canonical",
+      "completed": true,
+      "wall_seconds": 90.5443694,
+      "total_newton_iterations": 1441,
+      "accepted_substeps": 99,
+      "hard_steps_ge_max_iterations": 1,
+      "peak_ratio": 1.149222805310092,
+      "peak_normalized_rms": 0.08206836284020072,
+      "peak_normalized_max_error": 0.2619489833816725,
+      "xfem_loop_work_MN_mm": 15.761868677634274,
+      "cohesive_tangent_manifest": "central-fallback"
+    },
+    {
+      "cohesive_tangent": "secant",
+      "role": "accelerated candidate",
+      "completed": true,
+      "wall_seconds": 80.355125,
+      "total_newton_iterations": 1918,
+      "accepted_substeps": 96,
+      "hard_steps_ge_max_iterations": 4,
+      "peak_ratio": 1.1492228048851405,
+      "peak_normalized_rms": 0.08206849947751944,
+      "peak_normalized_max_error": 0.26195001403543067,
+      "xfem_loop_work_MN_mm": 15.76188547275196,
+      "cohesive_tangent_manifest": "secant"
+    },
+    {
+      "cohesive_tangent": "active-set",
+      "role": "experimental negative",
+      "completed": true,
+      "wall_seconds": 161.2690733,
+      "total_newton_iterations": 2003,
+      "accepted_substeps": 102,
+      "hard_steps_ge_max_iterations": 5,
+      "peak_ratio": 1.149222805310092,
+      "peak_normalized_rms": 0.08206836284020072,
+      "peak_normalized_max_error": 0.2619489833816725,
+      "xfem_loop_work_MN_mm": 15.761868677634274,
+      "cohesive_tangent_manifest": "active-set"
+    }
+  ],
+  "preferred_robust_reference": "central-fallback",
+  "preferred_accelerated_candidate": "secant",
+  "not_promoted": "active-set"
+}

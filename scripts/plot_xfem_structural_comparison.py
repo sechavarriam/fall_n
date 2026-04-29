@@ -49,10 +49,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_csv(path: Path) -> list[dict[str, float]]:
+def read_csv(path: Path) -> list[dict[str, Any]]:
+    def coerce(value: str) -> Any:
+        if value == "":
+            return math.nan
+        try:
+            return float(value)
+        except ValueError:
+            return value
+
     with path.open(newline="", encoding="utf-8") as handle:
         return [
-            {key: float(value) for key, value in row.items()}
+            {key: coerce(value) for key, value in row.items()}
             for row in csv.DictReader(handle)
         ]
 
@@ -98,6 +106,39 @@ def loop_work(rows: list[dict[str, float]], shear_key: str, drift_key: str) -> f
             * (current[drift_key] - previous[drift_key])
         )
     return work
+
+
+def make_promotion_gate(metrics: dict[str, float], xfem_manifest: dict[str, Any]) -> dict[str, Any]:
+    criteria = {
+        "max_peak_normalized_rms_base_shear_error": 0.10,
+        "max_peak_normalized_max_base_shear_error": 0.30,
+        "min_peak_base_shear_ratio": 0.90,
+        "max_peak_base_shear_ratio": 1.15,
+        "min_peak_steel_stress_MPa": 420.0,
+    }
+    ratio = metrics["xfem_to_structural_peak_base_shear_ratio"]
+    observables = xfem_manifest.get("observables", {})
+    peak_steel = float(observables.get("peak_abs_steel_stress_mpa", math.nan))
+    passed = (
+        metrics["peak_normalized_rms_base_shear_error"]
+        <= criteria["max_peak_normalized_rms_base_shear_error"]
+        and metrics["peak_normalized_max_base_shear_error"]
+        <= criteria["max_peak_normalized_max_base_shear_error"]
+        and criteria["min_peak_base_shear_ratio"]
+        <= ratio
+        <= criteria["max_peak_base_shear_ratio"]
+        and peak_steel >= criteria["min_peak_steel_stress_MPa"]
+    )
+    return {
+        "status": "passed" if passed else "not_passed",
+        "criteria": criteria,
+        "peak_abs_steel_stress_MPa": peak_steel,
+        "interpretation": (
+            "This gate is a reduced local-model equivalence gate against the "
+            "N=10 Lobatto structural reference, not a final production "
+            "robustness certificate."
+        ),
+    }
 
 
 def save_figure(fig: Any, figures_dir: Path, secondary_dir: Path, stem: str) -> dict[str, str]:
@@ -240,6 +281,30 @@ def main() -> int:
     )
     plt.close(fig)
 
+    metrics = {
+        "point_count": len(xfem),
+        "peak_abs_structural_base_shear_MN": peak_structural,
+        "peak_abs_xfem_base_shear_MN": peak_xfem,
+        "xfem_to_structural_peak_base_shear_ratio": peak_xfem
+        / max(peak_structural, 1.0e-12),
+        "max_abs_base_shear_error_MN": peak_abs(aligned_errors),
+        "rms_base_shear_error_MN": rms(aligned_errors),
+        "peak_normalized_max_base_shear_error": peak_abs(aligned_errors)
+        / normalization,
+        "peak_normalized_rms_base_shear_error": rms(aligned_errors)
+        / normalization,
+        "structural_loop_work_MN_mm": loop_work(
+            aligned_structural_rows,
+            "base_shear_MN",
+            "drift_mm",
+        ),
+        "xfem_loop_work_MN_mm": loop_work(
+            xfem_rows_for_work,
+            "base_shear_MN",
+            "drift_mm",
+        ),
+    }
+
     summary = {
         "scope": "global_xfem_secant_vs_structural_reference_200mm",
         "status": "completed",
@@ -254,29 +319,8 @@ def main() -> int:
                 "conventions between the structural and XFEM artifacts."
             ),
         },
-        "metrics": {
-            "point_count": len(xfem),
-            "peak_abs_structural_base_shear_MN": peak_structural,
-            "peak_abs_xfem_base_shear_MN": peak_xfem,
-            "xfem_to_structural_peak_base_shear_ratio": peak_xfem
-            / max(peak_structural, 1.0e-12),
-            "max_abs_base_shear_error_MN": peak_abs(aligned_errors),
-            "rms_base_shear_error_MN": rms(aligned_errors),
-            "peak_normalized_max_base_shear_error": peak_abs(aligned_errors)
-            / normalization,
-            "peak_normalized_rms_base_shear_error": rms(aligned_errors)
-            / normalization,
-            "structural_loop_work_MN_mm": loop_work(
-                aligned_structural_rows,
-                "base_shear_MN",
-                "drift_mm",
-            ),
-            "xfem_loop_work_MN_mm": loop_work(
-                xfem_rows_for_work,
-                "base_shear_MN",
-                "drift_mm",
-            ),
-        },
+        "metrics": metrics,
+        "promotion_gate": make_promotion_gate(metrics, xfem_manifest),
         "structural_manifest": {
             "beam_nodes": structural_manifest.get("beam_nodes"),
             "beam_integration": structural_manifest.get("beam_integration"),
@@ -286,6 +330,7 @@ def main() -> int:
         },
         "xfem_manifest": {
             "mesh": xfem_manifest.get("mesh"),
+            "reinforcement": xfem_manifest.get("reinforcement"),
             "physics": xfem_manifest.get("physics"),
             "solve_control": xfem_manifest.get("solve_control"),
             "observables": xfem_manifest.get("observables"),

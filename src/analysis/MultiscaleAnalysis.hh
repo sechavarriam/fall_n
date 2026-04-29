@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "CouplingStrategy.hh"
+#include "LocalSubproblemRuntime.hh"
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleModel.hh"
 #include "SteppableSolver.hh"
@@ -67,6 +68,7 @@ private:
     CouplingIterationReport last_report_{};
     std::vector<SectionHomogenizedResponse> last_responses_{};
     std::vector<SectionHomogenizedResponse> last_converged_responses_{};
+    LocalSubproblemRuntimeManager<LocalModelT> local_runtime_{};
 
     [[nodiscard]] static double relative_norm_(
         const Eigen::Vector<double, 6>& a,
@@ -355,13 +357,34 @@ private:
             && static_cast<int>(analysis_steps_) + 1 >= coupling_start_step_;
     }
 
-    void finalize_local_models_(double time)
+    void sync_local_runtime_report_()
     {
+        local_runtime_.populate_report(last_report_);
+    }
+
+    void finalize_local_models_(
+        double time,
+        const std::vector<SectionHomogenizedResponse>* accepted_responses =
+            nullptr)
+    {
+        local_runtime_.resize(model_.num_local_models());
         for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
             auto& local_model = model_.local_models()[i];
             local_model.commit_trial_state();
             local_model.set_auto_commit(true);
             local_model.end_of_step(time);
+            if (accepted_responses != nullptr &&
+                i < accepted_responses->size())
+            {
+                auto macro_state =
+                    model_.macro_bridge().extract_section_state(
+                        model_.site(i));
+                local_runtime_.save_accepted_state(
+                    i,
+                    local_model,
+                    (*accepted_responses)[i],
+                    macro_state);
+            }
         }
     }
 
@@ -397,6 +420,8 @@ private:
                             std::vector<SectionHomogenizedResponse>& responses,
                             int& failed_submodels)
     {
+        local_runtime_.resize(model_.num_local_models());
+        local_runtime_.reset_records();
         responses.resize(model_.num_local_models());
         failed_submodels = 0;
         last_report_.failed_submodels = 0;
@@ -406,6 +431,19 @@ private:
             response.site = model_.site(i);
             try {
                 auto& local_model = model_.local_models()[i];
+                const auto macro_state =
+                    model_.macro_bridge().extract_section_state(
+                        model_.site(i));
+                if (!local_runtime_.should_solve(i, macro_state)) {
+                    responses[i] = local_runtime_.inactive_response(
+                        i,
+                        model_.site(i),
+                        macro_state);
+                    return;
+                }
+
+                const bool restored_seed =
+                    local_runtime_.restore_seed_before_solve(i, local_model);
                 local_model.set_auto_commit(true);
 
                 const auto ek =
@@ -413,18 +451,29 @@ private:
                         model_.site(i).macro_element_id);
                 local_model.update_kinematics(ek.kin_A, ek.kin_B);
 
+                const auto solve_t0 = std::chrono::steady_clock::now();
                 auto result = local_model.solve_step(time);
+                const auto solve_t1 = std::chrono::steady_clock::now();
                 response = local_model.section_response(
                     section_width_, section_height_, tangent_perturbation_);
                 response.site = model_.site(i);
                 refresh_section_operator_diagnostics(response);
+                bool converged = true;
                 if constexpr (requires { result.converged; }) {
                     if (!result.converged) {
                         response.status = ResponseStatus::SolveFailed;
+                        converged = false;
                     }
                 }
+                (void)restored_seed;
+                local_runtime_.record_solve_attempt(
+                    i,
+                    std::chrono::duration<double>(
+                        solve_t1 - solve_t0).count(),
+                    converged);
             } catch (...) {
                 response.status = ResponseStatus::SolveFailed;
+                local_runtime_.record_solve_attempt(i, 0.0, false);
             }
             responses[i] = response;
         });
@@ -435,6 +484,7 @@ private:
         for (const auto& response : responses) {
             accumulate_response_diagnostics_(last_report_, response);
         }
+        sync_local_runtime_report_();
         failed_submodels = last_report_.failed_submodels;
     }
 
@@ -495,7 +545,8 @@ private:
                            responses,
                            last_report_.failed_submodels);
         last_responses_ = responses;
-        finalize_local_models_(macro_solver_->current_time());
+        finalize_local_models_(macro_solver_->current_time(), &responses);
+        sync_local_runtime_report_();
         auto t1 = std::chrono::steady_clock::now();
 
         last_report_.micro_solve_seconds =
@@ -590,7 +641,8 @@ private:
                          last_report_.force_component_residuals_rel[i]);
         }
 
-        finalize_local_models_(macro_solver_->current_time());
+        finalize_local_models_(macro_solver_->current_time(), &responses);
+        sync_local_runtime_report_();
         auto t1 = std::chrono::steady_clock::now();
 
         last_converged_responses_ = responses;
@@ -636,6 +688,8 @@ private:
             macro_step_start_time
             + (macro_trial_increment_available ? macro_trial_increment : 0.0);
         std::vector<LocalCheckpointT> local_checkpoints;
+        local_runtime_.resize(model_.num_local_models());
+        local_runtime_.reset_records();
         local_checkpoints.reserve(model_.num_local_models());
         for (auto& local_model : model_.local_models()) {
             local_model.set_auto_commit(false);
@@ -808,6 +862,17 @@ private:
                 current[i] = SectionHomogenizedResponse{};
                 current[i].site = model_.site(i);
                 try {
+                    const auto macro_state =
+                        model_.macro_bridge().extract_section_state(
+                            model_.site(i));
+                    if (!local_runtime_.should_solve(i, macro_state)) {
+                        current[i] = local_runtime_.inactive_response(
+                            i,
+                            model_.site(i),
+                            macro_state);
+                        return;
+                    }
+
                     auto& local_model = model_.local_models()[i];
                     local_model.restore_checkpoint(local_checkpoints[i]);
 
@@ -816,25 +881,36 @@ private:
                             model_.site(i).macro_element_id);
                     local_model.update_kinematics(ek.kin_A, ek.kin_B);
 
+                    const auto solve_t0 = std::chrono::steady_clock::now();
                     auto result =
                         local_model.solve_step(macro_solver_->current_time());
+                    const auto solve_t1 = std::chrono::steady_clock::now();
                     current[i] = local_model.section_response(
                         section_width_, section_height_, tangent_perturbation_);
                     current[i].site = model_.site(i);
                     refresh_section_operator_diagnostics(current[i]);
+                    bool converged = true;
                     if constexpr (requires { result.converged; }) {
                         if (!result.converged) {
                             current[i].status = ResponseStatus::SolveFailed;
+                            converged = false;
                         }
                     }
+                    local_runtime_.record_solve_attempt(
+                        i,
+                        std::chrono::duration<double>(
+                            solve_t1 - solve_t0).count(),
+                        converged);
                 } catch (...) {
                     current[i].status = ResponseStatus::SolveFailed;
+                    local_runtime_.record_solve_attempt(i, 0.0, false);
                 }
             });
             last_responses_ = current;
             const auto micro_t1 = std::chrono::steady_clock::now();
             last_report_.micro_solve_seconds +=
                 std::chrono::duration<double>(micro_t1 - micro_t0).count();
+            sync_local_runtime_report_();
 
             last_report_.failed_submodels = 0;
             last_report_.regularized_submodels = 0;
@@ -979,7 +1055,8 @@ private:
         }
 
         macro_solver_->commit_trial_state();
-        finalize_local_models_(macro_solver_->current_time());
+        finalize_local_models_(macro_solver_->current_time(), &current);
+        sync_local_runtime_report_();
         last_converged_responses_ = current;
 
         set_macro_trial_mode_(false);
@@ -1005,7 +1082,9 @@ public:
         , algorithm_{std::move(algorithm)}
         , convergence_{std::move(convergence)}
         , relaxation_{std::move(relaxation)}
-    {}
+    {
+        local_runtime_.resize(model_.num_local_models());
+    }
 
     void set_coupling_start_step(int step) { coupling_start_step_ = step; }
     void set_section_dimensions(double w, double h) {
@@ -1034,6 +1113,12 @@ public:
             std::max(0, backtrack_attempts);
         predictor_admissibility_backtrack_factor_ =
             std::clamp(backtrack_factor, 0.0, 1.0);
+    }
+    void set_local_subproblem_runtime_settings(
+        LocalSubproblemRuntimeSettings settings)
+    {
+        local_runtime_.set_settings(std::move(settings));
+        local_runtime_.resize(model_.num_local_models());
     }
     void set_force_residual_norm(TangentValidationNormKind norm) noexcept {
         force_residual_norm_ = norm;
@@ -1075,6 +1160,18 @@ public:
 
     [[nodiscard]] std::size_t analysis_step() const noexcept {
         return analysis_steps_;
+    }
+
+    [[nodiscard]] const LocalSubproblemRuntimeManager<LocalModelT>&
+    local_subproblem_runtime() const noexcept
+    {
+        return local_runtime_;
+    }
+
+    [[nodiscard]] LocalSubproblemRuntimeManager<LocalModelT>&
+    local_subproblem_runtime() noexcept
+    {
+        return local_runtime_;
     }
 
     [[nodiscard]] RestartBundle capture_restart_bundle() const
@@ -1143,6 +1240,11 @@ public:
             auto& local_model = model_.local_models()[i];
             local_model.commit_trial_state();
             local_model.set_auto_commit(true);
+            local_runtime_.save_accepted_state(
+                i,
+                local_model,
+                responses[i],
+                macro_state);
         }
 
         last_report_.converged = (last_report_.failed_submodels == 0);
@@ -1154,6 +1256,7 @@ public:
             last_converged_responses_ = responses;
         }
         last_responses_ = responses;
+        sync_local_runtime_report_();
         return last_report_.converged;
     }
 

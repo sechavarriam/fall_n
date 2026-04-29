@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -930,6 +931,151 @@ public:
             VecNorm(residual, NORM_2, &norm);
         }
         return static_cast<double>(norm);
+    }
+
+    /// Borrowed view of the current global unknown vector.
+    ///
+    /// This is a solver-extension seam: second-generation continuation
+    /// policies can seed their own algebra from the exact vector that SNES
+    /// would otherwise update. The returned handle is non-owning and remains
+    /// valid only while this analysis object owns its PETSc storage.
+    [[nodiscard]] Vec solution_vector()
+    {
+        setup();
+        return U.get();
+    }
+
+    /// Borrowed view of the current external-force vector in global algebra.
+    [[nodiscard]] Vec external_force_vector()
+    {
+        setup();
+        return f_ext.get();
+    }
+
+    /// Borrowed view of the reusable tangent matrix used by SNES.
+    [[nodiscard]] Mat tangent_matrix()
+    {
+        setup();
+        return J.get();
+    }
+
+    /// Clone the current global unknown vector.
+    [[nodiscard]] petsc::OwnedVec clone_solution_vector()
+    {
+        setup();
+        petsc::OwnedVec out;
+        FALL_N_PETSC_CHECK(VecDuplicate(U.get(), out.ptr()));
+        FALL_N_PETSC_CHECK(VecCopy(U.get(), out.get()));
+        return out;
+    }
+
+    /// Allocate a global vector compatible with the SNES residual/unknowns.
+    [[nodiscard]] petsc::OwnedVec create_global_vector()
+    {
+        setup();
+        petsc::OwnedVec out;
+        FALL_N_PETSC_CHECK(VecDuplicate(U.get(), out.ptr()));
+        FALL_N_PETSC_CHECK(VecSet(out.get(), 0.0));
+        return out;
+    }
+
+    /// Allocate a tangent matrix compatible with the active DMPlex layout.
+    [[nodiscard]] petsc::OwnedMat create_tangent_matrix()
+    {
+        setup();
+        petsc::OwnedMat out;
+        FALL_N_PETSC_CHECK(DMCreateMatrix(model_->get_plex(), out.ptr()));
+        FALL_N_PETSC_CHECK(MatSetOption(
+            out.get(), MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+        return out;
+    }
+
+    /// Replace the current global unknown vector without committing material
+    /// state. This is useful when an external continuation kernel accepts a
+    /// correction and wants the standard analysis/model state to observe it.
+    void set_solution_vector(Vec source)
+    {
+        setup();
+        FALL_N_PETSC_CHECK(VecCopy(source, U.get()));
+        sync_model_state_from_solution_();
+    }
+
+    /// Apply the stored incremental control law at a trial parameter value
+    /// without advancing p_done_ or committing constitutive history.
+    ///
+    /// The control law is the same absolute law installed by
+    /// begin_incremental(...). For the XFEM reduced-column benchmark this means
+    /// the top-face Dirichlet drift and axial force split are evaluated exactly
+    /// as in the SNES path. This method deliberately does not call SNESSolve().
+    void apply_incremental_control_parameter(double p)
+    {
+        setup();
+        if (!incremental_active_ || !apply_fn_ || !f_full_) {
+            throw std::logic_error(
+                "NonlinearAnalysis::apply_incremental_control_parameter "
+                "requires begin_incremental(...) first");
+        }
+        apply_fn_(p, f_full_, f_ext, model_);
+        ctx_.f_ext = f_ext;
+    }
+
+    /// Evaluate R(u, p) with the same assembly path used by PETSc SNES.
+    ///
+    /// The caller controls the current load/control parameter through
+    /// apply_incremental_control_parameter(...). No material state is committed
+    /// here; callers implementing trial continuation should checkpoint/rollback
+    /// around rejected states just as solve_incremental() does internally.
+    void evaluate_residual_at(Vec u_global, Vec residual_out)
+    {
+        setup();
+        FALL_N_PETSC_CHECK(
+            FormResidual(nullptr, u_global, residual_out, &ctx_));
+    }
+
+    /// Evaluate K_t(u, p) with the same tangent assembly path used by SNES.
+    void evaluate_tangent_at(Vec u_global, Mat tangent_out)
+    {
+        setup();
+        FALL_N_PETSC_CHECK(
+            FormJacobian(nullptr, u_global, tangent_out, tangent_out, &ctx_));
+    }
+
+    /// Expose rollback of non-committed trial material buffers to external
+    /// continuation drivers. This mirrors the safety step used after failed
+    /// SNES attempts.
+    void revert_trial_state()
+    {
+        revert_state();
+    }
+
+    /// Accept a solution produced by an external nonlinear kernel.
+    ///
+    /// This is the commit seam used by bordered/mixed-control solvers that
+    /// reuse NonlinearAnalysis assembly but do not call SNESSolve(). The caller
+    /// is responsible for having applied the corresponding incremental control
+    /// parameter before acceptance.
+    void accept_external_solution_step(
+        Vec accepted_solution,
+        double accepted_p,
+        IncrementStepDiagnostics diagnostics = {})
+    {
+        setup();
+        FALL_N_PETSC_CHECK(VecCopy(accepted_solution, U.get()));
+        sync_model_state_from_solution_();
+        if (auto_commit_) {
+            commit_state();
+        }
+        p_done_ = accepted_p;
+        ++step_count_;
+        diagnostics.p_target = accepted_p;
+        diagnostics.last_attempt_p_target = accepted_p;
+        diagnostics.accepted_substep_count =
+            std::max(diagnostics.accepted_substep_count, 1);
+        diagnostics.converged = true;
+        last_increment_step_diagnostics_ = diagnostics;
+        previous_requested_step_diagnostics_ = diagnostics;
+        model_->update_elements_state();
+        emit_requested_step_callbacks_();
     }
 
     // ─── Setup (call before solve, or called automatically) ──────

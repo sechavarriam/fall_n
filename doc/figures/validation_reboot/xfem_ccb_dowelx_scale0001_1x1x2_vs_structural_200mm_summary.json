@@ -1,0 +1,109 @@
+{
+  "scope": "global_xfem_secant_vs_structural_reference_200mm",
+  "status": "completed",
+  "structural_bundle": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_reference_n10_lobatto_200mm_for_xfem_secant_compare",
+  "xfem_bundle": "data\\output\\cyclic_validation\\xfem_ccb_bridge_dowelx_scale0001_1x1x2_200mm",
+  "sign_convention": {
+    "applied_to_structural_base_shear": -1.0,
+    "raw_rms_error_MN": 0.027258725037678684,
+    "sign_aligned_rms_error_MN": 0.004276542306005509,
+    "interpretation": "A factor of -1 indicates opposite base-shear reaction conventions between the structural and XFEM artifacts."
+  },
+  "metrics": {
+    "point_count": 97,
+    "peak_abs_structural_base_shear_MN": 0.02353210401415841,
+    "peak_abs_xfem_base_shear_MN": 0.02697315832,
+    "xfem_to_structural_peak_base_shear_ratio": 1.1462280764937651,
+    "max_abs_base_shear_error_MN": 0.008839677584001959,
+    "rms_base_shear_error_MN": 0.004276542306005509,
+    "peak_normalized_max_base_shear_error": 0.3277212656794267,
+    "peak_normalized_rms_base_shear_error": 0.15854807417322528,
+    "structural_loop_work_MN_mm": 15.059353504087492,
+    "xfem_loop_work_MN_mm": 10.541609637590001
+  },
+  "structural_manifest": {
+    "beam_nodes": 10,
+    "beam_integration": "lobatto",
+    "section_fiber_mesh": {
+      "profile": "fine",
+      "cover_top_bottom_ny": 16,
+      "cover_top_bottom_nz": 4,
+      "cover_side_ny": 4,
+      "cover_side_nz": 8,
+      "core_ny": 12,
+      "core_nz": 12,
+      "concrete_fiber_count": 336,
+      "total_section_fiber_count": 344,
+      "invariant_reinforcement_policy": "steel bar area and bar coordinates are independent of concrete fiber refinement"
+    },
+    "continuation_kind": "reversal_guarded_incremental_displacement_control",
+    "timing": {
+      "total_wall_seconds": 242.913553,
+      "analysis_wall_seconds": 228.5781876,
+      "output_write_wall_seconds": 14.3353509
+    }
+  },
+  "xfem_manifest": {
+    "mesh": {
+      "hex_order": "Hex8",
+      "nx": 1,
+      "ny": 1,
+      "nz": 2,
+      "longitudinal_bias_power": 1,
+      "longitudinal_bias_location": "fixed-end",
+      "element_count": 18,
+      "node_count": 36,
+      "enriched_node_count": 8
+    },
+    "reinforcement": {
+      "bar_count": 8,
+      "truss_element_count": 16,
+      "xfem_enriched_penalty_coupling_count": 8,
+      "crack_crossing_rebar_element_count": 8,
+      "crack_crossing_rebar_area_scale": 0.001,
+      "crack_crossing_gauge_length_mm": 100,
+      "crack_crossing_rebar_mode": "dowel-x",
+      "total_area_m2": 0.00160849543864,
+      "coupling_alpha_scale_over_ec": 10000
+    },
+    "physics": {
+      "host_material": "cyclic-crack-band",
+      "residual_tension_fraction": 0.02,
+      "global_xfem_shear_cap_mpa": 0.05,
+      "crack_band_tangent": "secant",
+      "fracture_representation": "shifted_heaviside_planar_base_crack_with_cohesive_surface",
+      "reinforcement_representation": "menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling_and_crack_crossing_rebar_bridge",
+      "cohesive_jump_unit": "m",
+      "cohesive_normal_stiffness_mpa_per_m": 257429.602027,
+      "cohesive_shear_stiffness_mpa_per_m": 107262.334178,
+      "cohesive_fracture_energy_mn_per_m": 6e-05,
+      "cohesive_shear_traction_cap_mpa": 0.05,
+      "cohesive_tangent": "central-fallback",
+      "crack_z_m": 0.6,
+      "crack_z_source": "user_prescribed_physical_position",
+      "axial_compression_mn": 0.02,
+      "concrete_fpc_mpa": 30
+    },
+    "solve_control": {
+      "max_bisections": 8,
+      "solver_max_iterations": 120,
+      "solver_cascade": true,
+      "adaptive_increments": true
+    },
+    "observables": {
+      "peak_abs_base_shear_mn": 0.0269731583235,
+      "peak_abs_steel_stress_mpa": 980.937023575,
+      "max_host_damage": 0.98,
+      "max_damaged_host_points": 16
+    },
+    "timing": {
+      "total_wall_seconds": 25.3706209
+    }
+  },
+  "artifacts": {
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_ccb_dowelx_scale0001_1x1x2_vs_structural_200mm_hysteresis.png",
+    "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_dowelx_scale0001_1x1x2_vs_structural_200mm_hysteresis.png",
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_ccb_dowelx_scale0001_1x1x2_vs_structural_200mm_hysteresis.pdf",
+    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_dowelx_scale0001_1x1x2_vs_structural_200mm_hysteresis.pdf"
+  }
+}

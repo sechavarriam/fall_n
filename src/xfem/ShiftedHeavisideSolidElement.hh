@@ -416,7 +416,7 @@ private:
                         (*K_e)(static_cast<Eigen::Index>(a),
                                static_cast<Eigen::Index>(b)) +=
                             sp.weight_area * ca * cb *
-                            response.secant_stiffness(
+                            response.tangent_stiffness(
                                 static_cast<Eigen::Index>(sa.component),
                                 static_cast<Eigen::Index>(sb.component));
                     }

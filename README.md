@@ -220,21 +220,115 @@ benchmark-specific assumptions into external orchestration scripts.
 
 ## Local Fracture Model Strategy
 
-The current promoted local continuum remains a smeared fixed-crack RC solid
-with embedded reinforcement. That is a deliberate choice, not inertia.
+The reduced-column validation reboot now separates local-model promotion into
+three explicit roles:
 
-Right now, that model is the one that:
+- the high-resolution structural Timoshenko/fiber column is the internal
+  physical reference for the current campaign, not a multiscale local model;
+- the standard continuum with composite axial preload split is the promoted
+  continuum regression control, because it closes axial balance and host-bar
+  kinematics but still localizes cracking too diffusely; and
+- the shifted-Heaviside XFEM branch with bounded crack-crossing dowel transfer
+  is the first promoted physical local-model baseline for the multiscale path:
+  it closes the `200 mm` cyclic gate against the structural reference while
+  keeping the standard continuum as a cheaper regression/control branch.
 
-- already carries the most audited preload / continuation / predictor chain,
-- preserves a clean host-bar transfer story,
-- can be compared honestly against the structural benchmark, and
-- is the only local family whose physical and computational behaviour we have
-  pushed far enough to promote toward future multiscale use.
+That distinction is now frozen in
+`src/validation/ReducedRCLocalModelPromotionCatalog.hh`. The catalog records
+the quantitative gates used by the current route: `200 mm` cyclic protocol,
+peak-normalized RMS base-shear error below `0.10`, peak ratio in `[0.90, 1.15]`,
+steel reaching the Menegotto-Pinto yield range, no unresolved matrix timeouts,
+and strict axial/host-bar transfer tolerances for continuum controls.
 
-XFEM or DG may still become the right next local family, especially if the
+The XFEM closure pass first fixed an important unit inconsistency in the
+cohesive interface. The global solid uses displacements in metres while the
+local hinge surrogate uses crack openings in millimetres; the global cohesive
+law now converts concrete fracture energy from `N/mm` to `MN/m` and records
+`cohesive_jump_unit = "m"` in its manifest. The same pass added a selectable
+central-difference cohesive tangent and an in-law tangential traction cap so
+the residual, tangent, and reported base reaction all see the same limited
+crack-shear transfer. With the current `central-fallback` tangent and a
+`0.05 MPa` shear-transfer cap, the cheap `1x1x2` global XFEM case reached
+`200 mm`, activates steel yielding, and matches the structural peak strength
+well (`XFEM/structural peak ratio ~= 1.05`). That run isolated the remaining
+gap as cyclic memory and loop work, not peak capacity, steel area, axial load,
+or base-reaction convention.
+
+The current closure then adds an opt-in crack-crossing rebar bridge with a
+bounded slip law. The promoted local baseline is the `1x1x4` Hex8 XFEM column
+with a fixed crack plane at `z = 0.60 m`, `0.02 MPa` open-crack shear cap, and
+`dowel-x` bounded-slip bridges capped at `0.00190 MN` per bridge. Against the
+same `N=10` Lobatto structural reference it passes the gate:
+peak-normalized RMS `0.082`, maximum normalized error `0.262`,
+XFEM/structural peak ratio `1.149`, peak steel stress `437 MPa`, and loop work
+`15.76 MN mm` versus `15.06 MN mm`.
+
+The solver-policy pass then froze the physical model and changed only the PETSc
+nonlinear profile. Two policies completed the full `200 mm` cyclic protocol:
+`l2` is the fastest completed profile (`81.2 s`, `1433` nonlinear iterations),
+while the typed `cascade` is the more robust default candidate (`94.1 s`,
+`1441` iterations, fewer failed attempts and one hard requested step). Pure
+`backtracking`, `trust-region`, `dogleg`, `quasi-newton`, `ngmres`, `anderson`,
+and `ncg` are not promoted as direct replacements on this discontinuous
+history-dependent branch. This does not close the door on non-Newton methods;
+it narrows the requirement: they need a continuation/arc-length or mixed-control
+wrapper that respects imposed displacement reversals and crack-state changes,
+instead of being dropped into the current Dirichlet protocol as a one-line SNES
+type change.
+
+The first mixed-control continuation layer is now implemented in
+`src/analysis/MixedControlArcLengthContinuation.hh`. It is not a fake
+load-proportional Riks replacement: it keeps the Dirichlet cyclic protocol,
+uses checkpoint/rollback around `step_to(...)`, and rejects numerically
+converged steps when the scaled observable arc in drift, base reaction and
+damage is too large. The XFEM benchmark also supplies guard points at every
+declared protocol station, so adaptive steps cannot skip a reversal or miss the
+`200 mm` peak. On the promoted `1x1x4` bounded-dowel XFEM case, Newton--L2 with
+guarded mixed arc control completed the full protocol in `97.7 s`, with `1851`
+accumulated nonlinear iterations, `1` rejected observable-arc attempt, exact
+`200 mm` peak drift, and a passed structural-equivalence gate:
+peak-normalized RMS `0.0912`, maximum normalized error `0.267`, peak ratio
+`1.149`, loop work `16.16 MN mm` versus `15.18 MN mm` structural, and peak
+steel stress `437 MPa`. This guarded path is therefore promoted as the safer
+multiscale-entry continuation seam, not as the fastest production path. A
+deliberately finer `0.075` arc target is retained only as a smoke/diagnostic
+path because it oversamples the trajectory and is too costly for the production
+validation matrix.
+
+The second-generation PETSc bordered seam is now connected through
+`PetscNonlinearAnalysisBorderedAdapter`: it can evaluate the production
+`NonlinearAnalysis` residual/tangent at trial states and assemble the bordered
+KSP system. Pure `bordered-fixed-control` remains diagnostic on the
+discontinuous XFEM branch: it stalls in the first 1 mm smoke while SNES--L2
+closes the same step. The useful promoted engineering outcome is therefore the
+explicit hybrid policy `bordered-fixed-control-hybrid`: it tries the bordered
+correction, records stalls, and after repeated failures temporarily skips to
+the selected SNES profile. On the promoted `1x1x4` 200 mm XFEM case this hybrid
+kept the same physical gate (`RMS=0.082`, peak ratio `1.149`, steel
+`437 MPa`) while reducing the bordered-stall cost from `~874 s` to `~256 s`
+for the full protocol. It is still slower than direct Newton--L2, but it is the
+right multiscale-runtime shape: opportunistic cheap correction, typed fallback,
+and explicit diagnostics instead of silent solver magic.
+
+The first scaling-oriented optimization is now in the bordered PETSc kernel
+itself. `PetscBorderedMixedControlNewton` reuses the augmented matrix, RHS,
+step vector and trial vector across Newton iterations and line-search trials;
+the unit test checks that the augmented workspace is allocated once per solve
+rather than once per iteration. The XFEM manifest also records hybrid attempted,
+successful and skipped bordered steps, so future local-model batches can tell
+whether the bordered path is paying for itself. A first `2x2x4` probe to
+`25 mm` is deliberately interpreted as a scaling audit, not as a new promoted
+physics model: Newton--L2/LU closes in `~46 s`, the hybrid route closes the same
+physics in `~69 s` after skipping most bordered attempts, and
+Newton--L2/GMRES/ILU aborts early. For the current DOF range, direct LU remains
+the robust baseline; larger local meshes need better preconditioners
+(field-split/Schur, ASM with tuned subsolves, or algebraic multigrid where the
+operator permits it) before iterative KSPs can replace LU honestly.
+
+XFEM or DG may still become the right final local family, especially if the
 dominant cost really comes from resolving narrow localized crack paths with a
 host mesh that is finer than the rest of the local physics requires. But they
-would only help if we accept their real algorithmic cost as well:
+only help if we accept their real algorithmic cost as well:
 
 - XFEM needs enriched displacement support, crack geometry tracking, cut-cell
   quadrature, and robust closure/contact handling.
@@ -242,14 +336,15 @@ would only help if we accept their real algorithmic cost as well:
   interface/skeleton traces, which can be attractive for discontinuities but
   changes the effective-operator extraction and checkpoint semantics.
 
-For that reason, the architectural move in this stabilization break is not to
-ship a rushed XFEM element. The correct move is to:
+For that reason, the architectural move is deliberately staged:
 
-1. keep the smeared-crack continuum as the promoted validated baseline,
-2. make local-model families explicit in code, manifests, and subscale-model
-   contracts, and
-3. prepare clean seams so a future XFEM/DG local model can plug into the same
-   validation and multiscale story honestly.
+1. keep the smeared-crack continuum as a promoted control, not as the final
+   physical fracture model;
+2. keep the bounded-dowel XFEM baseline promoted only through the explicit gate
+   in the local-model promotion catalog and comparison artifacts; and
+3. keep local-model families explicit in code, manifests, and subscale-model
+   contracts so future XFEM/DG variants can plug into the same validation and
+   multiscale story honestly.
 
 Concretely, this means a future enriched or DG local solver should arrive as a
 new local-model family that can answer the same high-level questions as the
@@ -3727,13 +3822,143 @@ the remaining closure depends on a small physical convergence matrix over
 crack location, cohesive fracture energy, and opening-dependent shear transfer,
 not on blindly adding host DOFs.
 
+The current closure iteration adds a separate, opt-in crack-crossing rebar
+bridge element:
+`src/xfem/ShiftedHeavisideCrackCrossingRebarElement.hh`. It is assembled as a
+real FEM element, participates in PETSc/SNES residual/tangent assembly, and
+supports `commit/revert` like the truss family. It can use the material-backed
+strain bridge for audits, or the promoted `bounded-slip` law for localized
+dowel/bond transfer without non-physical equivalent steel stresses. It remains
+disabled by default (`area_scale = 0`) to preserve the unit-consistent baseline;
+benchmark runs opt in with `--global-xfem-crack-crossing-rebar-mode`,
+`--global-xfem-crack-crossing-bridge-law`, and bounded-slip force/slip limits.
+
+The direct area-scale sweep was kept as negative evidence: `mode=dowel-x` with
+`area_scale=0.001` improved the `1x1x2` RMS from `0.182` to `0.159`, but still
+left loop work low and implied excessive dowel stress. The promoted closure is
+instead the `1x1x4` uniform Hex8 XFEM host with cyclic crack-band concrete,
+fixed crack plane `z = 0.60 m`, central-fallback cohesive tangent, `0.02 MPa`
+open-crack shear cap, and bounded `dowel-x` bridge force
+`0.00190 MN` per crack-crossing bar. It reaches the full `200 mm` protocol in
+about `90.5 s` and passes the current local-model promotion gate:
+
+| Promoted XFEM local baseline | Value |
+|---|---:|
+| Host mesh | `1x1x4 Hex8` |
+| Reduced PETSc DOFs | `132` |
+| Peak ratio | `1.149` |
+| Peak-normalized RMS | `0.082` |
+| Peak-normalized max error | `0.262` |
+| XFEM loop work | `15.76 MN mm` |
+| Structural loop work | `15.06 MN mm` |
+| Peak steel stress | `437 MPa` |
+
+This is now the first physical local-model baseline eligible for the future
+multiscale stage. A follow-up tangent-policy benchmark showed that the
+algorithmic tangent is a solver policy, not a change in physical response:
+`central-fallback` is the robust canonical reference (`90.5 s`, `1441` Newton
+iterations, one hard step), `secant` is the accelerated candidate (`80.4 s`,
+more Newton iterations but lower wall time), and the current analytic
+`active-set` tangent is negative evidence (`161 s`, five hard steps). The next
+tasks are therefore arc-length/non-Newton continuation around crack-state
+changes, adaptive crack-plane placement/refinement, and only then another
+attempt at a production active-set tangent.
+
+The follow-up solver-policy benchmark keeps the promoted physical model fixed.
+Only `l2` and the typed Newton `cascade` complete the full `200 mm` protocol:
+`l2` is faster, while `cascade` is the more robust multiscale-entry default.
+The direct non-Newton PETSc profiles tested so far (`quasi-newton`, `ngmres`,
+`anderson`, `ncg`) either abort at the first increment or time out. The honest
+arc-length conclusion is therefore architectural: the existing load-proportional
+`ArcLengthSolver` remains useful as a continuation route, but this cyclic
+benchmark is Dirichlet-driven. The first guarded observable-arc wrapper is
+implemented, and the second-generation bordered mixed-control Newton seam now
+has both layers: the small Eigen contract in
+`src/analysis/BorderedMixedControlNewton.hh` and the PETSc/KSP backend in
+`src/analysis/PetscBorderedMixedControlNewton.hh`. Both are tested. The PETSc
+backend assembles the explicit AIJ bordered system
+`[K r_lambda; g^T c_lambda]`, solves it with `KSP`, records the nonlinear and
+linear diagnostics, and keeps the scalar mixed-control constraint in the same
+Newton correction as equilibrium. `NonlinearAnalysis` now also exposes the
+missing low-level trial-evaluation seam: a caller can apply the stored
+incremental control parameter without advancing the clock, then evaluate the
+same residual and tangent that SNES sees. This keeps the future XFEM bordered
+callback on the production assembly path instead of duplicating element or
+material physics. The remaining production step is therefore not algebra or
+assembly access anymore; it is wiring the global XFEM load/control column and
+mixed constraint into this backend so the benchmark can move from observable
+guarded acceptance to a fully augmented continuation solve.
+
+The first executable integration of that seam is deliberately modest:
+`--global-xfem-continuation bordered-fixed-control` runs the global XFEM driver
+through the PETSc bordered backend while keeping the protocol control fixed at
+each declared target. Unit tests confirm that the adapter closes an elastic
+`NonlinearAnalysis` step and can commit the accepted state back to the model.
+The first XFEM smoke, however, is negative evidence: on the discontinuous
+bounded-dowel branch the pure bordered Newton path stalls before the first
+small `1 mm` cyclic target, while SNES Newton--L2 completes the same smoke.
+That result is useful because it localizes the remaining algorithmic work to a
+bordered line-search/active-set strategy for inconsistent crack tangents, not
+to residual/tangent access or PETSc bordered algebra.
+
+Before scaling this local model into FE2, the multiscale layer now has an
+explicit local-subproblem runtime policy in
+`src/analysis/LocalSubproblemRuntime.hh`. `MultiscaleAnalysis` can profile
+local solves per coupling site, restore accepted checkpoints as Newton seeds,
+reuse last accepted local responses for inactive sites, and activate expensive
+enriched local models only after a declared strain/force/operator-degradation
+trigger. This is the intended route for future many-site XFEM execution:
+ordinary sites stay cheap, while crack-localizing sites pay for enriched DOFs.
+
+The first scaling audit reinforces that we should not refine blindly. The
+promoted `1x1x4` uniform host remains the baseline. A calibrated `1x1x8`
+uniform run with the same bounded-dowel caps timed out at `3600 s`; an
+uncalibrated `2x2x4` fixed-end-biased branch aborted near `100 mm` after about
+`1657 s`; and an uncalibrated `1x1x8` biased branch completed but was strongly
+under-resistant. The next refinement step should therefore use adaptive local
+activation and bordered mixed-control, not merely more host cells.
+
+The latest refinement audit makes that conclusion sharper. A nominal `1x1x6`
+uniform host with the prescribed crack plane at `z = 0.60 m` is now rejected by
+the driver before execution because the crack plane lies exactly on a mesh
+level of the `1.20 m` column; that degenerates the shifted-Heaviside split and
+is not a meaningful XFEM validation case. A valid `1x1x5` uniform mixed-control
+run did activate the intended physics (`max_host_damage = 0.98`, peak steel
+stress about `171 MPa`) but stalled after only about `17.7 mm` of drift and
+about `4143 s` wall time. That negative result is useful: finer local meshes
+are not blocked by missing crack physics, but by the current accepted-step
+SNES continuation route. The next expensive mesh sweep should wait until the
+real global-XFEM evaluator is attached to the PETSc bordered mixed-control
+Newton backend.
+
 Artifacts:
 
 - [coarse XFEM vs structural hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.png)
 - [XFEM refinement matrix](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_global_secant_structural_refinement_matrix_200mm.png)
 - [XFEM refinement summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_global_secant_structural_refinement_matrix_200mm_summary.json)
+- [XFEM dowel bridge exploratory overlay](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_dowelx_scale0001_1x1x2_vs_structural_200mm_hysteresis.png)
+- [promoted bounded-dowel XFEM hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_cap0p020_fy0p00190_vs_structural_200mm_hysteresis.png)
+- [promoted bounded-dowel XFEM summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_cap0p020_fy0p00190_vs_structural_200mm_summary.json)
+- [promoted bounded-dowel XFEM refinement matrix](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_refinement_matrix_200mm.png)
+- [promoted bounded-dowel XFEM refinement summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_refinement_matrix_200mm_summary.json)
+- [promoted XFEM tangent-policy benchmark](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_tangent_policy_benchmark_200mm.png)
+- [promoted XFEM tangent-policy summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_tangent_policy_benchmark_200mm_summary.json)
+- [promoted XFEM solver-policy benchmark](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_solver_policy_benchmark_200mm.png)
+- [promoted XFEM solver-policy summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_solver_policy_benchmark_200mm_summary.json)
+- [guarded mixed-arc XFEM hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_mixed_arc_length_l2_arc050_guarded_vs_structural_200mm_hysteresis.png)
+- [guarded mixed-arc XFEM summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_mixed_arc_length_l2_arc050_guarded_vs_structural_200mm_summary.json)
+- [longitudinal XFEM scaling summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_longitudinal_refinement_calibrated_200mm_summary.json)
+- [extended XFEM scaling summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_refinement_matrix_extended_200mm_summary.json)
+- [mixed-control XFEM refinement summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_mixed_refinement_200mm_summary.json)
+- [`LocalSubproblemRuntime` implementation](/c:/MyLibs/fall_n/src/analysis/LocalSubproblemRuntime.hh)
+- [`NonlinearAnalysis` trial-evaluation seam](/c:/MyLibs/fall_n/src/analysis/NLAnalysis.hh)
+- [`BorderedMixedControlNewton` implementation](/c:/MyLibs/fall_n/src/analysis/BorderedMixedControlNewton.hh)
+- [`PetscBorderedMixedControlNewton` implementation](/c:/MyLibs/fall_n/src/analysis/PetscBorderedMixedControlNewton.hh)
+- [`PetscNonlinearAnalysisBorderedAdapter` implementation](/c:/MyLibs/fall_n/src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh)
 - [`ShiftedHeavisideSolidElement` implementation](/c:/MyLibs/fall_n/src/xfem/ShiftedHeavisideSolidElement.hh)
+- [`ShiftedHeavisideCrackCrossingRebarElement` implementation](/c:/MyLibs/fall_n/src/xfem/ShiftedHeavisideCrackCrossingRebarElement.hh)
 - [`run_xfem_structural_refinement_matrix.py`](/c:/MyLibs/fall_n/scripts/run_xfem_structural_refinement_matrix.py)
+- [`run_xfem_solver_policy_benchmark.py`](/c:/MyLibs/fall_n/scripts/run_xfem_solver_policy_benchmark.py)
 
 ### Repository hygiene before the next master push
 

@@ -33,6 +33,7 @@ enum class ReducedRCColumnBenchmarkDriverKind {
     truss_reference_benchmark,
     structural_reference_benchmark,
     continuum_reference_benchmark,
+    xfem_reference_benchmark,
     section_reference_benchmark,
     material_reference_benchmark
 };
@@ -58,6 +59,8 @@ to_string(ReducedRCColumnBenchmarkDriverKind kind) noexcept
             return "structural_reference_benchmark";
         case ReducedRCColumnBenchmarkDriverKind::continuum_reference_benchmark:
             return "continuum_reference_benchmark";
+        case ReducedRCColumnBenchmarkDriverKind::xfem_reference_benchmark:
+            return "xfem_reference_benchmark";
         case ReducedRCColumnBenchmarkDriverKind::section_reference_benchmark:
             return "section_reference_benchmark";
         case ReducedRCColumnBenchmarkDriverKind::material_reference_benchmark:
@@ -158,6 +161,26 @@ make_continuum_benchmark_input_surface(
         .notes =
             "Typed continuum reduced-column benchmark surface with resolved "
             "local-model metadata preserved in the runtime manifest."};
+}
+
+[[nodiscard]] constexpr ReducedRCColumnInputSurfaceDescriptor
+make_xfem_benchmark_input_surface(
+    ReducedRCColumnBenchmarkAnalysisKind analysis_kind) noexcept
+{
+    return {
+        .driver_kind =
+            ReducedRCColumnBenchmarkDriverKind::xfem_reference_benchmark,
+        .analysis_kind = analysis_kind,
+        .wrapper_surface_readiness =
+            ReducedRCColumnWrapperSurfaceReadinessKind::schema_stable_for_wrappers,
+        .stable_manifest_contract = true,
+        .stable_resolved_input_block = true,
+        .intended_for_future_python_julia_wrappers = true,
+        .notes =
+            "Typed XFEM reduced-column benchmark surface used to promote, "
+            "or reject, enriched local-model candidates with explicit crack "
+            "geometry, enriched DOFs, cohesive transfer metadata, and "
+            "structural-reference comparison metrics."};
 }
 
 [[nodiscard]] constexpr ReducedRCColumnInputSurfaceDescriptor
