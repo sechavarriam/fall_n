@@ -290,11 +290,27 @@
       ]
     }
   ],
+  "promotion_gate": {
+    "status": "not_promoted",
+    "criteria": {
+      "max_peak_normalized_rms_base_shear_error": 0.1,
+      "max_peak_normalized_max_base_shear_error": 0.3,
+      "min_peak_base_shear_ratio": 0.9,
+      "max_peak_base_shear_ratio": 1.15,
+      "min_peak_steel_stress_MPa": 420.0,
+      "max_allowed_failure_count": 0
+    },
+    "matrix_failure_count": 3,
+    "matrix_failure_ok": false,
+    "passing_case_count": 0,
+    "passing_cases": [],
+    "best_case_by_rms": "nx2_ny2_nz2_fixed_bias2",
+    "diagnosis": "No case satisfies the full response gate. Continue with tangent, crack-position, cohesive-energy and shear-transfer calibration before promoting XFEM."
+  },
   "interpretation": "Uniform and fixed-end-biased XFEM meshes are compared against the same N=10 Lobatto structural reference using protocol-time alignment and explicit base-reaction sign alignment.",
   "artifacts": {
     "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_global_secant_structural_refinement_matrix_200mm.png",
     "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_global_secant_structural_refinement_matrix_200mm.png",
-    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_global_secant_structural_refinement_matrix_200mm.pdf",
-    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_global_secant_structural_refinement_matrix_200mm.pdf"
+    "pdf_locked": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_global_secant_structural_refinement_matrix_200mm.pdf"
   }
 }

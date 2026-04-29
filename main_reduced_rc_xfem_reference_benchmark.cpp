@@ -1,6 +1,9 @@
 #include "src/validation/ReducedRCColumnReferenceSpec.hh"
+#include "src/analysis/MixedControlArcLengthContinuation.hh"
 #include "src/analysis/NLAnalysis.hh"
+#include "src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh"
 #include "src/xfem/CohesiveCrackLaw.hh"
+#include "src/xfem/ShiftedHeavisideCrackCrossingRebarElement.hh"
 #include "src/xfem/ShiftedHeavisideRebarCoupling.hh"
 #include "src/xfem/ShiftedHeavisideSolidElement.hh"
 #include "src/xfem/XFEMDofManager.hh"
@@ -60,13 +63,27 @@ struct Options {
     double compression_cap_mpa{36.3};
     double steel_gauge_length_mm{100.0};
     std::string shear_transfer_law{"compression-gated-opening"};
+    double global_xfem_shear_cap_mpa{0.05};
+    std::string global_xfem_cohesive_tangent{"central-fallback"};
     std::string global_xfem_concrete_material{"elastic"};
     std::string global_xfem_crack_band_tangent{"secant"};
     double global_xfem_residual_tension_fraction{0.02};
     int global_xfem_max_bisections{8};
     int global_xfem_solver_max_iterations{120};
+    std::string global_xfem_solver_profile{"backtracking"};
     bool global_xfem_solver_cascade{false};
     bool global_xfem_adaptive_increments{false};
+    std::string global_xfem_continuation{"fixed-increment"};
+    int global_xfem_bordered_hybrid_disable_streak{3};
+    int global_xfem_bordered_hybrid_retry_interval{12};
+    double global_xfem_mixed_arc_target{0.075};
+    double global_xfem_mixed_arc_reject_factor{1.50};
+    double global_xfem_mixed_arc_min_increment{
+        std::numeric_limits<double>::quiet_NaN()};
+    double global_xfem_mixed_arc_max_increment{
+        std::numeric_limits<double>::quiet_NaN()};
+    double global_xfem_mixed_arc_reaction_scale_mn{0.02};
+    double global_xfem_mixed_arc_damage_weight{0.10};
     bool run_global_xfem_newton{true};
     bool global_xfem_incremental_logging{false};
     int global_xfem_nx{2};
@@ -77,6 +94,16 @@ struct Options {
     double global_xfem_crack_z_m{
         std::numeric_limits<double>::quiet_NaN()};
     double global_xfem_rebar_coupling_alpha_scale_over_ec{1.0e4};
+    double global_xfem_crack_crossing_rebar_area_scale{0.0};
+    double global_xfem_crack_crossing_gauge_length_mm{100.0};
+    std::string global_xfem_crack_crossing_rebar_mode{"axial"};
+    std::string global_xfem_crack_crossing_bridge_law{"material"};
+    double global_xfem_crack_crossing_yield_slip_mm{0.25};
+    double global_xfem_crack_crossing_yield_force_mn{
+        std::numeric_limits<double>::quiet_NaN()};
+    double global_xfem_crack_crossing_hardening_ratio{0.0};
+    double global_xfem_crack_crossing_force_cap_mn{
+        std::numeric_limits<double>::quiet_NaN()};
 };
 
 struct HistoryRow {
@@ -130,7 +157,14 @@ struct GlobalXFEMNewtonRow {
     int damaged_host_points{0};
     int accepted_substeps{0};
     int total_newton_iterations{0};
+    int failed_attempts{0};
+    int solver_profile_attempts{0};
+    int max_bisection_level{0};
+    int last_snes_reason{0};
+    int last_ksp_reason{0};
+    bool accepted_by_small_residual_policy{false};
     double residual_norm{0.0};
+    std::string solver_profile_label{};
 };
 
 struct GlobalXFEMNewtonSummary {
@@ -144,7 +178,22 @@ struct GlobalXFEMNewtonSummary {
     int rebar_bar_count{0};
     int rebar_element_count{0};
     int rebar_coupling_count{0};
+    int crack_crossing_rebar_element_count{0};
     int point_count{0};
+    int total_accepted_substeps{0};
+    int total_nonlinear_iterations{0};
+    int total_failed_attempts{0};
+    int total_solver_profile_attempts{0};
+    int max_requested_step_nonlinear_iterations{0};
+    int max_bisection_level{0};
+    int hard_step_count{0};
+    int mixed_control_accepted_steps{0};
+    int mixed_control_failed_solver_attempts{0};
+    int mixed_control_rejected_arc_attempts{0};
+    int mixed_control_total_cutbacks{0};
+    int bordered_hybrid_attempted_steps{0};
+    int bordered_hybrid_successful_steps{0};
+    int bordered_hybrid_skipped_steps{0};
     double crack_z_m{0.0};
     std::string crack_z_source{"first_element_midpoint"};
     double total_rebar_area_m2{0.0};
@@ -156,6 +205,10 @@ struct GlobalXFEMNewtonSummary {
     double elapsed_seconds{0.0};
     std::string status{"not_run"};
     std::string failure_reason{};
+    std::string continuation_kind{"fixed_increment"};
+    std::string mixed_control_status{"not_used"};
+    double mixed_control_max_arc_length{0.0};
+    double mixed_control_mean_arc_length{0.0};
 };
 
 [[nodiscard]] std::string json_escape(const std::string& value)
@@ -185,6 +238,16 @@ struct GlobalXFEMNewtonSummary {
         }
     }
     return out;
+}
+
+[[nodiscard]] std::string json_number_or_null(double value)
+{
+    if (!std::isfinite(value)) {
+        return "null";
+    }
+    std::ostringstream ss;
+    ss << std::setprecision(12) << value;
+    return ss.str();
 }
 
 [[nodiscard]] std::vector<double> parse_csv_doubles(const std::string& raw)
@@ -258,13 +321,23 @@ void write_usage()
         << "[--residual-shear-fraction value] [--shear-cap-mpa value] "
         << "[--compression-cap-mpa value] [--steel-gauge-length-mm value] "
         << "[--shear-transfer-law constant-residual|opening-exponential|compression-gated-opening] "
+        << "[--global-xfem-shear-cap-mpa value] "
+        << "[--global-xfem-cohesive-tangent secant|active-set|central|central-fallback] "
         << "[--global-xfem-concrete-material elastic|componentwise-kent-park|cyclic-crack-band] "
         << "[--global-xfem-crack-band-tangent secant|central|central-fallback] "
         << "[--global-xfem-residual-tension-fraction value] "
         << "[--global-xfem-max-bisections N] "
         << "[--global-xfem-solver-max-iterations N] "
+        << "[--global-xfem-solver-profile backtracking|l2|l2-gmres-ilu|trust-region|dogleg|cascade|robust-cascade|quasi-newton|ngmres|ncg|anderson|richardson] "
         << "[--global-xfem-solver-cascade] "
         << "[--global-xfem-adaptive-increments] "
+        << "[--global-xfem-continuation fixed-increment|mixed-arc-length|bordered-fixed-control|bordered-fixed-control-hybrid] "
+        << "[--global-xfem-bordered-hybrid-disable-streak N] "
+        << "[--global-xfem-bordered-hybrid-retry-interval N] "
+        << "[--global-xfem-mixed-arc-target value] "
+        << "[--global-xfem-mixed-arc-min-increment value] "
+        << "[--global-xfem-mixed-arc-max-increment value] "
+        << "[--global-xfem-mixed-arc-reaction-scale-mn value] "
         << "[--skip-global-xfem-newton] [--global-xfem-log-incremental] "
         << "[--global-xfem-nx N] "
         << "[--global-xfem-ny N] [--global-xfem-nz N] "
@@ -320,6 +393,10 @@ void write_usage()
             options.steel_gauge_length_mm = std::stod(value());
         } else if (flag == "--shear-transfer-law") {
             options.shear_transfer_law = value();
+        } else if (flag == "--global-xfem-shear-cap-mpa") {
+            options.global_xfem_shear_cap_mpa = std::stod(value());
+        } else if (flag == "--global-xfem-cohesive-tangent") {
+            options.global_xfem_cohesive_tangent = value();
         } else if (flag == "--global-xfem-concrete-material") {
             options.global_xfem_concrete_material = value();
         } else if (flag == "--global-xfem-crack-band-tangent") {
@@ -331,10 +408,36 @@ void write_usage()
             options.global_xfem_max_bisections = std::stoi(value());
         } else if (flag == "--global-xfem-solver-max-iterations") {
             options.global_xfem_solver_max_iterations = std::stoi(value());
+        } else if (flag == "--global-xfem-solver-profile") {
+            options.global_xfem_solver_profile = value();
         } else if (flag == "--global-xfem-solver-cascade") {
             options.global_xfem_solver_cascade = true;
         } else if (flag == "--global-xfem-adaptive-increments") {
             options.global_xfem_adaptive_increments = true;
+        } else if (flag == "--global-xfem-continuation") {
+            options.global_xfem_continuation = value();
+        } else if (flag == "--global-xfem-bordered-hybrid-disable-streak") {
+            options.global_xfem_bordered_hybrid_disable_streak =
+                std::stoi(value());
+        } else if (flag == "--global-xfem-bordered-hybrid-retry-interval") {
+            options.global_xfem_bordered_hybrid_retry_interval =
+                std::stoi(value());
+        } else if (flag == "--global-xfem-mixed-arc-target") {
+            options.global_xfem_mixed_arc_target = std::stod(value());
+        } else if (flag == "--global-xfem-mixed-arc-reject-factor") {
+            options.global_xfem_mixed_arc_reject_factor = std::stod(value());
+        } else if (flag == "--global-xfem-mixed-arc-min-increment") {
+            options.global_xfem_mixed_arc_min_increment =
+                std::stod(value());
+        } else if (flag == "--global-xfem-mixed-arc-max-increment") {
+            options.global_xfem_mixed_arc_max_increment =
+                std::stod(value());
+        } else if (flag == "--global-xfem-mixed-arc-reaction-scale-mn") {
+            options.global_xfem_mixed_arc_reaction_scale_mn =
+                std::stod(value());
+        } else if (flag == "--global-xfem-mixed-arc-damage-weight") {
+            options.global_xfem_mixed_arc_damage_weight =
+                std::stod(value());
         } else if (flag == "--skip-global-xfem-newton") {
             options.run_global_xfem_newton = false;
         } else if (flag == "--global-xfem-log-incremental") {
@@ -354,6 +457,30 @@ void write_usage()
         } else if (flag == "--global-xfem-rebar-coupling-alpha-scale-over-ec") {
             options.global_xfem_rebar_coupling_alpha_scale_over_ec =
                 std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-rebar-area-scale") {
+            options.global_xfem_crack_crossing_rebar_area_scale =
+                std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-gauge-length-mm") {
+            options.global_xfem_crack_crossing_gauge_length_mm =
+                std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-rebar-mode") {
+            options.global_xfem_crack_crossing_rebar_mode = value();
+        } else if (flag == "--global-xfem-crack-crossing-bridge-law") {
+            options.global_xfem_crack_crossing_bridge_law = value();
+        } else if (flag == "--global-xfem-crack-crossing-yield-slip-mm") {
+            options.global_xfem_crack_crossing_yield_slip_mm =
+                std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-yield-force-mn") {
+            options.global_xfem_crack_crossing_yield_force_mn =
+                std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-hardening-ratio") {
+            options.global_xfem_crack_crossing_hardening_ratio =
+                std::stod(value());
+        } else if (flag == "--global-xfem-crack-crossing-force-cap-mn") {
+            options.global_xfem_crack_crossing_force_cap_mn =
+                std::stod(value());
+        } else if (flag == "--disable-global-xfem-crack-crossing-rebar") {
+            options.global_xfem_crack_crossing_rebar_area_scale = 0.0;
         } else {
             throw std::invalid_argument("Unsupported option: " + std::string(flag));
         }
@@ -365,6 +492,33 @@ void write_usage()
 {
     std::ranges::replace(value, '_', '-');
     return value;
+}
+
+[[nodiscard]] fall_n::xfem::CohesiveCrackTangentMode
+parse_global_xfem_cohesive_tangent_mode(std::string value)
+{
+    std::ranges::replace(value, '_', '-');
+    if (value == "secant" || value == "secant-positive") {
+        return fall_n::xfem::CohesiveCrackTangentMode::secant_positive;
+    }
+    if (value == "active-set" || value == "active-set-consistent" ||
+        value == "active" || value == "cheap-consistent") {
+        return fall_n::xfem::CohesiveCrackTangentMode::
+            active_set_consistent;
+    }
+    if (value == "central" || value == "adaptive-central" ||
+        value == "consistent") {
+        return fall_n::xfem::CohesiveCrackTangentMode::
+            adaptive_central_difference;
+    }
+    if (value == "central-fallback" ||
+        value == "adaptive-central-fallback" ||
+        value == "consistent-fallback") {
+        return fall_n::xfem::CohesiveCrackTangentMode::
+            adaptive_central_difference_with_secant_fallback;
+    }
+    throw std::invalid_argument(
+        "Unsupported global XFEM cohesive tangent mode: " + value);
 }
 
 [[nodiscard]] fall_n::LongitudinalBiasLocation
@@ -585,6 +739,193 @@ parse_crack_band_tangent_mode(std::string value)
     return area;
 }
 
+struct AxisLocation {
+    int element_index{0};
+    double parent_coordinate{0.0};
+};
+
+[[nodiscard]] std::vector<double> prismatic_corner_levels(
+    const std::vector<double>& expanded_levels,
+    int element_count,
+    int step)
+{
+    std::vector<double> levels;
+    levels.reserve(static_cast<std::size_t>(element_count + 1));
+    for (int i = 0; i <= element_count; ++i) {
+        levels.push_back(
+            expanded_levels.at(static_cast<std::size_t>(i * step)));
+    }
+    return levels;
+}
+
+[[nodiscard]] AxisLocation locate_axis_position(
+    const std::vector<double>& corner_levels,
+    double coordinate)
+{
+    if (corner_levels.size() < 2) {
+        throw std::invalid_argument(
+            "Crack-crossing rebar placement needs at least two corner levels.");
+    }
+
+    const double lo = corner_levels.front();
+    const double hi = corner_levels.back();
+    const double tol = 1.0e-12 * std::max(1.0, std::abs(hi - lo));
+    if (coordinate < lo - tol || coordinate > hi + tol) {
+        throw std::out_of_range(
+            "Crack-crossing rebar coordinate is outside the host mesh.");
+    }
+
+    for (std::size_t i = 0; i + 1 < corner_levels.size(); ++i) {
+        const double a = corner_levels[i];
+        const double b = corner_levels[i + 1];
+        const bool last = (i + 2 == corner_levels.size());
+        if (coordinate < a - tol || coordinate > b + (last ? tol : -tol)) {
+            continue;
+        }
+        const double length = b - a;
+        if (std::abs(length) <= tol) {
+            throw std::runtime_error(
+                "Crack-crossing rebar encountered a degenerate mesh interval.");
+        }
+        return AxisLocation{
+            static_cast<int>(i),
+            -1.0 + 2.0 * (coordinate - a) / length};
+    }
+
+    throw std::out_of_range(
+        "Crack-crossing rebar coordinate could not be located in the host mesh.");
+}
+
+struct CrackCrossingRebarSite {
+    std::size_t host_element_index{0};
+    std::array<double, 3> local_coordinates{};
+    double area{0.0};
+};
+
+[[nodiscard]] std::vector<CrackCrossingRebarSite>
+make_crack_crossing_rebar_sites(
+    const ReinforcedDomainResult& reinforced,
+    const RebarSpec& rebar,
+    double crack_z_m,
+    double area_scale)
+{
+    if (!(area_scale > 0.0)) {
+        return {};
+    }
+
+    const auto& grid = reinforced.grid;
+    const auto x_levels =
+        prismatic_corner_levels(grid.x_coordinates, grid.nx, grid.step);
+    const auto y_levels =
+        prismatic_corner_levels(grid.y_coordinates, grid.ny, grid.step);
+    const auto z_levels =
+        prismatic_corner_levels(grid.z_coordinates, grid.nz, grid.step);
+    const auto z_location = locate_axis_position(z_levels, crack_z_m);
+
+    std::vector<CrackCrossingRebarSite> sites;
+    sites.reserve(rebar.bars.size());
+    for (const auto& bar : rebar.bars) {
+        const auto x_location = locate_axis_position(x_levels, bar.ly);
+        const auto y_location = locate_axis_position(y_levels, bar.lz);
+        const auto host_element_index = static_cast<std::size_t>(
+            z_location.element_index * grid.nx * grid.ny +
+            y_location.element_index * grid.nx +
+            x_location.element_index);
+        if (host_element_index >= reinforced.rebar_range.first) {
+            throw std::runtime_error(
+                "Crack-crossing rebar site resolved outside the host solid range.");
+        }
+        sites.push_back(CrackCrossingRebarSite{
+            .host_element_index = host_element_index,
+            .local_coordinates = {
+                x_location.parent_coordinate,
+                y_location.parent_coordinate,
+                z_location.parent_coordinate},
+            .area = area_scale * bar.area});
+    }
+    return sites;
+}
+
+[[nodiscard]] std::vector<Eigen::Vector3d> crack_crossing_rebar_bridge_axes(
+    std::string mode)
+{
+    std::ranges::replace(mode, '_', '-');
+    if (mode == "none" || mode == "off" || mode == "disabled") {
+        return {};
+    }
+    if (mode == "axial" || mode == "normal") {
+        return {Eigen::Vector3d::UnitZ()};
+    }
+    if (mode == "dowel-x" || mode == "shear-x" || mode == "tangential-x") {
+        return {Eigen::Vector3d::UnitX()};
+    }
+    if (mode == "dowel-y" || mode == "shear-y" || mode == "tangential-y") {
+        return {Eigen::Vector3d::UnitY()};
+    }
+    if (mode == "axial+dowel-x" || mode == "normal+dowel-x") {
+        return {Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitX()};
+    }
+    if (mode == "axial+dowel-y" || mode == "normal+dowel-y") {
+        return {Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY()};
+    }
+    throw std::invalid_argument(
+        "Unsupported crack-crossing rebar bridge mode: " + mode);
+}
+
+[[nodiscard]] bool crack_crossing_bridge_uses_bounded_slip(std::string law)
+{
+    std::ranges::replace(law, '_', '-');
+    if (law == "material" || law == "material-strain" ||
+        law == "menegotto" || law == "steel") {
+        return false;
+    }
+    if (law == "bounded-slip" || law == "bounded" ||
+        law == "elastoplastic-slip" || law == "dowel-slip") {
+        return true;
+    }
+    throw std::invalid_argument(
+        "Unsupported crack-crossing bridge law: " + law);
+}
+
+[[nodiscard]] fall_n::xfem::BoundedSlipBridgeParameters
+make_bounded_slip_bridge_parameters(
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec,
+    std::size_t bridge_count,
+    double area_scale)
+{
+    const double default_total_cap =
+        options.global_xfem_shear_cap_mpa *
+        spec.section_b_m *
+        spec.section_h_m *
+        std::max(area_scale, 0.0);
+    const double default_yield_force =
+        default_total_cap /
+        static_cast<double>(std::max<std::size_t>(bridge_count, 1));
+    const double yield_force = std::isfinite(
+        options.global_xfem_crack_crossing_yield_force_mn)
+        ? options.global_xfem_crack_crossing_yield_force_mn
+        : default_yield_force;
+    const double yield_slip_m =
+        std::max(
+            options.global_xfem_crack_crossing_yield_slip_mm,
+            1.0e-9) / 1000.0;
+    const double force_cap = std::isfinite(
+        options.global_xfem_crack_crossing_force_cap_mn)
+        ? options.global_xfem_crack_crossing_force_cap_mn
+        : yield_force;
+    return fall_n::xfem::BoundedSlipBridgeParameters{
+        .initial_stiffness_mn_per_m =
+            std::max(yield_force, 1.0e-18) / yield_slip_m,
+        .yield_force_mn = std::max(yield_force, 0.0),
+        .hardening_ratio =
+            std::clamp(
+                options.global_xfem_crack_crossing_hardening_ratio,
+                0.0,
+                0.999),
+        .force_cap_mn = std::max(force_cap, 0.0)};
+}
+
 [[nodiscard]] std::vector<std::size_t> global_xfem_rebar_end_nodes(
     const ReinforcedDomainResult& reinforced,
     bool top)
@@ -774,7 +1115,10 @@ void write_global_xfem_newton_csv(
         << "step,p,drift_mm,base_shear_MN,axial_reaction_MN,"
            "max_abs_steel_stress_MPa,"
            "max_host_damage,damaged_host_points,"
-           "accepted_substeps,total_newton_iterations,residual_norm\n";
+           "accepted_substeps,total_newton_iterations,failed_attempts,"
+           "solver_profile_attempts,max_bisection_level,last_snes_reason,"
+           "last_ksp_reason,accepted_by_small_residual_policy,residual_norm,"
+           "solver_profile_label\n";
     for (const auto& row : rows) {
         out << row.step << ','
             << row.p << ','
@@ -786,7 +1130,14 @@ void write_global_xfem_newton_csv(
             << row.damaged_host_points << ','
             << row.accepted_substeps << ','
             << row.total_newton_iterations << ','
-            << row.residual_norm << '\n';
+            << row.failed_attempts << ','
+            << row.solver_profile_attempts << ','
+            << row.max_bisection_level << ','
+            << row.last_snes_reason << ','
+            << row.last_ksp_reason << ','
+            << (row.accepted_by_small_residual_policy ? 1 : 0) << ','
+            << row.residual_norm << ','
+            << json_escape(row.solver_profile_label) << '\n';
     }
 }
 
@@ -794,7 +1145,8 @@ void write_global_xfem_newton_manifest(
     const std::filesystem::path& path,
     const Options& options,
     const ReducedRCColumnReferenceSpec& spec,
-    const GlobalXFEMNewtonSummary& summary)
+    const GlobalXFEMNewtonSummary& summary,
+    const fall_n::xfem::BilinearCohesiveLawParameters& cohesive)
 {
     std::ofstream out(path);
     out << std::setprecision(12)
@@ -832,6 +1184,32 @@ void write_global_xfem_newton_manifest(
         << "    \"truss_element_count\": " << summary.rebar_element_count << ",\n"
         << "    \"xfem_enriched_penalty_coupling_count\": "
         << summary.rebar_coupling_count << ",\n"
+        << "    \"crack_crossing_rebar_element_count\": "
+        << summary.crack_crossing_rebar_element_count << ",\n"
+        << "    \"crack_crossing_rebar_area_scale\": "
+        << options.global_xfem_crack_crossing_rebar_area_scale << ",\n"
+        << "    \"crack_crossing_gauge_length_mm\": "
+        << options.global_xfem_crack_crossing_gauge_length_mm << ",\n"
+        << "    \"crack_crossing_rebar_mode\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_crack_crossing_rebar_mode))
+        << "\",\n"
+        << "    \"crack_crossing_bridge_law\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_crack_crossing_bridge_law))
+        << "\",\n"
+        << "    \"crack_crossing_yield_slip_mm\": "
+        << options.global_xfem_crack_crossing_yield_slip_mm << ",\n"
+        << "    \"crack_crossing_yield_force_mn\": "
+        << json_number_or_null(
+               options.global_xfem_crack_crossing_yield_force_mn)
+        << ",\n"
+        << "    \"crack_crossing_hardening_ratio\": "
+        << options.global_xfem_crack_crossing_hardening_ratio << ",\n"
+        << "    \"crack_crossing_force_cap_mn\": "
+        << json_number_or_null(
+               options.global_xfem_crack_crossing_force_cap_mn)
+        << ",\n"
         << "    \"total_area_m2\": " << summary.total_rebar_area_m2 << ",\n"
         << "    \"coupling_alpha_scale_over_ec\": "
         << options.global_xfem_rebar_coupling_alpha_scale_over_ec << "\n"
@@ -843,10 +1221,25 @@ void write_global_xfem_newton_manifest(
         << "\",\n"
         << "    \"residual_tension_fraction\": "
         << options.global_xfem_residual_tension_fraction << ",\n"
+        << "    \"global_xfem_shear_cap_mpa\": "
+        << options.global_xfem_shear_cap_mpa << ",\n"
         << "    \"crack_band_tangent\": \""
         << json_escape(options.global_xfem_crack_band_tangent) << "\",\n"
         << "    \"fracture_representation\": \"shifted_heaviside_planar_base_crack_with_cohesive_surface\",\n"
-        << "    \"reinforcement_representation\": \"menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling\",\n"
+        << "    \"reinforcement_representation\": \"menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling_and_crack_crossing_rebar_bridge\",\n"
+        << "    \"cohesive_jump_unit\": \"m\",\n"
+        << "    \"cohesive_normal_stiffness_mpa_per_m\": "
+        << cohesive.normal_stiffness << ",\n"
+        << "    \"cohesive_shear_stiffness_mpa_per_m\": "
+        << cohesive.shear_stiffness << ",\n"
+        << "    \"cohesive_fracture_energy_mn_per_m\": "
+        << cohesive.fracture_energy << ",\n"
+        << "    \"cohesive_shear_traction_cap_mpa\": "
+        << cohesive.shear_traction_cap << ",\n"
+        << "    \"cohesive_tangent\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_cohesive_tangent))
+        << "\",\n"
         << "    \"crack_z_m\": " << summary.crack_z_m << ",\n"
         << "    \"crack_z_source\": \""
         << json_escape(summary.crack_z_source) << "\",\n"
@@ -862,15 +1255,67 @@ void write_global_xfem_newton_manifest(
         << summary.peak_abs_drift_mm << "\n"
         << "  },\n"
         << "  \"solve_control\": {\n"
+        << "    \"continuation_kind\": \""
+        << json_escape(summary.continuation_kind) << "\",\n"
         << "    \"max_bisections\": "
         << options.global_xfem_max_bisections << ",\n"
         << "    \"solver_max_iterations\": "
         << options.global_xfem_solver_max_iterations << ",\n"
+        << "    \"solver_profile\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_solver_profile))
+        << "\",\n"
         << "    \"solver_cascade\": "
         << (options.global_xfem_solver_cascade ? "true" : "false") << ",\n"
         << "    \"adaptive_increments\": "
         << (options.global_xfem_adaptive_increments ? "true" : "false")
-        << "\n"
+        << ",\n"
+        << "    \"mixed_arc_length_status\": \""
+        << json_escape(summary.mixed_control_status) << "\",\n"
+        << "    \"mixed_arc_length_target\": "
+        << options.global_xfem_mixed_arc_target << ",\n"
+        << "    \"mixed_arc_length_reject_factor\": "
+        << options.global_xfem_mixed_arc_reject_factor << ",\n"
+        << "    \"mixed_arc_length_reaction_scale_mn\": "
+        << options.global_xfem_mixed_arc_reaction_scale_mn << ",\n"
+        << "    \"mixed_arc_length_damage_weight\": "
+        << options.global_xfem_mixed_arc_damage_weight << ",\n"
+        << "    \"bordered_hybrid_disable_streak\": "
+        << options.global_xfem_bordered_hybrid_disable_streak << ",\n"
+        << "    \"bordered_hybrid_retry_interval\": "
+        << options.global_xfem_bordered_hybrid_retry_interval << ",\n"
+        << "    \"mixed_control_accepted_steps\": "
+        << summary.mixed_control_accepted_steps << ",\n"
+        << "    \"mixed_control_failed_solver_attempts\": "
+        << summary.mixed_control_failed_solver_attempts << ",\n"
+        << "    \"mixed_control_rejected_arc_attempts\": "
+        << summary.mixed_control_rejected_arc_attempts << ",\n"
+        << "    \"mixed_control_total_cutbacks\": "
+        << summary.mixed_control_total_cutbacks << ",\n"
+        << "    \"bordered_hybrid_attempted_steps\": "
+        << summary.bordered_hybrid_attempted_steps << ",\n"
+        << "    \"bordered_hybrid_successful_steps\": "
+        << summary.bordered_hybrid_successful_steps << ",\n"
+        << "    \"bordered_hybrid_skipped_steps\": "
+        << summary.bordered_hybrid_skipped_steps << ",\n"
+        << "    \"mixed_control_max_arc_length\": "
+        << summary.mixed_control_max_arc_length << ",\n"
+        << "    \"mixed_control_mean_arc_length\": "
+        << summary.mixed_control_mean_arc_length << ",\n"
+        << "    \"total_accepted_substeps\": "
+        << summary.total_accepted_substeps << ",\n"
+        << "    \"total_nonlinear_iterations\": "
+        << summary.total_nonlinear_iterations << ",\n"
+        << "    \"total_failed_attempts\": "
+        << summary.total_failed_attempts << ",\n"
+        << "    \"total_solver_profile_attempts\": "
+        << summary.total_solver_profile_attempts << ",\n"
+        << "    \"max_requested_step_nonlinear_iterations\": "
+        << summary.max_requested_step_nonlinear_iterations << ",\n"
+        << "    \"max_bisection_level\": "
+        << summary.max_bisection_level << ",\n"
+        << "    \"hard_step_count\": "
+        << summary.hard_step_count << "\n"
         << "  },\n"
         << "  \"observables\": {\n"
         << "    \"peak_abs_base_shear_mn\": "
@@ -886,9 +1331,39 @@ void write_global_xfem_newton_manifest(
         << summary.elapsed_seconds << "\n"
         << "  },\n"
         << "  \"artifacts\": {\n"
-        << "    \"hysteresis_csv\": \"global_xfem_newton_hysteresis.csv\"\n"
+        << "    \"hysteresis_csv\": \"global_xfem_newton_hysteresis.csv\",\n"
+        << "    \"mixed_control_arc_length_csv\": "
+           "\"global_xfem_mixed_control_arc_length.csv\"\n"
         << "  }\n"
         << "}\n";
+}
+
+void write_global_xfem_mixed_control_arc_csv(
+    const std::filesystem::path& path,
+    const fall_n::MixedControlArcLengthResult& result)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "record,step,p_start,p_target,p_accepted,increment,arc_length,"
+           "normalized_control_increment,normalized_reaction_increment,"
+           "normalized_internal_increment,cutbacks_before_acceptance,"
+           "accepted,rejected_by_arc_length\n";
+    int record_index = 0;
+    for (const auto& row : result.records) {
+        out << record_index++ << ','
+            << row.step << ','
+            << row.p_start << ','
+            << row.p_target << ','
+            << row.p_accepted << ','
+            << row.increment << ','
+            << row.arc_length << ','
+            << row.normalized_control_increment << ','
+            << row.normalized_reaction_increment << ','
+            << row.normalized_internal_increment << ','
+            << row.cutbacks_before_acceptance << ','
+            << (row.accepted ? 1 : 0) << ','
+            << (row.rejected_by_arc_length ? 1 : 0) << '\n';
+    }
 }
 
 [[nodiscard]] GlobalXFEMNewtonSummary run_global_xfem_newton_column_trial(
@@ -908,7 +1383,10 @@ void write_global_xfem_newton_manifest(
     GlobalXFEMNewtonSummary summary{
         .attempted = options.run_global_xfem_newton,
         .status = options.run_global_xfem_newton ? "attempted" : "skipped"};
+    summary.continuation_kind =
+        normalized_material_token(options.global_xfem_continuation);
     std::vector<GlobalXFEMNewtonRow> rows;
+    fall_n::MixedControlArcLengthResult mixed_control_result{};
 
     const auto tic = std::chrono::steady_clock::now();
     try {
@@ -916,11 +1394,16 @@ void write_global_xfem_newton_manifest(
             write_global_xfem_newton_csv(
                 options.output_dir / "global_xfem_newton_hysteresis.csv",
                 rows);
+            write_global_xfem_mixed_control_arc_csv(
+                options.output_dir /
+                    "global_xfem_mixed_control_arc_length.csv",
+                mixed_control_result);
             write_global_xfem_newton_manifest(
                 options.output_dir / "global_xfem_newton_manifest.json",
                 options,
                 spec,
-                summary);
+                summary,
+                cohesive);
             return summary;
         }
 
@@ -969,8 +1452,46 @@ void write_global_xfem_newton_manifest(
                     spec.steel_b}},
             InelasticUpdate{}};
 
+        const auto crack_crossing_rebar_sites =
+            make_crack_crossing_rebar_sites(
+                reinforced,
+                rebar,
+                crack_z,
+                std::max(
+                    options.global_xfem_crack_crossing_rebar_area_scale,
+                    0.0));
+        const auto crack_crossing_rebar_axes =
+            crack_crossing_rebar_bridge_axes(
+                options.global_xfem_crack_crossing_rebar_mode);
+        const bool use_bounded_crack_crossing_bridge =
+            crack_crossing_bridge_uses_bounded_slip(
+                options.global_xfem_crack_crossing_bridge_law);
+        const auto bounded_crack_crossing_bridge_parameters =
+            make_bounded_slip_bridge_parameters(
+                options,
+                spec,
+                crack_crossing_rebar_sites.size() *
+                    crack_crossing_rebar_axes.size(),
+                std::max(
+                    options.global_xfem_crack_crossing_rebar_area_scale,
+                    0.0));
+        const bool global_xfem_has_history_material =
+            !rebar.bars.empty() ||
+            (!crack_crossing_rebar_sites.empty() &&
+             !crack_crossing_rebar_axes.empty()) ||
+            global_xfem_concrete_material_is_nonlinear(options);
+        const double crack_crossing_gauge_length_m =
+            std::max(
+                options.global_xfem_crack_crossing_gauge_length_mm,
+                1.0e-9) / 1000.0;
+
         std::vector<FEM_Element> elements;
-        elements.reserve(domain.num_elements());
+        elements.reserve(
+            domain.num_elements() +
+            crack_crossing_rebar_sites.size() *
+                std::max<std::size_t>(
+                    crack_crossing_rebar_axes.size(),
+                    1));
         for (std::size_t element_index = 0;
              element_index < reinforced.rebar_range.first;
              ++element_index) {
@@ -995,6 +1516,33 @@ void write_global_xfem_newton_manifest(
         }
         summary.rebar_element_count = static_cast<int>(
             reinforced.rebar_range.last - reinforced.rebar_range.first);
+        const std::size_t crack_crossing_rebar_first = elements.size();
+        for (const auto& site : crack_crossing_rebar_sites) {
+            for (const auto& axis : crack_crossing_rebar_axes) {
+                if (use_bounded_crack_crossing_bridge) {
+                    elements.emplace_back(
+                        fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement{
+                            &domain.element(site.host_element_index),
+                            site.local_coordinates,
+                            axis,
+                            site.area,
+                            crack_crossing_gauge_length_m,
+                            bounded_crack_crossing_bridge_parameters});
+                } else {
+                    elements.emplace_back(
+                        fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement{
+                            &domain.element(site.host_element_index),
+                            rebar_material,
+                            site.local_coordinates,
+                            axis,
+                            site.area,
+                            crack_crossing_gauge_length_m});
+                }
+            }
+        }
+        const std::size_t crack_crossing_rebar_last = elements.size();
+        summary.crack_crossing_rebar_element_count = static_cast<int>(
+            crack_crossing_rebar_last - crack_crossing_rebar_first);
 
         using XFEMModel = Model<
             ThreeDimensionalMaterial,
@@ -1149,10 +1697,10 @@ void write_global_xfem_newton_manifest(
             profile.atol = 1.0e-9;
             profile.rtol = 1.0e-9;
             profile.divergence_tolerance =
-                global_xfem_concrete_material_is_nonlinear(options)
+                global_xfem_has_history_material
                     ? 1.0e12
                     : PETSC_DETERMINE;
-            if (global_xfem_concrete_material_is_nonlinear(options)) {
+            if (global_xfem_has_history_material) {
                 profile.small_residual_acceptance.profile_atol_multiplier =
                     10.0;
                 profile.small_residual_acceptance.accept_diverged_dtol = true;
@@ -1166,24 +1714,108 @@ void write_global_xfem_newton_manifest(
             profile.linear_tuning.factor_reuse_fill = true;
             return profile;
         };
-        auto backtracking = tune_profile(
-            fall_n::make_newton_backtracking_profile(
-                "global_xfem_newton_backtracking_lu"));
+        const std::string solver_profile_token =
+            normalized_material_token(
+                options.global_xfem_solver_cascade &&
+                        options.global_xfem_solver_profile == "backtracking"
+                    ? std::string{"cascade"}
+                    : options.global_xfem_solver_profile);
+        auto make_solver_profiles = [&]() {
+            std::vector<fall_n::NonlinearSolveProfile> profiles;
+            auto add = [&](fall_n::NonlinearSolveProfile profile) {
+                profiles.push_back(tune_profile(std::move(profile)));
+            };
 
-        if (global_xfem_concrete_material_is_nonlinear(options) &&
-            options.global_xfem_solver_cascade) {
-            auto l2 = tune_profile(
-                fall_n::make_newton_l2_profile(
+            if (solver_profile_token == "backtracking" ||
+                solver_profile_token == "newton-backtracking") {
+                add(fall_n::make_newton_backtracking_profile(
+                    "global_xfem_newton_backtracking_lu"));
+            } else if (solver_profile_token == "l2" ||
+                       solver_profile_token == "newton-l2") {
+                add(fall_n::make_newton_l2_profile(
                     "global_xfem_newton_l2_lu"));
-            auto trust_region = tune_profile(
-                fall_n::make_newton_trust_region_profile(
+            } else if (solver_profile_token == "l2-gmres-ilu" ||
+                       solver_profile_token == "newton-l2-gmres-ilu" ||
+                       solver_profile_token == "gmres-ilu") {
+                auto profile = fall_n::make_newton_l2_profile(
+                    "global_xfem_newton_l2_gmres_ilu");
+                profile.ksp_type = KSPGMRES;
+                profile.pc_type = PCILU;
+                profile.linear_tuning.ksp_rtol = 1.0e-10;
+                profile.linear_tuning.ksp_atol = 1.0e-12;
+                profile.linear_tuning.ksp_max_iterations = 500;
+                profile.linear_tuning.factor_levels = 1;
+                profile.linear_tuning.ksp_reuse_preconditioner = true;
+                add(profile);
+            } else if (solver_profile_token == "trust-region" ||
+                       solver_profile_token == "newton-trust-region") {
+                add(fall_n::make_newton_trust_region_profile(
                     "global_xfem_newton_trust_region_lu"));
-            analysis.set_solve_profiles({backtracking, l2, trust_region});
-        }
-        else {
-            analysis.set_solve_profiles({backtracking});
-        }
-        if (global_xfem_concrete_material_is_nonlinear(options) &&
+            } else if (solver_profile_token == "dogleg" ||
+                       solver_profile_token == "trust-region-dogleg" ||
+                       solver_profile_token == "newton-trust-region-dogleg") {
+                add(fall_n::make_newton_trust_region_dogleg_profile(
+                    "global_xfem_newton_trust_region_dogleg_lu"));
+            } else if (solver_profile_token == "quasi-newton" ||
+                       solver_profile_token == "qn") {
+                add(fall_n::make_quasi_newton_profile(
+                    "global_xfem_quasi_newton_lu"));
+            } else if (solver_profile_token == "ngmres" ||
+                       solver_profile_token == "nonlinear-gmres") {
+                add(fall_n::make_nonlinear_gmres_profile(
+                    "global_xfem_nonlinear_gmres_lu"));
+            } else if (solver_profile_token == "ncg" ||
+                       solver_profile_token == "nonlinear-conjugate-gradient") {
+                add(fall_n::make_nonlinear_conjugate_gradient_profile(
+                    "global_xfem_nonlinear_conjugate_gradient_lu"));
+            } else if (solver_profile_token == "anderson" ||
+                       solver_profile_token == "anderson-acceleration") {
+                add(fall_n::make_anderson_profile(
+                    "global_xfem_anderson_acceleration_lu"));
+            } else if (solver_profile_token == "richardson" ||
+                       solver_profile_token == "nonlinear-richardson") {
+                add(fall_n::make_nonlinear_richardson_profile(
+                    "global_xfem_nonlinear_richardson_lu"));
+            } else if (solver_profile_token == "cascade" ||
+                       solver_profile_token == "newton-cascade") {
+                add(fall_n::make_newton_backtracking_profile(
+                    "global_xfem_newton_backtracking_lu"));
+                add(fall_n::make_newton_l2_profile(
+                    "global_xfem_newton_l2_lu"));
+                add(fall_n::make_newton_trust_region_profile(
+                    "global_xfem_newton_trust_region_lu"));
+            } else if (solver_profile_token == "robust-cascade" ||
+                       solver_profile_token == "full-cascade") {
+                add(fall_n::make_newton_backtracking_profile(
+                    "global_xfem_newton_backtracking_lu"));
+                add(fall_n::make_newton_l2_profile(
+                    "global_xfem_newton_l2_lu"));
+                add(fall_n::make_newton_trust_region_profile(
+                    "global_xfem_newton_trust_region_lu"));
+                add(fall_n::make_newton_trust_region_dogleg_profile(
+                    "global_xfem_newton_trust_region_dogleg_lu"));
+                add(fall_n::make_quasi_newton_profile(
+                    "global_xfem_quasi_newton_lu"));
+                add(fall_n::make_nonlinear_gmres_profile(
+                    "global_xfem_nonlinear_gmres_lu"));
+            } else if (solver_profile_token == "non-newton-cascade") {
+                add(fall_n::make_quasi_newton_profile(
+                    "global_xfem_quasi_newton_lu"));
+                add(fall_n::make_nonlinear_gmres_profile(
+                    "global_xfem_nonlinear_gmres_lu"));
+                add(fall_n::make_nonlinear_conjugate_gradient_profile(
+                    "global_xfem_nonlinear_conjugate_gradient_lu"));
+                add(fall_n::make_anderson_profile(
+                    "global_xfem_anderson_acceleration_lu"));
+            } else {
+                throw std::invalid_argument(
+                    "Unsupported global XFEM solver profile: " +
+                    solver_profile_token);
+            }
+            return profiles;
+        };
+        analysis.set_solve_profiles(make_solver_profiles());
+        if (global_xfem_has_history_material &&
             options.global_xfem_adaptive_increments) {
             typename XFEMAnalysis::IncrementAdaptationSettings adaptation{};
             adaptation.enabled = true;
@@ -1197,7 +1829,7 @@ void write_global_xfem_newton_manifest(
             adaptation.easy_steps_before_growth = 3;
             analysis.set_increment_adaptation(adaptation);
         }
-        if (global_xfem_concrete_material_is_nonlinear(options)) {
+        if (global_xfem_has_history_material) {
             typename XFEMAnalysis::IncrementPredictorSettings predictor{};
             predictor.enabled = true;
             predictor.kind =
@@ -1212,7 +1844,7 @@ void write_global_xfem_newton_manifest(
         }
 
         rows.push_back(GlobalXFEMNewtonRow{});
-        analysis.set_step_callback(
+        auto make_global_xfem_row =
             [&](int step, double p, const XFEMModel& solved_model) {
                 const double drift_mm = interpolate_protocol(protocol, p);
                 const double base_shear =
@@ -1254,9 +1886,20 @@ void write_global_xfem_newton_manifest(
                             std::abs(gp.stress[0]));
                     }
                 }
+                for (std::size_t e = crack_crossing_rebar_first;
+                     e < crack_crossing_rebar_last;
+                     ++e) {
+                    for (const auto& gp :
+                         solved_model.elements()[e].collect_gauss_fields(
+                             solved_model.state_vector())) {
+                        max_abs_steel_stress = std::max(
+                            max_abs_steel_stress,
+                            std::abs(gp.stress[0]));
+                    }
+                }
                 const auto& diagnostics =
                     analysis.last_increment_step_diagnostics();
-                rows.push_back(GlobalXFEMNewtonRow{
+                return GlobalXFEMNewtonRow{
                     .step = step,
                     .p = p,
                     .drift_mm = drift_mm,
@@ -1269,8 +1912,42 @@ void write_global_xfem_newton_manifest(
                         diagnostics.accepted_substep_count,
                     .total_newton_iterations =
                         diagnostics.total_newton_iterations,
-                    .residual_norm = diagnostics.last_function_norm});
-            });
+                    .failed_attempts =
+                        diagnostics.failed_attempt_count,
+                    .solver_profile_attempts =
+                        diagnostics.solver_profile_attempt_count,
+                    .max_bisection_level =
+                        diagnostics.max_bisection_level,
+                    .last_snes_reason =
+                        diagnostics.last_snes_reason,
+                    .last_ksp_reason =
+                        diagnostics.last_solver_ksp_reason,
+                    .accepted_by_small_residual_policy =
+                        diagnostics.accepted_by_small_residual_policy,
+                    .residual_norm = diagnostics.last_function_norm,
+                    .solver_profile_label =
+                        diagnostics.last_solver_profile_label};
+            };
+
+        GlobalXFEMNewtonRow mixed_control_candidate_row{};
+        const auto continuation_token =
+            normalized_material_token(options.global_xfem_continuation);
+        if (continuation_token == "mixed-arc-length" ||
+            continuation_token == "mixed-control" ||
+            continuation_token == "mixed-control-arc-length")
+        {
+            analysis.set_step_callback(
+                [&](int step, double p, const XFEMModel& solved_model) {
+                    mixed_control_candidate_row =
+                        make_global_xfem_row(step, p, solved_model);
+                });
+        } else {
+            analysis.set_step_callback(
+                [&](int step, double p, const XFEMModel& solved_model) {
+                    rows.push_back(
+                        make_global_xfem_row(step, p, solved_model));
+                });
+        }
 
         auto scheme = make_control(
             [&top_nodes, &top_rebar_nodes, &protocol](
@@ -1304,14 +1981,301 @@ void write_global_xfem_newton_manifest(
                 model_ptr->finalize_imposed_solution();
             });
 
-        const bool ok = analysis.solve_incremental(
-            steps,
-            std::max(options.global_xfem_max_bisections, 0),
-            scheme);
+        bool ok = false;
+        if (continuation_token == "fixed-increment" ||
+            continuation_token == "fixed" ||
+            continuation_token == "incremental-displacement")
+        {
+            ok = analysis.solve_incremental(
+                steps,
+                std::max(options.global_xfem_max_bisections, 0),
+                scheme);
+            summary.mixed_control_status = "not_used";
+        } else if (continuation_token == "bordered-fixed-control" ||
+                   continuation_token == "bordered-fixed" ||
+                   continuation_token == "petsc-bordered-fixed-control" ||
+                   continuation_token == "bordered-fixed-control-hybrid" ||
+                   continuation_token == "bordered-fixed-hybrid" ||
+                   continuation_token ==
+                       "petsc-bordered-fixed-control-hybrid") {
+            const bool use_snes_fallback =
+                continuation_token == "bordered-fixed-control-hybrid" ||
+                continuation_token == "bordered-fixed-hybrid" ||
+                continuation_token ==
+                    "petsc-bordered-fixed-control-hybrid";
+            const double nominal_increment =
+                1.0 / static_cast<double>(std::max(steps, 1));
+            analysis.begin_incremental(
+                steps,
+                std::max(options.global_xfem_max_bisections, 0),
+                std::move(scheme));
+            analysis.set_increment_size(nominal_increment);
+            summary.mixed_control_status = use_snes_fallback
+                ? "bordered_fixed_control_with_snes_fallback"
+                : "bordered_fixed_control";
+
+            ok = true;
+            int bordered_failure_streak = 0;
+            int bordered_retry_countdown = 0;
+            for (int i = 1; i <= steps; ++i) {
+                const double target_p =
+                    static_cast<double>(i) / static_cast<double>(steps);
+                const double p_start = analysis.current_time();
+                auto seed = analysis.clone_solution_vector();
+                const auto run_snes_fallback = [&]() {
+                    analysis.revert_trial_state();
+                    analysis.set_solution_vector(seed.get());
+                    const auto fallback_verdict = analysis.step_to(target_p);
+                    return fallback_verdict == fall_n::StepVerdict::Continue;
+                };
+                if (use_snes_fallback && bordered_retry_countdown > 0) {
+                    --bordered_retry_countdown;
+                    ++summary.bordered_hybrid_skipped_steps;
+                    if (run_snes_fallback()) {
+                        continue;
+                    }
+                    ok = false;
+                    std::ostringstream failure;
+                    failure
+                        << "SNES fallback failed during bordered hybrid skip "
+                        << "at p_target=" << target_p;
+                    summary.failure_reason = failure.str();
+                    break;
+                }
+                ++summary.bordered_hybrid_attempted_steps;
+                const auto bordered_result =
+                    fall_n::solve_petsc_bordered_mixed_control_newton(
+                        fall_n::PetscBorderedMixedControlState{
+                            .unknowns = seed.get(),
+                            .load_parameter = target_p},
+                        [&](const fall_n::PetscBorderedMixedControlState& state) {
+                            return fall_n::
+                                make_fixed_control_petsc_bordered_evaluation(
+                                    analysis,
+                                    state,
+                                    target_p,
+                                    fall_n::
+                                        PetscNonlinearAnalysisBorderedAdapterSettings{
+                                            .control_column_step = 1.0e-6,
+                                            .use_central_difference = false});
+                        },
+                        fall_n::PetscBorderedMixedControlNewtonSettings{
+                            .max_iterations = std::max(
+                                options.global_xfem_solver_max_iterations,
+                                20),
+                            .residual_tolerance = 1.0e-8,
+                            .constraint_tolerance = 1.0e-12,
+                            .line_search_enabled = true,
+                            .max_line_search_cutbacks =
+                                std::max(
+                                    options.global_xfem_max_bisections,
+                                    16),
+                            .line_search_min_alpha = 1.0e-8,
+                            .line_search_extra_trial_count = 24,
+                            .line_search_merit =
+                                fall_n::PetscBorderedLineSearchMeritKind::
+                                    residual_only,
+                            .accept_best_line_search_trial = false,
+                            .ksp_type = KSPPREONLY,
+                            .pc_type = PCLU,
+                            .reuse_preconditioner = true});
+                if (!bordered_result.converged()) {
+                    ++summary.mixed_control_failed_solver_attempts;
+                    if (use_snes_fallback) {
+                        ++bordered_failure_streak;
+                        if (options.global_xfem_bordered_hybrid_disable_streak >
+                                0 &&
+                            bordered_failure_streak >=
+                                options
+                                    .global_xfem_bordered_hybrid_disable_streak)
+                        {
+                            bordered_retry_countdown = std::max(
+                                options
+                                    .global_xfem_bordered_hybrid_retry_interval,
+                                0);
+                            bordered_failure_streak = 0;
+                        }
+                        if (run_snes_fallback()) {
+                            continue;
+                        }
+                    }
+                    ok = false;
+                    std::ostringstream failure;
+                    failure
+                        << "bordered fixed-control solve aborted at p_target="
+                        << target_p
+                        << ", status="
+                        << fall_n::to_string(bordered_result.status)
+                        << ", iterations=" << bordered_result.iterations
+                        << ", residual_norm="
+                        << bordered_result.residual_norm
+                        << ", constraint_abs="
+                        << bordered_result.constraint_abs
+                        << ", correction_norm="
+                        << bordered_result.correction_norm;
+                    if (!bordered_result.records.empty()) {
+                        failure
+                            << ", last_alpha="
+                            << bordered_result.records.back().line_search_alpha
+                            << ", last_load_correction_abs="
+                            << bordered_result.records.back()
+                                   .load_correction_abs;
+                    }
+                    failure
+                        << ", ksp_reason="
+                        << static_cast<int>(
+                               bordered_result.last_ksp_reason);
+                    if (use_snes_fallback) {
+                        failure
+                            << "; SNES fallback also failed before reaching "
+                            << "the same target";
+                    }
+                    summary.failure_reason = failure.str();
+                    break;
+                }
+                ++summary.bordered_hybrid_successful_steps;
+                bordered_failure_streak = 0;
+                bordered_retry_countdown = 0;
+
+                analysis.apply_incremental_control_parameter(
+                    bordered_result.load_parameter);
+                analysis.accept_external_solution_step(
+                    bordered_result.unknowns.get(),
+                    bordered_result.load_parameter,
+                    typename XFEMAnalysis::IncrementStepDiagnostics{
+                        .p_start = p_start,
+                        .p_target = target_p,
+                        .last_attempt_p_start = p_start,
+                        .last_attempt_p_target = target_p,
+                        .accepted_substep_count = 1,
+                        .total_newton_iterations =
+                            bordered_result.iterations,
+                        .solver_profile_attempt_count =
+                            bordered_result.iterations,
+                        .last_snes_reason =
+                            static_cast<int>(SNES_CONVERGED_FNORM_ABS),
+                        .last_function_norm =
+                            bordered_result.residual_norm,
+                        .last_solver_profile_label =
+                            "global_xfem_petsc_bordered_fixed_control_fd_lu",
+                        .last_solver_ksp_type = KSPPREONLY,
+                        .last_solver_pc_type = PCLU,
+                        .last_solver_ksp_reason =
+                            static_cast<int>(
+                                bordered_result.last_ksp_reason),
+                        .last_solver_ksp_iterations =
+                            bordered_result.total_ksp_iterations,
+                        .last_solver_factor_reuse_ordering = true,
+                        .last_solver_factor_reuse_fill = true,
+                        .last_solver_ksp_reuse_preconditioner = true,
+                        .converged = true});
+            }
+        } else if (continuation_token == "mixed-arc-length" ||
+                   continuation_token == "mixed-control" ||
+                   continuation_token == "mixed-control-arc-length") {
+            const double nominal_increment =
+                1.0 / static_cast<double>(std::max(steps, 1));
+            const double min_increment =
+                std::isfinite(options.global_xfem_mixed_arc_min_increment)
+                    ? options.global_xfem_mixed_arc_min_increment
+                    : nominal_increment / 2048.0;
+            const double max_increment =
+                std::isfinite(options.global_xfem_mixed_arc_max_increment)
+                    ? options.global_xfem_mixed_arc_max_increment
+                    : nominal_increment;
+            const double peak_protocol_mm =
+                std::max(
+                    1.0,
+                    std::ranges::max(
+                        protocol |
+                        std::views::transform([](double drift_mm) {
+                            return std::abs(drift_mm);
+                        })));
+
+            analysis.begin_incremental(
+                std::max(
+                    static_cast<int>(std::ceil(1.0 / max_increment)),
+                    1),
+                std::max(options.global_xfem_max_bisections, 0),
+                std::move(scheme));
+            analysis.set_increment_size(max_increment);
+
+            auto sample_mixed_control_state = [&]() {
+                const auto& row =
+                    mixed_control_candidate_row.step > 0
+                        ? mixed_control_candidate_row
+                        : rows.back();
+                return fall_n::MixedControlArcLengthObservation{
+                    .control = row.drift_mm,
+                    .reaction = row.base_shear_mn,
+                    .internal = row.max_host_damage};
+            };
+
+            mixed_control_result =
+                fall_n::run_mixed_control_arc_length_continuation(
+                    analysis,
+                    sample_mixed_control_state,
+                    fall_n::MixedControlArcLengthSettings{
+                        .target_p = 1.0,
+                        .initial_increment = max_increment,
+                        .min_increment = min_increment,
+                        .max_increment = max_increment,
+                        .target_arc_length =
+                            options.global_xfem_mixed_arc_target,
+                        .reject_arc_length_factor =
+                            options.global_xfem_mixed_arc_reject_factor,
+                        .max_cutbacks_per_step =
+                            std::max(options.global_xfem_max_bisections, 0),
+                        .max_total_steps =
+                            std::max(steps * 4096, 1),
+                        .guard_points = [&]() {
+                            std::vector<double> points;
+                            points.reserve(static_cast<std::size_t>(steps));
+                            for (int i = 1; i <= steps; ++i) {
+                                points.push_back(
+                                    static_cast<double>(i) /
+                                    static_cast<double>(steps));
+                            }
+                            return points;
+                        }(),
+                        .scales = {
+                            .control = peak_protocol_mm,
+                            .reaction =
+                                options.global_xfem_mixed_arc_reaction_scale_mn,
+                            .internal = 1.0},
+                        .weights = {
+                            .control = 1.0,
+                            .reaction = 1.0,
+                            .internal =
+                                options.global_xfem_mixed_arc_damage_weight}},
+                    [&](const fall_n::MixedControlArcLengthStepRecord&) {
+                        rows.push_back(mixed_control_candidate_row);
+                    });
+            ok = mixed_control_result.completed();
+            summary.mixed_control_status =
+                std::string{
+                    fall_n::to_string(mixed_control_result.status)};
+            summary.mixed_control_accepted_steps =
+                mixed_control_result.accepted_steps;
+            summary.mixed_control_failed_solver_attempts =
+                mixed_control_result.failed_solver_attempts;
+            summary.mixed_control_rejected_arc_attempts =
+                mixed_control_result.rejected_arc_attempts;
+            summary.mixed_control_total_cutbacks =
+                mixed_control_result.total_cutbacks;
+            summary.mixed_control_max_arc_length =
+                mixed_control_result.max_arc_length;
+            summary.mixed_control_mean_arc_length =
+                mixed_control_result.mean_arc_length;
+        } else {
+            throw std::invalid_argument(
+                "Unsupported global XFEM continuation kind: " +
+                continuation_token);
+        }
 
         summary.completed = ok;
         summary.status = ok ? "completed" : "aborted";
-        if (!ok) {
+        if (!ok && summary.failure_reason.empty()) {
             const auto& diagnostics =
                 analysis.last_increment_step_diagnostics();
             std::ostringstream failure;
@@ -1349,6 +2313,23 @@ void write_global_xfem_newton_manifest(
             summary.max_damaged_host_points = std::max(
                 summary.max_damaged_host_points,
                 row.damaged_host_points);
+            summary.total_accepted_substeps += row.accepted_substeps;
+            summary.total_nonlinear_iterations +=
+                row.total_newton_iterations;
+            summary.total_failed_attempts += row.failed_attempts;
+            summary.total_solver_profile_attempts +=
+                row.solver_profile_attempts;
+            summary.max_requested_step_nonlinear_iterations = std::max(
+                summary.max_requested_step_nonlinear_iterations,
+                row.total_newton_iterations);
+            summary.max_bisection_level = std::max(
+                summary.max_bisection_level,
+                row.max_bisection_level);
+            if (row.total_newton_iterations >=
+                options.global_xfem_solver_max_iterations)
+            {
+                summary.hard_step_count += 1;
+            }
         }
     } catch (const std::exception& e) {
         summary.completed = false;
@@ -1365,11 +2346,15 @@ void write_global_xfem_newton_manifest(
     write_global_xfem_newton_csv(
         options.output_dir / "global_xfem_newton_hysteresis.csv",
         rows);
+    write_global_xfem_mixed_control_arc_csv(
+        options.output_dir / "global_xfem_mixed_control_arc_length.csv",
+        mixed_control_result);
     write_global_xfem_newton_manifest(
         options.output_dir / "global_xfem_newton_manifest.json",
         options,
         spec,
-        summary);
+        summary,
+        cohesive);
     return summary;
 }
 
@@ -1487,6 +2472,8 @@ void write_manifest(
         << global_xfem_newton.rebar_element_count << ",\n"
         << "    \"rebar_coupling_count\": "
         << global_xfem_newton.rebar_coupling_count << ",\n"
+        << "    \"crack_crossing_rebar_element_count\": "
+        << global_xfem_newton.crack_crossing_rebar_element_count << ",\n"
         << "    \"point_count\": "
         << global_xfem_newton.point_count << ",\n"
         << "    \"peak_abs_base_shear_mn\": "
@@ -1589,32 +2576,64 @@ int main(int argc, char** argv)
             axial_stress_mpa / std::max(ec_mpa, 1.0e-12) *
             options.characteristic_length_mm;
 
-        auto cohesive = fall_n::xfem::make_crack_band_consistent_cohesive_law(
-            ec_mpa,
-            gc_mpa,
-            ft_mpa,
-            gf_n_per_mm,
+        auto configure_shear_transfer =
+            [&](fall_n::xfem::BilinearCohesiveLawParameters& law,
+                double opening_decay,
+                double shear_cap_mpa) {
+                law.shear_transfer_law.kind =
+                    parse_shear_law(options.shear_transfer_law);
+                law.shear_transfer_law.residual_ratio =
+                    options.residual_shear_fraction;
+                law.shear_transfer_law.large_opening_ratio =
+                    options.residual_shear_fraction;
+                law.shear_transfer_law.opening_decay_strain =
+                    std::max(opening_decay, 1.0e-12);
+                law.shear_transfer_law.max_closed_ratio = 1.0;
+                law.shear_traction_cap =
+                    std::max(shear_cap_mpa, 1.0e-12);
+            };
+
+        auto local_cohesive_mm =
+            fall_n::xfem::make_crack_band_consistent_cohesive_law(
+                ec_mpa,
+                gc_mpa,
+                ft_mpa,
+                gf_n_per_mm,
+                options.characteristic_length_mm,
+                options.cohesive_penalty_scale,
+                1.0,
+                1.0,
+                options.residual_shear_fraction);
+        configure_shear_transfer(
+            local_cohesive_mm,
             options.characteristic_length_mm,
-            options.cohesive_penalty_scale,
-            1.0,
-            1.0,
-            options.residual_shear_fraction);
-        cohesive.shear_transfer_law.kind =
-            parse_shear_law(options.shear_transfer_law);
-        cohesive.shear_transfer_law.residual_ratio =
-            options.residual_shear_fraction;
-        cohesive.shear_transfer_law.large_opening_ratio =
-            options.residual_shear_fraction;
-        cohesive.shear_transfer_law.opening_decay_strain =
-            options.characteristic_length_mm;
-        cohesive.shear_transfer_law.max_closed_ratio = 1.0;
+            options.shear_cap_mpa);
+
+        auto global_cohesive_m = fall_n::xfem::
+            make_metre_jump_crack_band_consistent_cohesive_law_from_mpa_n_per_mm(
+                ec_mpa,
+                gc_mpa,
+                ft_mpa,
+                gf_n_per_mm,
+                options.characteristic_length_mm / 1000.0,
+                options.cohesive_penalty_scale,
+                1.0,
+                1.0,
+                options.residual_shear_fraction);
+        configure_shear_transfer(
+            global_cohesive_m,
+            options.characteristic_length_mm / 1000.0,
+            options.global_xfem_shear_cap_mpa);
+        global_cohesive_m.tangent_mode =
+            parse_global_xfem_cohesive_tangent_mode(
+                options.global_xfem_cohesive_tangent);
 
         const GlobalXFEMNewtonSummary global_xfem_newton =
             run_global_xfem_newton_column_trial(
                 options,
                 spec,
                 protocol,
-                cohesive);
+                global_cohesive_m);
 
         const int nx = std::max(options.section_cells_x, 1);
         const int ny = std::max(options.section_cells_y, 1);
@@ -1667,7 +2686,7 @@ int main(int argc, char** argv)
                     const Eigen::Vector3d tangential_jump{
                         tangential_slip_mm, 0.0, 0.0};
                     auto response = fall_n::xfem::evaluate_bilinear_cohesive_law(
-                        cohesive,
+                        local_cohesive_mm,
                         cell.cohesive,
                         Eigen::Vector3d::UnitZ(),
                         opening_mm,
@@ -1690,7 +2709,9 @@ int main(int argc, char** argv)
                     min_opening = std::min(min_opening, opening_mm);
                     max_damage = std::max(max_damage, response.damage);
                     if (cell.cohesive.max_effective_separation >
-                        ft_mpa / std::max(cohesive.normal_stiffness, 1.0e-12)) {
+                        ft_mpa / std::max(
+                            local_cohesive_mm.normal_stiffness,
+                            1.0e-12)) {
                         ++cracked_cells;
                     }
 

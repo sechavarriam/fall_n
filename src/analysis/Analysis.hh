@@ -25,10 +25,15 @@
 
 // ── 2. Concepts and value types ─────────────────────────────────────────
 #include "AnalysisRouteAudit.hh"
+#include "BorderedMixedControlNewton.hh"
 #include "ComputationalModelSliceAudit.hh"
 #include "ComputationalScopeAudit.hh"
 #include "AnalysisObserver.hh"
 #include "IncrementalControl.hh"
+#include "LocalSubproblemRuntime.hh"
+#include "MixedControlArcLengthContinuation.hh"
+#include "PetscBorderedMixedControlNewton.hh"
+#include "PetscNonlinearAnalysisBorderedAdapter.hh"
 #include "StepDirector.hh"
 #include "SteppableSolver.hh"
 

@@ -128,6 +128,8 @@ void benchmark_surface_manifest_contract_is_explicit_and_stable()
         ReducedRCColumnBenchmarkAnalysisKind::cyclic);
     const auto continuum_surface = make_continuum_benchmark_input_surface(
         ReducedRCColumnBenchmarkAnalysisKind::cyclic);
+    const auto xfem_surface = make_xfem_benchmark_input_surface(
+        ReducedRCColumnBenchmarkAnalysisKind::cyclic);
     const auto structural_surface = make_structural_benchmark_input_surface(
         ReducedRCColumnBenchmarkAnalysisKind::monotonic);
     const auto section_surface = make_section_benchmark_input_surface(
@@ -150,6 +152,15 @@ void benchmark_surface_manifest_contract_is_explicit_and_stable()
                 schema_stable_for_wrappers &&
             continuum_surface.stable_manifest_contract &&
             continuum_surface.intended_for_future_python_julia_wrappers);
+    report(
+        "xfem benchmark surface is declared wrapper-friendly",
+        xfem_surface.driver_kind ==
+                ReducedRCColumnBenchmarkDriverKind::xfem_reference_benchmark &&
+            xfem_surface.wrapper_surface_readiness ==
+                ReducedRCColumnWrapperSurfaceReadinessKind::
+                    schema_stable_for_wrappers &&
+            xfem_surface.stable_manifest_contract &&
+            xfem_surface.intended_for_future_python_julia_wrappers);
     report(
         "structural benchmark surface keeps the same manifest contract",
         structural_surface.stable_manifest_contract &&

@@ -376,6 +376,7 @@ target_include_directories(
     fall_n_reduced_rc_xfem_reference_benchmark PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(
     fall_n_reduced_rc_xfem_reference_benchmark PUBLIC
+    MPI::MPI_CXX
     PkgConfig::PETSC
     Eigen3::Eigen
     ${VTK_LIBRARIES})
@@ -544,6 +545,11 @@ set_target_properties(fall_n_affine_section_subscale_model_test PROPERTIES
 fall_n_add_test(TARGET fall_n_micro_solve_executor_test
     NAME micro_solve_executor  SOURCE tests/test_micro_solve_executor.cpp
     LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_local_subproblem_runtime_test
+    NAME local_subproblem_runtime
+    SOURCE tests/test_local_subproblem_runtime.cpp
+    LIBS FULL LABEL unit)
 
 fall_n_add_test(TARGET fall_n_strategy_test
     NAME material_strategy  SOURCE tests/test_material_strategy.cpp
@@ -900,12 +906,37 @@ fall_n_add_test(TARGET fall_n_reduced_rc_column_evidence_closure_catalog_test
     SOURCE tests/test_reduced_rc_column_evidence_closure_catalog.cpp
     LIBS EIGEN  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_reduced_rc_local_model_promotion_catalog_test
+    NAME reduced_rc_local_model_promotion_catalog
+    SOURCE tests/test_reduced_rc_local_model_promotion_catalog.cpp
+    LIBS EIGEN  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_reduced_rc_benchmark_surface_test
     NAME reduced_rc_benchmark_surface
     SOURCE tests/test_reduced_rc_benchmark_surface.cpp
     LIBS FULL  LABEL unit)
 set_target_properties(fall_n_reduced_rc_benchmark_surface_test PROPERTIES
     DISABLE_PRECOMPILE_HEADERS ON)
+
+fall_n_add_test(TARGET fall_n_mixed_control_arc_length_test
+    NAME mixed_control_arc_length
+    SOURCE tests/test_mixed_control_arc_length.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_bordered_mixed_control_newton_test
+    NAME bordered_mixed_control_newton
+    SOURCE tests/test_bordered_mixed_control_newton.cpp
+    LIBS EIGEN LABEL unit)
+
+fall_n_add_test(TARGET fall_n_petsc_bordered_mixed_control_newton_test
+    NAME petsc_bordered_mixed_control_newton
+    SOURCE tests/test_petsc_bordered_mixed_control_newton.cpp
+    LIBS CORE LABEL unit)
+
+fall_n_add_test(TARGET fall_n_petsc_nonlinear_analysis_bordered_adapter_test
+    NAME petsc_nonlinear_analysis_bordered_adapter
+    SOURCE tests/test_petsc_nonlinear_analysis_bordered_adapter.cpp
+    LIBS FULL LABEL unit)
 
 fall_n_add_test(TARGET fall_n_reduced_rc_column_truss_baseline_test
     NAME reduced_rc_column_truss_baseline

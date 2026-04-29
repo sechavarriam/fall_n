@@ -2,10 +2,14 @@
 #define FALL_N_SRC_ANALYSIS_MULTISCALE_API_HH
 
 #include "BeamMacroBridge.hh"
+#include "BorderedMixedControlNewton.hh"
 #include "CouplingStrategy.hh"
+#include "LocalSubproblemRuntime.hh"
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleAnalysis.hh"
 #include "MultiscaleModel.hh"
+#include "PetscBorderedMixedControlNewton.hh"
+#include "PetscNonlinearAnalysisBorderedAdapter.hh"
 #include "SubscaleModelConcepts.hh"
 #include "MultiscaleTypes.hh"
 #include "SteppableSolver.hh"

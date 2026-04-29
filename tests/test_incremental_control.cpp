@@ -385,11 +385,56 @@ void test_small_residual_acceptance_policy() {
 }
 
 // =============================================================================
-//  Test 7: Concept satisfaction (compile-time checks)
+//  Test 7: Trial residual/tangent evaluation API
+// =============================================================================
+
+void test_trial_residual_tangent_evaluation_api() {
+    std::cout << "\nTest 7: trial residual/tangent evaluation API\n";
+
+    Domain<DIM> D;
+    create_unit_cube(D);
+
+    ContinuumIsotropicElasticMaterial elastic{200.0, 0.3};
+    Material<Policy> mat{elastic, ElasticUpdate{}};
+
+    Model<Policy, continuum::SmallStrain, NDOF> M{D, mat};
+    M.fix_x(0.0);
+    M.setup();
+
+    const double f_per_node = 1.0 / 4.0;
+    for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
+        M.apply_node_force(id, f_per_node, 0.0, 0.0);
+
+    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    nl.begin_incremental(4, 2, LoadControl{});
+
+    auto trial_u = nl.clone_solution_vector();
+    auto residual = nl.create_global_vector();
+    auto tangent = nl.create_tangent_matrix();
+
+    nl.apply_incremental_control_parameter(0.5);
+    nl.evaluate_residual_at(trial_u.get(), residual.get());
+    nl.evaluate_tangent_at(trial_u.get(), tangent.get());
+
+    PetscReal residual_norm = 0.0;
+    PetscReal tangent_norm = 0.0;
+    VecNorm(residual.get(), NORM_2, &residual_norm);
+    MatNorm(tangent.get(), NORM_FROBENIUS, &tangent_norm);
+
+    check(residual_norm > 1.0e-12,
+          "trial residual sees the externally applied half-load");
+    check(tangent_norm > 1.0e-12,
+          "trial tangent assembles through the same DMPlex algebra");
+    check(std::abs(nl.current_time()) < 1.0e-14,
+          "trial control evaluation does not advance the incremental clock");
+}
+
+// =============================================================================
+//  Test 8: Concept satisfaction (compile-time checks)
 // =============================================================================
 
 void test_concept_satisfaction() {
-    std::cout << "\nTest 7: Concept satisfaction (compile-time)\n";
+    std::cout << "\nTest 8: Concept satisfaction (compile-time)\n";
 
     using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
 
@@ -429,6 +474,7 @@ int main(int argc, char** argv) {
     test_batched_imposed_value_finalization();
     test_custom_control();
     test_small_residual_acceptance_policy();
+    test_trial_residual_tangent_evaluation_api();
     test_concept_satisfaction();
 
     std::cout << "\n=== Summary: " << passed << " passed, "
