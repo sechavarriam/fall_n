@@ -96,9 +96,10 @@ void write_closure_summary_csv(
     std::ofstream ofs(path);
     ofs << "positive_branch_point_count,structural_max_curvature_y,"
            "section_baseline_max_curvature_y,max_abs_axial_force_error_MN,"
-           "max_rel_axial_force_error,max_abs_moment_error_MNm,"
-           "max_rel_moment_error,rms_rel_moment_error,max_abs_tangent_error,"
-           "max_rel_tangent_error,max_abs_secant_error,max_rel_secant_error,"
+           "max_rel_axial_force_error,rms_rel_axial_force_error,"
+           "max_abs_moment_error_MNm,max_rel_moment_error,rms_rel_moment_error,"
+           "max_abs_tangent_error,max_rel_tangent_error,rms_rel_tangent_error,"
+           "max_abs_secant_error,max_rel_secant_error,rms_rel_secant_error,"
            "moment_within_representative_tolerance,"
            "tangent_within_representative_tolerance,"
            "secant_within_representative_tolerance,"
@@ -110,13 +111,16 @@ void write_closure_summary_csv(
         << summary.section_baseline_max_curvature_y << ","
         << summary.max_abs_axial_force_error << ","
         << summary.max_rel_axial_force_error << ","
+        << summary.rms_rel_axial_force_error << ","
         << summary.max_abs_moment_error << ","
         << summary.max_rel_moment_error << ","
         << summary.rms_rel_moment_error << ","
         << summary.max_abs_tangent_error << ","
         << summary.max_rel_tangent_error << ","
+        << summary.rms_rel_tangent_error << ","
         << summary.max_abs_secant_error << ","
         << summary.max_rel_secant_error << ","
+        << summary.rms_rel_secant_error << ","
         << (summary.moment_within_representative_tolerance ? 1 : 0) << ","
         << (summary.tangent_within_representative_tolerance ? 1 : 0) << ","
         << (summary.secant_within_representative_tolerance ? 1 : 0) << ","
@@ -315,6 +319,9 @@ extract_first_positive_monotonic_branch(
     summary.section_baseline_max_curvature_y = records.back().curvature_y;
 
     double squared_rel_moment_error_sum = 0.0;
+    double squared_rel_tangent_error_sum = 0.0;
+    double squared_rel_secant_error_sum = 0.0;
+    double squared_rel_axial_force_error_sum = 0.0;
 
     std::size_t active_curvature_count = 0;
 
@@ -323,6 +330,8 @@ extract_first_positive_monotonic_branch(
             std::max(summary.max_abs_axial_force_error, row.abs_axial_force_error);
         summary.max_rel_axial_force_error =
             std::max(summary.max_rel_axial_force_error, row.rel_axial_force_error);
+        squared_rel_axial_force_error_sum +=
+            row.rel_axial_force_error * row.rel_axial_force_error;
         summary.max_abs_moment_error =
             std::max(summary.max_abs_moment_error, row.abs_moment_error);
         summary.max_rel_moment_error =
@@ -339,14 +348,29 @@ extract_first_positive_monotonic_branch(
             std::max(summary.max_abs_tangent_error, row.abs_tangent_error);
         summary.max_rel_tangent_error =
             std::max(summary.max_rel_tangent_error, row.rel_tangent_error);
+        squared_rel_tangent_error_sum +=
+            row.rel_tangent_error * row.rel_tangent_error;
         summary.max_abs_secant_error =
             std::max(summary.max_abs_secant_error, row.abs_secant_error);
         summary.max_rel_secant_error =
             std::max(summary.max_rel_secant_error, row.rel_secant_error);
+        squared_rel_secant_error_sum +=
+            row.rel_secant_error * row.rel_secant_error;
     }
 
     summary.rms_rel_moment_error = std::sqrt(
         squared_rel_moment_error_sum / static_cast<double>(records.size()));
+    summary.rms_rel_axial_force_error = std::sqrt(
+        squared_rel_axial_force_error_sum /
+        static_cast<double>(records.size()));
+    if (active_curvature_count > 0) {
+        const auto active_count_d =
+            static_cast<double>(active_curvature_count);
+        summary.rms_rel_tangent_error = std::sqrt(
+            squared_rel_tangent_error_sum / active_count_d);
+        summary.rms_rel_secant_error = std::sqrt(
+            squared_rel_secant_error_sum / active_count_d);
+    }
 
     summary.moment_within_representative_tolerance =
         summary.max_rel_moment_error <=
@@ -360,6 +384,19 @@ extract_first_positive_monotonic_branch(
     summary.axial_force_within_representative_tolerance =
         summary.max_rel_axial_force_error <=
         spec.representative_axial_force_relative_tolerance;
+
+    summary.moment_rms_within_representative_tolerance =
+        summary.rms_rel_moment_error <=
+        spec.representative_moment_rms_relative_tolerance;
+    summary.tangent_rms_within_representative_tolerance =
+        summary.rms_rel_tangent_error <=
+        spec.representative_tangent_rms_relative_tolerance;
+    summary.secant_rms_within_representative_tolerance =
+        summary.rms_rel_secant_error <=
+        spec.representative_secant_rms_relative_tolerance;
+    summary.axial_force_rms_within_representative_tolerance =
+        summary.rms_rel_axial_force_error <=
+        spec.representative_axial_force_rms_relative_tolerance;
 
     if (active_curvature_count == 0) {
         throw std::runtime_error(

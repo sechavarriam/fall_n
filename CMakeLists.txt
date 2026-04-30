@@ -1067,6 +1067,85 @@ set_tests_properties(
     case5_frontier_probe
     PROPERTIES TIMEOUT 600)
 
+# ── Long-running validation_reboot studies (Phase 3 sweeps) ──────────────────
+# These are intentionally exhaustive (36-case structural matrix × cyclic +
+# monotonic protocols × quadrature/node sweeps). They legitimately need >180 s
+# headroom and are skipped from the default `unit` lane.
+set_tests_properties(
+    reduced_rc_column_moment_curvature_closure_matrix
+    reduced_rc_column_node_refinement_study
+    reduced_rc_column_cyclic_node_refinement_study
+    reduced_rc_column_cyclic_continuation_sensitivity_study
+    reduced_rc_column_quadrature_sensitivity_study
+    reduced_rc_column_cyclic_quadrature_sensitivity_study
+    PROPERTIES TIMEOUT 1800)
+
+# ── Plan-v2 phase / workstream labels (additive, do not displace `unit`/`integration`/`slow`) ──
+# These reflect the canonical workstream table in
+# `src/validation/ValidationCampaignCatalog.hh` and the matrix axis frozen in
+# `src/validation/ReducedRCColumnStructuralMatrixCatalog.hh`. They allow:
+#   ctest -L validation_reboot          → full reboot suite
+#   ctest -L phase3_structural_matrix   → 36-case 𝔅_phase3 sweep + matrix
+#   ctest -L phaseN                     → tests gating workstream phase N
+
+# validation_reboot : the whole reboot harness (catalogs + baselines + closures + studies)
+set(_FN_VALIDATION_REBOOT_TESTS
+    validation_campaign_catalog
+    reduced_rc_column_structural_matrix
+    reduced_rc_column_section_baseline
+    reduced_rc_column_material_baseline
+    reduced_rc_column_continuum_baseline
+    reduced_rc_column_moment_curvature_closure
+    reduced_rc_column_moment_curvature_closure_matrix
+    reduced_rc_column_node_refinement_study
+    reduced_rc_column_cyclic_node_refinement_study
+    reduced_rc_column_cyclic_continuation_sensitivity_study
+    reduced_rc_column_quadrature_sensitivity_study
+    reduced_rc_column_cyclic_quadrature_sensitivity_study
+    reduced_rc_column_validation_claim_catalog
+    reduced_rc_column_benchmark_trace_catalog
+    reduced_rc_column_evidence_closure_catalog
+    reduced_rc_local_model_promotion_catalog
+    reduced_rc_local_mesh_scale_audit
+    reduced_rc_petsc_matrix_storage_audit
+    reduced_rc_multiscale_validation_start_catalog
+    reduced_rc_multiscale_replay_plan
+    reduced_rc_multiscale_runtime_policy
+    reduced_rc_local_site_batch_plan
+    reduced_rc_local_site_replay_runner
+    reduced_rc_multiscale_readiness_gate
+    reduced_rc_benchmark_surface
+    reduced_rc_column_truss_baseline)
+foreach(_t IN LISTS _FN_VALIDATION_REBOOT_TESTS)
+    set_property(TEST ${_t} APPEND PROPERTY LABELS validation_reboot)
+endforeach()
+
+# phase3_structural_matrix : 36-case 𝔅_phase3 + sweep studies
+set(_FN_PHASE3_MATRIX_TESTS
+    reduced_rc_column_structural_matrix
+    reduced_rc_column_moment_curvature_closure_matrix
+    reduced_rc_column_node_refinement_study
+    reduced_rc_column_cyclic_node_refinement_study
+    reduced_rc_column_cyclic_continuation_sensitivity_study
+    reduced_rc_column_quadrature_sensitivity_study
+    reduced_rc_column_cyclic_quadrature_sensitivity_study)
+foreach(_t IN LISTS _FN_PHASE3_MATRIX_TESTS)
+    set_property(TEST ${_t} APPEND PROPERTY LABELS phase3_structural_matrix)
+endforeach()
+
+# Per-phase labels (canonical workstream gating, plan v2 §Fase 0)
+set_property(TEST reduced_rc_column_material_baseline   APPEND PROPERTY LABELS phase0)
+set_property(TEST reduced_rc_column_section_baseline    APPEND PROPERTY LABELS phase1)
+set_property(TEST reduced_rc_column_truss_baseline      APPEND PROPERTY LABELS phase2)
+set_property(TEST reduced_rc_column_continuum_baseline  APPEND PROPERTY LABELS phase2)
+foreach(_t IN LISTS _FN_PHASE3_MATRIX_TESTS)
+    set_property(TEST ${_t} APPEND PROPERTY LABELS phase3)
+endforeach()
+set_property(TEST phase4_hysteretic_cycles              APPEND PROPERTY LABELS phase4)
+set_property(TEST reduced_rc_column_moment_curvature_closure APPEND PROPERTY LABELS phase5)
+set_property(TEST phase5_dynamic_verification           APPEND PROPERTY LABELS phase5)
+set_property(TEST phase6_mpi_scalability                APPEND PROPERTY LABELS phase6)
+
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
