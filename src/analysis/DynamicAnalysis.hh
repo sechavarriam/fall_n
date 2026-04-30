@@ -199,6 +199,13 @@ private:
     struct Context {
         DynamicAnalysis* self;
         ModelT*          model;
+
+        // Reusable scratch buffers for I2Function / I2Jacobian element
+        // assembly. Resized lazily; capacity preserved across TS steps to
+        // avoid heap thrash inside the time-integration hot path.
+        std::vector<Eigen::VectorXd> elem_dofs_scratch{};
+        std::vector<Eigen::VectorXd> elem_f_scratch{};
+        std::vector<Eigen::MatrixXd> elem_K_scratch{};
     };
     Context ctx_{};
 
@@ -260,15 +267,18 @@ private:
 
         const auto num_elems = model->elements().size();
 
+        // Reuse persistent scratch buffers (capacity preserved across calls)
+        auto& elem_dofs = ctx->elem_dofs_scratch;
+        auto& elem_f    = ctx->elem_f_scratch;
+        elem_dofs.resize(num_elems);
+        elem_f   .resize(num_elems);
+
         // Phase 1: Extract element DOFs (sequential)
-        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
         for (std::size_t e = 0; e < num_elems; ++e) {
             elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
         }
 
         // Phase 2: Compute element internal forces (parallel)
-        std::vector<Eigen::VectorXd> elem_f(num_elems);
-
         #ifdef _OPENMP
         #pragma omp parallel for schedule(static)
         #endif
@@ -356,15 +366,18 @@ private:
 
         const auto num_elems = model->elements().size();
 
+        // Reuse persistent scratch buffers (capacity preserved across calls)
+        auto& elem_dofs = ctx->elem_dofs_scratch;
+        auto& elem_K    = ctx->elem_K_scratch;
+        elem_dofs.resize(num_elems);
+        elem_K   .resize(num_elems);
+
         // Phase 1: Extract element DOFs (sequential)
-        std::vector<Eigen::VectorXd> elem_dofs(num_elems);
         for (std::size_t e = 0; e < num_elems; ++e) {
             elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
         }
 
         // Phase 2: Compute element tangent stiffness (parallel)
-        std::vector<Eigen::MatrixXd> elem_K(num_elems);
-
         #ifdef _OPENMP
         #pragma omp parallel for schedule(static)
         #endif

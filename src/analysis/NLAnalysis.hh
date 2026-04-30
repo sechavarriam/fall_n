@@ -596,6 +596,14 @@ private:
         ResidualHook* residual_hook;
         GlobalResidualHook* global_residual_hook;
         JacobianHook* jacobian_hook;
+
+        // Reusable scratch buffers for the local-vector assembly fast path
+        // (FormResidual / FormJacobian). Resized lazily on first use; capacity
+        // is preserved across SNES iterations to avoid heap thrash in the
+        // Newton hot path.
+        std::vector<Eigen::VectorXd> elem_dofs_scratch{};
+        std::vector<Eigen::VectorXd> elem_f_scratch{};
+        std::vector<Eigen::MatrixXd> elem_K_scratch{};
     } ctx_{};
 
     // ─── SNES callback: Residual  R(u) = f_int(u) − f_ext ────────
@@ -631,13 +639,15 @@ private:
         if constexpr (has_explicit_local_nonlinear_api) {
             const auto num_elems = model->elements().size();
 
-            // Fast path for elements exposing local-vector assembly kernels.
-            std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+            // Reuse persistent scratch buffers (capacity preserved across calls)
+            auto& elem_dofs = ctx->elem_dofs_scratch;
+            auto& elem_f    = ctx->elem_f_scratch;
+            elem_dofs.resize(num_elems);
+            elem_f   .resize(num_elems);
+
             for (std::size_t e = 0; e < num_elems; ++e) {
                 elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
             }
-
-            std::vector<Eigen::VectorXd> elem_f(num_elems);
 
             #ifdef _OPENMP
             #pragma omp parallel for schedule(static)
@@ -720,12 +730,15 @@ private:
         if constexpr (has_explicit_local_nonlinear_api) {
             const auto num_elems = model->elements().size();
 
-            std::vector<Eigen::VectorXd> elem_dofs(num_elems);
+            // Reuse persistent scratch buffers (capacity preserved across calls)
+            auto& elem_dofs = ctx->elem_dofs_scratch;
+            auto& elem_K    = ctx->elem_K_scratch;
+            elem_dofs.resize(num_elems);
+            elem_K   .resize(num_elems);
+
             for (std::size_t e = 0; e < num_elems; ++e) {
                 elem_dofs[e] = model->elements()[e].extract_element_dofs(u_local);
             }
-
-            std::vector<Eigen::MatrixXd> elem_K(num_elems);
 
             #ifdef _OPENMP
             #pragma omp parallel for schedule(static)
