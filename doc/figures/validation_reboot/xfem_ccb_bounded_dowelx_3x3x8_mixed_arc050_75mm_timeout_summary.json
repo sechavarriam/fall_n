@@ -1,0 +1,16 @@
+{
+  "case": "xfem_ccb_bounded_dowelx_3x3x8_mixed_arc050_75mm_probe",
+  "completed_successfully": false,
+  "status": "killed_after_timeout_without_manifest",
+  "timeout_seconds": 2400,
+  "mesh": {
+    "nx": 3,
+    "ny": 3,
+    "nz": 8,
+    "hex_order": "Hex8"
+  },
+  "continuation_kind": "mixed-arc-length",
+  "mixed_arc_target": 0.5,
+  "target_amplitude_mm": 75,
+  "interpretation": "Guarded mixed-control with arc target 0.50 was too expensive for the 3x3x8 75 mm probe: the process exceeded 2400 s and had not written a manifest. This is algorithmic negative evidence for this continuation setting, not a physical rejection of the local model."
+}

@@ -54,11 +54,17 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def read_rows(path: Path) -> list[dict[str, float]]:
-    rows: list[dict[str, float]] = []
+def read_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
-            rows.append({key: float(value) for key, value in row.items()})
+            parsed: dict[str, Any] = {}
+            for key, value in row.items():
+                try:
+                    parsed[key] = float(value)
+                except (TypeError, ValueError):
+                    parsed[key] = value
+            rows.append(parsed)
     return rows
 
 
@@ -97,6 +103,7 @@ def main() -> int:
     args = parse_args()
     flex_manifest = read_json(args.flexural_bundle / "runtime_manifest.json")
     flex_rows = read_rows(args.flexural_bundle / "hysteresis.csv")
+    peak_drift_mm = peak_abs(flex_rows, "drift_mm")
     global_rows: list[dict[str, float]] = []
     global_manifest: dict[str, Any] | None = None
     global_csv = args.flexural_bundle / "global_xfem_newton_hysteresis.csv"
@@ -183,7 +190,7 @@ def main() -> int:
     ax.legend(fontsize=8)
 
     fig.suptitle(
-        "Reduced RC column XFEM local benchmark up to 200 mm",
+        f"Reduced RC column XFEM local benchmark up to {peak_drift_mm:g} mm",
         y=1.03,
         fontsize=12,
     )
@@ -196,8 +203,11 @@ def main() -> int:
     plt.close(fig)
 
     summary = {
-        "benchmark_scope": "reduced_rc_xfem_local_cohesive_hinge_200mm",
+        "benchmark_scope": (
+            f"reduced_rc_xfem_local_cohesive_hinge_{peak_drift_mm:g}mm"
+        ),
         "status": "completed",
+        "peak_drift_mm": peak_drift_mm,
         "interpretation": (
             "First XFEM-in-benchmark branch. It uses a local cohesive base crack "
             "and Menegotto-Pinto steel crossing the crack. Runtime manifests now "

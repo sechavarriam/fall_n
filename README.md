@@ -3909,6 +3909,11 @@ reuse last accepted local responses for inactive sites, and activate expensive
 enriched local models only after a declared strain/force/operator-degradation
 trigger. This is the intended route for future many-site XFEM execution:
 ordinary sites stay cheap, while crack-localizing sites pay for enriched DOFs.
+The runtime now also makes seed memory a first-class policy: callers can cap
+the number of cached local checkpoints, evict inactive/low-demand/oldest seeds
+deterministically, and use a deactivation hysteresis band so XFEM sites do not
+chatter around the enrichment threshold. Those counters are propagated through
+the multiscale report, which makes the 7x7x25 path auditable before full FE2.
 
 The first scaling audit reinforces that we should not refine blindly. The
 promoted `1x1x4` uniform host remains the baseline. A calibrated `1x1x8`
@@ -3931,6 +3936,285 @@ SNES continuation route. The next expensive mesh sweep should wait until the
 real global-XFEM evaluator is attached to the PETSc bordered mixed-control
 Newton backend.
 
+The scaling path now has a cheap pre-run audit instead of relying on intuition
+or sandbox timeouts. `src/validation/ReducedRCLocalMeshScaleAudit.hh` estimates
+host elements, nodes, material points, shifted-Heaviside enriched nodes,
+explicit-bar DOFs, sparse-matrix footprint, nonlinear workspace, material-state
+memory, and solver/OpenMP advice before the model is built. The XFEM driver can
+run this audit without initializing PETSc:
+
+```powershell
+build\fall_n_reduced_rc_xfem_reference_benchmark.exe `
+  --global-xfem-scale-audit-only `
+  --global-xfem-nx 7 --global-xfem-ny 7 --global-xfem-nz 25 `
+  --global-xfem-concrete-material cyclic-crack-band `
+  --global-xfem-crack-crossing-rebar-area-scale 1.0 `
+  --output-dir data\output\cyclic_validation\xfem_scale_audit_7x7x25
+```
+
+For the target `7x7x25` Hex8-XFEM local mesh this reports about `6000` local
+state DOFs, `9800` host material points, `17.2 MiB` estimated sparse matrix
+storage, `724 MiB` direct-factorization risk, and `direct_lu_reference_only`.
+The constitutive state estimate separates the cheap and heavy branches:
+elastic proxy `~= 1.2 MiB`, cyclic crack-band XFEM `~= 7.2 MiB`, and Ko-Bathe
+heavy-reference cost `~= 19.1 MiB` on the same mesh. That means direct LU is
+still acceptable for isolated reference probes, but not as the final many-site
+FE2 strategy. The next production optimization should combine seed-state
+caching, Newton warm-start, adaptive enriched-site activation, and OpenMP
+across independent local sites; single-model PETSc Mat/Vec assembly remains
+serial unless a thread-safe assembly backend is introduced explicitly.
+
+The matrix-storage decision is now explicit instead of aspirational. PETSc's
+[`MatSetOption`](https://petsc.org/release/manualpages/Mat/MatSetOption/)
+distinguishes structural/value symmetry and SPD knowledge, and those properties
+can become unknown again when matrix values change; its
+[`MatCreateSBAIJ`](https://petsc.org/main/manualpages/Mat/MatCreateSBAIJ/)
+creator also assumes square block structure and upper-triangular block storage.
+Consequently the promoted XFEM branch keeps `MATAIJ + LU` as the correctness
+reference and records `symmetric_matrix_storage_recommended = false` until a
+state-by-state tangent symmetry/SPD audit proves otherwise. `BAIJ/SBAIJ` are
+catalogued as guarded candidates, not defaults, because the present local model
+mixes standard host DOFs, shifted-Heaviside enriched DOFs, independent rebar
+nodes and crack-bridge active sets. The scalable direction is therefore
+general-AIJ with physics-aware
+[`fieldsplit`](https://petsc.org/main/manualpages/PC/PCFIELDSPLIT/) or
+[`ASM`](https://petsc.org/release/manualpages/PC/PCASM/)/Schur
+preconditioners; this matches PETSc's own field-split guidance for arbitrary
+index sets or `MATNEST` and the additive-Schwarz path for subdomain blocks.
+
+That direction is now executable but not yet promoted as the small-mesh default.
+`NonlinearSolvePolicy` exposes an opt-in `newton_l2_fgmres_asm` profile:
+Newton with L2 line search, `KSPFGMRES`, `PCASM`, one-cell overlap, and typed
+subdomain solves (`sub_ksp=preonly`, `sub_pc=lu`) under the private
+`falln_asm_` PETSc options prefix. On the real `3x3x8` XFEM probes it preserves
+the same hysteresis as LU. At `25 mm` both policies take `322` nonlinear
+iterations, with wall times `66.7 s` for LU and `68.2 s` for ASM. At `50 mm`,
+LU takes `285.7 s` and `913` iterations, while ASM takes `311.7 s` and `951`
+iterations. The conclusion is deliberately sober: ASM is now a validated
+scaling candidate because it removes the monolithic global factorization path,
+but direct LU remains the robust reference at `624` global DOFs.
+
+The matrix runner `scripts/run_xfem_scale_audit_matrix.py` now turns this into
+a reproducible dry-run sweep. For the cyclic crack-band XFEM cost branch:
+
+| XFEM dry-run mesh | Estimated DOFs | Material points | Direct factor risk |
+|---|---:|---:|---:|
+| `1x1x4` | `204` | `32` | `24.6 MiB` |
+| `2x2x4` | `309` | `128` | `37.3 MiB` |
+| `3x3x8` | `744` | `576` | `89.8 MiB` |
+| `5x5x15` | `2328` | `3000` | `281.0 MiB` |
+| `7x7x25` | `6000` | `9800` | `724.2 MiB` |
+
+This makes the next practical ordering sharper: run `3x3x8` first as the next
+real cyclic smoke, use `5x5x15` as the first rich reference candidate once
+continuation/warm-start is stable, and reserve `7x7x25` for the final local
+model gate or for batched FE2 experiments with site-level parallel execution.
+
+That first `3x3x8` smoke has now been run to `25 mm` with the promoted
+bounded-dowel physics and Newton--L2: it completed in `66.7 s`, accepted `12`
+substeps with `322` accumulated Newton iterations, had no failed attempts,
+reached `max_host_damage = 0.98`, and kept steel below yield at about
+`218 MPa`. This is not yet a structural-equivalence result, but it proves that
+the next scale level is algorithmically reachable before moving to
+`5x5x15`. The same mesh then completed a `50 mm` smoke in `285.7 s` with
+`913` accumulated Newton iterations, `3` failed attempts, bisection level `2`,
+`max_host_damage = 0.98`, and peak steel stress about `375 MPa`. That is a
+useful frontier signal: the model is still physically coherent and
+axial-balanced, but larger amplitudes should move to guarded continuation or
+smaller adaptive increments rather than simply increasing the target drift.
+
+Two `75 mm` attempts on the same `3x3x8` mesh are kept as algorithmic negative
+evidence: mixed observable arc with target `0.50` and fixed-increment Newton--L2
+both exceeded `2400 s` without producing a final manifest. The benchmark now
+therefore writes `global_xfem_newton_progress.csv` incrementally, flushing every
+accepted point before the final manifest is available. Future long runs can be
+timed out without losing the last accepted drift, reaction, steel stress,
+Newton iterations, bisection level, and residual diagnostics.
+
+The promoted `1x1x4` bounded-dowel XFEM branch was also pushed beyond the
+validated `200 mm` closure point to `250 mm` and `300 mm` using mixed-control
+arc length. Both runs completed. The global XFEM solve reached `300 mm` with
+`443` accepted protocol points, `2684` accumulated nonlinear iterations, only
+`3` recovered failed attempts, peak base shear `0.0297 MN`, and peak steel
+stress about `450 MPa`. This is strong algorithmic-stability evidence, but the
+manifest now records the kinematic caveat explicitly: the promoted closure
+branch is `small-strain`, while `corotational` is available as an audit branch.
+`total-lagrangian` and `updated-lagrangian` are now injected as guarded XFEM
+audit paths behind `--allow-guarded-xfem-finite-kinematics`: TL evaluates
+Green-Lagrange strain with the shifted-Heaviside nonlinear material `B`
+operator, and UL evaluates Almansi strain with spatial gradients and current
+volume scaling. They remain opt-in because the cohesive jump, crack normal,
+traction work, geometric tangent, and material history update still need the
+finite-measure audit before promotion.
+
+That corotational seam is now real rather than only aspirational. The
+shifted-Heaviside solid is parameterized by a kinematic policy and delegates
+its enriched bulk operator to `ShiftedHeavisideKinematicPolicy.hh`; the first
+promoted policies are `SmallStrain` and `Corotational`; the guarded audit
+policies are `TotalLagrangian` and `UpdatedLagrangian`. The corotational path
+extracts a polar frame from the enriched displacement gradient, evaluates a
+corotated small-strain measure, rotates stress/tangent back for assembly, and
+rotates the cohesive crack normal with the frozen frame. Dedicated unit tests
+verify that rigid rotation produces essentially zero corotated, Green-Lagrange
+and Almansi strain while the small-strain path correctly sees the spurious
+finite rotation strain; the same tests pin TL/UL stretch strains to their
+expected measures.
+The hot-path API also exposes a slot-provider overload, so XFEM/DG elements can
+inject their enrichment layout without allocating a temporary slot vector at
+every Gauss point.
+
+The first full PETSc/SNES corotational-XFEM run to `200 mm` completed and was
+compared against the structural reference. It is a successful audit branch but
+not yet the promoted branch: peak ratio is about `1.09` and loop work is close
+(`15.36 MN mm` versus `15.18 MN mm` structural), but the RMS gate is just over
+tolerance (`0.102`) and the max-error gate is still high (`0.388`). This is the
+right failure mode: the architecture now supports the policy injection, and the
+physics needs calibration instead of more hidden plumbing.
+
+The crack-crossing reinforcement bridge now has the same finite-rotation seam.
+`--global-xfem-crack-crossing-axis-frame corotational-host` rotates the local
+bridge axis with the host polar frame; the default tangent is still `frozen`
+for continuity with the promoted evidence, and
+`--global-xfem-crack-crossing-host-axis-tangent finite-difference` adds a local
+directional Jacobian for the host-axis projection. On the cheap `steps=4`,
+`200 mm` audit both tangent modes give the same hysteresis
+(`peak ratio ~= 1.093`, normalized RMS `~= 0.123`, normalized max error
+`~= 0.359`), while the finite-difference tangent is slower
+(`62.3 s` versus `43.7 s`). The conclusion is deliberately practical: the
+host-axis frame is physically useful, but the finite-difference tangent is an
+opt-in diagnostic until it improves a difficult full-protocol continuation.
+The plotting script also refuses to score incomplete XFEM runs, so aborted
+branches now write `status = incomplete_xfem_run` instead of a misleading
+promotion gate.
+
+The first guarded TL/UL PETSc smokes are intentionally tiny (`1x1x2`, elastic
+host, `1 mm`) and both complete the four-point cyclic protocol. TL required
+`16` nonlinear iterations in `0.37 s`; UL required `16` iterations in `0.34 s`.
+This is only a plumbing/objectivity checkpoint, not a physics promotion, but it
+proves that the finite-kinematics policy seam, shifted-Heaviside slot layout,
+and PETSc assembly are all executable.
+
+The next tangent audit is now selectable rather than implicit. The default
+cohesive surface tangent remains `frozen-surface-frame`, which is cheap and is
+the right production default while the finite-strain interface is still
+guarded. The new
+`--global-xfem-cohesive-surface-tangent nanson-geometric-surface-frame` option
+adds the analytic directional derivative of `J F^{-T} N` and a local
+normal-traction differential. It keeps the finite-surface sensitivity without
+differentiating the whole element residual. On the same `1x1x2`, `1 mm` elastic
+smoke, it completed TL in `18` nonlinear iterations and `0.91 s`, UL in `18`
+iterations and `0.90 s`, and corotational in `19` iterations and `0.84 s`.
+The full-oracle
+`--global-xfem-cohesive-surface-tangent finite-difference-surface-frame`
+option finite-differences the complete cohesive residual with respect to all
+local DOFs, so standard host DOFs can contribute columns through the Nanson
+area/normal map even though only enriched DOFs carry the cohesive virtual jump.
+On the same `1x1x2`, `1 mm` elastic smoke, the finite-difference surface tangent
+completed TL in `23` nonlinear iterations and `3.59 s`, UL in `23` iterations
+and `3.80 s`, and corotational in `27` iterations and `4.53 s`. That cost is
+too high for a refined production run, but it remains a robust regression target
+for checking the cheaper Nanson-geometric tangent.
+
+The next missing piece has also moved from implicit caveat to executable
+semantics. `ShiftedHeavisideCohesiveKinematics.hh` now evaluates the cohesive
+surface frame separately from the bulk strain: small strain keeps the reference
+normal and area, corotational XFEM rotates the crack normal with the polar
+frame, and TL/UL use Nanson's formula
+`n da = J F^{-T} N dA` to obtain the current normal and area scale. The
+interface residual/tangent now uses that surface weight. TL/UL remain guarded
+because the derivative of `J F^{-T} N` is available through the new
+Nanson-geometric audit tangent, but the traction pull/push convention and the
+finite-strain material-history variables are still not part of a promoted
+consistent tangent.
+
+The mathematical contract behind this seam is now explicit. For an enriched
+host element the displacement field is
+
+```text
+u_h(X) = sum_I N_I(X) u_I
+       + sum_{I in E} N_I(X) [H_phi(X) - H_phi(X_I)] a_I,
+```
+
+where `E` is the set of enriched nodes, `H_phi` is the signed Heaviside
+function associated with the crack level set, and `a_I` are the enriched jump
+unknowns. The bulk deformation gradient is built from the same slot layout,
+`F = I + Grad_X u_h`, so the kinematic policy changes the strain measure
+without duplicating the XFEM element. Small strain uses
+`eps = sym(Grad_X u_h)`. TL uses
+`E = 1/2 (F^T F - I)` and a nonlinear material `B_TL(F)` operator. UL uses
+`e = 1/2 (I - F^{-T} F^{-1})`, spatial gradients
+`grad_x N = grad_X N F^{-1}`, and the current-volume factor `J = det F`.
+Corotational XFEM extracts `F = R U`, evaluates a rotation-filtered strain in
+the polar frame, and rotates the bulk stress/tangent and cohesive normal with
+the frozen `R`.
+
+This gives a crisp objectivity test. If the local motion is a rigid rotation
+`F = Q`, then `E = 0`, `e = 0`, and the corotational strain is zero; the
+small-strain path intentionally fails this test because
+`sym(Q - I) != 0`. The unit test encodes exactly this distinction. The guarded
+status of TL/UL comes from the interface term, not the bulk term: the current
+cohesive work still has the small-strain/reference-frame form
+
+```text
+delta W_c = int_{Gamma_c0} t([[u]]) . delta[[u]] dGamma_0,
+[[u]] = 2 sum_{I in E} N_I a_I.
+```
+
+Before TL/UL are promoted, the Nanson-geometric tangent must be audited on
+larger cyclic paths against the full finite-difference oracle and then combined
+with traction push-forward or pull-back and material-history updates in
+conjugate measures. This is why the implementation makes finite kinematics
+executable but not silent: the CLI requires
+`--allow-guarded-xfem-finite-kinematics`, the manifest records the guard and the
+selected surface tangent, and the promoted multiscale branch remains
+small-strain/corotational until the interface audit closes. The theoretical
+basis follows standard
+finite-deformation FEM and objectivity treatments in Bonet--Wood,
+Crisfield, Belytschko--Liu--Moran--Elkhodary, Marsden--Hughes, and the
+shifted/enriched approximation lineage of Belytschko--Lu--Gu and
+Moes--Dolbow--Belytschko.
+
+The first multiscale handoff is now executable as a one-way replay plan rather
+than an informal next step. `ReducedRCMultiscaleReplayPlan.hh` groups accepted
+structural/local hinge history samples by candidate site, scores them with
+work-conjugate demand indicators (curvature, moment, steel stress, damage and
+loop work), attaches the local mesh-scale cost audit, and deliberately keeps
+`ready_for_two_way_fe2 = false`. The XFEM benchmark now writes both
+`multiscale_replay_plan.json` and `multiscale_replay_site_catalog.csv` beside
+the hysteresis and VTK contract. That gives the next validation stage a stable
+entry point: replay structural histories into selected XFEM sites, use cached
+seed states and Newton warm-starts, profile the batch, and only then promote a
+guarded FE2 step.
+`ReducedRCMultiscaleRuntimePolicy.hh` now turns that catalog into executable
+runtime settings: bounded local seed-cache capacity, adaptive activation, and a
+serial versus OpenMP site-loop recommendation. The intent is that a future
+Python/Julia wrapper can expose the same policy knobs without learning the
+internal C++ model types.
+`ReducedRCLocalSiteBatchPlan.hh` then converts the selected replay sites into
+memory-budgeted local batches. It records batch/slot assignment, hot-state and
+factorization footprint, direct-LU reference versus iterative ASM/field-split
+expectation, seed/warm-start requirements, and VTK replay responsibility. The
+benchmark writes `multiscale_local_site_batch_plan.json/csv`, so the next
+step can run many local sites from an explicit schedule rather than from
+driver-side folklore.
+`ReducedRCLocalSiteReplayRunner.hh` is the next executable seam: it consumes
+that schedule and a local-solver callback, replays each site's structural
+history, bisects failed increments deterministically, and accumulates timing,
+nonlinear iterations, work, steel-stress and damage metrics. It is intentionally
+solver-agnostic, so the same runner can drive the present XFEM local model,
+Ko-Bathe reference probes, or a future DG/XFEM variant without changing the
+multiscale orchestration contract.
+The benchmark now also writes
+`multiscale_local_site_replay_result.json/csv` and
+`multiscale_readiness_gate.json`. The current replay result is deliberately
+labelled `structural_history_replay_oracle`: it validates scheduling,
+cutback/replay bookkeeping, seed/warm-start propagation and metrics, but it is
+not claimed as a physical local XFEM solve. The readiness gate therefore allows
+the next elastic FE2 smoke while blocking guarded enriched FE2 until the same
+runner is bound to the promoted XFEM local-solver callback. That small
+discipline keeps the multiscale entry point executable without inflating the
+scientific claim.
+
 Artifacts:
 
 - [coarse XFEM vs structural hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_global_secant_vs_structural_n10_lobatto_200mm_hysteresis.png)
@@ -3948,6 +4232,33 @@ Artifacts:
 - [guarded mixed-arc XFEM hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_mixed_arc_length_l2_arc050_guarded_vs_structural_200mm_hysteresis.png)
 - [guarded mixed-arc XFEM summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_mixed_arc_length_l2_arc050_guarded_vs_structural_200mm_summary.json)
 - [longitudinal XFEM scaling summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_longitudinal_refinement_calibrated_200mm_summary.json)
+- [7x7x25 XFEM dry-run scale audit](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_scale_audit_7x7x25_summary.json)
+- [7x7x25 XFEM Ko-Bathe-cost dry-run audit](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_scale_audit_7x7x25_ko_bathe_cost_summary.json)
+- [7x7x25 XFEM elastic-cost dry-run audit](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_scale_audit_7x7x25_elastic_cost_summary.json)
+- [XFEM scale audit matrix](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_scale_audit_matrix.png)
+- [XFEM scale audit matrix summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_scale_audit_matrix_summary.json)
+- [`ReducedRCPetscMatrixStorageAudit` catalog](/c:/MyLibs/fall_n/src/validation/ReducedRCPetscMatrixStorageAudit.hh)
+- [`ReducedRCLocalMeshScaleAudit` catalog](/c:/MyLibs/fall_n/src/validation/ReducedRCLocalMeshScaleAudit.hh)
+- [`ReducedRCMultiscaleRuntimePolicy` bridge](/c:/MyLibs/fall_n/src/validation/ReducedRCMultiscaleRuntimePolicy.hh)
+- [`ReducedRCLocalSiteBatchPlan` scheduler](/c:/MyLibs/fall_n/src/validation/ReducedRCLocalSiteBatchPlan.hh)
+- [`ReducedRCLocalSiteReplayRunner` executor seam](/c:/MyLibs/fall_n/src/validation/ReducedRCLocalSiteReplayRunner.hh)
+- [`ReducedRCMultiscaleReadinessGate` promotion gate](/c:/MyLibs/fall_n/src/validation/ReducedRCMultiscaleReadinessGate.hh)
+- [3x3x8 XFEM 25 mm smoke hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_l2_25mm_probe_hysteresis.png)
+- [3x3x8 XFEM 25 mm smoke summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_l2_25mm_probe_summary.json)
+- [3x3x8 XFEM 50 mm smoke hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_l2_50mm_probe_hysteresis.png)
+- [3x3x8 XFEM 50 mm smoke summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_l2_50mm_probe_summary.json)
+- [3x3x8 XFEM LU vs FGMRES+ASM scaling probe](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe.png)
+- [3x3x8 XFEM LU vs FGMRES+ASM summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe_summary.json)
+- [3x3x8 XFEM 75 mm mixed-arc timeout summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_mixed_arc050_75mm_timeout_summary.json)
+- [3x3x8 XFEM 75 mm fixed-increment timeout summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_3x3x8_l2_75mm_timeout_summary.json)
+- [small-strain XFEM large-amplitude frontier](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_smallstrain_large_amplitude_frontier.png)
+- [small-strain XFEM large-amplitude frontier summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_smallstrain_large_amplitude_frontier_summary.json)
+- [300 mm small-strain XFEM hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_300mm_hysteresis.png)
+- [300 mm small-strain XFEM summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_300mm_summary.json)
+- [corotational XFEM 200 mm audit hysteresis](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_corotational_mixed_arc_200mm_hysteresis.png)
+- [corotational XFEM 200 mm audit summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_ccb_bounded_dowelx_nz4_corotational_mixed_arc_200mm_summary.json)
+- [corotational-host frozen tangent smoke summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_corot_host_axis_frozen_tangent_steps4_200mm_summary.json)
+- [corotational-host finite-difference tangent smoke summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_corot_host_axis_fd_tangent_steps4_200mm_summary.json)
 - [extended XFEM scaling summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_refinement_matrix_extended_200mm_summary.json)
 - [mixed-control XFEM refinement summary](/c:/MyLibs/fall_n/doc/figures/validation_reboot/xfem_promoted_bounded_dowel_mixed_refinement_200mm_summary.json)
 - [`LocalSubproblemRuntime` implementation](/c:/MyLibs/fall_n/src/analysis/LocalSubproblemRuntime.hh)
@@ -3956,9 +4267,14 @@ Artifacts:
 - [`PetscBorderedMixedControlNewton` implementation](/c:/MyLibs/fall_n/src/analysis/PetscBorderedMixedControlNewton.hh)
 - [`PetscNonlinearAnalysisBorderedAdapter` implementation](/c:/MyLibs/fall_n/src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh)
 - [`ShiftedHeavisideSolidElement` implementation](/c:/MyLibs/fall_n/src/xfem/ShiftedHeavisideSolidElement.hh)
+- [`ShiftedHeavisideCohesiveKinematics` traction-measure policy](/c:/MyLibs/fall_n/src/xfem/ShiftedHeavisideCohesiveKinematics.hh)
+- [`ReducedRCMultiscaleValidationStartCatalog` VTK and replay contract](/c:/MyLibs/fall_n/src/validation/ReducedRCMultiscaleValidationStartCatalog.hh)
+- [`ReducedRCMultiscaleReplayPlan` one-way replay planner](/c:/MyLibs/fall_n/src/validation/ReducedRCMultiscaleReplayPlan.hh)
 - [`ShiftedHeavisideCrackCrossingRebarElement` implementation](/c:/MyLibs/fall_n/src/xfem/ShiftedHeavisideCrackCrossingRebarElement.hh)
 - [`run_xfem_structural_refinement_matrix.py`](/c:/MyLibs/fall_n/scripts/run_xfem_structural_refinement_matrix.py)
 - [`run_xfem_solver_policy_benchmark.py`](/c:/MyLibs/fall_n/scripts/run_xfem_solver_policy_benchmark.py)
+- [`run_xfem_scale_audit_matrix.py`](/c:/MyLibs/fall_n/scripts/run_xfem_scale_audit_matrix.py)
+- [`plot_xfem_linear_solver_scaling_probe.py`](/c:/MyLibs/fall_n/scripts/plot_xfem_linear_solver_scaling_probe.py)
 
 ### Repository hygiene before the next master push
 

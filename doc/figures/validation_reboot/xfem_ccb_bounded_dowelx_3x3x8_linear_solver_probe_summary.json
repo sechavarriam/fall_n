@@ -1,0 +1,61 @@
+{
+  "scope": "xfem_3x3x8_linear_solver_scaling_probe",
+  "status": "completed",
+  "interpretation": "FGMRES+ASM+subLU is stable on the 3x3x8 probes but is not faster than direct LU at 624 global DOFs. It remains a scalable candidate for larger meshes because it removes the monolithic global factorization; it is not promoted as the small-mesh default.",
+  "cases": [
+    {
+      "label": "25mm_lu",
+      "root": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_25mm_probe",
+      "completed_successfully": true,
+      "solver_profile": "l2",
+      "wall_seconds": 66.7491953,
+      "iterations": 322,
+      "failed_attempts": 0,
+      "max_bisection_level": 0,
+      "peak_base_shear_mn": 0.0103733367317,
+      "peak_steel_mpa": 217.705652214
+    },
+    {
+      "label": "25mm_asm",
+      "root": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_fgmres_asm_25mm_probe",
+      "completed_successfully": true,
+      "solver_profile": "l2-gmres-asm",
+      "wall_seconds": 68.219094,
+      "iterations": 322,
+      "failed_attempts": 0,
+      "max_bisection_level": 0,
+      "peak_base_shear_mn": 0.0103733367314,
+      "peak_steel_mpa": 217.705652208
+    },
+    {
+      "label": "50mm_lu",
+      "root": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_50mm_probe",
+      "completed_successfully": true,
+      "solver_profile": "l2",
+      "wall_seconds": 285.6614391,
+      "iterations": 913,
+      "failed_attempts": 3,
+      "max_bisection_level": 2,
+      "peak_base_shear_mn": 0.0164499997848,
+      "peak_steel_mpa": 375.394808125
+    },
+    {
+      "label": "50mm_asm",
+      "root": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_fgmres_asm_50mm_probe",
+      "completed_successfully": true,
+      "solver_profile": "l2-gmres-asm",
+      "wall_seconds": 311.7051243,
+      "iterations": 951,
+      "failed_attempts": 4,
+      "max_bisection_level": 2,
+      "peak_base_shear_mn": 0.0164499997848,
+      "peak_steel_mpa": 375.394808124
+    }
+  ],
+  "artifacts": {
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe.png",
+    "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe.png",
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe.pdf",
+    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_linear_solver_probe.pdf"
+  }
+}

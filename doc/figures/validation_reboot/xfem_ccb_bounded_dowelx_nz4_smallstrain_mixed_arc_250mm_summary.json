@@ -1,0 +1,253 @@
+{
+  "benchmark_scope": "reduced_rc_xfem_local_cohesive_hinge_250mm",
+  "status": "completed",
+  "peak_drift_mm": 250.0,
+  "interpretation": "First XFEM-in-benchmark branch. It uses a local cohesive base crack and Menegotto-Pinto steel crossing the crack. Runtime manifests now also audit that shifted-Heaviside host-node DOFs are real PETSc section DOFs and that the shifted-Heaviside solid element assembles nonzero volumetric plus cohesive residual/tangent contributions. When present, the global branch is a full PETSc/SNES solve of the shifted-Heaviside solid with concrete, a cohesive crack plane, and Menegotto-Pinto truss bars coupled through the enriched host interpolation. The manifest declares whether the host concrete is the elastic proxy or a nonlinear validation material.",
+  "flexural_branch": {
+    "bundle": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm",
+    "peak_abs_base_shear_mn": 0.0397053698,
+    "loop_work_mn_mm": 39.166421162875004,
+    "peak_abs_steel_stress_mpa": 490.0436112,
+    "max_damage": 1.0,
+    "manifest": {
+      "tool": "fall_n",
+      "status": "completed",
+      "driver_kind": "xfem_local_cohesive_hinge_reference_benchmark",
+      "completed_successfully": true,
+      "local_model_taxonomy": {
+        "discretization_kind": "xfem_local_cohesive_hinge_surrogate",
+        "fracture_representation_kind": "explicit_cohesive_crack_plane",
+        "reinforcement_representation_kind": "section_crossing_menegotto_pinto_bars",
+        "maturity_kind": "future_extension_benchmark_candidate",
+        "supports_discrete_crack_geometry": true,
+        "requires_enriched_dofs": true,
+        "notes": "The main plotted hysteresis uses the local base-hinge surrogate. A separate global_xfem_newton_hysteresis.csv artifact now exercises the PETSc/SNES shifted-Heaviside solid element as a full global solve with Menegotto-Pinto truss bars coupled through the enriched host interpolation."
+      },
+      "global_petsc_xfem_dof_layout_audit": {
+        "completed": true,
+        "global_xfem_solid_kernel_completed": true,
+        "solid_elements": 2,
+        "total_nodes": 12,
+        "enriched_nodes": 8,
+        "standard_node_dofs": 3,
+        "enriched_node_dofs": 6,
+        "first_cut_element_gather_dofs": 48,
+        "first_cut_element_expected_xfem_dofs": 48,
+        "enriched_x_local_index": 3,
+        "enriched_x_global_index": 3,
+        "trial_enriched_residual_norm": 3.17278537089,
+        "trial_enriched_tangent_norm": 30111.6875578,
+        "interpretation": "The enriched host-node unknowns are real PETSc section DOFs and the shifted-Heaviside solid element now assembles volumetric plus cohesive residual/tangent contributions on those DOFs."
+      },
+      "global_xfem_newton_column_trial": {
+        "attempted": true,
+        "completed_successfully": true,
+        "status": "completed",
+        "requested_kinematic_formulation": "small-strain",
+        "effective_kinematic_formulation": "small-strain",
+        "large_amplitude_kinematic_recommendation": "Use small-strain XFEM only as the calibrated 200 mm local-model closure baseline. For larger amplitudes, implement corotational-XFEM first because it removes rigid-rotation bias while preserving the current small-strain concrete and cohesive laws; migrate to UL only after the interface traction/jump measures and material history are made objective.",
+        "mesh_elements": 36,
+        "mesh_nodes": 60,
+        "enriched_nodes": 8,
+        "solver_global_dofs": 132,
+        "rebar_bar_count": 8,
+        "rebar_element_count": 32,
+        "rebar_coupling_count": 24,
+        "crack_crossing_rebar_element_count": 8,
+        "point_count": 310,
+        "peak_abs_base_shear_mn": 0.0283583908953,
+        "peak_abs_steel_stress_mpa": 443.714916483,
+        "max_host_damage": 0.98,
+        "max_damaged_host_points": 32,
+        "wall_seconds": 113.1316288,
+        "manifest": "global_xfem_newton_manifest.json",
+        "hysteresis_csv": "global_xfem_newton_hysteresis.csv"
+      },
+      "protocol": {
+        "amplitudes_mm": "50,100,150,200,250",
+        "steps_per_segment": 8,
+        "point_count": 121,
+        "peak_drift_mm": 250
+      },
+      "reference_spec": {
+        "column_height_m": 3.2,
+        "section_b_m": 0.25,
+        "section_h_m": 0.25,
+        "concrete_fpc_mpa": 30,
+        "steel_fy_mpa": 420
+      },
+      "xfem_surrogate": {
+        "section_cells_x": 2,
+        "section_cells_y": 2,
+        "top_rotation_drift_ratio": 0.5,
+        "tangential_slip_drift_ratio": 0,
+        "characteristic_length_mm": 100,
+        "residual_shear_fraction": 0.05,
+        "shear_transfer_law": "compression-gated-opening",
+        "shear_cap_mpa": 6,
+        "compression_cap_mpa": 36.3,
+        "steel_gauge_length_mm": 100
+      },
+      "observables": {
+        "max_abs_base_shear_mn": 0.0397053697971,
+        "max_damage": 1,
+        "last_base_shear_mn": 0.0148915261691,
+        "last_drift_mm": 0
+      },
+      "timing": {
+        "total_wall_seconds": 113.1966653
+      },
+      "artifacts": {
+        "hysteresis_csv": "hysteresis.csv",
+        "global_xfem_newton_hysteresis_csv": "global_xfem_newton_hysteresis.csv",
+        "global_xfem_newton_manifest": "global_xfem_newton_manifest.json",
+        "cohesive_section_state_csv": "cohesive_section_state.csv",
+        "steel_history_csv": "steel_history.csv"
+      }
+    }
+  },
+  "global_xfem_newton_trial": {
+    "bundle": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm",
+    "peak_abs_base_shear_mn": 0.0283583909,
+    "loop_work_mn_mm": 28.82808258915924,
+    "peak_abs_steel_stress_mpa": 443.7149165,
+    "manifest": {
+      "tool": "fall_n",
+      "driver_kind": "global_shifted_heaviside_xfem_newton_column_trial",
+      "attempted": true,
+      "completed_successfully": true,
+      "status": "completed",
+      "failure_reason": "",
+      "mesh": {
+        "hex_order": "Hex8",
+        "nx": 1,
+        "ny": 1,
+        "nz": 4,
+        "longitudinal_bias_power": 1,
+        "longitudinal_bias_location": "fixed-end",
+        "element_count": 36,
+        "node_count": 60,
+        "enriched_node_count": 8
+      },
+      "dofs": {
+        "local_state_dofs": 204,
+        "solver_global_dofs": 132
+      },
+      "scale_audit": {
+        "estimated_total_state_dofs": 204,
+        "estimated_sparse_nonzeros": 37944,
+        "host_material_point_count": 32,
+        "sparse_matrix_mib": 0.5862159729,
+        "direct_factorization_risk_mib": 24.6210708618,
+        "material_state_mib": 0.0234375,
+        "solver_advice": "direct_lu_smoke_ok",
+        "seed_state_cache_recommended": false,
+        "newton_warm_start_recommended": false,
+        "site_level_openmp_recommended": false,
+        "global_petsc_assembly_openmp_recommended": false,
+        "symmetric_matrix_storage_recommended": false,
+        "symmetric_matrix_storage_requires_tangent_audit": true,
+        "block_matrix_storage_candidate": false,
+        "field_split_or_asm_preconditioner_recommended": false,
+        "plain_gmres_ilu_rejected_for_enriched_branch": true
+      },
+      "reinforcement": {
+        "bar_count": 8,
+        "truss_element_count": 32,
+        "xfem_enriched_penalty_coupling_count": 24,
+        "crack_crossing_rebar_element_count": 8,
+        "crack_crossing_rebar_area_scale": 1,
+        "crack_crossing_gauge_length_mm": 100,
+        "crack_crossing_rebar_mode": "dowel-x",
+        "crack_crossing_bridge_law": "bounded-slip",
+        "crack_crossing_yield_slip_mm": 0.25,
+        "crack_crossing_yield_force_mn": 0.0019,
+        "crack_crossing_hardening_ratio": 0,
+        "crack_crossing_force_cap_mn": 0.0019,
+        "total_area_m2": 0.00160849543864,
+        "coupling_alpha_scale_over_ec": 10000
+      },
+      "physics": {
+        "host_material": "cyclic-crack-band",
+        "residual_tension_fraction": 0.02,
+        "global_xfem_shear_cap_mpa": 0.02,
+        "crack_band_tangent": "secant",
+        "fracture_representation": "shifted_heaviside_planar_base_crack_with_cohesive_surface",
+        "requested_kinematic_formulation": "small-strain",
+        "effective_kinematic_formulation": "small-strain",
+        "xfem_kinematic_support_status": "small-strain-only: TL/UL/corotational policies exist for ContinuumElement, but ShiftedHeavisideSolidElement has not yet migrated its bulk strain, cohesive jump, crack normal, and history update to those finite-rotation frames.",
+        "large_amplitude_kinematic_recommendation": "Use small-strain XFEM only as the calibrated 200 mm local-model closure baseline. For larger amplitudes, implement corotational-XFEM first because it removes rigid-rotation bias while preserving the current small-strain concrete and cohesive laws; migrate to UL only after the interface traction/jump measures and material history are made objective.",
+        "reinforcement_representation": "menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling_and_crack_crossing_rebar_bridge",
+        "cohesive_jump_unit": "m",
+        "cohesive_normal_stiffness_mpa_per_m": 257429.602027,
+        "cohesive_shear_stiffness_mpa_per_m": 107262.334178,
+        "cohesive_fracture_energy_mn_per_m": 6e-05,
+        "cohesive_shear_traction_cap_mpa": 0.02,
+        "cohesive_tangent": "central-fallback",
+        "crack_z_m": 0.6,
+        "crack_z_source": "user_prescribed_physical_position",
+        "axial_compression_mn": 0.02,
+        "concrete_fpc_mpa": 30
+      },
+      "protocol": {
+        "amplitudes_mm": "50,100,150,200,250",
+        "steps_per_segment": 8,
+        "point_count": 310,
+        "peak_abs_drift_mm": 250
+      },
+      "solve_control": {
+        "continuation_kind": "mixed-arc-length",
+        "max_bisections": 8,
+        "solver_max_iterations": 120,
+        "solver_profile": "l2",
+        "solver_cascade": false,
+        "adaptive_increments": true,
+        "mixed_arc_length_status": "completed",
+        "mixed_arc_length_target": 0.5,
+        "mixed_arc_length_reject_factor": 1.5,
+        "mixed_arc_length_reaction_scale_mn": 0.02,
+        "mixed_arc_length_damage_weight": 0.1,
+        "bordered_hybrid_disable_streak": 3,
+        "bordered_hybrid_retry_interval": 12,
+        "mixed_control_accepted_steps": 309,
+        "mixed_control_failed_solver_attempts": 0,
+        "mixed_control_rejected_arc_attempts": 1,
+        "mixed_control_total_cutbacks": 1,
+        "bordered_hybrid_attempted_steps": 0,
+        "bordered_hybrid_successful_steps": 0,
+        "bordered_hybrid_skipped_steps": 0,
+        "mixed_control_max_arc_length": 0.535208711702,
+        "mixed_control_mean_arc_length": 0.095179559359,
+        "total_accepted_substeps": 314,
+        "total_nonlinear_iterations": 2197,
+        "total_failed_attempts": 5,
+        "total_solver_profile_attempts": 319,
+        "max_requested_step_nonlinear_iterations": 147,
+        "max_bisection_level": 5,
+        "hard_step_count": 1
+      },
+      "observables": {
+        "peak_abs_base_shear_mn": 0.0283583908953,
+        "peak_abs_steel_stress_mpa": 443.714916483,
+        "max_host_damage": 0.98,
+        "max_damaged_host_points": 32
+      },
+      "timing": {
+        "total_wall_seconds": 113.1316288
+      },
+      "artifacts": {
+        "hysteresis_csv": "global_xfem_newton_hysteresis.csv",
+        "progress_csv": "global_xfem_newton_progress.csv",
+        "mixed_control_arc_length_csv": "global_xfem_mixed_control_arc_length.csv"
+      }
+    },
+    "diagnostic_note": "This is the full global shifted-Heaviside solid solve. Steel is coupled through the enriched host interpolation; the host concrete law and solver policy are declared in the manifest."
+  },
+  "direct_shear_transfer_sensitivity": null,
+  "artifacts": {
+    "png": "doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm_hysteresis.png",
+    "secondary_png": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm_hysteresis.png",
+    "pdf": "doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm_hysteresis.pdf",
+    "secondary_pdf": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm_hysteresis.pdf"
+  }
+}

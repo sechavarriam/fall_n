@@ -1,4 +1,11 @@
 #include "src/validation/ReducedRCColumnReferenceSpec.hh"
+#include "src/validation/ReducedRCLocalMeshScaleAudit.hh"
+#include "src/validation/ReducedRCLocalSiteBatchPlan.hh"
+#include "src/validation/ReducedRCLocalSiteReplayRunner.hh"
+#include "src/validation/ReducedRCMultiscaleReadinessGate.hh"
+#include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
+#include "src/validation/ReducedRCMultiscaleRuntimePolicy.hh"
+#include "src/validation/ReducedRCMultiscaleValidationStartCatalog.hh"
 #include "src/analysis/MixedControlArcLengthContinuation.hh"
 #include "src/analysis/NLAnalysis.hh"
 #include "src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh"
@@ -65,8 +72,13 @@ struct Options {
     std::string shear_transfer_law{"compression-gated-opening"};
     double global_xfem_shear_cap_mpa{0.05};
     std::string global_xfem_cohesive_tangent{"central-fallback"};
+    std::string global_xfem_cohesive_surface_tangent{
+        "frozen-surface-frame"};
+    std::string global_xfem_cohesive_traction_measure{"current-spatial"};
     std::string global_xfem_concrete_material{"elastic"};
     std::string global_xfem_crack_band_tangent{"secant"};
+    std::string global_xfem_kinematic_formulation{"small-strain"};
+    bool allow_guarded_xfem_finite_kinematics{false};
     double global_xfem_residual_tension_fraction{0.02};
     int global_xfem_max_bisections{8};
     int global_xfem_solver_max_iterations{120};
@@ -85,6 +97,7 @@ struct Options {
     double global_xfem_mixed_arc_reaction_scale_mn{0.02};
     double global_xfem_mixed_arc_damage_weight{0.10};
     bool run_global_xfem_newton{true};
+    bool global_xfem_scale_audit_only{false};
     bool global_xfem_incremental_logging{false};
     int global_xfem_nx{2};
     int global_xfem_ny{2};
@@ -98,6 +111,8 @@ struct Options {
     double global_xfem_crack_crossing_gauge_length_mm{100.0};
     std::string global_xfem_crack_crossing_rebar_mode{"axial"};
     std::string global_xfem_crack_crossing_bridge_law{"material"};
+    std::string global_xfem_crack_crossing_axis_frame{"fixed-global"};
+    std::string global_xfem_crack_crossing_host_axis_tangent{"frozen"};
     double global_xfem_crack_crossing_yield_slip_mm{0.25};
     double global_xfem_crack_crossing_yield_force_mn{
         std::numeric_limits<double>::quiet_NaN()};
@@ -205,6 +220,12 @@ struct GlobalXFEMNewtonSummary {
     double elapsed_seconds{0.0};
     std::string status{"not_run"};
     std::string failure_reason{};
+    std::string requested_kinematic_formulation{"small-strain"};
+    std::string effective_kinematic_formulation{"small-strain"};
+    std::string kinematic_support_status{
+        "xfem_shifted_heaviside_small_strain_only"};
+    std::string large_amplitude_kinematic_recommendation{
+        "corotational_xfem_is_the_next_supported_extension"};
     std::string continuation_kind{"fixed_increment"};
     std::string mixed_control_status{"not_used"};
     double mixed_control_max_arc_length{0.0};
@@ -323,12 +344,16 @@ void write_usage()
         << "[--shear-transfer-law constant-residual|opening-exponential|compression-gated-opening] "
         << "[--global-xfem-shear-cap-mpa value] "
         << "[--global-xfem-cohesive-tangent secant|active-set|central|central-fallback] "
+        << "[--global-xfem-cohesive-surface-tangent frozen-surface-frame|nanson-geometric-surface-frame|finite-difference-surface-frame] "
+        << "[--global-xfem-cohesive-traction-measure reference-nominal|current-spatial|audit-dual] "
         << "[--global-xfem-concrete-material elastic|componentwise-kent-park|cyclic-crack-band] "
         << "[--global-xfem-crack-band-tangent secant|central|central-fallback] "
+        << "[--global-xfem-kinematic-formulation small-strain|corotational|total-lagrangian|updated-lagrangian] "
+        << "[--allow-guarded-xfem-finite-kinematics] "
         << "[--global-xfem-residual-tension-fraction value] "
         << "[--global-xfem-max-bisections N] "
         << "[--global-xfem-solver-max-iterations N] "
-        << "[--global-xfem-solver-profile backtracking|l2|l2-gmres-ilu|trust-region|dogleg|cascade|robust-cascade|quasi-newton|ngmres|ncg|anderson|richardson] "
+        << "[--global-xfem-solver-profile backtracking|l2|l2-gmres-ilu|l2-gmres-asm|trust-region|dogleg|cascade|robust-cascade|quasi-newton|ngmres|ncg|anderson|richardson] "
         << "[--global-xfem-solver-cascade] "
         << "[--global-xfem-adaptive-increments] "
         << "[--global-xfem-continuation fixed-increment|mixed-arc-length|bordered-fixed-control|bordered-fixed-control-hybrid] "
@@ -338,13 +363,16 @@ void write_usage()
         << "[--global-xfem-mixed-arc-min-increment value] "
         << "[--global-xfem-mixed-arc-max-increment value] "
         << "[--global-xfem-mixed-arc-reaction-scale-mn value] "
-        << "[--skip-global-xfem-newton] [--global-xfem-log-incremental] "
+        << "[--skip-global-xfem-newton] [--global-xfem-scale-audit-only] "
+        << "[--global-xfem-log-incremental] "
         << "[--global-xfem-nx N] "
         << "[--global-xfem-ny N] [--global-xfem-nz N] "
         << "[--global-xfem-bias-power value] "
         << "[--global-xfem-bias-location fixed-end|loaded-end|both-ends] "
         << "[--global-xfem-crack-z-m value] "
-        << "[--global-xfem-rebar-coupling-alpha-scale-over-ec value]\n";
+        << "[--global-xfem-rebar-coupling-alpha-scale-over-ec value] "
+        << "[--global-xfem-crack-crossing-axis-frame fixed-global|corotational-host] "
+        << "[--global-xfem-crack-crossing-host-axis-tangent frozen|finite-difference]\n";
 }
 
 [[nodiscard]] Options parse_args(int argc, char** argv)
@@ -397,10 +425,18 @@ void write_usage()
             options.global_xfem_shear_cap_mpa = std::stod(value());
         } else if (flag == "--global-xfem-cohesive-tangent") {
             options.global_xfem_cohesive_tangent = value();
+        } else if (flag == "--global-xfem-cohesive-surface-tangent") {
+            options.global_xfem_cohesive_surface_tangent = value();
+        } else if (flag == "--global-xfem-cohesive-traction-measure") {
+            options.global_xfem_cohesive_traction_measure = value();
         } else if (flag == "--global-xfem-concrete-material") {
             options.global_xfem_concrete_material = value();
         } else if (flag == "--global-xfem-crack-band-tangent") {
             options.global_xfem_crack_band_tangent = value();
+        } else if (flag == "--global-xfem-kinematic-formulation") {
+            options.global_xfem_kinematic_formulation = value();
+        } else if (flag == "--allow-guarded-xfem-finite-kinematics") {
+            options.allow_guarded_xfem_finite_kinematics = true;
         } else if (flag == "--global-xfem-residual-tension-fraction") {
             options.global_xfem_residual_tension_fraction =
                 std::stod(value());
@@ -440,6 +476,8 @@ void write_usage()
                 std::stod(value());
         } else if (flag == "--skip-global-xfem-newton") {
             options.run_global_xfem_newton = false;
+        } else if (flag == "--global-xfem-scale-audit-only") {
+            options.global_xfem_scale_audit_only = true;
         } else if (flag == "--global-xfem-log-incremental") {
             options.global_xfem_incremental_logging = true;
         } else if (flag == "--global-xfem-nx") {
@@ -467,6 +505,11 @@ void write_usage()
             options.global_xfem_crack_crossing_rebar_mode = value();
         } else if (flag == "--global-xfem-crack-crossing-bridge-law") {
             options.global_xfem_crack_crossing_bridge_law = value();
+        } else if (flag == "--global-xfem-crack-crossing-axis-frame") {
+            options.global_xfem_crack_crossing_axis_frame = value();
+        } else if (
+            flag == "--global-xfem-crack-crossing-host-axis-tangent") {
+            options.global_xfem_crack_crossing_host_axis_tangent = value();
         } else if (flag == "--global-xfem-crack-crossing-yield-slip-mm") {
             options.global_xfem_crack_crossing_yield_slip_mm =
                 std::stod(value());
@@ -494,6 +537,113 @@ void write_usage()
     return value;
 }
 
+[[nodiscard]] std::string normalized_xfem_kinematic_formulation(
+    std::string value)
+{
+    value = normalized_material_token(std::move(value));
+    if (value == "small" || value == "small-strain" ||
+        value == "small-strain-xfem") {
+        return "small-strain";
+    }
+    if (value == "corotational" || value == "co-rotational" ||
+        value == "corotational-xfem") {
+        return "corotational";
+    }
+    if (value == "tl" || value == "total-lagrangian") {
+        return "total-lagrangian";
+    }
+    if (value == "ul" || value == "updated-lagrangian") {
+        return "updated-lagrangian";
+    }
+    return value;
+}
+
+void validate_supported_global_xfem_kinematics(const Options& options)
+{
+    const auto formulation = normalized_xfem_kinematic_formulation(
+        options.global_xfem_kinematic_formulation);
+    if (formulation == "small-strain" || formulation == "corotational") {
+        return;
+    }
+    if (formulation == "total-lagrangian" ||
+        formulation == "updated-lagrangian") {
+        (void)options;
+        return;
+    }
+    throw std::invalid_argument(
+        "The global shifted-Heaviside XFEM element currently supports "
+        "--global-xfem-kinematic-formulation small-strain|corotational|"
+        "total-lagrangian|updated-lagrangian. Requested '" +
+        formulation +
+        "'.");
+}
+
+[[nodiscard]] std::string global_xfem_kinematic_support_status(
+    std::string formulation)
+{
+    formulation = normalized_xfem_kinematic_formulation(std::move(formulation));
+    if (formulation == "corotational") {
+        return "corotational-bulk-and-crack-frame: the shifted-Heaviside "
+               "bulk strain filters rigid rotations through a frozen polar "
+               "frame, and the cohesive crack normal is rotated with that "
+               "frame. The default cohesive tangent freezes dR/du, while "
+               "nanson-geometric-surface-frame adds the finite-surface "
+               "measure derivative for TL/UL only and "
+               "--global-xfem-cohesive-surface-tangent "
+               "finite-difference-surface-frame can audit the surface-frame "
+               "derivative at higher cost. The crack-crossing bridge can "
+               "optionally add a directional host-axis tangent. This is the "
+               "first large-rotation audit path, not the final finite-strain "
+               "interface formulation.";
+    }
+    if (formulation == "total-lagrangian") {
+        return "promoted total-Lagrangian XFEM audit: the shifted-Heaviside "
+               "bulk uses Green-Lagrange strain and the nonlinear material "
+               "B operator in the reference configuration. The cohesive "
+               "interface now exposes reference-nominal, current-spatial, "
+               "and audit-dual traction measures. Use reference-nominal for "
+               "the strict reference-surface work-conjugate path and "
+               "current-spatial plus nanson-geometric-surface-frame when "
+               "auditing the pushed current surface. The finite-difference "
+               "surface-frame tangent remains the full residual audit at "
+               "higher cost.";
+    }
+    if (formulation == "updated-lagrangian") {
+        return "guarded updated-Lagrangian XFEM audit: the shifted-Heaviside "
+               "bulk uses Almansi strain, spatial gradients, and current "
+               "volume scaling. The cohesive interface exposes the same "
+               "traction-measure policy as TL, but UL remains a second-stage "
+               "promotion path until current-configuration history updates "
+               "and larger cyclic audits are closed.";
+    }
+    return "small-strain: the shifted-Heaviside bulk strain and cohesive "
+           "crack frame remain in the reference/global small-strain frame.";
+}
+
+[[nodiscard]] std::string global_xfem_large_amplitude_recommendation(
+    std::string formulation)
+{
+    formulation = normalized_xfem_kinematic_formulation(std::move(formulation));
+    if (formulation == "corotational") {
+        return "Use corotational XFEM as the first large-amplitude audit "
+               "path. It is appropriate for filtering rigid-body rotation "
+               "bias while preserving the current small-strain material laws; "
+               "promote it only after rigid-rotation, 200 mm equivalence, and "
+               "larger-mesh convergence checks pass.";
+    }
+    if (formulation == "total-lagrangian" ||
+        formulation == "updated-lagrangian") {
+        return "Use TL as the first promoted finite-kinematics XFEM path "
+               "with reference-nominal cohesive tractions. Use UL as the "
+               "current-configuration audit path and require the dual-work "
+               "traction audit before treating large cyclic runs as closure "
+               "evidence.";
+    }
+    return "Use small-strain XFEM as the calibrated 200 mm local-model "
+           "closure baseline. For larger amplitudes, switch to the "
+           "corotational-XFEM audit path before considering TL/UL.";
+}
+
 [[nodiscard]] fall_n::xfem::CohesiveCrackTangentMode
 parse_global_xfem_cohesive_tangent_mode(std::string value)
 {
@@ -519,6 +669,58 @@ parse_global_xfem_cohesive_tangent_mode(std::string value)
     }
     throw std::invalid_argument(
         "Unsupported global XFEM cohesive tangent mode: " + value);
+}
+
+[[nodiscard]] fall_n::xfem::ShiftedHeavisideSolidOptions::
+    CohesiveSurfaceTangentMode
+    parse_global_xfem_cohesive_surface_tangent_mode(std::string value)
+{
+    std::ranges::replace(value, '_', '-');
+    if (value == "frozen" || value == "frozen-frame" ||
+        value == "frozen-surface" ||
+        value == "frozen-surface-frame") {
+        return fall_n::xfem::ShiftedHeavisideSolidOptions::
+            CohesiveSurfaceTangentMode::frozen_surface_frame;
+    }
+    if (value == "nanson" || value == "nanson-geometric" ||
+        value == "nanson-geometric-frame" ||
+        value == "nanson-geometric-surface-frame" ||
+        value == "analytic-nanson" ||
+        value == "analytic-nanson-surface-frame") {
+        return fall_n::xfem::ShiftedHeavisideSolidOptions::
+            CohesiveSurfaceTangentMode::nanson_geometric_surface_frame;
+    }
+    if (value == "fd" || value == "finite-difference" ||
+        value == "finite-difference-frame" ||
+        value == "finite-difference-surface-frame") {
+        return fall_n::xfem::ShiftedHeavisideSolidOptions::
+            CohesiveSurfaceTangentMode::finite_difference_surface_frame;
+    }
+    throw std::invalid_argument(
+        "Unsupported global XFEM cohesive surface tangent mode: " + value);
+}
+
+[[nodiscard]] fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind
+parse_global_xfem_cohesive_traction_measure(std::string value)
+{
+    std::ranges::replace(value, '_', '-');
+    if (value == "reference" || value == "nominal" ||
+        value == "reference-nominal" || value == "pk" ||
+        value == "reference-piola") {
+        return fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind::
+            reference_nominal;
+    }
+    if (value == "current" || value == "spatial" ||
+        value == "current-spatial" || value == "cauchy") {
+        return fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind::
+            current_spatial;
+    }
+    if (value == "audit" || value == "dual" || value == "audit-dual") {
+        return fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind::
+            audit_dual;
+    }
+    throw std::invalid_argument(
+        "Unsupported global XFEM cohesive traction measure: " + value);
 }
 
 [[nodiscard]] fall_n::LongitudinalBiasLocation
@@ -739,6 +941,203 @@ parse_crack_band_tangent_mode(std::string value)
     return area;
 }
 
+[[nodiscard]] fall_n::ReducedRCLocalConstitutiveCostKind
+global_xfem_constitutive_cost_kind(const Options& options)
+{
+    const std::string token =
+        normalized_material_token(options.global_xfem_concrete_material);
+    if (token == "elastic" || token == "linear-elastic") {
+        return fall_n::ReducedRCLocalConstitutiveCostKind::elastic_proxy;
+    }
+    if (token == "ko-bathe" || token == "ko-bathe-heavy-reference") {
+        return fall_n::ReducedRCLocalConstitutiveCostKind::
+            ko_bathe_heavy_reference;
+    }
+    return fall_n::ReducedRCLocalConstitutiveCostKind::
+        cyclic_crack_band_xfem;
+}
+
+[[nodiscard]] fall_n::ReducedRCLocalMeshScaleInput
+make_global_xfem_local_mesh_scale_input(
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec)
+{
+    const auto rebar = make_global_xfem_rebar_spec(spec);
+    return fall_n::ReducedRCLocalMeshScaleInput{
+        .nx = static_cast<std::size_t>(std::max(options.global_xfem_nx, 1)),
+        .ny = static_cast<std::size_t>(std::max(options.global_xfem_ny, 1)),
+        .nz = static_cast<std::size_t>(std::max(options.global_xfem_nz, 2)),
+        .topology = fall_n::ReducedRCLocalCellTopologyKind::hex8_lagrange,
+        .constitutive_cost = global_xfem_constitutive_cost_kind(options),
+        .shifted_heaviside_xfem = true,
+        .planar_crack_count = 1,
+        .longitudinal_bar_count = rebar.bars.size(),
+        .bars_have_independent_nodes = true,
+        .rebar_subsegments_per_host_element = 1,
+        .crack_crossing_bridge_enabled =
+            options.global_xfem_crack_crossing_rebar_area_scale > 0.0};
+}
+
+[[nodiscard]] fall_n::ReducedRCLocalMeshScaleAudit
+make_global_xfem_scale_audit(
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec)
+{
+    return fall_n::make_reduced_rc_local_mesh_scale_audit(
+        make_global_xfem_local_mesh_scale_input(options, spec));
+}
+
+void write_global_xfem_scale_audit_json(
+    const std::filesystem::path& path,
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec,
+    const fall_n::ReducedRCLocalMeshScaleAudit& audit)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "{\n"
+        << "  \"tool\": \"fall_n\",\n"
+        << "  \"driver_kind\": \"global_shifted_heaviside_xfem_scale_audit\",\n"
+        << "  \"dry_run\": true,\n"
+        << "  \"mesh\": {\n"
+        << "    \"topology\": \""
+        << fall_n::to_string(fall_n::ReducedRCLocalCellTopologyKind::
+                                 hex8_lagrange)
+        << "\",\n"
+        << "    \"nx\": " << std::max(options.global_xfem_nx, 1) << ",\n"
+        << "    \"ny\": " << std::max(options.global_xfem_ny, 1) << ",\n"
+        << "    \"nz\": " << std::max(options.global_xfem_nz, 2) << ",\n"
+        << "    \"longitudinal_bias_power\": "
+        << options.global_xfem_bias_power << ",\n"
+        << "    \"longitudinal_bias_location\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_bias_location))
+        << "\"\n"
+        << "  },\n"
+        << "  \"physics\": {\n"
+        << "    \"host_material\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_concrete_material))
+        << "\",\n"
+        << "    \"constitutive_cost_kind\": \""
+        << fall_n::to_string(global_xfem_constitutive_cost_kind(options))
+        << "\",\n"
+        << "    \"concrete_fpc_mpa\": " << spec.concrete_fpc_mpa << ",\n"
+        << "    \"shifted_heaviside_xfem\": true,\n"
+        << "    \"cohesive_surface_tangent\": \""
+        << json_escape(std::string(fall_n::xfem::to_string(
+               parse_global_xfem_cohesive_surface_tangent_mode(
+                   options.global_xfem_cohesive_surface_tangent))))
+        << "\",\n"
+        << "    \"cohesive_traction_measure\": \""
+        << json_escape(std::string(fall_n::xfem::to_string(
+               parse_global_xfem_cohesive_traction_measure(
+                   options.global_xfem_cohesive_traction_measure))))
+        << "\",\n"
+        << "    \"longitudinal_bar_count\": "
+        << make_global_xfem_rebar_spec(spec).bars.size() << ",\n"
+        << "    \"crack_crossing_bridge_enabled\": "
+        << (options.global_xfem_crack_crossing_rebar_area_scale > 0.0
+                ? "true"
+                : "false")
+        << "\n"
+        << "  },\n"
+        << "  \"kinematics\": {\n"
+        << "    \"requested_formulation\": \""
+        << json_escape(normalized_xfem_kinematic_formulation(
+               options.global_xfem_kinematic_formulation))
+        << "\",\n"
+        << "    \"effective_formulation\": \""
+        << json_escape(normalized_xfem_kinematic_formulation(
+               options.global_xfem_kinematic_formulation))
+        << "\",\n"
+        << "    \"guarded_finite_kinematics_allowed\": "
+        << (options.allow_guarded_xfem_finite_kinematics ? "true" : "false")
+        << ",\n"
+        << "    \"xfem_formulation_guard\": \""
+        << json_escape(global_xfem_kinematic_support_status(
+               options.global_xfem_kinematic_formulation))
+        << "\",\n"
+        << "    \"large_amplitude_recommendation\": \""
+        << json_escape(global_xfem_large_amplitude_recommendation(
+               options.global_xfem_kinematic_formulation))
+        << "\"\n"
+        << "  },\n"
+        << "  \"counts\": {\n"
+        << "    \"host_element_count\": " << audit.host_element_count << ",\n"
+        << "    \"host_node_count\": " << audit.host_node_count << ",\n"
+        << "    \"host_gauss_points_per_element\": "
+        << audit.host_gauss_points_per_element << ",\n"
+        << "    \"host_material_point_count\": "
+        << audit.host_material_point_count << ",\n"
+        << "    \"enriched_node_count\": "
+        << audit.enriched_node_count << ",\n"
+        << "    \"host_displacement_dofs\": "
+        << audit.host_displacement_dofs << ",\n"
+        << "    \"enrichment_dofs\": " << audit.enrichment_dofs << ",\n"
+        << "    \"rebar_node_count\": " << audit.rebar_node_count << ",\n"
+        << "    \"rebar_dofs\": " << audit.rebar_dofs << ",\n"
+        << "    \"crack_crossing_bridge_element_count\": "
+        << audit.crack_crossing_bridge_element_count << ",\n"
+        << "    \"estimated_total_state_dofs\": "
+        << audit.estimated_total_state_dofs << ",\n"
+        << "    \"estimated_sparse_nonzeros\": "
+        << audit.estimated_sparse_nonzeros << "\n"
+        << "  },\n"
+        << "  \"memory_mib\": {\n"
+        << "    \"one_vector\": " << audit.vector_mib << ",\n"
+        << "    \"newton_workspace\": "
+        << audit.newton_workspace_mib << ",\n"
+        << "    \"sparse_matrix\": " << audit.sparse_matrix_mib << ",\n"
+        << "    \"direct_factorization_risk\": "
+        << audit.direct_factorization_risk_mib << ",\n"
+        << "    \"material_state\": "
+        << audit.material_state_mib << ",\n"
+        << "    \"estimated_hot_state\": "
+        << audit.estimated_hot_state_mib << "\n"
+        << "  },\n"
+        << "  \"recommendations\": {\n"
+        << "    \"solver_advice\": \""
+        << fall_n::to_string(audit.solver_advice) << "\",\n"
+        << "    \"seed_state_cache_recommended\": "
+        << (audit.seed_state_cache_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"newton_warm_start_recommended\": "
+        << (audit.newton_warm_start_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"site_level_openmp_recommended\": "
+        << (audit.site_level_openmp_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"global_petsc_assembly_openmp_recommended\": "
+        << (audit.global_petsc_assembly_openmp_recommended ? "true"
+                                                           : "false")
+        << ",\n"
+        << "    \"symmetric_matrix_storage_recommended\": "
+        << (audit.symmetric_matrix_storage_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"symmetric_matrix_storage_requires_tangent_audit\": "
+        << (audit.symmetric_matrix_storage_requires_tangent_audit ? "true"
+                                                                  : "false")
+        << ",\n"
+        << "    \"block_matrix_storage_candidate\": "
+        << (audit.block_matrix_storage_candidate ? "true" : "false")
+        << ",\n"
+        << "    \"field_split_or_asm_preconditioner_recommended\": "
+        << (audit.field_split_or_asm_preconditioner_recommended ? "true"
+                                                                : "false")
+        << ",\n"
+        << "    \"plain_gmres_ilu_rejected_for_enriched_branch\": "
+        << (audit.plain_gmres_ilu_rejected_for_enriched_branch ? "true"
+                                                               : "false")
+        << ",\n"
+        << "    \"parallelism_note\": "
+           "\"OpenMP is recommended first across independent local sites; "
+           "single-model PETSc Mat/Vec assembly remains serial unless an "
+           "explicit thread-safe assembly backend is introduced.\"\n"
+        << "  }\n"
+        << "}\n";
+}
+
 struct AxisLocation {
     int element_index{0};
     double parent_coordinate{0.0};
@@ -885,6 +1284,38 @@ make_crack_crossing_rebar_sites(
     }
     throw std::invalid_argument(
         "Unsupported crack-crossing bridge law: " + law);
+}
+
+[[nodiscard]] fall_n::xfem::CrackCrossingRebarAxisFrameKind
+parse_crack_crossing_axis_frame(std::string frame)
+{
+    frame = normalized_material_token(std::move(frame));
+    if (frame == "fixed" || frame == "fixed-global" ||
+        frame == "global") {
+        return fall_n::xfem::CrackCrossingRebarAxisFrameKind::fixed_global;
+    }
+    if (frame == "corotational" || frame == "corotational-host" ||
+        frame == "host-corotational") {
+        return fall_n::xfem::CrackCrossingRebarAxisFrameKind::
+            corotational_host;
+    }
+    throw std::invalid_argument(
+        "Unsupported crack-crossing bridge axis frame: " + frame);
+}
+
+[[nodiscard]] bool parse_crack_crossing_host_axis_tangent(std::string tangent)
+{
+    tangent = normalized_material_token(std::move(tangent));
+    if (tangent == "frozen" || tangent == "frozen-axis" ||
+        tangent == "none" || tangent == "off") {
+        return false;
+    }
+    if (tangent == "finite-difference" || tangent == "fd" ||
+        tangent == "directional-fd" || tangent == "on") {
+        return true;
+    }
+    throw std::invalid_argument(
+        "Unsupported crack-crossing host-axis tangent mode: " + tangent);
 }
 
 [[nodiscard]] fall_n::xfem::BoundedSlipBridgeParameters
@@ -1106,38 +1537,50 @@ template <typename ModelT>
     return resultant;
 }
 
-void write_global_xfem_newton_csv(
-    const std::filesystem::path& path,
-    const std::vector<GlobalXFEMNewtonRow>& rows)
+void write_global_xfem_newton_csv_header(std::ostream& out)
 {
-    std::ofstream out(path);
-    out << std::setprecision(10)
-        << "step,p,drift_mm,base_shear_MN,axial_reaction_MN,"
+    out << "step,p,drift_mm,base_shear_MN,axial_reaction_MN,"
            "max_abs_steel_stress_MPa,"
            "max_host_damage,damaged_host_points,"
            "accepted_substeps,total_newton_iterations,failed_attempts,"
            "solver_profile_attempts,max_bisection_level,last_snes_reason,"
            "last_ksp_reason,accepted_by_small_residual_policy,residual_norm,"
            "solver_profile_label\n";
+}
+
+void write_global_xfem_newton_csv_row(
+    std::ostream& out,
+    const GlobalXFEMNewtonRow& row)
+{
+    out << row.step << ','
+        << row.p << ','
+        << row.drift_mm << ','
+        << row.base_shear_mn << ','
+        << row.axial_reaction_mn << ','
+        << row.max_abs_steel_stress_mpa << ','
+        << row.max_host_damage << ','
+        << row.damaged_host_points << ','
+        << row.accepted_substeps << ','
+        << row.total_newton_iterations << ','
+        << row.failed_attempts << ','
+        << row.solver_profile_attempts << ','
+        << row.max_bisection_level << ','
+        << row.last_snes_reason << ','
+        << row.last_ksp_reason << ','
+        << (row.accepted_by_small_residual_policy ? 1 : 0) << ','
+        << row.residual_norm << ','
+        << json_escape(row.solver_profile_label) << '\n';
+}
+
+void write_global_xfem_newton_csv(
+    const std::filesystem::path& path,
+    const std::vector<GlobalXFEMNewtonRow>& rows)
+{
+    std::ofstream out(path);
+    out << std::setprecision(10);
+    write_global_xfem_newton_csv_header(out);
     for (const auto& row : rows) {
-        out << row.step << ','
-            << row.p << ','
-            << row.drift_mm << ','
-            << row.base_shear_mn << ','
-            << row.axial_reaction_mn << ','
-            << row.max_abs_steel_stress_mpa << ','
-            << row.max_host_damage << ','
-            << row.damaged_host_points << ','
-            << row.accepted_substeps << ','
-            << row.total_newton_iterations << ','
-            << row.failed_attempts << ','
-            << row.solver_profile_attempts << ','
-            << row.max_bisection_level << ','
-            << row.last_snes_reason << ','
-            << row.last_ksp_reason << ','
-            << (row.accepted_by_small_residual_policy ? 1 : 0) << ','
-            << row.residual_norm << ','
-            << json_escape(row.solver_profile_label) << '\n';
+        write_global_xfem_newton_csv_row(out, row);
     }
 }
 
@@ -1148,6 +1591,7 @@ void write_global_xfem_newton_manifest(
     const GlobalXFEMNewtonSummary& summary,
     const fall_n::xfem::BilinearCohesiveLawParameters& cohesive)
 {
+    const auto scale_audit = make_global_xfem_scale_audit(options, spec);
     std::ofstream out(path);
     out << std::setprecision(12)
         << "{\n"
@@ -1179,6 +1623,55 @@ void write_global_xfem_newton_manifest(
         << "    \"local_state_dofs\": " << summary.local_state_dofs << ",\n"
         << "    \"solver_global_dofs\": " << summary.solver_global_dofs << "\n"
         << "  },\n"
+        << "  \"scale_audit\": {\n"
+        << "    \"estimated_total_state_dofs\": "
+        << scale_audit.estimated_total_state_dofs << ",\n"
+        << "    \"estimated_sparse_nonzeros\": "
+        << scale_audit.estimated_sparse_nonzeros << ",\n"
+        << "    \"host_material_point_count\": "
+        << scale_audit.host_material_point_count << ",\n"
+        << "    \"sparse_matrix_mib\": "
+        << scale_audit.sparse_matrix_mib << ",\n"
+        << "    \"direct_factorization_risk_mib\": "
+        << scale_audit.direct_factorization_risk_mib << ",\n"
+        << "    \"material_state_mib\": "
+        << scale_audit.material_state_mib << ",\n"
+        << "    \"solver_advice\": \""
+        << fall_n::to_string(scale_audit.solver_advice) << "\",\n"
+        << "    \"seed_state_cache_recommended\": "
+        << (scale_audit.seed_state_cache_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"newton_warm_start_recommended\": "
+        << (scale_audit.newton_warm_start_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"site_level_openmp_recommended\": "
+        << (scale_audit.site_level_openmp_recommended ? "true" : "false")
+        << ",\n"
+        << "    \"global_petsc_assembly_openmp_recommended\": "
+        << (scale_audit.global_petsc_assembly_openmp_recommended ? "true"
+                                                                 : "false")
+        << ",\n"
+        << "    \"symmetric_matrix_storage_recommended\": "
+        << (scale_audit.symmetric_matrix_storage_recommended ? "true"
+                                                            : "false")
+        << ",\n"
+        << "    \"symmetric_matrix_storage_requires_tangent_audit\": "
+        << (scale_audit.symmetric_matrix_storage_requires_tangent_audit
+                ? "true"
+                : "false")
+        << ",\n"
+        << "    \"block_matrix_storage_candidate\": "
+        << (scale_audit.block_matrix_storage_candidate ? "true" : "false")
+        << ",\n"
+        << "    \"field_split_or_asm_preconditioner_recommended\": "
+        << (scale_audit.field_split_or_asm_preconditioner_recommended ? "true"
+                                                                      : "false")
+        << ",\n"
+        << "    \"plain_gmres_ilu_rejected_for_enriched_branch\": "
+        << (scale_audit.plain_gmres_ilu_rejected_for_enriched_branch ? "true"
+                                                                     : "false")
+        << "\n"
+        << "  },\n"
         << "  \"reinforcement\": {\n"
         << "    \"bar_count\": " << summary.rebar_bar_count << ",\n"
         << "    \"truss_element_count\": " << summary.rebar_element_count << ",\n"
@@ -1197,6 +1690,14 @@ void write_global_xfem_newton_manifest(
         << "    \"crack_crossing_bridge_law\": \""
         << json_escape(normalized_material_token(
                options.global_xfem_crack_crossing_bridge_law))
+        << "\",\n"
+        << "    \"crack_crossing_axis_frame\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_crack_crossing_axis_frame))
+        << "\",\n"
+        << "    \"crack_crossing_host_axis_tangent\": \""
+        << json_escape(normalized_material_token(
+               options.global_xfem_crack_crossing_host_axis_tangent))
         << "\",\n"
         << "    \"crack_crossing_yield_slip_mm\": "
         << options.global_xfem_crack_crossing_yield_slip_mm << ",\n"
@@ -1226,6 +1727,18 @@ void write_global_xfem_newton_manifest(
         << "    \"crack_band_tangent\": \""
         << json_escape(options.global_xfem_crack_band_tangent) << "\",\n"
         << "    \"fracture_representation\": \"shifted_heaviside_planar_base_crack_with_cohesive_surface\",\n"
+        << "    \"requested_kinematic_formulation\": \""
+        << json_escape(summary.requested_kinematic_formulation) << "\",\n"
+        << "    \"effective_kinematic_formulation\": \""
+        << json_escape(summary.effective_kinematic_formulation) << "\",\n"
+        << "    \"guarded_finite_kinematics_allowed\": "
+        << (options.allow_guarded_xfem_finite_kinematics ? "true" : "false")
+        << ",\n"
+        << "    \"xfem_kinematic_support_status\": \""
+        << json_escape(summary.kinematic_support_status) << "\",\n"
+        << "    \"large_amplitude_kinematic_recommendation\": \""
+        << json_escape(summary.large_amplitude_kinematic_recommendation)
+        << "\",\n"
         << "    \"reinforcement_representation\": \"menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling_and_crack_crossing_rebar_bridge\",\n"
         << "    \"cohesive_jump_unit\": \"m\",\n"
         << "    \"cohesive_normal_stiffness_mpa_per_m\": "
@@ -1239,6 +1752,16 @@ void write_global_xfem_newton_manifest(
         << "    \"cohesive_tangent\": \""
         << json_escape(normalized_material_token(
                options.global_xfem_cohesive_tangent))
+        << "\",\n"
+        << "    \"cohesive_surface_tangent\": \""
+        << json_escape(std::string(fall_n::xfem::to_string(
+               parse_global_xfem_cohesive_surface_tangent_mode(
+                   options.global_xfem_cohesive_surface_tangent))))
+        << "\",\n"
+        << "    \"cohesive_traction_measure\": \""
+        << json_escape(std::string(fall_n::xfem::to_string(
+               parse_global_xfem_cohesive_traction_measure(
+                   options.global_xfem_cohesive_traction_measure))))
         << "\",\n"
         << "    \"crack_z_m\": " << summary.crack_z_m << ",\n"
         << "    \"crack_z_source\": \""
@@ -1332,6 +1855,7 @@ void write_global_xfem_newton_manifest(
         << "  },\n"
         << "  \"artifacts\": {\n"
         << "    \"hysteresis_csv\": \"global_xfem_newton_hysteresis.csv\",\n"
+        << "    \"progress_csv\": \"global_xfem_newton_progress.csv\",\n"
         << "    \"mixed_control_arc_length_csv\": "
            "\"global_xfem_mixed_control_arc_length.csv\"\n"
         << "  }\n"
@@ -1366,7 +1890,608 @@ void write_global_xfem_mixed_control_arc_csv(
     }
 }
 
-[[nodiscard]] GlobalXFEMNewtonSummary run_global_xfem_newton_column_trial(
+void write_reduced_rc_visualization_contract_json(
+    const std::filesystem::path& path)
+{
+    std::ofstream out(path);
+    out << "{\n"
+        << "  \"schema\": \"reduced_rc_validation_visualization_contract_v1\",\n"
+        << "  \"vtk_collection_policy\": {\n"
+        << "    \"preferred_collection\": \"pvd_or_vtm_time_series\",\n"
+        << "    \"pseudo_time_field\": \"pseudo_time\",\n"
+        << "    \"physical_time_field\": \"physical_time\",\n"
+        << "    \"paraview_goal\": \"animate structural/global and XFEM local fields on the same replay timeline\"\n"
+        << "  },\n"
+        << "  \"fields\": [\n";
+
+    const auto fields = fall_n::canonical_reduced_rc_vtk_field_table_v;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        const auto& field = fields[i];
+        out << "    {\n"
+            << "      \"name\": \"" << json_escape(std::string(field.name))
+            << "\",\n"
+            << "      \"scale\": \""
+            << json_escape(std::string(fall_n::to_string(field.scale_kind)))
+            << "\",\n"
+            << "      \"location\": \""
+            << json_escape(std::string(fall_n::to_string(field.location_kind)))
+            << "\",\n"
+            << "      \"components\": " << field.components << ",\n"
+            << "      \"required_for_pseudo_time\": "
+            << (field.required_for_pseudo_time ? "true" : "false")
+            << ",\n"
+            << "      \"required_for_physical_time\": "
+            << (field.required_for_physical_time ? "true" : "false")
+            << ",\n"
+            << "      \"required_for_multiscale_replay\": "
+            << (field.required_for_multiscale_replay ? "true" : "false")
+            << ",\n"
+            << "      \"interpretation\": \""
+            << json_escape(std::string(field.interpretation)) << "\"\n"
+            << "    }" << (i + 1 == fields.size() ? "\n" : ",\n");
+    }
+
+    out << "  ],\n"
+        << "  \"multiscale_start_stages\": [\n";
+    const auto stages =
+        fall_n::canonical_reduced_rc_multiscale_start_stage_table_v;
+    for (std::size_t i = 0; i < stages.size(); ++i) {
+        const auto& stage = stages[i];
+        out << "    {\n"
+            << "      \"stage\": \""
+            << json_escape(std::string(fall_n::to_string(stage.stage_kind)))
+            << "\",\n"
+            << "      \"key\": \"" << json_escape(std::string(stage.key))
+            << "\",\n"
+            << "      \"driver_hint\": \""
+            << json_escape(std::string(stage.driver_hint)) << "\",\n"
+            << "      \"prerequisite_gate\": \""
+            << json_escape(std::string(stage.prerequisite_gate)) << "\",\n"
+            << "      \"expected_artifact\": \""
+            << json_escape(std::string(stage.expected_artifact)) << "\",\n"
+            << "      \"may_run_before_two_way_fe2\": "
+            << (stage.may_run_before_two_way_fe2 ? "true" : "false")
+            << ",\n"
+            << "      \"requires_xfem_enriched_dofs\": "
+            << (stage.requires_xfem_enriched_dofs ? "true" : "false")
+            << ",\n"
+            << "      \"writes_vtk_time_series\": "
+            << (stage.writes_vtk_time_series ? "true" : "false") << "\n"
+            << "    }" << (i + 1 == stages.size() ? "\n" : ",\n");
+    }
+    out << "  ]\n"
+        << "}\n";
+}
+
+[[nodiscard]] std::vector<fall_n::ReducedRCStructuralReplaySample>
+make_reduced_rc_replay_samples_from_hinge_history(
+    const std::vector<HistoryRow>& rows,
+    const Options& options)
+{
+    std::vector<fall_n::ReducedRCStructuralReplaySample> samples;
+    samples.reserve(rows.size());
+    const double characteristic_length_m =
+        std::max(options.characteristic_length_mm / 1000.0, 1.0e-12);
+    const double denom =
+        rows.size() > 1 ? static_cast<double>(rows.size() - 1) : 1.0;
+
+    double previous_drift_mm = rows.empty() ? 0.0 : rows.front().drift_mm;
+    double previous_base_shear_mn =
+        rows.empty() ? 0.0 : rows.front().base_shear_mn;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        const double drift_increment_mm =
+            i == 0 ? 0.0 : row.drift_mm - previous_drift_mm;
+        const double work_increment =
+            i == 0 ? 0.0
+                   : 0.5 * (row.base_shear_mn + previous_base_shear_mn) *
+                         drift_increment_mm;
+        samples.push_back(fall_n::ReducedRCStructuralReplaySample{
+            .site_index = 0,
+            .pseudo_time = static_cast<double>(i) / denom,
+            .physical_time = static_cast<double>(i) / denom,
+            .z_over_l = 0.02,
+            .drift_mm = row.drift_mm,
+            .curvature_y = row.theta_y_rad / characteristic_length_m,
+            .moment_y_mn_m = row.moment_mn_m,
+            .base_shear_mn = row.base_shear_mn,
+            .steel_stress_mpa = row.max_abs_steel_stress_mpa,
+            .damage_indicator =
+                std::max(row.max_damage, row.cracked_area_fraction),
+            .work_increment_mn_mm = work_increment});
+        previous_drift_mm = row.drift_mm;
+        previous_base_shear_mn = row.base_shear_mn;
+    }
+    return samples;
+}
+
+[[nodiscard]] fall_n::ReducedRCMultiscaleReplayPlan
+make_reduced_rc_multiscale_replay_plan_from_hinge_history(
+    const std::vector<HistoryRow>& rows,
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec)
+{
+    fall_n::ReducedRCMultiscaleReplayPlanSettings settings;
+    settings.max_replay_sites = 3;
+    settings.local_mesh = make_global_xfem_local_mesh_scale_input(options, spec);
+    settings.curvature_activation_threshold = 0.010;
+    settings.moment_activation_threshold_mn_m = 0.015;
+    settings.steel_activation_threshold_mpa = 0.70 * spec.steel_fy_mpa;
+    settings.damage_activation_threshold = 0.20;
+    settings.work_activation_threshold_mn_mm = 2.0;
+    settings.guarded_two_way_score_threshold = 2.50;
+    const auto samples =
+        make_reduced_rc_replay_samples_from_hinge_history(rows, options);
+    return fall_n::make_reduced_rc_multiscale_replay_plan(samples, settings);
+}
+
+void write_reduced_rc_multiscale_replay_plan_csv(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCMultiscaleReplayPlan& plan)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "rank,site_index,z_over_l,sample_count,selected,activation_kind,"
+           "activation_score,peak_abs_curvature_y,peak_abs_moment_y_mn_m,"
+           "peak_abs_base_shear_mn,peak_abs_steel_stress_mpa,"
+           "max_damage_indicator,accumulated_abs_work_mn_mm,"
+           "estimated_hot_state_mib,direct_factorization_risk_mib,"
+           "solver_advice,selection_reason\n";
+    for (std::size_t i = 0; i < plan.sites.size(); ++i) {
+        const auto& site = plan.sites[i];
+        out << i << ','
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << site.sample_count << ','
+            << (site.selected_for_replay ? 1 : 0) << ','
+            << fall_n::to_string(site.activation_kind) << ','
+            << site.activation_score << ','
+            << site.peak_abs_curvature_y << ','
+            << site.peak_abs_moment_y_mn_m << ','
+            << site.peak_abs_base_shear_mn << ','
+            << site.peak_abs_steel_stress_mpa << ','
+            << site.max_damage_indicator << ','
+            << site.accumulated_abs_work_mn_mm << ','
+            << site.local_cost.estimated_hot_state_mib << ','
+            << site.local_cost.direct_factorization_risk_mib << ','
+            << fall_n::to_string(site.local_cost.solver_advice) << ','
+            << '"' << json_escape(std::string(site.selection_reason)) << '"'
+            << '\n';
+    }
+}
+
+void write_reduced_rc_multiscale_replay_plan_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCMultiscaleReplayPlan& plan)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "{\n"
+        << "  \"schema\": \"reduced_rc_multiscale_one_way_replay_plan_v1\",\n"
+        << "  \"scientific_status\": \"one_way_replay_before_two_way_fe2\",\n"
+        << "  \"history_sample_count\": " << plan.history_sample_count << ",\n"
+        << "  \"candidate_site_count\": " << plan.candidate_site_count << ",\n"
+        << "  \"selected_site_count\": " << plan.selected_site_count << ",\n"
+        << "  \"ready_for_one_way_replay\": "
+        << (plan.ready_for_one_way_replay ? "true" : "false") << ",\n"
+        << "  \"ready_for_two_way_fe2\": "
+        << (plan.ready_for_two_way_fe2 ? "true" : "false") << ",\n"
+        << "  \"vtk_contract_satisfied\": "
+        << (plan.vtk_contract_satisfied ? "true" : "false") << ",\n"
+        << "  \"execution_policy\": {\n"
+        << "    \"seed_state_cache_recommended\": "
+        << (plan.seed_state_cache_recommended ? "true" : "false") << ",\n"
+        << "    \"newton_warm_start_recommended\": "
+        << (plan.newton_warm_start_recommended ? "true" : "false") << ",\n"
+        << "    \"site_level_openmp_recommended\": "
+        << (plan.site_level_openmp_recommended ? "true" : "false") << ",\n"
+        << "    \"avoid_direct_lu_for_batch\": "
+        << (plan.avoid_direct_lu_for_batch ? "true" : "false") << ",\n"
+        << "    \"selected_hot_state_mib\": "
+        << plan.selected_hot_state_mib << ",\n"
+        << "    \"selected_direct_factorization_risk_mib\": "
+        << plan.selected_direct_factorization_risk_mib << "\n"
+        << "  },\n"
+        << "  \"sites\": [\n";
+    for (std::size_t i = 0; i < plan.sites.size(); ++i) {
+        const auto& site = plan.sites[i];
+        out << "    {\n"
+            << "      \"rank\": " << i << ",\n"
+            << "      \"site_index\": " << site.site_index << ",\n"
+            << "      \"z_over_l\": " << site.z_over_l << ",\n"
+            << "      \"sample_count\": " << site.sample_count << ",\n"
+            << "      \"selected_for_replay\": "
+            << (site.selected_for_replay ? "true" : "false") << ",\n"
+            << "      \"activation_kind\": \""
+            << fall_n::to_string(site.activation_kind) << "\",\n"
+            << "      \"selection_reason\": \""
+            << json_escape(std::string(site.selection_reason)) << "\",\n"
+            << "      \"activation_score\": "
+            << site.activation_score << ",\n"
+            << "      \"demand\": {\n"
+            << "        \"peak_abs_curvature_y\": "
+            << site.peak_abs_curvature_y << ",\n"
+            << "        \"peak_abs_moment_y_mn_m\": "
+            << site.peak_abs_moment_y_mn_m << ",\n"
+            << "        \"peak_abs_base_shear_mn\": "
+            << site.peak_abs_base_shear_mn << ",\n"
+            << "        \"peak_abs_steel_stress_mpa\": "
+            << site.peak_abs_steel_stress_mpa << ",\n"
+            << "        \"max_damage_indicator\": "
+            << site.max_damage_indicator << ",\n"
+            << "        \"accumulated_abs_work_mn_mm\": "
+            << site.accumulated_abs_work_mn_mm << "\n"
+            << "      },\n"
+            << "      \"local_cost\": {\n"
+            << "        \"estimated_total_state_dofs\": "
+            << site.local_cost.estimated_total_state_dofs << ",\n"
+            << "        \"host_material_point_count\": "
+            << site.local_cost.host_material_point_count << ",\n"
+            << "        \"estimated_hot_state_mib\": "
+            << site.local_cost.estimated_hot_state_mib << ",\n"
+            << "        \"direct_factorization_risk_mib\": "
+            << site.local_cost.direct_factorization_risk_mib << ",\n"
+            << "        \"solver_advice\": \""
+            << fall_n::to_string(site.local_cost.solver_advice) << "\"\n"
+            << "      }\n"
+            << "    }" << (i + 1 == plan.sites.size() ? "\n" : ",\n");
+    }
+    out << "  ],\n"
+        << "  \"artifacts\": {\n"
+        << "    \"site_catalog_csv\": \"multiscale_replay_site_catalog.csv\",\n"
+        << "    \"visualization_contract_json\": \"visualization_contract.json\"\n"
+        << "  }\n"
+        << "}\n";
+}
+
+void write_reduced_rc_multiscale_runtime_policy_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCMultiscaleRuntimePolicy& policy)
+{
+    const auto& runtime = policy.local_runtime_settings;
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "{\n"
+        << "  \"schema\": \"reduced_rc_multiscale_runtime_policy_v1\",\n"
+        << "  \"ready_for_local_site_batch\": "
+        << (policy.ready_for_local_site_batch ? "true" : "false") << ",\n"
+        << "  \"executor_kind\": \""
+        << fall_n::to_string(policy.executor_kind) << "\",\n"
+        << "  \"recommended_site_threads\": "
+        << policy.recommended_site_threads << ",\n"
+        << "  \"local_sites_run_in_parallel\": "
+        << (policy.local_sites_run_in_parallel ? "true" : "false") << ",\n"
+        << "  \"cache_budget_is_bounded\": "
+        << (policy.cache_budget_is_bounded ? "true" : "false") << ",\n"
+        << "  \"direct_lu_kept_as_reference_only\": "
+        << (policy.direct_lu_kept_as_reference_only ? "true" : "false")
+        << ",\n"
+        << "  \"iterative_preconditioner_expected\": "
+        << (policy.iterative_preconditioner_expected ? "true" : "false")
+        << ",\n"
+        << "  \"rationale\": \""
+        << json_escape(std::string(policy.rationale)) << "\",\n"
+        << "  \"local_runtime_settings\": {\n"
+        << "    \"profiling_enabled\": "
+        << (runtime.profiling_enabled ? "true" : "false") << ",\n"
+        << "    \"seed_state_reuse_enabled\": "
+        << (runtime.seed_state_reuse_enabled ? "true" : "false") << ",\n"
+        << "    \"restore_seed_before_solve\": "
+        << (runtime.restore_seed_before_solve ? "true" : "false") << ",\n"
+        << "    \"max_cached_seed_states\": "
+        << runtime.max_cached_seed_states << ",\n"
+        << "    \"adaptive_activation_enabled\": "
+        << (runtime.adaptive_activation_enabled ? "true" : "false") << ",\n"
+        << "    \"keep_active_once_triggered\": "
+        << (runtime.keep_active_once_triggered ? "true" : "false") << ",\n"
+        << "    \"deactivation_metric_threshold\": "
+        << runtime.deactivation_metric_threshold << ",\n"
+        << "    \"prefer_active_seed_retention\": "
+        << (runtime.prefer_active_seed_retention ? "true" : "false")
+        << "\n"
+        << "  },\n"
+        << "  \"artifacts\": {\n"
+        << "    \"replay_plan_json\": \"multiscale_replay_plan.json\",\n"
+        << "    \"site_catalog_csv\": \"multiscale_replay_site_catalog.csv\"\n"
+        << "  }\n"
+        << "}\n";
+}
+
+void write_reduced_rc_local_site_batch_plan_csv(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCLocalSiteBatchPlan& plan)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "batch_index,slot_index,site_index,z_over_l,activation_score,"
+           "estimated_hot_state_mib,direct_factorization_risk_mib,"
+           "solver_kind,seed_restore_required,warm_start_required,"
+           "vtk_time_series_required,rationale\n";
+    for (const auto& row : plan.rows) {
+        out << row.batch_index << ','
+            << row.slot_index << ','
+            << row.site_index << ','
+            << row.z_over_l << ','
+            << row.activation_score << ','
+            << row.estimated_hot_state_mib << ','
+            << row.direct_factorization_risk_mib << ','
+            << fall_n::to_string(row.solver_kind) << ','
+            << (row.seed_restore_required ? 1 : 0) << ','
+            << (row.warm_start_required ? 1 : 0) << ','
+            << (row.vtk_time_series_required ? 1 : 0) << ','
+            << '"' << json_escape(std::string(row.rationale)) << '"'
+            << '\n';
+    }
+}
+
+void write_reduced_rc_local_site_batch_plan_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCLocalSiteBatchPlan& plan)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "{\n"
+        << "  \"schema\": \"reduced_rc_multiscale_local_site_batch_plan_v1\",\n"
+        << "  \"ready_for_local_site_batch\": "
+        << (plan.ready_for_local_site_batch ? "true" : "false") << ",\n"
+        << "  \"ready_for_many_site_replay\": "
+        << (plan.ready_for_many_site_replay ? "true" : "false") << ",\n"
+        << "  \"executor_kind\": \"" << fall_n::to_string(plan.executor_kind)
+        << "\",\n"
+        << "  \"selected_site_count\": " << plan.selected_site_count << ",\n"
+        << "  \"batch_count\": " << plan.batch_count << ",\n"
+        << "  \"max_concurrent_sites\": " << plan.max_concurrent_sites << ",\n"
+        << "  \"recommended_site_threads\": "
+        << plan.recommended_site_threads << ",\n"
+        << "  \"bounded_seed_cache_required\": "
+        << (plan.bounded_seed_cache_required ? "true" : "false") << ",\n"
+        << "  \"iterative_preconditioner_expected\": "
+        << (plan.iterative_preconditioner_expected ? "true" : "false")
+        << ",\n"
+        << "  \"total_estimated_hot_state_mib\": "
+        << plan.total_estimated_hot_state_mib << ",\n"
+        << "  \"max_batch_hot_state_mib\": "
+        << plan.max_batch_hot_state_mib << ",\n"
+        << "  \"total_direct_factorization_risk_mib\": "
+        << plan.total_direct_factorization_risk_mib << ",\n"
+        << "  \"rationale\": \""
+        << json_escape(std::string(plan.rationale)) << "\",\n"
+        << "  \"batches\": [\n";
+    for (std::size_t i = 0; i < plan.batches.size(); ++i) {
+        const auto& batch = plan.batches[i];
+        out << "    {\n"
+            << "      \"batch_index\": " << batch.batch_index << ",\n"
+            << "      \"site_count\": " << batch.site_count << ",\n"
+            << "      \"estimated_hot_state_mib\": "
+            << batch.estimated_hot_state_mib << ",\n"
+            << "      \"direct_factorization_risk_mib\": "
+            << batch.direct_factorization_risk_mib << ",\n"
+            << "      \"recommended_threads\": "
+            << batch.recommended_threads << ",\n"
+            << "      \"dominant_solver_kind\": \""
+            << fall_n::to_string(batch.dominant_solver_kind) << "\",\n"
+            << "      \"uses_parallel_site_loop\": "
+            << (batch.uses_parallel_site_loop ? "true" : "false") << ",\n"
+            << "      \"within_hot_state_budget\": "
+            << (batch.within_hot_state_budget ? "true" : "false") << ",\n"
+            << "      \"direct_lu_within_budget\": "
+            << (batch.direct_lu_within_budget ? "true" : "false")
+            << "\n"
+            << "    }" << (i + 1 == plan.batches.size() ? "\n" : ",\n");
+    }
+    out << "  ],\n"
+        << "  \"sites\": [\n";
+    for (std::size_t i = 0; i < plan.rows.size(); ++i) {
+        const auto& row = plan.rows[i];
+        out << "    {\n"
+            << "      \"batch_index\": " << row.batch_index << ",\n"
+            << "      \"slot_index\": " << row.slot_index << ",\n"
+            << "      \"site_index\": " << row.site_index << ",\n"
+            << "      \"z_over_l\": " << row.z_over_l << ",\n"
+            << "      \"activation_score\": " << row.activation_score << ",\n"
+            << "      \"estimated_hot_state_mib\": "
+            << row.estimated_hot_state_mib << ",\n"
+            << "      \"direct_factorization_risk_mib\": "
+            << row.direct_factorization_risk_mib << ",\n"
+            << "      \"solver_kind\": \""
+            << fall_n::to_string(row.solver_kind) << "\",\n"
+            << "      \"seed_restore_required\": "
+            << (row.seed_restore_required ? "true" : "false") << ",\n"
+            << "      \"warm_start_required\": "
+            << (row.warm_start_required ? "true" : "false") << ",\n"
+            << "      \"vtk_time_series_required\": "
+            << (row.vtk_time_series_required ? "true" : "false") << ",\n"
+            << "      \"rationale\": \""
+            << json_escape(std::string(row.rationale)) << "\"\n"
+            << "    }" << (i + 1 == plan.rows.size() ? "\n" : ",\n");
+    }
+    out << "  ],\n"
+        << "  \"artifacts\": {\n"
+        << "    \"runtime_policy_json\": \"multiscale_runtime_policy.json\",\n"
+        << "    \"replay_plan_json\": \"multiscale_replay_plan.json\"\n"
+        << "  }\n"
+        << "}\n";
+}
+
+void write_reduced_rc_local_site_replay_result_csv(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCLocalSiteReplayRunResult& result)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "batch_index,slot_index,site_index,status,input_sample_count,"
+           "attempted_step_count,accepted_step_count,failed_step_count,"
+           "generated_cutback_step_count,max_cutback_level,"
+           "total_nonlinear_iterations,total_elapsed_seconds,"
+           "accumulated_abs_work_mn_mm,peak_abs_steel_stress_mpa,"
+           "max_damage_indicator,last_drift_mm,last_pseudo_time,"
+           "failure_reason\n";
+    for (const auto& site : result.sites) {
+        out << site.batch_index << ','
+            << site.slot_index << ','
+            << site.site_index << ','
+            << fall_n::to_string(site.status) << ','
+            << site.input_sample_count << ','
+            << site.attempted_step_count << ','
+            << site.accepted_step_count << ','
+            << site.failed_step_count << ','
+            << site.generated_cutback_step_count << ','
+            << site.max_cutback_level << ','
+            << site.total_nonlinear_iterations << ','
+            << site.total_elapsed_seconds << ','
+            << site.accumulated_abs_work_mn_mm << ','
+            << site.peak_abs_steel_stress_mpa << ','
+            << site.max_damage_indicator << ','
+            << site.last_drift_mm << ','
+            << site.last_pseudo_time << ','
+            << '"' << json_escape(std::string(site.failure_reason)) << '"'
+            << '\n';
+    }
+}
+
+void write_reduced_rc_local_site_replay_result_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCLocalSiteReplayRunResult& result,
+    std::string_view local_solver_binding)
+{
+    std::ofstream out(path);
+    out << std::setprecision(12)
+        << "{\n"
+        << "  \"schema\": \"reduced_rc_local_site_replay_result_v1\",\n"
+        << "  \"scientific_status\": "
+           "\"orchestration_smoke_not_physical_local_solve\",\n"
+        << "  \"local_solver_binding\": \""
+        << json_escape(std::string(local_solver_binding)) << "\",\n"
+        << "  \"next_required_binding\": "
+           "\"promoted_xfem_local_model_callback\",\n"
+        << "  \"completed\": " << (result.completed ? "true" : "false")
+        << ",\n"
+        << "  \"ready_for_guarded_fe2_smoke\": "
+        << (result.ready_for_guarded_fe2_smoke ? "true" : "false")
+        << ",\n"
+        << "  \"selected_site_count\": " << result.selected_site_count
+        << ",\n"
+        << "  \"completed_site_count\": " << result.completed_site_count
+        << ",\n"
+        << "  \"failed_site_count\": " << result.failed_site_count << ",\n"
+        << "  \"batch_count\": " << result.batch_count << ",\n"
+        << "  \"attempted_step_count\": " << result.attempted_step_count
+        << ",\n"
+        << "  \"accepted_step_count\": " << result.accepted_step_count
+        << ",\n"
+        << "  \"failed_step_count\": " << result.failed_step_count
+        << ",\n"
+        << "  \"generated_cutback_step_count\": "
+        << result.generated_cutback_step_count << ",\n"
+        << "  \"total_nonlinear_iterations\": "
+        << result.total_nonlinear_iterations << ",\n"
+        << "  \"total_elapsed_seconds\": "
+        << result.total_elapsed_seconds << ",\n"
+        << "  \"max_site_elapsed_seconds\": "
+        << result.max_site_elapsed_seconds << ",\n"
+        << "  \"accumulated_abs_work_mn_mm\": "
+        << result.accumulated_abs_work_mn_mm << ",\n"
+        << "  \"peak_abs_steel_stress_mpa\": "
+        << result.peak_abs_steel_stress_mpa << ",\n"
+        << "  \"max_damage_indicator\": "
+        << result.max_damage_indicator << ",\n"
+        << "  \"batches\": [\n";
+    for (std::size_t i = 0; i < result.batches.size(); ++i) {
+        const auto& batch = result.batches[i];
+        out << "    {\n"
+            << "      \"batch_index\": " << batch.batch_index << ",\n"
+            << "      \"site_count\": " << batch.site_count << ",\n"
+            << "      \"completed_site_count\": "
+            << batch.completed_site_count << ",\n"
+            << "      \"failed_site_count\": " << batch.failed_site_count
+            << ",\n"
+            << "      \"attempted_step_count\": "
+            << batch.attempted_step_count << ",\n"
+            << "      \"accepted_step_count\": "
+            << batch.accepted_step_count << ",\n"
+            << "      \"total_nonlinear_iterations\": "
+            << batch.total_nonlinear_iterations << ",\n"
+            << "      \"total_elapsed_seconds\": "
+            << batch.total_elapsed_seconds << ",\n"
+            << "      \"max_site_elapsed_seconds\": "
+            << batch.max_site_elapsed_seconds << "\n"
+            << "    }"
+            << (i + 1 == result.batches.size() ? "\n" : ",\n");
+    }
+    out << "  ],\n"
+        << "  \"sites\": [\n";
+    for (std::size_t i = 0; i < result.sites.size(); ++i) {
+        const auto& site = result.sites[i];
+        out << "    {\n"
+            << "      \"batch_index\": " << site.batch_index << ",\n"
+            << "      \"slot_index\": " << site.slot_index << ",\n"
+            << "      \"site_index\": " << site.site_index << ",\n"
+            << "      \"status\": \"" << fall_n::to_string(site.status)
+            << "\",\n"
+            << "      \"input_sample_count\": " << site.input_sample_count
+            << ",\n"
+            << "      \"attempted_step_count\": "
+            << site.attempted_step_count << ",\n"
+            << "      \"accepted_step_count\": "
+            << site.accepted_step_count << ",\n"
+            << "      \"failed_step_count\": " << site.failed_step_count
+            << ",\n"
+            << "      \"generated_cutback_step_count\": "
+            << site.generated_cutback_step_count << ",\n"
+            << "      \"max_cutback_level\": " << site.max_cutback_level
+            << ",\n"
+            << "      \"total_nonlinear_iterations\": "
+            << site.total_nonlinear_iterations << ",\n"
+            << "      \"total_elapsed_seconds\": "
+            << site.total_elapsed_seconds << ",\n"
+            << "      \"accumulated_abs_work_mn_mm\": "
+            << site.accumulated_abs_work_mn_mm << ",\n"
+            << "      \"peak_abs_steel_stress_mpa\": "
+            << site.peak_abs_steel_stress_mpa << ",\n"
+            << "      \"max_damage_indicator\": "
+            << site.max_damage_indicator << ",\n"
+            << "      \"last_drift_mm\": " << site.last_drift_mm << ",\n"
+            << "      \"last_pseudo_time\": " << site.last_pseudo_time
+            << ",\n"
+            << "      \"failure_reason\": \""
+            << json_escape(std::string(site.failure_reason)) << "\"\n"
+            << "    }" << (i + 1 == result.sites.size() ? "\n" : ",\n");
+    }
+    out << "  ]\n"
+        << "}\n";
+}
+
+void write_reduced_rc_multiscale_readiness_gate_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCMultiscaleReadinessGate& gate)
+{
+    std::ofstream out(path);
+    out << "{\n"
+        << "  \"schema\": \"reduced_rc_multiscale_readiness_gate_v1\",\n"
+        << "  \"ready_for_one_way_local_replay\": "
+        << (gate.ready_for_one_way_local_replay ? "true" : "false")
+        << ",\n"
+        << "  \"ready_for_elastic_fe2_smoke\": "
+        << (gate.ready_for_elastic_fe2_smoke ? "true" : "false")
+        << ",\n"
+        << "  \"ready_for_guarded_enriched_fe2_smoke\": "
+        << (gate.ready_for_guarded_enriched_fe2_smoke ? "true" : "false")
+        << ",\n"
+        << "  \"physical_local_solver_bound\": "
+        << (gate.physical_local_solver_bound ? "true" : "false") << ",\n"
+        << "  \"local_solver_label\": \""
+        << json_escape(std::string(gate.local_solver_label)) << "\",\n"
+        << "  \"next_stage\": \"" << fall_n::to_string(gate.next_stage)
+        << "\",\n"
+        << "  \"blocking_reason\": \""
+        << json_escape(std::string(gate.blocking_reason)) << "\"\n"
+        << "}\n";
+}
+
+template <typename GlobalXFEMKinematicPolicy>
+    requires fall_n::xfem::ShiftedHeavisideKinematicPolicy<
+        GlobalXFEMKinematicPolicy>
+[[nodiscard]] GlobalXFEMNewtonSummary run_global_xfem_newton_column_trial_impl(
     const Options& options,
     const ReducedRCColumnReferenceSpec& spec,
     const std::vector<double>& protocol,
@@ -1383,6 +2508,16 @@ void write_global_xfem_mixed_control_arc_csv(
     GlobalXFEMNewtonSummary summary{
         .attempted = options.run_global_xfem_newton,
         .status = options.run_global_xfem_newton ? "attempted" : "skipped"};
+    summary.requested_kinematic_formulation =
+        normalized_xfem_kinematic_formulation(
+            options.global_xfem_kinematic_formulation);
+    summary.effective_kinematic_formulation =
+        summary.requested_kinematic_formulation;
+    summary.kinematic_support_status = global_xfem_kinematic_support_status(
+        summary.effective_kinematic_formulation);
+    summary.large_amplitude_kinematic_recommendation =
+        global_xfem_large_amplitude_recommendation(
+            summary.effective_kinematic_formulation);
     summary.continuation_kind =
         normalized_material_token(options.global_xfem_continuation);
     std::vector<GlobalXFEMNewtonRow> rows;
@@ -1443,7 +2578,15 @@ void write_global_xfem_mixed_control_arc_csv(
 
         using XFEMElement =
             fall_n::xfem::ShiftedHeavisideSolidElement<
-                ThreeDimensionalMaterial>;
+                ThreeDimensionalMaterial,
+                GlobalXFEMKinematicPolicy>;
+        fall_n::xfem::ShiftedHeavisideSolidOptions xfem_solid_options;
+        xfem_solid_options.cohesive_surface_tangent_mode =
+            parse_global_xfem_cohesive_surface_tangent_mode(
+                options.global_xfem_cohesive_surface_tangent);
+        xfem_solid_options.cohesive_traction_measure_kind =
+            parse_global_xfem_cohesive_traction_measure(
+                options.global_xfem_cohesive_traction_measure);
         Material<UniaxialMaterial> rebar_material{
             InelasticMaterial<MenegottoPintoSteel>{
                 MenegottoPintoSteel{
@@ -1475,6 +2618,14 @@ void write_global_xfem_mixed_control_arc_csv(
                 std::max(
                     options.global_xfem_crack_crossing_rebar_area_scale,
                     0.0));
+        const fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement::Options
+            crack_crossing_bridge_options{
+                .axis_frame_kind = parse_crack_crossing_axis_frame(
+                    options.global_xfem_crack_crossing_axis_frame),
+                .include_corotational_host_axis_tangent =
+                    parse_crack_crossing_host_axis_tangent(
+                        options
+                            .global_xfem_crack_crossing_host_axis_tangent)};
         const bool global_xfem_has_history_material =
             !rebar.bars.empty() ||
             (!crack_crossing_rebar_sites.empty() &&
@@ -1500,7 +2651,8 @@ void write_global_xfem_mixed_control_arc_csv(
                     &domain.element(element_index),
                     material,
                     base_crack,
-                    cohesive});
+                    cohesive,
+                    xfem_solid_options});
         }
         for (std::size_t element_index = reinforced.rebar_range.first;
              element_index < reinforced.rebar_range.last;
@@ -1527,7 +2679,8 @@ void write_global_xfem_mixed_control_arc_csv(
                             axis,
                             site.area,
                             crack_crossing_gauge_length_m,
-                            bounded_crack_crossing_bridge_parameters});
+                            bounded_crack_crossing_bridge_parameters,
+                            crack_crossing_bridge_options});
                 } else {
                     elements.emplace_back(
                         fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement{
@@ -1536,7 +2689,8 @@ void write_global_xfem_mixed_control_arc_csv(
                             site.local_coordinates,
                             axis,
                             site.area,
-                            crack_crossing_gauge_length_m});
+                            crack_crossing_gauge_length_m,
+                            crack_crossing_bridge_options});
                 }
             }
         }
@@ -1546,7 +2700,7 @@ void write_global_xfem_mixed_control_arc_csv(
 
         using XFEMModel = Model<
             ThreeDimensionalMaterial,
-            continuum::SmallStrain,
+            GlobalXFEMKinematicPolicy,
             3,
             MultiElementPolicy>;
         XFEMModel model{domain, std::move(elements)};
@@ -1674,7 +2828,7 @@ void write_global_xfem_mixed_control_arc_csv(
 
         using XFEMAnalysis = NonlinearAnalysis<
             ThreeDimensionalMaterial,
-            continuum::SmallStrain,
+            GlobalXFEMKinematicPolicy,
             3,
             MultiElementPolicy>;
         XFEMAnalysis analysis{&model};
@@ -1746,6 +2900,18 @@ void write_global_xfem_mixed_control_arc_csv(
                 profile.linear_tuning.ksp_max_iterations = 500;
                 profile.linear_tuning.factor_levels = 1;
                 profile.linear_tuning.ksp_reuse_preconditioner = true;
+                add(profile);
+            } else if (solver_profile_token == "l2-gmres-asm" ||
+                       solver_profile_token == "l2-fgmres-asm" ||
+                       solver_profile_token == "newton-l2-gmres-asm" ||
+                       solver_profile_token == "gmres-asm" ||
+                       solver_profile_token == "fgmres-asm") {
+                auto profile = fall_n::make_newton_l2_gmres_asm_profile(
+                    "global_xfem_newton_l2_fgmres_asm");
+                profile.linear_tuning.ksp_rtol = 1.0e-8;
+                profile.linear_tuning.ksp_atol = 1.0e-12;
+                profile.linear_tuning.ksp_max_iterations = 1000;
+                profile.linear_tuning.pc_asm_overlap = 1;
                 add(profile);
             } else if (solver_profile_token == "trust-region" ||
                        solver_profile_token == "newton-trust-region") {
@@ -1843,7 +3009,17 @@ void write_global_xfem_mixed_control_arc_csv(
             analysis.set_increment_predictor(predictor);
         }
 
-        rows.push_back(GlobalXFEMNewtonRow{});
+        std::ofstream progress_csv(
+            options.output_dir / "global_xfem_newton_progress.csv");
+        progress_csv << std::setprecision(10);
+        write_global_xfem_newton_csv_header(progress_csv);
+        auto record_global_xfem_row = [&](GlobalXFEMNewtonRow row) {
+            rows.push_back(std::move(row));
+            write_global_xfem_newton_csv_row(progress_csv, rows.back());
+            progress_csv.flush();
+        };
+
+        record_global_xfem_row(GlobalXFEMNewtonRow{});
         auto make_global_xfem_row =
             [&](int step, double p, const XFEMModel& solved_model) {
                 const double drift_mm = interpolate_protocol(protocol, p);
@@ -1944,7 +3120,7 @@ void write_global_xfem_mixed_control_arc_csv(
         } else {
             analysis.set_step_callback(
                 [&](int step, double p, const XFEMModel& solved_model) {
-                    rows.push_back(
+                    record_global_xfem_row(
                         make_global_xfem_row(step, p, solved_model));
                 });
         }
@@ -2249,7 +3425,7 @@ void write_global_xfem_mixed_control_arc_csv(
                             .internal =
                                 options.global_xfem_mixed_arc_damage_weight}},
                     [&](const fall_n::MixedControlArcLengthStepRecord&) {
-                        rows.push_back(mixed_control_candidate_row);
+                        record_global_xfem_row(mixed_control_candidate_row);
                     });
             ok = mixed_control_result.completed();
             summary.mixed_control_status =
@@ -2358,6 +3534,30 @@ void write_global_xfem_mixed_control_arc_csv(
     return summary;
 }
 
+[[nodiscard]] GlobalXFEMNewtonSummary run_global_xfem_newton_column_trial(
+    const Options& options,
+    const ReducedRCColumnReferenceSpec& spec,
+    const std::vector<double>& protocol,
+    const fall_n::xfem::BilinearCohesiveLawParameters& cohesive)
+{
+    const auto formulation = normalized_xfem_kinematic_formulation(
+        options.global_xfem_kinematic_formulation);
+    if (formulation == "corotational") {
+        return run_global_xfem_newton_column_trial_impl<
+            continuum::Corotational>(options, spec, protocol, cohesive);
+    }
+    if (formulation == "total-lagrangian") {
+        return run_global_xfem_newton_column_trial_impl<
+            continuum::TotalLagrangian>(options, spec, protocol, cohesive);
+    }
+    if (formulation == "updated-lagrangian") {
+        return run_global_xfem_newton_column_trial_impl<
+            continuum::UpdatedLagrangian>(options, spec, protocol, cohesive);
+    }
+    return run_global_xfem_newton_column_trial_impl<
+        continuum::SmallStrain>(options, spec, protocol, cohesive);
+}
+
 void write_hysteresis_csv(
     const std::filesystem::path& path,
     const std::vector<HistoryRow>& rows)
@@ -2459,6 +3659,19 @@ void write_manifest(
         << (global_xfem_newton.completed ? "true" : "false") << ",\n"
         << "    \"status\": \""
         << json_escape(global_xfem_newton.status) << "\",\n"
+        << "    \"requested_kinematic_formulation\": \""
+        << json_escape(global_xfem_newton.requested_kinematic_formulation)
+        << "\",\n"
+        << "    \"effective_kinematic_formulation\": \""
+        << json_escape(global_xfem_newton.effective_kinematic_formulation)
+        << "\",\n"
+        << "    \"guarded_finite_kinematics_allowed\": "
+        << (options.allow_guarded_xfem_finite_kinematics ? "true" : "false")
+        << ",\n"
+        << "    \"large_amplitude_kinematic_recommendation\": \""
+        << json_escape(
+               global_xfem_newton.large_amplitude_kinematic_recommendation)
+        << "\",\n"
         << "    \"mesh_elements\": "
         << global_xfem_newton.element_count << ",\n"
         << "    \"mesh_nodes\": " << global_xfem_newton.node_count << ",\n"
@@ -2527,6 +3740,15 @@ void write_manifest(
         << "    \"hysteresis_csv\": \"hysteresis.csv\",\n"
         << "    \"global_xfem_newton_hysteresis_csv\": \"global_xfem_newton_hysteresis.csv\",\n"
         << "    \"global_xfem_newton_manifest\": \"global_xfem_newton_manifest.json\",\n"
+        << "    \"visualization_contract_json\": \"visualization_contract.json\",\n"
+        << "    \"multiscale_replay_plan_json\": \"multiscale_replay_plan.json\",\n"
+        << "    \"multiscale_replay_site_catalog_csv\": \"multiscale_replay_site_catalog.csv\",\n"
+        << "    \"multiscale_runtime_policy_json\": \"multiscale_runtime_policy.json\",\n"
+        << "    \"multiscale_local_site_batch_plan_json\": \"multiscale_local_site_batch_plan.json\",\n"
+        << "    \"multiscale_local_site_batch_plan_csv\": \"multiscale_local_site_batch_plan.csv\",\n"
+        << "    \"multiscale_local_site_replay_result_json\": \"multiscale_local_site_replay_result.json\",\n"
+        << "    \"multiscale_local_site_replay_result_csv\": \"multiscale_local_site_replay_result.csv\",\n"
+        << "    \"multiscale_readiness_gate_json\": \"multiscale_readiness_gate.json\",\n"
         << "    \"cohesive_section_state_csv\": \"cohesive_section_state.csv\",\n"
         << "    \"steel_history_csv\": \"steel_history.csv\"\n"
         << "  }\n"
@@ -2541,14 +3763,37 @@ int main(int argc, char** argv)
     bool petsc_initialized = false;
     try {
         const Options options = parse_args(argc, argv);
+        validate_supported_global_xfem_kinematics(options);
+        const ReducedRCColumnReferenceSpec spec =
+            default_reduced_rc_column_reference_spec_v;
+        if (options.global_xfem_scale_audit_only) {
+            std::filesystem::create_directories(options.output_dir);
+            const auto audit = make_global_xfem_scale_audit(options, spec);
+            write_global_xfem_scale_audit_json(
+                options.output_dir / "global_xfem_scale_audit.json",
+                options,
+                spec,
+                audit);
+            std::cout
+                << "Global XFEM scale audit completed | mesh="
+                << std::max(options.global_xfem_nx, 1) << "x"
+                << std::max(options.global_xfem_ny, 1) << "x"
+                << std::max(options.global_xfem_nz, 2)
+                << " | dofs=" << audit.estimated_total_state_dofs
+                << " | material points="
+                << audit.host_material_point_count
+                << " | direct factor risk MiB="
+                << audit.direct_factorization_risk_mib
+                << " | advice=" << fall_n::to_string(audit.solver_advice)
+                << " | output=" << options.output_dir.string() << '\n';
+            return 0;
+        }
         PetscInitialize(nullptr, nullptr, nullptr, nullptr);
         petsc_initialized = true;
         const auto amplitudes = parse_csv_doubles(options.amplitudes_mm);
         const auto protocol = cyclic_protocol_mm(
             amplitudes,
             options.steps_per_segment);
-        const ReducedRCColumnReferenceSpec spec =
-            default_reduced_rc_column_reference_spec_v;
         const PetscLayoutAudit petsc_audit =
             run_global_petsc_xfem_layout_audit(spec);
 
@@ -2799,6 +4044,91 @@ int main(int argc, char** argv)
             protocol,
             rows,
             elapsed);
+        write_reduced_rc_visualization_contract_json(
+            options.output_dir / "visualization_contract.json");
+        const auto multiscale_replay_plan =
+            make_reduced_rc_multiscale_replay_plan_from_hinge_history(
+                rows,
+                options,
+                spec);
+        write_reduced_rc_multiscale_replay_plan_json(
+            options.output_dir / "multiscale_replay_plan.json",
+            multiscale_replay_plan);
+        write_reduced_rc_multiscale_replay_plan_csv(
+            options.output_dir / "multiscale_replay_site_catalog.csv",
+            multiscale_replay_plan);
+        const auto multiscale_runtime_policy =
+            fall_n::make_reduced_rc_multiscale_runtime_policy(
+                multiscale_replay_plan);
+        write_reduced_rc_multiscale_runtime_policy_json(
+            options.output_dir / "multiscale_runtime_policy.json",
+            multiscale_runtime_policy);
+        const auto local_site_batch_plan =
+            fall_n::make_reduced_rc_local_site_batch_plan(
+                multiscale_replay_plan,
+                multiscale_runtime_policy);
+        write_reduced_rc_local_site_batch_plan_json(
+            options.output_dir / "multiscale_local_site_batch_plan.json",
+            local_site_batch_plan);
+        write_reduced_rc_local_site_batch_plan_csv(
+            options.output_dir / "multiscale_local_site_batch_plan.csv",
+            local_site_batch_plan);
+        const auto multiscale_replay_samples =
+            make_reduced_rc_replay_samples_from_hinge_history(rows, options);
+        constexpr std::string_view replay_oracle_label{
+            "structural_history_replay_oracle"};
+        auto replay_oracle =
+            [replay_oracle_label](
+                const fall_n::ReducedRCLocalSiteReplayStepContext& context) {
+                return fall_n::ReducedRCLocalSiteReplayStepResult{
+                    .converged = true,
+                    .nonlinear_iterations = 0,
+                    .elapsed_seconds = 0.0,
+                    .damage_indicator =
+                        context.target_sample.damage_indicator,
+                    .steel_stress_mpa =
+                        context.target_sample.steel_stress_mpa,
+                    .local_work_increment_mn_mm =
+                        context.target_sample.work_increment_mn_mm,
+                    .status_label = replay_oracle_label};
+            };
+        fall_n::ReducedRCLocalSiteReplaySettings replay_settings;
+        replay_settings.continue_after_site_failure = true;
+        const auto local_site_replay_result =
+            local_site_batch_plan.executor_kind ==
+                    fall_n::ReducedRCMultiscaleExecutorKind::
+                        openmp_site_parallel
+                ? fall_n::run_reduced_rc_local_site_replay_batch(
+                      multiscale_replay_samples,
+                      local_site_batch_plan,
+                      replay_oracle,
+                      replay_settings,
+                      fall_n::ReducedRCOpenMPSiteReplayExecutor{
+                          local_site_batch_plan.recommended_site_threads})
+                : fall_n::run_reduced_rc_local_site_replay_batch(
+                      multiscale_replay_samples,
+                      local_site_batch_plan,
+                      replay_oracle,
+                      replay_settings);
+        write_reduced_rc_local_site_replay_result_json(
+            options.output_dir / "multiscale_local_site_replay_result.json",
+            local_site_replay_result,
+            replay_oracle_label);
+        write_reduced_rc_local_site_replay_result_csv(
+            options.output_dir / "multiscale_local_site_replay_result.csv",
+            local_site_replay_result);
+        const auto multiscale_readiness_gate =
+            fall_n::make_reduced_rc_multiscale_readiness_gate(
+                multiscale_replay_plan,
+                multiscale_runtime_policy,
+                local_site_batch_plan,
+                local_site_replay_result,
+                fall_n::ReducedRCMultiscaleReadinessGateSettings{
+                    .physical_local_solver_bound = false,
+                    .local_solver_label = replay_oracle_label});
+        write_reduced_rc_multiscale_readiness_gate_json(
+            options.output_dir / "multiscale_readiness_gate.json",
+            multiscale_readiness_gate);
 
         const auto peak = std::ranges::max(
             rows | std::views::transform([](const HistoryRow& row) {
@@ -2813,7 +4143,13 @@ int main(int argc, char** argv)
                    {},
                    [](double value) { return std::abs(value); })
             << " mm | max |Vb|=" << peak
-            << " MN | output=" << options.output_dir.string() << '\n';
+            << " MN | global_xfem_status="
+            << global_xfem_newton.status
+            << " | global_xfem_completed="
+            << (global_xfem_newton.completed ? "true" : "false")
+            << " | multiscale_next="
+            << fall_n::to_string(multiscale_readiness_gate.next_stage)
+            << " | output=" << options.output_dir.string() << '\n';
         PetscFinalize();
         petsc_initialized = false;
         return 0;

@@ -1,0 +1,61 @@
+{
+  "source_manifest": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_25mm_probe\\global_xfem_newton_manifest.json",
+  "figure": "doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_l2_25mm_probe_hysteresis.png",
+  "completed_successfully": true,
+  "mesh": {
+    "hex_order": "Hex8",
+    "nx": 3,
+    "ny": 3,
+    "nz": 8,
+    "longitudinal_bias_power": 2,
+    "longitudinal_bias_location": "fixed-end",
+    "element_count": 136,
+    "node_count": 216,
+    "enriched_node_count": 32
+  },
+  "dofs": {
+    "local_state_dofs": 744,
+    "solver_global_dofs": 624
+  },
+  "solve_control": {
+    "continuation_kind": "fixed-increment",
+    "max_bisections": 8,
+    "solver_max_iterations": 120,
+    "solver_profile": "l2",
+    "solver_cascade": false,
+    "adaptive_increments": true,
+    "mixed_arc_length_status": "not_used",
+    "mixed_arc_length_target": 0.075,
+    "mixed_arc_length_reject_factor": 1.5,
+    "mixed_arc_length_reaction_scale_mn": 0.02,
+    "mixed_arc_length_damage_weight": 0.1,
+    "bordered_hybrid_disable_streak": 3,
+    "bordered_hybrid_retry_interval": 12,
+    "mixed_control_accepted_steps": 0,
+    "mixed_control_failed_solver_attempts": 0,
+    "mixed_control_rejected_arc_attempts": 0,
+    "mixed_control_total_cutbacks": 0,
+    "bordered_hybrid_attempted_steps": 0,
+    "bordered_hybrid_successful_steps": 0,
+    "bordered_hybrid_skipped_steps": 0,
+    "mixed_control_max_arc_length": 0,
+    "mixed_control_mean_arc_length": 0,
+    "total_accepted_substeps": 12,
+    "total_nonlinear_iterations": 322,
+    "total_failed_attempts": 0,
+    "total_solver_profile_attempts": 12,
+    "max_requested_step_nonlinear_iterations": 107,
+    "max_bisection_level": 0,
+    "hard_step_count": 0
+  },
+  "observables": {
+    "peak_abs_base_shear_mn": 0.0103733367317,
+    "peak_abs_steel_stress_mpa": 217.705652214,
+    "max_host_damage": 0.98,
+    "max_damaged_host_points": 456
+  },
+  "timing": {
+    "total_wall_seconds": 66.7491953
+  },
+  "interpretation": "First completed 3x3x8 bounded-dowel XFEM cyclic smoke to 25 mm. It is an algorithmic scaling probe, not a promoted structural-equivalence result."
+}

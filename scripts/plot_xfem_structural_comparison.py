@@ -161,6 +161,37 @@ def main() -> int:
     structural_manifest = read_json(args.structural_dir / "runtime_manifest.json")
     xfem_manifest = read_json(args.xfem_dir / "global_xfem_newton_manifest.json")
 
+    if not bool(xfem_manifest.get("completed_successfully", False)):
+        summary = {
+            "scope": "global_xfem_secant_vs_structural_reference_200mm",
+            "status": "incomplete_xfem_run",
+            "structural_bundle": str(args.structural_dir),
+            "xfem_bundle": str(args.xfem_dir),
+            "failure_reason": xfem_manifest.get("failure_reason", ""),
+            "xfem_manifest": {
+                "mesh": xfem_manifest.get("mesh"),
+                "reinforcement": xfem_manifest.get("reinforcement"),
+                "physics": xfem_manifest.get("physics"),
+                "solve_control": xfem_manifest.get("solve_control"),
+                "observables": xfem_manifest.get("observables"),
+                "timing": xfem_manifest.get("timing"),
+            },
+            "promotion_gate": {
+                "status": "not_evaluated",
+                "interpretation": (
+                    "The XFEM solve did not complete the declared protocol, "
+                    "so hysteresis-equivalence metrics would be misleading."
+                ),
+            },
+        }
+        args.figures_dir.mkdir(parents=True, exist_ok=True)
+        summary_path = args.figures_dir / f"{args.basename}_summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        args.secondary_figures_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(summary_path, args.secondary_figures_dir / summary_path.name)
+        print(json.dumps(summary, indent=2))
+        return 2
+
     structural_for_compare: list[dict[str, float]] = []
     for row in xfem:
         p = row["p"]

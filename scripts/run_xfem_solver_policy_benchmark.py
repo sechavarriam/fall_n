@@ -130,6 +130,36 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--global-xfem-kinematic-formulation",
+        default="small-strain",
+        choices=(
+            "small-strain",
+            "corotational",
+            "total-lagrangian",
+            "updated-lagrangian",
+        ),
+        help="Kinematic policy passed to the shifted-Heaviside XFEM driver.",
+    )
+    parser.add_argument(
+        "--allow-guarded-xfem-finite-kinematics",
+        action="store_true",
+        help=(
+            "Forward the benchmark opt-in for guarded TL/UL XFEM audit runs."
+        ),
+    )
+    parser.add_argument(
+        "--global-xfem-crack-crossing-axis-frame",
+        default="fixed-global",
+        choices=("fixed-global", "corotational-host"),
+        help="Frame used by the localized crack-crossing bridge axis.",
+    )
+    parser.add_argument(
+        "--global-xfem-crack-crossing-host-axis-tangent",
+        default="frozen",
+        choices=("frozen", "finite-difference"),
+        help="Host-axis tangent mode for corotational crack-crossing bridges.",
+    )
+    parser.add_argument(
         "--mixed-arc-target",
         type=float,
         default=0.50,
@@ -219,6 +249,8 @@ def run_solver_case(args: argparse.Namespace, case: SolverCase) -> Path:
         "central-fallback",
         "--global-xfem-shear-cap-mpa",
         "0.02",
+        "--global-xfem-kinematic-formulation",
+        args.global_xfem_kinematic_formulation,
         "--global-xfem-crack-crossing-rebar-mode",
         "dowel-x",
         "--global-xfem-crack-crossing-rebar-area-scale",
@@ -233,6 +265,10 @@ def run_solver_case(args: argparse.Namespace, case: SolverCase) -> Path:
         "0.00190",
         "--global-xfem-crack-crossing-force-cap-mn",
         "0.00190",
+        "--global-xfem-crack-crossing-axis-frame",
+        args.global_xfem_crack_crossing_axis_frame,
+        "--global-xfem-crack-crossing-host-axis-tangent",
+        args.global_xfem_crack_crossing_host_axis_tangent,
         "--global-xfem-solver-profile",
         case.profile,
         "--global-xfem-continuation",
@@ -259,6 +295,8 @@ def run_solver_case(args: argparse.Namespace, case: SolverCase) -> Path:
         "--global-xfem-crack-z-m",
         "0.60",
     ]
+    if args.allow_guarded_xfem_finite_kinematics:
+        cmd.append("--allow-guarded-xfem-finite-kinematics")
     print(f"[run] {case.name}: {' '.join(cmd)}")
     tic = time.perf_counter()
     try:

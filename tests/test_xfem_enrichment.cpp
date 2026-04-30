@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <numbers>
 #include <vector>
 
 namespace {
@@ -88,6 +89,7 @@ int main(int argc, char** argv)
     using fall_n::xfem::shifted_heaviside_enriched_component;
     using fall_n::xfem::split_crack_jump;
     using fall_n::xfem::ShiftedHeavisideCrackCrossingRebarElement;
+    using fall_n::xfem::CrackCrossingRebarAxisFrameKind;
     using fall_n::xfem::BoundedSlipBridgeParameters;
     using fall_n::xfem::BoundedSlipBridgeState;
     using fall_n::xfem::evaluate_bounded_slip_bridge_law;
@@ -605,6 +607,140 @@ int main(int argc, char** argv)
         Domain<3> domain;
         make_unit_hex8_domain(domain);
 
+        ContinuumIsotropicElasticMaterial mat_site{1.0e-6, 0.25};
+        Material<ThreeDimensionalMaterial> material{
+            mat_site,
+            ElasticUpdate{}};
+        const PlaneCrackLevelSet mid_height_crack{
+            Eigen::Vector3d{0.0, 0.0, 0.5},
+            Eigen::Vector3d::UnitZ()};
+        const BilinearCohesiveLawParameters cohesive{
+            .normal_stiffness = 1000.0,
+            .shear_stiffness = 500.0,
+            .tensile_strength = 10.0,
+            .fracture_energy = 0.10,
+            .mode_mixity_weight = 1.0,
+            .compression_stiffness = 2000.0,
+            .residual_shear_fraction = 0.10};
+        fall_n::xfem::ShiftedHeavisideSolidOptions options;
+        options.cohesive_surface_tangent_mode =
+            fall_n::xfem::ShiftedHeavisideSolidOptions::
+                CohesiveSurfaceTangentMode::
+                    finite_difference_surface_frame;
+        options.cohesive_traction_measure_kind =
+            fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind::
+                current_spatial;
+        options.cohesive_surface_tangent_relative_step = 0.0;
+        options.cohesive_surface_tangent_absolute_step = 1.0e-7;
+
+        using XFEMElement =
+            fall_n::xfem::ShiftedHeavisideSolidElement<
+                ThreeDimensionalMaterial,
+                continuum::TotalLagrangian>;
+        std::vector<XFEMElement> elements;
+        for (auto& geometry : domain.elements()) {
+            elements.emplace_back(
+                &geometry,
+                material,
+                mid_height_crack,
+                cohesive,
+                options);
+        }
+
+        using XFEMModel = Model<
+            ThreeDimensionalMaterial,
+            continuum::TotalLagrangian,
+            3,
+            SingleElementPolicy<XFEMElement>>;
+        XFEMModel model{domain, std::move(elements)};
+        model.setup();
+
+        auto& element = model.elements().front();
+        Eigen::VectorXd u = Eigen::VectorXd::Zero(48);
+        for (Eigen::Index local = 5; local < 48; local += 6) {
+            u[local] = 1.0e-4;
+        }
+        const auto K = element.compute_cohesive_tangent_stiffness_matrix(u);
+        Eigen::VectorXd direction = Eigen::VectorXd::Zero(48);
+        direction[6] = 1.0;
+        constexpr double h = 1.0e-7;
+        const auto f_plus =
+            element.compute_cohesive_internal_force_vector(u + h * direction);
+        const auto f_minus =
+            element.compute_cohesive_internal_force_vector(u - h * direction);
+        const Eigen::VectorXd fd_column = (f_plus - f_minus) / (2.0 * h);
+        const double mismatch =
+            (K.col(6) - fd_column).norm() /
+            std::max(1.0e-14, fd_column.norm());
+        check(K.col(6).norm() > 1.0e-10,
+              "TL XFEM finite-difference surface tangent sees standard-DOF area sensitivity");
+        check(mismatch < 1.0e-8,
+              "TL XFEM finite-difference surface tangent matches cohesive residual derivative");
+
+        Domain<3> nanson_domain;
+        make_unit_hex8_domain(nanson_domain);
+        auto nanson_options = options;
+        nanson_options.cohesive_surface_tangent_mode =
+            fall_n::xfem::ShiftedHeavisideSolidOptions::
+                CohesiveSurfaceTangentMode::
+                    nanson_geometric_surface_frame;
+        std::vector<XFEMElement> nanson_elements;
+        for (auto& geometry : nanson_domain.elements()) {
+            nanson_elements.emplace_back(
+                &geometry,
+                material,
+                mid_height_crack,
+                cohesive,
+                nanson_options);
+        }
+        XFEMModel nanson_model{nanson_domain, std::move(nanson_elements)};
+        nanson_model.setup();
+        auto& nanson_element = nanson_model.elements().front();
+        const auto K_nanson =
+            nanson_element.compute_cohesive_tangent_stiffness_matrix(u);
+        const double nanson_mismatch =
+            (K_nanson.col(6) - fd_column).norm() /
+            std::max(1.0e-14, fd_column.norm());
+        check(nanson_mismatch < 1.0e-5,
+              "TL XFEM Nanson-geometric surface tangent matches the residual derivative for area-sensitive columns");
+
+        Domain<3> nominal_domain;
+        make_unit_hex8_domain(nominal_domain);
+        auto nominal_options = options;
+        nominal_options.cohesive_traction_measure_kind =
+            fall_n::xfem::ShiftedHeavisideCohesiveTractionMeasureKind::
+                reference_nominal;
+        std::vector<XFEMElement> nominal_elements;
+        for (auto& geometry : nominal_domain.elements()) {
+            nominal_elements.emplace_back(
+                &geometry,
+                material,
+                mid_height_crack,
+                cohesive,
+                nominal_options);
+        }
+        XFEMModel nominal_model{nominal_domain, std::move(nominal_elements)};
+        nominal_model.setup();
+        auto& nominal_element = nominal_model.elements().front();
+        const auto K_nominal =
+            nominal_element.compute_cohesive_tangent_stiffness_matrix(u);
+        const auto f_nominal_plus =
+            nominal_element.compute_cohesive_internal_force_vector(
+                u + h * direction);
+        const auto f_nominal_minus =
+            nominal_element.compute_cohesive_internal_force_vector(
+                u - h * direction);
+        const Eigen::VectorXd fd_nominal_column =
+            (f_nominal_plus - f_nominal_minus) / (2.0 * h);
+        check(K_nominal.col(6).norm() < 1.0e-10 &&
+                  fd_nominal_column.norm() < 1.0e-10,
+              "TL XFEM reference-nominal traction removes current-area sensitivity from standard DOFs");
+    }
+
+    {
+        Domain<3> domain;
+        make_unit_hex8_domain(domain);
+
         MaterialInstance<ElasticRelation<UniaxialMaterial>> elastic_steel{
             200000.0};
         Material<UniaxialMaterial> steel{
@@ -697,6 +833,92 @@ int main(int argc, char** argv)
         check(gauss.size() == 1 &&
                   std::abs(gauss.front().stress[0] - 1.0) < 1.0e-12,
               "bounded-slip crack bridge reports force-over-area equivalent stress");
+    }
+
+    {
+        Domain<3> domain;
+        make_unit_hex8_domain(domain);
+
+        const BoundedSlipBridgeParameters bridge_law{
+            .initial_stiffness_mn_per_m = 1.0,
+            .yield_force_mn = 1.0,
+            .hardening_ratio = 0.0,
+            .force_cap_mn = 1.0};
+        ShiftedHeavisideCrackCrossingRebarElement bridge{
+            &domain.element(0),
+            std::array<double, 3>{0.0, 0.0, 0.0},
+            Eigen::Vector3d::UnitX(),
+            1.0e-4,
+            0.10,
+            bridge_law,
+            ShiftedHeavisideCrackCrossingRebarElement::Options{
+                .axis_frame_kind =
+                    CrackCrossingRebarAxisFrameKind::corotational_host,
+                .include_corotational_host_axis_tangent = true}};
+        bridge.set_num_dof_in_nodes();
+
+        int next_dof = 0;
+        for (auto& node : domain.nodes()) {
+            std::vector<PetscInt> dofs(node.num_dof());
+            for (auto& dof : dofs) {
+                dof = next_dof++;
+            }
+            node.set_dof_index(dofs);
+        }
+
+        check(bridge.get_dof_indices().size() == 48,
+              "corotational crack bridge gathers host-frame plus enriched DOFs");
+
+        const double angle = 0.50 * std::numbers::pi;
+        Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+        R(0, 0) = std::cos(angle);
+        R(0, 1) = -std::sin(angle);
+        R(1, 0) = std::sin(angle);
+        R(1, 1) = std::cos(angle);
+
+        Eigen::VectorXd u = Eigen::VectorXd::Zero(
+            static_cast<Eigen::Index>(bridge.get_dof_indices().size()));
+        for (std::size_t node = 0; node < domain.num_nodes(); ++node) {
+            const auto& p = domain.node(node);
+            const Eigen::Vector3d X{p.coord(0), p.coord(1), p.coord(2)};
+            const Eigen::Vector3d ui = R * X - X;
+            for (std::size_t c = 0; c < 3; ++c) {
+                u[static_cast<Eigen::Index>(6 * node + c)] =
+                    ui[static_cast<Eigen::Index>(c)];
+            }
+        }
+        for (std::size_t node = 0; node < domain.num_nodes(); ++node) {
+            u[static_cast<Eigen::Index>(6 * node + 4)] = 1.0e-4;
+        }
+
+        const auto f = bridge.compute_internal_force_vector(u);
+        const auto K = bridge.compute_tangent_stiffness_matrix(u);
+        double host_residual_norm = 0.0;
+        double enriched_residual_norm = 0.0;
+        double enriched_by_host_tangent_norm = 0.0;
+        for (std::size_t node = 0; node < domain.num_nodes(); ++node) {
+            host_residual_norm +=
+                f.segment(static_cast<Eigen::Index>(6 * node), 3)
+                    .squaredNorm();
+            enriched_residual_norm +=
+                f.segment(static_cast<Eigen::Index>(6 * node + 3), 3)
+                    .squaredNorm();
+            for (std::size_t other = 0; other < domain.num_nodes();
+                 ++other) {
+                enriched_by_host_tangent_norm +=
+                    K.block(static_cast<Eigen::Index>(6 * node + 3),
+                            static_cast<Eigen::Index>(6 * other),
+                            3,
+                            3)
+                        .squaredNorm();
+            }
+        }
+        check(enriched_residual_norm > 0.0,
+              "corotational crack bridge projects slip on the rotated host axis");
+        check(enriched_by_host_tangent_norm > 0.0,
+              "corotational crack bridge tangent sees host-frame axis changes");
+        check(host_residual_norm == 0.0,
+              "corotational crack bridge does not create artificial host-frame residual");
     }
 
     {

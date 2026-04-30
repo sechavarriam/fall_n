@@ -92,6 +92,24 @@ def parse_args() -> argparse.Namespace:
         help="Tangential cohesive traction cap passed to the XFEM benchmark.",
     )
     parser.add_argument(
+        "--global-xfem-kinematic-formulation",
+        default="small-strain",
+        choices=(
+            "small-strain",
+            "corotational",
+            "total-lagrangian",
+            "updated-lagrangian",
+        ),
+        help="Kinematic policy injected into the shifted-Heaviside solid.",
+    )
+    parser.add_argument(
+        "--allow-guarded-xfem-finite-kinematics",
+        action="store_true",
+        help=(
+            "Forward the benchmark opt-in for guarded TL/UL XFEM audit runs."
+        ),
+    )
+    parser.add_argument(
         "--global-xfem-crack-crossing-rebar-mode",
         default="none",
         help=(
@@ -151,6 +169,22 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="Optional per-bridge absolute force cap for bounded-slip.",
+    )
+    parser.add_argument(
+        "--global-xfem-crack-crossing-axis-frame",
+        default="fixed-global",
+        choices=("fixed-global", "corotational-host"),
+        help="Frame used to project the crack-crossing bridge slip.",
+    )
+    parser.add_argument(
+        "--global-xfem-crack-crossing-host-axis-tangent",
+        default="frozen",
+        choices=("frozen", "finite-difference"),
+        help=(
+            "Optional directional tangent for the corotational-host bridge "
+            "axis. Keep frozen for promoted evidence unless convergence "
+            "diagnostics require the extra columns."
+        ),
     )
     parser.add_argument(
         "--case-timeout-seconds",
@@ -561,6 +595,8 @@ def run_case(args: argparse.Namespace, case: XFEMCase) -> Path:
         args.global_xfem_cohesive_tangent,
         "--global-xfem-shear-cap-mpa",
         f"{args.global_xfem_shear_cap_mpa:g}",
+        "--global-xfem-kinematic-formulation",
+        args.global_xfem_kinematic_formulation,
         "--global-xfem-crack-crossing-rebar-mode",
         args.global_xfem_crack_crossing_rebar_mode,
         "--global-xfem-crack-crossing-rebar-area-scale",
@@ -573,6 +609,10 @@ def run_case(args: argparse.Namespace, case: XFEMCase) -> Path:
         f"{args.global_xfem_crack_crossing_yield_slip_mm:g}",
         "--global-xfem-crack-crossing-hardening-ratio",
         f"{args.global_xfem_crack_crossing_hardening_ratio:g}",
+        "--global-xfem-crack-crossing-axis-frame",
+        args.global_xfem_crack_crossing_axis_frame,
+        "--global-xfem-crack-crossing-host-axis-tangent",
+        args.global_xfem_crack_crossing_host_axis_tangent,
         "--global-xfem-solver-max-iterations",
         "120",
         "--global-xfem-solver-profile",
@@ -591,6 +631,8 @@ def run_case(args: argparse.Namespace, case: XFEMCase) -> Path:
     ]
     if not args.disable_global_xfem_solver_cascade:
         cmd += ["--global-xfem-solver-cascade"]
+    if args.allow_guarded_xfem_finite_kinematics:
+        cmd += ["--allow-guarded-xfem-finite-kinematics"]
     if args.global_xfem_continuation != "fixed-increment":
         cmd += [
             "--global-xfem-continuation",

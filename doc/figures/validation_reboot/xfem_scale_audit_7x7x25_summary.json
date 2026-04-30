@@ -1,0 +1,56 @@
+{
+  "tool": "fall_n",
+  "driver_kind": "global_shifted_heaviside_xfem_scale_audit",
+  "dry_run": true,
+  "mesh": {
+    "topology": "hex8_lagrange",
+    "nx": 7,
+    "ny": 7,
+    "nz": 25,
+    "longitudinal_bias_power": 2,
+    "longitudinal_bias_location": "fixed-end"
+  },
+  "physics": {
+    "host_material": "cyclic-crack-band",
+    "constitutive_cost_kind": "cyclic_crack_band_xfem",
+    "concrete_fpc_mpa": 30,
+    "shifted_heaviside_xfem": true,
+    "longitudinal_bar_count": 8,
+    "crack_crossing_bridge_enabled": true
+  },
+  "counts": {
+    "host_element_count": 1225,
+    "host_node_count": 1664,
+    "host_gauss_points_per_element": 8,
+    "host_material_point_count": 9800,
+    "enriched_node_count": 128,
+    "host_displacement_dofs": 4992,
+    "enrichment_dofs": 384,
+    "rebar_node_count": 208,
+    "rebar_dofs": 624,
+    "crack_crossing_bridge_element_count": 8,
+    "estimated_total_state_dofs": 6000,
+    "estimated_sparse_nonzeros": 1116000
+  },
+  "memory_mib": {
+    "one_vector": 0.0457763671875,
+    "newton_workspace": 0.823974609375,
+    "sparse_matrix": 17.2416687012,
+    "direct_factorization_risk": 724.150085449,
+    "material_state": 7.177734375,
+    "estimated_hot_state": 25.2433776855
+  },
+  "recommendations": {
+    "solver_advice": "direct_lu_reference_only",
+    "seed_state_cache_recommended": true,
+    "newton_warm_start_recommended": true,
+    "site_level_openmp_recommended": true,
+    "global_petsc_assembly_openmp_recommended": false,
+    "symmetric_matrix_storage_recommended": false,
+    "symmetric_matrix_storage_requires_tangent_audit": true,
+    "block_matrix_storage_candidate": false,
+    "field_split_or_asm_preconditioner_recommended": true,
+    "plain_gmres_ilu_rejected_for_enriched_branch": true,
+    "parallelism_note": "OpenMP is recommended first across independent local sites; single-model PETSc Mat/Vec assembly remains serial unless an explicit thread-safe assembly backend is introduced."
+  }
+}

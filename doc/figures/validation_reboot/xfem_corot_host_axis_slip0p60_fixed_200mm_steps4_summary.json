@@ -1,0 +1,156 @@
+{
+  "scope": "global_xfem_secant_vs_structural_reference_200mm",
+  "status": "completed",
+  "structural_bundle": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_reference_n10_lobatto_200mm_for_xfem_secant_compare",
+  "xfem_bundle": "c:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\xfem_corot_host_axis_slip0p60_fixed_200mm_steps4",
+  "sign_convention": {
+    "applied_to_structural_base_shear": -1.0,
+    "raw_rms_error_MN": 0.029348484162411075,
+    "sign_aligned_rms_error_MN": 0.0032756328790784373,
+    "interpretation": "A factor of -1 indicates opposite base-shear reaction conventions between the structural and XFEM artifacts."
+  },
+  "metrics": {
+    "point_count": 49,
+    "peak_abs_structural_base_shear_MN": 0.02353210401415841,
+    "peak_abs_xfem_base_shear_MN": 0.02572900984,
+    "xfem_to_structural_peak_base_shear_ratio": 1.093357815540837,
+    "max_abs_base_shear_error_MN": 0.010740066559999999,
+    "rms_base_shear_error_MN": 0.0032756328790784373,
+    "peak_normalized_max_base_shear_error": 0.41743023251920053,
+    "peak_normalized_rms_base_shear_error": 0.12731282313032988,
+    "structural_loop_work_MN_mm": 14.521026120801897,
+    "xfem_loop_work_MN_mm": 12.853616302162507
+  },
+  "promotion_gate": {
+    "status": "not_passed",
+    "criteria": {
+      "max_peak_normalized_rms_base_shear_error": 0.1,
+      "max_peak_normalized_max_base_shear_error": 0.3,
+      "min_peak_base_shear_ratio": 0.9,
+      "max_peak_base_shear_ratio": 1.15,
+      "min_peak_steel_stress_MPa": 420.0
+    },
+    "peak_abs_steel_stress_MPa": 434.822466808,
+    "interpretation": "This gate is a reduced local-model equivalence gate against the N=10 Lobatto structural reference, not a final production robustness certificate."
+  },
+  "structural_manifest": {
+    "beam_nodes": 10,
+    "beam_integration": "lobatto",
+    "section_fiber_mesh": {
+      "profile": "fine",
+      "cover_top_bottom_ny": 16,
+      "cover_top_bottom_nz": 4,
+      "cover_side_ny": 4,
+      "cover_side_nz": 8,
+      "core_ny": 12,
+      "core_nz": 12,
+      "concrete_fiber_count": 336,
+      "total_section_fiber_count": 344,
+      "invariant_reinforcement_policy": "steel bar area and bar coordinates are independent of concrete fiber refinement"
+    },
+    "continuation_kind": "reversal_guarded_incremental_displacement_control",
+    "timing": {
+      "total_wall_seconds": 242.913553,
+      "analysis_wall_seconds": 228.5781876,
+      "output_write_wall_seconds": 14.3353509
+    }
+  },
+  "xfem_manifest": {
+    "mesh": {
+      "hex_order": "Hex8",
+      "nx": 1,
+      "ny": 1,
+      "nz": 4,
+      "longitudinal_bias_power": 1,
+      "longitudinal_bias_location": "fixed-end",
+      "element_count": 36,
+      "node_count": 60,
+      "enriched_node_count": 8
+    },
+    "reinforcement": {
+      "bar_count": 8,
+      "truss_element_count": 32,
+      "xfem_enriched_penalty_coupling_count": 24,
+      "crack_crossing_rebar_element_count": 8,
+      "crack_crossing_rebar_area_scale": 1,
+      "crack_crossing_gauge_length_mm": 100,
+      "crack_crossing_rebar_mode": "dowel-x",
+      "crack_crossing_bridge_law": "bounded-slip",
+      "crack_crossing_axis_frame": "corotational-host",
+      "crack_crossing_yield_slip_mm": 0.6,
+      "crack_crossing_yield_force_mn": 0.0019,
+      "crack_crossing_hardening_ratio": 0,
+      "crack_crossing_force_cap_mn": 0.0019,
+      "total_area_m2": 0.00160849543864,
+      "coupling_alpha_scale_over_ec": 10000
+    },
+    "physics": {
+      "host_material": "cyclic-crack-band",
+      "residual_tension_fraction": 0.02,
+      "global_xfem_shear_cap_mpa": 0.02,
+      "crack_band_tangent": "secant",
+      "fracture_representation": "shifted_heaviside_planar_base_crack_with_cohesive_surface",
+      "requested_kinematic_formulation": "corotational",
+      "effective_kinematic_formulation": "corotational",
+      "xfem_kinematic_support_status": "corotational-bulk-and-crack-frame: the shifted-Heaviside bulk strain filters rigid rotations through a frozen polar frame, and the cohesive crack normal is rotated with that frame. The tangent freezes dR/du, so this is the first large-rotation audit path, not the final finite-strain interface formulation.",
+      "large_amplitude_kinematic_recommendation": "Use corotational XFEM as the first large-amplitude audit path. It is appropriate for filtering rigid-body rotation bias while preserving the current small-strain material laws; promote it only after rigid-rotation, 200 mm equivalence, and larger-mesh convergence checks pass.",
+      "reinforcement_representation": "menegotto_pinto_truss_bars_with_shifted_heaviside_host_penalty_coupling_and_crack_crossing_rebar_bridge",
+      "cohesive_jump_unit": "m",
+      "cohesive_normal_stiffness_mpa_per_m": 257429.602027,
+      "cohesive_shear_stiffness_mpa_per_m": 107262.334178,
+      "cohesive_fracture_energy_mn_per_m": 6e-05,
+      "cohesive_shear_traction_cap_mpa": 0.02,
+      "cohesive_tangent": "central-fallback",
+      "crack_z_m": 0.6,
+      "crack_z_source": "user_prescribed_physical_position",
+      "axial_compression_mn": 0.02,
+      "concrete_fpc_mpa": 30
+    },
+    "solve_control": {
+      "continuation_kind": "fixed-increment",
+      "max_bisections": 8,
+      "solver_max_iterations": 120,
+      "solver_profile": "l2",
+      "solver_cascade": false,
+      "adaptive_increments": true,
+      "mixed_arc_length_status": "not_used",
+      "mixed_arc_length_target": 0.075,
+      "mixed_arc_length_reject_factor": 1.5,
+      "mixed_arc_length_reaction_scale_mn": 0.02,
+      "mixed_arc_length_damage_weight": 0.1,
+      "bordered_hybrid_disable_streak": 3,
+      "bordered_hybrid_retry_interval": 12,
+      "mixed_control_accepted_steps": 0,
+      "mixed_control_failed_solver_attempts": 0,
+      "mixed_control_rejected_arc_attempts": 0,
+      "mixed_control_total_cutbacks": 0,
+      "bordered_hybrid_attempted_steps": 0,
+      "bordered_hybrid_successful_steps": 0,
+      "bordered_hybrid_skipped_steps": 0,
+      "mixed_control_max_arc_length": 0,
+      "mixed_control_mean_arc_length": 0,
+      "total_accepted_substeps": 48,
+      "total_nonlinear_iterations": 857,
+      "total_failed_attempts": 0,
+      "total_solver_profile_attempts": 48,
+      "max_requested_step_nonlinear_iterations": 78,
+      "max_bisection_level": 0,
+      "hard_step_count": 0
+    },
+    "observables": {
+      "peak_abs_base_shear_mn": 0.0257290098398,
+      "peak_abs_steel_stress_mpa": 434.822466808,
+      "max_host_damage": 0.98,
+      "max_damaged_host_points": 32
+    },
+    "timing": {
+      "total_wall_seconds": 44.0946071
+    }
+  },
+  "artifacts": {
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_corot_host_axis_slip0p60_fixed_200mm_steps4_hysteresis.png",
+    "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_corot_host_axis_slip0p60_fixed_200mm_steps4_hysteresis.png",
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_corot_host_axis_slip0p60_fixed_200mm_steps4_hysteresis.pdf",
+    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_corot_host_axis_slip0p60_fixed_200mm_steps4_hysteresis.pdf"
+  }
+}

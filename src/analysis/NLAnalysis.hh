@@ -139,6 +139,11 @@ public:
         int last_solver_factor_levels{-1};
         bool last_solver_factor_reuse_ordering{false};
         bool last_solver_factor_reuse_fill{false};
+        int last_solver_pc_asm_overlap{-1};
+        std::string last_solver_pc_asm_type{};
+        std::string last_solver_petsc_options_prefix{};
+        std::string last_solver_pc_sub_ksp_type{};
+        std::string last_solver_pc_sub_pc_type{};
         bool last_solver_ksp_reuse_preconditioner{false};
         int last_solver_snes_lag_preconditioner{0};
         int last_solver_snes_lag_jacobian{0};
@@ -556,6 +561,19 @@ private:
             profile.linear_tuning.factor_reuse_ordering;
         diag.last_solver_factor_reuse_fill =
             profile.linear_tuning.factor_reuse_fill;
+        diag.last_solver_pc_asm_overlap =
+            profile.linear_tuning.pc_asm_overlap;
+        diag.last_solver_pc_asm_type =
+            profile.linear_tuning.pc_asm_type_enabled
+                ? std::string{
+                      fall_n::to_string(profile.linear_tuning.pc_asm_type)}
+                : std::string{};
+        diag.last_solver_petsc_options_prefix =
+            profile.linear_tuning.petsc_options_prefix;
+        diag.last_solver_pc_sub_ksp_type =
+            profile.linear_tuning.pc_sub_ksp_type;
+        diag.last_solver_pc_sub_pc_type =
+            profile.linear_tuning.pc_sub_pc_type;
         diag.last_solver_ksp_reuse_preconditioner =
             profile.linear_tuning.ksp_reuse_preconditioner;
         diag.last_solver_snes_lag_preconditioner =
