@@ -46,6 +46,21 @@ enum class NonlinearLineSearchKind {
     error_oriented
 };
 
+[[nodiscard]] constexpr std::string_view to_string(PCASMType type) noexcept
+{
+    switch (type) {
+        case PC_ASM_BASIC:
+            return "basic";
+        case PC_ASM_RESTRICT:
+            return "restrict";
+        case PC_ASM_INTERPOLATE:
+            return "interpolate";
+        case PC_ASM_NONE:
+            return "none";
+    }
+    return "unknown_pc_asm_type";
+}
+
 [[nodiscard]] constexpr std::string_view
 to_string(NonlinearSolveMethodKind kind) noexcept
 {
@@ -233,6 +248,20 @@ struct NonlinearSolveProfile {
         int factor_levels{-1};
         bool factor_reuse_ordering{false};
         bool factor_reuse_fill{false};
+        // ASM is the first scalable preconditioner family we expose for the
+        // enriched local-model branch because it does not require symmetry or
+        // a uniform nodal block layout.  The physical field split will add
+        // explicit index sets later; ASM gives an auditable general-AIJ bridge.
+        int pc_asm_overlap{-1};
+        bool pc_asm_type_enabled{false};
+        PCASMType pc_asm_type{PC_ASM_RESTRICT};
+        // PETSc configures ASM subdomain KSPs lazily during PC setup.  We keep
+        // their options namespaced by a profile prefix so global application
+        // options are not required and unrelated solvers do not inherit them.
+        std::string petsc_options_prefix{};
+        std::string pc_sub_ksp_type{};
+        std::string pc_sub_pc_type{};
+        std::string pc_sub_factor_solver_type{};
         bool ksp_reuse_preconditioner{false};
         // Zero means "leave PETSc's default". PETSc documents positive values
         // as rebuild periods and negative values as special one-shot modes.
@@ -355,6 +384,25 @@ assess_nonlinear_solve_attempt(
     };
 }
 
+[[nodiscard]] inline NonlinearSolveProfile make_newton_l2_gmres_asm_profile(
+    std::string label = "newton_l2_gmres_asm")
+{
+    auto profile = make_newton_l2_profile(std::move(label));
+    profile.ksp_type = KSPFGMRES;
+    profile.pc_type = PCASM;
+    profile.linear_tuning.ksp_rtol = 1.0e-8;
+    profile.linear_tuning.ksp_atol = 1.0e-12;
+    profile.linear_tuning.ksp_dtol = PETSC_UNLIMITED;
+    profile.linear_tuning.ksp_max_iterations = 1000;
+    profile.linear_tuning.pc_asm_overlap = 1;
+    profile.linear_tuning.pc_asm_type_enabled = true;
+    profile.linear_tuning.pc_asm_type = PC_ASM_BASIC;
+    profile.linear_tuning.petsc_options_prefix = "falln_asm_";
+    profile.linear_tuning.pc_sub_ksp_type = KSPPREONLY;
+    profile.linear_tuning.pc_sub_pc_type = PCLU;
+    return profile;
+}
+
 [[nodiscard]] inline NonlinearSolveProfile make_newton_trust_region_profile(
     std::string label = "newton_trust_region")
 {
@@ -462,6 +510,11 @@ inline void apply_nonlinear_solve_profile(SNES snes,
 inline void apply_linear_solver_profile(KSP ksp,
                                         const NonlinearSolveProfile& profile)
 {
+    FALL_N_PETSC_CHECK(KSPSetOptionsPrefix(
+        ksp,
+        profile.linear_tuning.petsc_options_prefix.empty()
+            ? nullptr
+            : profile.linear_tuning.petsc_options_prefix.c_str()));
     FALL_N_PETSC_CHECK(KSPSetType(ksp, profile.ksp_type.c_str()));
     FALL_N_PETSC_CHECK(KSPSetTolerances(
         ksp,
@@ -496,6 +549,44 @@ inline void apply_linear_solver_profile(KSP ksp,
         }
         if (tuning.factor_reuse_fill) {
             FALL_N_PETSC_CHECK(PCFactorSetReuseFill(pc, PETSC_TRUE));
+        }
+    }
+
+    if (profile.pc_type == PCASM) {
+        const auto& tuning = profile.linear_tuning;
+        if (tuning.pc_asm_overlap >= 0) {
+            FALL_N_PETSC_CHECK(
+                PCASMSetOverlap(pc, tuning.pc_asm_overlap));
+        }
+        if (tuning.pc_asm_type_enabled) {
+            FALL_N_PETSC_CHECK(PCASMSetType(pc, tuning.pc_asm_type));
+        }
+        const auto option_name = [&](std::string_view suffix) {
+            return std::string{"-"} + tuning.petsc_options_prefix +
+                   std::string{suffix};
+        };
+        if (!tuning.pc_sub_ksp_type.empty()) {
+            const auto name = option_name("sub_ksp_type");
+            FALL_N_PETSC_CHECK(PetscOptionsSetValue(
+                nullptr, name.c_str(), tuning.pc_sub_ksp_type.c_str()));
+        }
+        if (!tuning.pc_sub_pc_type.empty()) {
+            const auto name = option_name("sub_pc_type");
+            FALL_N_PETSC_CHECK(PetscOptionsSetValue(
+                nullptr, name.c_str(), tuning.pc_sub_pc_type.c_str()));
+        }
+        if (!tuning.pc_sub_factor_solver_type.empty()) {
+            const auto name = option_name("sub_pc_factor_mat_solver_type");
+            FALL_N_PETSC_CHECK(PetscOptionsSetValue(
+                nullptr,
+                name.c_str(),
+                tuning.pc_sub_factor_solver_type.c_str()));
+        }
+        if (!tuning.pc_sub_ksp_type.empty() ||
+            !tuning.pc_sub_pc_type.empty() ||
+            !tuning.pc_sub_factor_solver_type.empty())
+        {
+            FALL_N_PETSC_CHECK(KSPSetFromOptions(ksp));
         }
     }
 

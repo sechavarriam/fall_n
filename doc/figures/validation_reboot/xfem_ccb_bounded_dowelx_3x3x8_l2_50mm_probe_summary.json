@@ -1,0 +1,74 @@
+{
+  "source_manifest": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_3x3x8_l2_50mm_probe\\global_xfem_newton_manifest.json",
+  "figure": "doc\\figures\\validation_reboot\\xfem_ccb_bounded_dowelx_3x3x8_l2_50mm_probe_hysteresis.png",
+  "completed_successfully": true,
+  "mesh": {
+    "hex_order": "Hex8",
+    "nx": 3,
+    "ny": 3,
+    "nz": 8,
+    "longitudinal_bias_power": 2,
+    "longitudinal_bias_location": "fixed-end",
+    "element_count": 136,
+    "node_count": 216,
+    "enriched_node_count": 32
+  },
+  "dofs": {
+    "local_state_dofs": 744,
+    "solver_global_dofs": 624
+  },
+  "scale_audit": {
+    "estimated_total_state_dofs": 744,
+    "estimated_sparse_nonzeros": 138384,
+    "host_material_point_count": 576,
+    "sparse_matrix_mib": 2.13796615601,
+    "direct_factorization_risk_mib": 89.7945785522,
+    "material_state_mib": 0.421875,
+    "solver_advice": "direct_lu_smoke_ok",
+    "seed_state_cache_recommended": false,
+    "newton_warm_start_recommended": false,
+    "site_level_openmp_recommended": false,
+    "global_petsc_assembly_openmp_recommended": false
+  },
+  "solve_control": {
+    "continuation_kind": "fixed-increment",
+    "max_bisections": 8,
+    "solver_max_iterations": 120,
+    "solver_profile": "l2",
+    "solver_cascade": false,
+    "adaptive_increments": true,
+    "mixed_arc_length_status": "not_used",
+    "mixed_arc_length_target": 0.075,
+    "mixed_arc_length_reject_factor": 1.5,
+    "mixed_arc_length_reaction_scale_mn": 0.02,
+    "mixed_arc_length_damage_weight": 0.1,
+    "bordered_hybrid_disable_streak": 3,
+    "bordered_hybrid_retry_interval": 12,
+    "mixed_control_accepted_steps": 0,
+    "mixed_control_failed_solver_attempts": 0,
+    "mixed_control_rejected_arc_attempts": 0,
+    "mixed_control_total_cutbacks": 0,
+    "bordered_hybrid_attempted_steps": 0,
+    "bordered_hybrid_successful_steps": 0,
+    "bordered_hybrid_skipped_steps": 0,
+    "mixed_control_max_arc_length": 0,
+    "mixed_control_mean_arc_length": 0,
+    "total_accepted_substeps": 15,
+    "total_nonlinear_iterations": 913,
+    "total_failed_attempts": 3,
+    "total_solver_profile_attempts": 18,
+    "max_requested_step_nonlinear_iterations": 360,
+    "max_bisection_level": 2,
+    "hard_step_count": 3
+  },
+  "observables": {
+    "peak_abs_base_shear_mn": 0.0164499997848,
+    "peak_abs_steel_stress_mpa": 375.394808125,
+    "max_host_damage": 0.98,
+    "max_damaged_host_points": 550
+  },
+  "timing": {
+    "total_wall_seconds": 285.6614391
+  },
+  "interpretation": "Completed 3x3x8 bounded-dowel XFEM cyclic smoke to 50 mm. The response is physically plausible and axial-balanced, but hard steps and bisections indicate that the next amplitude escalation should use guarded continuation or smaller increments."
+}

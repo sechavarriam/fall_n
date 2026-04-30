@@ -911,6 +911,51 @@ fall_n_add_test(TARGET fall_n_reduced_rc_local_model_promotion_catalog_test
     SOURCE tests/test_reduced_rc_local_model_promotion_catalog.cpp
     LIBS EIGEN  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_reduced_rc_local_mesh_scale_audit_test
+    NAME reduced_rc_local_mesh_scale_audit
+    SOURCE tests/test_reduced_rc_local_mesh_scale_audit.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_petsc_matrix_storage_audit_test
+    NAME reduced_rc_petsc_matrix_storage_audit
+    SOURCE tests/test_reduced_rc_petsc_matrix_storage_audit.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_multiscale_validation_start_catalog_test
+    NAME reduced_rc_multiscale_validation_start_catalog
+    SOURCE tests/test_reduced_rc_multiscale_validation_start_catalog.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_multiscale_replay_plan_test
+    NAME reduced_rc_multiscale_replay_plan
+    SOURCE tests/test_reduced_rc_multiscale_replay_plan.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_multiscale_runtime_policy_test
+    NAME reduced_rc_multiscale_runtime_policy
+    SOURCE tests/test_reduced_rc_multiscale_runtime_policy.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_local_site_batch_plan_test
+    NAME reduced_rc_local_site_batch_plan
+    SOURCE tests/test_reduced_rc_local_site_batch_plan.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_local_site_replay_runner_test
+    NAME reduced_rc_local_site_replay_runner
+    SOURCE tests/test_reduced_rc_local_site_replay_runner.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_multiscale_readiness_gate_test
+    NAME reduced_rc_multiscale_readiness_gate
+    SOURCE tests/test_reduced_rc_multiscale_readiness_gate.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_nonlinear_solve_policy_test
+    NAME nonlinear_solve_policy
+    SOURCE tests/test_nonlinear_solve_policy.cpp
+    LIBS CORE  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_reduced_rc_benchmark_surface_test
     NAME reduced_rc_benchmark_surface
     SOURCE tests/test_reduced_rc_benchmark_surface.cpp
@@ -957,6 +1002,11 @@ fall_n_add_test(TARGET fall_n_xfem_enrichment_test
     NAME xfem_enrichment
     SOURCE tests/test_xfem_enrichment.cpp
     LIBS FULL LABEL unit)
+
+fall_n_add_test(TARGET fall_n_shifted_heaviside_kinematic_policy_test
+    NAME shifted_heaviside_kinematic_policy
+    SOURCE tests/test_shifted_heaviside_kinematic_policy.cpp
+    LIBS EIGEN LABEL unit)
 
 fall_n_add_test(TARGET fall_n_analysis_director_test
     NAME analysis_director  SOURCE tests/test_analysis_director.cpp

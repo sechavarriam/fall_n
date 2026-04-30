@@ -180,7 +180,11 @@ struct CouplingIterationReport {
     int local_runtime_failed_solve_attempts{0};
     int local_runtime_skipped_by_activation{0};
     int local_runtime_seed_restores{0};
+    int local_runtime_seed_evictions{0};
     int local_runtime_checkpoint_saves{0};
+    int local_runtime_cached_seed_states{0};
+    int local_runtime_max_cached_seed_states{0};
+    bool local_runtime_seed_cache_capacity_limited{false};
     double local_runtime_total_solve_seconds{0.0};
     double local_runtime_mean_site_solve_seconds{0.0};
     double local_runtime_max_site_solve_seconds{0.0};

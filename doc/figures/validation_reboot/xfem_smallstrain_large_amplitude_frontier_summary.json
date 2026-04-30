@@ -1,0 +1,67 @@
+{
+  "scope": "promoted_xfem_smallstrain_large_amplitude_frontier",
+  "status": "completed",
+  "interpretation": "The promoted XFEM branch remains numerically stable from the validated 200 mm closure point through 250 and 300 mm under mixed-control arc length. Because the effective kinematics are still small-strain shifted-Heaviside, these larger amplitudes are frontier/stability evidence, not the final finite-rotation physics certificate. The next formulation to implement is corotational XFEM before TL/UL.",
+  "cases": [
+    {
+      "label": "200 mm promoted",
+      "bundle": "data\\output\\cyclic_validation\\xfem_mixed_control_l2_arc050_guarded_200mm",
+      "amplitude_mm": 200,
+      "completed": true,
+      "point_count": 215,
+      "accepted_substeps": 222,
+      "nonlinear_iterations": 1851,
+      "failed_attempts": 10,
+      "max_bisection_level": 8,
+      "wall_seconds": 97.721739,
+      "peak_base_shear_mn": 0.0270436360213,
+      "peak_steel_stress_mpa": 437.214851103,
+      "max_host_damage": 0.98,
+      "loop_work_mn_mm": 16.161990820400643,
+      "effective_kinematic_formulation": "small-strain",
+      "large_amplitude_recommendation": "corotational-XFEM is the next required large-amplitude extension"
+    },
+    {
+      "label": "250 mm small-strain frontier",
+      "bundle": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_250mm",
+      "amplitude_mm": 250,
+      "completed": true,
+      "point_count": 310,
+      "accepted_substeps": 314,
+      "nonlinear_iterations": 2197,
+      "failed_attempts": 5,
+      "max_bisection_level": 5,
+      "wall_seconds": 113.1316288,
+      "peak_base_shear_mn": 0.0283583908953,
+      "peak_steel_stress_mpa": 443.714916483,
+      "max_host_damage": 0.98,
+      "loop_work_mn_mm": 28.82808258915924,
+      "effective_kinematic_formulation": "small-strain",
+      "large_amplitude_recommendation": "Use small-strain XFEM only as the calibrated 200 mm local-model closure baseline. For larger amplitudes, implement corotational-XFEM first because it removes rigid-rotation bias while preserving the current small-strain concrete and cohesive laws; migrate to UL only after the interface traction/jump measures and material history are made objective."
+    },
+    {
+      "label": "300 mm small-strain frontier",
+      "bundle": "data\\output\\cyclic_validation\\xfem_ccb_bounded_dowelx_nz4_smallstrain_mixed_arc_300mm",
+      "amplitude_mm": 300,
+      "completed": true,
+      "point_count": 443,
+      "accepted_substeps": 445,
+      "nonlinear_iterations": 2684,
+      "failed_attempts": 3,
+      "max_bisection_level": 3,
+      "wall_seconds": 122.4207567,
+      "peak_base_shear_mn": 0.0296797696788,
+      "peak_steel_stress_mpa": 450.252712652,
+      "max_host_damage": 0.98,
+      "loop_work_mn_mm": 44.832720488431015,
+      "effective_kinematic_formulation": "small-strain",
+      "large_amplitude_recommendation": "Use small-strain XFEM only as the calibrated 200 mm local-model closure baseline. For larger amplitudes, implement corotational-XFEM first because it removes rigid-rotation bias while preserving the current small-strain concrete and cohesive laws; migrate to UL only after the interface traction/jump measures and material history are made objective."
+    }
+  ],
+  "artifacts": {
+    "png": "doc\\figures\\validation_reboot\\xfem_smallstrain_large_amplitude_frontier.png",
+    "secondary_png": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_smallstrain_large_amplitude_frontier.png",
+    "pdf": "doc\\figures\\validation_reboot\\xfem_smallstrain_large_amplitude_frontier.pdf",
+    "secondary_pdf": "PhD_Thesis\\Figuras\\validation_reboot\\xfem_smallstrain_large_amplitude_frontier.pdf"
+  }
+}

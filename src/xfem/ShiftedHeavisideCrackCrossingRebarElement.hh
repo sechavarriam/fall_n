@@ -4,6 +4,7 @@
 #include "XFEMDofManager.hh"
 #include "XFEMEnrichment.hh"
 
+#include "../continuum/KinematicPolicy.hh"
 #include "../elements/element_geometry/ElementGeometry.hh"
 #include "../materials/InternalFieldSnapshot.hh"
 #include "../materials/Material.hh"
@@ -28,6 +29,11 @@ namespace fall_n::xfem {
 enum class CrackCrossingRebarBridgeLawKind {
     material_strain,
     bounded_slip
+};
+
+enum class CrackCrossingRebarAxisFrameKind {
+    fixed_global,
+    corotational_host
 };
 
 struct BoundedSlipBridgeState {
@@ -117,13 +123,22 @@ public:
 
     struct Options {
         double minimum_shape_weight{1.0e-14};
+        CrackCrossingRebarAxisFrameKind axis_frame_kind{
+            CrackCrossingRebarAxisFrameKind::fixed_global};
+        bool include_corotational_host_axis_tangent{false};
     };
 
 private:
+    enum class DofSlotKind {
+        host_frame,
+        enriched_jump
+    };
+
     struct DofSlot {
         std::size_t node{0};
         std::size_t component{0};
-        double coefficient{0.0};
+        double shape_weight{0.0};
+        DofSlotKind kind{DofSlotKind::enriched_jump};
     };
 
     ElementGeometry<dim>* geometry_{nullptr};
@@ -137,6 +152,8 @@ private:
     double area_{0.0};
     double gauge_length_{0.0};
     Options options_{};
+    CrackCrossingRebarAxisFrameKind axis_frame_kind_{
+        CrackCrossingRebarAxisFrameKind::fixed_global};
 
     std::vector<DofSlot> dof_slots_{};
     std::vector<PetscInt> dof_indices_{};
@@ -155,16 +172,38 @@ private:
     {
         dof_slots_.clear();
         dof_indices_.clear();
-        dof_slots_.reserve(num_nodes() * dim);
-        dof_indices_.reserve(num_nodes() * dim);
+        const std::size_t standard_slots =
+            axis_frame_kind_ ==
+                    CrackCrossingRebarAxisFrameKind::corotational_host
+                ? num_nodes() * dim
+                : 0;
+        dof_slots_.reserve(standard_slots + num_nodes() * dim);
+        dof_indices_.reserve(standard_slots + num_nodes() * dim);
 
         for (std::size_t node = 0; node < num_nodes(); ++node) {
+            const auto node_dofs = geometry_->node_p(node).dof_index();
+            if (axis_frame_kind_ ==
+                CrackCrossingRebarAxisFrameKind::corotational_host) {
+                if (node_dofs.size() < dim) {
+                    throw std::runtime_error(
+                        "Corotational crack-crossing bridge requires host displacement DOFs.");
+                }
+                for (std::size_t component = 0; component < dim;
+                     ++component) {
+                    dof_slots_.push_back({
+                        .node = node,
+                        .component = component,
+                        .shape_weight = 0.0,
+                        .kind = DofSlotKind::host_frame});
+                    dof_indices_.push_back(node_dofs[component]);
+                }
+            }
+
             const double N = shape_(node);
             if (std::abs(N) <= options_.minimum_shape_weight) {
                 continue;
             }
 
-            const auto node_dofs = geometry_->node_p(node).dof_index();
             if (node_dofs.size() <
                 ShiftedHeavisideDofLayout<dim>::total_dofs) {
                 throw std::runtime_error(
@@ -172,13 +211,18 @@ private:
             }
 
             for (std::size_t component = 0; component < dim; ++component) {
-                const double coefficient =
-                    2.0 * N *
-                    axis_[static_cast<Eigen::Index>(component)];
-                if (std::abs(coefficient) <= 1.0e-18) {
+                if (axis_frame_kind_ ==
+                        CrackCrossingRebarAxisFrameKind::fixed_global &&
+                    std::abs(
+                        axis_[static_cast<Eigen::Index>(component)]) <=
+                        1.0e-18) {
                     continue;
                 }
-                dof_slots_.push_back({node, component, coefficient});
+                dof_slots_.push_back({
+                    .node = node,
+                    .component = component,
+                    .shape_weight = 2.0 * N,
+                    .kind = DofSlotKind::enriched_jump});
                 dof_indices_.push_back(
                     node_dofs[
                         shifted_heaviside_enriched_component<dim>(
@@ -195,21 +239,59 @@ private:
         }
     }
 
-    [[nodiscard]] Eigen::VectorXd slip_gradient_()
+    [[nodiscard]] Eigen::Vector3d active_axis_(
+        const Eigen::VectorXd& u_e) const
+    {
+        if (axis_frame_kind_ ==
+            CrackCrossingRebarAxisFrameKind::fixed_global) {
+            return axis_;
+        }
+
+        Eigen::Matrix3d F = Eigen::Matrix3d::Identity();
+        const auto grad = continuum::detail::physical_gradients<dim>(
+            geometry_,
+            num_nodes(),
+            local_coordinates_);
+        for (std::size_t i = 0; i < dof_slots_.size(); ++i) {
+            const auto& slot = dof_slots_[i];
+            if (slot.kind != DofSlotKind::host_frame) {
+                continue;
+            }
+            const auto row = static_cast<Eigen::Index>(slot.node);
+            const auto component = static_cast<Eigen::Index>(slot.component);
+            const double u = u_e[static_cast<Eigen::Index>(i)];
+            for (std::size_t j = 0; j < dim; ++j) {
+                F(component, static_cast<Eigen::Index>(j)) +=
+                    u * grad(row, static_cast<Eigen::Index>(j));
+            }
+        }
+
+        const auto R = continuum::Corotational::extract_rotation<dim>(
+            continuum::Tensor2<dim>{F});
+        return (R.matrix() * axis_).normalized();
+    }
+
+    [[nodiscard]] Eigen::VectorXd slip_gradient_(const Eigen::VectorXd& u_e)
     {
         ensure_dof_cache_();
+        const Eigen::Vector3d active_axis = active_axis_(u_e);
         Eigen::VectorXd gradient = Eigen::VectorXd::Zero(
             static_cast<Eigen::Index>(dof_slots_.size()));
         for (std::size_t i = 0; i < dof_slots_.size(); ++i) {
+            const auto& slot = dof_slots_[i];
+            if (slot.kind != DofSlotKind::enriched_jump) {
+                continue;
+            }
             gradient[static_cast<Eigen::Index>(i)] =
-                dof_slots_[i].coefficient;
+                slot.shape_weight *
+                active_axis[static_cast<Eigen::Index>(slot.component)];
         }
         return gradient;
     }
 
     [[nodiscard]] double slip_(const Eigen::VectorXd& u_e)
     {
-        return slip_gradient_().dot(u_e);
+        return slip_gradient_(u_e).dot(u_e);
     }
 
     [[nodiscard]] Strain<1> strain_state_(const Eigen::VectorXd& u_e)
@@ -255,6 +337,62 @@ private:
             .bounded_state = bounded_slip_state_};
     }
 
+    [[nodiscard]] Eigen::VectorXd local_force_vector_(
+        const Eigen::VectorXd& u_e)
+    {
+        const auto response = bridge_response_(u_e);
+        return response.force_mn * slip_gradient_(u_e);
+    }
+
+    [[nodiscard]] bool has_corotational_host_axis_tangent_() const noexcept
+    {
+        return axis_frame_kind_ ==
+                   CrackCrossingRebarAxisFrameKind::corotational_host &&
+               options_.include_corotational_host_axis_tangent;
+    }
+
+    [[nodiscard]] static double finite_difference_axis_step_(double value)
+    {
+        return std::max(1.0e-8, 1.0e-7 * (1.0 + std::abs(value)));
+    }
+
+    void add_corotational_host_axis_tangent_columns_(
+        Eigen::MatrixXd& K,
+        const Eigen::VectorXd& u_e,
+        const Eigen::VectorXd& f0)
+    {
+        if (!has_corotational_host_axis_tangent_()) {
+            return;
+        }
+
+        // The host-frame columns capture d(e_s)/du_host in
+        // e_s = R_host e_s0.  This is intentionally a local finite-difference
+        // Jacobian for the frame projection only; the residual still acts on
+        // the enriched jump DOFs, so rigid body rotations do not create
+        // artificial standard-DOF forces.
+        for (std::size_t j = 0; j < dof_slots_.size(); ++j) {
+            if (dof_slots_[j].kind != DofSlotKind::host_frame) {
+                continue;
+            }
+            const auto col = static_cast<Eigen::Index>(j);
+            const double h =
+                finite_difference_axis_step_(u_e[col]);
+            Eigen::VectorXd u_plus = u_e;
+            Eigen::VectorXd u_minus = u_e;
+            u_plus[col] += h;
+            u_minus[col] -= h;
+            const Eigen::VectorXd df =
+                (local_force_vector_(u_plus) -
+                 local_force_vector_(u_minus)) /
+                (2.0 * h);
+            if (df.allFinite()) {
+                K.col(col) = df;
+            } else {
+                K.col(col) = f0 * 0.0;
+            }
+        }
+    }
+
 public:
     ShiftedHeavisideCrackCrossingRebarElement() = delete;
 
@@ -273,7 +411,8 @@ public:
           axis_{std::move(axis)},
           area_{area},
           gauge_length_{gauge_length},
-          options_{options}
+          options_{options},
+          axis_frame_kind_{options.axis_frame_kind}
     {
         if (geometry_ == nullptr) {
             throw std::invalid_argument(
@@ -327,7 +466,8 @@ public:
           axis_{std::move(axis)},
           area_{area},
           gauge_length_{gauge_length},
-          options_{options}
+          options_{options},
+          axis_frame_kind_{options.axis_frame_kind}
     {
         if (geometry_ == nullptr) {
             throw std::invalid_argument(
@@ -426,8 +566,7 @@ public:
             throw std::invalid_argument(
                 "Crack-crossing rebar local vector has incompatible size.");
         }
-        const auto response = bridge_response_(u_e);
-        return response.force_mn * slip_gradient_();
+        return local_force_vector_(u_e);
     }
 
     [[nodiscard]] Eigen::MatrixXd compute_tangent_stiffness_matrix(
@@ -439,8 +578,13 @@ public:
                 "Crack-crossing rebar local vector has incompatible size.");
         }
         const auto response = bridge_response_(u_e);
-        const Eigen::VectorXd G = slip_gradient_();
-        return response.tangent_mn_per_m * (G * G.transpose());
+        const Eigen::VectorXd G = slip_gradient_(u_e);
+        Eigen::MatrixXd K = response.tangent_mn_per_m * (G * G.transpose());
+        add_corotational_host_axis_tangent_columns_(
+            K,
+            u_e,
+            response.force_mn * G);
+        return K;
     }
 
     void compute_internal_forces(Vec u_local, Vec f_local)
@@ -462,13 +606,18 @@ public:
         const auto u_e = extract_element_dofs(u_local);
         const auto K_e = compute_tangent_stiffness_matrix(u_e);
         if (!dof_indices_.empty()) {
+            const Eigen::Matrix<double,
+                                Eigen::Dynamic,
+                                Eigen::Dynamic,
+                                Eigen::RowMajor>
+                K_row = K_e;
             MatSetValuesLocal(
                 K,
                 static_cast<PetscInt>(dof_indices_.size()),
                 dof_indices_.data(),
                 static_cast<PetscInt>(dof_indices_.size()),
                 dof_indices_.data(),
-                K_e.data(),
+                K_row.data(),
                 ADD_VALUES);
         }
     }
@@ -480,13 +629,18 @@ public:
             static_cast<Eigen::Index>(dof_indices_.size()));
         const auto K_e = compute_tangent_stiffness_matrix(u_zero);
         if (!dof_indices_.empty()) {
+            const Eigen::Matrix<double,
+                                Eigen::Dynamic,
+                                Eigen::Dynamic,
+                                Eigen::RowMajor>
+                K_row = K_e;
             MatSetValuesLocal(
                 K,
                 static_cast<PetscInt>(dof_indices_.size()),
                 dof_indices_.data(),
                 static_cast<PetscInt>(dof_indices_.size()),
                 dof_indices_.data(),
-                K_e.data(),
+                K_row.data(),
                 ADD_VALUES);
         }
     }

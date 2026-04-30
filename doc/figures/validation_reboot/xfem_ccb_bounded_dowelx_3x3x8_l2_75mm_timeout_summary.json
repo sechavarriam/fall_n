@@ -1,0 +1,16 @@
+{
+  "case": "xfem_ccb_bounded_dowelx_3x3x8_l2_75mm_probe",
+  "completed_successfully": false,
+  "status": "killed_after_timeout_without_manifest",
+  "timeout_seconds": 2400,
+  "mesh": {
+    "nx": 3,
+    "ny": 3,
+    "nz": 8,
+    "hex_order": "Hex8"
+  },
+  "continuation_kind": "fixed-increment",
+  "solver_profile": "l2",
+  "target_amplitude_mm": 75,
+  "interpretation": "The fixed-increment Newton-L2 3x3x8 75 mm probe exceeded 2400 s and had not written a manifest. Together with the mixed-arc timeout, this brackets 50 mm as the current completed amplitude for this mesh/control pair and motivates streaming progress diagnostics plus continuation/preconditioner work before larger amplitudes."
+}

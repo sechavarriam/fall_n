@@ -353,12 +353,90 @@ void test_seed_reuse_restores_last_accepted_local_checkpoint()
                "warm-start restore prevents a polluted trial state from leaking into the next solve");
 }
 
+void test_seed_cache_budget_evicts_oldest_inactive_seed()
+{
+    LocalSubproblemRuntimeManager<RuntimeLocalModel> runtime;
+    runtime.resize(3);
+    runtime.set_settings(
+        LocalSubproblemRuntimeSettings{
+            .seed_state_reuse_enabled = true,
+            .restore_seed_before_solve = true,
+            .max_cached_seed_states = 2});
+
+    std::array<RuntimeLocalModel, 3> locals{};
+    for (std::size_t i = 0; i < locals.size(); ++i) {
+        locals[i].solve_calls = static_cast<int>(10 + i);
+
+        MacroSectionState macro_state;
+        macro_state.site.section_gp = i;
+        macro_state.strain =
+            Eigen::Vector<double, 6>::Constant(static_cast<double>(i + 1));
+
+        SectionHomogenizedResponse response;
+        response.site = macro_state.site;
+        response.status = ResponseStatus::Ok;
+        response.forces =
+            Eigen::Vector<double, 6>::Constant(static_cast<double>(i + 1));
+        response.tangent =
+            Eigen::Matrix<double, 6, 6>::Identity();
+        refresh_section_operator_diagnostics(response);
+
+        runtime.save_accepted_state(i, locals[i], response, macro_state);
+    }
+
+    const auto summary = runtime.summary();
+    CHECK_TRUE(summary.cached_seed_states == 2,
+               "local runtime enforces the configured seed-cache budget");
+    CHECK_TRUE(summary.seed_evictions == 1,
+               "local runtime reports deterministic seed evictions");
+    CHECK_TRUE(summary.seed_cache_capacity_limited,
+               "runtime summary exposes that the cache is budget-limited");
+
+    RuntimeLocalModel restored0;
+    RuntimeLocalModel restored1;
+    RuntimeLocalModel restored2;
+    CHECK_TRUE(!runtime.restore_seed_before_solve(0, restored0),
+               "oldest inactive seed is evicted first");
+    CHECK_TRUE(runtime.restore_seed_before_solve(1, restored1),
+               "newer retained seed can warm-start its site");
+    CHECK_TRUE(runtime.restore_seed_before_solve(2, restored2),
+               "newest retained seed can warm-start its site");
+}
+
+void test_adaptive_activation_uses_deactivation_hysteresis()
+{
+    LocalSubproblemRuntimeManager<RuntimeLocalModel> runtime;
+    runtime.resize(1);
+    runtime.set_settings(
+        LocalSubproblemRuntimeSettings{
+            .adaptive_activation_enabled = true,
+            .keep_active_once_triggered = false,
+            .deactivation_metric_threshold = 0.40,
+            .activation_generalized_strain_norm = 1.0});
+
+    MacroSectionState macro_state;
+    macro_state.strain.setZero();
+    macro_state.strain[0] = 1.20;
+    CHECK_TRUE(runtime.should_solve(0, macro_state),
+               "site activates when the demand crosses the activation gate");
+
+    macro_state.strain[0] = 0.60;
+    CHECK_TRUE(runtime.should_solve(0, macro_state),
+               "site remains active inside the hysteresis band");
+
+    macro_state.strain[0] = 0.20;
+    CHECK_TRUE(!runtime.should_solve(0, macro_state),
+               "site deactivates only after crossing the lower gate");
+}
+
 } // namespace
 
 int main()
 {
     test_adaptive_activation_skips_low_demand_sites();
     test_seed_reuse_restores_last_accepted_local_checkpoint();
+    test_seed_cache_budget_evicts_oldest_inactive_seed();
+    test_adaptive_activation_uses_deactivation_hysteresis();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return g_fail == 0 ? 0 : 1;
