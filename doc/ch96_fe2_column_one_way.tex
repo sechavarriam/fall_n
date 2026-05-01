@@ -1,0 +1,94 @@
+% ==========================================================================
+%  Chapter 96 -- Stage A: One-Way FE^2 Column (cyclic 200 mm)
+% ==========================================================================
+
+\chapter{Stage~A: One-Way FE\textsuperscript{2} on the Cyclic 200~mm RC Column}
+\label{ch:fe2-column-one-way}
+
+\paragraph{Purpose.}
+This chapter closes the first of three sequential stages that validate
+the FE\textsuperscript{2} multiscale coupling on the same RC column already
+validated in mono-scale (Cap.~89, small-strain $200/300$~mm). Stage~A
+exercises the \emph{one-way} chain: macro Timoshenko-fibre column $\to$
+synthesised local response, with \emph{no} feedback into the macro
+tangent. Stage~B (Cap.~97) then enables two-way feedback. Only when both
+close, Stage~C (Cap.~98) escalates to the full dynamic 16-storey case.
+
+\section{Setup}
+
+\begin{itemize}
+  \item Macro element (proxy): \texttt{TimoshenkoBeam3D} fibre, $N=4$
+        per column, section $200\times200$~mm; replayed via the
+        Cap.~89 cyclic envelopes.
+  \item Cyclic input: any of the eight canonical CSVs
+        \path{data/output/cyclic_validation/xfem_*_v2/global_xfem_newton_progress.csv}.
+  \item Activation criterion (injected): \texttt{FirstInelasticFiberCriterion}
+        in \path{src/analysis/FirstInelasticFiberCriterion.hh}, defined as
+        \[
+          \texttt{trigger}\;=\;
+          (|\sigma_{\text{rebar}}|\ge f_y) \;\lor\;
+          (|\kappa|\,c_{\text{section}} \ge \varepsilon_y) \;\lor\;
+          (d \ge d_{\text{floor}}).
+        \]
+  \item Local upscaling: damage-degraded diagonal section tangent
+        $D_{\text{hom}} = (1-d)\,\mathrm{diag}(EA, EI)$, identical
+        construction to the Fase~4D guarded smoke driver, ensuring
+        cross-stage comparability.
+\end{itemize}
+
+\section{Driver and tests}
+
+\begin{itemize}
+  \item Driver: \path{main_fe2_column_cyclic_one_way.cpp} (Eigen-only,
+        no PETSc, no VTK).
+  \item Unit test of the criterion: \texttt{first\_inelastic\_fiber\_criterion}
+        (\path{tests/test_first_inelastic_fiber_criterion.cpp}).
+  \item Smoke test: \texttt{fe2\_column\_cyclic\_one\_way\_smoke}
+        (\path{tests/test_fe2_column_cyclic_one_way_smoke.cpp}).
+  \item Both ctests label \texttt{unit}; PASS in $<1$~s wall.
+\end{itemize}
+
+\section{Cross-formulation evidence}
+
+The driver was run with \texttt{--num-sites 3} on every kinematic
+formulation closed in Cap.~89:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Campaign & Selected & Overall pass \\
+\hline
+\texttt{xfem\_small\_strain\_200mm\_v2}       & 3 & true \\
+\texttt{xfem\_corotational\_200mm\_v2}        & 3 & true \\
+\texttt{xfem\_total\_lagrangian\_200mm\_v2}   & 3 & true \\
+\texttt{xfem\_updated\_lagrangian\_200mm\_v2} & 3 & true \\
+\texttt{xfem\_small\_strain\_300mm\_v2}       & 3 & true \\
+\texttt{xfem\_corotational\_300mm\_v2}        & 3 & true \\
+\texttt{xfem\_total\_lagrangian\_300mm\_v2}   & 3 & true \\
+\texttt{xfem\_updated\_lagrangian\_300mm\_v2} & 3 & true \\
+\hline
+\end{tabular}
+\end{center}
+
+\noindent
+The criterion fires within the first cycle (drift $\approx 6$~mm,
+\texttt{trigger\_reason = rebar\_yield}) for every campaign, confirming
+that the injected predicate is consistent with the rebar-yield surface
+already exposed by the Cap.~89 envelopes.
+
+\section{Honest scientific status}
+
+\texttt{synthetic\_one\_way\_real\_macro\_history}: the macro CSVs are
+real Cap.~89 evidence, while the local upscaling is the damage-degraded
+diagonal surrogate inherited from Fase~4D. The moment-envelope gate is
+marked N/A on these inputs because the canonical CSV does not record
+the section moment column; the gate becomes active when the driver is
+fed an extended history that includes \texttt{moment\_y\_MN\_m}. The
+real one-way bridge with the heavy XFEM local solve lives in
+\path{main_lshaped_multiscale.cpp} (LIBS~FULL).
+
+\section{Audit JSON and manifest}
+
+\path{data/output/validation_reboot/audit_stage_a_fe2_column_one_way.json}
+captures the per-campaign pass status, criterion knobs and honest
+caveats. It is the canonical entry point for Stage~B reviewers.

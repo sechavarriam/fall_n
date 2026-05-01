@@ -1,0 +1,52 @@
+% ==========================================================================
+%  Chapter 98 -- Stage C: 16-Storey Dynamic FE^2 (scoped/deferred)
+% ==========================================================================
+
+\chapter{Stage~C: 16-Storey Dynamic FE\textsuperscript{2} (Scoped / Deferred)}
+\label{ch:fe2-16storey-dynamic}
+
+\paragraph{Purpose.}
+Stage~C is the full dynamic escalation of the FE\textsuperscript{2}
+chain validated in Stages~A (Cap.~96) and~B (Cap.~97): the 16-storey
+L-shaped frame under the MYG004 record, with two-way staggered
+multiscale on the columns and the \texttt{FirstInelasticFiberCriterion}
+deciding when each replay site escalates to the LIBS~FULL local solve.
+
+\section{Honest scientific status}
+
+\texttt{scoped\_deferred} (heavy compute). The infrastructure is in
+place and verified at smoke level; the heavy run is held back until the
+user authorises the compute hours.
+
+\section{Verified prerequisites (this branch)}
+
+\begin{itemize}
+  \item \path{main_lshaped_multiscale_16storey.cpp} compiles in the
+        \texttt{LIBS FULL} tier.
+  \item ctest \#133
+        \texttt{fall\_n\_lshaped\_multiscale\_16storey\_staging\_policy\_smoke}
+        is green and gates the staging policy at unit-test speed.
+  \item Stages~A and~B both close on the same column with the same
+        criterion, ratifying the activation predicate that Stage~C
+        will reuse without modification.
+  \item The two staggered-loop constants
+        (\texttt{MAX\_STAGGERED\_ITER}~$= 4$,
+         \texttt{STAGGERED\_RELAX}~$= 0.7$) are shared verbatim between
+        Stage~B and \path{main_lshaped_multiscale.cpp}, so the
+        algorithmic surface is already cross-validated.
+\end{itemize}
+
+\section{Authorisation gate}
+
+The heavy MYG004 dynamic run will only be triggered when the user
+explicitly authorises the compute. At that point:
+\begin{enumerate}
+  \item The criterion is wired into the staging policy of
+        \path{main_lshaped_multiscale_16storey.cpp}.
+  \item A new audit JSON \texttt{audit\_stage\_c\_16storey\_dynamic.json}
+        will be emitted alongside Cap.~96 and Cap.~97 audits.
+  \item This chapter will be promoted from
+        \texttt{scoped\_deferred} to \texttt{closed\_with\_runtime\_evidence}.
+\end{enumerate}
+
+Until that gate is opened, Stage~C remains documented but not executed.
