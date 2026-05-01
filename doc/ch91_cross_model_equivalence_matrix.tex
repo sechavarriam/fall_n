@@ -1,0 +1,63 @@
+% ==========================================================================
+%  Chapter 91 -- Cross-Model Equivalence Matrix (Plan v2 §Fase 5.1/5.2)
+% ==========================================================================
+
+\chapter{Cross-Model Equivalence Matrix}
+\label{ch:cross-model-equivalence-matrix}
+
+\paragraph{Normative status.}
+This chapter records the cross-model identification program between
+the reduced-RC structural column (beam fibre with Lobatto/GL/GR
+quadrature) and the continuum / XFEM column references. It uses the
+frozen matrix
+\(
+  \mathfrak{B}_{\text{phase3}} = N\times\{\mathrm{GL},\mathrm{Lobatto},
+  \mathrm{GR}_{\text{left}},\mathrm{GR}_{\text{right}}\}
+\)
+declared in
+\href{run:src/validation/ReducedRCColumnStructuralMatrixCatalog.hh}{%
+\texttt{ReducedRCColumnStructuralMatrixCatalog.hh}}.
+
+\section{Closure observable}
+
+The \(g^{\star}\) observable (nearest active fixed-side station, see
+Cap.~88) and the moment--curvature norm \(\eta_{M}\) defined in
+\href{run:src/validation/ReducedRCColumnMomentCurvatureClosure.hh}{%
+\texttt{ReducedRCColumnMomentCurvatureClosure.hh}} are the canonical
+discrepancy metrics. The frozen reference cell \((N=4,\,\mathrm{Lobatto})\)
+satisfies \(\eta_{M} \lesssim 1.8\times 10^{-3}\).
+
+\section{Status (Plan v2 \S5.1, \S5.2)}
+
+\textbf{Scoped-deferred} pending \texttt{LIBS FULL} integration. The
+36-cell sweep is gated on the heavy
+\texttt{main\_reduced\_rc\_xfem\_reference\_benchmark} which depends on
+PETSc/SNES + reduced-RC section solver. The audit trail for this
+deferral lives in
+\path{data/output/validation_reboot/audit_phase5_plan_v2.json}
+(\(\S5.3,\,\S5.4\) closed; \(\S5.1,\,\S5.2\) scoped-deferred).
+
+\section{Reduced-driven equivalence already in place}
+
+Independently of the heavy 36-cell matrix, the FE\(^2\) chain
+(Cap.~90) constitutes a constructive cross-model bridge:
+
+\begin{itemize}
+  \item The 4C elastic smoke verifies that the homogenised
+        \(D_{\mathrm{hom}}\) returned by the bordered mixed-control
+        condensation matches the analytical sectional values
+        \(\mathrm{EA}, \mathrm{EI}\) of the beam fibre to \(\sim 0.5\%\).
+  \item The 4D guarded smoke verifies that, at the activation step,
+        the enriched local response degrades \(D_{\mathrm{hom}}\)
+        consistently with the structural damage indicator carried by
+        the macro section.
+\end{itemize}
+
+The heavy 36-cell M--\(\phi\) sweep, when it lands in a dedicated
+research branch, is expected to confirm the same behaviour over the
+full \((N,\,q)\) grid. Its deferral does not block the FE\(^2\)
+plumbing nor the staging 16-storey driver (Cap.~92).
+
+\paragraph{Honest scientific status.}
+\texttt{scoped\_deferred\_to\_branch} for the 36-cell matrix;
+\texttt{constructive\_chain\_evidence} for the FE\(^2\) plumbing.
