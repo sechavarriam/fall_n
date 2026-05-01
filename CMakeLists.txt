@@ -422,6 +422,24 @@ target_include_directories(
 target_link_libraries(
     fall_n_multiscale_xfem_fe2_guarded_one_step PRIVATE Eigen3::Eigen)
 
+# Plan v2 §Stage A — FE² ONE-WAY cyclic 200 mm column smoke driver.
+add_executable(
+    fall_n_fe2_column_cyclic_one_way
+    main_fe2_column_cyclic_one_way.cpp)
+target_include_directories(
+    fall_n_fe2_column_cyclic_one_way PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_fe2_column_cyclic_one_way PRIVATE Eigen3::Eigen)
+
+# Plan v2 §Stage B — FE² TWO-WAY cyclic 200 mm column smoke driver.
+add_executable(
+    fall_n_fe2_column_cyclic_two_way
+    main_fe2_column_cyclic_two_way.cpp)
+target_include_directories(
+    fall_n_fe2_column_cyclic_two_way PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_fe2_column_cyclic_two_way PRIVATE Eigen3::Eigen)
+
 # Plan v2 §Fase 6 — 16-storey L-shaped FE² seismic STAGING driver.
 add_executable(
     fall_n_lshaped_multiscale_16storey_staging
@@ -1203,6 +1221,24 @@ fall_n_add_test(TARGET fall_n_multiscale_fase5_cyclic_two_way_smoke_test
 fall_n_add_test(TARGET fall_n_lshaped_multiscale_16storey_staging_policy_smoke_test
     NAME lshaped_multiscale_16storey_staging_policy_smoke
     SOURCE tests/test_lshaped_multiscale_16storey_staging_policy_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Stage A — FirstInelasticFiberCriterion unit test.
+fall_n_add_test(TARGET fall_n_first_inelastic_fiber_criterion_test
+    NAME first_inelastic_fiber_criterion
+    SOURCE tests/test_first_inelastic_fiber_criterion.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Stage A — FE² ONE-WAY cyclic 200 mm column smoke.
+fall_n_add_test(TARGET fall_n_fe2_column_cyclic_one_way_smoke_test
+    NAME fe2_column_cyclic_one_way_smoke
+    SOURCE tests/test_fe2_column_cyclic_one_way_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Stage B — FE² TWO-WAY cyclic 200 mm column smoke.
+fall_n_add_test(TARGET fall_n_fe2_column_cyclic_two_way_smoke_test
+    NAME fe2_column_cyclic_two_way_smoke
+    SOURCE tests/test_fe2_column_cyclic_two_way_smoke.cpp
     LIBS EIGEN  LABEL unit)
 
 # ── Timeout guards for slow tests ───────────────────────────────────────────
