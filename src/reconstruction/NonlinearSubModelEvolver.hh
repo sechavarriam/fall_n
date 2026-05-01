@@ -147,6 +147,12 @@ class NonlinearSubModelEvolver {
     Mat  J_{nullptr};            ///< tangent stiffness
     Vec  U_work_{nullptr};       ///< pre-allocated work vector (U-sized)
     Vec  imp_work_{nullptr};     ///< pre-allocated work vector (imposed-sized)
+    /// Persistent bisection checkpoint storage for solve_ramp_adaptive_
+    /// (Plan v2 §Fase 1 hot-path: avoid per-call VecDuplicate inside the
+    /// adaptive bisection loop; previously two VecDuplicate + two VecDestroy
+    /// per macro-step solve).
+    Vec  U_checkpoint_{nullptr};
+    Vec  imp_checkpoint_{nullptr};
 
     //  VTK output 
     LocalVTKOutputWriter output_writer_{};
@@ -402,10 +408,10 @@ class NonlinearSubModelEvolver {
         double progress = 0.0;
         double step_frac = clamped_initial_step;
 
-        Vec U_checkpoint{nullptr};
-        Vec imp_checkpoint{nullptr};
-        VecDuplicate(U_, &U_checkpoint);
-        VecDuplicate(model_->imposed_solution(), &imp_checkpoint);
+        // Reuse persistent member checkpoints (Plan v2 §Fase 1 hot-path).
+        // Aliases keep the rest of the body legible without renaming.
+        Vec U_checkpoint = U_checkpoint_;
+        Vec imp_checkpoint = imp_checkpoint_;
         VecCopy(U_, U_checkpoint);
         restore_imposed_at_progress(progress);
         VecCopy(model_->imposed_solution(), imp_checkpoint);
@@ -531,8 +537,8 @@ class NonlinearSubModelEvolver {
                 stats.minimum_step_fraction);
         }
 
-        VecDestroy(&U_checkpoint);
-        VecDestroy(&imp_checkpoint);
+        // Persistent checkpoints (U_checkpoint_, imp_checkpoint_) are owned
+        // by the evolver; nothing to destroy here.
         return stats;
     }
 
@@ -1325,11 +1331,13 @@ private:
     //  Destroy PETSc objects 
 
     void destroy_petsc_objects() {
-        if (U_)        { VecDestroy(&U_);        U_        = nullptr; }
-        if (R_)        { VecDestroy(&R_);        R_        = nullptr; }
-        if (f_ext_)    { VecDestroy(&f_ext_);    f_ext_    = nullptr; }
-        if (U_work_)   { VecDestroy(&U_work_);   U_work_   = nullptr; }
-        if (imp_work_) { VecDestroy(&imp_work_); imp_work_ = nullptr; }
+        if (U_)             { VecDestroy(&U_);             U_             = nullptr; }
+        if (R_)             { VecDestroy(&R_);             R_             = nullptr; }
+        if (f_ext_)         { VecDestroy(&f_ext_);         f_ext_         = nullptr; }
+        if (U_work_)        { VecDestroy(&U_work_);        U_work_        = nullptr; }
+        if (imp_work_)      { VecDestroy(&imp_work_);      imp_work_      = nullptr; }
+        if (U_checkpoint_)  { VecDestroy(&U_checkpoint_);  U_checkpoint_  = nullptr; }
+        if (imp_checkpoint_){ VecDestroy(&imp_checkpoint_);imp_checkpoint_= nullptr; }
         if (J_)     { MatDestroy(&J_);     J_     = nullptr; }
         if (snes_)  { SNESDestroy(&snes_); snes_  = nullptr; }
     }
@@ -1440,7 +1448,9 @@ private:
         VecDuplicate(U_, &R_);
         VecDuplicate(U_, &f_ext_);
         VecDuplicate(U_, &U_work_);
+        VecDuplicate(U_, &U_checkpoint_);
         VecDuplicate(model_->imposed_solution(), &imp_work_);
+        VecDuplicate(model_->imposed_solution(), &imp_checkpoint_);
         DMCreateMatrix(dm, &J_);
         MatSetOption(J_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
