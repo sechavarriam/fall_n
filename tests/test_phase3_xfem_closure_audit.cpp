@@ -174,8 +174,8 @@ int main() {
     // ── Plan v2 §Fase 3 closure items ──────────────────────────────────
     f << "  \"phase3_closure_items\": [\n"
          "    {\"id\": \"3.1\", \"item\": \"Calibrate corotational-XFEM 200 mm gate (RMS<0.10, max<0.30)\", \"status\": \"closed_with_runtime_evidence\", \"current_evidence\": \"NZ=4 cyclic 50/100/150/200 mm: rms_norm=0.0014, max_norm=0.0044, peak_ratio=0.9965 (xfem_corotational_200mm_v2 vs xfem_small_strain_200mm_v2)\"},\n"
-         "    {\"id\": \"3.2\", \"item\": \"TL reference-nominal large-amplitude 250/300 mm vs FD oracle\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"TL is finite-kinematics promotion candidate (per catalog)\"},\n"
-         "    {\"id\": \"3.3\", \"item\": \"UL current-spatial cyclic large-amplitude (current-history persistence)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"UL needs current-history + cyclic work-conjugacy evidence (per catalog)\"},\n"
+         "    {\"id\": \"3.2\", \"item\": \"TL reference-nominal large-amplitude 250/300 mm vs FD oracle\", \"status\": \"empirical_residual_recorded\", \"current_evidence\": \"NZ=4 cyclic 200 mm: rms_norm=0.0345 (PASS<=0.10), max_norm=0.1610 (PASS<=0.30), peak_ratio=1.1610 (FAIL just over 1.15 ceiling); 250/300 mm + FD oracle remain scoped\"},\n"
+         "    {\"id\": \"3.3\", \"item\": \"UL current-spatial cyclic large-amplitude (current-history persistence)\", \"status\": \"empirical_residual_recorded\", \"current_evidence\": \"NZ=4 cyclic 200 mm: rms_norm=0.0318 (PASS<=0.10), max_norm=0.1502 (PASS<=0.30), peak_ratio=1.1502 (FAIL just over 1.15 ceiling); current-history persistence proof remains scoped\"},\n"
          "    {\"id\": \"3.4\", \"item\": \"Real mixed constraint in PETSc bordered backend\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"diagnostic only; hybrid SNES-L2 fallback validated (256 s gate)\"},\n"
          "    {\"id\": \"3.5\", \"item\": \"LocalXFEMEvolver::should_activate_enrichment(state, threshold)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"adaptive enriched-model activation declared at MultiscaleAnalysis layer (per catalog)\"},\n"
          "    {\"id\": \"3.6\", \"item\": \"FieldSplit/Schur/ASM preconditioning for refined meshes (NZ=5/6/8)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"GMRES/ILU rejected; NZ=8 timed out 3600 s; NZ=5 stalled at 17.7 mm\"},\n"
@@ -184,7 +184,8 @@ int main() {
          "  ],\n";
     f << "  \"all_closure_items_scoped_deferred\": false,\n";
     f << "  \"closed_with_runtime_evidence_count\": 1,\n";
-    f << "  \"scoped_deferred_count\": 7,\n";
+    f << "  \"empirical_residual_recorded_count\": 2,\n";
+    f << "  \"scoped_deferred_count\": 5,\n";
     f << "  \"catalog_consistency_passed\": true\n";
     f << "}\n";
     f.close();
@@ -194,6 +195,6 @@ int main() {
                 table.size(),
                 canonical_reduced_rc_primary_multiscale_candidate_count_v,
                 canonical_reduced_rc_closed_reference_count_v);
-    std::printf("  phase 3 closure items: 1 closed_with_runtime_evidence, 7 scoped_deferred_to_branch\n");
+    std::printf("  phase 3 closure items: 1 closed_with_runtime_evidence, 2 empirical_residual_recorded, 5 scoped_deferred_to_branch\n");
     return 0;
 }
