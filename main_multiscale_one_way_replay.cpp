@@ -20,6 +20,9 @@
 //   main_multiscale_one_way_replay --input <csv> --output-dir <dir>
 //                                  [--site-index N] [--z-over-l F]
 //                                  [--characteristic-length-mm F]
+//                                  [--num-sites N]
+//                                  [--site-z-list "f1,f2,..."]
+//                                  [--site-scale-list "f1,f2,..."]
 
 #include <algorithm>
 #include <cstdio>
@@ -42,7 +45,24 @@ struct Options {
     std::size_t site_index{0};
     double z_over_l{0.02};
     double characteristic_length_mm{100.0};
+    std::size_t num_sites{1};
+    std::vector<double> site_z_list{};
+    std::vector<double> site_scale_list{};
 };
+
+[[nodiscard]] std::vector<double> parse_double_list(std::string_view s) {
+    std::vector<double> out;
+    std::string buf;
+    for (char c : s) {
+        if (c == ',' || c == ';') {
+            if (!buf.empty()) { out.push_back(std::strtod(buf.c_str(), nullptr)); buf.clear(); }
+        } else if (!std::isspace(static_cast<unsigned char>(c))) {
+            buf.push_back(c);
+        }
+    }
+    if (!buf.empty()) out.push_back(std::strtod(buf.c_str(), nullptr));
+    return out;
+}
 
 void print_usage(const char* argv0) {
     std::fprintf(stderr,
@@ -64,6 +84,9 @@ void print_usage(const char* argv0) {
         else if (a == "--site-index" && i + 1 < argc) o.site_index = std::strtoull(argv[++i], nullptr, 10);
         else if (a == "--z-over-l") { if (!next(o.z_over_l)) return false; }
         else if (a == "--characteristic-length-mm") { if (!next(o.characteristic_length_mm)) return false; }
+        else if (a == "--num-sites" && i + 1 < argc) o.num_sites = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--site-z-list" && i + 1 < argc) o.site_z_list = parse_double_list(argv[++i]);
+        else if (a == "--site-scale-list" && i + 1 < argc) o.site_scale_list = parse_double_list(argv[++i]);
         else if (a == "--help" || a == "-h") { print_usage(argv[0]); return false; }
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); print_usage(argv[0]); return false; }
     }
@@ -246,10 +269,46 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[fase4a] empty CSV: %s\n", o.input_csv.string().c_str());
         return 3;
     }
-    const auto samples = build_samples(rows, o);
+
+    std::vector<fall_n::ReducedRCStructuralReplaySample> samples;
+    if (o.num_sites <= 1) {
+        samples = build_samples(rows, o);
+    } else {
+        // Multi-site cantilever replay (Fase 5.3 stepping stone). Default
+        // ladder if the user does not pass explicit lists: 0.02/0.10/0.30
+        // for z_over_l with linearly decaying demand 1.0/0.7/0.4 ... extended
+        // by linear interpolation when num_sites > 3.
+        const std::vector<double> default_z = {0.02, 0.10, 0.30, 0.55, 0.85};
+        const std::vector<double> default_s = {1.00, 0.70, 0.40, 0.20, 0.10};
+        auto pick = [&](const std::vector<double>& list,
+                        const std::vector<double>& fallback,
+                        std::size_t i) -> double {
+            if (!list.empty() && i < list.size()) return list[i];
+            if (i < fallback.size()) return fallback[i];
+            return fallback.back();
+        };
+        // Reuse build_samples per site by patching options inline.
+        Options per = o;
+        for (std::size_t s = 0; s < o.num_sites; ++s) {
+            per.site_index = s;
+            per.z_over_l = pick(o.site_z_list, default_z, s);
+            const double scale = pick(o.site_scale_list, default_s, s);
+            auto site_samples = build_samples(rows, per);
+            for (auto& sample : site_samples) {
+                sample.curvature_y *= scale;
+                sample.moment_y_mn_m *= scale;
+                sample.base_shear_mn *= scale;
+                sample.steel_stress_mpa *= scale;
+                sample.work_increment_mn_mm *= scale;
+                sample.damage_indicator =
+                    std::clamp(sample.damage_indicator * scale, 0.0, 1.0);
+                samples.push_back(sample);
+            }
+        }
+    }
 
     fall_n::ReducedRCMultiscaleReplayPlanSettings settings{};
-    settings.max_replay_sites = 3;
+    settings.max_replay_sites = std::max<std::size_t>(3, o.num_sites);
     // Default thresholds match the XFEM driver settings (Plan v2 Fase 4 anchor).
     const auto plan = fall_n::make_reduced_rc_multiscale_replay_plan(samples, settings);
     const auto policy = fall_n::make_reduced_rc_multiscale_runtime_policy(plan);

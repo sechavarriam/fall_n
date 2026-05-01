@@ -1172,6 +1172,12 @@ fall_n_add_test(TARGET fall_n_multiscale_fase4_chain_smoke_test
     SOURCE tests/test_multiscale_fase4_chain_smoke.cpp
     LIBS EIGEN  LABEL unit)
 
+# Plan v2 §Fase 5.3 stepping stone — multi-site replay smoke.
+fall_n_add_test(TARGET fall_n_multiscale_multi_site_replay_smoke_test
+    NAME multiscale_multi_site_replay_smoke
+    SOURCE tests/test_multiscale_multi_site_replay_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
