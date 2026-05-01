@@ -69,27 +69,32 @@ def evaluate(label: str, run_csv: Path, base_csv: Path) -> dict:
 
 
 def main() -> int:
+    # Optional positional arg: amplitude suffix (default "200mm" — historic Fase 3.1/3.2/3.3 gate).
+    # Usage: evaluate_xfem_finite_kinematics_gate.py [200mm|300mm|...]
+    suffix = sys.argv[1] if len(sys.argv) > 1 else "200mm"
     base_dir = Path("data/output/cyclic_validation")
-    base_csv = base_dir / "xfem_small_strain_200mm_v2" / "global_xfem_newton_progress.csv"
+    base_csv = base_dir / f"xfem_small_strain_{suffix}_v2" / "global_xfem_newton_progress.csv"
     if not base_csv.exists():
         print(f"[gate] baseline missing: {base_csv}", file=sys.stderr)
         return 1
 
     runs = [
-        ("corotational",      base_dir / "xfem_corotational_200mm_v2"      / "global_xfem_newton_progress.csv"),
-        ("total-lagrangian",  base_dir / "xfem_total_lagrangian_200mm_v2"  / "global_xfem_newton_progress.csv"),
-        ("updated-lagrangian", base_dir / "xfem_updated_lagrangian_200mm_v2" / "global_xfem_newton_progress.csv"),
+        ("corotational",       base_dir / f"xfem_corotational_{suffix}_v2"       / "global_xfem_newton_progress.csv"),
+        ("total-lagrangian",   base_dir / f"xfem_total_lagrangian_{suffix}_v2"   / "global_xfem_newton_progress.csv"),
+        ("updated-lagrangian", base_dir / f"xfem_updated_lagrangian_{suffix}_v2" / "global_xfem_newton_progress.csv"),
     ]
 
     results = [evaluate(lbl, p, base_csv) for lbl, p in runs]
 
     out_dir = Path("data/output/validation_reboot")
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "audit_phase3_xfem_finite_kinematics_gate.json"
+    suffix_tag = "" if suffix == "200mm" else f"_{suffix}"
+    out_path = out_dir / f"audit_phase3_xfem_finite_kinematics_gate{suffix_tag}.json"
 
     payload = {
         "schema_version": 1,
-        "phase_label": "phase3_xfem_finite_kinematics_gate",
+        "phase_label": f"phase3_xfem_finite_kinematics_gate_{suffix}",
+        "amplitude_suffix": suffix,
         "baseline_run": str(base_csv),
         "catalog_gate": {
             "max_peak_normalized_rms_base_shear_error": 0.10,
