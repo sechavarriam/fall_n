@@ -427,6 +427,70 @@ to_string(RegularizationPolicyKind kind)
     return "UnknownRegularizationPolicy";
 }
 
+// ─── Plan v2 §Fase 4C — UpscalingResult ──────────────────────────────────
+//
+// Bidirectional plumbing payload returned by an upscaling bridge after
+// completing a sub-model homogenisation step. The macro model consumes
+// this through `MaterialSection::set_homogenized_response(eps_ref,
+// f_hom, D_hom)` (shim already in place per cyclic-validation-status).
+//
+// The `D_hom` block is computed primarily through bordered mixed-control
+// (the principal mechanism per Plan v2 §Fase 4C); the optional Schur
+// route remains a diagnostic comparator (§Fase 4-bis).
+//
+// Field semantics:
+//   - eps_ref            : reference strain vector at which the
+//                          homogenisation was sampled.
+//   - f_hom              : homogenised generalised force vector.
+//   - D_hom              : homogenised generalised tangent (square,
+//                          ordered to match `f_hom`).
+//   - frobenius_residual : ||K_macro_observed - D_hom||_F /
+//                          ||D_hom||_F at the linearisation point;
+//                          gate threshold for §Fase 4D guarded smoke
+//                          (≤ 0.03 per Cap. 79).
+//   - snes_iters         : SNES iterations consumed by the sub-step.
+//   - converged          : true iff the sub-step converged within the
+//                          guarded budget.
+//   - status             : structured response classification.
+//   - tangent_scheme     : how D_hom was obtained.
+//   - condensed_status   : Schur condensation status (diagnostic).
+//
+// This is a plain-data struct — no virtual interfaces, no PETSc
+// dependencies. Used as the return type of the upscaling bridge and
+// (uncondensed) of the diagnostic Schur route.
+struct UpscalingResult {
+    Eigen::VectorXd eps_ref{};
+    Eigen::VectorXd f_hom{};
+    Eigen::MatrixXd D_hom{};
+
+    double         frobenius_residual{0.0};
+    std::size_t    snes_iters{0};
+    bool           converged{false};
+
+    ResponseStatus            status{ResponseStatus::NotReady};
+    TangentLinearizationScheme tangent_scheme{TangentLinearizationScheme::Unknown};
+    CondensedTangentStatus    condensed_status{CondensedTangentStatus::NotAttempted};
+
+    [[nodiscard]] bool is_well_formed() const noexcept {
+        const auto n = static_cast<Eigen::Index>(f_hom.size());
+        if (n == 0) return false;
+        if (eps_ref.size() != 0 && eps_ref.size() != n) return false;
+        return D_hom.rows() == n && D_hom.cols() == n;
+    }
+
+    [[nodiscard]] bool passes_guarded_smoke_gate(
+        double max_frobenius_residual = 0.03,
+        std::size_t max_snes_iters = 6) const noexcept
+    {
+        return converged
+            && status != ResponseStatus::SolveFailed
+            && status != ResponseStatus::InvalidOperator
+            && snes_iters <= max_snes_iters
+            && frobenius_residual <= max_frobenius_residual
+            && is_well_formed();
+    }
+};
+
 }  // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_MULTISCALE_TYPES_HH
