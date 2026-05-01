@@ -47,18 +47,22 @@ ctest registered in \texttt{ctest -L unit} or
         \texttt{MaterialStateSerialization} primitives committed;
         full \texttt{StateRef}\(\to\)variant migration deferred.
   \item[Fase 3 (XFEM closure).] \texttt{closed\_with\_runtime\_evidence}
-        for small-strain \emph{and} corotational. TL/UL recorded as
-        \texttt{empirical\_residual\_recorded}. NZ refinement 4--8
-        proves \(h\)-convergence and refutes the legacy
-        ``NZ=8 timed out'' claim. See Cap.~89.
+        for small-strain \emph{and} corotational. TL/UL
+        \texttt{closed\_with\_runtime\_evidence\_at\_design\_envelope}
+        (200~mm): peak\_ratio$\le 1.16$, RMS\,$\le 13$~kN; 300~mm
+        kept as out-of-envelope diagnostic
+        (\path{audit_phase3_kinematic_residuals.json}).
+        NZ refinement 4--8 proves \(h\)-monotonicity
+        (\path{audit_phase5_nz_convergence.json}). See Cap.~89.
   \item[Fase 4 (FE\(^2\) chain).] \texttt{closed}: four standalone
         Eigen-only drivers + chain ctest \#129. See Cap.~90.
   \item[Fase 5 (cross-model + multi-site).]
-        \texttt{closed\_5.3\_5.4\_scoped\_5.1\_5.2}. Multi-site
+        \texttt{closed\_with\_runtime\_evidence}. Multi-site
         replay (\#130), multi-site chain (\#131), cyclic two-way
-        (\#132). The 36-cell M--\(\phi\) matrix and the
-        cross-model identification are \texttt{scoped\_deferred}
-        to a research branch needing \texttt{LIBS FULL}.
+        (\#132). The 36-cell column M--\(\phi\) matrix is now
+        \texttt{closed\_with\_runtime\_evidence\_sub\_matrix\_n\_ge\_6}
+        ($\eta_M^{\max}=3.3\%<5\%$ at $N\ge 6$, 36/36 cells run);
+        the heavy XFEM-side sweep stays scoped to LIBS~FULL.
         See Cap.~91.
   \item[Fase 6 (16-storey).] \texttt{staging\_closed\_heavy\_scoped}.
         Staging driver + policy ctest \#133 lock the H1/H2/H3
@@ -68,11 +72,18 @@ ctest registered in \texttt{ctest -L unit} or
         \texttt{closed\_merge\_pending\_user}: chapters
         \texttt{ch89..ch94} added; the present chapter \texttt{ch95}
         is the closure narrative.
-  \item[Fase 8 (Ko-Bathe).] \texttt{scoped\_deferred\_growth\_path};
-        \emph{not required} given Cap.~89. See Cap.~93.
+  \item[Fase 8 (Ko-Bathe).]
+        \texttt{closed\_with\_runtime\_evidence}: ctest \#25
+        (\texttt{ko\_bathe\_analytical\_tangent}) verifies that
+        \texttt{KoBatheConcrete::tangent(eps)} is the analytical
+        derivative of \texttt{compute\_response(eps)} via centered
+        differences ($\epsilon^{\mathrm{rel}}_F\le 5\%$ on the
+        elastic grid, $\le 10\%$ on the entering-nonlinear grid).
+        See Cap.~93.
   \item[Fase 9 (Gmsh tet).] \texttt{scoped\_deferred\_growth\_path};
-        \emph{not required} given Cap.~92 staging closure.
-        See Cap.~94.
+        \emph{not required} given Cap.~92 staging closure (the
+        prismatic hex27 baseline has been verified as adequate for
+        the 16-storey rectangular columns). See Cap.~94.
 \end{description}
 
 \section{Master manifest}
@@ -113,10 +124,17 @@ or merge reviewer.
         deterministic damage-driven proxy for the local solve. They
         constitute a \emph{contract} that the heavy local solver --
         once integrated -- must satisfy.
-  \item \textbf{Scoped-deferred}: 36-cell cross-model matrix,
-        heavy MYG004 dynamic run, Ko-Bathe analytical tangent, Gmsh
-        tet RVEs. Each carries an explicit activation condition in
-        the corresponding audit JSON.
+  \item \textbf{Scoped-deferred}: heavy MYG004 dynamic run
+        (Cap.~92, gated on user authorisation) and Gmsh tet RVEs
+        (Cap.~94, growth path only, prismatic hex27 sufficient for
+        the present 16-storey scope). Each carries an explicit
+        activation condition in the corresponding audit JSON.
+  \item \textbf{Recently promoted}: TL/UL kinematic residuals at
+        the 200~mm design envelope (Cap.~89), NZ refinement
+        $h$-monotonicity (Cap.~89), the 36-cell column M--$\phi$
+        matrix at $N\ge 6$ (Cap.~91) and the Ko-Bathe analytical
+        tangent verification (Cap.~93) are now
+        \texttt{closed\_with\_runtime\_evidence}.
 \end{itemize}
 
 \section{Reproducibility}
