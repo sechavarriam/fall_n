@@ -2,22 +2,53 @@
 %  Chapter 93 -- Ko-Bathe Analytical Tangent (Plan v2 §Fase 8, optional)
 % ==========================================================================
 
-\chapter{Ko--Bathe Analytical Tangent (Deferred Growth Path)}
+\chapter{Ko--Bathe Analytical Tangent (Closed with Runtime Evidence)}
 \label{ch:ko-bathe-analytical-tangent}
 
 \paragraph{Normative status.}
-This chapter is an \emph{optional, scoped-deferred growth path}
-declared by Plan~v2 \S Fase~8. It is reachable only if the
-XFEM-led closure (Cap.~89) fails to support a Phase~6 claim that
-demands a continuum fallback. As of the present audit it is
-\texttt{scoped\_deferred} and Ko--Bathe remains
-\texttt{research\_guardrail\_not\_promoted} per
-\href{run:src/validation/ReducedRCLocalModelPromotionCatalog.hh}{%
-\texttt{ReducedRCLocalModelPromotionCatalog.hh}}.
+This chapter was originally declared an \emph{optional,
+scoped-deferred growth path} by Plan~v2 \S Fase~8 (reachable only
+if the XFEM-led closure of Cap.~89 failed). The
+\texttt{KoBatheConcrete} accessor \texttt{tangent(eps)} was already
+implemented as a closed-form 2D plane-stress derivative; what was
+missing was an explicit runtime check that the accessor truly
+\emph{is} an analytical derivative of \texttt{compute\_response(eps)}
+rather than a secant approximation. That gap is now closed by
+ctest~\#25 \texttt{ko\_bathe\_analytical\_tangent}
+(\path{tests/test_ko_bathe_analytical_tangent.cpp}). Status:
+\texttt{closed\_with\_runtime\_evidence}.
 
-\section{Decision condition}
+\section{Verification procedure}
 
-The Fase~8 work is \emph{not} required because:
+For each strain state $\boldsymbol{\varepsilon}_0$ on a
+representative 2D plane-stress grid the test computes
+\[
+  \mathbf{C}_{\text{FD}}\bigl(\boldsymbol{\varepsilon}_0\bigr)_{:j}
+  = \frac{\boldsymbol{\sigma}\bigl(\boldsymbol{\varepsilon}_0+h\,\mathbf{e}_j\bigr)
+        - \boldsymbol{\sigma}\bigl(\boldsymbol{\varepsilon}_0-h\,\mathbf{e}_j\bigr)}{2h},
+  \qquad j\in\{1,2,3\},
+\]
+from \emph{independent copies} of the model (no committed-state
+drift), then compares against the analytical
+$\mathbf{C}(\boldsymbol{\varepsilon}_0)
+  = \texttt{KoBatheConcrete::tangent}(\boldsymbol{\varepsilon}_0)$
+in Frobenius-relative norm:
+\[
+  \epsilon^{\text{rel}}_F
+   = \frac{\bigl\lVert\mathbf{C}-\mathbf{C}_{\text{FD}}\bigr\rVert_F}
+          {\max\!\bigl(\bigl\lVert\mathbf{C}_{\text{FD}}\bigr\rVert_F,\,\epsilon_{\text{floor}}\bigr)}.
+\]
+Closure gates: $\epsilon^{\text{rel}}_F\le 5\%$ on the elastic
+grid ($f_c=30$~MPa, $|\boldsymbol{\varepsilon}|\le 5\!\times\!10^{-5}$,
+$h=10^{-9}$) and $\epsilon^{\text{rel}}_F\le 10\%$ on the
+entering-nonlinear grid ($f_c=21$~MPa,
+$|\boldsymbol{\varepsilon}|\le 3\!\times\!10^{-4}$, $h=10^{-8}$).
+Both gates pass with $\ge 90\%$ of grid points within tolerance and
+no blow-up (i.e.\ no point exhibits a runaway secant).
+
+\section{Original deferral rationale (historical)}
+
+The Fase~8 work was \emph{not} blocking because:
 
 \begin{itemize}
   \item Cap.~89 closes the XFEM small-strain gate at
@@ -29,27 +60,36 @@ The Fase~8 work is \emph{not} required because:
         the FE\(^2\) chain (Cap.~90) which uses small-strain.
 \end{itemize}
 
-Fase~8 would only be activated if a future Phase~6 multiscale
-claim required a non-enriched fallback for sites where XFEM
-activation is not justified -- e.g. low-damage transition columns in
-the L-shape where the enrichment overhead is not warranted.
+Ko--Bathe is still \texttt{research\_guardrail\_not\_promoted} per
+\href{run:src/validation/ReducedRCLocalModelPromotionCatalog.hh}{%
+\texttt{ReducedRCLocalModelPromotionCatalog.hh}}; the
+analytical-tangent runtime check verifies its
+\emph{constitutive-level} consistency, not its multiscale
+promotion.
 
-\section{Scope (when activated)}
+\section{Scope (when fully activated)}
 
 \begin{enumerate}
-  \item Derive the closed-form tangent
+  \item The closed-form 2D plane-stress tangent
         \(\partial \boldsymbol{\sigma}/\partial \boldsymbol{\varepsilon}\)
-        for \texttt{KoBatheConcrete3D} consistent with CP~Eq.~31c-d.
-  \item Validate against the existing experimental dataset
-        \texttt{ko\_bathe\_3d\_uniaxial\_fc\{21,30\}.csv}.
-  \item Promote Ko--Bathe in the catalog from
+        is now verified by ctest~\#25.
+  \item Validation against the experimental dataset
+        \texttt{ko\_bathe\_3d\_uniaxial\_fc\{21,30\}.csv} is
+        covered by \texttt{ko\_bathe\_concrete} and
+        \texttt{ko\_bathe\_concrete\_3d}.
+  \item Promotion of Ko--Bathe in the catalog from
         \texttt{research\_guardrail\_not\_promoted} to
-        \texttt{promoted\_control}.
+        \texttt{promoted\_control} remains contingent on a future
+        Phase~6 dynamic claim and is intentionally not made here.
 \end{enumerate}
 
 The audit JSON
 \path{data/output/validation_reboot/audit_phase8_plan_v2.json}
-records the present \texttt{scoped\_deferred} status and the
-activation condition.
+records the present
+\texttt{closed\_with\_runtime\_evidence} status and the residual
+activation conditions for catalog promotion.
 
-\paragraph{Honest scientific status.} \texttt{scoped\_deferred\_growth\_path}.
+\paragraph{Honest scientific status.}
+\texttt{closed\_with\_runtime\_evidence} (constitutive-level);
+multiscale promotion of Ko--Bathe is intentionally still
+\texttt{research\_guardrail\_not\_promoted}.
