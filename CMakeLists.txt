@@ -1105,6 +1105,23 @@ fall_n_add_test(TARGET fall_n_phase4bis_schur_vs_bordered_diagnostic_test
     SOURCE tests/test_phase4bis_schur_vs_bordered_diagnostic.cpp
     LIBS EIGEN  LABEL unit)
 
+# Plan v2 §Fase 3.1 — XFEM corotational 200mm/300mm gate regressions.
+fall_n_add_test(TARGET fall_n_xfem_corotational_200mm_gate_test
+    NAME xfem_corotational_200mm_gate
+    SOURCE tests/test_xfem_corotational_200mm_gate.cpp
+    LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_xfem_corotational_300mm_gate_test
+    NAME xfem_corotational_300mm_gate
+    SOURCE tests/test_xfem_corotational_300mm_gate.cpp
+    LIBS NONE  LABEL unit)
+
+# Plan v2 §Fase 3.2/3.3 — XFEM TL/UL 200mm empirical residuals.
+fall_n_add_test(TARGET fall_n_xfem_finite_kinematics_residuals_test
+    NAME xfem_finite_kinematics_residuals
+    SOURCE tests/test_xfem_finite_kinematics_residuals.cpp
+    LIBS NONE  LABEL unit)
+
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
