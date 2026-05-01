@@ -57,6 +57,7 @@ read_structural_history_csv(const std::filesystem::path& path)
     }
     int idx_p = -1, idx_drift = -1, idx_vb = -1;
     int idx_curv = -1, idx_mom = -1, idx_steel = -1, idx_dam = -1;
+    int idx_theta_y = -1, idx_cracked = -1;
     {
         std::stringstream ss(header);
         std::string c;
@@ -66,12 +67,16 @@ read_structural_history_csv(const std::filesystem::path& path)
             else if (c == "drift_mm") idx_drift = i;
             else if (c == "base_shear_MN" || c == "base_shear_mn") idx_vb = i;
             else if (c == "curvature_y") idx_curv = i;
-            else if (c == "moment_y_MN_m" || c == "moment_y_mn_m") idx_mom = i;
+            else if (c == "theta_y_rad") idx_theta_y = i;
+            else if (c == "moment_y_MN_m" || c == "moment_y_mn_m" ||
+                     c == "moment_MN_m") idx_mom = i;
             else if (c == "max_abs_steel_stress_MPa" ||
                      c == "steel_stress_MPa" ||
                      c == "max_abs_steel_stress_mpa") idx_steel = i;
             else if (c == "max_host_damage" ||
+                     c == "max_damage" ||
                      c == "damage_indicator") idx_dam = i;
+            else if (c == "cracked_area_fraction") idx_cracked = i;
             ++i;
         }
     }
@@ -90,17 +95,33 @@ read_structural_history_csv(const std::filesystem::path& path)
         std::string c;
         int i = 0;
         StructuralHistoryCsvRow r{};
+        double theta_y_rad = 0.0;
+        double cracked = 0.0;
         while (std::getline(ss, c, ',')) {
             const double v = c.empty() ? 0.0 : std::strtod(c.c_str(), nullptr);
             if (i == idx_p) r.pseudo_time = v;
             else if (i == idx_drift) r.drift_mm = v;
             else if (i == idx_vb) r.base_shear_mn = v;
             else if (i == idx_curv) r.curvature_y = v;
+            else if (i == idx_theta_y) theta_y_rad = v;
             else if (i == idx_mom) r.moment_y_mn_m = v;
             else if (i == idx_steel) r.steel_stress_mpa = v;
             else if (i == idx_dam) r.damage_indicator = v;
+            else if (i == idx_cracked) cracked = v;
             ++i;
         }
+        // Synthesise damage_indicator from max(max_damage, cracked_area_fraction)
+        // when only one of the two is present, mirroring the XFEM driver logic.
+        if (idx_dam < 0 && idx_cracked >= 0) r.damage_indicator = cracked;
+        else if (idx_dam >= 0 && idx_cracked >= 0) {
+            r.damage_indicator = std::max(r.damage_indicator, cracked);
+        }
+        // Note on curvature: when no `curvature_y` column is present,
+        // build_replay_samples_from_csv falls back to drift/L. theta_y_rad is
+        // intentionally NOT auto-mapped because rotation and curvature have
+        // different units; if a downstream caller wants theta-based curvature
+        // it must compute curvature = theta_y / L explicitly.
+        (void)theta_y_rad;
         rows.push_back(r);
     }
     return rows;
