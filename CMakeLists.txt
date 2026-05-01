@@ -1085,6 +1085,26 @@ fall_n_add_test(TARGET fall_n_multiscale_types_upscaling_result_test
     SOURCE tests/test_multiscale_types_upscaling_result.cpp
     LIBS EIGEN  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_enrichment_activation_policy_test
+    NAME enrichment_activation_policy
+    SOURCE tests/test_enrichment_activation_policy.cpp
+    LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_phase3_xfem_vtk_field_coverage_test
+    NAME phase3_xfem_vtk_field_coverage
+    SOURCE tests/test_phase3_xfem_vtk_field_coverage.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_phase4_multiscale_stage_manifest_emitter_test
+    NAME phase4_multiscale_stage_manifest_emitter
+    SOURCE tests/test_phase4_multiscale_stage_manifest_emitter.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_phase4bis_schur_vs_bordered_diagnostic_test
+    NAME phase4bis_schur_vs_bordered_diagnostic
+    SOURCE tests/test_phase4bis_schur_vs_bordered_diagnostic.cpp
+    LIBS EIGEN  LABEL unit)
+
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
