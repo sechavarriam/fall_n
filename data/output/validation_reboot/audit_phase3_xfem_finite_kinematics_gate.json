@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "phase_label": "phase3_xfem_finite_kinematics_gate",
+  "baseline_run": "data\\output\\cyclic_validation\\xfem_small_strain_200mm_v2\\global_xfem_newton_progress.csv",
+  "catalog_gate": {
+    "max_peak_normalized_rms_base_shear_error": 0.1,
+    "max_peak_normalized_max_base_shear_error": 0.3,
+    "min_peak_base_shear_ratio": 0.9,
+    "max_peak_base_shear_ratio": 1.15
+  },
+  "formulations": [
+    {
+      "label": "corotational",
+      "status": "evaluated",
+      "n_compared_steps": 97,
+      "completed": true,
+      "final_p": 1.0,
+      "peak_base_shear_mn": 0.3549043933,
+      "peak_baseline_base_shear_mn": 0.3561544699,
+      "peak_normalized_rms_base_shear_error": 0.001377473310696828,
+      "peak_normalized_max_base_shear_error": 0.004410275688638676,
+      "peak_base_shear_ratio": 0.9964900718490183,
+      "rms_pass": true,
+      "max_pass": true,
+      "ratio_pass": true,
+      "overall_pass": true
+    },
+    {
+      "label": "total-lagrangian",
+      "status": "evaluated",
+      "n_compared_steps": 97,
+      "completed": true,
+      "final_p": 1.0,
+      "peak_base_shear_mn": 0.4134993508,
+      "peak_baseline_base_shear_mn": 0.3561544699,
+      "peak_normalized_rms_base_shear_error": 0.03446356995536585,
+      "peak_normalized_max_base_shear_error": 0.16101126265830984,
+      "peak_base_shear_ratio": 1.1610112626583098,
+      "rms_pass": true,
+      "max_pass": true,
+      "ratio_pass": false,
+      "overall_pass": false
+    },
+    {
+      "label": "updated-lagrangian",
+      "status": "evaluated",
+      "n_compared_steps": 97,
+      "completed": true,
+      "final_p": 1.0,
+      "peak_base_shear_mn": 0.4096499243,
+      "peak_baseline_base_shear_mn": 0.3561544699,
+      "peak_normalized_rms_base_shear_error": 0.031775739099513145,
+      "peak_normalized_max_base_shear_error": 0.15020295664131444,
+      "peak_base_shear_ratio": 1.1502029566413146,
+      "rms_pass": true,
+      "max_pass": true,
+      "ratio_pass": false,
+      "overall_pass": false
+    }
+  ],
+  "summary": {
+    "evaluated": [
+      "corotational",
+      "total-lagrangian",
+      "updated-lagrangian"
+    ],
+    "passing": [
+      "corotational"
+    ],
+    "missing": []
+  }
+}
