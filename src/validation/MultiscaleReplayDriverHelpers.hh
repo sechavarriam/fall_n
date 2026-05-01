@@ -176,6 +176,45 @@ activation_kind_label(ReducedRCReplaySiteActivationKind k) noexcept
     return to_string(k);
 }
 
+// Spec for one site in a multi-site replay. demand_scale multiplies the
+// per-row curvature/moment/base_shear/work columns so that sites at
+// different z_over_l along a cantilever see different activation scores
+// (e.g., 1.0 at the base, 0.7 mid-height, 0.4 near the top).
+struct MultiSiteReplaySpec {
+    std::size_t site_index{0};
+    double z_over_l{0.02};
+    double demand_scale{1.0};
+};
+
+[[nodiscard]] inline std::vector<ReducedRCStructuralReplaySample>
+build_multi_site_replay_samples_from_csv(
+    const std::vector<StructuralHistoryCsvRow>& rows,
+    const std::vector<MultiSiteReplaySpec>& sites,
+    double characteristic_length_mm)
+{
+    std::vector<ReducedRCStructuralReplaySample> out;
+    if (sites.empty() || rows.empty()) return out;
+    out.reserve(rows.size() * sites.size());
+    for (const auto& s : sites) {
+        const auto base = build_replay_samples_from_csv(
+            rows, s.site_index, s.z_over_l, characteristic_length_mm);
+        const double k = std::max(s.demand_scale, 0.0);
+        for (auto sample : base) {
+            sample.curvature_y *= k;
+            sample.moment_y_mn_m *= k;
+            sample.base_shear_mn *= k;
+            sample.steel_stress_mpa *= k;
+            sample.work_increment_mn_mm *= k;
+            // damage_indicator is a clamp [0,1] field; scaling preserves
+            // monotonicity but keeps the upper bound.
+            sample.damage_indicator =
+                std::clamp(sample.damage_indicator * k, 0.0, 1.0);
+            out.push_back(sample);
+        }
+    }
+    return out;
+}
+
 }  // namespace fall_n
 
 #endif  // FALL_N_VALIDATION_MULTISCALE_REPLAY_DRIVER_HELPERS_HH
