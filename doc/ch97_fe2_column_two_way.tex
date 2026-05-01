@@ -1,0 +1,88 @@
+% ==========================================================================
+%  Chapter 97 -- Stage B: Two-Way FE^2 Column (cyclic 200 mm)
+% ==========================================================================
+
+\chapter{Stage~B: Two-Way FE\textsuperscript{2} on the Cyclic 200~mm RC Column}
+\label{ch:fe2-column-two-way}
+
+\paragraph{Purpose.}
+Stage~B keeps the same column, the same cyclic envelope and the same
+\texttt{FirstInelasticFiberCriterion} as Stage~A (Cap.~96) but enables
+\emph{two-way} staggered feedback between the macro Timoshenko-fibre
+section and the local condensed tangent. The chapter documents the
+synthetic-chain closure and the prerequisites left for the LIBS~FULL
+real-solver path.
+
+\section{Driver and staggered loop}
+
+\begin{itemize}
+  \item Driver: \path{main_fe2_column_cyclic_two_way.cpp}
+        (Eigen-only).
+  \item Staggered iteration parameters (defaults aligned with
+        \path{main_lshaped_multiscale.cpp}):
+        \begin{itemize}
+          \item \texttt{MAX\_STAGGERED\_ITER}~$= 4$
+          \item \texttt{STAGGERED\_TOL}~$= 0.05$
+          \item \texttt{STAGGERED\_RELAX}~$= 0.7$
+        \end{itemize}
+  \item Convergence-rate gate over selected sites:
+        \texttt{min\_converged\_fraction}~$\ge 0.95$.
+  \item Smoke test: \texttt{fe2\_column\_cyclic\_two\_way\_smoke}
+        (\path{tests/test_fe2_column_cyclic_two_way_smoke.cpp}); PASS
+        in $<0.1$~s wall.
+\end{itemize}
+
+\section{Cross-formulation evidence}
+
+\begin{center}
+\begin{tabular}{llll}
+\hline
+Campaign & Selected & Triggered & Converged \\
+\hline
+\texttt{xfem\_small\_strain\_200mm\_v2}       & 3 & 3 & 3 \\
+\texttt{xfem\_corotational\_200mm\_v2}        & 3 & 3 & 3 \\
+\texttt{xfem\_total\_lagrangian\_200mm\_v2}   & 3 & 3 & 3 \\
+\texttt{xfem\_updated\_lagrangian\_200mm\_v2} & 3 & 3 & 3 \\
+\texttt{xfem\_small\_strain\_300mm\_v2}       & 3 & 3 & 3 \\
+\texttt{xfem\_corotational\_300mm\_v2}        & 3 & 3 & 3 \\
+\texttt{xfem\_total\_lagrangian\_300mm\_v2}   & 3 & 3 & 3 \\
+\texttt{xfem\_updated\_lagrangian\_300mm\_v2} & 3 & 3 & 3 \\
+\hline
+\end{tabular}
+\end{center}
+
+\noindent
+$\texttt{converged\_fraction} = 1.00$ in all eight campaigns, comfortably
+above the $0.95$ gate.
+
+\section{Honest scientific status}
+
+\texttt{synthetic\_two\_way\_real\_macro\_history}: the staggered loop
+relaxes between the macro $\mathrm{diag}(EA, EI)$ tangent and a
+damage-degraded local target with the same scaling as Stage~A. It
+exercises the convergence/relaxation plumbing but is \emph{not}
+equivalent to the real bordered-mixed-control bridge, which lives in
+\path{main_lshaped_multiscale.cpp} (LIBS~FULL).
+
+\section{Audit JSON and prerequisites for Stage~C}
+
+\path{data/output/validation_reboot/audit_stage_b_fe2_column_two_way.json}
+captures the per-campaign trigger / convergence counts and the
+prerequisites for Stage~C:
+
+\begin{itemize}
+  \item \texttt{lshaped\_multiscale\_16storey\_staging\_policy\_smoke}
+        (ctest \#133) remains green on the present branch.
+  \item The \texttt{FirstInelasticFiberCriterion} is available and ready
+        to be substituted for the synthetic damage-only trigger in
+        \path{main_lshaped_multiscale_16storey.cpp} when the heavy
+        MYG004 dynamic run is authorised.
+\end{itemize}
+
+\section{Closure}
+
+With Stage~A and Stage~B closed, the multiscale program owns a
+runtime-evidenced one-way \emph{and} two-way chain on the 200~mm
+cyclic column for every kinematic formulation closed in Cap.~89. The
+remaining step is the dynamic 16-storey escalation (Cap.~98), which is
+gated on user authorisation due to compute cost.
