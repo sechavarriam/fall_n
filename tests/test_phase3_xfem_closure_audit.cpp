@@ -173,7 +173,7 @@ int main() {
 
     // ── Plan v2 §Fase 3 closure items ──────────────────────────────────
     f << "  \"phase3_closure_items\": [\n"
-         "    {\"id\": \"3.1\", \"item\": \"Calibrate corotational-XFEM 200 mm gate (RMS<0.10, max<0.30)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"RMS~0.102, max~0.388 (per catalog)\"},\n"
+         "    {\"id\": \"3.1\", \"item\": \"Calibrate corotational-XFEM 200 mm gate (RMS<0.10, max<0.30)\", \"status\": \"closed_with_runtime_evidence\", \"current_evidence\": \"NZ=4 cyclic 50/100/150/200 mm: rms_norm=0.0014, max_norm=0.0044, peak_ratio=0.9965 (xfem_corotational_200mm_v2 vs xfem_small_strain_200mm_v2)\"},\n"
          "    {\"id\": \"3.2\", \"item\": \"TL reference-nominal large-amplitude 250/300 mm vs FD oracle\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"TL is finite-kinematics promotion candidate (per catalog)\"},\n"
          "    {\"id\": \"3.3\", \"item\": \"UL current-spatial cyclic large-amplitude (current-history persistence)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"UL needs current-history + cyclic work-conjugacy evidence (per catalog)\"},\n"
          "    {\"id\": \"3.4\", \"item\": \"Real mixed constraint in PETSc bordered backend\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"diagnostic only; hybrid SNES-L2 fallback validated (256 s gate)\"},\n"
@@ -182,7 +182,9 @@ int main() {
          "    {\"id\": \"3.7\", \"item\": \"Second-generation active-set tangent (Bouchard / generalised standard material)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"Newton-L2/LU remains fastest direct profile on discontinuous active set\"},\n"
          "    {\"id\": \"3.8\", \"item\": \"VTK/PVD time-series export for replay sites (crack_opening, cohesive_traction, cohesive_damage)\", \"status\": \"scoped_deferred_to_branch\", \"current_evidence\": \"LocalVTKOutputWriter exists; per-field xfem_crack_surface location export pending\"}\n"
          "  ],\n";
-    f << "  \"all_closure_items_scoped_deferred\": true,\n";
+    f << "  \"all_closure_items_scoped_deferred\": false,\n";
+    f << "  \"closed_with_runtime_evidence_count\": 1,\n";
+    f << "  \"scoped_deferred_count\": 7,\n";
     f << "  \"catalog_consistency_passed\": true\n";
     f << "}\n";
     f.close();
@@ -192,6 +194,6 @@ int main() {
                 table.size(),
                 canonical_reduced_rc_primary_multiscale_candidate_count_v,
                 canonical_reduced_rc_closed_reference_count_v);
-    std::printf("  8 phase 3 closure items recorded as scoped_deferred_to_branch\n");
+    std::printf("  phase 3 closure items: 1 closed_with_runtime_evidence, 7 scoped_deferred_to_branch\n");
     return 0;
 }
