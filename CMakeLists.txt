@@ -1075,6 +1075,16 @@ fall_n_add_test(TARGET fall_n_bench_assembly
     SOURCE tests/benchmarks/bench_assembly.cpp
     LIBS NONE  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_phase3_xfem_closure_audit_test
+    NAME phase3_xfem_closure_audit
+    SOURCE tests/test_phase3_xfem_closure_audit.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_multiscale_types_upscaling_result_test
+    NAME multiscale_types_upscaling_result
+    SOURCE tests/test_multiscale_types_upscaling_result.cpp
+    LIBS EIGEN  LABEL unit)
+
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
