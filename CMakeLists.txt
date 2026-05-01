@@ -1134,13 +1134,23 @@ foreach(_t IN LISTS _FN_PHASE3_MATRIX_TESTS)
 endforeach()
 
 # Per-phase labels (canonical workstream gating, plan v2 §Fase 0)
-set_property(TEST reduced_rc_column_material_baseline   APPEND PROPERTY LABELS phase0)
-set_property(TEST reduced_rc_column_section_baseline    APPEND PROPERTY LABELS phase1)
-set_property(TEST reduced_rc_column_truss_baseline      APPEND PROPERTY LABELS phase2)
-set_property(TEST reduced_rc_column_continuum_baseline  APPEND PROPERTY LABELS phase2)
+# Phase semantics follow `ValidationRebootPhaseKind` in
+# `src/validation/ValidationCampaignCatalog.hh`:
+#   phase0 = governance_and_legacy_quarantine
+#   phase1 = formulation_and_solver_audit
+#   phase2 = material_and_section_baseline
+#   phase3 = reduced_order_rc_column (matrix + sweeps)
+#   phase4 = continuum_rc_column
+#   phase5 = cross_model_equivalence
+#   phase6 = full_structure_escalation
+set_property(TEST validation_campaign_catalog           APPEND PROPERTY LABELS phase0)
+set_property(TEST reduced_rc_column_material_baseline   APPEND PROPERTY LABELS phase2)
+set_property(TEST reduced_rc_column_section_baseline    APPEND PROPERTY LABELS phase2)
 foreach(_t IN LISTS _FN_PHASE3_MATRIX_TESTS)
     set_property(TEST ${_t} APPEND PROPERTY LABELS phase3)
 endforeach()
+set_property(TEST reduced_rc_column_continuum_baseline  APPEND PROPERTY LABELS phase4)
+set_property(TEST reduced_rc_column_truss_baseline      APPEND PROPERTY LABELS phase4)
 set_property(TEST phase4_hysteretic_cycles              APPEND PROPERTY LABELS phase4)
 set_property(TEST reduced_rc_column_moment_curvature_closure APPEND PROPERTY LABELS phase5)
 set_property(TEST phase5_dynamic_verification           APPEND PROPERTY LABELS phase5)
