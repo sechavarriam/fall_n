@@ -1060,6 +1060,21 @@ fall_n_add_test(TARGET fall_n_bc_test
     NAME boundary_conditions  SOURCE tests/test_boundary_conditions.cpp
     LIBS FULL  LABEL slow)
 
+# ── Plan v2 §Fase 1 / §Fase 2 — additive harnesses ─────────────────────────
+# These verify the additive primitives delivered by the multiscale-v2 hot-path
+# refactor and the LocalModelKind / serialization scaffolding. Both are
+# header-only so they live in the `unit` lane.
+
+fall_n_add_test(TARGET fall_n_state_variant_primitive_test
+    NAME state_variant_primitive
+    SOURCE tests/test_state_variant_primitive.cpp
+    LIBS NONE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_bench_assembly
+    NAME bench_assembly_smoke
+    SOURCE tests/benchmarks/bench_assembly.cpp
+    LIBS NONE  LABEL unit)
+
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
     serendipity_family  dynamic_analysis  nonlinear_validation
