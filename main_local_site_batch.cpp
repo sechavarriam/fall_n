@@ -39,7 +39,24 @@ struct Options {
     std::size_t max_concurrent_sites{0};
     double hot_state_budget_mib{1024.0};
     double direct_lu_budget_mib{512.0};
+    std::size_t num_sites{1};
+    std::vector<double> site_z_list{};
+    std::vector<double> site_scale_list{};
 };
+
+[[nodiscard]] std::vector<double> parse_double_list(std::string_view s) {
+    std::vector<double> out;
+    std::string buf;
+    for (char c : s) {
+        if (c == ',' || c == ';') {
+            if (!buf.empty()) { out.push_back(std::strtod(buf.c_str(), nullptr)); buf.clear(); }
+        } else if (!std::isspace(static_cast<unsigned char>(c))) {
+            buf.push_back(c);
+        }
+    }
+    if (!buf.empty()) out.push_back(std::strtod(buf.c_str(), nullptr));
+    return out;
+}
 
 void print_usage(const char* a0) {
     std::fprintf(stderr,
@@ -60,6 +77,9 @@ void print_usage(const char* a0) {
         else if (a == "--max-concurrent-sites" && i + 1 < argc) o.max_concurrent_sites = std::strtoull(argv[++i], nullptr, 10);
         else if (a == "--hot-state-budget-mib" && i + 1 < argc) o.hot_state_budget_mib = std::strtod(argv[++i], nullptr);
         else if (a == "--direct-lu-budget-mib" && i + 1 < argc) o.direct_lu_budget_mib = std::strtod(argv[++i], nullptr);
+        else if (a == "--num-sites" && i + 1 < argc) o.num_sites = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--site-z-list" && i + 1 < argc) o.site_z_list = parse_double_list(argv[++i]);
+        else if (a == "--site-scale-list" && i + 1 < argc) o.site_scale_list = parse_double_list(argv[++i]);
         else if (a == "--help" || a == "-h") { print_usage(argv[0]); return false; }
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); print_usage(argv[0]); return false; }
     }
@@ -136,10 +156,30 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[fase4b] empty CSV\n");
         return 3;
     }
-    const auto samples = fall_n::build_replay_samples_from_csv(
-        rows, o.site_index, o.z_over_l, o.characteristic_length_mm);
-
-    const auto plan   = fall_n::make_reduced_rc_multiscale_replay_plan(samples, {});
+    std::vector<fall_n::ReducedRCStructuralReplaySample> samples;
+    if (o.num_sites <= 1) {
+        samples = fall_n::build_replay_samples_from_csv(
+            rows, o.site_index, o.z_over_l, o.characteristic_length_mm);
+    } else {
+        const std::vector<double> default_z = {0.02, 0.10, 0.30, 0.55, 0.85};
+        const std::vector<double> default_s = {1.00, 0.70, 0.40, 0.20, 0.10};
+        std::vector<fall_n::MultiSiteReplaySpec> specs;
+        specs.reserve(o.num_sites);
+        for (std::size_t s = 0; s < o.num_sites; ++s) {
+            const double z = (!o.site_z_list.empty() && s < o.site_z_list.size())
+                ? o.site_z_list[s]
+                : (s < default_z.size() ? default_z[s] : default_z.back());
+            const double k = (!o.site_scale_list.empty() && s < o.site_scale_list.size())
+                ? o.site_scale_list[s]
+                : (s < default_s.size() ? default_s[s] : default_s.back());
+            specs.push_back({.site_index = s, .z_over_l = z, .demand_scale = k});
+        }
+        samples = fall_n::build_multi_site_replay_samples_from_csv(
+            rows, specs, o.characteristic_length_mm);
+    }
+    fall_n::ReducedRCMultiscaleReplayPlanSettings rs{};
+    rs.max_replay_sites = std::max<std::size_t>(3, o.num_sites);
+    const auto plan   = fall_n::make_reduced_rc_multiscale_replay_plan(samples, rs);
     const auto policy = fall_n::make_reduced_rc_multiscale_runtime_policy(plan);
 
     fall_n::ReducedRCLocalSiteBatchSettings batch_settings{};
