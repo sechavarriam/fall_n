@@ -1,0 +1,55 @@
+% ==========================================================================
+%  Chapter 93 -- Ko-Bathe Analytical Tangent (Plan v2 §Fase 8, optional)
+% ==========================================================================
+
+\chapter{Ko--Bathe Analytical Tangent (Deferred Growth Path)}
+\label{ch:ko-bathe-analytical-tangent}
+
+\paragraph{Normative status.}
+This chapter is an \emph{optional, scoped-deferred growth path}
+declared by Plan~v2 \S Fase~8. It is reachable only if the
+XFEM-led closure (Cap.~89) fails to support a Phase~6 claim that
+demands a continuum fallback. As of the present audit it is
+\texttt{scoped\_deferred} and Ko--Bathe remains
+\texttt{research\_guardrail\_not\_promoted} per
+\href{run:src/validation/ReducedRCLocalModelPromotionCatalog.hh}{%
+\texttt{ReducedRCLocalModelPromotionCatalog.hh}}.
+
+\section{Decision condition}
+
+The Fase~8 work is \emph{not} required because:
+
+\begin{itemize}
+  \item Cap.~89 closes the XFEM small-strain gate at
+        \(\mathrm{NZ}\in\{4,5,6,8\}\) up to 300~mm cyclic amplitude.
+  \item Cap.~89 closes the corotational gate at 200/300~mm.
+  \item TL/UL residuals are recorded with a documented narrow
+        peak-ratio overshoot at 200~mm and a larger overshoot at
+        300~mm; this is honest research evidence, not a blocker for
+        the FE\(^2\) chain (Cap.~90) which uses small-strain.
+\end{itemize}
+
+Fase~8 would only be activated if a future Phase~6 multiscale
+claim required a non-enriched fallback for sites where XFEM
+activation is not justified -- e.g. low-damage transition columns in
+the L-shape where the enrichment overhead is not warranted.
+
+\section{Scope (when activated)}
+
+\begin{enumerate}
+  \item Derive the closed-form tangent
+        \(\partial \boldsymbol{\sigma}/\partial \boldsymbol{\varepsilon}\)
+        for \texttt{KoBatheConcrete3D} consistent with CP~Eq.~31c-d.
+  \item Validate against the existing experimental dataset
+        \texttt{ko\_bathe\_3d\_uniaxial\_fc\{21,30\}.csv}.
+  \item Promote Ko--Bathe in the catalog from
+        \texttt{research\_guardrail\_not\_promoted} to
+        \texttt{promoted\_control}.
+\end{enumerate}
+
+The audit JSON
+\path{data/output/validation_reboot/audit_phase8_plan_v2.json}
+records the present \texttt{scoped\_deferred} status and the
+activation condition.
+
+\paragraph{Honest scientific status.} \texttt{scoped\_deferred\_growth\_path}.

@@ -1,0 +1,88 @@
+% ==========================================================================
+%  Chapter 90 -- FE^2 Staggered Chain Results (Plan v2 §Fase 4 + §5.3/5.4)
+% ==========================================================================
+
+\chapter{FE\(^2\) Staggered Chain Results}
+\label{ch:fe2-staggered-chain-results}
+
+\paragraph{Normative status.}
+This chapter documents the four-stage FE\(^2\) chain frozen in
+\href{run:src/validation/ReducedRCMultiscaleValidationStartCatalog.hh}{%
+\texttt{ReducedRCMultiscaleValidationStartCatalog.hh}}:
+\(\texttt{one\_way\_replay} \to \texttt{local\_site\_batch} \to
+\texttt{elastic\_fe2\_smoke} \to \texttt{enriched\_fe2\_guarded\_smoke}\)
+and its multi-site extensions (Plan~v2 \S5.3, \S5.4).
+
+\section{Four-stage chain (\S Fase 4)}
+
+Each stage is materialised as a standalone Eigen-only driver that
+consumes a structural cyclic CSV (e.g. \path{hysteresis.csv} produced by
+\texttt{main\_reduced\_rc\_xfem\_reference\_benchmark}) and emits a
+versioned JSON manifest. The drivers are:
+
+\begin{itemize}
+  \item \texttt{main\_multiscale\_one\_way\_replay} -- 4A planner;
+        emits \texttt{multiscale\_replay\_plan.json} and
+        \texttt{multiscale\_runtime\_policy.json}.
+  \item \texttt{main\_local\_site\_batch} -- 4B batch plan;
+        emits \texttt{multiscale\_local\_site\_batch\_plan.json}.
+  \item \texttt{main\_elastic\_fe2\_smoke} -- 4C elastic plumbing;
+        synthesises a per-site \texttt{UpscalingResult} with diagonal
+        \(D_{\mathrm{hom}}=\operatorname{diag}(\mathrm{EA},\mathrm{EI})\)
+        and asserts the Cap.~79 (0.03,\,6) gate.
+  \item \texttt{main\_xfem\_fe2\_guarded\_one\_step} -- 4D enriched
+        guarded one-step; runs the
+        \texttt{EnrichmentActivationProbe} per site and emits a
+        damage-degraded \texttt{UpscalingResult} with
+        \(\|R\|_F = 0.005 + 0.020\,d\).
+\end{itemize}
+
+The shared CSV reader and multi-site demand-decay generator live in
+\href{run:src/validation/MultiscaleReplayDriverHelpers.hh}{%
+\texttt{MultiscaleReplayDriverHelpers.hh}}. End-to-end on the canonical
+200~mm small-strain cyclic CSV with \texttt{--num-sites 3}: 4A
+\texttt{selected=3}, 4B \texttt{batches=3}, 4C \texttt{overall\_pass=1},
+4D \texttt{overall\_pass=1, max\_guarded\_frob<0.030}.
+
+\section{Multi-site replay (\S5.3)}
+
+The 4A driver accepts \texttt{--num-sites N},
+\texttt{--site-z-list}, and \texttt{--site-scale-list}. The default
+ladder \(z/L = (0.02, 0.10, 0.30, 0.55, 0.85)\) with demand scales
+\((1.00, 0.70, 0.40, 0.20, 0.10)\) reproduces a cantilever-style
+column. Drivers 4B/4C/4D inherit the same CLI.
+
+The dedicated regression test
+\href{run:tests/test_multiscale_fase5_multi_site_chain_smoke.cpp}{%
+\texttt{test\_multiscale\_fase5\_multi\_site\_chain\_smoke.cpp}}
+walks the full 4A\(\to\)4D chain in memory for three cantilever sites
+and asserts: candidate=3, selected=3, monotonically decreasing
+activation score, activated\_count=3, passed\_gate\_count=3,
+\(\max\|R\|_F<0.030\).
+
+\section{Cyclic two-way large-amplitude smoke (\S5.4)}
+
+A 5-cycle ramped \(50\to300\)~mm protocol (144 samples) is replayed
+across the same three-site ladder. The smoke test
+\href{run:tests/test_multiscale_fase5_cyclic_two_way_smoke.cpp}{%
+\texttt{test\_multiscale\_fase5\_cyclic\_two\_way\_smoke.cpp}} asserts
+that damage and Frobenius residual grow monotonically across amplitude
+prefixes \(\{24,48,72,96,120,144\}\) and that the Cap.~79 gate is
+honoured at every prefix.
+
+\paragraph{Honest scientific status.} \texttt{synthetic\_chain\_no\_real\_xfem\_local\_solve}.
+The four standalone drivers exercise the FE\(^2\) plumbing with a
+deterministic damage-driven proxy for the local solve, not the real
+XFEM small-strain micro-step. The latter remains the responsibility of
+\texttt{main\_reduced\_rc\_xfem\_reference\_benchmark} (Cap.~89) and
+sits behind the heavy reference benchmark gate.
+
+\section{Schur-vs-bordered diagnostic (\S4-bis)}
+
+The diagnostic comparator
+\href{run:src/numerics/SparseSchurComplement.hh}{%
+\texttt{SparseSchurComplement.hh}} is exercised in
+\texttt{test\_schur\_vs\_bordered\_dhom} (analytical pre-fissure case)
+to verify that the Schur condensation and the bordered mixed-control
+return identical \(D_{\mathrm{hom}}\) to within 1\%. Post-fissure
+discrepancy is documented but not gated (Schur is diagnostic only).

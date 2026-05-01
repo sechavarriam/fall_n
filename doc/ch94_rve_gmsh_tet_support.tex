@@ -1,0 +1,50 @@
+% ==========================================================================
+%  Chapter 94 -- RVE Gmsh Tet Support (Plan v2 §Fase 9, optional)
+% ==========================================================================
+
+\chapter{RVE Gmsh Tetrahedral Support (Deferred Growth Path)}
+\label{ch:rve-gmsh-tet-support}
+
+\paragraph{Normative status.}
+This chapter is the second of the two \emph{optional, scoped-deferred
+growth paths} of Plan~v2 (\S Fase~9). It is reachable only if Phase~6
+shows that prismatic \(\mathrm{NZ}=4\) RVEs are insufficient for
+non-rectangular columns (beams, transitions). It is currently
+\texttt{scoped\_deferred}.
+
+\section{Decision condition}
+
+The current XFEM site geometry uses
+\href{run:src/model/PrismaticDomainBuilder.hh}{%
+\texttt{PrismaticDomainBuilder}} with hex27 elements at
+\(\mathrm{NZ}=4\) (Cap.~89 baseline gate-passed). Ch.~80 documents
+the embedded rebar penalty coupling that makes this geometry
+sufficient for the L-shape rectangular columns of the 16-storey
+benchmark (Cap.~92).
+
+Fase~9 would be activated by a heavy Phase~6 run that exhibits
+mesh-induced stress concentrations or cracking patterns clearly
+incompatible with the prismatic abstraction -- e.g. RC beams,
+T- or L-section transitions, or in-fill walls.
+
+\section{Scope (when activated)}
+
+\begin{enumerate}
+  \item Add a Gmsh tet builder that emits the same RVE contract
+        consumed by \texttt{LocalContinuumEvolver} /
+        \texttt{LocalXFEMEvolver}.
+  \item Reuse the BC architecture (PETSc Section elimination +
+        \texttt{IncrementalControlPolicy}, Cap.~86) with the
+        generalised \texttt{LocalBoundaryConditionApplicator}
+        face-selection callback (Plan~v2 \S2.3).
+  \item Re-run the 4D guarded smoke and the multi-site chain
+        (Cap.~90) on the tet RVEs and confirm parity with the hex
+        baseline within the Cap.~79 gate.
+\end{enumerate}
+
+The audit JSON
+\path{data/output/validation_reboot/audit_phase9_plan_v2.json}
+records the present \texttt{scoped\_deferred} status and the
+activation condition.
+
+\paragraph{Honest scientific status.} \texttt{scoped\_deferred\_growth\_path}.

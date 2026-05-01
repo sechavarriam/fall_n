@@ -1,0 +1,91 @@
+% ==========================================================================
+%  Chapter 89 -- XFEM Local Model Closure (Plan v2 §Fase 3)
+% ==========================================================================
+
+\chapter{XFEM Local Model Closure}
+\label{ch:xfem-local-model-closure}
+
+\paragraph{Normative status.}
+This chapter records the closure evidence for the XFEM shifted-Heaviside
+local model used as the \emph{promoted physical local model} of the
+multiscale FE\(^2\) program (Plan~v2 \S Fase~3). It supersedes the
+exploratory residual heuristics scattered through Ch.~82 and Ch.~85 and
+provides the runtime evidence required to enter the four-stage chain
+(Ch.~90).
+
+\section{Promotion catalog and gate}
+
+The promotion catalog
+\href{run:src/validation/ReducedRCLocalModelPromotionCatalog.hh}{%
+\texttt{ReducedRCLocalModelPromotionCatalog.hh}} declares the
+\texttt{xfem\_global\_secant\_200mm\_primary\_candidate} entry as the
+canonical local model. The Cap.~79 gate requires
+\(\mathrm{rms}<0.10\), \(\max<0.30\), and \(\text{peak\_ratio}<1.15\) on a
+50/100/150/200~mm cyclic protocol with \(\mathrm{NZ}=4\).
+
+\section{Runtime evidence (commits \texttt{ae652a6}, \texttt{ba4704d},
+                          \texttt{d224509}, \texttt{633ef61})}
+
+Closure status per kinematic formulation:
+
+\begin{itemize}
+  \item \textbf{Small-strain}: reference baseline. Catalog gate PASS at
+        all amplitudes up to 300~mm and \(\mathrm{NZ}\in\{4,5,6,8\}\).
+        Peak base shear monotonically decreases with \(h\)-refinement
+        (\(h\)-convergence), refuting the legacy \emph{NZ=8 timed-out}
+        claim.
+  \item \textbf{Corotational}: 200~mm gate PASS with
+        \(\mathrm{rms}=0.0014\), \(\max=0.0044\),
+        \(\text{peak\_ratio}=0.9965\). 300~mm extension also PASS
+        (\(0.0018, 0.0074, 0.9930\)).
+  \item \textbf{Total Lagrangian}: 200~mm
+        \(\mathrm{rms}=0.0345, \max=0.1610, \text{peak\_ratio}=1.1610\);
+        300~mm \(0.063, 0.32, 1.32\). RMS and \(\max\) gates PASS at
+        200~mm; peak ratio narrowly above the 1.15 ceiling.
+  \item \textbf{Updated Lagrangian}: 200~mm
+        \(\mathrm{rms}=0.0318, \max=0.1502, \text{peak\_ratio}=1.1502\);
+        300~mm \(0.058, 0.30, 1.30\). Same regime as TL.
+\end{itemize}
+
+Empirical residuals are recorded in
+\path{data/output/cyclic_validation/xfem_*_v2/} and audited by
+\href{run:scripts/evaluate_xfem_corotational_gate.py}{%
+\texttt{evaluate\_xfem\_corotational\_gate.py}} and
+\href{run:scripts/evaluate_xfem_finite_kinematics_gate.py}{%
+\texttt{evaluate\_xfem\_finite\_kinematics\_gate.py}}.
+
+\section{Regression ctests}
+
+The closure is locked through the following walk-up CSV regression tests
+(LIBS NONE, label \texttt{validation\_reboot}):
+\begin{itemize}
+  \item \texttt{xfem\_corotational\_200mm\_gate} (\#125)
+  \item \texttt{xfem\_corotational\_300mm\_gate} (\#126)
+  \item \texttt{xfem\_finite\_kinematics\_residuals} (\#127)
+\end{itemize}
+
+\section{Scoped-deferred residuals (research-level)}
+
+Items still tagged \texttt{scoped\_deferred\_to\_branch} per
+\path{data/output/validation_reboot/audit_phase3_xfem_closure.json}:
+\begin{enumerate}
+  \item Real bordered mixed-control constraint inside
+        \texttt{PetscBorderedMixedControlNewton} (today: hybrid SNES-L2
+        fallback closes the gate in \(\sim 256\)~s).
+  \item Adaptive enrichment activation policy (probe present; runtime
+        wiring deferred).
+  \item FieldSplit/Schur ASM preconditioning for
+        \(\mathrm{NZ}\geq 5\) iterative path.
+  \item Second-generation active-set tangent.
+  \item VTK time-series export with crack opening / cohesive traction.
+  \item TL/UL 250--300~mm peak-ratio recalibration.
+\end{enumerate}
+
+These are explicitly \emph{not} blockers for the FE\(^2\) chain because
+\(\mathrm{NZ}=4\) small-strain is the canonical local model. They are
+documented research-growth paths.
+
+\paragraph{Honest scientific status.} \texttt{closed\_with\_runtime\_evidence}
+for small-strain and corotational; \texttt{empirical\_residual\_recorded}
+for TL/UL; the six items above remain
+\texttt{scoped\_deferred\_to\_branch}.

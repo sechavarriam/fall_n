@@ -1,0 +1,78 @@
+% ==========================================================================
+%  Chapter 92 -- 16-Storey Seismic XFEM-FE^2 Results (Plan v2 §Fase 6)
+% ==========================================================================
+
+\chapter{16-Storey Seismic XFEM-FE\(^2\) Results}
+\label{ch:16storey-seismic-xfem-fe2-results}
+
+\paragraph{Normative status.}
+This chapter records the staging closure for the L-shaped 16-storey
+RC building under multiscale XFEM-FE\(^2\) coupling
+(Plan~v2 \S Fase~6). The heavy dynamic run on the Tohoku MYG004
+NS+EW+UD scale=1.0 record sits behind
+\texttt{main\_lshaped\_multiscale\_16storey} and is
+\texttt{scoped\_deferred} per
+\path{data/output/validation_reboot/audit_phase6_plan_v2.json}; the
+present chapter documents the \emph{staging} evidence that locks the
+activation policy and the H1/H2/H3 hypotheses ahead of the heavy
+solve.
+
+\section{Configuration (frozen)}
+
+\begin{itemize}
+  \item Three column grades by elevation:
+        50/35~MPa (storeys 1--6),
+        40/28~MPa (storeys 7--12),
+        30/21~MPa (storeys 13--16).
+  \item Eight embedded rebars per column (Cap.~80) with cover
+        positioning preserved from
+        \href{run:/memories/repo/lshaped-multiscale-status.md}{%
+        \texttt{lshaped-multiscale-status.md}}.
+  \item Generalised-\(\alpha\) integrator with \(\rho_{\infty}=0.9\),
+        \(\Delta t=0.02\)~s, Rayleigh damping 5\%.
+  \item Coupling activated at step~10. Top-5 columns by damage index
+        activate XFEM sites at \(\mathrm{NZ}=4\) (Cap.~89 baseline).
+\end{itemize}
+
+\section{Staging driver and policy ctest}
+
+\href{run:main_lshaped_multiscale_16storey_staging.cpp}{%
+\texttt{main\_lshaped\_multiscale\_16storey\_staging}} is a lightweight
+Eigen-only driver that synthesises a 16-storey triangular drift demand
+profile peaking at the L-shape transition zones (storeys
+\(\sim 5\) and \(\sim 11\)), runs each storey through the 4A planner
++ \texttt{EnrichmentActivationProbe}, and emits the manifest
+\path{data/output/validation_reboot/lshaped_multiscale_16storey_staging.json}
+with hypotheses H1/H2/H3.
+
+The dedicated regression test
+\href{run:tests/test_lshaped_multiscale_16storey_staging_policy_smoke.cpp}{%
+\texttt{test\_lshaped\_multiscale\_16storey\_staging\_policy\_smoke}}
+locks the same policy in memory and asserts:
+
+\begin{itemize}
+  \item \textbf{H1} (localisation at storeys 5--6 / 11--12):
+        the top-5 sites by damage index include at least one storey
+        within \(\pm 1\) of the expected peaks. PASS.
+  \item \textbf{H2} (cyclic accumulation):
+        all top-5 sites accumulate damage \(>0.5\) under the
+        five-cycle ramped \(50\to250\)~mm protocol. PASS.
+  \item \textbf{H3} (staggered convergence):
+        every site converges below 6 staggered iterations under the
+        canonical Cap.~79 (0.03,\,6) gate. PASS.
+\end{itemize}
+
+\section{Scoped-deferred heavy run}
+
+The real dynamic 16-storey solve under MYG004 NS+EW+UD scale=1.0
+remains \texttt{scoped\_deferred}. Its runtime is hours on
+server-class hardware and requires \texttt{LIBS FULL} with PETSc/SNES
++ \texttt{NonlinearSubModelEvolver} + the seismic harness. The
+hypotheses H1/H2/H3 are pre-locked by the staging policy ctest, so
+that the heavy run -- when scheduled -- can be evaluated against an
+already-frozen acceptance contract.
+
+\paragraph{Honest scientific status.}
+\texttt{synthetic\_staging\_no\_real\_dynamic\_solve} for the present
+chapter; \texttt{scoped\_deferred\_to\_branch} for the heavy MYG004
+run.
