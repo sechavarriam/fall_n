@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "phase_label": "phase3_xfem_corotational_gate",
+  "comparison": {
+    "corotational_run": "data\\output\\cyclic_validation\\xfem_corotational_200mm_v2\\global_xfem_newton_progress.csv",
+    "baseline_run": "data\\output\\cyclic_validation\\xfem_small_strain_200mm_v2\\global_xfem_newton_progress.csv",
+    "n_compared_steps": 97,
+    "corotational_completed": true,
+    "baseline_completed": true,
+    "corotational_final_p": 1.0,
+    "baseline_final_p": 1.0
+  },
+  "metrics": {
+    "peak_baseline_base_shear_mn": 0.3561544699,
+    "peak_corotational_base_shear_mn": 0.3549043933,
+    "peak_base_shear_ratio": 0.9964900718490183,
+    "peak_normalized_rms_base_shear_error": 0.001377473310696828,
+    "peak_normalized_max_base_shear_error": 0.004410275688638676
+  },
+  "catalog_gate": {
+    "max_peak_normalized_rms_base_shear_error": 0.1,
+    "max_peak_normalized_max_base_shear_error": 0.3,
+    "min_peak_base_shear_ratio": 0.9,
+    "max_peak_base_shear_ratio": 1.15
+  },
+  "verdict": {
+    "rms_pass": true,
+    "max_pass": true,
+    "ratio_pass": true,
+    "overall_pass": true,
+    "completed": true
+  }
+}
