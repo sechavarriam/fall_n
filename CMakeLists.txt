@@ -422,6 +422,15 @@ target_include_directories(
 target_link_libraries(
     fall_n_multiscale_xfem_fe2_guarded_one_step PRIVATE Eigen3::Eigen)
 
+# Plan v2 §Fase 6 — 16-storey L-shaped FE² seismic STAGING driver.
+add_executable(
+    fall_n_lshaped_multiscale_16storey_staging
+    main_lshaped_multiscale_16storey_staging.cpp)
+target_include_directories(
+    fall_n_lshaped_multiscale_16storey_staging PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_lshaped_multiscale_16storey_staging PRIVATE Eigen3::Eigen)
+
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
 # ==============================================================================
@@ -1176,6 +1185,24 @@ fall_n_add_test(TARGET fall_n_multiscale_fase4_chain_smoke_test
 fall_n_add_test(TARGET fall_n_multiscale_multi_site_replay_smoke_test
     NAME multiscale_multi_site_replay_smoke
     SOURCE tests/test_multiscale_multi_site_replay_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Fase 5.3 multi-site chain smoke — 4A→4D with 3 cantilever sites.
+fall_n_add_test(TARGET fall_n_multiscale_fase5_multi_site_chain_smoke_test
+    NAME multiscale_fase5_multi_site_chain_smoke
+    SOURCE tests/test_multiscale_fase5_multi_site_chain_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Fase 5.4 cyclic two-way large-amplitude smoke (144-sample protocol).
+fall_n_add_test(TARGET fall_n_multiscale_fase5_cyclic_two_way_smoke_test
+    NAME multiscale_fase5_cyclic_two_way_smoke
+    SOURCE tests/test_multiscale_fase5_cyclic_two_way_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Fase 6 — 16-storey L-shape staging policy smoke.
+fall_n_add_test(TARGET fall_n_lshaped_multiscale_16storey_staging_policy_smoke_test
+    NAME lshaped_multiscale_16storey_staging_policy_smoke
+    SOURCE tests/test_lshaped_multiscale_16storey_staging_policy_smoke.cpp
     LIBS EIGEN  LABEL unit)
 
 # ── Timeout guards for slow tests ───────────────────────────────────────────
