@@ -1,0 +1,144 @@
+% ==========================================================================
+%  Chapter 95 -- Validation Total: Definitive Summary (Plan v2 closure)
+% ==========================================================================
+
+\chapter{Validation Total: Definitive Summary}
+\label{ch:validation-total-summary}
+
+\paragraph{Normative status.}
+This chapter is the \emph{definitive summary} of the multiscale
+validation reboot program (Plan~v2). It consolidates all phase-level
+evidence and the long-run results obtained on branch
+\texttt{multiscale-v2}. Every claim below is backed either by a
+runtime artifact in \path{data/output/validation_reboot/} or by a
+ctest registered in \texttt{ctest -L unit} or
+\texttt{ctest -L validation\_reboot}.
+
+\section{Headline numbers}
+
+\begin{itemize}
+  \item \texttt{ctest -L unit}: \(\mathbf{106 / 106}\) PASS.
+  \item \texttt{ctest -L validation\_reboot} (fast subset, excluding
+        long sensitivity studies): \(\mathbf{22 / 22}\) PASS,
+        \(655\)~s wall, \(1171\)~s CPU.
+  \item Cross-formulation FE\(^2\) chain on
+        \texttt{small-strain / corotational / total-lagrangian /
+        updated-lagrangian} \(\times\) \(\{200, 300\}\)~mm
+        cyclic CSV inputs: \(\mathbf{8/8}\) campaigns close the
+        4-stage chain with \(\texttt{selected}=3\),
+        \(\texttt{batches}=3\), elastic and guarded
+        \(\texttt{overall\_pass}=1\). See
+        \href{run:tests/fase7_chain_cross_formulation.txt}{%
+        \texttt{tests/fase7\_chain\_cross\_formulation.txt}}.
+\end{itemize}
+
+\section{Phase-by-phase closure}
+
+\begin{description}
+  \item[Fase 0 (reauditoría completa).] \texttt{closed}.
+        Audits 0--3 emitted under
+        \path{data/output/validation_reboot/audit_phase{0..3}.json}.
+  \item[Fase 1 (hot path).] \texttt{closed\_partial}: scratch buffers,
+        checkpoint pre-allocation, VTK throttling,
+        \texttt{bench\_assembly} skeleton landed; deeper SNES
+        warm-start tightening remains scoped.
+  \item[Fase 2 (refactor).] \texttt{scoped}:
+        \texttt{LocalModelKind} enum + concept-based
+        \texttt{MaterialStateSerialization} primitives committed;
+        full \texttt{StateRef}\(\to\)variant migration deferred.
+  \item[Fase 3 (XFEM closure).] \texttt{closed\_with\_runtime\_evidence}
+        for small-strain \emph{and} corotational. TL/UL recorded as
+        \texttt{empirical\_residual\_recorded}. NZ refinement 4--8
+        proves \(h\)-convergence and refutes the legacy
+        ``NZ=8 timed out'' claim. See Cap.~89.
+  \item[Fase 4 (FE\(^2\) chain).] \texttt{closed}: four standalone
+        Eigen-only drivers + chain ctest \#129. See Cap.~90.
+  \item[Fase 5 (cross-model + multi-site).]
+        \texttt{closed\_5.3\_5.4\_scoped\_5.1\_5.2}. Multi-site
+        replay (\#130), multi-site chain (\#131), cyclic two-way
+        (\#132). The 36-cell M--\(\phi\) matrix and the
+        cross-model identification are \texttt{scoped\_deferred}
+        to a research branch needing \texttt{LIBS FULL}.
+        See Cap.~91.
+  \item[Fase 6 (16-storey).] \texttt{staging\_closed\_heavy\_scoped}.
+        Staging driver + policy ctest \#133 lock the H1/H2/H3
+        hypotheses. The heavy MYG004 NS+EW+UD scale=1.0 dynamic
+        run remains \texttt{scoped\_deferred}. See Cap.~92.
+  \item[Fase 7 (documentation).]
+        \texttt{closed\_merge\_pending\_user}: chapters
+        \texttt{ch89..ch94} added; the present chapter \texttt{ch95}
+        is the closure narrative.
+  \item[Fase 8 (Ko-Bathe).] \texttt{scoped\_deferred\_growth\_path};
+        \emph{not required} given Cap.~89. See Cap.~93.
+  \item[Fase 9 (Gmsh tet).] \texttt{scoped\_deferred\_growth\_path};
+        \emph{not required} given Cap.~92 staging closure.
+        See Cap.~94.
+\end{description}
+
+\section{Master manifest}
+
+The complete validation evidence index is the JSON manifest
+
+\begin{center}
+\path{data/output/validation_reboot/validation_total_master_manifest.json}
+\end{center}
+
+with the following top-level structure:
+
+\begin{itemize}
+  \item \texttt{summary} -- ctest counters and timing.
+  \item \texttt{phases} -- per-phase status, audit JSON pointers, and
+        the relevant drivers/ctests/manifests.
+  \item \texttt{cross\_formulation\_chain\_evidence} -- the eight
+        kinematic\(\,\times\,\)amplitude campaigns and their stage
+        outcomes.
+  \item \texttt{honest\_scientific\_status} -- explicit segregation
+        of (i) real runtime evidence, (ii) synthetic-chain plumbing
+        evidence, and (iii) scoped-deferred items.
+\end{itemize}
+
+This manifest is the canonical entry point for any external auditor
+or merge reviewer.
+
+\section{Honest scientific status (final)}
+
+\begin{itemize}
+  \item \textbf{Real runtime evidence}: the XFEM local-model gates
+        (Cap.~89), the NZ refinement sweep, and the 22-test
+        \texttt{validation\_reboot} suite -- all closed against
+        catalogued acceptance criteria with measurable wall time.
+  \item \textbf{Synthetic-chain evidence}: the four-stage FE\(^2\)
+        chain (Cap.~90) and its multi-site / cyclic / 16-storey
+        staging extensions (Cap.~92) exercise the plumbing with a
+        deterministic damage-driven proxy for the local solve. They
+        constitute a \emph{contract} that the heavy local solver --
+        once integrated -- must satisfy.
+  \item \textbf{Scoped-deferred}: 36-cell cross-model matrix,
+        heavy MYG004 dynamic run, Ko-Bathe analytical tangent, Gmsh
+        tet RVEs. Each carries an explicit activation condition in
+        the corresponding audit JSON.
+\end{itemize}
+
+\section{Reproducibility}
+
+The full validation can be reproduced from a clean checkout of
+branch \texttt{multiscale-v2} via:
+
+\begin{verbatim}
+cmake --preset ninja-release
+cmake --build build
+ctest --test-dir build -L unit -j4
+ctest --test-dir build -L validation_reboot -j4 \
+   -E "cyclic_continuation_sensitivity|cyclic_node_refinement|\
+       cyclic_quadrature_sensitivity|moment_curvature_closure_matrix"
+\end{verbatim}
+
+The cross-formulation chain log is regenerated by replaying any of
+the eight \path{data/output/cyclic_validation/xfem_*_v2/hysteresis.csv}
+files through the four standalone drivers with \texttt{--num-sites 3}.
+
+\paragraph{Closure.} With this chapter the Plan~v2 program is
+declared \texttt{validation\_total\_closed} on branch
+\texttt{multiscale-v2}. Merge to
+\texttt{Validacion\_ModelosLocales} is the only remaining
+operational step and is left to user authorisation.
