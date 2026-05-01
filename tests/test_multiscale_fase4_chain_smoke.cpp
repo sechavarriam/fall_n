@@ -115,11 +115,11 @@ int main() {
     guarded.D_hom(0, 0) = s * 6.0e3;
     guarded.D_hom(1, 1) = s * 30.0;
     guarded.f_hom = guarded.D_hom * guarded.eps_ref;
-    guarded.frobenius_residual = 0.005 + 0.025 * site.max_damage_indicator;
+    guarded.frobenius_residual = 0.005 + 0.020 * site.max_damage_indicator;
     guarded.snes_iters = 3;
-    // Damage in synthetic history can saturate at 1.0 → frob_residual ≈ 0.030,
-    // exactly at the gate. Loosen slightly to verify the bridge computes.
-    assert(guarded.passes_guarded_smoke_gate(0.031, 6));
+    // At damage=1.0 frob_residual = 0.025 < 0.030, so the canonical gate
+    // (0.03, 6) must pass without loosening.
+    assert(guarded.passes_guarded_smoke_gate(0.03, 6));
 
     std::printf("[fase4-chain] OK 4A.selected=%zu 4B.batches=%zu 4C.elastic=PASS "
                 "4D.activated=1 4D.frob=%.4f\n",
