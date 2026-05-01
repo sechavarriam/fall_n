@@ -384,6 +384,17 @@ vtk_module_autoinit(
   TARGETS fall_n_reduced_rc_xfem_reference_benchmark
   MODULES ${VTK_LIBRARIES})
 
+# Plan v2 §Fase 4A — standalone multiscale one-way replay PLAN driver.
+# Header-only; consumes any structural CSV and emits replay plan + runtime
+# policy JSON without re-running the local solver.
+add_executable(
+    fall_n_multiscale_one_way_replay
+    main_multiscale_one_way_replay.cpp)
+target_include_directories(
+    fall_n_multiscale_one_way_replay PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_multiscale_one_way_replay PRIVATE Eigen3::Eigen)
+
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
 # ==============================================================================
@@ -1121,6 +1132,12 @@ fall_n_add_test(TARGET fall_n_xfem_finite_kinematics_residuals_test
     NAME xfem_finite_kinematics_residuals
     SOURCE tests/test_xfem_finite_kinematics_residuals.cpp
     LIBS NONE  LABEL unit)
+
+# Plan v2 §Fase 4A — multiscale one-way replay PLAN smoke (header-only).
+fall_n_add_test(TARGET fall_n_multiscale_one_way_replay_plan_smoke_test
+    NAME multiscale_one_way_replay_plan_smoke
+    SOURCE tests/test_multiscale_one_way_replay_plan_smoke.cpp
+    LIBS EIGEN  LABEL unit)
 
 # ── Timeout guards for slow tests ───────────────────────────────────────────
 set_tests_properties(
