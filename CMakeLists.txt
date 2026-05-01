@@ -395,6 +395,33 @@ target_include_directories(
 target_link_libraries(
     fall_n_multiscale_one_way_replay PRIVATE Eigen3::Eigen)
 
+# Plan v2 §Fase 4B — multiscale local-site BATCH plan driver.
+add_executable(
+    fall_n_multiscale_local_site_batch
+    main_local_site_batch.cpp)
+target_include_directories(
+    fall_n_multiscale_local_site_batch PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_multiscale_local_site_batch PRIVATE Eigen3::Eigen)
+
+# Plan v2 §Fase 4C — multiscale ELASTIC FE² guarded smoke driver.
+add_executable(
+    fall_n_multiscale_elastic_fe2_smoke
+    main_elastic_fe2_smoke.cpp)
+target_include_directories(
+    fall_n_multiscale_elastic_fe2_smoke PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_multiscale_elastic_fe2_smoke PRIVATE Eigen3::Eigen)
+
+# Plan v2 §Fase 4D — multiscale ENRICHED FE² guarded one-step smoke driver.
+add_executable(
+    fall_n_multiscale_xfem_fe2_guarded_one_step
+    main_xfem_fe2_guarded_one_step.cpp)
+target_include_directories(
+    fall_n_multiscale_xfem_fe2_guarded_one_step PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_multiscale_xfem_fe2_guarded_one_step PRIVATE Eigen3::Eigen)
+
 # ==============================================================================
 # ============== Compiler cache (ccache) =======================================
 # ==============================================================================
@@ -1137,6 +1164,12 @@ fall_n_add_test(TARGET fall_n_xfem_finite_kinematics_residuals_test
 fall_n_add_test(TARGET fall_n_multiscale_one_way_replay_plan_smoke_test
     NAME multiscale_one_way_replay_plan_smoke
     SOURCE tests/test_multiscale_one_way_replay_plan_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Plan v2 §Fase 4 chain smoke — exercises 4A→4B→4C→4D in-memory.
+fall_n_add_test(TARGET fall_n_multiscale_fase4_chain_smoke_test
+    NAME multiscale_fase4_chain_smoke
+    SOURCE tests/test_multiscale_fase4_chain_smoke.cpp
     LIBS EIGEN  LABEL unit)
 
 # ── Timeout guards for slow tests ───────────────────────────────────────────
