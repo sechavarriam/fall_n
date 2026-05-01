@@ -1,0 +1,17 @@
+﻿analysis_director
+benchmark
+boundary_conditions
+dynamic_analysis
+nonlinear_validation
+petsc_nonlinear_analysis_bordered_adapter
+phase4_hysteretic_cycles
+phase5_dynamic_verification
+phase6_mpi_scalability
+rc_section_layout
+reduced_rc_column_truss_baseline
+serendipity_family
+shifted_heaviside_kinematic_policy
+snes_hyperelastic
+sub_model_solver
+vertical_slice_gate
+xfem_enrichment

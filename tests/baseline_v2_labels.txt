@@ -1,0 +1,5 @@
+﻿Test project C:/MyLibs/fall_n/build
+All Labels:
+  integration
+  slow
+  unit
