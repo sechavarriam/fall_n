@@ -805,6 +805,19 @@ public:
         destroy_petsc_objects();
     }
 
+    /// Plan v2 §Fase 1.6 — runtime-adjustable VTK throttle.
+    ///
+    /// Allows the multiscale orchestrator to retune output frequency
+    /// per-stage (e.g., dense for `enriched_fe2_guarded_smoke`, sparse
+    /// for `local_site_batch`). Use `<= 0` to disable VTK output entirely
+    /// while keeping the writer alive (matches existing logic at the
+    /// emit site).
+    void set_vtk_interval(int vtk_interval) noexcept {
+        vtk_interval_ = vtk_interval;
+    }
+
+    [[nodiscard]] int vtk_interval() const noexcept { return vtk_interval_; }
+
     // Non-copyable
     NonlinearSubModelEvolver(const NonlinearSubModelEvolver&) = delete;
     NonlinearSubModelEvolver& operator=(const NonlinearSubModelEvolver&) = delete;
