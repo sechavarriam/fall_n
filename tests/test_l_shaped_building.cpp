@@ -281,6 +281,41 @@ void test_beam_count_l_shape() {
            domain.num_elements() == expected);
 }
 
+void test_timoshenko_n4_lobatto_domain() {
+    std::println("\n-- Test: Timoshenko N=4 + Lobatto frame domain --");
+
+    auto [domain, grid] = fall_n::make_building_domain_timoshenko_n4_lobatto({
+        .x_axes       = {0.0, 6.0},
+        .y_axes       = {0.0, 5.0},
+        .num_stories  = 1,
+        .story_height = 3.2,
+        .include_slabs = false,
+    });
+
+    const std::size_t frame_elements =
+        grid.num_columns() + grid.num_beams();
+    report("N4 domain element count",
+           domain.num_elements() == frame_elements);
+    report("N4 domain owns two interior nodes per frame element",
+           domain.num_nodes() ==
+               static_cast<std::size_t>(grid.total_nodes()) +
+               2U * frame_elements);
+
+    bool all_frame_elements_have_four_nodes = true;
+    bool all_frame_elements_have_three_ips = true;
+    for (const auto& elem : domain.elements()) {
+        all_frame_elements_have_four_nodes =
+            all_frame_elements_have_four_nodes && elem.num_nodes() == 4;
+        all_frame_elements_have_three_ips =
+            all_frame_elements_have_three_ips &&
+            elem.num_integration_points() == 3;
+    }
+    report("N4 frame geometries have four nodes",
+           all_frame_elements_have_four_nodes);
+    report("N4 frame geometries use three Lobatto stations",
+           all_frame_elements_have_three_ips);
+}
+
 
 } // namespace
 
@@ -297,6 +332,7 @@ int main(int argc, char** argv) {
     test_setback();
     test_large_l_shape();
     test_beam_count_l_shape();
+    test_timoshenko_n4_lobatto_domain();
 
     std::println("\n=== {} PASSED, {} FAILED ===\n", g_pass, g_fail);
 

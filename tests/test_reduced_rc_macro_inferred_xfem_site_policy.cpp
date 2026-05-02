@@ -1,0 +1,72 @@
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+
+#include "src/validation/ReducedRCMacroInferredXfemSitePolicy.hh"
+
+int main()
+{
+    using namespace fall_n;
+
+    ReducedRCMultiscaleReplaySitePlan fixed_site{};
+    fixed_site.site_index = 7;
+    fixed_site.z_over_l = 0.08;
+    fixed_site.activation_score = 3.0;
+    fixed_site.selected_for_replay = true;
+
+    ReducedRCManagedLocalPatchSpec base{};
+    base.characteristic_length_m = 0.24;
+    base.nx = 3;
+    base.ny = 3;
+    base.nz = 8;
+
+    const auto fixed_patch =
+        make_reduced_rc_macro_inferred_xfem_patch(fixed_site, base);
+    assert(fixed_patch.site_index == fixed_site.site_index);
+    assert(fixed_patch.crack_position_inferred_from_macro);
+    assert(fixed_patch.longitudinal_bias_location ==
+           ReducedRCLocalLongitudinalBiasLocation::fixed_end);
+    assert(std::abs(fixed_patch.crack_z_over_l - fixed_site.z_over_l) <
+           1.0e-14);
+    assert(fixed_patch.longitudinal_bias_power > 1.0);
+
+    ReducedRCMacroEndpointDemand double_hinge{};
+    double_hinge.fixed_end_score = 2.0;
+    double_hinge.loaded_end_score = 2.4;
+    double_hinge.macro_section_z_over_l = 0.46;
+
+    const auto both_patch =
+        make_reduced_rc_macro_inferred_xfem_patch(
+            fixed_site,
+            base,
+            double_hinge);
+    assert(both_patch.longitudinal_bias_location ==
+           ReducedRCLocalLongitudinalBiasLocation::both_ends);
+    assert(both_patch.double_hinge_bias_inferred_from_macro);
+    assert(both_patch.longitudinal_bias_power >
+           fixed_patch.longitudinal_bias_power);
+    assert(std::abs(both_patch.crack_z_over_l - 0.46) < 1.0e-14);
+
+    ReducedRCMacroInferredXfemSitePolicy fallback_policy{};
+    fallback_policy.preserve_macro_section_crack_location = false;
+    const auto loaded_patch =
+        make_reduced_rc_macro_inferred_xfem_patch(
+            fixed_site,
+            base,
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 0.1,
+                .loaded_end_score = 1.5},
+            fallback_policy);
+    assert(loaded_patch.longitudinal_bias_location ==
+           ReducedRCLocalLongitudinalBiasLocation::loaded_end);
+    assert(std::abs(loaded_patch.crack_z_over_l -
+                    fallback_policy.fallback_loaded_end_crack_z_over_l) <
+           1.0e-14);
+
+    std::printf("[macro-inferred-xfem-site-policy] fixed crack=%.3f "
+                "both crack=%.3f loaded crack=%.3f\n",
+                fixed_patch.crack_z_over_l,
+                both_patch.crack_z_over_l,
+                loaded_patch.crack_z_over_l);
+    return 0;
+}

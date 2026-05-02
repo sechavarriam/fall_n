@@ -18,6 +18,7 @@
 #include <Eigen/Dense>
 
 #include "src/analysis/FirstInelasticFiberCriterion.hh"
+#include "src/validation/ReducedRCFE2ColumnValidation.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
 
 namespace {
@@ -101,6 +102,26 @@ int main() {
     assert(residual <= STAGGERED_TOL);
     assert(D_curr(0,0) >= 0.0 && D_curr(0,0) <= EA_MN);
     assert(D_curr(1,1) >= 0.0 && D_curr(1,1) <= EI_MN_m2);
+
+    // --- Common FE2 column validation contract.
+    ReducedRCFE2ColumnRunSpec spec{};
+    spec.coupling_mode =
+        ReducedRCFE2ColumnCouplingMode::iterated_two_way_fe2;
+    spec.local_execution_mode =
+        ReducedRCFE2ColumnLocalExecutionMode::surrogate_smoke;
+    spec.max_staggered_iterations = MAX_ITER;
+    spec.staggered_tolerance = STAGGERED_TOL;
+    spec.staggered_relaxation = STAGGERED_RELAX;
+    const auto common = run_reduced_rc_fe2_surrogate_staggered_iteration(
+        site, spec);
+    assert(common.converged);
+    assert(common.iterations <= MAX_ITER);
+    assert(common.final_residual <= STAGGERED_TOL);
+    assert(common.residual_history.size() ==
+           static_cast<std::size_t>(common.iterations));
+    assert(!common.residual_history.empty());
+    assert(common.D_hom(0,0) >= 0.0 && common.D_hom(0,0) <= EA_MN);
+    assert(common.D_hom(1,1) >= 0.0 && common.D_hom(1,1) <= EI_MN_m2);
 
     std::printf("[fe2_column_cyclic_two_way_smoke] reason=%s iters=%d "
                 "residual=%.6f D_hom_diag=[%.3f, %.3f]\n",

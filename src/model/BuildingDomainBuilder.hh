@@ -49,6 +49,7 @@
 #include "../domain/Domain.hh"
 #include "../elements/element_geometry/LagrangeElement.hh"
 #include "../numerics/numerical_integration/GaussLegendreCellIntegrator.hh"
+#include "../numerics/numerical_integration/GaussLobattoCellIntegrator.hh"
 
 namespace fall_n {
 
@@ -315,8 +316,165 @@ make_building_domain(const FramedBuildingSpec& spec)
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  SelfWeightSpec — parameters for gravity self-weight calculation
+//  make_building_domain_timoshenko_n4_lobatto -- 4-node frame geometry
 // ─────────────────────────────────────────────────────────────────────
+inline std::pair<Domain<3>, BuildingGrid>
+make_building_domain_timoshenko_n4_lobatto(const FramedBuildingSpec& spec)
+{
+    const int nx = static_cast<int>(spec.x_axes.size());
+    const int ny = static_cast<int>(spec.y_axes.size());
+    const int ns = spec.num_stories;
+    const int nl = ns + 1;
+
+    std::vector<double> z_levels(static_cast<std::size_t>(nl));
+    for (int k = 0; k < nl; ++k) {
+        z_levels[static_cast<std::size_t>(k)] =
+            spec.story_height * static_cast<double>(k);
+    }
+
+    BuildingGrid grid{
+        spec.x_axes, spec.y_axes, z_levels,
+        nx, ny, ns, spec.story_height,
+        spec.cutout_x_start, spec.cutout_x_end,
+        spec.cutout_y_start, spec.cutout_y_end,
+        spec.cutout_above_story
+    };
+
+    Domain<3> domain;
+    const auto frame_aux_nodes =
+        static_cast<std::size_t>(2) * (grid.num_columns() + grid.num_beams());
+    domain.preallocate_node_capacity(
+        static_cast<std::size_t>(grid.total_nodes()) + frame_aux_nodes);
+
+    for (int level = 0; level < nl; ++level) {
+        for (int iy = 0; iy < ny; ++iy) {
+            for (int ix = 0; ix < nx; ++ix) {
+                if (!grid.is_node_active(ix, iy, level)) {
+                    continue;
+                }
+                domain.add_node(
+                    grid.node_id(ix, iy, level),
+                    spec.x_axes[static_cast<std::size_t>(ix)],
+                    spec.y_axes[static_cast<std::size_t>(iy)],
+                    z_levels[static_cast<std::size_t>(level)]);
+            }
+        }
+    }
+
+    std::size_t tag = 0;
+    PetscInt next_aux_node = static_cast<PetscInt>(nl * nx * ny);
+
+    auto add_line4 = [&](double ax,
+                         double ay,
+                         double az,
+                         PetscInt node_a,
+                         double bx,
+                         double by,
+                         double bz,
+                         PetscInt node_b,
+                         const std::string& physical_group) {
+        const PetscInt node_i = next_aux_node++;
+        const PetscInt node_j = next_aux_node++;
+        domain.add_node(static_cast<std::size_t>(node_i),
+                        ax + (bx - ax) / 3.0,
+                        ay + (by - ay) / 3.0,
+                        az + (bz - az) / 3.0);
+        domain.add_node(static_cast<std::size_t>(node_j),
+                        ax + 2.0 * (bx - ax) / 3.0,
+                        ay + 2.0 * (by - ay) / 3.0,
+                        az + 2.0 * (bz - az) / 3.0);
+
+        PetscInt conn[4] = {node_a, node_i, node_j, node_b};
+        auto& geom = domain.make_element<LagrangeElement3D<4>>(
+            GaussLobattoCellIntegrator<3>{}, tag++, conn);
+        geom.set_physical_group(physical_group);
+    };
+
+    for (int level = 0; level < ns; ++level) {
+        for (int iy = 0; iy < ny; ++iy) {
+            for (int ix = 0; ix < nx; ++ix) {
+                if (!grid.is_node_active(ix, iy, level) ||
+                    !grid.is_node_active(ix, iy, level + 1)) {
+                    continue;
+                }
+                const double x = spec.x_axes[static_cast<std::size_t>(ix)];
+                const double y = spec.y_axes[static_cast<std::size_t>(iy)];
+                add_line4(x, y, z_levels[static_cast<std::size_t>(level)],
+                          grid.node_id(ix, iy, level),
+                          x, y, z_levels[static_cast<std::size_t>(level + 1)],
+                          grid.node_id(ix, iy, level + 1),
+                          spec.column_group);
+            }
+        }
+    }
+
+    for (int level = 1; level <= ns; ++level) {
+        const double z = z_levels[static_cast<std::size_t>(level)];
+        for (int iy = 0; iy < ny; ++iy) {
+            for (int ix = 0; ix < nx - 1; ++ix) {
+                if (!grid.is_node_active(ix, iy, level) ||
+                    !grid.is_node_active(ix + 1, iy, level)) {
+                    continue;
+                }
+                add_line4(
+                    spec.x_axes[static_cast<std::size_t>(ix)],
+                    spec.y_axes[static_cast<std::size_t>(iy)],
+                    z,
+                    grid.node_id(ix, iy, level),
+                    spec.x_axes[static_cast<std::size_t>(ix + 1)],
+                    spec.y_axes[static_cast<std::size_t>(iy)],
+                    z,
+                    grid.node_id(ix + 1, iy, level),
+                    spec.beam_group);
+            }
+        }
+        for (int ix = 0; ix < nx; ++ix) {
+            for (int iy = 0; iy < ny - 1; ++iy) {
+                if (!grid.is_node_active(ix, iy, level) ||
+                    !grid.is_node_active(ix, iy + 1, level)) {
+                    continue;
+                }
+                add_line4(
+                    spec.x_axes[static_cast<std::size_t>(ix)],
+                    spec.y_axes[static_cast<std::size_t>(iy)],
+                    z,
+                    grid.node_id(ix, iy, level),
+                    spec.x_axes[static_cast<std::size_t>(ix)],
+                    spec.y_axes[static_cast<std::size_t>(iy + 1)],
+                    z,
+                    grid.node_id(ix, iy + 1, level),
+                    spec.beam_group);
+            }
+        }
+    }
+
+    if (spec.include_slabs) {
+        for (int level = 1; level <= ns; ++level) {
+            for (int iy = 0; iy < ny - 1; ++iy) {
+                for (int ix = 0; ix < nx - 1; ++ix) {
+                    if (!grid.is_bay_active(ix, iy, level)) {
+                        continue;
+                    }
+                    PetscInt conn[4] = {
+                        grid.node_id(ix,     iy,     level),
+                        grid.node_id(ix + 1, iy,     level),
+                        grid.node_id(ix,     iy + 1, level),
+                        grid.node_id(ix + 1, iy + 1, level)
+                    };
+                    auto& geom =
+                        domain.make_element<LagrangeElement3D<2, 2>>(
+                            GaussLegendreCellIntegrator<2, 2>{}, tag++, conn);
+                    geom.set_physical_group(spec.slab_group);
+                }
+            }
+        }
+    }
+
+    domain.assemble_sieve();
+    return {std::move(domain), std::move(grid)};
+}
+
+// SelfWeightSpec -- parameters for gravity self-weight calculation
 struct SelfWeightSpec {
     double density;        // MN·s²/m⁴  (e.g. 2.4e-3 for RC)
     double gravity;        // m/s²       (9.81)
