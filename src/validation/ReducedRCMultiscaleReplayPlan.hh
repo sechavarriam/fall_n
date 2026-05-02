@@ -64,7 +64,9 @@ struct ReducedRCStructuralReplaySample {
     double z_over_l{0.0};
     double drift_mm{0.0};
     double curvature_y{0.0};
+    double curvature_z{0.0};
     double moment_y_mn_m{0.0};
+    double moment_z_mn_m{0.0};
     double base_shear_mn{0.0};
     double steel_stress_mpa{0.0};
     double damage_indicator{0.0};
@@ -90,7 +92,9 @@ struct ReducedRCMultiscaleReplaySitePlan {
     double z_over_l{0.0};
     std::size_t sample_count{0};
     double peak_abs_curvature_y{0.0};
+    double peak_abs_curvature_z{0.0};
     double peak_abs_moment_y_mn_m{0.0};
+    double peak_abs_moment_z_mn_m{0.0};
     double peak_abs_base_shear_mn{0.0};
     double peak_abs_steel_stress_mpa{0.0};
     double max_damage_indicator{0.0};
@@ -146,7 +150,13 @@ namespace detail {
                                 site.peak_abs_curvature_y,
                                 settings.curvature_activation_threshold));
     score = std::max(score, replay_safe_ratio(
+                                site.peak_abs_curvature_z,
+                                settings.curvature_activation_threshold));
+    score = std::max(score, replay_safe_ratio(
                                 site.peak_abs_moment_y_mn_m,
+                                settings.moment_activation_threshold_mn_m));
+    score = std::max(score, replay_safe_ratio(
+                                site.peak_abs_moment_z_mn_m,
                                 settings.moment_activation_threshold_mn_m));
     score = std::max(score, replay_safe_ratio(
                                 site.peak_abs_steel_stress_mpa,
@@ -210,9 +220,15 @@ make_reduced_rc_multiscale_replay_plan(
         site.peak_abs_curvature_y =
             std::max(site.peak_abs_curvature_y,
                      detail::replay_safe_abs(row.curvature_y));
+        site.peak_abs_curvature_z =
+            std::max(site.peak_abs_curvature_z,
+                     detail::replay_safe_abs(row.curvature_z));
         site.peak_abs_moment_y_mn_m =
             std::max(site.peak_abs_moment_y_mn_m,
                      detail::replay_safe_abs(row.moment_y_mn_m));
+        site.peak_abs_moment_z_mn_m =
+            std::max(site.peak_abs_moment_z_mn_m,
+                     detail::replay_safe_abs(row.moment_z_mn_m));
         site.peak_abs_base_shear_mn =
             std::max(site.peak_abs_base_shear_mn,
                      detail::replay_safe_abs(row.base_shear_mn));

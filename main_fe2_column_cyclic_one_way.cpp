@@ -32,10 +32,14 @@
 #include <vector>
 
 #include <Eigen/Dense>
+#include <petsc.h>
 
 #include "src/analysis/FirstInelasticFiberCriterion.hh"
 #include "src/analysis/MultiscaleTypes.hh"
 #include "src/validation/MultiscaleReplayDriverHelpers.hh"
+#include "src/validation/ReducedRCFE2ColumnValidation.hh"
+#include "src/validation/ReducedRCManagedLocalModelReplay.hh"
+#include "src/validation/ReducedRCManagedXfemLocalModelAdapter.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
 
 namespace {
@@ -61,6 +65,15 @@ struct Options {
     std::size_t num_sites{1};
     std::vector<double> site_z_list{};
     std::vector<double> site_scale_list{};
+    double local_section_width_m{0.20};
+    double local_section_depth_m{0.20};
+    std::size_t local_nx{1};
+    std::size_t local_ny{1};
+    std::size_t local_nz{2};
+    int local_transition_steps{3};
+    int local_max_bisections{6};
+    std::string local_downscaling{"macro-shear-compliance"};
+    bool surrogate_smoke{false};
 };
 
 [[nodiscard]] std::vector<double> parse_double_list(std::string_view s) {
@@ -81,7 +94,13 @@ void print_usage(const char* a0) {
         "  --EA-MN F --EI-MN-m2 F\n"
         "  --yield-strain F --f-y-MPa F --c-section-mm F --damage-floor F\n"
         "  --max-relative-moment-envelope-error F\n"
-        "  --num-sites N --site-z-list a,b,c --site-scale-list a,b,c\n",
+        "  --num-sites N --site-z-list a,b,c --site-scale-list a,b,c\n"
+        "  --local-section-width-m F --local-section-depth-m F\n"
+        "  --local-nx N --local-ny N --local-nz N\n"
+        "  --local-transition-steps N --local-max-bisections N\n"
+        "  --local-downscaling tip-drift|section-kinematics|macro-shear-compliance|macro-resultant-compliance\n"
+        "  --surrogate-smoke  (explicitly keep the cheap synthetic gate)\n"
+        "  --real-xfem-replay (default; managed XFEM local Model replay)\n",
         a0);
 }
 
@@ -105,11 +124,86 @@ void print_usage(const char* a0) {
         else if (a == "--num-sites"            && i+1 < argc) o.num_sites = std::strtoull(argv[++i], nullptr, 10);
         else if (a == "--site-z-list"          && i+1 < argc) o.site_z_list = parse_double_list(argv[++i]);
         else if (a == "--site-scale-list"      && i+1 < argc) o.site_scale_list = parse_double_list(argv[++i]);
+        else if (a == "--local-section-width-m" && i+1 < argc) next(o.local_section_width_m);
+        else if (a == "--local-section-depth-m" && i+1 < argc) next(o.local_section_depth_m);
+        else if (a == "--local-nx"             && i+1 < argc) o.local_nx = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-ny"             && i+1 < argc) o.local_ny = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-nz"             && i+1 < argc) o.local_nz = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-transition-steps" && i+1 < argc) o.local_transition_steps = std::atoi(argv[++i]);
+        else if (a == "--local-max-bisections" && i+1 < argc) o.local_max_bisections = std::atoi(argv[++i]);
+        else if (a == "--local-downscaling" && i+1 < argc) o.local_downscaling = argv[++i];
+        else if (a == "--surrogate-smoke") o.surrogate_smoke = true;
+        else if (a == "--real-xfem-replay") o.surrogate_smoke = false;
         else if (a == "--help" || a == "-h") { print_usage(argv[0]); return false; }
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); print_usage(argv[0]); return false; }
     }
     if (o.input_csv.empty() || o.output_dir.empty()) { print_usage(argv[0]); return false; }
     return true;
+}
+
+[[nodiscard]] fall_n::ReducedRCFE2ColumnRunSpec
+make_run_spec(const Options& o)
+{
+    fall_n::ReducedRCFE2ColumnRunSpec spec{};
+    spec.coupling_mode =
+        fall_n::ReducedRCFE2ColumnCouplingMode::one_way_downscaling;
+    spec.local_execution_mode = o.surrogate_smoke
+        ? fall_n::ReducedRCFE2ColumnLocalExecutionMode::surrogate_smoke
+        : fall_n::ReducedRCFE2ColumnLocalExecutionMode::real_xfem_replay;
+    spec.EA_MN = o.EA_MN;
+    spec.EI_MN_m2 = o.EI_MN_m2;
+    spec.damage_floor = o.damage_floor;
+    spec.f_y_MPa = o.f_y_MPa;
+    spec.yield_strain = o.yield_strain;
+    spec.c_section_mm = o.c_section_mm;
+    spec.tolerances.max_relative_moment_envelope_error =
+        o.max_relative_moment_envelope_error;
+    return spec;
+}
+
+[[nodiscard]] fall_n::ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode
+parse_local_downscaling(std::string value)
+{
+    std::ranges::replace(value, '-', '_');
+    using Mode = fall_n::ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode;
+    if (value == "tip_drift" || value == "tip_drift_top_face") {
+        return Mode::tip_drift_top_face;
+    }
+    if (value == "section_kinematics" || value == "section_kinematics_only") {
+        return Mode::section_kinematics_only;
+    }
+    if (value == "macro_shear_compliance") {
+        return Mode::macro_shear_compliance;
+    }
+    if (value == "macro_resultant_compliance" ||
+        value == "stress_resultant" ||
+        value == "dual_resultant") {
+        return Mode::macro_resultant_compliance;
+    }
+    throw std::invalid_argument("Unsupported --local-downscaling value.");
+}
+
+[[maybe_unused]] void emit_blocked_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCFE2ColumnResult& result)
+{
+    std::ofstream f(path);
+    f << "{\n"
+      << "  \"schema\": \"fe2_column_one_way_cyclic_v2\",\n"
+      << "  \"scientific_status\": \"real_xfem_replay_blocked_adapter_missing\",\n"
+      << "  \"coupling_mode\": \""
+      << fall_n::to_string(result.spec.coupling_mode) << "\",\n"
+      << "  \"local_execution_mode\": \""
+      << fall_n::to_string(result.spec.local_execution_mode) << "\",\n"
+      << "  \"local_model_policy\": \""
+      << result.spec.local_model_policy << "\",\n"
+      << "  \"validation_status\": \""
+      << fall_n::to_string(result.status) << "\",\n"
+      << "  \"history_sample_count\": " << result.history_sample_count << ",\n"
+      << "  \"selected_site_count\": " << result.selected_site_count << ",\n"
+      << "  \"required_adapter\": \"reduced_rc_managed_xfem_local_model_adapter\",\n"
+      << "  \"next_step\": \"wire one managed XFEM Model per selected macro site; impose reconstructed structural displacements time-by-time and replace surrogate D_hom generation\"\n"
+      << "}\n";
 }
 
 [[nodiscard]] fall_n::FirstInelasticFiberCriterion
@@ -148,6 +242,45 @@ synthesise_one_way_response(
     return R;
 }
 
+[[nodiscard]] const fall_n::ReducedRCStructuralReplaySample*
+trigger_sample_for_site(
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    std::size_t site_index,
+    std::size_t per_site_index)
+{
+    std::size_t seen = 0;
+    for (const auto& sample : hist) {
+        if (sample.site_index != site_index) {
+            continue;
+        }
+        if (seen == per_site_index) {
+            return &sample;
+        }
+        ++seen;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] double macro_section_history_work_for_site(
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    const fall_n::ReducedRCMultiscaleReplaySitePlan& site)
+{
+    std::vector<fall_n::ReducedRCStructuralReplaySample> per_site;
+    per_site.reserve(hist.size());
+    for (const auto& sample : hist) {
+        if (sample.site_index == site.site_index) {
+            per_site.push_back(sample);
+        }
+    }
+
+    fall_n::ReducedRCManagedLocalPatchSpec patch{};
+    patch.site_index = site.site_index;
+    patch.z_over_l = site.z_over_l;
+    const auto packet = fall_n::make_reduced_rc_managed_section_history_packet(
+        per_site, patch);
+    return fall_n::accumulated_material_history_work(packet.samples);
+}
+
 void emit_json(const std::filesystem::path& path,
                const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
                const fall_n::ReducedRCMultiscaleReplayPlan& plan,
@@ -155,12 +288,18 @@ void emit_json(const std::filesystem::path& path,
                const std::vector<fall_n::FirstInelasticFiberCriterion::Reason>& reasons,
                const std::vector<std::size_t>& trigger_indices,
                const Options& o,
+               std::string_view scientific_status,
+               std::string_view local_execution_mode,
                bool overall_pass)
 {
     std::ofstream f(path);
     f << "{\n"
-      << "  \"schema\": \"fe2_column_cyclic_one_way_v1\",\n"
-      << "  \"scientific_status\": \"synthetic_one_way_real_macro_history\",\n"
+      << "  \"schema\": \"fe2_column_one_way_cyclic_v2\",\n"
+      << "  \"scientific_status\": \"" << scientific_status << "\",\n"
+      << "  \"coupling_mode\": \"one_way_downscaling\",\n"
+      << "  \"local_execution_mode\": \"" << local_execution_mode << "\",\n"
+      << "  \"local_model_policy\": \"managed_independent_domain_per_selected_macro_site\",\n"
+      << "  \"local_downscaling\": \"" << o.local_downscaling << "\",\n"
       << "  \"history_sample_count\": " << hist.size() << ",\n"
       << "  \"selected_site_count\": " << plan.selected_site_count << ",\n"
       << "  \"criterion\": {\n"
@@ -179,6 +318,8 @@ void emit_json(const std::filesystem::path& path,
         const auto& R = results[k];
         const auto reason = reasons[k];
         const auto trig_idx = trigger_indices[k];
+        const auto* trigger_sample =
+            trigger_sample_for_site(hist, site.site_index, trig_idx);
         ++k;
         const double m_synth = std::abs(R.f_hom(1));
         const double m_macro = site.peak_abs_moment_y_mn_m;
@@ -202,11 +343,11 @@ void emit_json(const std::filesystem::path& path,
           << fall_n::FirstInelasticFiberCriterion::reason_label(reason) << "\",\n"
           << "      \"trigger_sample_index\": " << trig_idx << ",\n"
           << "      \"trigger_pseudo_time\": "
-          << (trig_idx < hist.size() ? hist[trig_idx].pseudo_time : -1.0) << ",\n"
+          << (trigger_sample ? trigger_sample->pseudo_time : -1.0) << ",\n"
           << "      \"trigger_drift_mm\": "
-          << (trig_idx < hist.size() ? hist[trig_idx].drift_mm : 0.0) << ",\n"
+          << (trigger_sample ? trigger_sample->drift_mm : 0.0) << ",\n"
           << "      \"D_hom_diag\": [" << R.D_hom(0,0) << "," << R.D_hom(1,1) << "],\n"
-          << "      \"synthetic_moment_y_mn_m\": " << m_synth << ",\n"
+          << "      \"homogenized_moment_y_mn_m\": " << m_synth << ",\n"
           << "      \"moment_envelope_available\": "
           << (moment_available ? "true" : "false") << ",\n"
           << "      \"relative_moment_envelope_error\": " << rel_err << ",\n"
@@ -221,6 +362,201 @@ void emit_json(const std::filesystem::path& path,
     f << "  ]\n}\n";
 }
 
+void emit_csv_artifacts(
+    const std::filesystem::path& output_dir,
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    const fall_n::ReducedRCMultiscaleReplayPlan& plan,
+    const std::vector<fall_n::UpscalingResult>& results,
+    const std::vector<fall_n::FirstInelasticFiberCriterion::Reason>& reasons,
+    const std::vector<std::size_t>& trigger_indices)
+{
+    std::ofstream activation(output_dir / "site_activation.csv");
+    activation
+        << "site_index,z_over_l,trigger_reason,trigger_sample_index,"
+           "trigger_pseudo_time,trigger_drift_mm,peak_abs_curvature_y,"
+           "peak_abs_steel_stress_mpa,max_damage_indicator\n";
+
+    std::ofstream response(output_dir / "site_response.csv");
+    response
+        << "site_index,z_over_l,D_axial_mn,D_flexural_mn_m2,"
+           "f_axial_mn,moment_y_mn_m,peak_macro_moment_y_mn_m,"
+           "relative_moment_envelope_error,frobenius_residual,"
+           "snes_iters,converged\n";
+
+    std::ofstream energy(output_dir / "site_energy.csv");
+    energy
+        << "site_index,z_over_l,accumulated_abs_macro_work_mn_mm,"
+           "peak_abs_base_shear_mn,peak_abs_moment_y_mn_m,"
+           "homogenized_moment_y_mn_m,macro_section_history_work\n";
+
+    std::size_t k = 0;
+    for (const auto& site : plan.sites) {
+        if (!site.selected_for_replay) {
+            continue;
+        }
+        const auto& R = results[k];
+        const auto reason = reasons[k];
+        const auto trigger_index = trigger_indices[k];
+        const auto* trigger_sample =
+            trigger_sample_for_site(hist, site.site_index, trigger_index);
+
+        const double m_synth = std::abs(R.f_hom(1));
+        const bool moment_available = site.peak_abs_moment_y_mn_m > 1.0e-6;
+        const double rel_err = moment_available
+            ? std::abs(m_synth - site.peak_abs_moment_y_mn_m) /
+                  site.peak_abs_moment_y_mn_m
+            : 0.0;
+
+        activation
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << fall_n::FirstInelasticFiberCriterion::reason_label(reason) << ','
+            << trigger_index << ','
+            << (trigger_sample ? trigger_sample->pseudo_time : -1.0) << ','
+            << (trigger_sample ? trigger_sample->drift_mm : 0.0) << ','
+            << site.peak_abs_curvature_y << ','
+            << site.peak_abs_steel_stress_mpa << ','
+            << site.max_damage_indicator << '\n';
+
+        response
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << R.D_hom(0, 0) << ','
+            << R.D_hom(1, 1) << ','
+            << R.f_hom(0) << ','
+            << R.f_hom(1) << ','
+            << site.peak_abs_moment_y_mn_m << ','
+            << rel_err << ','
+            << R.frobenius_residual << ','
+            << R.snes_iters << ','
+            << (R.converged ? 1 : 0) << '\n';
+
+        energy
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << site.accumulated_abs_work_mn_mm << ','
+            << site.peak_abs_base_shear_mn << ','
+            << site.peak_abs_moment_y_mn_m << ','
+            << m_synth << ','
+            << macro_section_history_work_for_site(hist, site) << '\n';
+        ++k;
+    }
+}
+
+[[nodiscard]] int run_real_managed_xfem_replay(
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& samples,
+    const fall_n::ReducedRCMultiscaleReplayPlan& plan,
+    const Options& o)
+{
+    const auto crit = make_criterion(o);
+
+    std::vector<fall_n::UpscalingResult> results;
+    std::vector<fall_n::FirstInelasticFiberCriterion::Reason> reasons;
+    std::vector<std::size_t> trigger_indices;
+    results.reserve(plan.selected_site_count);
+    reasons.reserve(plan.selected_site_count);
+    trigger_indices.reserve(plan.selected_site_count);
+
+    bool overall = plan.selected_site_count > 0;
+
+    for (const auto& site : plan.sites) {
+        if (!site.selected_for_replay) {
+            continue;
+        }
+
+        std::vector<fall_n::ReducedRCStructuralReplaySample> per_site;
+        per_site.reserve(samples.size());
+        for (const auto& sample : samples) {
+            if (sample.site_index == site.site_index) {
+                per_site.push_back(sample);
+            }
+        }
+
+        const auto reason = crit.evaluate(site);
+        auto trigger_index = crit.first_trigger_index(per_site);
+        if (trigger_index >= per_site.size()) {
+            trigger_index = 0;
+        }
+        std::vector<fall_n::ReducedRCStructuralReplaySample> activated_history;
+        activated_history.assign(
+            per_site.begin() + static_cast<std::ptrdiff_t>(trigger_index),
+            per_site.end());
+
+        fall_n::ReducedRCManagedLocalPatchSpec patch{};
+        patch.site_index = site.site_index;
+        patch.z_over_l = site.z_over_l;
+        patch.characteristic_length_m =
+            std::max(o.characteristic_length_mm / 1000.0, 1.0e-6);
+        patch.section_width_m = o.local_section_width_m;
+        patch.section_depth_m = o.local_section_depth_m;
+        patch.nx = std::max<std::size_t>(1, o.local_nx);
+        patch.ny = std::max<std::size_t>(1, o.local_ny);
+        patch.nz = std::max<std::size_t>(1, o.local_nz);
+
+        fall_n::ReducedRCManagedXfemLocalModelAdapterOptions adapter_options{};
+        adapter_options.downscaling_mode =
+            parse_local_downscaling(o.local_downscaling);
+        adapter_options.local_transition_steps =
+            std::max(1, o.local_transition_steps);
+        adapter_options.local_max_bisections =
+            std::max(0, o.local_max_bisections);
+        fall_n::ReducedRCManagedXfemLocalModelAdapter adapter{
+            adapter_options};
+        const auto replay =
+            fall_n::run_reduced_rc_managed_local_model_replay(
+                activated_history,
+                patch,
+                adapter);
+
+        auto R = replay.homogenized_response;
+        const bool response_ok =
+            replay.completed() && R.is_well_formed() && R.converged;
+        if (!response_ok) {
+            R = fall_n::UpscalingResult{};
+            R.eps_ref = Eigen::VectorXd::Zero(2);
+            R.f_hom = Eigen::VectorXd::Zero(2);
+            R.D_hom = Eigen::MatrixXd::Zero(2, 2);
+            R.status = fall_n::ResponseStatus::SolveFailed;
+        }
+
+        results.push_back(R);
+        reasons.push_back(reason);
+        trigger_indices.push_back(trigger_index);
+
+        const double m_hom =
+            R.is_well_formed() && R.f_hom.size() > 1 ? std::abs(R.f_hom(1)) : 0.0;
+        const double m_macro = site.peak_abs_moment_y_mn_m;
+        const bool moment_available = m_macro > 1.0e-6;
+        const double rel_err = moment_available
+            ? std::abs(m_hom - m_macro) / m_macro
+            : 0.0;
+        const bool triggered =
+            reason != fall_n::FirstInelasticFiberCriterion::Reason::not_triggered;
+        const bool envelope_ok = !moment_available
+            || rel_err <= o.max_relative_moment_envelope_error;
+        overall = overall && triggered && response_ok && envelope_ok;
+    }
+
+    emit_json(o.output_dir / "fe2_column_one_way_cyclic.json",
+              samples,
+              plan,
+              results,
+              reasons,
+              trigger_indices,
+              o,
+              "real_xfem_replay_managed_local_model",
+              "real_xfem_replay",
+              overall);
+    emit_csv_artifacts(
+        o.output_dir, samples, plan, results, reasons, trigger_indices);
+
+    std::printf("[stageA] real managed XFEM one-way emitted | selected=%zu "
+                "overall_pass=%d output=%s\n",
+                plan.selected_site_count, overall ? 1 : 0,
+                o.output_dir.string().c_str());
+    return overall ? 0 : 4;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -231,6 +567,7 @@ int main(int argc, char** argv) {
 
     const auto rows = fall_n::read_structural_history_csv(o.input_csv);
     if (rows.empty()) { std::fprintf(stderr, "[stageA] empty CSV\n"); return 3; }
+    const auto spec = make_run_spec(o);
 
     std::vector<fall_n::ReducedRCStructuralReplaySample> samples;
     if (o.num_sites <= 1) {
@@ -255,6 +592,15 @@ int main(int argc, char** argv) {
     fall_n::ReducedRCMultiscaleReplayPlanSettings settings{};
     settings.max_replay_sites = std::max<std::size_t>(3, o.num_sites);
     const auto plan = fall_n::make_reduced_rc_multiscale_replay_plan(samples, settings);
+
+    if (spec.local_execution_mode ==
+        fall_n::ReducedRCFE2ColumnLocalExecutionMode::real_xfem_replay)
+    {
+        PetscInitializeNoArguments();
+        const int code = run_real_managed_xfem_replay(samples, plan, o);
+        PetscFinalize();
+        return code;
+    }
 
     const auto crit = make_criterion(o);
 
@@ -295,7 +641,17 @@ int main(int argc, char** argv) {
     }
 
     emit_json(o.output_dir / "fe2_column_one_way_cyclic.json",
-              samples, plan, results, reasons, trigger_indices, o, overall);
+              samples,
+              plan,
+              results,
+              reasons,
+              trigger_indices,
+              o,
+              "surrogate_smoke_real_macro_history",
+              "surrogate_smoke",
+              overall);
+    emit_csv_artifacts(
+        o.output_dir, samples, plan, results, reasons, trigger_indices);
 
     std::printf("[stageA] fe2_column_one_way emitted | selected=%zu overall_pass=%d output=%s\n",
                 plan.selected_site_count, overall ? 1 : 0,

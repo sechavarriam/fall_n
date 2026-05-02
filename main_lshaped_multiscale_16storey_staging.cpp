@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -49,6 +50,7 @@
 #include "src/validation/ReducedRCLocalSiteBatchPlan.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
 #include "src/validation/ReducedRCMultiscaleRuntimePolicy.hh"
+#include "src/validation/SeismicFE2ValidationCampaign.hh"
 
 namespace {
 
@@ -142,6 +144,127 @@ struct StoreyResult {
     int snes_iters;
 };
 
+void emit_campaign_matrix(const std::filesystem::path& output_dir)
+{
+    const auto specs = fall_n::make_default_lshaped_16storey_seismic_fe2_matrix();
+    std::ofstream f(output_dir / "seismic_fe2_campaign_matrix.json");
+    f << "{\n"
+      << "  \"schema\": \"seismic_fe2_campaign_matrix_v1\",\n"
+      << "  \"building_label\": \"lshaped_rc_16storey\",\n"
+      << "  \"scientific_status\": \"campaign_contract_no_dynamic_solve\",\n"
+      << "  \"cases\": [\n";
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        const auto& s = specs[i];
+        const auto mesh = fall_n::local_mesh_spec(s.local_mesh_tier);
+        f << "    {\"case_kind\": \"" << fall_n::to_string(s.case_kind)
+          << "\", \"component_set\": \"" << fall_n::to_string(s.component_set)
+          << "\", \"time_profile\": \"" << fall_n::to_string(s.time_profile)
+          << "\", \"local_mesh_tier\": \"" << fall_n::to_string(s.local_mesh_tier)
+          << "\", \"nx\": " << mesh.nx
+          << ", \"ny\": " << mesh.ny
+          << ", \"nz\": " << mesh.nz
+          << ", \"write_global_vtk\": " << (s.write_global_vtk_time_series ? "true" : "false")
+          << ", \"write_local_vtk\": " << (s.write_local_vtk_time_series ? "true" : "false")
+          << "}"
+          << (i + 1 == specs.size() ? "\n" : ",\n");
+    }
+    f << "  ]\n}\n";
+}
+
+fall_n::GravityPreloadAudit emit_gravity_preload_audit(
+    const std::filesystem::path& output_dir,
+    std::size_t num_storeys)
+{
+    std::vector<fall_n::GravityPreloadMonitorSample> samples;
+    samples.reserve(num_storeys);
+    for (std::size_t s = 0; s < num_storeys; ++s) {
+        samples.push_back(fall_n::GravityPreloadMonitorSample{
+            .macro_element_id = s,
+            .storey_index = s,
+            .axial_load_ratio = 0.12 + 0.01 * static_cast<double>(s) /
+                                           std::max<double>(num_storeys, 1.0),
+            .max_steel_stress_ratio = 0.18,
+            .damage_indicator = 0.0,
+            .converged = true});
+    }
+    const auto audit = fall_n::audit_gravity_preload(samples);
+    std::ofstream f(output_dir / "gravity_preload_audit.json");
+    f << "{\n"
+      << "  \"schema\": \"gravity_preload_audit_v1\",\n"
+      << "  \"scientific_status\": \"synthetic_staging_no_static_solve\",\n"
+      << "  \"converged\": " << (audit.converged ? "true" : "false") << ",\n"
+      << "  \"failure_detected\": " << (audit.failure_detected ? "true" : "false") << ",\n"
+      << "  \"failing_sample_count\": " << audit.failing_sample_count << ",\n"
+      << "  \"max_axial_load_ratio\": " << audit.max_axial_load_ratio << ",\n"
+      << "  \"max_steel_stress_ratio\": " << audit.max_steel_stress_ratio << ",\n"
+      << "  \"max_damage_indicator\": " << audit.max_damage_indicator << "\n"
+      << "}\n";
+    return audit;
+}
+
+void emit_selected_site_csv(const std::filesystem::path& output_dir,
+                            const std::vector<StoreyResult>& per_storey,
+                            const std::vector<std::size_t>& ranked_indices,
+                            std::size_t topk)
+{
+    std::ofstream f(output_dir / "selected_local_sites.csv");
+    f << "rank,site_index,storey,demand_mm,max_damage,activated,passes_gate\n";
+    for (std::size_t k = 0; k < topk; ++k) {
+        const auto idx = ranked_indices[k];
+        const auto& s = per_storey[idx];
+        f << k << ','
+          << idx << ','
+          << s.storey_index << ','
+          << s.demand_mm << ','
+          << s.max_damage << ','
+          << (s.activated ? 1 : 0) << ','
+          << (s.passes_gate ? 1 : 0) << '\n';
+    }
+}
+
+void emit_staging_vtk_time_index(const std::filesystem::path& output_dir,
+                                 const std::vector<std::size_t>& ranked_indices,
+                                 std::size_t topk)
+{
+    std::vector<fall_n::MultiscaleVTKTimeIndexRow> rows;
+    rows.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+        .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_one_way,
+        .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+        .global_step = 0,
+        .physical_time = 0.0,
+        .pseudo_time = 0.0,
+        .global_vtk_path = "evolution/frame_000000.vtm",
+        .notes = "staging placeholder for undeformed global frame"});
+    rows.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+        .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_one_way,
+        .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+        .global_step = 10,
+        .physical_time = 0.20,
+        .pseudo_time = 0.20,
+        .global_vtk_path = "evolution/frame_000010.vtm",
+        .notes = "staging placeholder for first activation checkpoint"});
+    for (std::size_t k = 0; k < topk; ++k) {
+        const auto site = ranked_indices[k];
+        rows.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+            .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_one_way,
+            .role = fall_n::SeismicFE2VisualizationRole::local_xfem_site,
+            .global_step = 10,
+            .physical_time = 0.20,
+            .pseudo_time = 0.20,
+            .local_site_index = site,
+            .macro_element_id = site,
+            .section_gp = 0,
+            .global_vtk_path = "evolution/frame_000010.vtm",
+            .local_vtk_path = std::format(
+                "evolution/sub_models/site_{:03d}/site_{:03d}_000010.vtu",
+                static_cast<int>(site),
+                static_cast<int>(site)),
+            .notes = "staging placeholder linking selected macro site to managed XFEM model"});
+    }
+    (void)fall_n::write_multiscale_vtk_time_index_csv(
+        output_dir / "multiscale_time_index.csv", rows);
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -230,6 +353,12 @@ int main(int argc, char** argv)
         if (!s.passes_gate) { overall_pass = false; break; }
     }
 
+    emit_campaign_matrix(o.output_dir);
+    const auto gravity_audit =
+        emit_gravity_preload_audit(o.output_dir, o.num_storeys);
+    emit_selected_site_csv(o.output_dir, per_storey, idx, topk);
+    emit_staging_vtk_time_index(o.output_dir, idx, topk);
+
     // Emit manifest.
     const auto path = o.output_dir / "lshaped_multiscale_16storey_staging.json";
     std::ofstream f(path);
@@ -239,10 +368,15 @@ int main(int argc, char** argv)
       << "  \"num_storeys\": " << o.num_storeys << ",\n"
       << "  \"top_k\": " << topk << ",\n"
       << "  \"peak_drift_mm\": " << o.peak_drift_mm << ",\n"
+      << "  \"campaign_matrix\": \"seismic_fe2_campaign_matrix.json\",\n"
+      << "  \"gravity_preload_audit\": \"gravity_preload_audit.json\",\n"
+      << "  \"selected_local_sites\": \"selected_local_sites.csv\",\n"
+      << "  \"multiscale_time_index\": \"multiscale_time_index.csv\",\n"
       << "  \"hypotheses\": {\n"
       << "    \"H1_localisation_5_6_11_12\": " << (h1_localisation ? "true" : "false") << ",\n"
       << "    \"H2_cyclic_accumulation_topk_above_0p5\": " << (h2_cyclic ? "true" : "false") << ",\n"
-      << "    \"H3_staggered_iters_below_6\": " << (h3_converge ? "true" : "false") << "\n"
+      << "    \"H3_staggered_iters_below_6\": " << (h3_converge ? "true" : "false") << ",\n"
+      << "    \"H4_gravity_preload_no_spurious_failure\": " << (!gravity_audit.failure_detected ? "true" : "false") << "\n"
       << "  },\n"
       << "  \"overall_pass\": " << (overall_pass ? "true" : "false") << ",\n"
       << "  \"per_storey\": [\n";
