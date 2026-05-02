@@ -34,6 +34,10 @@
 
 #include "header_files.hh"
 #include "src/utils/PythonPlotter.hh"
+#include "src/validation/ManagedXfemSubscaleEvolver.hh"
+#include "src/validation/ReducedRCMacroInferredXfemSitePolicy.hh"
+#include "src/validation/ReducedRCManagedXfemLocalModelAdapter.hh"
+#include "src/validation/SeismicFE2ValidationCampaign.hh"
 
 #include <Eigen/Dense>
 
@@ -62,6 +66,21 @@ namespace {
 [[nodiscard]] double csv_scalar_or_nan(bool available, double value)
 {
     return available ? value : std::numeric_limits<double>::quiet_NaN();
+}
+
+[[nodiscard]] std::string global_yield_vtk_rel_path()
+{
+    return "yield_state.vtm";
+}
+
+[[nodiscard]] std::string global_frame_vtk_rel_path(int step)
+{
+    return std::format("evolution/frame_{:06d}.vtm", step);
+}
+
+[[nodiscard]] std::string global_final_vtk_rel_path()
+{
+    return "evolution/frame_final.vtm";
 }
 
 // ── I/O paths ────────────────────────────────────────────────────────────────
@@ -150,10 +169,10 @@ static const double OMEGA_1 = 2.0 * std::numbers::pi / 1.60;
 static const double OMEGA_3 = 2.0 * std::numbers::pi / 0.40;
 
 // ── Time integration ─────────────────────────────────────────────────────────
-static constexpr double DT       = 0.02;     // s
-static constexpr double T_SKIP   = 40.0;     // skip to strong-motion onset
-static constexpr double T_MAX    = 1.5;      // window [40,41.5]s — elastic + post-yield
-static constexpr double EQ_SCALE = 5.0;      // amplified for lab-scale demonstration
+static constexpr double DT               = 0.02;  // s
+static constexpr double DEFAULT_T_SKIP   = 87.65; // strongest 10 s K-NET window
+static constexpr double DEFAULT_DURATION = 10.0;  // s
+static constexpr double EQ_SCALE         = 1.0;   // physical record scale
 
 // ── Sub-model mesh ───────────────────────────────────────────────────────────
 static constexpr int SUB_NX = 2;
@@ -179,8 +198,29 @@ static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using DynSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
-using BeamElemT    = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;
+using BeamElemT    = TimoshenkoBeamN<4, TimoshenkoBeam3D>;
 using ShellElemT   = MITC4Shell<>;
+
+class PetscSessionGuard {
+    bool active_{false};
+
+public:
+    PetscSessionGuard(int* argc, char*** argv)
+    {
+        PetscInitialize(argc, argv, nullptr, nullptr);
+        active_ = true;
+    }
+
+    PetscSessionGuard(const PetscSessionGuard&) = delete;
+    PetscSessionGuard& operator=(const PetscSessionGuard&) = delete;
+
+    ~PetscSessionGuard()
+    {
+        if (active_) {
+            PetscFinalize();
+        }
+    }
+};
 
 } // anonymous namespace
 
@@ -211,13 +251,38 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IONBF, 0);
 
     double eq_scale = EQ_SCALE;
-    if (argc >= 2) {
-        eq_scale = std::stod(argv[1]);
-        if (eq_scale <= 0.0)
+    double start_time = DEFAULT_T_SKIP;
+    double duration = DEFAULT_DURATION;
+    bool global_only = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--global-only") {
+            global_only = true;
+            continue;
+        }
+        if (arg == "--scale" && i + 1 < argc) {
+            eq_scale = std::stod(argv[++i]);
+        } else if (arg == "--start-time" && i + 1 < argc) {
+            start_time = std::stod(argv[++i]);
+        } else if (arg == "--duration" && i + 1 < argc) {
+            duration = std::stod(argv[++i]);
+        } else if (arg.rfind("--", 0) == 0) {
+            throw std::invalid_argument("Unknown option: " + arg);
+        } else {
+            eq_scale = std::stod(arg);
+        }
+        if (eq_scale <= 0.0) {
             throw std::invalid_argument("Scale factor must be positive.");
+        }
+    }
+    if (start_time < 0.0) {
+        throw std::invalid_argument("Start time must be non-negative.");
+    }
+    if (duration <= 0.0) {
+        throw std::invalid_argument("Duration must be positive.");
     }
 
-    PetscInitialize(&argc, &argv, nullptr, nullptr);
+    PetscSessionGuard petsc_session{&argc, &argv};
     PetscOptionsSetValue(nullptr, "-snes_monitor_cancel", "");
     PetscOptionsSetValue(nullptr, "-ksp_monitor_cancel",  "");
 
@@ -236,13 +301,14 @@ int main(int argc, char* argv[]) {
     auto eq_ew_full = GroundMotionRecord::from_knet(EQ_EW);
     auto eq_ud_full = GroundMotionRecord::from_knet(EQ_UD);
 
-    auto eq_ns = eq_ns_full.trim(T_SKIP, T_SKIP + T_MAX);
-    auto eq_ew = eq_ew_full.trim(T_SKIP, T_SKIP + T_MAX);
-    auto eq_ud = eq_ud_full.trim(T_SKIP, T_SKIP + T_MAX);
+    auto eq_ns = eq_ns_full.trim(start_time, start_time + duration);
+    auto eq_ew = eq_ew_full.trim(start_time, start_time + duration);
+    auto eq_ud = eq_ud_full.trim(start_time, start_time + duration);
 
     std::println("  Station       : MYG004 (Tsukidate, Miyagi) — near-fault");
     std::println("  Event         : Tohoku 2011-03-11 Mw 9.0");
-    std::println("  Window        : [{:.0f} s, {:.0f} s]", T_SKIP, T_SKIP + T_MAX);
+    std::println("  Window        : [{:.2f} s, {:.2f} s]",
+                 start_time, start_time + duration);
     std::println("  PGA (NS)      : {:.3f} m/s² ({:.3f} g)",
                  eq_ns.pga(), eq_ns.pga() / 9.81);
     std::println("  PGA (EW)      : {:.3f} m/s² ({:.3f} g)",
@@ -250,13 +316,16 @@ int main(int argc, char* argv[]) {
     std::println("  PGA (UD)      : {:.3f} m/s² ({:.3f} g)",
                  eq_ud.pga(), eq_ud.pga() / 9.81);
     std::println("  Scale factor  : {:.2f}", eq_scale);
+    std::println("  Run mode      : {}", global_only
+                 ? "global fall_n reference"
+                 : "managed-XFEM FE2 two-way");
 
     // ─────────────────────────────────────────────────────────────────────
     //  2. Building domain: 16-story L-shaped RC frame
     // ─────────────────────────────────────────────────────────────────────
     std::println("\n[2] Building L-shaped structural domain (16 stories)...");
 
-    auto [domain, grid] = make_building_domain({
+    auto [domain, grid] = make_building_domain_timoshenko_n4_lobatto({
         .x_axes          = {X_GRID.begin(), X_GRID.end()},
         .y_axes          = {Y_GRID.begin(), Y_GRID.end()},
         .num_stories     = NUM_STORIES,
@@ -276,6 +345,7 @@ int main(int argc, char* argv[]) {
     std::println("  Nodes         : {}", domain.num_nodes());
     std::println("  Columns       : {}", grid.num_columns());
     std::println("  Beams         : {}", grid.num_beams());
+    std::println("  Frame element : TimoshenkoBeamN<4> with 3-point Gauss-Lobatto sections");
 
     // ─────────────────────────────────────────────────────────────────────
     //  3. Post-process: reassign column physical groups by story range
@@ -387,7 +457,7 @@ int main(int argc, char* argv[]) {
     std::println("  T₁ (approx.)    : {:.2f} s", 2.0 * std::numbers::pi / OMEGA_1);
     std::println("  T₃ (approx.)    : {:.2f} s", 2.0 * std::numbers::pi / OMEGA_3);
     std::println("  Time step        : {} s", DT);
-    std::println("  Duration         : {} s", T_MAX);
+    std::println("  Duration         : {} s", duration);
 
     // ─────────────────────────────────────────────────────────────────────
     //  7. Observers
@@ -446,6 +516,9 @@ int main(int argc, char* argv[]) {
     // ── Global history CSV (elastic + post-yield, every step) ────────────
     std::ofstream global_csv(OUT + "recorders/global_history.csv");
     global_csv << "time,step,phase,u_inf,peak_damage\n";
+
+    std::vector<fall_n::MultiscaleVTKTimeIndexRow> vtk_time_index;
+    std::string last_global_vtk_rel_path = global_yield_vtk_rel_path();
 
     // ─────────────────────────────────────────────────────────────────────
     //  9. Phase 1: Global nonlinear dynamic analysis until first yield
@@ -514,14 +587,53 @@ int main(int argc, char* argv[]) {
         return director(ev, m);
     };
 
-    solver.step_to(T_MAX, phase1_director);
+    solver.step_to(duration, phase1_director);
 
     sep('-');
     if (!transition_report->triggered) {
-        std::println("[!] No fiber yielding detected within {} s.", T_MAX);
+        std::println("[!] No fiber yielding detected within {} s.", duration);
         std::println("    Peak damage = {:.4f} — try larger scale.", peak_damage_global);
+        if (global_only) {
+            const auto beam_profile =
+                fall_n::reconstruction::RectangularSectionProfile<2>{
+                    COL_B[0], COL_H[0]};
+            const auto shell_profile =
+                fall_n::reconstruction::ShellThicknessProfile<5>{};
+            PVDWriter pvd_global(OUT + "evolution/frame_global_reference");
+            PetscReal t_end;
+            TSGetTime(solver.get_ts(), &t_end);
+            const auto vtm_rel = "evolution/frame_global_reference_final.vtm";
+            const auto vtm_file = OUT + vtm_rel;
+            fall_n::vtk::StructuralVTMExporter vtm{
+                model, beam_profile, shell_profile};
+            vtm.set_displacement(model.state_vector());
+            vtm.set_yield_strain(EPS_YIELD);
+            vtm.write(vtm_file);
+            pvd_global.add_timestep(static_cast<double>(t_end), vtm_file);
+            pvd_global.write();
+
+            const std::string rec_dir = OUT + "recorders/";
+            composite.template get<2>().write_csv(
+                rec_dir + "roof_displacement_global_reference.csv");
+            composite.template get<1>().write_hysteresis_csv(
+                rec_dir + "fiber_hysteresis_global_reference");
+
+            std::ofstream summary(rec_dir + "global_reference_summary.json");
+            summary
+                << "{\n"
+                << "  \"schema\": \"lshaped_16_global_reference_v1\",\n"
+                << "  \"case_kind\": \"global_falln\",\n"
+                << "  \"macro_element_family\": \"TimoshenkoBeamN<4>_GaussLobatto\",\n"
+                << "  \"eq_scale\": " << eq_scale << ",\n"
+                << "  \"record_start_time_s\": " << start_time << ",\n"
+                << "  \"duration_s\": " << duration << ",\n"
+                << "  \"t_final_s\": " << static_cast<double>(t_end) << ",\n"
+                << "  \"first_yield_detected\": false,\n"
+                << "  \"peak_damage_index\": " << peak_damage_global << ",\n"
+                << "  \"global_vtk_final\": \"" << vtm_rel << "\"\n"
+                << "}\n";
+        }
         global_csv.close();
-        PetscFinalize();
         return 0;
     }
 
@@ -582,11 +694,115 @@ int main(int argc, char* argv[]) {
         vtm.write(OUT + "yield_state.vtm");
         std::println("  Written: {}yield_state.vtm", OUT);
     }
+    vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+        .case_kind = fall_n::SeismicFE2CampaignCaseKind::linear_until_first_alarm,
+        .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+        .global_step = static_cast<std::size_t>(
+            std::max<PetscInt>(solver.current_step(), 0)),
+        .physical_time = transition_report->trigger_time,
+        .pseudo_time = transition_report->trigger_time,
+        .global_vtk_path = global_yield_vtk_rel_path(),
+        .notes = "global frame at first detected steel-yield alarm"});
+
+    if (global_only) {
+        sep('=');
+        std::println("\n[12] GLOBAL-ONLY REFERENCE: continuing to {:.3f} s...",
+                     duration);
+
+        fall_n::StepDirector<StructModel> global_reference_director =
+            [&peak_damage_global, &damage_crit, &global_csv]
+            (const fall_n::StepEvent& ev,
+             const StructModel& m) -> fall_n::StepVerdict
+        {
+            double max_d = 0.0;
+            for (std::size_t e = 0; e < m.elements().size(); ++e) {
+                auto info = damage_crit.evaluate_element(
+                    m.elements()[e], e, m.state_vector());
+                max_d = std::max(max_d, info.damage_index);
+            }
+            peak_damage_global = std::max(peak_damage_global, max_d);
+
+            PetscReal u_norm = 0.0;
+            VecNorm(ev.displacement, NORM_INFINITY, &u_norm);
+            global_csv << std::fixed << std::setprecision(6) << ev.time
+                       << "," << ev.step
+                       << ",0,"
+                       << std::scientific << std::setprecision(6)
+                       << static_cast<double>(u_norm)
+                       << "," << peak_damage_global
+                       << "\n" << std::flush;
+            return fall_n::StepVerdict::Continue;
+        };
+
+        solver.step_to(duration, global_reference_director);
+
+        const auto beam_profile =
+            fall_n::reconstruction::RectangularSectionProfile<2>{
+                COL_B[0], COL_H[0]};
+        const auto shell_profile =
+            fall_n::reconstruction::ShellThicknessProfile<5>{};
+        PVDWriter pvd_global(OUT + "evolution/frame_global_reference");
+
+        PetscReal t_end;
+        TSGetTime(solver.get_ts(), &t_end);
+        const auto vtm_rel = "evolution/frame_global_reference_final.vtm";
+        const auto vtm_file = OUT + vtm_rel;
+        fall_n::vtk::StructuralVTMExporter vtm{
+            model, beam_profile, shell_profile};
+        vtm.set_displacement(model.state_vector());
+        vtm.set_yield_strain(EPS_YIELD);
+        vtm.write(vtm_file);
+        pvd_global.add_timestep(static_cast<double>(t_end), vtm_file);
+        pvd_global.write();
+
+        vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+            .case_kind = fall_n::SeismicFE2CampaignCaseKind::global_falln,
+            .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+            .global_step = static_cast<std::size_t>(
+                std::max<PetscInt>(solver.current_step(), 0)),
+            .physical_time = static_cast<double>(t_end),
+            .pseudo_time = static_cast<double>(t_end),
+            .global_vtk_path = vtm_rel,
+            .notes = "final global-only fall_n reference frame"});
+
+        const std::string rec_dir = OUT + "recorders/";
+        composite.template get<2>().write_csv(
+            rec_dir + "roof_displacement_global_reference.csv");
+        composite.template get<1>().write_hysteresis_csv(
+            rec_dir + "fiber_hysteresis_global_reference");
+        (void)fall_n::write_multiscale_vtk_time_index_csv(
+            rec_dir + "multiscale_time_index.csv", vtk_time_index);
+
+        std::ofstream summary(rec_dir + "global_reference_summary.json");
+        summary
+            << "{\n"
+            << "  \"schema\": \"lshaped_16_global_reference_v1\",\n"
+            << "  \"case_kind\": \"global_falln\",\n"
+            << "  \"macro_element_family\": \"TimoshenkoBeamN<4>_GaussLobatto\",\n"
+            << "  \"eq_scale\": " << eq_scale << ",\n"
+            << "  \"record_start_time_s\": " << start_time << ",\n"
+            << "  \"duration_s\": " << duration << ",\n"
+            << "  \"t_final_s\": " << static_cast<double>(t_end) << ",\n"
+            << "  \"first_yield_time_s\": "
+            << transition_report->trigger_time << ",\n"
+            << "  \"first_yield_element\": "
+            << transition_report->critical_element << ",\n"
+            << "  \"peak_damage_index\": " << peak_damage_global << ",\n"
+            << "  \"global_vtk_final\": \"" << vtm_rel << "\"\n"
+            << "}\n";
+        global_csv.close();
+
+        std::println("  [global] final time = {:.4f} s",
+                     static_cast<double>(t_end));
+        std::println("  [global] summary    = {}recorders/global_reference_summary.json",
+                     OUT);
+        return 0;
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     //  12. Extract element kinematics + build sub-models (per range)
     // ─────────────────────────────────────────────────────────────────────
-    std::println("\n[12] Extracting kinematics and building Hex27 sub-models...");
+    std::println("\n[12] Extracting kinematics and building managed XFEM sites...");
 
     auto extract_beam_kinematics = [&](std::size_t e_idx) -> ElementKinematics {
         const auto& se = model.elements()[e_idx];
@@ -610,98 +826,157 @@ int main(int argc, char* argv[]) {
         return ek;
     };
 
-    // Group critical elements by story range
-    std::map<int, std::vector<std::size_t>> crit_by_range;
-    for (auto eid : crit_elem_ids)
-        crit_by_range[elem_to_range.count(eid) ? elem_to_range.at(eid) : 0].push_back(eid);
+    std::println("\n[12a] Macro-inferred managed XFEM local-site preflight...");
+    std::ofstream xfem_site_csv(
+        OUT + "recorders/managed_xfem_macro_inferred_sites.csv");
+    xfem_site_csv
+        << "macro_element_id,range,fixed_end_score,loaded_end_score,"
+        << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
+        << "completed,iterations,elapsed_seconds,nodes,elements\n";
 
-    // Build one coordinator per active range
-    std::map<int, MultiscaleCoordinator> coordinators;
-    for (auto& [range, eids] : crit_by_range) {
-        auto& coord = coordinators[range];
-        for (auto eid : eids) {
-            if (!model.elements()[eid].as<BeamElemT>()) continue;
-            coord.add_critical_element(extract_beam_kinematics(eid));
-        }
+    std::vector<ManagedXfemSubscaleEvolver> xfem_evolvers;
+    std::vector<CouplingSite> xfem_sites;
+    std::vector<int> xfem_ranges;
+    xfem_evolvers.reserve(crit_elem_ids.size());
+    xfem_sites.reserve(crit_elem_ids.size());
+    xfem_ranges.reserve(crit_elem_ids.size());
 
-        // Build rebar bar layout mirroring the structural fiber section.
-        // 8 bars: 4 corner + 4 mid-face, matching make_rc_column_section.
-        const double cvr = COL_CVR;
-        const double bar_d = COL_BAR;
-        const double bar_area = std::numbers::pi / 4.0 * bar_d * bar_d;
-        const double b = COL_B[range], h = COL_H[range];
-        const double y0 = -b / 2.0 + cvr + bar_d / 2.0;
-        const double y1 =  b / 2.0 - cvr - bar_d / 2.0;
-        const double z0 = -h / 2.0 + cvr + bar_d / 2.0;
-        const double z1 =  h / 2.0 - cvr - bar_d / 2.0;
+    auto endpoint_score = [](const SectionKinematics& kin) {
+        constexpr double curvature_scale = 0.010;
+        return std::max(std::abs(kin.kappa_y),
+                        std::abs(kin.kappa_z)) / curvature_scale;
+    };
 
-        std::vector<SubModelSpec::RebarBar> bars = {
-            {y0, z0, bar_area, bar_d}, {y1, z0, bar_area, bar_d},
-            {y0, z1, bar_area, bar_d}, {y1, z1, bar_area, bar_d},
-            {0.0, z0, bar_area, bar_d}, {0.0, z1, bar_area, bar_d},
-            {y0, 0.0, bar_area, bar_d}, {y1, 0.0, bar_area, bar_d},
+    for (auto eid : crit_elem_ids) {
+        const int range = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
+        const auto ek = extract_beam_kinematics(eid);
+        const double fixed_score = endpoint_score(ek.kin_A);
+        const double loaded_score = endpoint_score(ek.kin_B);
+        const bool both_active = fixed_score >= 1.0 && loaded_score >= 1.0;
+        const double section_z =
+            both_active ? (fixed_score >= loaded_score ? 0.0 : 1.0)
+                        : (fixed_score >= loaded_score ? 0.0 : 1.0);
+
+        ReducedRCMultiscaleReplaySitePlan site{};
+        site.site_index = eid;
+        site.z_over_l = section_z;
+        site.activation_score = std::max(fixed_score, loaded_score);
+        site.selected_for_replay = true;
+
+        ReducedRCManagedLocalPatchSpec base_patch{};
+        base_patch.site_index = eid;
+        const Eigen::Vector3d endpoint_A{
+            ek.endpoint_A[0], ek.endpoint_A[1], ek.endpoint_A[2]};
+        const Eigen::Vector3d endpoint_B{
+            ek.endpoint_B[0], ek.endpoint_B[1], ek.endpoint_B[2]};
+        base_patch.characteristic_length_m =
+            (endpoint_B - endpoint_A).norm();
+        base_patch.section_width_m = COL_B[range];
+        base_patch.section_depth_m = COL_H[range];
+        base_patch.nx = SUB_NX;
+        base_patch.ny = SUB_NY;
+        base_patch.nz = SUB_NZ;
+        base_patch.boundary_mode =
+            ReducedRCManagedLocalBoundaryMode::affine_section_dirichlet;
+
+        const auto patch = make_reduced_rc_macro_inferred_xfem_patch(
+            site,
+            base_patch,
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = fixed_score,
+                .loaded_end_score = loaded_score,
+                .macro_section_z_over_l = section_z});
+
+        const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
+            return (1.0 - z) * a + z * b;
         };
 
-        coord.build_sub_models(SubModelSpec{
-            .section_width  = COL_B[range],
-            .section_height = COL_H[range],
-            .nx = SUB_NX,
-            .ny = SUB_NY,
-            .nz = SUB_NZ,
-            .hex_order = HexOrder::Quadratic,
-            .rebar_bars = std::move(bars),
-            .rebar_E  = STEEL_E,
-            .rebar_fy = STEEL_FY,
-            .rebar_b  = STEEL_B,
-        });
-        const auto rpt = coord.report();
-        std::println("  Range {} ({}) : {} sub-models, {} nodes, {} hex elements",
-                     range, COL_GROUPS[range],
-                     rpt.num_elements, rpt.total_nodes, rpt.total_elements);
+        ReducedRCStructuralReplaySample sample{};
+        sample.site_index = eid;
+        sample.pseudo_time = transition_report->trigger_time;
+        sample.physical_time = transition_report->trigger_time;
+        sample.z_over_l = patch.crack_z_over_l;
+        sample.curvature_y = lerp(ek.kin_A.kappa_y, ek.kin_B.kappa_y);
+        sample.curvature_z = lerp(ek.kin_A.kappa_z, ek.kin_B.kappa_z);
+        sample.damage_indicator = std::clamp(
+            std::max(fixed_score, loaded_score), 0.0, 1.0);
+
+        ReducedRCManagedXfemLocalModelAdapterOptions options{};
+        options.downscaling_mode =
+            ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode::
+                section_kinematics_only;
+        options.local_transition_steps = 2;
+        ReducedRCManagedXfemLocalModelAdapter adapter{options};
+        const auto replay = run_reduced_rc_managed_local_model_replay(
+            std::vector<ReducedRCStructuralReplaySample>{sample},
+            patch,
+            adapter);
+
+        xfem_site_csv
+            << eid << "," << range << ","
+            << fixed_score << "," << loaded_score << ","
+            << patch.crack_z_over_l << ","
+            << to_string(patch.longitudinal_bias_location) << ","
+            << patch.longitudinal_bias_power << ","
+            << patch.nx << "," << patch.ny << "," << patch.nz << ","
+            << (replay.completed() ? 1 : 0) << ","
+            << replay.total_nonlinear_iterations << ","
+            << replay.total_elapsed_seconds << ","
+            << adapter.node_count() << ","
+            << adapter.element_count() << "\n";
+
+        std::println(
+            "  element {}: crack z/L={:.3f}, bias={}, replay={}, iters={}",
+            eid,
+            patch.crack_z_over_l,
+            to_string(patch.longitudinal_bias_location),
+            replay.completed() ? "ok" : "failed",
+            replay.total_nonlinear_iterations);
+
+        xfem_evolvers.emplace_back(eid, patch, options);
+        xfem_sites.push_back(BeamMacroBridge<StructModel, BeamElemT>{model}
+                                 .default_site(
+                                     eid, 2.0 * patch.crack_z_over_l - 1.0));
+        xfem_ranges.push_back(range);
+    }
+    xfem_site_csv.close();
+
+    std::map<int, std::vector<std::size_t>> crit_by_range;
+    for (auto eid : crit_elem_ids) {
+        crit_by_range[elem_to_range.count(eid) ? elem_to_range.at(eid) : 0]
+            .push_back(eid);
     }
 
     // ─────────────────────────────────────────────────────────────────────
     //  13. Create nonlinear sub-model evolvers
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
-    std::println("\n[13] Creating nonlinear sub-model evolvers...");
-
-    const std::string evol_sub_dir = OUT + "evolution/sub_models";
-
-    std::vector<NonlinearSubModelEvolver> nl_evolvers;
-    for (auto& [range, coord] : coordinators) {
-        for (auto& sub : coord.sub_models()) {
-            nl_evolvers.emplace_back(
-                sub, COL_FPC[range], evol_sub_dir, EVOL_VTK_INTERVAL);
-            nl_evolvers.back().set_incremental_params(8, 6);
-        }
-    }
-
-    std::println("  Nonlinear evolvers : {}", nl_evolvers.size());
-    std::println("  Constitutive model : KoBatheConcrete3D (per-range f'c)");
-    std::println("  Material state     : PERSISTENT across all time steps");
-    std::println("  VTK interval       : every {} steps ({:.2f} s)",
-                 EVOL_VTK_INTERVAL, EVOL_VTK_INTERVAL * DT);
+    std::println("\n[13] Creating managed XFEM subscale evolvers...");
+    std::println("  Local model family : managed XFEM independent Model per site");
+    std::println("  Ko-Bathe path      : disabled here; kept as a swappable reference");
+    std::println("  Evolvers           : {}", xfem_evolvers.size());
+    std::println("  Mesh template      : {} x {} x {} Hex8 with macro-inferred z-bias",
+                 SUB_NX, SUB_NY, SUB_NZ);
 
     // ── Assemble MultiscaleModel + MultiscaleAnalysis ────────────────────
     using MacroBridge = BeamMacroBridge<StructModel, BeamElemT>;
-    MultiscaleModel<MacroBridge, NonlinearSubModelEvolver> ms_model{
+    MultiscaleModel<MacroBridge, ManagedXfemSubscaleEvolver> ms_model{
         MacroBridge{model}};
 
-    for (auto& ev : nl_evolvers) {
-        const auto eid = ev.parent_element_id();
+    for (std::size_t i = 0; i < xfem_evolvers.size(); ++i) {
         ms_model.register_local_model(
-            ms_model.macro_bridge().default_site(eid),
-            std::move(ev));
+            xfem_sites[i], std::move(xfem_evolvers[i]));
     }
 
     // Section dimensions for homogenization scaling: use first critical element
-    const int first_range = crit_by_range.begin()->first;
+    const int first_range = !xfem_ranges.empty()
+        ? xfem_ranges.front()
+        : crit_by_range.begin()->first;
 
     MultiscaleAnalysis<
         DynSolver,
         MacroBridge,
-        NonlinearSubModelEvolver,
+        ManagedXfemSubscaleEvolver,
         OpenMPExecutor> analysis(
         solver,
         std::move(ms_model),
@@ -730,7 +1005,25 @@ int main(int argc, char* argv[]) {
                  init_ok ? "READY" : "FAILED",
                  analysis.last_report().failed_submodels);
     if (!init_ok) {
-        PetscFinalize();
+        (void)fall_n::write_multiscale_vtk_time_index_csv(
+            OUT + "recorders/multiscale_time_index.csv", vtk_time_index);
+        std::ofstream failure_json(OUT + "recorders/fe2_initialization_failure.json");
+        failure_json
+            << "{\n"
+            << "  \"schema\": \"seismic_fe2_initialization_failure_v1\",\n"
+            << "  \"case_kind\": \"fe2_two_way\",\n"
+            << "  \"local_model_family\": \"ManagedXFEM_ShiftedHeaviside_CohesiveCrackBand\",\n"
+            << "  \"macro_element_family\": \"TimoshenkoBeamN<4>_GaussLobatto\",\n"
+            << "  \"managed_xfem_preflight\": \"recorders/managed_xfem_macro_inferred_sites.csv\",\n"
+            << "  \"transition_time_s\": " << transition_report->trigger_time << ",\n"
+            << "  \"critical_element\": " << transition_report->critical_element << ",\n"
+            << "  \"active_local_models\": "
+            << analysis.model().num_local_models() << ",\n"
+            << "  \"failed_submodels\": "
+            << analysis.last_report().failed_submodels << ",\n"
+            << "  \"recommended_next_step\": "
+            << "\"inspect managed XFEM boundary/state transfer and keep Ko-Bathe as spot-check reference\"\n"
+            << "}\n";
         return 1;
     }
 
@@ -739,7 +1032,7 @@ int main(int argc, char* argv[]) {
     // ─────────────────────────────────────────────────────────────────────
     sep('=');
     std::println("\n[15] PHASE 2: Sub-model evolution through the earthquake");
-    std::println("     Evolving global + {} nonlinear sub-models simultaneously...",
+    std::println("     Evolving global + {} managed XFEM local models simultaneously...",
                  analysis.model().num_local_models());
 
     const std::string evol_frame_dir = OUT + "evolution";
@@ -751,6 +1044,8 @@ int main(int argc, char* argv[]) {
     int    evol_step       = 0;
     double evol_max_damage = peak_damage_global;
     int    total_cracks    = 0;
+    std::vector<int> last_indexed_local_steps(
+        analysis.model().num_local_models(), -1);
 
     // ── Crack evolution CSV ────────────────────────────────────────────
     std::ofstream crack_csv(OUT + "recorders/crack_evolution.csv");
@@ -765,7 +1060,7 @@ int main(int argc, char* argv[]) {
     // Phase 2: reset dt to nominal and disable adaptation for stable FE² coupling.
     {
         TS ts = solver.get_ts();
-        TSSetMaxTime(ts, T_MAX);
+        TSSetMaxTime(ts, duration);
         TSSetTimeStep(ts, DT);
         TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
         TSAdapt adapt;
@@ -780,7 +1075,7 @@ int main(int argc, char* argv[]) {
     for (;;) {
         PetscReal t_current;
         TSGetTime(solver.get_ts(), &t_current);
-        if (static_cast<double>(t_current) >= T_MAX - 1e-14) break;
+        if (static_cast<double>(t_current) >= duration - 1e-14) break;
 
         // Advance one global step
         if (!analysis.step()) {
@@ -853,13 +1148,55 @@ int main(int argc, char* argv[]) {
 
         // ── Global VTK snapshot (expensive; rarely) ────────────────────
         if (evol_step % FRAME_VTK_INTERVAL == 0) {
-            const auto vtm_file = std::format("{}/frame_{:06d}.vtm",
-                                              evol_frame_dir, evol_step);
+            const auto vtm_rel = global_frame_vtk_rel_path(evol_step);
+            const auto vtm_file = OUT + vtm_rel;
             fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
             vtm.set_displacement(model.state_vector());
             vtm.set_yield_strain(EPS_YIELD);
             vtm.write(vtm_file);
             pvd_global.add_timestep(t, vtm_file);
+            last_global_vtk_rel_path = vtm_rel;
+            vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+                .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+                .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+                .global_step = static_cast<std::size_t>(evol_step),
+                .physical_time = t,
+                .pseudo_time = t,
+                .global_vtk_path = vtm_rel,
+                .notes = "global frame snapshot during FE2 two-way evolution"});
+        }
+
+        if constexpr (EVOL_VTK_INTERVAL > 0) {
+            for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
+                auto& ev = analysis.model().local_models()[i];
+                const int local_step = ev.step_count() - 1;
+                if (local_step < 0 ||
+                    local_step % EVOL_VTK_INTERVAL != 0 ||
+                    local_step == last_indexed_local_steps[i])
+                {
+                    continue;
+                }
+
+                const auto cs = (i < step_summaries.size())
+                    ? step_summaries[i]
+                    : ev.crack_summary();
+                vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+                    .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+                    .role = fall_n::SeismicFE2VisualizationRole::local_xfem_site,
+                    .global_step = static_cast<std::size_t>(evol_step),
+                    .physical_time = t,
+                    .pseudo_time = t,
+                    .local_site_index = i,
+                    .macro_element_id = ev.parent_element_id(),
+                    .section_gp = 0,
+                    .global_vtk_path = last_global_vtk_rel_path,
+                    .local_vtk_path = "",
+                    .notes = std::format(
+                        "managed XFEM local diagnostics only; VTK writer pending cracked_gps={} cracks={} nearest_global_frame=throttled",
+                        cs.num_cracked_gps,
+                        cs.total_cracks)});
+                last_indexed_local_steps[i] = local_step;
+            }
         }
 
         // ── Global history CSV + progress (Phase 2) ────────────────
@@ -893,12 +1230,22 @@ int main(int argc, char* argv[]) {
     {
         PetscReal t_end;
         TSGetTime(solver.get_ts(), &t_end);
-        const auto vtm_file = std::format("{}/frame_final.vtm", evol_frame_dir);
+        const auto vtm_rel = global_final_vtk_rel_path();
+        const auto vtm_file = OUT + vtm_rel;
         fall_n::vtk::StructuralVTMExporter vtm{model, beam_profile, shell_profile};
         vtm.set_displacement(model.state_vector());
         vtm.set_yield_strain(EPS_YIELD);
         vtm.write(vtm_file);
         pvd_global.add_timestep(static_cast<double>(t_end), vtm_file);
+        last_global_vtk_rel_path = vtm_rel;
+        vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+            .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+            .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+            .global_step = static_cast<std::size_t>(evol_step),
+            .physical_time = static_cast<double>(t_end),
+            .pseudo_time = static_cast<double>(t_end),
+            .global_vtk_path = vtm_rel,
+            .notes = "final global frame snapshot after FE2 two-way evolution"});
         std::println("\n  [VTK] Final frame written: {}", vtm_file);
         std::cout << std::flush;
     }
@@ -910,6 +1257,11 @@ int main(int argc, char* argv[]) {
     const std::string rec_dir = OUT + "recorders/";
     composite.template get<2>().write_csv(rec_dir + "roof_displacement.csv");
     composite.template get<1>().write_hysteresis_csv(rec_dir + "fiber_hysteresis");
+    const bool vtk_index_written =
+        fall_n::write_multiscale_vtk_time_index_csv(
+            rec_dir + "multiscale_time_index.csv", vtk_time_index);
+    std::println("  [VTK] Multiscale time index: {}recorders/multiscale_time_index.csv ({})",
+                 OUT, vtk_index_written ? "written" : "failed");
 
     PetscReal t_final;
     TSGetTime(solver.get_ts(), &t_final);
@@ -942,7 +1294,7 @@ int main(int argc, char* argv[]) {
     std::println("  First yield:     t = {:.4f} s  (element {})",
                  transition_report->trigger_time,
                  transition_report->critical_element);
-    std::println("  Sub-models:      {} (Hex27, KoBatheConcrete3D, per-range f'c)",
+    std::println("  Sub-models:      {} (managed XFEM, macro-inferred crack/bias)",
                  analysis.model().num_local_models());
     std::println("  Evolution:       {} steps, {:.1f} s — t_final = {:.4f} s",
                  evol_step, evol_step * DT, static_cast<double>(t_final));
@@ -951,6 +1303,5 @@ int main(int argc, char* argv[]) {
     std::println("  Output dir:      {}", OUT);
     sep('=');
 
-    PetscFinalize();
     return 0;
 }

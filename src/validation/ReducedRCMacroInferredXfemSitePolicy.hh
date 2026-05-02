@@ -1,0 +1,136 @@
+#ifndef FALL_N_REDUCED_RC_MACRO_INFERRED_XFEM_SITE_POLICY_HH
+#define FALL_N_REDUCED_RC_MACRO_INFERRED_XFEM_SITE_POLICY_HH
+
+// =============================================================================
+//  ReducedRCMacroInferredXfemSitePolicy.hh
+// =============================================================================
+//
+//  Deterministic bridge from structural-scale demand indicators to the managed
+//  XFEM local patch used by the FE2 validation campaign.  The macro model does
+//  not create one local model per integration point; it selects a physical site
+//  and provides enough information to place the local crack band and to bias the
+//  independent local mesh toward the likely plastic-hinge region(s).
+//
+// =============================================================================
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+#include "src/validation/ReducedRCManagedLocalModelReplay.hh"
+#include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
+
+namespace fall_n {
+
+struct ReducedRCMacroEndpointDemand {
+    double fixed_end_score{0.0};
+    double loaded_end_score{0.0};
+    double macro_section_z_over_l{std::numeric_limits<double>::quiet_NaN()};
+};
+
+struct ReducedRCMacroInferredXfemSitePolicy {
+    double active_endpoint_score{1.0};
+    double minimum_crack_z_over_l{0.05};
+    double maximum_crack_z_over_l{0.95};
+    double fallback_fixed_end_crack_z_over_l{0.10};
+    double fallback_loaded_end_crack_z_over_l{0.90};
+    double fallback_double_hinge_crack_z_over_l{0.50};
+    double single_hinge_bias_power{1.60};
+    double double_hinge_bias_power{2.20};
+    bool preserve_macro_section_crack_location{true};
+};
+
+[[nodiscard]] inline ReducedRCLocalLongitudinalBiasLocation
+infer_reduced_rc_xfem_bias_location(
+    const ReducedRCMacroEndpointDemand& demand,
+    const ReducedRCMacroInferredXfemSitePolicy& policy = {}) noexcept
+{
+    const bool fixed_active =
+        demand.fixed_end_score >= policy.active_endpoint_score;
+    const bool loaded_active =
+        demand.loaded_end_score >= policy.active_endpoint_score;
+    if (fixed_active && loaded_active) {
+        return ReducedRCLocalLongitudinalBiasLocation::both_ends;
+    }
+    if (loaded_active) {
+        return ReducedRCLocalLongitudinalBiasLocation::loaded_end;
+    }
+    if (fixed_active) {
+        return ReducedRCLocalLongitudinalBiasLocation::fixed_end;
+    }
+    return demand.loaded_end_score > demand.fixed_end_score
+        ? ReducedRCLocalLongitudinalBiasLocation::loaded_end
+        : ReducedRCLocalLongitudinalBiasLocation::fixed_end;
+}
+
+[[nodiscard]] inline double infer_reduced_rc_xfem_crack_z_over_l(
+    const ReducedRCMacroEndpointDemand& demand,
+    ReducedRCLocalLongitudinalBiasLocation bias_location,
+    const ReducedRCMacroInferredXfemSitePolicy& policy = {}) noexcept
+{
+    const auto clamp_ratio = [&](double value) noexcept {
+        return std::clamp(value,
+                          policy.minimum_crack_z_over_l,
+                          policy.maximum_crack_z_over_l);
+    };
+
+    if (policy.preserve_macro_section_crack_location &&
+        std::isfinite(demand.macro_section_z_over_l)) {
+        return clamp_ratio(demand.macro_section_z_over_l);
+    }
+
+    switch (bias_location) {
+        case ReducedRCLocalLongitudinalBiasLocation::fixed_end:
+            return clamp_ratio(policy.fallback_fixed_end_crack_z_over_l);
+        case ReducedRCLocalLongitudinalBiasLocation::loaded_end:
+            return clamp_ratio(policy.fallback_loaded_end_crack_z_over_l);
+        case ReducedRCLocalLongitudinalBiasLocation::both_ends:
+            return clamp_ratio(policy.fallback_double_hinge_crack_z_over_l);
+    }
+    return clamp_ratio(policy.fallback_fixed_end_crack_z_over_l);
+}
+
+[[nodiscard]] inline ReducedRCManagedLocalPatchSpec
+make_reduced_rc_macro_inferred_xfem_patch(
+    const ReducedRCMultiscaleReplaySitePlan& site,
+    ReducedRCManagedLocalPatchSpec base_patch = {},
+    ReducedRCMacroEndpointDemand endpoint_demand = {},
+    const ReducedRCMacroInferredXfemSitePolicy& policy = {}) noexcept
+{
+    base_patch.site_index = site.site_index;
+    base_patch.z_over_l = site.z_over_l;
+    endpoint_demand.macro_section_z_over_l =
+        std::isfinite(endpoint_demand.macro_section_z_over_l)
+            ? endpoint_demand.macro_section_z_over_l
+            : site.z_over_l;
+
+    if (endpoint_demand.fixed_end_score <= 0.0 &&
+        endpoint_demand.loaded_end_score <= 0.0) {
+        const double activation = std::max(0.0, site.activation_score);
+        if (site.z_over_l <= 0.5) {
+            endpoint_demand.fixed_end_score = activation;
+        } else {
+            endpoint_demand.loaded_end_score = activation;
+        }
+    }
+
+    const auto bias_location =
+        infer_reduced_rc_xfem_bias_location(endpoint_demand, policy);
+    base_patch.longitudinal_bias_location = bias_location;
+    base_patch.double_hinge_bias_inferred_from_macro =
+        bias_location == ReducedRCLocalLongitudinalBiasLocation::both_ends;
+    base_patch.longitudinal_bias_power =
+        base_patch.double_hinge_bias_inferred_from_macro
+            ? policy.double_hinge_bias_power
+            : policy.single_hinge_bias_power;
+    base_patch.crack_z_over_l = infer_reduced_rc_xfem_crack_z_over_l(
+        endpoint_demand,
+        bias_location,
+        policy);
+    base_patch.crack_position_inferred_from_macro = true;
+    return base_patch;
+}
+
+} // namespace fall_n
+
+#endif // FALL_N_REDUCED_RC_MACRO_INFERRED_XFEM_SITE_POLICY_HH

@@ -111,6 +111,7 @@ class TimoshenkoBeamN {
 
     mutable std::vector<PetscInt> dof_indices_;
     mutable bool                  dofs_cached_{false};
+    double                        density_{0.0};
 
     void ensure_dof_cache() const noexcept {
         if (dofs_cached_) return;
@@ -285,6 +286,71 @@ public:
 
     const auto& rotation_matrix() const noexcept { return R_; }
     const auto& shear_interpolation_basis() const noexcept { return shear_basis_; }
+
+    void set_homogenized_tangent(
+        const Eigen::Matrix<double, num_strains, num_strains>& D_hom)
+    {
+        for (auto& sec : sections_)
+            sec.set_tangent_override(D_hom);
+    }
+
+    void set_homogenized_tangent_at_gp(
+        std::size_t gp,
+        const Eigen::Matrix<double, num_strains, num_strains>& D_hom)
+    {
+        sections_.at(gp).set_tangent_override(D_hom);
+    }
+
+    void set_homogenized_forces(
+        const Eigen::Vector<double, num_strains>& f_hom,
+        const Eigen::Vector<double, num_strains>& strain_ref)
+    {
+        for (auto& sec : sections_)
+            sec.set_force_override(f_hom, strain_ref);
+    }
+
+    void set_homogenized_forces_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, num_strains>& f_hom,
+        const Eigen::Vector<double, num_strains>& strain_ref)
+    {
+        sections_.at(gp).set_force_override(f_hom, strain_ref);
+    }
+
+    void set_homogenized_forces(
+        const Eigen::Vector<double, num_strains>& f_hom)
+    {
+        for (auto& sec : sections_)
+            sec.set_force_override(f_hom);
+    }
+
+    void set_homogenized_forces_at_gp(
+        std::size_t gp,
+        const Eigen::Vector<double, num_strains>& f_hom)
+    {
+        sections_.at(gp).set_force_override(f_hom);
+    }
+
+    void clear_homogenized_overrides() noexcept {
+        for (auto& sec : sections_)
+            sec.clear_overrides();
+    }
+
+    void clear_homogenized_override_at_gp(std::size_t gp) noexcept {
+        sections_.at(gp).clear_overrides();
+    }
+
+    [[nodiscard]] bool has_homogenized_override() const noexcept {
+        return !sections_.empty() && sections_[0].has_override();
+    }
+
+    [[nodiscard]] bool has_homogenized_override_at_gp(std::size_t gp) const {
+        return sections_.at(gp).has_override();
+    }
+
+    [[nodiscard]] double section_gp_xi(std::size_t gp) const {
+        return geometry_->reference_integration_point(gp)[0];
+    }
 
     auto local_state_vector(Vec u_local) const {
         Eigen::VectorXd u_e = extract_element_dofs(u_local);
@@ -484,6 +550,53 @@ public:
     }
 
     // ── Constructors ────────────────────────────────────────────────────
+
+    void set_density(double rho) noexcept { density_ = rho; }
+    [[nodiscard]] double density() const noexcept { return density_; }
+
+    [[nodiscard]] KMatrixT compute_consistent_mass_matrix() const {
+        KMatrixT M_loc = KMatrixT::Zero();
+        if (!(density_ > 0.0) || sections_.empty()) {
+            return M_loc;
+        }
+
+        const auto snap = sections_.front().section_snapshot();
+        const double area = snap.beam ? snap.beam->area : 0.0;
+        if (!(area > 0.0)) {
+            return M_loc;
+        }
+
+        for (std::size_t gp = 0; gp < n_gp; ++gp) {
+            const auto xi_view = geometry_->reference_integration_point(gp);
+            const double w = geometry_->weight(gp);
+            const double ds = geometry_->differential_measure(xi_view);
+
+            Eigen::Matrix<double, dim, total_dofs> Nmat =
+                Eigen::Matrix<double, dim, total_dofs>::Zero();
+            for (std::size_t I = 0; I < N; ++I) {
+                const auto c = I * dofs_per_node;
+                const double h = geometry_->H(I, xi_view);
+                Nmat(0, c + 0) = h;
+                Nmat(1, c + 1) = h;
+                Nmat(2, c + 2) = h;
+            }
+            M_loc += density_ * area * w * ds * (Nmat.transpose() * Nmat);
+        }
+
+        const auto T = transformation_matrix();
+        return T.transpose() * M_loc * T;
+    }
+
+    void inject_mass(Mat M) {
+        ensure_dof_cache();
+        const auto M_e = compute_consistent_mass_matrix();
+        if (M_e.isZero()) {
+            return;
+        }
+        const auto n = static_cast<PetscInt>(dof_indices_.size());
+        MatSetValuesLocal(M, n, dof_indices_.data(),
+                          n, dof_indices_.data(), M_e.data(), ADD_VALUES);
+    }
 
     TimoshenkoBeamN() = delete;
 

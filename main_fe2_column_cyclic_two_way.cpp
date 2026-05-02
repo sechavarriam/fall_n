@@ -14,20 +14,27 @@
 // LIBS-FULL two-way feedback is in `main_lshaped_multiscale.cpp`.
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <Eigen/Dense>
+#include <petsc.h>
 
 #include "src/analysis/FirstInelasticFiberCriterion.hh"
 #include "src/analysis/MultiscaleTypes.hh"
 #include "src/validation/MultiscaleReplayDriverHelpers.hh"
+#include "src/validation/ReducedRCFE2ColumnValidation.hh"
+#include "src/validation/ReducedRCManagedLocalModelReplay.hh"
+#include "src/validation/ReducedRCManagedXfemLocalModelAdapter.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
 
 namespace {
@@ -53,6 +60,15 @@ struct Options {
     std::size_t num_sites{1};
     std::vector<double> site_z_list{};
     std::vector<double> site_scale_list{};
+    double local_section_width_m{0.20};
+    double local_section_depth_m{0.20};
+    std::size_t local_nx{3};
+    std::size_t local_ny{3};
+    std::size_t local_nz{6};
+    int local_transition_steps{3};
+    int local_max_bisections{6};
+    std::string local_downscaling{"macro-resultant-compliance"};
+    bool surrogate_smoke{false};
 };
 
 [[nodiscard]] std::vector<double> parse_double_list(std::string_view s) {
@@ -74,7 +90,13 @@ void print_usage(const char* a0) {
         "  --yield-strain F --f-y-MPa F --c-section-mm F --damage-floor F\n"
         "  --max-staggered-iter N --staggered-tol F --staggered-relax F\n"
         "  --min-converged-fraction F\n"
-        "  --num-sites N --site-z-list a,b,c --site-scale-list a,b,c\n",
+        "  --num-sites N --site-z-list a,b,c --site-scale-list a,b,c\n"
+        "  --local-section-width-m F --local-section-depth-m F\n"
+        "  --local-nx N --local-ny N --local-nz N\n"
+        "  --local-transition-steps N --local-max-bisections N\n"
+        "  --local-downscaling tip-drift|section-kinematics|macro-shear-compliance|macro-resultant-compliance\n"
+        "  --surrogate-smoke  (explicitly keep the cheap synthetic gate)\n"
+        "  --real-xfem-replay (default; managed XFEM local replay target)\n",
         a0);
 }
 
@@ -100,11 +122,88 @@ void print_usage(const char* a0) {
         else if (a == "--num-sites"            && i+1 < argc) o.num_sites = std::strtoull(argv[++i], nullptr, 10);
         else if (a == "--site-z-list"          && i+1 < argc) o.site_z_list = parse_double_list(argv[++i]);
         else if (a == "--site-scale-list"      && i+1 < argc) o.site_scale_list = parse_double_list(argv[++i]);
+        else if (a == "--local-section-width-m" && i+1 < argc) next(o.local_section_width_m);
+        else if (a == "--local-section-depth-m" && i+1 < argc) next(o.local_section_depth_m);
+        else if (a == "--local-nx"             && i+1 < argc) o.local_nx = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-ny"             && i+1 < argc) o.local_ny = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-nz"             && i+1 < argc) o.local_nz = std::strtoull(argv[++i], nullptr, 10);
+        else if (a == "--local-transition-steps" && i+1 < argc) o.local_transition_steps = std::atoi(argv[++i]);
+        else if (a == "--local-max-bisections" && i+1 < argc) o.local_max_bisections = std::atoi(argv[++i]);
+        else if (a == "--local-downscaling"    && i+1 < argc) o.local_downscaling = argv[++i];
+        else if (a == "--surrogate-smoke") o.surrogate_smoke = true;
+        else if (a == "--real-xfem-replay") o.surrogate_smoke = false;
         else if (a == "--help" || a == "-h") { print_usage(argv[0]); return false; }
         else { std::fprintf(stderr, "unknown arg: %s\n", argv[i]); print_usage(argv[0]); return false; }
     }
     if (o.input_csv.empty() || o.output_dir.empty()) { print_usage(argv[0]); return false; }
     return true;
+}
+
+[[nodiscard]] fall_n::ReducedRCFE2ColumnRunSpec
+make_run_spec(const Options& o)
+{
+    fall_n::ReducedRCFE2ColumnRunSpec spec{};
+    spec.coupling_mode =
+        fall_n::ReducedRCFE2ColumnCouplingMode::iterated_two_way_fe2;
+    spec.local_execution_mode = o.surrogate_smoke
+        ? fall_n::ReducedRCFE2ColumnLocalExecutionMode::surrogate_smoke
+        : fall_n::ReducedRCFE2ColumnLocalExecutionMode::real_xfem_replay;
+    spec.EA_MN = o.EA_MN;
+    spec.EI_MN_m2 = o.EI_MN_m2;
+    spec.damage_floor = o.damage_floor;
+    spec.f_y_MPa = o.f_y_MPa;
+    spec.yield_strain = o.yield_strain;
+    spec.c_section_mm = o.c_section_mm;
+    spec.max_staggered_iterations = o.max_staggered_iter;
+    spec.staggered_tolerance = o.staggered_tol;
+    spec.staggered_relaxation = o.staggered_relax;
+    spec.tolerances.min_converged_fraction = o.min_converged_fraction;
+    return spec;
+}
+
+[[nodiscard]] fall_n::ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode
+parse_local_downscaling(std::string value)
+{
+    std::ranges::replace(value, '-', '_');
+    using Mode = fall_n::ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode;
+    if (value == "tip_drift" || value == "tip_drift_top_face") {
+        return Mode::tip_drift_top_face;
+    }
+    if (value == "section_kinematics" || value == "section_kinematics_only") {
+        return Mode::section_kinematics_only;
+    }
+    if (value == "macro_shear_compliance" || value == "shear_compliance") {
+        return Mode::macro_shear_compliance;
+    }
+    if (value == "macro_resultant_compliance" ||
+        value == "stress_resultant" ||
+        value == "dual_resultant") {
+        return Mode::macro_resultant_compliance;
+    }
+    throw std::invalid_argument("Unsupported --local-downscaling value.");
+}
+
+[[maybe_unused]] void emit_blocked_json(
+    const std::filesystem::path& path,
+    const fall_n::ReducedRCFE2ColumnResult& result)
+{
+    std::ofstream f(path);
+    f << "{\n"
+      << "  \"schema\": \"fe2_column_two_way_cyclic_v2\",\n"
+      << "  \"scientific_status\": \"iterated_two_way_real_xfem_blocked_adapter_missing\",\n"
+      << "  \"coupling_mode\": \""
+      << fall_n::to_string(result.spec.coupling_mode) << "\",\n"
+      << "  \"local_execution_mode\": \""
+      << fall_n::to_string(result.spec.local_execution_mode) << "\",\n"
+      << "  \"local_model_policy\": \""
+      << result.spec.local_model_policy << "\",\n"
+      << "  \"validation_status\": \""
+      << fall_n::to_string(result.status) << "\",\n"
+      << "  \"history_sample_count\": " << result.history_sample_count << ",\n"
+      << "  \"selected_site_count\": " << result.selected_site_count << ",\n"
+      << "  \"required_adapter\": \"reduced_rc_managed_xfem_local_model_adapter + BeamMacroBridge SectionHomogenizedResponse injection\",\n"
+      << "  \"next_step\": \"instantiate MultiscaleAnalysis with one managed XFEM Model per selected macro site and replace the surrogate staggered loop\"\n"
+      << "}\n";
 }
 
 struct StaggeredOutcome {
@@ -114,6 +213,12 @@ struct StaggeredOutcome {
     Eigen::Matrix2d D_hom{Eigen::Matrix2d::Zero()};
     Eigen::Vector2d f_hom{Eigen::Vector2d::Zero()};
     Eigen::Vector2d eps_ref{Eigen::Vector2d::Zero()};
+    std::vector<double> residual_history{};
+    fall_n::ReducedRCManagedLocalReplayStatus local_status{
+        fall_n::ReducedRCManagedLocalReplayStatus::not_run};
+    std::size_t local_accepted_steps{0};
+    int local_total_nonlinear_iterations{0};
+    double local_elapsed_seconds{0.0};
 };
 
 // Synthetic two-way staggered iteration. Each iteration relaxes between the
@@ -123,34 +228,150 @@ struct StaggeredOutcome {
 // damage-dependent floor — replicating the qualitative behaviour of the
 // real bordered-mixed-control bridge while staying in Eigen-only space.
 [[nodiscard]] StaggeredOutcome
-run_staggered(const fall_n::ReducedRCMultiscaleReplaySitePlan& site,
-              const Options& o)
+run_staggered_toward_target(
+    const Options& o,
+    const Eigen::Matrix2d& D_target,
+    const Eigen::Vector2d& f_target,
+    const Eigen::Vector2d& eps_target)
 {
     StaggeredOutcome out;
-    const double damage = std::clamp(site.max_damage_indicator, 0.0, 1.0);
-    const double s_target = std::clamp(1.0 - damage, 0.05, 1.0);
     Eigen::Matrix2d D_macro = Eigen::Matrix2d::Zero();
     D_macro(0,0) = o.EA_MN; D_macro(1,1) = o.EI_MN_m2;
-    Eigen::Matrix2d D_target = Eigen::Matrix2d::Zero();
-    D_target(0,0) = s_target * o.EA_MN; D_target(1,1) = s_target * o.EI_MN_m2;
 
     Eigen::Matrix2d D_curr = D_macro;
+    const Eigen::Vector2d f_macro = D_macro * eps_target;
+    Eigen::Vector2d f_curr = f_macro;
     const double D_macro_norm = std::max(D_macro.norm(), 1.0e-12);
+    const double f_norm =
+        std::max(std::max(f_macro.norm(), f_target.norm()), 1.0e-12);
+    const double omega = std::clamp(o.staggered_relax, 0.0, 1.0);
 
     for (int it = 1; it <= o.max_staggered_iter; ++it) {
-        const Eigen::Matrix2d D_prev = D_curr;
-        D_curr = (1.0 - o.staggered_relax) * D_prev + o.staggered_relax * D_target;
-        const double res = (D_curr - D_prev).norm() / D_macro_norm;
+        D_curr = (1.0 - omega) * D_curr + omega * D_target;
+        f_curr = (1.0 - omega) * f_curr + omega * f_target;
+        const double D_res = (D_curr - D_target).norm() / D_macro_norm;
+        const double f_res = (f_curr - f_target).norm() / f_norm;
+        const double res = std::max(D_res, f_res);
         out.iters = it;
         out.final_residual = res;
+        out.residual_history.push_back(res);
         if (res <= o.staggered_tol) { out.converged = true; break; }
     }
 
     out.D_hom = D_curr;
-    out.eps_ref = Eigen::Vector2d::Zero();
-    out.eps_ref(1) = site.peak_abs_curvature_y;
-    out.f_hom = D_curr * out.eps_ref;
+    out.eps_ref = eps_target;
+    out.f_hom = f_curr;
     return out;
+}
+
+[[nodiscard]] StaggeredOutcome
+run_surrogate_staggered(const fall_n::ReducedRCMultiscaleReplaySitePlan& site,
+                        const Options& o)
+{
+    const double damage = std::clamp(site.max_damage_indicator, 0.0, 1.0);
+    const double scale = std::clamp(1.0 - damage, 0.05, 1.0);
+    Eigen::Matrix2d D_target = Eigen::Matrix2d::Zero();
+    D_target(0,0) = scale * o.EA_MN;
+    D_target(1,1) = scale * o.EI_MN_m2;
+    Eigen::Vector2d eps_target = Eigen::Vector2d::Zero();
+    eps_target(1) = site.peak_abs_curvature_y;
+    const Eigen::Vector2d f_target = D_target * eps_target;
+    return run_staggered_toward_target(o, D_target, f_target, eps_target);
+}
+
+[[nodiscard]] StaggeredOutcome
+run_real_xfem_staggered(
+    const fall_n::ReducedRCMultiscaleReplaySitePlan& site,
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& activated_history,
+    const Options& o)
+{
+    fall_n::ReducedRCManagedLocalPatchSpec patch{};
+    patch.site_index = site.site_index;
+    patch.z_over_l = site.z_over_l;
+    patch.characteristic_length_m =
+        std::max(o.characteristic_length_mm / 1000.0, 1.0e-6);
+    patch.section_width_m = o.local_section_width_m;
+    patch.section_depth_m = o.local_section_depth_m;
+    patch.nx = std::max<std::size_t>(1, o.local_nx);
+    patch.ny = std::max<std::size_t>(1, o.local_ny);
+    patch.nz = std::max<std::size_t>(1, o.local_nz);
+
+    fall_n::ReducedRCManagedXfemLocalModelAdapterOptions adapter_options{};
+    adapter_options.downscaling_mode = parse_local_downscaling(o.local_downscaling);
+    adapter_options.local_transition_steps = std::max(1, o.local_transition_steps);
+    adapter_options.local_max_bisections = std::max(0, o.local_max_bisections);
+
+    fall_n::ReducedRCManagedXfemLocalModelAdapter adapter{adapter_options};
+    const auto replay = fall_n::run_reduced_rc_managed_local_model_replay(
+        activated_history, patch, adapter);
+
+    StaggeredOutcome out{};
+    out.local_status = replay.status;
+    out.local_accepted_steps = replay.accepted_step_count;
+    out.local_total_nonlinear_iterations = replay.total_nonlinear_iterations;
+    out.local_elapsed_seconds = replay.total_elapsed_seconds;
+
+    const auto& R = replay.homogenized_response;
+    if (!replay.completed() || !R.is_well_formed() ||
+        R.D_hom.rows() < 2 || R.D_hom.cols() < 2 ||
+        R.f_hom.size() < 2 || R.eps_ref.size() < 2) {
+        out.final_residual = std::numeric_limits<double>::infinity();
+        return out;
+    }
+
+    Eigen::Matrix2d D_target = Eigen::Matrix2d::Zero();
+    D_target(0,0) = R.D_hom(0,0);
+    D_target(0,1) = R.D_hom(0,1);
+    D_target(1,0) = R.D_hom(1,0);
+    D_target(1,1) = R.D_hom(1,1);
+    Eigen::Vector2d f_target{R.f_hom(0), R.f_hom(1)};
+    Eigen::Vector2d eps_target{R.eps_ref(0), R.eps_ref(1)};
+
+    out = run_staggered_toward_target(o, D_target, f_target, eps_target);
+    out.local_status = replay.status;
+    out.local_accepted_steps = replay.accepted_step_count;
+    out.local_total_nonlinear_iterations = replay.total_nonlinear_iterations;
+    out.local_elapsed_seconds = replay.total_elapsed_seconds;
+    return out;
+}
+
+[[nodiscard]] const fall_n::ReducedRCStructuralReplaySample*
+trigger_sample_for_site(
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    std::size_t site_index,
+    std::size_t per_site_index)
+{
+    std::size_t seen = 0;
+    for (const auto& sample : hist) {
+        if (sample.site_index != site_index) {
+            continue;
+        }
+        if (seen == per_site_index) {
+            return &sample;
+        }
+        ++seen;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] double macro_section_history_work_for_site(
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    const fall_n::ReducedRCMultiscaleReplaySitePlan& site)
+{
+    std::vector<fall_n::ReducedRCStructuralReplaySample> per_site;
+    per_site.reserve(hist.size());
+    for (const auto& sample : hist) {
+        if (sample.site_index == site.site_index) {
+            per_site.push_back(sample);
+        }
+    }
+
+    fall_n::ReducedRCManagedLocalPatchSpec patch{};
+    patch.site_index = site.site_index;
+    patch.z_over_l = site.z_over_l;
+    const auto packet = fall_n::make_reduced_rc_managed_section_history_packet(
+        per_site, patch);
+    return fall_n::accumulated_material_history_work(packet.samples);
 }
 
 void emit_json(const std::filesystem::path& path,
@@ -165,8 +386,16 @@ void emit_json(const std::filesystem::path& path,
 {
     std::ofstream f(path);
     f << "{\n"
-      << "  \"schema\": \"fe2_column_cyclic_two_way_v1\",\n"
-      << "  \"scientific_status\": \"synthetic_two_way_real_macro_history\",\n"
+      << "  \"schema\": \"fe2_column_two_way_cyclic_v2\",\n"
+      << "  \"scientific_status\": \""
+      << (o.surrogate_smoke
+              ? "surrogate_two_way_real_macro_history"
+              : "managed_xfem_two_way_first_generation") << "\",\n"
+      << "  \"coupling_mode\": \"iterated_two_way_fe2\",\n"
+      << "  \"local_execution_mode\": \""
+      << (o.surrogate_smoke ? "surrogate_smoke" : "real_xfem_replay") << "\",\n"
+      << "  \"local_model_policy\": \"managed_independent_domain_per_selected_macro_site\",\n"
+      << "  \"local_downscaling\": \"" << o.local_downscaling << "\",\n"
       << "  \"history_sample_count\": " << hist.size() << ",\n"
       << "  \"selected_site_count\": " << plan.selected_site_count << ",\n"
       << "  \"staggered\": {\n"
@@ -184,6 +413,8 @@ void emit_json(const std::filesystem::path& path,
         const auto& S = staggered[k];
         const auto reason = reasons[k];
         const auto trig_idx = trigger_indices[k];
+        const auto* trigger_sample =
+            trigger_sample_for_site(hist, site.site_index, trig_idx);
         ++k;
         f << "    {\n"
           << "      \"site_index\": " << site.site_index << ",\n"
@@ -195,17 +426,129 @@ void emit_json(const std::filesystem::path& path,
           << fall_n::FirstInelasticFiberCriterion::reason_label(reason) << "\",\n"
           << "      \"trigger_sample_index\": " << trig_idx << ",\n"
           << "      \"trigger_pseudo_time\": "
-          << (trig_idx < hist.size() ? hist[trig_idx].pseudo_time : -1.0) << ",\n"
+          << (trigger_sample ? trigger_sample->pseudo_time : -1.0) << ",\n"
+          << "      \"trigger_drift_mm\": "
+          << (trigger_sample ? trigger_sample->drift_mm : 0.0) << ",\n"
           << "      \"staggered_iters\": " << S.iters << ",\n"
           << "      \"staggered_final_residual\": " << S.final_residual << ",\n"
           << "      \"staggered_converged\": " << (S.converged ? "true" : "false") << ",\n"
+          << "      \"relative_moment_feedback_error\": "
+          << (site.peak_abs_moment_y_mn_m > 1.0e-12
+                  ? std::abs(std::abs(S.f_hom(1)) -
+                             site.peak_abs_moment_y_mn_m) /
+                        site.peak_abs_moment_y_mn_m
+                  : 0.0) << ",\n"
+          << "      \"local_status\": \"" << fall_n::to_string(S.local_status) << "\",\n"
+          << "      \"local_accepted_steps\": " << S.local_accepted_steps << ",\n"
+          << "      \"local_total_nonlinear_iterations\": " << S.local_total_nonlinear_iterations << ",\n"
+          << "      \"local_elapsed_seconds\": " << S.local_elapsed_seconds << ",\n"
           << "      \"D_hom_diag\": [" << S.D_hom(0,0) << "," << S.D_hom(1,1) << "],\n"
-          << "      \"f_hom\": [" << S.f_hom(0) << "," << S.f_hom(1) << "]\n"
+          << "      \"f_hom\": [" << S.f_hom(0) << "," << S.f_hom(1) << "],\n"
+          << "      \"staggered_residual_history\": [";
+        for (std::size_t r = 0; r < S.residual_history.size(); ++r) {
+            f << S.residual_history[r]
+              << (r + 1 == S.residual_history.size() ? "" : ",");
+        }
+        f << "]\n"
           << "    }";
         ++emitted;
         f << (emitted == plan.selected_site_count ? "\n" : ",\n");
     }
     f << "  ]\n}\n";
+}
+
+void emit_csv_artifacts(
+    const std::filesystem::path& output_dir,
+    const std::vector<fall_n::ReducedRCStructuralReplaySample>& hist,
+    const fall_n::ReducedRCMultiscaleReplayPlan& plan,
+    const std::vector<StaggeredOutcome>& staggered,
+    const std::vector<fall_n::FirstInelasticFiberCriterion::Reason>& reasons,
+    const std::vector<std::size_t>& trigger_indices)
+{
+    std::ofstream activation(output_dir / "site_activation.csv");
+    activation
+        << "site_index,z_over_l,trigger_reason,trigger_sample_index,"
+           "trigger_pseudo_time,trigger_drift_mm,peak_abs_curvature_y,"
+           "peak_abs_steel_stress_mpa,max_damage_indicator\n";
+
+    std::ofstream response(output_dir / "site_response.csv");
+    response
+        << "site_index,z_over_l,D_axial_mn,D_flexural_mn_m2,"
+           "f_axial_mn,moment_y_mn_m,staggered_iters,"
+           "staggered_final_residual,staggered_converged,"
+           "relative_moment_feedback_error,"
+           "local_status,local_accepted_steps,local_total_nonlinear_iterations,"
+           "local_elapsed_seconds\n";
+
+    std::ofstream energy(output_dir / "site_energy.csv");
+    energy
+        << "site_index,z_over_l,accumulated_abs_macro_work_mn_mm,"
+           "peak_abs_base_shear_mn,peak_abs_moment_y_mn_m,"
+           "homogenized_moment_y_mn_m,macro_section_history_work\n";
+
+    std::ofstream residuals(output_dir / "staggered_residuals.csv");
+    residuals << "site_index,z_over_l,iteration,relative_staggered_residual\n";
+
+    std::size_t k = 0;
+    for (const auto& site : plan.sites) {
+        if (!site.selected_for_replay) {
+            continue;
+        }
+        const auto& S = staggered[k];
+        const auto reason = reasons[k];
+        const auto trigger_index = trigger_indices[k];
+        const auto* trigger_sample =
+            trigger_sample_for_site(hist, site.site_index, trigger_index);
+
+        activation
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << fall_n::FirstInelasticFiberCriterion::reason_label(reason) << ','
+            << trigger_index << ','
+            << (trigger_sample ? trigger_sample->pseudo_time : -1.0) << ','
+            << (trigger_sample ? trigger_sample->drift_mm : 0.0) << ','
+            << site.peak_abs_curvature_y << ','
+            << site.peak_abs_steel_stress_mpa << ','
+            << site.max_damage_indicator << '\n';
+
+        response
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << S.D_hom(0, 0) << ','
+            << S.D_hom(1, 1) << ','
+            << S.f_hom(0) << ','
+            << S.f_hom(1) << ','
+            << S.iters << ','
+            << S.final_residual << ','
+            << (S.converged ? 1 : 0) << ','
+            << (site.peak_abs_moment_y_mn_m > 1.0e-12
+                    ? std::abs(std::abs(S.f_hom(1)) -
+                               site.peak_abs_moment_y_mn_m) /
+                          site.peak_abs_moment_y_mn_m
+                    : 0.0) << ','
+            << fall_n::to_string(S.local_status) << ','
+            << S.local_accepted_steps << ','
+            << S.local_total_nonlinear_iterations << ','
+            << S.local_elapsed_seconds << '\n';
+
+        energy
+            << site.site_index << ','
+            << site.z_over_l << ','
+            << site.accumulated_abs_work_mn_mm << ','
+            << site.peak_abs_base_shear_mn << ','
+            << site.peak_abs_moment_y_mn_m << ','
+            << std::abs(S.f_hom(1)) << ','
+            << macro_section_history_work_for_site(hist, site) << '\n';
+
+        for (std::size_t r = 0; r < S.residual_history.size(); ++r) {
+            residuals
+                << site.site_index << ','
+                << site.z_over_l << ','
+                << (r + 1) << ','
+                << S.residual_history[r] << '\n';
+        }
+        ++k;
+    }
 }
 
 }  // namespace
@@ -218,6 +561,7 @@ int main(int argc, char** argv) {
 
     const auto rows = fall_n::read_structural_history_csv(o.input_csv);
     if (rows.empty()) { std::fprintf(stderr, "[stageB] empty CSV\n"); return 3; }
+    [[maybe_unused]] const auto spec = make_run_spec(o);
 
     std::vector<fall_n::ReducedRCStructuralReplaySample> samples;
     if (o.num_sites <= 1) {
@@ -242,6 +586,9 @@ int main(int argc, char** argv) {
     fall_n::ReducedRCMultiscaleReplayPlanSettings settings{};
     settings.max_replay_sites = std::max<std::size_t>(3, o.num_sites);
     const auto plan = fall_n::make_reduced_rc_multiscale_replay_plan(samples, settings);
+    if (!o.surrogate_smoke) {
+        PetscInitializeNoArguments();
+    }
 
     const fall_n::FirstInelasticFiberCriterion crit{
         .yield_strain = o.yield_strain, .f_y_MPa = o.f_y_MPa,
@@ -267,7 +614,18 @@ int main(int argc, char** argv) {
         const auto idx = crit.first_trigger_index(per_site);
         reasons.push_back(reason);
         trigger_indices.push_back(idx);
-        const auto S = run_staggered(site, o);
+        std::vector<fall_n::ReducedRCStructuralReplaySample> activated_history;
+        if (idx < per_site.size()) {
+            activated_history.assign(
+                per_site.begin() + static_cast<std::ptrdiff_t>(idx),
+                per_site.end());
+        }
+        if (activated_history.empty()) {
+            activated_history = per_site;
+        }
+        const auto S = o.surrogate_smoke
+            ? run_surrogate_staggered(site, o)
+            : run_real_xfem_staggered(site, activated_history, o);
         staggered.push_back(S);
         if (reason != fall_n::FirstInelasticFiberCriterion::Reason::not_triggered) ++triggered_count;
         if (S.converged) ++converged_count;
@@ -284,10 +642,15 @@ int main(int argc, char** argv) {
     emit_json(o.output_dir / "fe2_column_two_way_cyclic.json",
               samples, plan, staggered, reasons, trigger_indices,
               o, overall, conv_frac);
+    emit_csv_artifacts(
+        o.output_dir, samples, plan, staggered, reasons, trigger_indices);
 
     std::printf("[stageB] fe2_column_two_way emitted | selected=%zu triggered=%zu "
                 "converged=%zu (%.2f) overall_pass=%d output=%s\n",
                 plan.selected_site_count, triggered_count, converged_count,
                 conv_frac, overall ? 1 : 0, o.output_dir.string().c_str());
+    if (!o.surrogate_smoke) {
+        PetscFinalize();
+    }
     return overall ? 0 : 4;
 }

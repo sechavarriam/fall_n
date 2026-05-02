@@ -16,6 +16,7 @@
 
 #include "src/analysis/FirstInelasticFiberCriterion.hh"
 #include "src/analysis/MultiscaleTypes.hh"
+#include "src/validation/ReducedRCFE2ColumnValidation.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
 
 namespace {
@@ -106,6 +107,21 @@ int main() {
     // own --max-relative-moment-envelope-error gate (default 0.25) is what
     // matters when the input is the real Cap. 89 cyclic CSV.
     assert(std::isfinite(rel_err) && m_synth > 0.0);
+
+    // --- Common FE2 column validation contract.
+    ReducedRCFE2ColumnRunSpec spec{};
+    spec.local_execution_mode =
+        ReducedRCFE2ColumnLocalExecutionMode::surrogate_smoke;
+    spec.tolerances.max_relative_moment_envelope_error = 1.0e9;
+    const ReducedRCFE2ActivationCriterion fe2_crit{crit};
+    auto common_R = make_reduced_rc_fe2_surrogate_one_way_response(site, spec);
+    auto site_result = make_reduced_rc_fe2_site_result(
+        site, hist, fe2_crit, common_R, spec);
+    auto summary = summarize_reduced_rc_fe2_column_result(
+        spec, hist.size(), std::vector<ReducedRCFE2ColumnSiteResult>{site_result});
+    assert(site_result.activated);
+    assert(site_result.response_gate_passed);
+    assert(summary.passed());
 
     std::printf("[fe2_column_cyclic_one_way_smoke] trig=%zu reason=%s "
                 "M_synth=%.4f M_macro=%.4f rel_err=%.4f\n",

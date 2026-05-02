@@ -429,7 +429,14 @@ add_executable(
 target_include_directories(
     fall_n_fe2_column_cyclic_one_way PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(
-    fall_n_fe2_column_cyclic_one_way PRIVATE Eigen3::Eigen)
+    fall_n_fe2_column_cyclic_one_way PRIVATE
+    MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(
+    TARGETS fall_n_fe2_column_cyclic_one_way
+    MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_fe2_column_cyclic_one_way PRIVATE OpenMP::OpenMP_CXX)
+endif()
 
 # Plan v2 §Stage B — FE² TWO-WAY cyclic 200 mm column smoke driver.
 add_executable(
@@ -438,7 +445,14 @@ add_executable(
 target_include_directories(
     fall_n_fe2_column_cyclic_two_way PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(
-    fall_n_fe2_column_cyclic_two_way PRIVATE Eigen3::Eigen)
+    fall_n_fe2_column_cyclic_two_way PRIVATE
+    MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
+vtk_module_autoinit(
+    TARGETS fall_n_fe2_column_cyclic_two_way
+    MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(fall_n_fe2_column_cyclic_two_way PRIVATE OpenMP::OpenMP_CXX)
+endif()
 
 # Plan v2 §Fase 6 — 16-storey L-shaped FE² seismic STAGING driver.
 add_executable(
@@ -1016,6 +1030,31 @@ fall_n_add_test(TARGET fall_n_reduced_rc_local_site_replay_runner_test
     SOURCE tests/test_reduced_rc_local_site_replay_runner.cpp
     LIBS EIGEN  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_reduced_rc_managed_local_model_replay_test
+    NAME reduced_rc_managed_local_model_replay
+    SOURCE tests/test_reduced_rc_managed_local_model_replay.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_managed_xfem_local_model_adapter_test
+    NAME reduced_rc_managed_xfem_local_model_adapter
+    SOURCE tests/test_reduced_rc_managed_xfem_local_model_adapter.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_reduced_rc_macro_inferred_xfem_site_policy_test
+    NAME reduced_rc_macro_inferred_xfem_site_policy
+    SOURCE tests/test_reduced_rc_macro_inferred_xfem_site_policy.cpp
+    LIBS EIGEN  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_managed_xfem_subscale_evolver_test
+    NAME managed_xfem_subscale_evolver
+    SOURCE tests/test_managed_xfem_subscale_evolver.cpp
+    LIBS FULL  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_multiscale_material_history_transfer_test
+    NAME multiscale_material_history_transfer
+    SOURCE tests/test_multiscale_material_history_transfer.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_reduced_rc_multiscale_readiness_gate_test
     NAME reduced_rc_multiscale_readiness_gate
     SOURCE tests/test_reduced_rc_multiscale_readiness_gate.cpp
@@ -1244,6 +1283,12 @@ fall_n_add_test(TARGET fall_n_fe2_column_cyclic_one_way_smoke_test
 fall_n_add_test(TARGET fall_n_fe2_column_cyclic_two_way_smoke_test
     NAME fe2_column_cyclic_two_way_smoke
     SOURCE tests/test_fe2_column_cyclic_two_way_smoke.cpp
+    LIBS EIGEN  LABEL unit)
+
+# Stage C -- 16-storey seismic FE2 campaign contract and synchronized VTK index.
+fall_n_add_test(TARGET fall_n_seismic_fe2_validation_campaign_test
+    NAME seismic_fe2_validation_campaign
+    SOURCE tests/test_seismic_fe2_validation_campaign.cpp
     LIBS EIGEN  LABEL unit)
 
 # ── Timeout guards for slow tests ───────────────────────────────────────────

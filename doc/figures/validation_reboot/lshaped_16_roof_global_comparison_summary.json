@@ -1,0 +1,31 @@
+{
+  "schema": "lshaped_16_global_roof_comparison_v1",
+  "case_count": 2,
+  "cases": [
+    {
+      "label": "OpenSees elastic",
+      "samples": 510,
+      "peak_abs_ux_m": 0.33705,
+      "final_ux_m": 0.120968,
+      "peak_abs_uy_m": 0.458244,
+      "final_uy_m": 0.0413357,
+      "peak_abs_uz_m": 0.0241438,
+      "final_uz_m": -0.00182822
+    },
+    {
+      "label": "OpenSees dispBeamColumn",
+      "samples": 510,
+      "peak_abs_ux_m": 0.665442,
+      "final_ux_m": 0.489233,
+      "peak_abs_uy_m": 0.56833,
+      "final_uy_m": 0.431261,
+      "peak_abs_uz_m": 0.0259572,
+      "final_uz_m": 0.00425599
+    }
+  ],
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_roof_time_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_roof_plan_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_roof_3d_orbit.pdf"
+  ]
+}
