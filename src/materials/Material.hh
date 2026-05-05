@@ -209,6 +209,9 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
                                    alpha.crack_normals[0][1], 0.0};
          }
          snap.crack_strain_1 = alpha.crack_strain[0];
+         if constexpr (requires { alpha.crack_strain_max; }) {
+            snap.crack_strain_max_1 = alpha.crack_strain_max[0];
+         }
          snap.crack_closed_1 = alpha.crack_closed[0] ? 1.0 : 0.0;
       }
       if (alpha.num_cracks >= 2) {
@@ -221,6 +224,9 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
                                    alpha.crack_normals[1][1], 0.0};
          }
          snap.crack_strain_2 = alpha.crack_strain[1];
+         if constexpr (requires { alpha.crack_strain_max; }) {
+            snap.crack_strain_max_2 = alpha.crack_strain_max[1];
+         }
          snap.crack_closed_2 = alpha.crack_closed[1] ? 1.0 : 0.0;
       }
       if (alpha.num_cracks >= 3) {
@@ -233,6 +239,9 @@ InternalFieldSnapshot make_internal_field_snapshot(const MaterialType& material)
                                    alpha.crack_normals[2][1], 0.0};
          }
          snap.crack_strain_3 = alpha.crack_strain[2];
+         if constexpr (requires { alpha.crack_strain_max; }) {
+            snap.crack_strain_max_3 = alpha.crack_strain_max[2];
+         }
          snap.crack_closed_3 = alpha.crack_closed[2] ? 1.0 : 0.0;
       }
    }

@@ -1244,6 +1244,8 @@ int main(int argc, char* argv[]) {
     bool fe2_central_fd_tangent = false;
     bool primary_nodal_mass = false;
     bool restart_from_state = false;
+    bool write_activation_restart = false;
+    bool activation_restart_only = false;
     bool run_python_postprocess = true;
     bool fail_on_coupling_failure = false;
     bool adaptive_managed_local_transition = false;
@@ -1284,6 +1286,7 @@ int main(int argc, char* argv[]) {
     double linear_alarm_threshold = 1.0;
     std::string restart_displacement_path;
     std::string restart_velocity_path;
+    std::string activation_restart_prefix;
     double restart_time = 0.0;
     PetscInt restart_step = 0;
     auto element_mass_policy = fall_n::StructuralMassPolicy::consistent;
@@ -1359,6 +1362,15 @@ int main(int argc, char* argv[]) {
             restart_velocity_path =
                 BASE + "data/output/stage_c_16storey/"
                        "falln_n4_linear_alarm_primary_nodal_10s_velocity.vec";
+            continue;
+        }
+        if (arg == "--write-activation-restart") {
+            write_activation_restart = true;
+            continue;
+        }
+        if (arg == "--activation-restart-only") {
+            write_activation_restart = true;
+            activation_restart_only = true;
             continue;
         }
         if (arg == "--skip-postprocess" || arg == "--no-postprocess") {
@@ -1462,6 +1474,9 @@ int main(int argc, char* argv[]) {
             restart_time = std::stod(argv[++i]);
         } else if (arg == "--restart-step" && i + 1 < argc) {
             restart_step = static_cast<PetscInt>(std::stoll(argv[++i]));
+        } else if (arg == "--activation-restart-prefix" && i + 1 < argc) {
+            write_activation_restart = true;
+            activation_restart_prefix = argv[++i];
         } else if (arg == "--fe2-max-sites" && i + 1 < argc) {
             fe2_max_sites =
                 std::max<std::size_t>(1, static_cast<std::size_t>(
@@ -2269,6 +2284,64 @@ int main(int argc, char* argv[]) {
     std::println("    Time of first yield   : {:.4f} s", transition_report->trigger_time);
     std::println("    Critical element      : {}", transition_report->critical_element);
     std::println("    Damage index          : {:.6f}", transition_report->metric_value);
+
+    if (write_activation_restart) {
+        if (activation_restart_prefix.empty()) {
+            activation_restart_prefix =
+                OUT + "recorders/nonlinear_activation_restart";
+        }
+        const std::filesystem::path prefix_path{activation_restart_prefix};
+        if (prefix_path.has_parent_path()) {
+            std::filesystem::create_directories(prefix_path.parent_path());
+        }
+
+        const std::string disp_path =
+            activation_restart_prefix + "_displacement.vec";
+        const std::string vel_path =
+            activation_restart_prefix + "_velocity.vec";
+        const std::string manifest_path =
+            activation_restart_prefix + "_manifest.json";
+        write_petsc_binary_vec(solver.displacement(), disp_path);
+        write_petsc_binary_vec(solver.velocity(), vel_path);
+
+        std::ofstream manifest(manifest_path);
+        manifest
+            << "{\n"
+            << "  \"schema\": \"lshaped_16_activation_restart_v1\",\n"
+            << "  \"run_policy\": \"full_nonlinear_until_activation\",\n"
+            << "  \"restart_time_s\": "
+            << transition_report->trigger_time << ",\n"
+            << "  \"restart_step\": " << solver.current_step() << ",\n"
+            << "  \"critical_element\": "
+            << transition_report->critical_element << ",\n"
+            << "  \"damage_index\": "
+            << transition_report->metric_value << ",\n"
+            << "  \"displacement_vec\": \"" << disp_path << "\",\n"
+            << "  \"velocity_vec\": \"" << vel_path << "\"\n"
+            << "}\n";
+
+        std::println("    Activation restart written:");
+        std::println("      displacement = {}", disp_path);
+        std::println("      velocity     = {}", vel_path);
+        std::println("      manifest     = {}", manifest_path);
+
+        if (activation_restart_only) {
+            global_csv.close();
+            selected_element_csv.close();
+            roof_csv.close();
+            const bool wrote_time_index =
+                fall_n::write_multiscale_vtk_time_index_csv(
+                    OUT + "recorders/multiscale_time_index.csv",
+                    vtk_time_index);
+            if (!wrote_time_index) {
+                std::println(
+                    "[activation-restart-only] Warning: could not write multiscale_time_index.csv");
+            }
+            std::println(
+                "\n[activation-restart-only] Stopping after nonlinear activation checkpoint.");
+            return 0;
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     //  10. Identify top-N critical column elements

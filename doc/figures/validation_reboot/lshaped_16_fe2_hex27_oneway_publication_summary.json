@@ -1,0 +1,48 @@
+{
+  "schema": "fe2_hex27_oneway_publication_summary_v1",
+  "fe2_root": "C:\\MyLibs\\fall_n\\data\\output\\fe2_hex27_oneway_scale1_restart_5p70_publication_persistent_cracks",
+  "time_window": [
+    5.2002,
+    5.7002
+  ],
+  "roof_cases": [
+    {
+      "label": "fall_n FE2 one-way Hex27 Ko-Bathe",
+      "samples": 293,
+      "peak_abs_ux_m": 0.185180358,
+      "final_ux_m": 0.151277775,
+      "peak_abs_uy_m": 0.104071501,
+      "final_uy_m": -0.0139917227,
+      "peak_abs_uz_m": 0.00823443392,
+      "final_uz_m": 0.00786752893,
+      "columns": [
+        "node335_dof0",
+        "node335_dof1",
+        "node335_dof2"
+      ]
+    },
+    {
+      "label": "fall_n full nonlinear",
+      "samples": 400,
+      "peak_abs_ux_m": 0.0390094614,
+      "final_ux_m": -0.024472104,
+      "peak_abs_uy_m": 0.0167220936,
+      "final_uy_m": -0.011925958,
+      "peak_abs_uz_m": 0.00374063637,
+      "final_uz_m": 0.000668834436,
+      "columns": [
+        "node335_dof0",
+        "node335_dof1",
+        "node335_dof2"
+      ]
+    }
+  ],
+  "final_visible_cracks": 1703,
+  "peak_visible_cracks": 1715,
+  "peak_current_opening_mm": 9.255502,
+  "comparison_warning": "The plotted FE2 case uses restart-from-linear-alarm; use it as a VTK/local-observability diagnostic until a full-nonlinear checkpoint at first activation is available.",
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_hex27_oneway_publication_summary.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_hex27_oneway_force_components.pdf"
+  ]
+}

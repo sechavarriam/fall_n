@@ -85,6 +85,13 @@ struct InternalFieldSnapshot {
     std::optional<double> crack_strain_2{};
     std::optional<double> crack_strain_3{};
 
+    // Per-crack maximum historical opening strain.  This is used only for
+    // audit/visualization persistence; the current opening above remains the
+    // state used for coloring and work-conjugate interpretation.
+    std::optional<double> crack_strain_max_1{};
+    std::optional<double> crack_strain_max_2{};
+    std::optional<double> crack_strain_max_3{};
+
     // Per-crack closed status (0.0 = open, 1.0 = closed)
     std::optional<double> crack_closed_1{};
     std::optional<double> crack_closed_2{};

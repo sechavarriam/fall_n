@@ -232,6 +232,15 @@ struct ReducedRCMultiscaleStartStageSpec {
             .required_for_multiscale_replay = true,
             .interpretation = "normal opening of the explicit enriched crack surface"},
         ReducedRCVTKFieldSpec{
+            .name = "crack_opening_max",
+            .scale_kind = Scale::xfem_local,
+            .location_kind = Location::xfem_crack_surface,
+            .components = 1,
+            .required_for_pseudo_time = true,
+            .required_for_physical_time = true,
+            .required_for_multiscale_replay = false,
+            .interpretation = "maximum historical opening used to keep closed crack planes visible in publication VTK"},
+        ReducedRCVTKFieldSpec{
             .name = "displacement",
             .scale_kind = Scale::xfem_local,
             .location_kind = Location::xfem_crack_surface,
@@ -267,6 +276,15 @@ struct ReducedRCMultiscaleStartStageSpec {
             .required_for_physical_time = true,
             .required_for_multiscale_replay = false,
             .interpretation = "open/closed crack-surface state flag"},
+        ReducedRCVTKFieldSpec{
+            .name = "crack_plane_id",
+            .scale_kind = Scale::xfem_local,
+            .location_kind = Location::xfem_crack_surface,
+            .components = 1,
+            .required_for_pseudo_time = true,
+            .required_for_physical_time = true,
+            .required_for_multiscale_replay = false,
+            .interpretation = "Ko-Bathe crack family identifier: first, second, or third orthogonal plane"},
         ReducedRCVTKFieldSpec{
             .name = "site_id",
             .scale_kind = Scale::xfem_local,
