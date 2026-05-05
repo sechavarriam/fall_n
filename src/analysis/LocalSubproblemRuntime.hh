@@ -527,12 +527,16 @@ public:
             out.total_solve_seconds += record.total_solve_seconds;
             out.max_site_solve_seconds =
                 std::max(out.max_site_solve_seconds,
-                         record.last_solve_seconds);
+                         record.total_solve_seconds);
         }
+        const int profiled_sites =
+            std::count_if(records_.begin(), records_.end(), [](const auto& r) {
+                return r.solve_attempts > 0;
+            });
         out.mean_site_solve_seconds =
-            out.site_count > 0
+            profiled_sites > 0
                 ? out.total_solve_seconds /
-                      static_cast<double>(out.site_count)
+                      static_cast<double>(profiled_sites)
                 : 0.0;
         return out;
     }

@@ -571,6 +571,7 @@ private:
             DMRestoreLocalVector(dm, &g_local);
 
             // influence = M · ĝ
+            gm.influence.reset();
             FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, gm.influence.ptr()));
             FALL_N_PETSC_CHECK(MatMult(M_, g_dir, gm.influence));
         }
@@ -660,6 +661,36 @@ public:
     /// Set custom damping assembler.
     void set_damping(DampingAssembler da) {
         damping_assembler_ = std::move(da);
+    }
+
+    /// Rebuild damping and ground-motion pseudo-force carriers after a
+    /// deliberate mass-matrix edit.
+    ///
+    /// Changing M after setup invalidates both Rayleigh damping C(M,K0) and
+    /// the cached seismic influence vectors M*g_dir.  Keeping this refresh
+    /// explicit makes benchmark-level mass-policy audits reproducible without
+    /// weakening the default setup path.
+    void refresh_inertial_operators_after_mass_edit()
+    {
+        if (!is_setup_) {
+            throw std::runtime_error(
+                "refresh_inertial_operators_after_mass_edit() requires setup().");
+        }
+        if (damping_assembler_) {
+            if (!K0_) {
+                assemble_initial_stiffness();
+            }
+            if (!C_) {
+                FALL_N_PETSC_CHECK(DMCreateMatrix(model_->get_plex(), C_.ptr()));
+                FALL_N_PETSC_CHECK(MatSetOption(
+                    C_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+            }
+            FALL_N_PETSC_CHECK(MatZeroEntries(C_));
+            damping_assembler_(M_, K0_, C_);
+        }
+        if (!ground_motions_.empty()) {
+            setup_ground_motion_influence();
+        }
     }
 
     /// Set external force evaluator.

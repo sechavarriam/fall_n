@@ -35,6 +35,43 @@ int main(int argc, char** argv)
                   fall_n::ManagedXfemSubscaleEvolver>);
 
     {
+        fall_n::ManagedXfemAdaptiveTransitionPolicy policy{};
+        policy.enabled = true;
+        policy.min_transition_steps = 1;
+        policy.base_transition_steps = 2;
+        policy.max_transition_steps = 8;
+        policy.min_bisections = 3;
+        policy.base_bisections = 5;
+        policy.max_bisections = 10;
+        policy.high_iteration_threshold = 6;
+
+        Eigen::Vector<double, 6> delta = Eigen::Vector<double, 6>::Zero();
+        const auto fast =
+            fall_n::select_managed_xfem_transition_control(
+                policy, 2, 5, delta, 2, false);
+        assert(fast.adaptive);
+        assert(fast.transition_steps == 1);
+        assert(fast.max_bisections == 3);
+        assert(fast.reason == "low_increment_fast_path");
+
+        delta[1] = 2.0 * policy.curvature_scale;
+        const auto critical =
+            fall_n::select_managed_xfem_transition_control(
+                policy, 2, 5, delta, 2, false);
+        assert(critical.transition_steps == 8);
+        assert(critical.max_bisections == 10);
+        assert(critical.reason == "critical_control_increment");
+
+        delta.setZero();
+        const auto pressure =
+            fall_n::select_managed_xfem_transition_control(
+                policy, 2, 5, delta, 7, false);
+        assert(pressure.transition_steps == 8);
+        assert(pressure.max_bisections == 10);
+        assert(pressure.reason == "previous_solver_pressure");
+    }
+
+    {
         fall_n::ManagedXfemSubscaleEvolver evolver{4, patch, options};
 
         fall_n::SectionKinematics kin_a{};
@@ -61,6 +98,28 @@ int main(int argc, char** argv)
         assert(response.tangent(1, 1) > 0.0);
         assert(response.tangent(2, 2) > 0.0);
 
+        fall_n::HomogenizedTangentFiniteDifferenceSettings fd_settings{};
+        fd_settings.scheme =
+            fall_n::HomogenizedFiniteDifferenceScheme::Forward;
+        fd_settings.relative_perturbation = 5.0e-5;
+        fd_settings.absolute_perturbation_floor = 1.0e-7;
+        evolver.set_finite_difference_tangent_settings(fd_settings);
+        evolver.set_tangent_computation_mode(
+            fall_n::TangentComputationMode::ForceAdaptiveFiniteDifference);
+        const auto fd_response = evolver.section_response(
+            patch.section_width_m, patch.section_depth_m, 1.0e-7);
+        assert(fd_response.tangent_scheme ==
+               fall_n::TangentLinearizationScheme::AdaptiveFiniteDifference);
+        assert(fd_response.condensed_tangent_status ==
+               fall_n::CondensedTangentStatus::ForcedAdaptiveFiniteDifference);
+        assert(fd_response.tangent_column_valid[0]);
+        assert(fd_response.tangent_column_valid[1]);
+        assert(fd_response.tangent_column_valid[2]);
+        assert(!fd_response.tangent_column_valid[3]);
+        assert(fd_response.perturbation_sizes[0] > 0.0);
+        evolver.set_tangent_computation_mode(
+            fall_n::TangentComputationMode::PreferLinearizedCondensation);
+
         const auto checkpoint = evolver.capture_checkpoint();
         evolver.end_of_step(0.0);
         assert(evolver.step_count() == 1);
@@ -70,6 +129,9 @@ int main(int argc, char** argv)
         const auto second = evolver.solve_step(0.1);
         assert(second.converged);
         evolver.commit_state();
+        assert(!evolver.committed_material_history_packet().samples.empty());
+        assert(evolver.committed_material_history_packet()
+                   .last_committed_sample() != nullptr);
 
         const auto taxonomy =
             fall_n::ManagedXfemSubscaleEvolver::local_model_taxonomy();

@@ -150,6 +150,14 @@ public:
     {}
 };
 
+struct SiteAdaptiveRelaxationSettings {
+    bool enabled{false};
+    double residual_growth_limit{1.25};
+    int max_backtracking_attempts{4};
+    double backtracking_factor{0.5};
+    double min_alpha{0.05};
+};
+
 }  // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_COUPLING_STRATEGY_HH

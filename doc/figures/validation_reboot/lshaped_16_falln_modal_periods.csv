@@ -1,0 +1,31 @@
+case,mode,period_s
+fall_n positive_nodal_lumped element mass,1,1.273865245184e+00
+fall_n positive_nodal_lumped element mass,2,1.153327049037e+00
+fall_n positive_nodal_lumped element mass,3,1.037705085271e+00
+fall_n positive_nodal_lumped element mass,4,4.725642829802e-01
+fall_n positive_nodal_lumped element mass,5,4.556081079113e-01
+fall_n positive_nodal_lumped element mass,6,4.203596450183e-01
+fall_n primary-nodal mass,1,1.411486039124e+00
+fall_n primary-nodal mass,2,1.245807717609e+00
+fall_n primary-nodal mass,3,1.141442495496e+00
+fall_n primary-nodal mass,4,5.012104937878e-01
+fall_n primary-nodal mass,5,4.732679765850e-01
+fall_n primary-nodal mass,6,4.483138969557e-01
+OpenSees nodal mass,1,1.427040713870e+00
+OpenSees nodal mass,2,1.259961807513e+00
+OpenSees nodal mass,3,1.155184277416e+00
+OpenSees nodal mass,4,5.097771656383e-01
+OpenSees nodal mass,5,4.818035026540e-01
+OpenSees nodal mass,6,4.570086275609e-01
+OpenSees element mass,1,1.296347599757e+00
+OpenSees element mass,2,1.168083575139e+00
+OpenSees element mass,3,1.064236810747e+00
+OpenSees element mass,4,4.832413968951e-01
+OpenSees element mass,5,4.647466579185e-01
+OpenSees element mass,6,4.347769246420e-01
+OpenSees element mass sub3,1,1.288377496745e+00
+OpenSees element mass sub3,2,1.166216600264e+00
+OpenSees element mass sub3,3,1.050054241067e+00
+OpenSees element mass sub3,4,4.810802447603e-01
+OpenSees element mass sub3,5,4.641455231208e-01
+OpenSees element mass sub3,6,4.286652324748e-01

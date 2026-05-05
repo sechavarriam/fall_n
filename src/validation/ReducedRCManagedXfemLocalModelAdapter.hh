@@ -22,10 +22,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <format>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -41,6 +45,9 @@
 #include "src/materials/MaterialPolicy.hh"
 #include "src/model/Model.hh"
 #include "src/model/PrismaticDomainBuilder.hh"
+#include "src/post-processing/VTK/VTKModelExporter.hh"
+#include "src/reconstruction/LocalCrackData.hh"
+#include "src/reconstruction/LocalVTKOutputProfile.hh"
 #include "src/validation/ReducedRCManagedLocalModelReplay.hh"
 #include "src/xfem/CohesiveCrackLaw.hh"
 #include "src/xfem/CrackKinematics.hh"
@@ -78,10 +85,24 @@ struct ReducedRCManagedXfemLocalModelAdapterOptions {
         HomogenizationMode::top_face_reaction};
     DownscalingMode downscaling_mode{
         DownscalingMode::macro_shear_compliance};
-    bool report_peak_envelope_response{true};
+    // FE2 feedback requires the response conjugate to the current imposed
+    // macro state.  Peak envelopes are useful for postprocessing, but using
+    // them as homogenized feedback injects stale forces and tangents into the
+    // macro Newton loop.
+    bool report_peak_envelope_response{false};
     bool use_incremental_local_transitions{true};
+    bool incremental_local_logging{false};
     int local_transition_steps{3};
     int local_max_bisections{6};
+};
+
+struct ReducedRCManagedXfemLocalVTKSnapshot {
+    bool written{false};
+    std::string mesh_path{};
+    std::string gauss_path{};
+    std::string cracks_path{};
+    std::size_t crack_record_count{0};
+    std::string status_label{"not_written"};
 };
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -119,6 +140,23 @@ public:
         ReducedRCManagedXfemLocalModelAdapterOptions options = {})
         : options_{options}
     {}
+
+    void set_local_transition_controls(int transition_steps,
+                                       int max_bisections) noexcept
+    {
+        options_.local_transition_steps = std::max(1, transition_steps);
+        options_.local_max_bisections = std::max(0, max_bisections);
+    }
+
+    void set_vtk_output_profile(LocalVTKOutputProfile profile) noexcept
+    {
+        vtk_output_profile_ = profile;
+    }
+
+    [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
+    {
+        return vtk_output_profile_;
+    }
 
     [[nodiscard]] bool initialize_managed_local_model(
         const ReducedRCManagedLocalPatchSpec& patch)
@@ -294,6 +332,7 @@ public:
         const auto t0 = std::chrono::steady_clock::now();
         try {
             XFEMAnalysis analysis{model_.get()};
+            analysis.set_incremental_logging(options_.incremental_local_logging);
             bool ok = false;
             if (options_.use_incremental_local_transitions) {
                 const auto target =
@@ -439,7 +478,290 @@ public:
         return grid_ ? &(*grid_) : nullptr;
     }
 
+    [[nodiscard]] LocalCrackState local_crack_state()
+    {
+        LocalCrackState state{};
+        state.cracks = collect_crack_records_();
+        state.summary = summarize_crack_records_(state.cracks);
+        return state;
+    }
+
+    [[nodiscard]] ReducedRCManagedXfemLocalVTKSnapshot write_vtk_snapshot(
+        const std::filesystem::path& site_output_dir,
+        double /*time*/,
+        int step_count,
+        double min_abs_crack_opening = 0.0)
+    {
+        ReducedRCManagedXfemLocalVTKSnapshot snapshot{};
+        if (!initialized_ || !model_ || !domain_ || !grid_) {
+            snapshot.status_label = "managed_xfem_model_not_initialized";
+            return snapshot;
+        }
+
+        try {
+            std::filesystem::create_directories(site_output_dir);
+            const auto prefix =
+                site_output_dir /
+                std::format("managed_xfem_step_{:06d}", step_count);
+            snapshot.mesh_path = prefix.string() + "_mesh.vtu";
+            snapshot.gauss_path = prefix.string() + "_gauss.vtu";
+            snapshot.cracks_path = prefix.string() + "_cracks.vtu";
+
+            fall_n::vtk::VTKModelExporter exporter{*model_};
+            exporter.set_displacement();
+            if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
+                exporter.compute_material_fields();
+            }
+            exporter.write_mesh(snapshot.mesh_path);
+            if (vtk_output_profile_ == LocalVTKOutputProfile::Debug) {
+                exporter.write_gauss_points(snapshot.gauss_path);
+            } else {
+                snapshot.gauss_path.clear();
+            }
+
+            const auto cracks = collect_crack_records_();
+            snapshot.crack_record_count = cracks.size();
+            if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
+                write_crack_records_vtu_(
+                    snapshot.cracks_path,
+                    cracks,
+                    *grid_,
+                    patch_.site_index,
+                    patch_.site_index,
+                    min_abs_crack_opening);
+            } else {
+                snapshot.cracks_path.clear();
+            }
+
+            snapshot.written = true;
+            snapshot.status_label = "written";
+        } catch (const std::exception& ex) {
+            snapshot.written = false;
+            snapshot.status_label =
+                std::format("managed_xfem_vtk_exception: {}", ex.what());
+        } catch (...) {
+            snapshot.written = false;
+            snapshot.status_label = "managed_xfem_vtk_unknown_exception";
+        }
+        return snapshot;
+    }
+
 private:
+    [[nodiscard]] std::vector<CrackRecord> collect_crack_records_()
+    {
+        std::vector<CrackRecord> records;
+        if (!model_) {
+            return records;
+        }
+        for (auto& element : model_->elements()) {
+            auto element_records =
+                element.collect_crack_records(model_->state_vector());
+            records.insert(records.end(),
+                           element_records.begin(),
+                           element_records.end());
+        }
+        return records;
+    }
+
+    [[nodiscard]] static CrackSummary summarize_crack_records_(
+        const std::vector<CrackRecord>& records) noexcept
+    {
+        CrackSummary summary{};
+        summary.total_cracks = 0;
+        summary.num_cracked_gps = 0;
+        for (const auto& record : records) {
+            if (record.num_cracks <= 0) {
+                continue;
+            }
+            ++summary.num_cracked_gps;
+            summary.total_cracks += record.num_cracks;
+            if (record.damage_scalar_available) {
+                summary.damage_scalar_available = true;
+                if (!std::isfinite(summary.max_damage_scalar)) {
+                    summary.max_damage_scalar = record.damage;
+                } else {
+                    summary.max_damage_scalar =
+                        std::max(summary.max_damage_scalar, record.damage);
+                }
+            }
+            summary.fracture_history_available =
+                summary.fracture_history_available ||
+                record.fracture_history_available;
+            summary.most_compressive_sigma_o_max = std::min(
+                summary.most_compressive_sigma_o_max,
+                record.sigma_o_max);
+            summary.max_tau_o_max =
+                std::max(summary.max_tau_o_max, record.tau_o_max);
+            summary.max_opening = std::max(
+                summary.max_opening,
+                std::abs(record.opening_1));
+            if (record.num_cracks >= 2) {
+                summary.max_opening = std::max(
+                    summary.max_opening,
+                    std::abs(record.opening_2));
+            }
+            if (record.num_cracks >= 3) {
+                summary.max_opening = std::max(
+                    summary.max_opening,
+                    std::abs(record.opening_3));
+            }
+        }
+        return summary;
+    }
+
+    static void write_crack_records_vtu_(
+        const std::string& filename,
+        const std::vector<CrackRecord>& cracks,
+        const PrismaticGrid& grid,
+        std::size_t site_id,
+        std::size_t parent_element_id,
+        double min_abs_crack_opening)
+    {
+        const double half =
+            0.2 * std::min({grid.dx, grid.dy, grid.dz}) / 2.0;
+
+        vtkNew<vtkPoints> pts;
+        vtkNew<vtkUnstructuredGrid> crack_grid;
+
+        vtkNew<vtkDoubleArray> opening_arr;
+        opening_arr->SetName("crack_opening");
+        opening_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> normal_arr;
+        normal_arr->SetName("crack_normal");
+        normal_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> opening_vec_arr;
+        opening_vec_arr->SetName("crack_opening_vector");
+        opening_vec_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> state_arr;
+        state_arr->SetName("crack_state");
+        state_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> site_arr;
+        site_arr->SetName("site_id");
+        site_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> parent_arr;
+        parent_arr->SetName("parent_element_id");
+        parent_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> disp_arr;
+        disp_arr->SetName("displacement");
+        disp_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> damage_arr;
+        damage_arr->SetName("cohesive_damage");
+        damage_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> cohesive_traction_arr;
+        cohesive_traction_arr->SetName("cohesive_traction");
+        cohesive_traction_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> traction_arr;
+        traction_arr->SetName("cohesive_traction_proxy");
+        traction_arr->SetNumberOfComponents(2);
+
+        auto add_crack = [&](const CrackRecord& record,
+                             const Eigen::Vector3d& normal_raw,
+                             double opening,
+                             bool closed) {
+            if (std::abs(opening) < min_abs_crack_opening ||
+                normal_raw.squaredNorm() < 1.0e-20) {
+                return;
+            }
+
+            const Eigen::Vector3d normal = normal_raw.normalized();
+            Eigen::Vector3d tangent_1;
+            if (std::abs(normal.x()) < 0.9) {
+                tangent_1 = normal.cross(Eigen::Vector3d::UnitX()).normalized();
+            } else {
+                tangent_1 = normal.cross(Eigen::Vector3d::UnitY()).normalized();
+            }
+            const Eigen::Vector3d tangent_2 =
+                normal.cross(tangent_1).normalized();
+
+            const Eigen::Vector3d corners[4] = {
+                record.position - half * tangent_1 - half * tangent_2,
+                record.position + half * tangent_1 - half * tangent_2,
+                record.position + half * tangent_1 + half * tangent_2,
+                record.position - half * tangent_1 + half * tangent_2,
+            };
+
+            vtkIdType ids[4];
+            for (int corner = 0; corner < 4; ++corner) {
+                ids[corner] = pts->InsertNextPoint(
+                    corners[corner].x(),
+                    corners[corner].y(),
+                    corners[corner].z());
+                disp_arr->InsertNextTuple3(record.displacement.x(),
+                                           record.displacement.y(),
+                                           record.displacement.z());
+            }
+
+            crack_grid->InsertNextCell(VTK_QUAD, 4, ids);
+            opening_arr->InsertNextValue(opening);
+            normal_arr->InsertNextTuple3(normal.x(), normal.y(), normal.z());
+            const Eigen::Vector3d opening_vec = opening * normal;
+            opening_vec_arr->InsertNextTuple3(opening_vec.x(),
+                                             opening_vec.y(),
+                                             opening_vec.z());
+            state_arr->InsertNextValue(closed ? 0.0 : 1.0);
+            site_arr->InsertNextValue(static_cast<double>(site_id));
+            parent_arr->InsertNextValue(
+                static_cast<double>(parent_element_id));
+            damage_arr->InsertNextValue(record.damage);
+            const Eigen::Vector3d cohesive_traction =
+                record.sigma_o_max * normal;
+            cohesive_traction_arr->InsertNextTuple3(
+                cohesive_traction.x(),
+                cohesive_traction.y(),
+                cohesive_traction.z());
+            traction_arr->InsertNextTuple2(record.sigma_o_max,
+                                           record.tau_o_max);
+        };
+
+        for (const auto& record : cracks) {
+            if (record.num_cracks >= 1) {
+                add_crack(record,
+                          record.normal_1,
+                          record.opening_1,
+                          record.closed_1);
+            }
+            if (record.num_cracks >= 2) {
+                add_crack(record,
+                          record.normal_2,
+                          record.opening_2,
+                          record.closed_2);
+            }
+            if (record.num_cracks >= 3) {
+                add_crack(record,
+                          record.normal_3,
+                          record.opening_3,
+                          record.closed_3);
+            }
+        }
+
+        crack_grid->SetPoints(pts);
+        if (opening_arr->GetNumberOfTuples() > 0) {
+            crack_grid->GetCellData()->AddArray(opening_arr);
+            crack_grid->GetCellData()->AddArray(normal_arr);
+            crack_grid->GetCellData()->AddArray(opening_vec_arr);
+            crack_grid->GetCellData()->AddArray(state_arr);
+            crack_grid->GetCellData()->AddArray(site_arr);
+            crack_grid->GetCellData()->AddArray(parent_arr);
+            crack_grid->GetCellData()->AddArray(damage_arr);
+            crack_grid->GetCellData()->AddArray(cohesive_traction_arr);
+            crack_grid->GetCellData()->AddArray(traction_arr);
+        }
+        if (disp_arr->GetNumberOfTuples() > 0) {
+            crack_grid->GetPointData()->AddArray(disp_arr);
+            crack_grid->GetPointData()->SetActiveVectors("displacement");
+        }
+        fall_n::vtk::write_vtu(crack_grid, filename);
+    }
+
     [[nodiscard]] static constexpr LongitudinalBiasLocation
     to_prismatic_bias_location_(
         ReducedRCLocalLongitudinalBiasLocation location) noexcept
@@ -773,6 +1095,7 @@ private:
 
     ReducedRCManagedXfemLocalModelAdapterOptions options_{};
     ReducedRCManagedLocalPatchSpec patch_{};
+    LocalVTKOutputProfile vtk_output_profile_{LocalVTKOutputProfile::Debug};
     std::unique_ptr<Domain<3>> domain_{};
     std::optional<PrismaticGrid> grid_{};
     std::unique_ptr<XFEMModel> model_{};

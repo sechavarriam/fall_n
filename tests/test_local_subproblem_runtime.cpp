@@ -429,6 +429,28 @@ void test_adaptive_activation_uses_deactivation_hysteresis()
                "site deactivates only after crossing the lower gate");
 }
 
+void test_runtime_summary_reports_accumulated_site_costs()
+{
+    LocalSubproblemRuntimeManager<RuntimeLocalModel> runtime;
+    runtime.resize(3);
+    runtime.set_settings(LocalSubproblemRuntimeSettings{
+        .profiling_enabled = true});
+
+    runtime.record_solve_attempt(0, 1.0, true);
+    runtime.record_solve_attempt(0, 2.0, true);
+    runtime.record_solve_attempt(1, 4.0, true);
+
+    const auto summary = runtime.summary();
+    CHECK_TRUE(summary.solve_attempts == 3,
+               "runtime summary counts all local solve attempts");
+    CHECK_TRUE(std::abs(summary.total_solve_seconds - 7.0) < 1.0e-12,
+               "runtime summary accumulates solve time over all attempts");
+    CHECK_TRUE(std::abs(summary.mean_site_solve_seconds - 3.5) < 1.0e-12,
+               "runtime summary averages accumulated solve time over solved sites");
+    CHECK_TRUE(std::abs(summary.max_site_solve_seconds - 4.0) < 1.0e-12,
+               "runtime summary reports the largest accumulated per-site cost");
+}
+
 } // namespace
 
 int main()
@@ -437,6 +459,7 @@ int main()
     test_seed_reuse_restores_last_accepted_local_checkpoint();
     test_seed_cache_budget_evicts_oldest_inactive_seed();
     test_adaptive_activation_uses_deactivation_hysteresis();
+    test_runtime_summary_reports_accumulated_site_costs();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return g_fail == 0 ? 0 : 1;

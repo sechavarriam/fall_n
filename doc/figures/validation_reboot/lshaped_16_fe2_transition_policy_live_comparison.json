@@ -1,0 +1,164 @@
+{
+  "schema": "fe2_local_transition_policy_comparison_v1",
+  "fixed_coupling": "data\\output\\lshaped_multiscale_16\\recorders\\fe2_two_way_coupling_audit.csv",
+  "adaptive_coupling": "data\\output\\lshaped_multiscale_16_adaptive_transition_v3\\recorders\\fe2_two_way_coupling_audit.csv",
+  "adaptive_boundary": "data\\output\\lshaped_multiscale_16_adaptive_transition_v3\\recorders\\fe2_two_way_boundary_transfer_audit.csv",
+  "common_time_count": 1577,
+  "fixed_last_time": 7.31375,
+  "adaptive_last_time": 7.41375,
+  "adaptive_transition_distribution": {
+    "low_increment_fast_path:1/4": 2353,
+    "nominal_increment:2/6": 1828,
+    "previous_solver_pressure:4/8": 600,
+    "warning_control_increment:2/6": 99,
+    "critical_control_increment:4/8": 47,
+    "warning_control_increment:3/7": 31,
+    "warning_control_increment:4/8": 13
+  },
+  "adaptive_to_fixed_local_seconds_ratio": {
+    "count": 1573.0,
+    "min": 0.15364647809176538,
+    "max": 2.2007618994284104,
+    "mean": 0.6664807240883835
+  },
+  "absolute_force_residual_gap": {
+    "count": 1577.0,
+    "min": 0.0,
+    "max": 5.922733999855906e-09,
+    "mean": 2.3063380040688868e-11
+  },
+  "common_rows": [
+    {
+      "time": 7.3,
+      "fixed_local_seconds": 35.6123217,
+      "adaptive_local_seconds": 26.6326343,
+      "fixed_iterations": 5.0,
+      "adaptive_iterations": 5.0,
+      "fixed_force_residual": 0.0004212504776014,
+      "adaptive_force_residual": 0.0004212504795038,
+      "fixed_tangent_column_residual": 0.03288516145284,
+      "adaptive_tangent_column_residual": 0.03288516128049
+    },
+    {
+      "time": 7.30125,
+      "fixed_local_seconds": 32.1593476,
+      "adaptive_local_seconds": 21.5406022,
+      "fixed_iterations": 5.0,
+      "adaptive_iterations": 5.0,
+      "fixed_force_residual": 0.0004053087586408,
+      "adaptive_force_residual": 0.0004053087606114,
+      "fixed_tangent_column_residual": 0.03104563497623,
+      "adaptive_tangent_column_residual": 0.03104565135052
+    },
+    {
+      "time": 7.3025,
+      "fixed_local_seconds": 27.325919,
+      "adaptive_local_seconds": 18.7908661,
+      "fixed_iterations": 5.0,
+      "adaptive_iterations": 5.0,
+      "fixed_force_residual": 0.0004066427138562,
+      "adaptive_force_residual": 0.0004066427172073,
+      "fixed_tangent_column_residual": 0.03190578773512,
+      "adaptive_tangent_column_residual": 0.03190582089592
+    },
+    {
+      "time": 7.30375,
+      "fixed_local_seconds": 16.5409946,
+      "adaptive_local_seconds": 12.0561758,
+      "fixed_iterations": 4.0,
+      "adaptive_iterations": 4.0,
+      "fixed_force_residual": 0.0005530267030218,
+      "adaptive_force_residual": 0.0005530267109365,
+      "fixed_tangent_column_residual": 0.03512478267461,
+      "adaptive_tangent_column_residual": 0.03512478085145
+    },
+    {
+      "time": 7.305,
+      "fixed_local_seconds": 11.5493484,
+      "adaptive_local_seconds": 7.1795071,
+      "fixed_iterations": 3.0,
+      "adaptive_iterations": 3.0,
+      "fixed_force_residual": 0.0007812582330836,
+      "adaptive_force_residual": 0.0007812582437214,
+      "fixed_tangent_column_residual": 0.04946553608828,
+      "adaptive_tangent_column_residual": 0.0494655388716
+    },
+    {
+      "time": 7.30625,
+      "fixed_local_seconds": 10.9701375,
+      "adaptive_local_seconds": 9.463791,
+      "fixed_iterations": 3.0,
+      "adaptive_iterations": 3.0,
+      "fixed_force_residual": 0.0008444737391989,
+      "adaptive_force_residual": 0.0008444737556916,
+      "fixed_tangent_column_residual": 0.04131014515426,
+      "adaptive_tangent_column_residual": 0.04131014148758
+    },
+    {
+      "time": 7.3075,
+      "fixed_local_seconds": 9.0932584,
+      "adaptive_local_seconds": 5.9931399,
+      "fixed_iterations": 3.0,
+      "adaptive_iterations": 3.0,
+      "fixed_force_residual": 0.0008625768471336,
+      "adaptive_force_residual": 0.0008625768600277,
+      "fixed_tangent_column_residual": 0.03302994176922,
+      "adaptive_tangent_column_residual": 0.0330299488787
+    },
+    {
+      "time": 7.30875,
+      "fixed_local_seconds": 7.753255,
+      "adaptive_local_seconds": 5.5966641,
+      "fixed_iterations": 3.0,
+      "adaptive_iterations": 3.0,
+      "fixed_force_residual": 0.0008786063195037,
+      "adaptive_force_residual": 0.0008786063297071,
+      "fixed_tangent_column_residual": 0.02711464599339,
+      "adaptive_tangent_column_residual": 0.02711464773666
+    },
+    {
+      "time": 7.31,
+      "fixed_local_seconds": 5.9576635,
+      "adaptive_local_seconds": 3.941667,
+      "fixed_iterations": 2.0,
+      "adaptive_iterations": 2.0,
+      "fixed_force_residual": 0.001190479165488,
+      "adaptive_force_residual": 0.001190479177888,
+      "fixed_tangent_column_residual": 0.04456150565867,
+      "adaptive_tangent_column_residual": 0.04456150793384
+    },
+    {
+      "time": 7.31125,
+      "fixed_local_seconds": 6.2686381,
+      "adaptive_local_seconds": 4.0847036,
+      "fixed_iterations": 2.0,
+      "adaptive_iterations": 2.0,
+      "fixed_force_residual": 0.001299222489248,
+      "adaptive_force_residual": 0.001299222505782,
+      "fixed_tangent_column_residual": 0.04608928879285,
+      "adaptive_tangent_column_residual": 0.04608928179323
+    },
+    {
+      "time": 7.3125,
+      "fixed_local_seconds": 7.0585738,
+      "adaptive_local_seconds": 3.7184064,
+      "fixed_iterations": 2.0,
+      "adaptive_iterations": 2.0,
+      "fixed_force_residual": 0.001342987625103,
+      "adaptive_force_residual": 0.001342987644682,
+      "fixed_tangent_column_residual": 0.04102192338987,
+      "adaptive_tangent_column_residual": 0.04102192617987
+    },
+    {
+      "time": 7.31375,
+      "fixed_local_seconds": 6.6540409,
+      "adaptive_local_seconds": 3.7449971,
+      "fixed_iterations": 2.0,
+      "adaptive_iterations": 2.0,
+      "fixed_force_residual": 0.001356636828299,
+      "adaptive_force_residual": 0.00135663684665,
+      "fixed_tangent_column_residual": 0.03557407074577,
+      "adaptive_tangent_column_residual": 0.03557407305414
+    }
+  ]
+}

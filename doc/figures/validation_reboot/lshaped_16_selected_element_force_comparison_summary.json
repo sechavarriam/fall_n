@@ -1,0 +1,71 @@
+{
+  "schema": "lshaped_16_selected_element_force_comparison_v1",
+  "cases": [
+    {
+      "label": "OpenSees forceBeamColumn+Vy/Vz elasticized 2s",
+      "samples": 100,
+      "peak_abs_f0": 0.065798,
+      "final_f0": -0.0654821,
+      "peak_abs_f1": 0.0439211,
+      "final_f1": -0.00663264,
+      "peak_abs_f2": 0.581389,
+      "final_f2": -0.323753,
+      "peak_abs_f3": 0.146284,
+      "final_f3": 0.0219494,
+      "peak_abs_f4": 0.235201,
+      "final_f4": -0.214061,
+      "peak_abs_f5": 0.00120544,
+      "final_f5": 0.000844349
+    },
+    {
+      "label": "OpenSees dispBeamColumn elasticized 2s",
+      "samples": 100,
+      "peak_abs_f0": 0.0659126,
+      "final_f0": -0.0659126,
+      "peak_abs_f1": 0.044151,
+      "final_f1": -0.00685939,
+      "peak_abs_f2": 0.588523,
+      "final_f2": -0.336699,
+      "peak_abs_f3": 0.146463,
+      "final_f3": 0.0226745,
+      "peak_abs_f4": 0.231384,
+      "final_f4": -0.216256,
+      "peak_abs_f5": 0.00117471,
+      "final_f5": 0.00079799
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko nodal 10s",
+      "samples": 500,
+      "peak_abs_f0": 0.414121,
+      "final_f0": -0.0216838,
+      "peak_abs_f1": 0.166637,
+      "final_f1": -0.0693432,
+      "peak_abs_f2": 3.50404,
+      "final_f2": -0.415812,
+      "peak_abs_f3": 0.390908,
+      "final_f3": 0.16915,
+      "peak_abs_f4": 0.998344,
+      "final_f4": -0.0557226,
+      "peak_abs_f5": 0.0178116,
+      "final_f5": -0.00426427
+    },
+    {
+      "label": "fall_n elasticized TimoshenkoN4 primary-nodal 2s",
+      "samples": 100,
+      "peak_abs_f0": 0.110807908,
+      "final_f0": -0.0520433128,
+      "peak_abs_f1": 0.0771387535,
+      "final_f1": 0.0675417432,
+      "peak_abs_f2": 1.19753477,
+      "final_f2": 0.474785221,
+      "peak_abs_f3": 0.180696318,
+      "final_f3": -0.159726556,
+      "peak_abs_f4": 0.269505279,
+      "final_f4": -0.115557693,
+      "peak_abs_f5": 0.00513135422,
+      "final_f5": 0.00168238165
+    }
+  ],
+  "figure": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_selected_element_force_components.pdf",
+  "note": "Components are recorder-reported element forces; use for amplitude/phase audit before local-force convention closure."
+}

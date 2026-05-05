@@ -1,0 +1,71 @@
+{
+  "schema": "lshaped_16_newmark_temporal_audit_v2",
+  "reference": "fall_n Newmark linear primary 2s",
+  "rows": [
+    {
+      "label": "fall_n TS alpha2 elastic primary 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.104504547,
+      "final_ux_m": 0.0032554522,
+      "rms_vs_newmark_ux_m": 0.00920251136535471,
+      "peak_abs_uy_m": 0.0890999416,
+      "final_uy_m": -0.0227361163,
+      "rms_vs_newmark_uy_m": 0.004254626355215822,
+      "peak_abs_uz_m": 0.00594483006,
+      "final_uz_m": 0.000240787682,
+      "rms_vs_newmark_uz_m": 0.0002791703490439528
+    },
+    {
+      "label": "fall_n Newmark linear primary 2s",
+      "samples": 101,
+      "peak_abs_ux_m": 0.1125009375675,
+      "final_ux_m": -0.004077067994699,
+      "rms_vs_newmark_ux_m": 0,
+      "peak_abs_uy_m": 0.08885373225671,
+      "final_uy_m": -0.02954754563518,
+      "rms_vs_newmark_uy_m": 0,
+      "peak_abs_uz_m": 0.006095229366026,
+      "final_uz_m": 0.0005836643563175,
+      "rms_vs_newmark_uz_m": 0
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko nodal massmatched 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.112686,
+      "final_ux_m": 0.00300273,
+      "rms_vs_newmark_ux_m": 0.00315368703973018,
+      "peak_abs_uy_m": 0.086523,
+      "final_uy_m": -0.0253333,
+      "rms_vs_newmark_uy_m": 0.0026545375799760986,
+      "peak_abs_uz_m": 0.00640317,
+      "final_uz_m": 0.000100762,
+      "rms_vs_newmark_uz_m": 0.00046391620107368947
+    },
+    {
+      "label": "OpenSees forceBeam elasticized massmatched 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.102189,
+      "final_ux_m": 0.102189,
+      "rms_vs_newmark_ux_m": 0.04339046378136911,
+      "peak_abs_uy_m": 0.0969307,
+      "final_uy_m": -0.0102131,
+      "rms_vs_newmark_uy_m": 0.04167930224863635,
+      "peak_abs_uz_m": 0.00397271,
+      "final_uz_m": -0.00150593,
+      "rms_vs_newmark_uz_m": 0.002152058424224406
+    },
+    {
+      "label": "OpenSees dispBeam elasticized massmatched 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.103485,
+      "final_ux_m": 0.103485,
+      "rms_vs_newmark_ux_m": 0.043176646430653234,
+      "peak_abs_uy_m": 0.0961343,
+      "final_uy_m": -0.00857634,
+      "rms_vs_newmark_uy_m": 0.04113386873988644,
+      "peak_abs_uz_m": 0.00396703,
+      "final_uz_m": -0.00159519,
+      "rms_vs_newmark_uz_m": 0.002150104571870973
+    }
+  ]
+}

@@ -70,6 +70,22 @@ def summarize_case(case: dict) -> dict:
         vals = case[comp]
         out[f"peak_abs_{comp}_m"] = max((abs(v) for v in vals), default=0.0)
         out[f"final_{comp}_m"] = vals[-1] if vals else 0.0
+    manifest = case.get("manifest") or {}
+    for key in (
+        "status",
+        "beam_element_family",
+        "mass_model",
+        "element_mass_form",
+        "member_subdivisions",
+        "include_vertical",
+        "accepted_steps",
+        "requested_steps",
+        "total_wall_seconds",
+    ):
+        if key in manifest:
+            out[key] = manifest[key]
+    if "falln_columns" in case:
+        out["falln_columns"] = case["falln_columns"]
     return out
 
 
@@ -136,12 +152,20 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser.add_argument("--out-dir", default=str(root / "doc/figures/validation_reboot"))
     parser.add_argument(
-        "--opensees-elastic",
-        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_elastic_linear"),
+        "--opensees-elastic-nodal",
+        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_elastic_timoshenko_sub1_nodalmass_current"),
+    )
+    parser.add_argument(
+        "--opensees-elastic-element",
+        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_elastic_timoshenko_sub1_elementmass_lumped"),
+    )
+    parser.add_argument(
+        "--opensees-force-shear",
+        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_force_shear_sub1_nodalmass"),
     )
     parser.add_argument(
         "--opensees-disp",
-        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_disp_linear"),
+        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_disp_linear_topology"),
     )
     parser.add_argument(
         "--falln",
@@ -150,9 +174,11 @@ def main() -> int:
     args = parser.parse_args()
 
     cases = [
-        read_opensees(Path(args.opensees_elastic), "OpenSees elastic"),
-        read_opensees(Path(args.opensees_disp), "OpenSees dispBeamColumn"),
-        read_falln(Path(args.falln), "fall_n TimoshenkoN4"),
+        read_opensees(Path(args.opensees_elastic_nodal), "OpenSees ElasticTimoshenko nodal mass"),
+        read_opensees(Path(args.opensees_elastic_element), "OpenSees ElasticTimoshenko element mass"),
+        read_opensees(Path(args.opensees_force_shear), "OpenSees forceBeamColumn+Vy/Vz"),
+        read_opensees(Path(args.opensees_disp), "OpenSees dispBeamColumn (legacy)"),
+        read_falln(Path(args.falln), "fall_n elasticized TimoshenkoN4"),
     ]
     cases = [c for c in cases if c is not None]
     if not cases:
@@ -163,6 +189,11 @@ def main() -> int:
         "schema": "lshaped_16_global_roof_comparison_v1",
         "case_count": len(cases),
         "cases": [summarize_case(c) for c in cases],
+        "notes": [
+            "OpenSees variants are audited comparators, not an absolute oracle.",
+            "forceBeamColumn+Vy/Vz uses SectionAggregator shear DOFs and should be read as a force-based shear-flexure comparator, not as an exact clone of fall_n's high-order Timoshenko element.",
+            "dispBeamColumn remains a legacy diagnostic until topology, mass, shear and recorder conventions are closed.",
+        ],
         "figures": [
             str(out_dir / "lshaped_16_roof_time_components.pdf"),
             str(out_dir / "lshaped_16_roof_plan_orbit.pdf"),

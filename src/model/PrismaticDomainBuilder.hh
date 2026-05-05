@@ -155,6 +155,23 @@ struct PrismaticGrid {
             iz * nodes_x() * nodes_y() + iy * nodes_x() + ix);
     }
 
+    [[nodiscard]] bool active_node_for_order(int ix,
+                                             int iy,
+                                             int iz) const noexcept
+    {
+        if (hex_order != HexOrder::Serendipity) {
+            return true;
+        }
+
+        // Hex20 uses corner and edge-midpoint nodes only. The full quadratic
+        // grid still contains face-centre/body-centre coordinates for Hex27
+        // compatibility, but those nodes do not receive elemental DOFs.
+        const int odd_count = (std::abs(ix) % 2) +
+                              (std::abs(iy) % 2) +
+                              (std::abs(iz) % 2);
+        return odd_count <= 1;
+    }
+
     /// Collect all node IDs on a given prism face.
     ///  For linear meshes: returns corner nodes only.
     ///  For quadratic meshes: returns ALL grid nodes on the face
@@ -163,6 +180,11 @@ struct PrismaticGrid {
     ///  practice all face nodes are needed for BC application.
     std::vector<PetscInt> nodes_on_face(PrismFace face) const {
         std::vector<PetscInt> ids;
+        const auto push_if_active = [&](int ix, int iy, int iz) {
+            if (active_node_for_order(ix, iy, iz)) {
+                ids.push_back(node_id(ix, iy, iz));
+            }
+        };
         const int gnx = nodes_x() - 1;  // max index in x
         const int gny = nodes_y() - 1;
         const int gnz = nodes_z() - 1;
@@ -171,37 +193,37 @@ struct PrismaticGrid {
             ids.reserve(static_cast<std::size_t>(nodes_y() * nodes_z()));
             for (int iz = 0; iz <= gnz; ++iz)
                 for (int iy = 0; iy <= gny; ++iy)
-                    ids.push_back(node_id(0, iy, iz));
+                    push_if_active(0, iy, iz);
             break;
         case PrismFace::MaxX:
             ids.reserve(static_cast<std::size_t>(nodes_y() * nodes_z()));
             for (int iz = 0; iz <= gnz; ++iz)
                 for (int iy = 0; iy <= gny; ++iy)
-                    ids.push_back(node_id(gnx, iy, iz));
+                    push_if_active(gnx, iy, iz);
             break;
         case PrismFace::MinY:
             ids.reserve(static_cast<std::size_t>(nodes_x() * nodes_z()));
             for (int iz = 0; iz <= gnz; ++iz)
                 for (int ix = 0; ix <= gnx; ++ix)
-                    ids.push_back(node_id(ix, 0, iz));
+                    push_if_active(ix, 0, iz);
             break;
         case PrismFace::MaxY:
             ids.reserve(static_cast<std::size_t>(nodes_x() * nodes_z()));
             for (int iz = 0; iz <= gnz; ++iz)
                 for (int ix = 0; ix <= gnx; ++ix)
-                    ids.push_back(node_id(ix, gny, iz));
+                    push_if_active(ix, gny, iz);
             break;
         case PrismFace::MinZ:
             ids.reserve(static_cast<std::size_t>(nodes_x() * nodes_y()));
             for (int iy = 0; iy <= gny; ++iy)
                 for (int ix = 0; ix <= gnx; ++ix)
-                    ids.push_back(node_id(ix, iy, 0));
+                    push_if_active(ix, iy, 0);
             break;
         case PrismFace::MaxZ:
             ids.reserve(static_cast<std::size_t>(nodes_x() * nodes_y()));
             for (int iy = 0; iy <= gny; ++iy)
                 for (int ix = 0; ix <= gnx; ++ix)
-                    ids.push_back(node_id(ix, iy, gnz));
+                    push_if_active(ix, iy, gnz);
             break;
         }
         return ids;

@@ -51,13 +51,13 @@ struct ElementDamageInfo {
     double      damage_index{0.0};    ///< Scalar damage index ∈ [0, ∞)
     std::size_t critical_gp{0};       ///< GP index with worst damage
     std::size_t critical_fiber{0};    ///< Fiber index within GP with worst state
+    std::string trigger_kind{"unknown"}; ///< Optional diagnostic reason.
 
     /// For sorting: higher damage first.
     bool operator>(const ElementDamageInfo& other) const noexcept {
         return damage_index > other.damage_index;
     }
 };
-
 
 // =============================================================================
 //  FiberDamageInfo — Per-fiber damage record for detailed tracking
@@ -68,9 +68,11 @@ struct FiberDamageInfo {
     std::size_t gp_index{0};
     std::size_t fiber_index{0};
     double      y{0.0}, z{0.0}, area{0.0};
+    FiberSectionMaterialRole material_role{FiberSectionMaterialRole::unknown};
     double      strain_xx{0.0};
     double      stress_xx{0.0};
     double      damage_index{0.0};
+    std::string trigger_kind{"unknown"};
 
     bool operator>(const FiberDamageInfo& other) const noexcept {
         return damage_index > other.damage_index;
@@ -181,6 +183,7 @@ public:
                     .gp_index      = gp,
                     .fiber_index   = fi,
                     .y = f.y, .z = f.z, .area = f.area,
+                    .material_role = f.material_role,
                     .strain_xx     = f.strain_xx,
                     .stress_xx     = f.stress_xx,
                     .damage_index  = std::abs(f.strain_xx) / eps_ref_
@@ -208,6 +211,128 @@ public:
 //        [](const StructuralElement& elem, std::size_t idx, Vec u) {
 //            return fall_n::ElementDamageInfo{.element_index=idx, .damage_index=0.0};
 //        });
+
+class FirstMaterialNonlinearityCriterion : public DamageCriterion {
+    double concrete_tension_cracking_strain_{1.0e-4};
+    double concrete_compression_reference_strain_{2.0e-3};
+    double steel_yield_strain_{2.1e-3};
+
+public:
+    FirstMaterialNonlinearityCriterion(
+        double concrete_tension_cracking_strain,
+        double steel_yield_strain,
+        double concrete_compression_reference_strain = 2.0e-3)
+        : concrete_tension_cracking_strain_{concrete_tension_cracking_strain}
+        , concrete_compression_reference_strain_{concrete_compression_reference_strain}
+        , steel_yield_strain_{steel_yield_strain}
+    {}
+
+    [[nodiscard]] std::string name() const override {
+        return "FirstMaterialNonlinearityCriterion";
+    }
+
+    [[nodiscard]] double concrete_tension_cracking_strain() const noexcept {
+        return concrete_tension_cracking_strain_;
+    }
+
+    [[nodiscard]] double concrete_compression_reference_strain() const noexcept {
+        return concrete_compression_reference_strain_;
+    }
+
+    [[nodiscard]] double steel_yield_strain() const noexcept {
+        return steel_yield_strain_;
+    }
+
+    [[nodiscard]] ElementDamageInfo evaluate_element(
+        const StructuralElement& elem,
+        std::size_t elem_index,
+        Vec /*u_local*/) const override
+    {
+        ElementDamageInfo info{.element_index = elem_index};
+
+        auto snapshots = elem.section_snapshots();
+        for (std::size_t gp = 0; gp < snapshots.size(); ++gp) {
+            const auto& fibers = snapshots[gp].fibers;
+            for (std::size_t fi = 0; fi < fibers.size(); ++fi) {
+                const auto [d, trigger] = fiber_index(fibers[fi]);
+                if (d > info.damage_index) {
+                    info.damage_index   = d;
+                    info.critical_gp    = gp;
+                    info.critical_fiber = fi;
+                    info.trigger_kind   = trigger;
+                }
+            }
+        }
+
+        return info;
+    }
+
+    [[nodiscard]] std::vector<FiberDamageInfo> evaluate_fibers(
+        const StructuralElement& elem,
+        std::size_t elem_index,
+        Vec /*u_local*/) const override
+    {
+        std::vector<FiberDamageInfo> result;
+
+        auto snapshots = elem.section_snapshots();
+        for (std::size_t gp = 0; gp < snapshots.size(); ++gp) {
+            const auto& fibers = snapshots[gp].fibers;
+            for (std::size_t fi = 0; fi < fibers.size(); ++fi) {
+                const auto& f = fibers[fi];
+                const auto [d, trigger] = fiber_index(f);
+                result.push_back({
+                    .element_index = elem_index,
+                    .gp_index      = gp,
+                    .fiber_index   = fi,
+                    .y = f.y, .z = f.z, .area = f.area,
+                    .material_role = f.material_role,
+                    .strain_xx     = f.strain_xx,
+                    .stress_xx     = f.stress_xx,
+                    .damage_index  = d,
+                    .trigger_kind  = trigger
+                });
+            }
+        }
+
+        return result;
+    }
+
+    [[nodiscard]] std::unique_ptr<DamageCriterion> clone() const override {
+        return std::make_unique<FirstMaterialNonlinearityCriterion>(*this);
+    }
+
+private:
+    [[nodiscard]] std::pair<double, std::string>
+    fiber_index(const FiberSectionSample& f) const
+    {
+        if (is_reinforcing_steel(f.material_role)) {
+            return {
+                std::abs(f.strain_xx) / steel_yield_strain_,
+                "reinforcing_steel_yield"
+            };
+        }
+
+        if (is_concrete(f.material_role)) {
+            if (f.strain_xx >= 0.0) {
+                return {
+                    f.strain_xx / concrete_tension_cracking_strain_,
+                    f.material_role == FiberSectionMaterialRole::confined_concrete
+                        ? "confined_concrete_tension_cracking"
+                        : "unconfined_concrete_tension_cracking"
+                };
+            }
+
+            return {
+                std::abs(f.strain_xx) / concrete_compression_reference_strain_,
+                f.material_role == FiberSectionMaterialRole::confined_concrete
+                    ? "confined_concrete_compression_reference"
+                    : "unconfined_concrete_compression_reference"
+            };
+        }
+
+        return {0.0, "unknown_material_role"};
+    }
+};
 
 class CallableDamageCriterion : public DamageCriterion {
     using EvalFn = std::function<ElementDamageInfo(

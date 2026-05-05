@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -79,10 +80,38 @@ enum class CouplingTerminationReason {
     OneWayStepCompleted,
     LaggedStepCompleted,
     Converged,
+    HybridObservationStepCompleted,
     MacroSolveFailed,
     MicroSolveFailed,
     MaxIterationsReached,
     InitializationFailed
+};
+
+enum class TwoWayFailureRecoveryMode {
+    StrictTwoWay,
+    HybridObservationWindow,
+    OneWayOnly
+};
+
+enum class CouplingRegime {
+    StrictTwoWay,
+    HybridObservationWindow,
+    OneWayOnly
+};
+
+enum class CouplingFeedbackSource {
+    CurrentHomogenized,
+    LastConvergedHomogenized,
+    ClearedOneWay,
+    None
+};
+
+struct TwoWayFailureRecoveryPolicy {
+    TwoWayFailureRecoveryMode mode{TwoWayFailureRecoveryMode::StrictTwoWay};
+    int max_hybrid_steps{0};
+    int return_success_steps{5};
+    double work_gap_tolerance{0.05};
+    double force_jump_tolerance{0.05};
 };
 
 enum class RegularizationPolicyKind {
@@ -153,10 +182,51 @@ struct SectionHomogenizedResponse {
     int tangent_nonpositive_diagonal_entries{0};
 };
 
+struct CouplingSiteIterationRecord {
+    int iteration{0};
+    std::size_t local_site_index{0};
+    CouplingSite site{};
+    ResponseStatus status{ResponseStatus::NotReady};
+    HomogenizationOperator operator_used{
+        HomogenizationOperator::BoundaryReaction};
+    TangentLinearizationScheme tangent_scheme{
+        TangentLinearizationScheme::Unknown};
+    CondensedTangentStatus condensed_tangent_status{
+        CondensedTangentStatus::NotAttempted};
+    RegularizationPolicyKind regularization{
+        RegularizationPolicyKind::None};
+    bool tangent_regularized{false};
+    double force_residual_rel{0.0};
+    double force_component_residual_rel{0.0};
+    double tangent_residual_rel{0.0};
+    double tangent_column_residual_rel{0.0};
+    double tangent_min_symmetric_eigenvalue{0.0};
+    double tangent_max_symmetric_eigenvalue{0.0};
+    double tangent_trace{0.0};
+    int tangent_nonpositive_diagonal_entries{0};
+    bool adaptive_relaxation_applied{false};
+    int adaptive_relaxation_attempts{0};
+    double adaptive_relaxation_alpha{1.0};
+    double previous_force_residual_rel{0.0};
+    Eigen::Vector<double, 6> macro_strain{Eigen::Vector<double, 6>::Zero()};
+    Eigen::Vector<double, 6> macro_forces{Eigen::Vector<double, 6>::Zero()};
+    Eigen::Vector<double, 6> response_strain_ref{Eigen::Vector<double, 6>::Zero()};
+    Eigen::Vector<double, 6> response_forces{Eigen::Vector<double, 6>::Zero()};
+};
+
 struct CouplingIterationReport {
     CouplingMode mode{CouplingMode::OneWayDownscaling};
     CouplingTerminationReason termination_reason{
         CouplingTerminationReason::NotRun};
+    CouplingRegime coupling_regime{CouplingRegime::StrictTwoWay};
+    CouplingFeedbackSource feedback_source{CouplingFeedbackSource::None};
+    bool hybrid_active{false};
+    std::string hybrid_reason{};
+    std::string one_way_replay_status{};
+    double work_gap{0.0};
+    bool return_gate_passed{false};
+    int hybrid_window_steps{0};
+    int hybrid_success_steps{0};
     bool converged{true};
     int  iterations{0};
     int  failed_submodels{0};
@@ -193,6 +263,9 @@ struct CouplingIterationReport {
     double macro_solver_function_norm{0.0};
     bool rollback_performed{false};
     bool relaxation_applied{false};
+    bool adaptive_relaxation_applied{false};
+    int adaptive_relaxation_attempts{0};
+    double adaptive_relaxation_min_alpha{1.0};
     bool predictor_admissibility_filter_applied{false};
     bool predictor_admissibility_satisfied{true};
     int predictor_admissibility_attempts{0};
@@ -222,8 +295,68 @@ struct CouplingIterationReport {
     std::vector<double> tangent_traces{};
     std::vector<int> tangent_nonpositive_diagonal_counts{};
     std::vector<CouplingSite> failed_sites{};
+    std::vector<std::string> local_failure_messages{};
     std::vector<CouplingSite> predictor_inadmissible_sites{};
+    std::vector<CouplingSiteIterationRecord> site_iteration_records{};
 };
+
+inline void append_site_iteration_record(
+    CouplingIterationReport& report,
+    int iteration,
+    std::size_t local_site_index,
+    const MacroSectionState& macro_state,
+    const SectionHomogenizedResponse& response,
+    double previous_force_residual_rel = 0.0,
+    bool adaptive_relaxation_applied = false,
+    int adaptive_relaxation_attempts = 0,
+    double adaptive_relaxation_alpha = 1.0)
+{
+    auto force_residual = local_site_index < report.force_residuals_rel.size()
+        ? report.force_residuals_rel[local_site_index]
+        : 0.0;
+    auto force_component_residual =
+        local_site_index < report.force_component_residuals_rel.size()
+            ? report.force_component_residuals_rel[local_site_index]
+            : 0.0;
+    auto tangent_residual =
+        local_site_index < report.tangent_residuals_rel.size()
+            ? report.tangent_residuals_rel[local_site_index]
+            : 0.0;
+    auto tangent_column_residual =
+        local_site_index < report.tangent_column_residuals_rel.size()
+            ? report.tangent_column_residuals_rel[local_site_index]
+            : 0.0;
+
+    report.site_iteration_records.push_back(CouplingSiteIterationRecord{
+        .iteration = iteration,
+        .local_site_index = local_site_index,
+        .site = response.site,
+        .status = response.status,
+        .operator_used = response.operator_used,
+        .tangent_scheme = response.tangent_scheme,
+        .condensed_tangent_status = response.condensed_tangent_status,
+        .regularization = response.regularization,
+        .tangent_regularized = response.tangent_regularized,
+        .force_residual_rel = force_residual,
+        .force_component_residual_rel = force_component_residual,
+        .tangent_residual_rel = tangent_residual,
+        .tangent_column_residual_rel = tangent_column_residual,
+        .tangent_min_symmetric_eigenvalue =
+            response.tangent_min_symmetric_eigenvalue,
+        .tangent_max_symmetric_eigenvalue =
+            response.tangent_max_symmetric_eigenvalue,
+        .tangent_trace = response.tangent_trace,
+        .tangent_nonpositive_diagonal_entries =
+            response.tangent_nonpositive_diagonal_entries,
+        .adaptive_relaxation_applied = adaptive_relaxation_applied,
+        .adaptive_relaxation_attempts = adaptive_relaxation_attempts,
+        .adaptive_relaxation_alpha = adaptive_relaxation_alpha,
+        .previous_force_residual_rel = previous_force_residual_rel,
+        .macro_strain = macro_state.strain,
+        .macro_forces = macro_state.forces,
+        .response_strain_ref = response.strain_ref,
+        .response_forces = response.forces});
+}
 
 inline void refresh_section_operator_diagnostics(
     SectionHomogenizedResponse& response)
@@ -258,6 +391,50 @@ inline void refresh_section_operator_diagnostics(
             return "IteratedTwoWayFE2";
     }
     return "UnknownCouplingMode";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(TwoWayFailureRecoveryMode mode)
+{
+    switch (mode) {
+        case TwoWayFailureRecoveryMode::StrictTwoWay:
+            return "strict_two_way";
+        case TwoWayFailureRecoveryMode::HybridObservationWindow:
+            return "hybrid_observation_window";
+        case TwoWayFailureRecoveryMode::OneWayOnly:
+            return "one_way_only";
+    }
+    return "unknown_two_way_failure_recovery_mode";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(CouplingRegime regime)
+{
+    switch (regime) {
+        case CouplingRegime::StrictTwoWay:
+            return "strict_two_way";
+        case CouplingRegime::HybridObservationWindow:
+            return "hybrid_observation_window";
+        case CouplingRegime::OneWayOnly:
+            return "one_way_only";
+    }
+    return "unknown_coupling_regime";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(CouplingFeedbackSource source)
+{
+    switch (source) {
+        case CouplingFeedbackSource::CurrentHomogenized:
+            return "current_homogenized";
+        case CouplingFeedbackSource::LastConvergedHomogenized:
+            return "last_converged_homogenized";
+        case CouplingFeedbackSource::ClearedOneWay:
+            return "cleared_one_way";
+        case CouplingFeedbackSource::None:
+            return "none";
+    }
+    return "unknown_feedback_source";
 }
 
 [[nodiscard]] inline constexpr std::string_view
@@ -401,6 +578,8 @@ to_string(CouplingTerminationReason reason)
             return "LaggedStepCompleted";
         case CouplingTerminationReason::Converged:
             return "Converged";
+        case CouplingTerminationReason::HybridObservationStepCompleted:
+            return "HybridObservationStepCompleted";
         case CouplingTerminationReason::MacroSolveFailed:
             return "MacroSolveFailed";
         case CouplingTerminationReason::MicroSolveFailed:

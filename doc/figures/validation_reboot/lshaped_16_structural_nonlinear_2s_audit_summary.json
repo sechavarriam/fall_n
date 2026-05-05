@@ -1,0 +1,75 @@
+{
+  "schema": "lshaped_16_structural_nonlinear_2s_audit_v1",
+  "reference": "fall_n N4 nonlinear TS primary nodal 2s",
+  "rows": [
+    {
+      "label": "fall_n N4 nonlinear TS primary nodal 2s",
+      "samples": 1133,
+      "peak_abs_ux_m": 0.0866927586,
+      "final_ux_m": 0.0811108735,
+      "rms_vs_falln_nonlinear_ux_m": 0,
+      "peak_abs_uy_m": 0.10081473,
+      "final_uy_m": -0.0273372262,
+      "rms_vs_falln_nonlinear_uy_m": 0,
+      "peak_abs_uz_m": 0.00253938943,
+      "final_uz_m": 0.00129425427,
+      "rms_vs_falln_nonlinear_uz_m": 0
+    },
+    {
+      "label": "fall_n N4 elastic TS primary nodal 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.104504547,
+      "final_ux_m": 0.0032554522,
+      "rms_vs_falln_nonlinear_ux_m": 0.03670576209937678,
+      "peak_abs_uy_m": 0.0890999416,
+      "final_uy_m": -0.0227361163,
+      "rms_vs_falln_nonlinear_uy_m": 0.06534238933993229,
+      "peak_abs_uz_m": 0.00594483006,
+      "final_uz_m": 0.000240787682,
+      "rms_vs_falln_nonlinear_uz_m": 0.0021100292957148955
+    },
+    {
+      "label": "fall_n N4 Newmark linear primary nodal 2s",
+      "samples": 101,
+      "peak_abs_ux_m": 0.1125009375675,
+      "final_ux_m": -0.004077067994699,
+      "rms_vs_falln_nonlinear_ux_m": 0.044422716500780175,
+      "peak_abs_uy_m": 0.08885373225671,
+      "final_uy_m": -0.02954754563518,
+      "rms_vs_falln_nonlinear_uy_m": 0.06362535322704334,
+      "peak_abs_uz_m": 0.006095229366026,
+      "final_uz_m": 0.0005836643563175,
+      "rms_vs_falln_nonlinear_uz_m": 0.0022328947094191003
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko nodal 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.112686,
+      "final_ux_m": 0.00300273,
+      "rms_vs_falln_nonlinear_ux_m": 0.04303795461270678,
+      "peak_abs_uy_m": 0.086523,
+      "final_uy_m": -0.0253333,
+      "rms_vs_falln_nonlinear_uy_m": 0.06336400327548382,
+      "peak_abs_uz_m": 0.00640317,
+      "final_uz_m": 0.000100762,
+      "rms_vs_falln_nonlinear_uz_m": 0.002355751599927951
+    },
+    {
+      "label": "OpenSees forceBeam+Vy/Vz nonlinear 2s",
+      "samples": 100,
+      "peak_abs_ux_m": 0.175292,
+      "final_ux_m": 0.175292,
+      "rms_vs_falln_nonlinear_ux_m": 0.07722959550013929,
+      "peak_abs_uy_m": 0.286977,
+      "final_uy_m": 0.277314,
+      "rms_vs_falln_nonlinear_uy_m": 0.18462482247401818,
+      "peak_abs_uz_m": 0.00266291,
+      "final_uz_m": 0.00189369,
+      "rms_vs_falln_nonlinear_uz_m": 0.0015103991447198658
+    }
+  ],
+  "notes": [
+    "fall_n nonlinear 2s completed in about 18.7 min and stayed below steel yielding (damage ~0.75).",
+    "OpenSees forceBeam+Vy/Vz nonlinear 2s completed but took about 2018 s; it is a valid but expensive structural comparator, not a cheap CI path."
+  ]
+}

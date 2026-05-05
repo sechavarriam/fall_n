@@ -5,12 +5,14 @@
 #include <chrono>
 #include <cstddef>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "CouplingStrategy.hh"
+#include "HomogenizedTangentFiniteDifference.hh"
 #include "LocalSubproblemRuntime.hh"
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleModel.hh"
@@ -51,6 +53,10 @@ private:
     double section_width_{0.30};
     double section_height_{0.30};
     double tangent_perturbation_{1.0e-6};
+    TangentComputationMode local_tangent_computation_mode_{
+        TangentComputationMode::PreferLinearizedCondensation};
+    HomogenizedTangentFiniteDifferenceSettings
+        local_fd_tangent_settings_{};
     TangentValidationNormKind force_residual_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
     TangentValidationNormKind tangent_residual_norm_{
@@ -63,6 +69,10 @@ private:
     double macro_step_cutback_factor_{0.5};
     int macro_failure_backtrack_attempts_{0};
     double macro_failure_backtrack_factor_{0.5};
+    SiteAdaptiveRelaxationSettings site_adaptive_relaxation_{};
+    TwoWayFailureRecoveryPolicy two_way_failure_recovery_policy_{};
+    int hybrid_window_steps_{0};
+    int hybrid_success_steps_{0};
     std::size_t analysis_steps_{0};
 
     CouplingIterationReport last_report_{};
@@ -99,16 +109,27 @@ private:
         report.attempted_state_valid = false;
         report.attempted_macro_step = 0;
         report.attempted_macro_time = 0.0;
+        report.adaptive_relaxation_applied = false;
+        report.adaptive_relaxation_attempts = 0;
+        report.adaptive_relaxation_min_alpha = 1.0;
         report.predictor_admissibility_filter_applied = false;
         report.predictor_admissibility_satisfied = true;
         report.predictor_admissibility_attempts = 0;
         report.predictor_admissibility_last_alpha = 1.0;
+        report.coupling_regime = CouplingRegime::StrictTwoWay;
+        report.feedback_source = CouplingFeedbackSource::None;
+        report.hybrid_active = false;
+        report.hybrid_reason.clear();
+        report.one_way_replay_status.clear();
+        report.work_gap = 0.0;
+        report.return_gate_passed = false;
         report.macro_step_cutback_attempts = 0;
         report.macro_step_cutback_succeeded = false;
         report.macro_step_cutback_last_factor = 1.0;
         report.macro_step_cutback_initial_increment = 0.0;
         report.macro_step_cutback_last_increment = 0.0;
         report.predictor_inadmissible_sites.clear();
+        report.site_iteration_records.clear();
     }
 
     void capture_macro_solver_diagnostics_()
@@ -214,6 +235,23 @@ private:
             ++report.regularized_submodels;
             report.regularization_detected = true;
         }
+    }
+
+    [[nodiscard]] static double max_force_gap_(
+        const std::vector<SectionHomogenizedResponse>& a,
+        const std::vector<SectionHomogenizedResponse>& b)
+    {
+        if (a.size() != b.size()) {
+            return std::numeric_limits<double>::infinity();
+        }
+
+        double gap = 0.0;
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            const double denom =
+                std::max({1.0, a[i].forces.norm(), b[i].forces.norm()});
+            gap = std::max(gap, (a[i].forces - b[i].forces).norm() / denom);
+        }
+        return gap;
     }
 
     [[nodiscard]] bool is_predictor_response_admissible_(
@@ -403,6 +441,24 @@ private:
         }
     }
 
+    void configure_local_tangent_policy_(LocalModelT& local_model) const
+    {
+        if constexpr (requires(LocalModelT& lm, TangentComputationMode mode) {
+                          lm.set_tangent_computation_mode(mode);
+                      }) {
+            local_model.set_tangent_computation_mode(
+                local_tangent_computation_mode_);
+        }
+        if constexpr (requires(
+                          LocalModelT& lm,
+                          HomogenizedTangentFiniteDifferenceSettings settings) {
+                          lm.set_finite_difference_tangent_settings(settings);
+                      }) {
+            local_model.set_finite_difference_tangent_settings(
+                local_fd_tangent_settings_);
+        }
+    }
+
     [[nodiscard]] bool macro_solver_supports_increment_control_() const
     {
         if constexpr (requires(MacroSolverT& solver, double dp) {
@@ -425,6 +481,8 @@ private:
         responses.resize(model_.num_local_models());
         failed_submodels = 0;
         last_report_.failed_submodels = 0;
+        last_report_.local_failure_messages.assign(
+            model_.num_local_models(), {});
 
         executor_.for_each(model_.num_local_models(), [&](std::size_t i) {
             auto response = SectionHomogenizedResponse{};
@@ -445,11 +503,18 @@ private:
                 const bool restored_seed =
                     local_runtime_.restore_seed_before_solve(i, local_model);
                 local_model.set_auto_commit(true);
+                configure_local_tangent_policy_(local_model);
 
                 const auto ek =
                     model_.macro_bridge().extract_element_kinematics(
                         model_.site(i).macro_element_id);
                 local_model.update_kinematics(ek.kin_A, ek.kin_B);
+                if constexpr (requires(LocalModelT& lm,
+                                        const MacroSectionState& state) {
+                                  lm.update_macro_section_state(state);
+                              }) {
+                    local_model.update_macro_section_state(macro_state);
+                }
 
                 const auto solve_t0 = std::chrono::steady_clock::now();
                 auto result = local_model.solve_step(time);
@@ -471,7 +536,17 @@ private:
                     std::chrono::duration<double>(
                         solve_t1 - solve_t0).count(),
                     converged);
+            } catch (const std::exception& ex) {
+                if (i < last_report_.local_failure_messages.size()) {
+                    last_report_.local_failure_messages[i] = ex.what();
+                }
+                response.status = ResponseStatus::SolveFailed;
+                local_runtime_.record_solve_attempt(i, 0.0, false);
             } catch (...) {
+                if (i < last_report_.local_failure_messages.size()) {
+                    last_report_.local_failure_messages[i] =
+                        "unknown local-model exception";
+                }
                 response.status = ResponseStatus::SolveFailed;
                 local_runtime_.record_solve_attempt(i, 0.0, false);
             }
@@ -524,6 +599,9 @@ private:
             last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = CouplingMode::OneWayDownscaling;
+        last_report_.coupling_regime = CouplingRegime::OneWayOnly;
+        last_report_.feedback_source = CouplingFeedbackSource::ClearedOneWay;
+        last_report_.one_way_replay_status = "active";
         last_report_.iterations = 1;
         last_report_.termination_reason =
             CouplingTerminationReason::OneWayStepCompleted;
@@ -664,11 +742,27 @@ private:
         static_assert(TrialControllableSolver<MacroSolverT>,
             "IteratedTwoWayFE2 requires a macro solver with trial-commit control");
 
+        if (two_way_failure_recovery_policy_.mode ==
+            TwoWayFailureRecoveryMode::OneWayOnly)
+        {
+            const bool ok = perform_one_way_downscaling_();
+            last_report_.coupling_regime = CouplingRegime::OneWayOnly;
+            last_report_.feedback_source = CouplingFeedbackSource::ClearedOneWay;
+            last_report_.hybrid_active = false;
+            last_report_.one_way_replay_status =
+                ok ? "one_way_only_completed" : "one_way_only_failed";
+            return ok;
+        }
+
         last_report_ = CouplingIterationReport{};
         initialize_report_norms_(
             last_report_, force_residual_norm_, tangent_residual_norm_);
         last_responses_.clear();
         last_report_.mode = CouplingMode::IteratedTwoWayFE2;
+        last_report_.coupling_regime = CouplingRegime::StrictTwoWay;
+        last_report_.feedback_source = CouplingFeedbackSource::CurrentHomogenized;
+        last_report_.hybrid_window_steps = hybrid_window_steps_;
+        last_report_.hybrid_success_steps = hybrid_success_steps_;
         last_report_.iterations = 0;
         last_report_.termination_reason = CouplingTerminationReason::NotRun;
 
@@ -705,6 +799,9 @@ private:
 
         bool accepted = false;
         const int max_iter = std::max(2, algorithm_->max_iterations());
+        std::vector<double> previous_iteration_force_residuals(
+            model_.num_local_models(),
+            std::numeric_limits<double>::quiet_NaN());
 
         for (int iter = 0; iter < max_iter; ++iter) {
             last_report_.iterations = iter + 1;
@@ -875,11 +972,18 @@ private:
 
                     auto& local_model = model_.local_models()[i];
                     local_model.restore_checkpoint(local_checkpoints[i]);
+                    configure_local_tangent_policy_(local_model);
 
                     const auto ek =
                         model_.macro_bridge().extract_element_kinematics(
                             model_.site(i).macro_element_id);
                     local_model.update_kinematics(ek.kin_A, ek.kin_B);
+                    if constexpr (requires(LocalModelT& lm,
+                                            const MacroSectionState& state) {
+                                      lm.update_macro_section_state(state);
+                                  }) {
+                        local_model.update_macro_section_state(macro_state);
+                    }
 
                     const auto solve_t0 = std::chrono::steady_clock::now();
                     auto result =
@@ -943,12 +1047,39 @@ private:
             last_report_.max_force_component_residual_rel = 0.0;
             last_report_.max_tangent_residual_rel = 0.0;
             last_report_.max_tangent_column_residual_rel = 0.0;
+            std::vector<double> next_iteration_force_residuals(
+                model_.num_local_models(),
+                std::numeric_limits<double>::quiet_NaN());
 
             for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                 auto macro_state =
                     model_.macro_bridge().extract_section_state(model_.site(i));
                 current[i].strain_ref = macro_state.strain;
                 current[i].site.local_frame = macro_state.site.local_frame;
+                int adaptive_attempts = 0;
+                double adaptive_alpha = 1.0;
+                bool adaptive_applied = false;
+
+                auto update_tangent_metrics = [&]() {
+                    if (active_predictor.size() == model_.num_local_models()) {
+                        last_report_.tangent_residuals_rel[i] =
+                            tangent_residual_metric_(
+                                macro_state,
+                                current[i],
+                                active_predictor[i],
+                                &last_report_.tangent_residual_row_scales[i],
+                                &last_report_.tangent_residual_column_scales[i],
+                                &last_report_.tangent_column_residuals_rel[i]);
+                    }
+                };
+                auto update_force_metrics = [&]() {
+                    last_report_.force_residuals_rel[i] =
+                        force_residual_metric_(
+                            macro_state,
+                            current[i],
+                            &last_report_.force_residual_component_scales[i],
+                            &last_report_.force_component_residuals_rel[i]);
+                };
 
                 if (active_predictor.size() == model_.num_local_models()) {
                     const auto tangent_before = current[i].tangent;
@@ -959,14 +1090,7 @@ private:
                     {
                         last_report_.relaxation_applied = true;
                     }
-                    last_report_.tangent_residuals_rel[i] =
-                        tangent_residual_metric_(
-                            macro_state,
-                            current[i],
-                            active_predictor[i],
-                            &last_report_.tangent_residual_row_scales[i],
-                            &last_report_.tangent_residual_column_scales[i],
-                            &last_report_.tangent_column_residuals_rel[i]);
+                    update_tangent_metrics();
                 } else {
                     // Dampen the very first FE2 predictor as well. Otherwise
                     // the first macro re-solve sees the full micro feedback in
@@ -985,11 +1109,73 @@ private:
                     }
                 }
 
-                last_report_.force_residuals_rel[i] = force_residual_metric_(
-                    macro_state,
-                    current[i],
-                    &last_report_.force_residual_component_scales[i],
-                    &last_report_.force_component_residuals_rel[i]);
+                update_force_metrics();
+
+                const double previous_force_residual =
+                    i < previous_iteration_force_residuals.size()
+                        ? previous_iteration_force_residuals[i]
+                        : std::numeric_limits<double>::quiet_NaN();
+                if (site_adaptive_relaxation_.enabled
+                    && active_predictor.size() == model_.num_local_models()
+                    && iter > 0
+                    && std::isfinite(previous_force_residual)
+                    && previous_force_residual > 0.0
+                    && last_report_.force_residuals_rel[i]
+                        > site_adaptive_relaxation_.residual_growth_limit
+                        * previous_force_residual)
+                {
+                    SectionHomogenizedResponse best = current[i];
+                    double best_force_residual =
+                        last_report_.force_residuals_rel[i];
+                    const auto once_relaxed = current[i];
+                    const auto growth_cap =
+                        site_adaptive_relaxation_.residual_growth_limit
+                        * previous_force_residual;
+
+                    for (int attempt = 1;
+                         attempt <= site_adaptive_relaxation_
+                                        .max_backtracking_attempts;
+                         ++attempt)
+                    {
+                        auto trial = once_relaxed;
+                        double alpha = std::pow(
+                            site_adaptive_relaxation_.backtracking_factor,
+                            attempt);
+                        alpha = std::max(
+                            site_adaptive_relaxation_.min_alpha, alpha);
+                        blend_section_response(
+                            trial, active_predictor[i], alpha);
+                        const double trial_force_residual =
+                            force_residual_metric_(macro_state, trial);
+                        if (trial_force_residual < best_force_residual) {
+                            best = trial;
+                            best_force_residual = trial_force_residual;
+                            adaptive_attempts = attempt;
+                            adaptive_alpha = alpha;
+                            adaptive_applied = true;
+                            if (trial_force_residual <= growth_cap) {
+                                break;
+                            }
+                        }
+                        if (alpha <= site_adaptive_relaxation_.min_alpha) {
+                            break;
+                        }
+                    }
+
+                    if (adaptive_applied) {
+                        current[i] = best;
+                        update_tangent_metrics();
+                        update_force_metrics();
+                        last_report_.adaptive_relaxation_applied = true;
+                        last_report_.adaptive_relaxation_attempts +=
+                            adaptive_attempts;
+                        last_report_.adaptive_relaxation_min_alpha =
+                            std::min(
+                                last_report_.adaptive_relaxation_min_alpha,
+                                adaptive_alpha);
+                    }
+                }
+
                 last_report_.tangent_min_symmetric_eigenvalues[i] =
                     current[i].tangent_min_symmetric_eigenvalue;
                 last_report_.tangent_max_symmetric_eigenvalues[i] =
@@ -1013,7 +1199,23 @@ private:
                 last_report_.max_tangent_column_residual_rel =
                     std::max(last_report_.max_tangent_column_residual_rel,
                              last_report_.tangent_column_residuals_rel[i]);
+
+                append_site_iteration_record(
+                    last_report_,
+                    iter + 1,
+                    i,
+                    macro_state,
+                    current[i],
+                    previous_force_residual,
+                    adaptive_applied,
+                    adaptive_attempts,
+                    adaptive_alpha);
+                next_iteration_force_residuals[i] =
+                    last_report_.force_residuals_rel[i];
             }
+
+            previous_iteration_force_residuals =
+                std::move(next_iteration_force_residuals);
 
             if (last_report_.failed_submodels > 0) {
                 break;
@@ -1033,7 +1235,108 @@ private:
             }
         }
 
+        auto try_hybrid_observation_window = [&]() -> bool {
+            if (two_way_failure_recovery_policy_.mode !=
+                TwoWayFailureRecoveryMode::HybridObservationWindow)
+            {
+                return false;
+            }
+            if (two_way_failure_recovery_policy_.max_hybrid_steps > 0 &&
+                hybrid_window_steps_ >=
+                    two_way_failure_recovery_policy_.max_hybrid_steps)
+            {
+                last_report_.hybrid_reason =
+                    "hybrid_max_steps_exhausted";
+                return false;
+            }
+
+            macro_solver_->restore_checkpoint(macro_checkpoint);
+            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                model_.local_models()[i].restore_checkpoint(
+                    local_checkpoints[i]);
+                model_.local_models()[i].set_auto_commit(true);
+            }
+
+            const bool has_last_feedback =
+                last_converged_responses_.size() == model_.num_local_models();
+            if (has_last_feedback) {
+                inject_or_clear_(last_converged_responses_);
+                last_report_.feedback_source =
+                    CouplingFeedbackSource::LastConvergedHomogenized;
+            } else {
+                inject_or_clear_({});
+                last_report_.feedback_source =
+                    CouplingFeedbackSource::ClearedOneWay;
+            }
+
+            const auto macro_t0 = std::chrono::steady_clock::now();
+            bool macro_ok = false;
+            if constexpr (requires(MacroSolverT& solver, double dp) {
+                              { solver.get_increment_size() }
+                                  -> std::convertible_to<double>;
+                              solver.set_increment_size(dp);
+                          }) {
+                if (macro_trial_increment > 0.0) {
+                    macro_solver_->set_increment_size(macro_trial_increment);
+                }
+                if (macro_step_target_time > macro_step_start_time) {
+                    const auto verdict =
+                        macro_solver_->step_to(macro_step_target_time);
+                    macro_ok = verdict != StepVerdict::Stop &&
+                        macro_solver_->current_time()
+                            >= macro_step_target_time - 1.0e-12;
+                } else {
+                    macro_ok = macro_solver_->step();
+                }
+            } else {
+                macro_ok = macro_solver_->step();
+            }
+            const auto macro_t1 = std::chrono::steady_clock::now();
+            last_report_.macro_solve_seconds +=
+                std::chrono::duration<double>(macro_t1 - macro_t0).count();
+            capture_macro_solver_diagnostics_();
+
+            if (!macro_ok) {
+                macro_solver_->restore_checkpoint(macro_checkpoint);
+                restore_previous_injection_();
+                return false;
+            }
+
+            capture_attempted_macro_state_();
+            macro_solver_->commit_trial_state();
+            set_macro_trial_mode_(false);
+
+            last_report_.converged = true;
+            last_report_.rollback_performed = true;
+            last_report_.hybrid_active = true;
+            last_report_.coupling_regime =
+                CouplingRegime::HybridObservationWindow;
+            last_report_.termination_reason =
+                CouplingTerminationReason::HybridObservationStepCompleted;
+            last_report_.hybrid_reason =
+                last_report_.failed_submodels > 0
+                    ? "micro_solve_failed_advanced_with_last_feedback"
+                    : "max_iterations_advanced_with_last_feedback";
+            last_report_.one_way_replay_status =
+                "deferred_after_two_way_failure";
+            last_report_.work_gap = has_last_feedback
+                ? max_force_gap_(current, last_converged_responses_)
+                : std::numeric_limits<double>::infinity();
+            ++hybrid_window_steps_;
+            hybrid_success_steps_ = 0;
+            last_report_.hybrid_window_steps = hybrid_window_steps_;
+            last_report_.hybrid_success_steps = hybrid_success_steps_;
+            last_report_.return_gate_passed = false;
+            sync_local_runtime_report_();
+            ++analysis_steps_;
+            return true;
+        };
+
         if (!accepted) {
+            if (try_hybrid_observation_window()) {
+                return true;
+            }
+
             macro_solver_->restore_checkpoint(macro_checkpoint);
             for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
                 model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
@@ -1054,6 +1357,11 @@ private:
             model_.macro_bridge().inject_response(response);
         }
 
+        const double accepted_work_gap =
+            last_converged_responses_.empty()
+                ? 0.0
+                : max_force_gap_(current, last_converged_responses_);
+
         macro_solver_->commit_trial_state();
         finalize_local_models_(macro_solver_->current_time(), &current);
         sync_local_runtime_report_();
@@ -1062,6 +1370,37 @@ private:
         set_macro_trial_mode_(false);
         last_report_.converged = true;
         last_report_.termination_reason = CouplingTerminationReason::Converged;
+        last_report_.coupling_regime = CouplingRegime::StrictTwoWay;
+        last_report_.feedback_source = CouplingFeedbackSource::CurrentHomogenized;
+        last_report_.hybrid_active = false;
+        last_report_.one_way_replay_status = "not_needed";
+        last_report_.work_gap = accepted_work_gap;
+        if (hybrid_window_steps_ > 0) {
+            const bool stable_force =
+                last_report_.max_force_residual_rel <=
+                two_way_failure_recovery_policy_.force_jump_tolerance;
+            const bool stable_work =
+                last_report_.work_gap <=
+                two_way_failure_recovery_policy_.work_gap_tolerance;
+            bool finite_tangent = true;
+            for (const auto& response : current) {
+                finite_tangent =
+                    finite_tangent && response.tangent.allFinite();
+            }
+            if (stable_force && stable_work && finite_tangent) {
+                ++hybrid_success_steps_;
+            } else {
+                hybrid_success_steps_ = 0;
+            }
+            last_report_.return_gate_passed =
+                hybrid_success_steps_ >=
+                two_way_failure_recovery_policy_.return_success_steps;
+        } else {
+            hybrid_success_steps_ = 0;
+            last_report_.return_gate_passed = true;
+        }
+        last_report_.hybrid_window_steps = hybrid_window_steps_;
+        last_report_.hybrid_success_steps = hybrid_success_steps_;
         ++analysis_steps_;
         return true;
     }
@@ -1092,6 +1431,15 @@ public:
         section_height_ = h;
     }
     void set_tangent_perturbation(double h) { tangent_perturbation_ = h; }
+    void set_local_tangent_computation_mode(TangentComputationMode mode)
+    {
+        local_tangent_computation_mode_ = mode;
+    }
+    void set_local_finite_difference_tangent_settings(
+        HomogenizedTangentFiniteDifferenceSettings settings)
+    {
+        local_fd_tangent_settings_ = settings;
+    }
     void set_macro_failure_backtracking(int attempts, double factor = 0.5)
     {
         macro_failure_backtrack_attempts_ = std::max(0, attempts);
@@ -1101,6 +1449,35 @@ public:
     {
         macro_step_cutback_attempts_ = std::max(0, attempts);
         macro_step_cutback_factor_ = std::clamp(factor, 0.0, 1.0);
+    }
+    void set_site_adaptive_relaxation(
+        SiteAdaptiveRelaxationSettings settings)
+    {
+        settings.residual_growth_limit =
+            std::max(1.0, settings.residual_growth_limit);
+        settings.max_backtracking_attempts =
+            std::max(0, settings.max_backtracking_attempts);
+        settings.backtracking_factor =
+            std::clamp(settings.backtracking_factor, 0.0, 1.0);
+        settings.min_alpha = std::clamp(settings.min_alpha, 0.0, 1.0);
+        site_adaptive_relaxation_ = settings;
+    }
+    void set_two_way_failure_recovery_policy(
+        TwoWayFailureRecoveryPolicy policy) noexcept
+    {
+        policy.max_hybrid_steps = std::max(0, policy.max_hybrid_steps);
+        policy.return_success_steps =
+            std::max(1, policy.return_success_steps);
+        policy.work_gap_tolerance =
+            std::max(0.0, policy.work_gap_tolerance);
+        policy.force_jump_tolerance =
+            std::max(0.0, policy.force_jump_tolerance);
+        two_way_failure_recovery_policy_ = policy;
+    }
+    [[nodiscard]] const TwoWayFailureRecoveryPolicy&
+    two_way_failure_recovery_policy() const noexcept
+    {
+        return two_way_failure_recovery_policy_;
     }
     void set_predictor_admissibility_filter(
         double min_symmetric_eigenvalue,
