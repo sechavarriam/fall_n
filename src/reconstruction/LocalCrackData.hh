@@ -18,6 +18,9 @@ struct CrackRecord {
     double          opening_1{0};
     double          opening_2{0};
     double          opening_3{0};
+    double          opening_max_1{0};
+    double          opening_max_2{0};
+    double          opening_max_3{0};
     bool            closed_1{true};
     bool            closed_2{true};
     bool            closed_3{true};
@@ -37,6 +40,7 @@ struct CrackSummary {
     double most_compressive_sigma_o_max{0.0};
     double max_tau_o_max{0.0};
     double max_opening{0.0};
+    double max_historical_opening{0.0};
 };
 
 struct LocalCrackState {
