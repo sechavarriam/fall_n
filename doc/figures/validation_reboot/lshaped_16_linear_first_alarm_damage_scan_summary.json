@@ -1,0 +1,24 @@
+{
+  "schema": "lshaped_16_linear_first_alarm_plot_v1",
+  "trigger": {
+    "time": 5.2,
+    "step": 260.0,
+    "u_inf": 0.1850615994226,
+    "peak_damage": 1.073797336219,
+    "critical_element": 159.0,
+    "critical_gp": 2.0,
+    "critical_fiber": 14.0,
+    "triggered": 1.0
+  },
+  "peak": {
+    "time": 8.16,
+    "step": 408.0,
+    "u_inf": 0.1187946719376,
+    "peak_damage": 1.909784640285,
+    "critical_element": 157.0,
+    "critical_gp": 2.0,
+    "critical_fiber": 14.0,
+    "triggered": 1.0
+  },
+  "figure": "c:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_linear_first_alarm_damage_scan.pdf"
+}

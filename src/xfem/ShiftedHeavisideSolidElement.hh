@@ -12,6 +12,7 @@
 #include "../elements/element_geometry/ElementGeometry.hh"
 #include "../materials/Material.hh"
 #include "../model/MaterialPoint.hh"
+#include "../reconstruction/LocalCrackData.hh"
 
 #include <Eigen/Dense>
 #include <petsc.h>
@@ -861,6 +862,104 @@ public:
     }
 
     [[nodiscard]] bool is_cut_by_crack() const { return has_enrichment_(); }
+
+    [[nodiscard]] std::vector<fall_n::CrackRecord>
+    collect_crack_records(Vec u_local)
+    {
+        std::vector<fall_n::CrackRecord> records;
+        if (!has_enrichment_()) {
+            return records;
+        }
+
+        ensure_dof_cache_();
+        const auto surface = crack_surface_points_();
+        if (surface.empty()) {
+            return records;
+        }
+        if (cohesive_state_.size() != surface.size()) {
+            cohesive_state_.assign(surface.size(), {});
+        }
+
+        const auto u_e = extract_element_dofs(u_local);
+        records.reserve(surface.size());
+
+        for (std::size_t qp = 0; qp < surface.size(); ++qp) {
+            const auto& sp = surface[qp];
+            Eigen::Vector3d jump = Eigen::Vector3d::Zero();
+
+            std::vector<std::pair<std::size_t, double>> enriched_weights;
+            enriched_weights.reserve(num_nodes());
+            for (std::size_t node = 0; node < num_nodes(); ++node) {
+                if (enriched_local_nodes_[node] == 0) {
+                    continue;
+                }
+                const double N = geometry_->H(
+                    node,
+                    std::span<const double>{sp.xi.data(), sp.xi.size()});
+                if (std::abs(N) <= 1.0e-14) {
+                    continue;
+                }
+                enriched_weights.emplace_back(node, 2.0 * N);
+            }
+
+            for (std::size_t local_col = 0; local_col < dof_slots_.size();
+                 ++local_col) {
+                const auto& slot = dof_slots_[local_col];
+                if (!slot.enriched) {
+                    continue;
+                }
+                double coeff = 0.0;
+                for (const auto& [node, w] : enriched_weights) {
+                    if (node == slot.node) {
+                        coeff = w;
+                        break;
+                    }
+                }
+                if (coeff == 0.0) {
+                    continue;
+                }
+                jump[static_cast<Eigen::Index>(slot.component)] +=
+                    coeff * u_e[static_cast<Eigen::Index>(local_col)];
+            }
+
+            const auto surface_kinematics =
+                evaluate_shifted_heaviside_cohesive_surface_kinematics<
+                    KinematicPolicy>(
+                    crack_.normal,
+                    shifted_heaviside_kinematics_(sp.xi, u_e));
+            const auto traction_measure =
+                select_shifted_heaviside_cohesive_traction_measure(
+                    options_.cohesive_traction_measure_kind,
+                    surface_kinematics);
+            const auto split =
+                split_crack_jump(traction_measure.normal, jump);
+            const auto response = evaluate_bilinear_cohesive_law(
+                cohesive_,
+                cohesive_state_[qp],
+                traction_measure.normal,
+                split.normal_opening,
+                split.tangential_jump);
+
+            fall_n::CrackRecord record{};
+            record.position = mapped_point_(sp.xi);
+            record.displacement = jump;
+            record.num_cracks = 1;
+            record.normal_1 = traction_measure.normal;
+            record.opening_1 = split.normal_opening;
+            record.closed_1 = split.normal_opening <= 0.0;
+            record.damage = response.damage;
+            record.damage_scalar_available = true;
+            record.fracture_history_available = true;
+            record.sigma_o_max =
+                response.traction.dot(traction_measure.normal);
+            record.tau_o_max =
+                (response.traction -
+                 record.sigma_o_max * traction_measure.normal).norm();
+            records.push_back(record);
+        }
+
+        return records;
+    }
 
     void bind_integration_points()
     {

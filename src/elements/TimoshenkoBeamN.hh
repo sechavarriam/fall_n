@@ -63,6 +63,7 @@
 #include "element_geometry/ElementGeometry.hh"
 #include "section/MaterialSection.hh"
 #include "assembly/AssemblyPolicy.hh"
+#include "StructuralMassPolicy.hh"
 
 #include "../materials/Material.hh"
 #include "../numerics/Interpolation/LagrangeInterpolation.hh"
@@ -112,6 +113,7 @@ class TimoshenkoBeamN {
     mutable std::vector<PetscInt> dof_indices_;
     mutable bool                  dofs_cached_{false};
     double                        density_{0.0};
+    fall_n::StructuralMassPolicy  mass_policy_{fall_n::StructuralMassPolicy::consistent};
 
     void ensure_dof_cache() const noexcept {
         if (dofs_cached_) return;
@@ -554,6 +556,16 @@ public:
     void set_density(double rho) noexcept { density_ = rho; }
     [[nodiscard]] double density() const noexcept { return density_; }
 
+    void set_structural_mass_policy(fall_n::StructuralMassPolicy policy) noexcept
+    {
+        mass_policy_ = policy;
+    }
+
+    [[nodiscard]] fall_n::StructuralMassPolicy structural_mass_policy() const noexcept
+    {
+        return mass_policy_;
+    }
+
     [[nodiscard]] KMatrixT compute_consistent_mass_matrix() const {
         KMatrixT M_loc = KMatrixT::Zero();
         if (!(density_ > 0.0) || sections_.empty()) {
@@ -587,9 +599,87 @@ public:
         return T.transpose() * M_loc * T;
     }
 
+    [[nodiscard]] KMatrixT compute_row_sum_lumped_mass_matrix() const
+    {
+        const KMatrixT M_consistent = compute_consistent_mass_matrix();
+        KMatrixT M_lumped = KMatrixT::Zero();
+        for (std::size_t i = 0; i < total_dofs; ++i) {
+            M_lumped(i, i) = M_consistent.row(static_cast<Eigen::Index>(i)).sum();
+        }
+        return M_lumped;
+    }
+
+    [[nodiscard]] KMatrixT compute_positive_nodal_lumped_mass_matrix() const
+    {
+        KMatrixT M_lumped = KMatrixT::Zero();
+        if (!(density_ > 0.0) || sections_.empty()) {
+            return M_lumped;
+        }
+
+        const auto snap = sections_.front().section_snapshot();
+        const double area = snap.beam ? snap.beam->area : 0.0;
+        if (!(area > 0.0)) {
+            return M_lumped;
+        }
+
+        double length = 0.0;
+        for (std::size_t gp = 0; gp < n_gp; ++gp) {
+            const auto xi_view = geometry_->reference_integration_point(gp);
+            length += geometry_->weight(gp) * geometry_->differential_measure(xi_view);
+        }
+        const double total_mass = density_ * area * length;
+        if (!(total_mass > 0.0)) {
+            return M_lumped;
+        }
+
+        std::array<double, N> weights{};
+        if constexpr (N == 2) {
+            weights[0] = 0.5;
+            weights[1] = 0.5;
+        } else {
+            constexpr double h = 2.0 / static_cast<double>(N - 1);
+            weights[0] = 0.5 * h / 2.0;
+            weights[N - 1] = 0.5 * h / 2.0;
+            for (std::size_t i = 1; i + 1 < N; ++i) {
+                weights[i] = h / 2.0;
+            }
+        }
+
+        double norm = 0.0;
+        for (double w : weights) {
+            norm += w;
+        }
+        if (!(norm > 0.0)) {
+            return M_lumped;
+        }
+
+        for (std::size_t node = 0; node < N; ++node) {
+            const double nodal_mass = total_mass * weights[node] / norm;
+            const auto c = node * dofs_per_node;
+            for (std::size_t d = 0; d < dim; ++d) {
+                M_lumped(c + d, c + d) = nodal_mass;
+            }
+        }
+
+        return M_lumped;
+    }
+
+    [[nodiscard]] KMatrixT compute_mass_matrix() const
+    {
+        switch (mass_policy_) {
+        case fall_n::StructuralMassPolicy::consistent:
+            return compute_consistent_mass_matrix();
+        case fall_n::StructuralMassPolicy::row_sum_lumped:
+            return compute_row_sum_lumped_mass_matrix();
+        case fall_n::StructuralMassPolicy::positive_nodal_lumped:
+            return compute_positive_nodal_lumped_mass_matrix();
+        }
+        return compute_consistent_mass_matrix();
+    }
+
     void inject_mass(Mat M) {
         ensure_dof_cache();
-        const auto M_e = compute_consistent_mass_matrix();
+        const auto M_e = compute_mass_matrix();
         if (M_e.isZero()) {
             return;
         }

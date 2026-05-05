@@ -39,6 +39,7 @@
 #include <Eigen/Dense>
 
 #include "FiniteElementConcept.hh"
+#include "StructuralMassPolicy.hh"
 #include "../materials/SectionConstitutiveSnapshot.hh"
 
 
@@ -82,6 +83,11 @@ class StructuralElement {
         virtual double density()                     const  { return 0.0; }
         virtual void   set_density(double /*rho*/)          {}
         virtual void   inject_mass(Mat /*M*/)               {}
+        virtual void   set_structural_mass_policy(
+            fall_n::StructuralMassPolicy /*policy*/) {}
+        virtual fall_n::StructuralMassPolicy structural_mass_policy() const {
+            return fall_n::StructuralMassPolicy::consistent;
+        }
 
         // Introspection for structural-only post-processing/reconstruction.
         // This stays out of the FiniteElement concept and therefore out of
@@ -153,6 +159,16 @@ class StructuralElement {
             if constexpr (requires { element_.inject_mass(M); })
                 element_.inject_mass(M);
         }
+        void set_structural_mass_policy(fall_n::StructuralMassPolicy policy) override {
+            if constexpr (requires { element_.set_structural_mass_policy(policy); })
+                element_.set_structural_mass_policy(policy);
+        }
+        fall_n::StructuralMassPolicy structural_mass_policy() const override {
+            if constexpr (requires { element_.structural_mass_policy(); })
+                return element_.structural_mass_policy();
+            else
+                return fall_n::StructuralMassPolicy::consistent;
+        }
 
         const std::type_info& concrete_type() const noexcept override { return typeid(T); }
         const void* raw_ptr() const noexcept override { return &element_; }
@@ -222,6 +238,10 @@ public:
     auto density()           const -> double   { return pimpl_->density(); }
     void set_density(double rho)               { pimpl_->set_density(rho); }
     void inject_mass(Mat M)                    { pimpl_->inject_mass(M); }
+    void set_structural_mass_policy(fall_n::StructuralMassPolicy policy)
+    { pimpl_->set_structural_mass_policy(policy); }
+    auto structural_mass_policy() const -> fall_n::StructuralMassPolicy
+    { return pimpl_->structural_mass_policy(); }
 
     const std::type_info& concrete_type() const noexcept { return pimpl_->concrete_type(); }
 

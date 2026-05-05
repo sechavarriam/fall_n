@@ -43,6 +43,7 @@ void add_patch_fibers(
     std::vector<Fiber>& fibers,
     double y_min, double y_max, int ny,
     double z_min, double z_max, int nz,
+    FiberSectionMaterialRole material_role,
     Factory&& material_factory)
 {
     const double dy = (y_max - y_min) / static_cast<double>(ny);
@@ -53,9 +54,22 @@ void add_patch_fibers(
             const double y = y_min + (static_cast<double>(iy) + 0.5) * dy;
             const double z = z_min + (static_cast<double>(iz) + 0.5) * dz;
             const double A = dy * dz;
-            fibers.emplace_back(y, z, A, material_factory());
+            fibers.emplace_back(y, z, A, material_factory(), material_role);
         }
     }
+}
+
+template <typename Factory>
+void add_patch_fibers(
+    std::vector<Fiber>& fibers,
+    double y_min, double y_max, int ny,
+    double z_min, double z_max, int nz,
+    Factory&& material_factory)
+{
+    add_patch_fibers(
+        fibers, y_min, y_max, ny, z_min, z_max, nz,
+        FiberSectionMaterialRole::unknown,
+        std::forward<Factory>(material_factory));
 }
 
 /// Place reinforcement fibers at known (y, z) positions.
@@ -67,11 +81,25 @@ void add_rebar_fibers(
     std::vector<Fiber>& fibers,
     const std::array<std::pair<double, double>, N>& positions,
     double area,
+    FiberSectionMaterialRole material_role,
     Factory&& material_factory)
 {
     for (const auto& [y, z] : positions) {
-        fibers.emplace_back(y, z, area, material_factory());
+        fibers.emplace_back(y, z, area, material_factory(), material_role);
     }
+}
+
+template <std::size_t N, typename Factory>
+void add_rebar_fibers(
+    std::vector<Fiber>& fibers,
+    const std::array<std::pair<double, double>, N>& positions,
+    double area,
+    Factory&& material_factory)
+{
+    add_rebar_fibers(
+        fibers, positions, area,
+        FiberSectionMaterialRole::unknown,
+        std::forward<Factory>(material_factory));
 }
 
 

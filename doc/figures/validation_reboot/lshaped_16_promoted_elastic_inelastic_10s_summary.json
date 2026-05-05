@@ -1,0 +1,157 @@
+{
+  "schema": "lshaped_16_promoted_elastic_inelastic_10s_v1",
+  "time_limit_s": 10.0,
+  "available_case_count": 6,
+  "missing": [],
+  "rows": [
+    {
+      "label": "fall_n elastico promovido",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\stage_c_16storey\\falln_n4_newmark_linear_primary_nodal_10s_roof_displacement.csv",
+      "samples": 501,
+      "t_start_s": 0.0,
+      "t_end_s": 10.0,
+      "component_columns": [
+        "node329_dof0",
+        "node329_dof1",
+        "node329_dof2"
+      ],
+      "peak_abs_ux_m": 0.2234381654801,
+      "final_ux_m": 0.03713575954577,
+      "peak_abs_uy_m": 0.2687366922874,
+      "final_uy_m": 0.08744870109245,
+      "peak_abs_uz_m": 0.01747084983354,
+      "final_uz_m": -0.001595873913869,
+      "structural_mass_policy": "primary_grid_nodal_diagnostic",
+      "duration_s": 10.0
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey\\scale1p0_window87p65_10s_elastic_timoshenko_sub1_nodalmass_current\\roof_displacement.csv",
+      "samples": 500,
+      "t_start_s": 0.02,
+      "t_end_s": 10.0,
+      "component_columns": [
+        "ux",
+        "uy",
+        "uz"
+      ],
+      "peak_abs_ux_m": 0.222476,
+      "final_ux_m": 0.0187224,
+      "peak_abs_uy_m": 0.270158,
+      "final_uy_m": 0.0800274,
+      "peak_abs_uz_m": 0.0178348,
+      "final_uz_m": -0.0017827,
+      "status": "completed",
+      "accepted_steps": 500,
+      "requested_steps": 500,
+      "beam_element_family": "elastic-timoshenko",
+      "total_wall_seconds": 13.843381099984981
+    },
+    {
+      "label": "fall_n inelastico con atajo",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\stage_c_16storey\\falln_n4_nonlinear_restart_alarm_to_10s_roof_displacement.csv",
+      "samples": 3687,
+      "t_start_s": 5.205,
+      "t_end_s": 10.0,
+      "component_columns": [
+        "node329_dof0",
+        "node329_dof1",
+        "node329_dof2"
+      ],
+      "peak_abs_ux_m": 0.240518548,
+      "final_ux_m": 0.107275704,
+      "peak_abs_uy_m": 0.354808396,
+      "final_uy_m": 0.354808396,
+      "peak_abs_uz_m": 0.0224264517,
+      "final_uz_m": -0.000585036082,
+      "case_kind": "global_falln",
+      "macro_element_family": "TimoshenkoBeamN<4>_GaussLobatto",
+      "structural_mass_policy": "primary_grid_nodal_diagnostic",
+      "duration_s": 10,
+      "first_yield_time_s": 5.205,
+      "peak_damage_index": 3.15158
+    },
+    {
+      "label": "fall_n inelastico completo",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\stage_c_16storey\\falln_n4_full_nonlinear_primary_nodal_10s_roof_displacement.csv",
+      "samples": 7532,
+      "t_start_s": 0.02,
+      "t_end_s": 10.0,
+      "component_columns": [
+        "node329_dof0",
+        "node329_dof1",
+        "node329_dof2"
+      ],
+      "peak_abs_ux_m": 0.298072908,
+      "final_ux_m": 0.111142581,
+      "peak_abs_uy_m": 0.552066857,
+      "final_uy_m": 0.447275254,
+      "peak_abs_uz_m": 0.0275021457,
+      "final_uz_m": -0.00102788764,
+      "case_kind": "global_falln",
+      "macro_element_family": "TimoshenkoBeamN<4>_GaussLobatto",
+      "structural_mass_policy": "primary_grid_nodal_diagnostic",
+      "duration_s": 10.0,
+      "first_yield_time_s": 2.3325,
+      "peak_damage_index": 3.760679
+    },
+    {
+      "label": "OpenSees dispBeam Concrete02 proxy",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey\\scale1p0_window87p65_10s_disp_falln_proxy_axisfixed\\roof_displacement.csv",
+      "samples": 229,
+      "t_start_s": 0.02,
+      "t_end_s": 3.97,
+      "component_columns": [
+        "ux",
+        "uy",
+        "uz"
+      ],
+      "peak_abs_ux_m": 0.220626,
+      "final_ux_m": 0.122929,
+      "peak_abs_uy_m": 0.446815,
+      "final_uy_m": 0.443718,
+      "peak_abs_uz_m": 0.0101018,
+      "final_uz_m": -0.00484223,
+      "status": "terminated_stalled_incomplete",
+      "accepted_steps": 229,
+      "requested_steps": 500,
+      "beam_element_family": "disp",
+      "concrete_model": "falln-kent-park-proxy"
+    },
+    {
+      "label": "OpenSees forceBeam Concrete02 Ets=0.05",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey\\scale1p0_window87p65_10s_force_shear_proxy_ets005_axisfixed\\roof_displacement.csv",
+      "samples": 398,
+      "t_start_s": 0.02,
+      "t_end_s": 7.94,
+      "component_columns": [
+        "ux",
+        "uy",
+        "uz"
+      ],
+      "peak_abs_ux_m": 0.224947,
+      "final_ux_m": 0.171021,
+      "peak_abs_uy_m": 0.300787,
+      "final_uy_m": -0.129198,
+      "peak_abs_uz_m": 0.0243461,
+      "final_uz_m": 0.0124295,
+      "status": "terminated_cost_limited_partial",
+      "accepted_steps": 398,
+      "requested_steps": 500,
+      "beam_element_family": "force-shear",
+      "concrete_model": "falln-kent-park-proxy"
+    }
+  ],
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_time_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_time_components.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_plan_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_plan_orbit.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_peak_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_promoted_elastic_inelastic_10s_peak_components.png"
+  ],
+  "notes": [
+    "The script can be rerun while long nonlinear OpenSees/fall_n cases finish; missing cases are reported instead of aborting.",
+    "The promoted OpenSees nonlinear comparator is dispBeamColumn with the fall_n Kent-Park Concrete02 proxy."
+  ]
+}

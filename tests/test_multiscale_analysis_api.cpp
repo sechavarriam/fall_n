@@ -260,6 +260,9 @@ struct FakeLocalModel {
     ResponseStatus response_status{ResponseStatus::Ok};
     bool tangent_regularized{false};
     int failed_perturbations{0};
+    TangentComputationMode tangent_mode_requested{
+        TangentComputationMode::PreferLinearizedCondensation};
+    HomogenizedTangentFiniteDifferenceSettings fd_settings{};
     Eigen::Matrix<double, 6, 6> response_tangent{
         Eigen::Matrix<double, 6, 6>::Identity()};
     std::optional<Eigen::Vector<double, 6>> response_forces_override{};
@@ -269,6 +272,17 @@ struct FakeLocalModel {
         {true, true, true, true, true, true}};
 
     void update_kinematics(const SectionKinematics&, const SectionKinematics&) {}
+
+    void set_tangent_computation_mode(TangentComputationMode mode)
+    {
+        tangent_mode_requested = mode;
+    }
+
+    void set_finite_difference_tangent_settings(
+        HomogenizedTangentFiniteDifferenceSettings settings)
+    {
+        fd_settings = settings;
+    }
 
     [[nodiscard]] FakeLocalResult solve_step(double)
     {
@@ -300,6 +314,8 @@ struct FakeLocalModel {
         response.status = response_status;
         response.tangent_regularized = tangent_regularized;
         response.failed_perturbations = failed_perturbations;
+        response.tangent_mode_requested = tangent_mode_requested;
+        response.perturbation_sizes[0] = fd_settings.relative_perturbation;
         response.tangent_scheme =
             TangentLinearizationScheme::AdaptiveFiniteDifference;
         response.tangent_column_valid = tangent_column_valid;
@@ -375,6 +391,14 @@ void test_iterated_two_way_uses_local_step_counter()
                "report mode is IteratedTwoWayFE2");
     CHECK_TRUE(analysis.last_report().iterations >= 2,
                "iterated FE2 performs at least two fixed-point iterations");
+    CHECK_TRUE(!analysis.last_report().site_iteration_records.empty(),
+               "iterated FE2 records per-site iteration diagnostics");
+    CHECK_TRUE(
+        analysis.last_report().site_iteration_records.back().local_site_index == 0,
+        "per-site iteration diagnostics preserve the local site index");
+    CHECK_TRUE(
+        analysis.last_report().site_iteration_records.back().site.macro_element_id == 0,
+        "per-site iteration diagnostics preserve the macro element id");
     CHECK_TRUE(analysis.last_responses().size() == 1,
                "iterated FE2 exposes the accepted local response for diagnostics");
     CHECK_TRUE(analysis.last_responses()[0].status == ResponseStatus::Ok,
@@ -778,6 +802,64 @@ void test_iterated_two_way_rolls_back_on_micro_failure()
                "micro failure records the failed coupling site");
     CHECK_TRUE(analysis.model().macro_bridge().injected[0] == std::nullopt,
                "micro failure restores the previous injection state");
+    CHECK_TRUE(analysis.last_report().coupling_regime == CouplingRegime::StrictTwoWay,
+               "strict two-way remains the default recovery regime");
+    CHECK_TRUE(!analysis.last_report().hybrid_active,
+               "strict two-way does not silently activate a hybrid window");
+}
+
+void test_hybrid_observation_window_advances_after_micro_failure()
+{
+    FakeSolver solver;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.solve_converged = false;
+    local.response_status = ResponseStatus::SolveFailed;
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<IteratedTwoWayFE2>(3),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+    analysis.set_two_way_failure_recovery_policy(TwoWayFailureRecoveryPolicy{
+        .mode = TwoWayFailureRecoveryMode::HybridObservationWindow,
+        .max_hybrid_steps = 2,
+        .return_success_steps = 2,
+        .work_gap_tolerance = 0.05,
+        .force_jump_tolerance = 0.05});
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok,
+               "hybrid observation policy may advance the macro step after a controlled micro failure");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason ==
+            CouplingTerminationReason::HybridObservationStepCompleted,
+        "hybrid observation window reports an explicit termination reason");
+    CHECK_TRUE(
+        analysis.last_report().coupling_regime ==
+            CouplingRegime::HybridObservationWindow,
+        "hybrid observation window marks the coupling regime");
+    CHECK_TRUE(analysis.last_report().hybrid_active,
+               "hybrid observation window exposes the active hybrid flag");
+    CHECK_TRUE(
+        analysis.last_report().feedback_source ==
+            CouplingFeedbackSource::ClearedOneWay,
+        "hybrid observation without previous feedback clears the local feedback");
+    CHECK_TRUE(analysis.last_report().hybrid_window_steps == 1,
+               "hybrid observation counts accepted hybrid windows");
+    CHECK_TRUE(analysis.analysis_step() == 1 && solver.committed_step == 1,
+               "hybrid observation commits exactly one macro step");
 }
 
 void test_lagged_feedback_reports_regularized_response_without_hard_failure()
@@ -1035,6 +1117,43 @@ void test_restart_bundle_restores_macro_micro_and_injection_state()
                "restart bundle restores the multiscale analysis step counter");
 }
 
+void test_local_tangent_policy_is_forwarded_to_local_models()
+{
+    FakeSolver solver;
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        FakeLocalModel{&solver, 0});
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<LaggedFeedbackCoupling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    HomogenizedTangentFiniteDifferenceSettings settings{};
+    settings.relative_perturbation = 2.5e-4;
+    analysis.set_local_tangent_computation_mode(
+        TangentComputationMode::ForceAdaptiveFiniteDifference);
+    analysis.set_local_finite_difference_tangent_settings(settings);
+
+    const bool init_ok = analysis.initialize_local_models();
+    CHECK_TRUE(init_ok, "local tangent policy initialization succeeds");
+    CHECK_TRUE(!analysis.last_responses().empty(),
+               "local tangent policy produces a local response");
+    CHECK_TRUE(analysis.last_responses()[0].tangent_mode_requested ==
+                   TangentComputationMode::ForceAdaptiveFiniteDifference,
+               "local tangent mode is forwarded into the local model");
+    CHECK_TRUE(std::abs(analysis.last_responses()[0].perturbation_sizes[0] -
+                        settings.relative_perturbation) < 1.0e-14,
+               "local finite-difference settings are forwarded into the local model");
+}
+
 }  // namespace
 
 int main()
@@ -1048,11 +1167,13 @@ int main()
     test_iterated_two_way_recovers_macro_failure_with_step_cutback();
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
+    test_hybrid_observation_window_advances_after_micro_failure();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();
     test_invalid_operator_counts_as_hard_failure();
     test_iterated_two_way_matches_between_serial_and_openmp_executors();
     test_lagged_feedback_force_residual_norms_change_reported_gap();
     test_restart_bundle_restores_macro_micro_and_injection_state();
+    test_local_tangent_policy_is_forwarded_to_local_models();
 
     std::cout << "\nPassed: " << g_pass << "  Failed: " << g_fail << "\n";
     return (g_fail == 0) ? 0 : 1;

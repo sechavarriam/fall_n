@@ -58,6 +58,7 @@
 #include "LocalCrackDiagnostics.hh"
 #include "LocalModelAdapter.hh"
 #include "LocalVTKOutputWriter.hh"
+#include "../validation/ReducedRCManagedXfemLocalModelAdapter.hh"
 #include "PersistentLocalStateOps.hh"
 #include "../analysis/ArcLengthSolver.hh"
 
@@ -818,6 +819,16 @@ public:
 
     [[nodiscard]] int vtk_interval() const noexcept { return vtk_interval_; }
 
+    void set_vtk_output_profile(LocalVTKOutputProfile profile) noexcept
+    {
+        output_writer_.set_profile(profile);
+    }
+
+    [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
+    {
+        return output_writer_.profile();
+    }
+
     // Non-copyable
     NonlinearSubModelEvolver(const NonlinearSubModelEvolver&) = delete;
     NonlinearSubModelEvolver& operator=(const NonlinearSubModelEvolver&) = delete;
@@ -1208,20 +1219,48 @@ public:
     /// Call once per GLOBAL time step, after the staggered loop converges.
     /// Collects crack data, optionally writes VTK, and advances the counter.
     void end_of_step(double time) {
-        collect_crack_data();
+        const bool scheduled_vtk =
+            vtk_interval_ > 0 && step_count_ % vtk_interval_ == 0;
+        collect_crack_data(scheduled_vtk);
 
-        if (vtk_interval_ > 0 && step_count_ % vtk_interval_ == 0)
-            write_vtk_snapshot(time);
+        if (scheduled_vtk)
+            write_vtk_snapshot_(time, step_count_);
 
         ++step_count_;
+    }
+
+    [[nodiscard]] ReducedRCManagedXfemLocalVTKSnapshot write_vtk_snapshot(
+        double time,
+        int step,
+        double /*visual_scale*/ = 0.0)
+    {
+        ReducedRCManagedXfemLocalVTKSnapshot snapshot{};
+        if (!model_ready_ || !model_ || !U_) {
+            snapshot.status_label = "continuum_kobathe_model_not_initialized";
+            return snapshot;
+        }
+
+        collect_crack_data(/*retain_detail=*/true);
+        write_vtk_snapshot_(time, step);
+        snapshot.written = true;
+        snapshot.mesh_path = output_writer_.mesh_path(step);
+        snapshot.gauss_path =
+            output_writer_.profile() == LocalVTKOutputProfile::Debug
+                ? output_writer_.gauss_path(step)
+                : std::string{};
+        snapshot.cracks_path =
+            latest_cracks_.empty() ||
+                    output_writer_.profile() == LocalVTKOutputProfile::Minimal
+                ? std::string{}
+                : output_writer_.cracks_path(step);
+        snapshot.crack_record_count = latest_cracks_.size();
+        snapshot.status_label = "continuum_kobathe_written";
+        return snapshot;
     }
 
     //  Finalize 
 
     void finalize() {
-        if (vtk_interval_ <= 0) {
-            return;
-        }
         output_writer_.finalize();
     }
 
@@ -1537,7 +1576,13 @@ private:
             {
                 auto& geom = sub_->domain.elements()[i];
                 double area = sub_->rebar_areas[bar_idx / static_cast<std::size_t>(nz)];
-                elems.emplace_back(TrussElement<3>{&geom, steel_mat, area});
+                if (sub_->rebar_line_num_nodes == 3) {
+                    elems.emplace_back(
+                        TrussElement<3, 3>{&geom, steel_mat, area});
+                } else {
+                    elems.emplace_back(
+                        TrussElement<3>{&geom, steel_mat, area});
+                }
                 ++bar_idx;
             }
         }
@@ -1925,14 +1970,13 @@ private:
 
     //  Crack data collection 
 
-    void collect_crack_data() {
+    void collect_crack_data(bool retain_detail = false) {
         if (!model_) {
             latest_cracks_.clear();
             latest_crack_summary_ = {};
             last_attempted_crack_summary_ = {};
             return;
         }
-        const bool retain_detail = vtk_interval_ > 0;
         const auto crack_state =
             LocalCrackDiagnostics<MixedModel>::collect(
                 *model_, *sub_, U_, min_crack_opening_, retain_detail);
@@ -1944,10 +1988,10 @@ private:
 
     //  VTK snapshot 
 
-    void write_vtk_snapshot(double time) {
+    void write_vtk_snapshot_(double time, int step) {
         output_writer_.write_snapshot(
             time,
-            step_count_,
+            step,
             *model_,
             U_,
             *sub_,

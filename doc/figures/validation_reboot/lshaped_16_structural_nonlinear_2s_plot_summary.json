@@ -1,0 +1,12 @@
+{
+  "schema": "lshaped_16_structural_nonlinear_2s_plot_v1",
+  "figures": [
+    "c:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_nonlinear_2s_time_components.pdf",
+    "c:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_nonlinear_2s_plan_orbit.pdf"
+  ],
+  "cases": [
+    "fall_n no lineal N4",
+    "OpenSees forceBeam+Vy/Vz no lineal",
+    "OpenSees ElasticTimoshenko"
+  ]
+}

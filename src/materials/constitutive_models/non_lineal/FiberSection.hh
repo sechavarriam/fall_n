@@ -138,17 +138,25 @@ struct Fiber {
     double y;   // y-coordinate from centroid (local section axes)
     double z;   // z-coordinate from centroid
     double A;   // tributary area of this fiber
+    FiberSectionMaterialRole material_role{FiberSectionMaterialRole::unknown};
 
     Material<UniaxialMaterial> material;   // type-erased uniaxial material
     //                                       (MenegottoPinto, KentPark, etc.)
 
     // ── Convenience constructor ───────────────────────────────────────
-    Fiber(double y_, double z_, double A_, Material<UniaxialMaterial> mat)
-        : y{y_}, z{z_}, A{A_}, material{std::move(mat)} {}
+    Fiber(double y_,
+          double z_,
+          double A_,
+          Material<UniaxialMaterial> mat,
+          FiberSectionMaterialRole role = FiberSectionMaterialRole::unknown)
+        : y{y_}, z{z_}, A{A_}, material_role{role}, material{std::move(mat)} {}
 
     // 2D convenience: z = 0 (fibers only along y)
-    Fiber(double y_, double A_, Material<UniaxialMaterial> mat)
-        : y{y_}, z{0.0}, A{A_}, material{std::move(mat)} {}
+    Fiber(double y_,
+          double A_,
+          Material<UniaxialMaterial> mat,
+          FiberSectionMaterialRole role = FiberSectionMaterialRole::unknown)
+        : y{y_}, z{0.0}, A{A_}, material_role{role}, material{std::move(mat)} {}
 };
 
 
@@ -460,6 +468,7 @@ public:
                     .y = fiber.y,
                     .z = fiber.z,
                     .area = fiber.A,
+                    .material_role = fiber.material_role,
                     .strain_xx = eps_f,
                     .stress_xx = stress_1d.components(),
                     .tangent_xx = tangent_1d(0, 0),

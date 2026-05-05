@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include "src/validation/ReducedRCMultiscaleValidationStartCatalog.hh"
+#include "src/reconstruction/LocalVTKOutputProfile.hh"
 
 int main() {
     using namespace fall_n;
@@ -22,6 +23,15 @@ int main() {
     bool has_crack_opening = false;
     bool has_cohesive_traction = false;
     bool has_cohesive_damage = false;
+    bool has_crack_surface_displacement = false;
+    bool has_crack_opening_vector = false;
+    bool has_crack_normal = false;
+    bool has_crack_state = false;
+    bool has_site_id = false;
+    bool has_parent_element_id = false;
+    bool has_rebar_tube_radius = false;
+    bool has_rebar_yield_ratio = false;
+    bool has_rebar_bar_id = false;
 
     std::size_t xfem_field_count = 0;
     std::size_t replay_required_count = 0;
@@ -33,6 +43,18 @@ int main() {
             if (f.name == std::string_view{"crack_opening"})    has_crack_opening = true;
             if (f.name == std::string_view{"cohesive_traction"}) has_cohesive_traction = true;
             if (f.name == std::string_view{"cohesive_damage"})   has_cohesive_damage = true;
+            if (f.name == std::string_view{"displacement"} && f.components == 3)
+                has_crack_surface_displacement = true;
+            if (f.name == std::string_view{"crack_opening_vector"}) has_crack_opening_vector = true;
+            if (f.name == std::string_view{"crack_normal"}) has_crack_normal = true;
+            if (f.name == std::string_view{"crack_state"}) has_crack_state = true;
+            if (f.name == std::string_view{"site_id"}) has_site_id = true;
+            if (f.name == std::string_view{"parent_element_id"}) has_parent_element_id = true;
+        }
+        if (f.location_kind == ReducedRCVTKFieldLocationKind::rebar_line) {
+            if (f.name == std::string_view{"TubeRadius"}) has_rebar_tube_radius = true;
+            if (f.name == std::string_view{"yield_ratio"}) has_rebar_yield_ratio = true;
+            if (f.name == std::string_view{"bar_id"}) has_rebar_bar_id = true;
         }
         if (f.required_for_multiscale_replay) {
             ++replay_required_count;
@@ -42,6 +64,21 @@ int main() {
     assert(has_crack_opening);
     assert(has_cohesive_traction);
     assert(has_cohesive_damage);
+    assert(has_crack_surface_displacement);
+    assert(has_crack_opening_vector);
+    assert(has_crack_normal);
+    assert(has_crack_state);
+    assert(has_site_id);
+    assert(has_parent_element_id);
+    assert(has_rebar_tube_radius);
+    assert(has_rebar_yield_ratio);
+    assert(has_rebar_bar_id);
+    assert(parse_local_vtk_output_profile("publication") ==
+           LocalVTKOutputProfile::Publication);
+    assert(parse_local_vtk_output_profile("debug") ==
+           LocalVTKOutputProfile::Debug);
+    assert(to_string(LocalVTKOutputProfile::Minimal) ==
+           std::string_view{"minimal"});
     assert(xfem_field_count >= 3);
     assert(replay_required_count >=
            canonical_reduced_rc_required_replay_vtk_field_count_v);
@@ -63,6 +100,21 @@ int main() {
     f << "  \"has_crack_opening\":   " << (has_crack_opening ? "true" : "false") << ",\n";
     f << "  \"has_cohesive_traction\": " << (has_cohesive_traction ? "true" : "false") << ",\n";
     f << "  \"has_cohesive_damage\":   " << (has_cohesive_damage ? "true" : "false") << ",\n";
+    f << "  \"has_crack_surface_displacement\": "
+      << (has_crack_surface_displacement ? "true" : "false") << ",\n";
+    f << "  \"has_crack_opening_vector\": "
+      << (has_crack_opening_vector ? "true" : "false") << ",\n";
+    f << "  \"has_crack_normal\": " << (has_crack_normal ? "true" : "false") << ",\n";
+    f << "  \"has_crack_state\": " << (has_crack_state ? "true" : "false") << ",\n";
+    f << "  \"has_site_id\": " << (has_site_id ? "true" : "false") << ",\n";
+    f << "  \"has_parent_element_id\": "
+      << (has_parent_element_id ? "true" : "false") << ",\n";
+    f << "  \"has_rebar_tube_radius\": "
+      << (has_rebar_tube_radius ? "true" : "false") << ",\n";
+    f << "  \"has_rebar_yield_ratio\": "
+      << (has_rebar_yield_ratio ? "true" : "false") << ",\n";
+    f << "  \"has_rebar_bar_id\": "
+      << (has_rebar_bar_id ? "true" : "false") << ",\n";
     f << "  \"xfem_fields\": [\n";
     bool first = true;
     for (const auto& fld : fields) {
