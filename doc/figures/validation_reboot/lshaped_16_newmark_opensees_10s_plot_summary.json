@@ -1,0 +1,11 @@
+{
+  "schema": "lshaped_16_newmark_opensees_10s_plot_v1",
+  "cases": [
+    "fall_n Newmark lineal N4 masa nodal",
+    "OpenSees ElasticTimoshenko masa nodal"
+  ],
+  "figures": [
+    "c:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_newmark_opensees_10s_time_components.pdf",
+    "c:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_newmark_opensees_10s_plan_orbit.pdf"
+  ]
+}

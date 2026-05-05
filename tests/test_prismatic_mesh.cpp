@@ -256,6 +256,39 @@ void test_quadratic_longitudinal_bias_midpoints() {
                tol);
 }
 
+void test_hex20_boundary_faces_exclude_inactive_quadratic_nodes() {
+    std::println(
+        "\n-- Test: Hex20 boundary faces expose only active serendipity nodes --");
+
+    auto [domain, grid] = fall_n::make_prismatic_domain({
+        .width = 0.50,
+        .height = 0.50,
+        .length = 3.20,
+        .nx = 2,
+        .ny = 2,
+        .nz = 8,
+        .hex_order = fall_n::HexOrder::Serendipity,
+    });
+    (void)domain;
+
+    const auto min_z = grid.nodes_on_face(fall_n::PrismFace::MinZ);
+    const auto max_z = grid.nodes_on_face(fall_n::PrismFace::MaxZ);
+    const auto min_x = grid.nodes_on_face(fall_n::PrismFace::MinX);
+
+    report("Hex20 MinZ omits inactive face-centre nodes",
+           min_z.size() == 21);
+    report("Hex20 MaxZ omits inactive face-centre nodes",
+           max_z.size() == 21);
+    report("Hex20 side face omits inactive face-centre nodes",
+           min_x.size() == 69);
+
+    const auto inactive_face_centre =
+        grid.node_id(1, 1, 0);
+    report("Hex20 MinZ does not expose face centre for Dirichlet BC",
+           std::find(min_z.begin(), min_z.end(), inactive_face_centre) ==
+               min_z.end());
+}
+
 void test_longitudinal_bias_location() {
     std::println("\n── Test: longitudinal bias location policy ──");
 
@@ -321,6 +354,7 @@ int main(int argc, char** argv) {
     test_align_to_beam_horizontal();
     test_single_element();
     test_quadratic_longitudinal_bias_midpoints();
+    test_hex20_boundary_faces_exclude_inactive_quadratic_nodes();
     test_longitudinal_bias_location();
 
     std::println("\n=== {} PASSED, {} FAILED ===\n", g_pass, g_fail);

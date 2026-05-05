@@ -4,14 +4,52 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string_view>
 
 #include "InternalFieldSnapshot.hh"
+
+enum class FiberSectionMaterialRole {
+    unknown,
+    unconfined_concrete,
+    confined_concrete,
+    reinforcing_steel,
+};
+
+[[nodiscard]] constexpr std::string_view
+to_string(FiberSectionMaterialRole role) noexcept
+{
+    switch (role) {
+        case FiberSectionMaterialRole::unknown:
+            return "unknown";
+        case FiberSectionMaterialRole::unconfined_concrete:
+            return "unconfined_concrete";
+        case FiberSectionMaterialRole::confined_concrete:
+            return "confined_concrete";
+        case FiberSectionMaterialRole::reinforcing_steel:
+            return "reinforcing_steel";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] constexpr bool
+is_concrete(FiberSectionMaterialRole role) noexcept
+{
+    return role == FiberSectionMaterialRole::unconfined_concrete ||
+           role == FiberSectionMaterialRole::confined_concrete;
+}
+
+[[nodiscard]] constexpr bool
+is_reinforcing_steel(FiberSectionMaterialRole role) noexcept
+{
+    return role == FiberSectionMaterialRole::reinforcing_steel;
+}
 
 struct FiberSectionSample {
     std::size_t fiber_index{0};
     double y{0.0};
     double z{0.0};
     double area{0.0};
+    FiberSectionMaterialRole material_role{FiberSectionMaterialRole::unknown};
     double strain_xx{0.0};
     double stress_xx{0.0};
     double tangent_xx{0.0};

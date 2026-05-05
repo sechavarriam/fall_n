@@ -1,0 +1,146 @@
+{
+  "schema": "lshaped_16_fe2_two_way_closure_v1",
+  "window_s": [
+    5.205,
+    7.475
+  ],
+  "roof_node": "node335",
+  "structural_roof_csv": "data\\output\\stage_c_16storey\\falln_n4_nonlinear_restart_alarm_to_10s_roof_displacement.csv",
+  "fe2_roof_csv": "data\\output\\lshaped_multiscale_16\\recorders\\roof_displacement.csv",
+  "structural_force_csv": "data\\output\\stage_c_16storey\\falln_n4_nonlinear_restart_alarm_to_10s_selected_element_0_global_force.csv",
+  "fe2_force_csv": "data\\output\\lshaped_multiscale_16\\recorders\\selected_element_0_global_force.csv",
+  "coupling_audit_csv": "data\\output\\lshaped_multiscale_16\\recorders\\fe2_two_way_coupling_audit.csv",
+  "crack_evolution_csv": "data\\output\\lshaped_multiscale_16\\recorders\\crack_evolution.csv",
+  "time_index_csv": "data\\output\\lshaped_multiscale_16\\recorders\\multiscale_time_index.csv",
+  "structural_roof_samples_in_window": 1667,
+  "fe2_roof_samples": 1706,
+  "structural_force_samples_in_window": 1667,
+  "fe2_force_samples": 1706,
+  "roof_metrics": {
+    "node335_dof0": {
+      "rms_abs": 0.0017170813060998894,
+      "max_abs": 0.0026640890000000084,
+      "relative_to_reference_peak": 0.009251920927893498,
+      "final_difference": 0.00046990519999999536
+    },
+    "node335_dof1": {
+      "rms_abs": 0.003117833816936746,
+      "max_abs": 0.005850048299999994,
+      "relative_to_reference_peak": 0.016523704625998024,
+      "final_difference": 0.0017683078999999984
+    },
+    "node335_dof2": {
+      "rms_abs": 0.0001330560092788289,
+      "max_abs": 0.0003306506899999999,
+      "relative_to_reference_peak": 0.015177375379431523,
+      "final_difference": -9.057225999999953e-05
+    }
+  },
+  "force_metrics": {
+    "f0": {
+      "rms_abs": 0.0004194787189282364,
+      "max_abs": 0.0038993340000000043,
+      "relative_to_reference_peak": 0.004907043618548169,
+      "final_difference": -0.00043878600000000004
+    },
+    "f1": {
+      "rms_abs": 0.0007218016522331425,
+      "max_abs": 0.002332634,
+      "relative_to_reference_peak": 0.019151035993274695,
+      "final_difference": -0.0014429448000000018
+    },
+    "f2": {
+      "rms_abs": 0.0070182954643144176,
+      "max_abs": 0.0362423694,
+      "relative_to_reference_peak": 0.01596561721436381,
+      "final_difference": -0.002369376000000034
+    },
+    "f3": {
+      "rms_abs": 0.001555784982838134,
+      "max_abs": 0.0070871358999999995,
+      "relative_to_reference_peak": 0.02062726343362018,
+      "final_difference": 0.0016501479999999971
+    },
+    "f4": {
+      "rms_abs": 0.0011136563002286006,
+      "max_abs": 0.005619359400000003,
+      "relative_to_reference_peak": 0.007611851377616672,
+      "final_difference": -0.0007020620999999994
+    },
+    "f5": {
+      "rms_abs": 0.0004101339929444122,
+      "max_abs": 0.0010841297000000003,
+      "relative_to_reference_peak": 0.024442431883716028,
+      "final_difference": 0.0006165873999999984
+    }
+  },
+  "coupling_audit_metrics": {
+    "max_force_residual_rel": 0.01284558549618,
+    "max_tangent_residual_rel": 0.02663570788895,
+    "max_tangent_column_residual_rel": 0.04985773824301,
+    "local_failed_solve_attempts": 0.0
+  },
+  "vtk_index_summary": {
+    "rows": 1369,
+    "role_counts": {
+      "global_frame": 343,
+      "local_xfem_site": 1026
+    },
+    "local_sites": [
+      "0",
+      "1",
+      "2"
+    ],
+    "global_frames": 343,
+    "global_vtk_entries": 1369,
+    "local_vtk_entries": 1026,
+    "time_window_s": [
+      5.205,
+      7.475
+    ]
+  },
+  "peaks": {
+    "structural_roof": {
+      "ux": 0.18559187,
+      "uy": 0.188688547,
+      "uz": 0.00876673377
+    },
+    "fe2_roof": {
+      "ux": 0.185591547,
+      "uy": 0.191101018,
+      "uz": 0.00875413479
+    },
+    "structural_force": {
+      "f0": 0.0854850194,
+      "f1": 0.0376899533,
+      "f2": 0.439588108,
+      "f3": 0.075423722,
+      "f4": 0.146305576,
+      "f5": 0.0167795903
+    },
+    "fe2_force": {
+      "f0": 0.0850156489,
+      "f1": 0.0373138899,
+      "f2": 0.441957484,
+      "f3": 0.0746475869,
+      "f4": 0.146992613,
+      "f5": 0.0166978197
+    }
+  },
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_roof_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_roof_components.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_roof_plan_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_roof_plan_orbit.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_selected_element_forces.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_selected_element_forces.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_coupling_residuals.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_coupling_residuals.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_local_crack_evolution.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_10s_local4_bis8_publication_local_crack_evolution.png"
+  ],
+  "notes": [
+    "Comparison is restricted to the current stabilized FE2 two-way window.",
+    "Element force components are raw internal-force vector entries for monitored macro element 0; they are a parity diagnostic, not a final physical-resultant convention."
+  ]
+}

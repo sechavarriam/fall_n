@@ -107,6 +107,10 @@ struct MultiscaleSubModel {
     /// Rebar bar diameters — one per bar (for VTK tube visualisation).
     std::vector<double> rebar_diameters;
 
+    /// Number of interpolation nodes per longitudinal rebar element.
+    /// Hex20 defaults to 2-node bars; Hex27 promotes to 3-node bars.
+    std::size_t rebar_line_num_nodes{2};
+
     /// Embedding info: maps each rebar node to its host hex element +
     /// parent coordinates for shape-function interpolation coupling.
     std::vector<RebarNodeEmbedding> rebar_embeddings;
@@ -208,6 +212,7 @@ public:
                 sub.domain          = std::move(result.domain);
                 sub.grid            = std::move(result.grid);
                 sub.rebar_range     = result.rebar_range;
+                sub.rebar_line_num_nodes = result.rebar_line_num_nodes;
                 sub.rebar_embeddings = std::move(result.embeddings);
                 sub.rebar_diameters  = std::move(result.bar_diameters);
             } else {

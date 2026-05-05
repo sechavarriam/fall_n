@@ -17,6 +17,7 @@
 #include "../elements/ContinuumElement.hh" // Se usa este por ahora mientras se define la interfaz del wrapper.
 #include "../elements/ElementPolicy.hh"
 #include "../elements/SurfaceLoad.hh"
+#include "../elements/StructuralMassPolicy.hh"
 
 #include "../continuum/KinematicPolicy.hh"
 
@@ -211,9 +212,37 @@ public:
     };
 
     void setup_boundary_conditions(){
+        for (auto it = constraints_.begin(); it != constraints_.end(); ) {
+            PetscInt point_dof = 0;
+            FALL_N_PETSC_CHECK(
+                PetscSectionGetDof(dof_section_.get(), it->first, &point_dof));
+
+            auto& [dof_indices, values] = it->second;
+            std::vector<PetscInt> filtered_dofs;
+            std::vector<PetscScalar> filtered_values;
+            filtered_dofs.reserve(dof_indices.size());
+            filtered_values.reserve(values.size());
+            for (std::size_t i = 0; i < dof_indices.size(); ++i) {
+                if (dof_indices[i] >= 0 && dof_indices[i] < point_dof) {
+                    filtered_dofs.push_back(dof_indices[i]);
+                    filtered_values.push_back(i < values.size()
+                        ? values[i]
+                        : PetscScalar{0.0});
+                }
+            }
+
+            if (filtered_dofs.empty()) {
+                it = constraints_.erase(it);
+            } else {
+                dof_indices = std::move(filtered_dofs);
+                values = std::move(filtered_values);
+                ++it;
+            }
+        }
+
         for (auto &[plex_id, idx] : constraints_){
             FALL_N_PETSC_CHECK(PetscSectionAddConstraintDof(dof_section_.get(), plex_id,static_cast<PetscInt>(idx.first.size())));
-            }
+        }
 
         FALL_N_PETSC_CHECK(PetscSectionSetUp(dof_section_.get()));
         
@@ -719,6 +748,14 @@ public:
             }
             if constexpr (requires { element.set_density(rho); }) {
                 element.set_density(rho);
+            }
+        }
+    }
+
+    void set_structural_mass_policy(fall_n::StructuralMassPolicy policy) {
+        for (auto& element : elements_) {
+            if constexpr (requires { element.set_structural_mass_policy(policy); }) {
+                element.set_structural_mass_policy(policy);
             }
         }
     }

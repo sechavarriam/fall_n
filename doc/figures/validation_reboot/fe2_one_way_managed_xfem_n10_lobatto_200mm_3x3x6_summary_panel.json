@@ -1,0 +1,12 @@
+{
+  "schema": "fe2_one_way_managed_xfem_summary_panel_v1",
+  "run_dir": "C:\\MyLibs\\fall_n\\data\\output\\fe2_validation\\fe2_one_way_managed_xfem_n10_lobatto_200mm_3x3x6_current",
+  "overall_pass": true,
+  "selected_site_count": 3,
+  "max_relative_moment_error": 0.00294681,
+  "max_snes_iters": 7.0,
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\fe2_one_way_managed_xfem_n10_lobatto_200mm_3x3x6_summary_panel.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\fe2_one_way_managed_xfem_n10_lobatto_200mm_3x3x6_summary_panel.png"
+  ]
+}

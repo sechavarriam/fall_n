@@ -67,6 +67,7 @@ enum class SeismicFE2LocalMeshTierKind {
 enum class SeismicFE2VisualizationRole {
     global_frame,
     local_xfem_site,
+    local_continuum_site,
     opensees_global_reference
 };
 
@@ -142,6 +143,8 @@ enum class SeismicFE2VisualizationRole {
             return "global_frame";
         case SeismicFE2VisualizationRole::local_xfem_site:
             return "local_xfem_site";
+        case SeismicFE2VisualizationRole::local_continuum_site:
+            return "local_continuum_site";
         case SeismicFE2VisualizationRole::opensees_global_reference:
             return "opensees_global_reference";
     }
@@ -445,7 +448,8 @@ struct MultiscaleVTKTimeIndexRow {
 
     [[nodiscard]] bool is_local() const noexcept
     {
-        return role == SeismicFE2VisualizationRole::local_xfem_site;
+        return role == SeismicFE2VisualizationRole::local_xfem_site ||
+               role == SeismicFE2VisualizationRole::local_continuum_site;
     }
 
     [[nodiscard]] bool has_required_paths() const noexcept

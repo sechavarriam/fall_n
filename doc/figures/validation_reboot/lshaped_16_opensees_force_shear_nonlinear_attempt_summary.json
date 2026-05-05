@@ -1,0 +1,13 @@
+{
+  "schema": "lshaped_16_opensees_force_shear_nonlinear_attempt_v2",
+  "case": "scale1p0_window87p65_2s_force_shear_nonlinear_massmatched",
+  "status": "completed",
+  "accepted_steps": 100,
+  "requested_steps": 100,
+  "duration_s": 2.0,
+  "include_vertical": true,
+  "mass_model": "nodal",
+  "elasticized_fiber_sections": false,
+  "wall_seconds": 2018.5126433999976,
+  "interpretation": "OpenSees forceBeamColumn+Vy/Vz nonlinear completed the 2 s structural comparator but at high cost; it remains a valid external nonlinear reference for short windows, not a cheap full-window CI route."
+}

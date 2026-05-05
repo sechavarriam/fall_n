@@ -1,0 +1,45 @@
+{
+  "schema": "lshaped_16_newmark_openSees_10s_audit_v1",
+  "reference": "fall_n Newmark linear primary 10s",
+  "rows": [
+    {
+      "label": "fall_n Newmark linear primary 10s",
+      "samples": 501,
+      "peak_abs_ux_m": 0.2234381654801,
+      "final_ux_m": 0.03713575954577,
+      "rms_vs_falln_newmark_ux_m": 0,
+      "peak_abs_uy_m": 0.2687366922874,
+      "final_uy_m": 0.08744870109245,
+      "rms_vs_falln_newmark_uy_m": 0,
+      "peak_abs_uz_m": 0.01747084983354,
+      "final_uz_m": -0.001595873913869,
+      "rms_vs_falln_newmark_uz_m": 0
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko nodal 10s",
+      "samples": 500,
+      "peak_abs_ux_m": 0.222476,
+      "final_ux_m": 0.0187224,
+      "rms_vs_falln_newmark_ux_m": 0.011790977987587803,
+      "peak_abs_uy_m": 0.270158,
+      "final_uy_m": 0.0800274,
+      "rms_vs_falln_newmark_uy_m": 0.010522193491533273,
+      "peak_abs_uz_m": 0.0178348,
+      "final_uz_m": -0.0017827,
+      "rms_vs_falln_newmark_uz_m": 0.0007893356854817617
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko element lumped 10s",
+      "samples": 500,
+      "peak_abs_ux_m": 0.427458,
+      "final_ux_m": 0.120924,
+      "rms_vs_falln_newmark_ux_m": 0.10246308348074923,
+      "peak_abs_uy_m": 0.432292,
+      "final_uy_m": 0.248823,
+      "rms_vs_falln_newmark_uy_m": 0.10100488953194835,
+      "peak_abs_uz_m": 0.0258713,
+      "final_uz_m": -0.00774325,
+      "rms_vs_falln_newmark_uz_m": 0.005149407514093714
+    }
+  ]
+}

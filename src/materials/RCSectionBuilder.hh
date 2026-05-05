@@ -40,6 +40,10 @@ build_rc_column_fibers(const RCColumnSpec& s,
     fibers.reserve(rc_column_fiber_count(s));
 
     for (const auto& patch : rc_column_patch_layout(s)) {
+        const auto fiber_role =
+            patch.material_role == RCSectionMaterialRole::confined_concrete
+                ? FiberSectionMaterialRole::confined_concrete
+                : FiberSectionMaterialRole::unconfined_concrete;
         add_patch_fibers(
             fibers,
             patch.y_min,
@@ -48,6 +52,7 @@ build_rc_column_fibers(const RCColumnSpec& s,
             patch.z_min,
             patch.z_max,
             patch.nz,
+            fiber_role,
             [&]() {
                 return patch.material_role ==
                                RCSectionMaterialRole::confined_concrete
@@ -60,6 +65,7 @@ build_rc_column_fibers(const RCColumnSpec& s,
         fibers,
         rc_column_longitudinal_bar_positions(s),
         rc_column_longitudinal_bar_area(s),
+        FiberSectionMaterialRole::reinforcing_steel,
         make_steel);
     return fibers;
 }
@@ -184,14 +190,19 @@ make_rc_rect_column_section(const RCRectColumnSpec& s) {
     // Cover concrete (4 patches)
     auto unconfined = [&] { return make_unconfined_concrete(s.fpc); };
 
-    add_patch_fibers(fibers, -y_edge, y_edge, 10, -z_edge, -z_core, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, y_edge, 10,  z_core,  z_edge, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 4, unconfined);
-    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 4, unconfined);
+    add_patch_fibers(fibers, -y_edge, y_edge, 10, -z_edge, -z_core, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers, -y_edge, y_edge, 10,  z_core,  z_edge, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 4,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 4,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
 
     // Confined core
     add_patch_fibers(
         fibers, -y_core, y_core, 8, -z_core, z_core, 6,
+        FiberSectionMaterialRole::confined_concrete,
         [&] {
             return make_confined_concrete(
                 s.fpc, s.rho_s, s.tie_fy,
@@ -228,6 +239,7 @@ make_rc_rect_column_section(const RCRectColumnSpec& s) {
 
     add_rebar_fibers(
         fibers, bars, A_bar,
+        FiberSectionMaterialRole::reinforcing_steel,
         [&] { return make_steel_fiber_material(s.steel_E, s.steel_fy, s.steel_b); });
 
     FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
@@ -284,11 +296,16 @@ make_rc_beam_section(const RCBeamSpec& s) {
     auto unconfined = [&] { return make_unconfined_concrete(s.fpc); };
 
     // Cover and core — all unconfined for beams
-    add_patch_fibers(fibers, -y_edge, y_edge, 6, -z_edge, -z_core, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, y_edge, 6,  z_core,  z_edge, 2, unconfined);
-    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 6, unconfined);
-    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 6, unconfined);
-    add_patch_fibers(fibers, -y_core,  y_core, 4, -z_core, z_core, 6, unconfined);
+    add_patch_fibers(fibers, -y_edge, y_edge, 6, -z_edge, -z_core, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers, -y_edge, y_edge, 6,  z_core,  z_edge, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
+    add_patch_fibers(fibers, -y_core,  y_core, 4, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, unconfined);
 
     // 6-bar reinforcement: 3 bottom + 3 top
     const double y_bar = y_edge - s.cover;
@@ -302,7 +319,62 @@ make_rc_beam_section(const RCBeamSpec& s) {
 
     add_rebar_fibers(
         fibers, bars, A_bar,
+        FiberSectionMaterialRole::reinforcing_steel,
         [&] { return make_steel_fiber_material(s.steel_E, s.steel_fy, s.steel_b); });
+
+    FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
+    return Material<TimoshenkoBeam3D>{
+        InelasticMaterial<FiberSection3D>{std::move(section)},
+        InelasticUpdate{}
+    };
+}
+
+/// Build an elasticized control section over the same RC beam fiber layout.
+///
+/// The concrete patches and longitudinal bar locations match
+/// make_rc_beam_section(); only the uniaxial fiber laws are replaced by
+/// linear elastic materials.  This keeps the section geometry identical for
+/// global parity checks against external elastic frame models.
+inline Material<TimoshenkoBeam3D>
+make_rc_beam_section_elasticized(const RCBeamSpec& s) {
+    const double Ec = concrete_initial_modulus(s.fpc);
+    const double Gc = isotropic_shear_modulus(Ec, s.nu);
+    const double J  = rectangular_torsion_constant(s.b, s.h);
+
+    std::vector<Fiber> fibers;
+    fibers.reserve(42);
+
+    const double y_edge = 0.5 * s.b;
+    const double z_edge = 0.5 * s.h;
+    const double y_core = y_edge - s.cover;
+    const double z_core = z_edge - s.cover;
+
+    auto concrete = [&] { return make_elastic_uniaxial_material(Ec); };
+
+    add_patch_fibers(fibers, -y_edge, y_edge, 6, -z_edge, -z_core, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, concrete);
+    add_patch_fibers(fibers, -y_edge, y_edge, 6,  z_core,  z_edge, 2,
+                     FiberSectionMaterialRole::unconfined_concrete, concrete);
+    add_patch_fibers(fibers, -y_edge, -y_core, 2, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, concrete);
+    add_patch_fibers(fibers,  y_core,  y_edge, 2, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, concrete);
+    add_patch_fibers(fibers, -y_core,  y_core, 4, -z_core, z_core, 6,
+                     FiberSectionMaterialRole::unconfined_concrete, concrete);
+
+    const double y_bar = y_edge - s.cover;
+    const double z_bar = z_edge - s.cover;
+    const double A_bar = bar_area(s.bar_diameter);
+
+    const std::array<std::pair<double, double>, 6> bars = {{
+        {-y_bar, -z_bar}, {0.0, -z_bar}, { y_bar, -z_bar},
+        {-y_bar,  z_bar}, {0.0,  z_bar}, { y_bar,  z_bar}
+    }};
+
+    add_rebar_fibers(
+        fibers, bars, A_bar,
+        FiberSectionMaterialRole::reinforcing_steel,
+        [&] { return make_elastic_uniaxial_material(s.steel_E); });
 
     FiberSection3D section(Gc, s.kappa_y, s.kappa_z, J, std::move(fibers));
     return Material<TimoshenkoBeam3D>{

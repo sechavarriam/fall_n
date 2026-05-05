@@ -1,0 +1,88 @@
+{
+  "schema": "lshaped_16_structural_single_scale_nonlinear_parity_v1",
+  "time_limit_s": 1.0,
+  "rows": [
+    {
+      "label": "fall_n Newmark linear parity",
+      "samples": 51,
+      "t_start_s": 0.0,
+      "t_end_s": 1.0,
+      "peak_abs_ux_m": 0.06070257969973,
+      "final_ux_m": -0.05857018902119,
+      "peak_abs_uy_m": 0.07393217400834,
+      "final_uy_m": -0.02722817020374,
+      "peak_abs_uz_m": 0.004154213424113,
+      "final_uz_m": 0.002882040547885
+    },
+    {
+      "label": "OpenSees ElasticTimoshenko",
+      "samples": 50,
+      "t_start_s": 0.02,
+      "t_end_s": 1.0,
+      "peak_abs_ux_m": 0.0596621,
+      "final_ux_m": -0.0584043,
+      "peak_abs_uy_m": 0.0751556,
+      "final_uy_m": -0.0264376,
+      "peak_abs_uz_m": 0.00469869,
+      "final_uz_m": 0.00261776,
+      "status": "completed",
+      "accepted_steps": 100,
+      "requested_steps": 100,
+      "beam_element_family": "elastic-timoshenko",
+      "elasticized_fiber_sections": false,
+      "total_wall_seconds": 1.6747928999830037
+    },
+    {
+      "label": "OpenSees forceBeam+Vy/Vz Concrete01",
+      "samples": 50,
+      "t_start_s": 0.02,
+      "t_end_s": 1.0,
+      "peak_abs_ux_m": 0.079079,
+      "final_ux_m": 0.0600104,
+      "peak_abs_uy_m": 0.155036,
+      "final_uy_m": 0.132238,
+      "peak_abs_uz_m": 0.00316769,
+      "final_uz_m": 0.000425489,
+      "status": "completed",
+      "accepted_steps": 50,
+      "requested_steps": 50,
+      "beam_element_family": "force-shear",
+      "concrete_model": "concrete01",
+      "elasticized_fiber_sections": false,
+      "section_axis_convention": "fall_n: y=width_b, z=height_h",
+      "total_wall_seconds": 861.7374798000092
+    },
+    {
+      "label": "OpenSees dispBeam Concrete02 proxy",
+      "samples": 51,
+      "t_start_s": 0.02,
+      "t_end_s": 1.0,
+      "peak_abs_ux_m": 0.0614296,
+      "final_ux_m": -0.0121752,
+      "peak_abs_uy_m": 0.0856993,
+      "final_uy_m": 0.0214246,
+      "peak_abs_uz_m": 0.00358139,
+      "final_uz_m": 0.00169105,
+      "status": "completed",
+      "accepted_steps": 50,
+      "requested_steps": 50,
+      "beam_element_family": "disp",
+      "concrete_model": "falln-kent-park-proxy",
+      "elasticized_fiber_sections": false,
+      "section_axis_convention": "fall_n: y=width_b, z=height_h",
+      "total_wall_seconds": 581.5681439000182
+    }
+  ],
+  "notes": [
+    "The promoted elastic/dynamic parity remains fall_n Newmark vs OpenSees ElasticTimoshenko.",
+    "OpenSees Concrete01 is intentionally retained as a diagnostic: without tensile concrete it softens immediately under flexure.",
+    "OpenSees dispBeamColumn with Concrete02 fall_n proxy is the closest stable nonlinear comparator found in this pass.",
+    "OpenSees forceBeamColumn with the same tensile proxy assembled and matched modal stiffness but did not complete the transient because element compatibility failed during crack/tension transitions."
+  ],
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_single_scale_nonlinear_parity_1s_time_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_single_scale_nonlinear_parity_1s_time_components.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_single_scale_nonlinear_parity_1s_plan_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_structural_single_scale_nonlinear_parity_1s_plan_orbit.png"
+  ]
+}
