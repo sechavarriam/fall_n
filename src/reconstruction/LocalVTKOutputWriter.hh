@@ -53,6 +53,10 @@ class LocalVTKOutputWriter {
         opening_arr->SetName("crack_opening");
         opening_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> opening_max_arr;
+        opening_max_arr->SetName("crack_opening_max");
+        opening_max_arr->SetNumberOfComponents(1);
+
         vtkNew<vtkDoubleArray> normal_arr;
         normal_arr->SetName("crack_normal");
         normal_arr->SetNumberOfComponents(3);
@@ -64,6 +68,10 @@ class LocalVTKOutputWriter {
         vtkNew<vtkDoubleArray> state_arr;
         state_arr->SetName("crack_state");
         state_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> plane_id_arr;
+        plane_id_arr->SetName("crack_plane_id");
+        plane_id_arr->SetNumberOfComponents(1);
 
         vtkNew<vtkDoubleArray> site_arr;
         site_arr->SetName("site_id");
@@ -80,11 +88,15 @@ class LocalVTKOutputWriter {
         for (const auto& cr : cracks) {
             auto add_quad = [&](const Eigen::Vector3d& n_vec,
                                 double opening,
-                                bool closed) {
+                                double opening_max,
+                                bool closed,
+                                int plane_id) {
                 if (n_vec.squaredNorm() < 1.0e-20) {
                     return;
                 }
-                if (std::abs(opening) < min_crack_opening) {
+                const double visible_opening =
+                    std::max(std::abs(opening), std::abs(opening_max));
+                if (visible_opening < min_crack_opening) {
                     return;
                 }
 
@@ -115,11 +127,13 @@ class LocalVTKOutputWriter {
 
                 grid->InsertNextCell(VTK_QUAD, 4, ids);
                 opening_arr->InsertNextValue(opening);
+                opening_max_arr->InsertNextValue(opening_max);
                 normal_arr->InsertNextTuple3(n_vec[0], n_vec[1], n_vec[2]);
                 const Eigen::Vector3d opening_vec = opening * n_vec;
                 opening_vec_arr->InsertNextTuple3(
                     opening_vec[0], opening_vec[1], opening_vec[2]);
                 state_arr->InsertNextValue(closed ? 0.0 : 1.0);
+                plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
                 site_arr->InsertNextValue(
                     static_cast<double>(parent_element_id_));
                 parent_arr->InsertNextValue(
@@ -127,22 +141,36 @@ class LocalVTKOutputWriter {
             };
 
             if (cr.num_cracks >= 1) {
-                add_quad(cr.normal_1, cr.opening_1, cr.closed_1);
+                add_quad(cr.normal_1,
+                         cr.opening_1,
+                         cr.opening_max_1,
+                         cr.closed_1,
+                         1);
             }
             if (cr.num_cracks >= 2) {
-                add_quad(cr.normal_2, cr.opening_2, cr.closed_2);
+                add_quad(cr.normal_2,
+                         cr.opening_2,
+                         cr.opening_max_2,
+                         cr.closed_2,
+                         2);
             }
             if (cr.num_cracks >= 3) {
-                add_quad(cr.normal_3, cr.opening_3, cr.closed_3);
+                add_quad(cr.normal_3,
+                         cr.opening_3,
+                         cr.opening_max_3,
+                         cr.closed_3,
+                         3);
             }
         }
 
         grid->SetPoints(pts);
         if (opening_arr->GetNumberOfTuples() > 0) {
             grid->GetCellData()->AddArray(opening_arr);
+            grid->GetCellData()->AddArray(opening_max_arr);
             grid->GetCellData()->AddArray(normal_arr);
             grid->GetCellData()->AddArray(opening_vec_arr);
             grid->GetCellData()->AddArray(state_arr);
+            grid->GetCellData()->AddArray(plane_id_arr);
             grid->GetCellData()->AddArray(site_arr);
             grid->GetCellData()->AddArray(parent_arr);
         }

@@ -70,6 +70,7 @@ struct GaussPointSnapshot {
     std::array<Eigen::Vector3d, 3> crack_normals{
         Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};
     std::array<double, 3> crack_openings{0.0, 0.0, 0.0};
+    std::array<double, 3> crack_opening_max{0.0, 0.0, 0.0};
     std::array<bool, 3>   crack_closed{true, true, true};
 };
 
@@ -300,6 +301,15 @@ class FEM_Element {
                     snap.crack_openings[0] = ifs.crack_strain_1.value_or(0.0);
                     snap.crack_openings[1] = ifs.crack_strain_2.value_or(0.0);
                     snap.crack_openings[2] = ifs.crack_strain_3.value_or(0.0);
+                    snap.crack_opening_max[0] =
+                        ifs.crack_strain_max_1.value_or(
+                            snap.crack_openings[0]);
+                    snap.crack_opening_max[1] =
+                        ifs.crack_strain_max_2.value_or(
+                            snap.crack_openings[1]);
+                    snap.crack_opening_max[2] =
+                        ifs.crack_strain_max_3.value_or(
+                            snap.crack_openings[2]);
                     snap.crack_closed[0] = ifs.crack_closed_1.value_or(1.0) > 0.5;
                     snap.crack_closed[1] = ifs.crack_closed_2.value_or(1.0) > 0.5;
                     snap.crack_closed[2] = ifs.crack_closed_3.value_or(1.0) > 0.5;

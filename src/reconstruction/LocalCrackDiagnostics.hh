@@ -2,6 +2,7 @@
 #define FALL_N_SRC_RECONSTRUCTION_LOCAL_CRACK_DIAGNOSTICS_HH
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -79,19 +80,30 @@ public:
 
             for (const auto& snap : snaps) {
                 if (snap.num_cracks > 0) {
-                    double max_open = snap.crack_openings[0];
-                    if (snap.num_cracks >= 2) {
-                        max_open = std::max(max_open, snap.crack_openings[1]);
-                    }
-                    if (snap.num_cracks >= 3) {
-                        max_open = std::max(max_open, snap.crack_openings[2]);
+                    double max_open = 0.0;
+                    double max_open_history = 0.0;
+                    for (int crack = 0;
+                         crack < std::min(snap.num_cracks, 3);
+                         ++crack)
+                    {
+                        max_open = std::max(
+                            max_open,
+                            std::abs(snap.crack_openings[crack]));
+                        max_open_history = std::max(
+                            max_open_history,
+                            std::max(
+                                std::abs(snap.crack_openings[crack]),
+                                std::abs(snap.crack_opening_max[crack])));
                     }
 
-                    if (max_open >= min_crack_opening) {
+                    if (max_open_history >= min_crack_opening) {
                         ++state.summary.num_cracked_gps;
                         state.summary.total_cracks += snap.num_cracks;
                         state.summary.max_opening =
                             std::max(state.summary.max_opening, max_open);
+                        state.summary.max_historical_opening =
+                            std::max(state.summary.max_historical_opening,
+                                     max_open_history);
 
                         if (snap.damage_scalar_available) {
                             if (!state.summary.damage_scalar_available) {
@@ -136,16 +148,21 @@ public:
 
                             cr.normal_1 = snap.crack_normals[0];
                             cr.opening_1 = snap.crack_openings[0];
+                            cr.opening_max_1 = snap.crack_opening_max[0];
                             cr.closed_1 = snap.crack_closed[0];
 
                             if (cr.num_cracks >= 2) {
                                 cr.normal_2 = snap.crack_normals[1];
                                 cr.opening_2 = snap.crack_openings[1];
+                                cr.opening_max_2 =
+                                    snap.crack_opening_max[1];
                                 cr.closed_2 = snap.crack_closed[1];
                             }
                             if (cr.num_cracks >= 3) {
                                 cr.normal_3 = snap.crack_normals[2];
                                 cr.opening_3 = snap.crack_openings[2];
+                                cr.opening_max_3 =
+                                    snap.crack_opening_max[2];
                                 cr.closed_3 = snap.crack_closed[2];
                             }
                             state.cracks.push_back(cr);

@@ -21,12 +21,14 @@ int main() {
 
     // Required xfem_crack_surface fields by name.
     bool has_crack_opening = false;
+    bool has_crack_opening_max = false;
     bool has_cohesive_traction = false;
     bool has_cohesive_damage = false;
     bool has_crack_surface_displacement = false;
     bool has_crack_opening_vector = false;
     bool has_crack_normal = false;
     bool has_crack_state = false;
+    bool has_crack_plane_id = false;
     bool has_site_id = false;
     bool has_parent_element_id = false;
     bool has_rebar_tube_radius = false;
@@ -41,6 +43,7 @@ int main() {
             ReducedRCVTKFieldLocationKind::xfem_crack_surface) {
             ++xfem_field_count;
             if (f.name == std::string_view{"crack_opening"})    has_crack_opening = true;
+            if (f.name == std::string_view{"crack_opening_max"}) has_crack_opening_max = true;
             if (f.name == std::string_view{"cohesive_traction"}) has_cohesive_traction = true;
             if (f.name == std::string_view{"cohesive_damage"})   has_cohesive_damage = true;
             if (f.name == std::string_view{"displacement"} && f.components == 3)
@@ -48,6 +51,7 @@ int main() {
             if (f.name == std::string_view{"crack_opening_vector"}) has_crack_opening_vector = true;
             if (f.name == std::string_view{"crack_normal"}) has_crack_normal = true;
             if (f.name == std::string_view{"crack_state"}) has_crack_state = true;
+            if (f.name == std::string_view{"crack_plane_id"}) has_crack_plane_id = true;
             if (f.name == std::string_view{"site_id"}) has_site_id = true;
             if (f.name == std::string_view{"parent_element_id"}) has_parent_element_id = true;
         }
@@ -62,12 +66,14 @@ int main() {
     }
 
     assert(has_crack_opening);
+    assert(has_crack_opening_max);
     assert(has_cohesive_traction);
     assert(has_cohesive_damage);
     assert(has_crack_surface_displacement);
     assert(has_crack_opening_vector);
     assert(has_crack_normal);
     assert(has_crack_state);
+    assert(has_crack_plane_id);
     assert(has_site_id);
     assert(has_parent_element_id);
     assert(has_rebar_tube_radius);
@@ -98,6 +104,8 @@ int main() {
     f << "  \"xfem_crack_surface_field_count\": " << xfem_field_count << ",\n";
     f << "  \"replay_required_count\": " << replay_required_count << ",\n";
     f << "  \"has_crack_opening\":   " << (has_crack_opening ? "true" : "false") << ",\n";
+    f << "  \"has_crack_opening_max\": "
+      << (has_crack_opening_max ? "true" : "false") << ",\n";
     f << "  \"has_cohesive_traction\": " << (has_cohesive_traction ? "true" : "false") << ",\n";
     f << "  \"has_cohesive_damage\":   " << (has_cohesive_damage ? "true" : "false") << ",\n";
     f << "  \"has_crack_surface_displacement\": "
@@ -106,6 +114,8 @@ int main() {
       << (has_crack_opening_vector ? "true" : "false") << ",\n";
     f << "  \"has_crack_normal\": " << (has_crack_normal ? "true" : "false") << ",\n";
     f << "  \"has_crack_state\": " << (has_crack_state ? "true" : "false") << ",\n";
+    f << "  \"has_crack_plane_id\": "
+      << (has_crack_plane_id ? "true" : "false") << ",\n";
     f << "  \"has_site_id\": " << (has_site_id ? "true" : "false") << ",\n";
     f << "  \"has_parent_element_id\": "
       << (has_parent_element_id ? "true" : "false") << ",\n";
