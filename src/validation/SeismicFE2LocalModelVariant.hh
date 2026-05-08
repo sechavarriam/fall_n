@@ -342,6 +342,36 @@ public:
         }, model_);
     }
 
+    void set_vtk_crack_filter_mode(LocalVTKCrackFilterMode mode) noexcept
+    {
+        std::visit([&](auto& model) {
+            if constexpr (requires { model.set_vtk_crack_filter_mode(mode); }) {
+                model.set_vtk_crack_filter_mode(mode);
+            }
+        }, model_);
+    }
+
+    void set_vtk_gauss_field_profile(
+        LocalVTKGaussFieldProfile profile) noexcept
+    {
+        std::visit([&](auto& model) {
+            if constexpr (requires {
+                              model.set_vtk_gauss_field_profile(profile);
+                          }) {
+                model.set_vtk_gauss_field_profile(profile);
+            }
+        }, model_);
+    }
+
+    void set_vtk_placement_frame(LocalVTKPlacementFrame frame) noexcept
+    {
+        std::visit([&](auto& model) {
+            if constexpr (requires { model.set_vtk_placement_frame(frame); }) {
+                model.set_vtk_placement_frame(frame);
+            }
+        }, model_);
+    }
+
     [[nodiscard]] ReducedRCManagedXfemLocalVTKSnapshot write_vtk_snapshot(
         double time,
         int step,

@@ -30,6 +30,10 @@ class LocalVTKOutputWriter {
     std::string output_dir_{};
     std::size_t parent_element_id_{0};
     LocalVTKOutputProfile profile_{LocalVTKOutputProfile::Debug};
+    LocalVTKCrackFilterMode crack_filter_mode_{LocalVTKCrackFilterMode::Both};
+    LocalVTKGaussFieldProfile gauss_field_profile_{
+        LocalVTKGaussFieldProfile::Debug};
+    LocalVTKPlacementFrame placement_frame_{LocalVTKPlacementFrame::Reference};
 
     [[nodiscard]] std::string snapshot_prefix_(int step_count) const
     {
@@ -42,7 +46,8 @@ class LocalVTKOutputWriter {
     void write_crack_planes_vtu_(const std::string& filename,
                                  const MultiscaleSubModel& sub,
                                  const std::vector<CrackRecord>& cracks,
-                                 double min_crack_opening) const
+                                 double min_crack_opening,
+                                 bool visible_only) const
     {
         const double half = 0.4 * std::min({sub.grid.dx, sub.grid.dy, sub.grid.dz})
                           / 2.0;
@@ -56,6 +61,10 @@ class LocalVTKOutputWriter {
         vtkNew<vtkDoubleArray> opening_max_arr;
         opening_max_arr->SetName("crack_opening_max");
         opening_max_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> visible_arr;
+        visible_arr->SetName("crack_visible");
+        visible_arr->SetNumberOfComponents(1);
 
         vtkNew<vtkDoubleArray> normal_arr;
         normal_arr->SetName("crack_normal");
@@ -72,6 +81,10 @@ class LocalVTKOutputWriter {
         vtkNew<vtkDoubleArray> plane_id_arr;
         plane_id_arr->SetName("crack_plane_id");
         plane_id_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> family_id_arr;
+        family_id_arr->SetName("crack_family_id");
+        family_id_arr->SetNumberOfComponents(1);
 
         vtkNew<vtkDoubleArray> site_arr;
         site_arr->SetName("site_id");
@@ -96,7 +109,8 @@ class LocalVTKOutputWriter {
                 }
                 const double visible_opening =
                     std::max(std::abs(opening), std::abs(opening_max));
-                if (visible_opening < min_crack_opening) {
+                const bool visible = visible_opening >= min_crack_opening;
+                if (visible_only && !visible) {
                     return;
                 }
 
@@ -128,12 +142,14 @@ class LocalVTKOutputWriter {
                 grid->InsertNextCell(VTK_QUAD, 4, ids);
                 opening_arr->InsertNextValue(opening);
                 opening_max_arr->InsertNextValue(opening_max);
+                visible_arr->InsertNextValue(visible ? 1.0 : 0.0);
                 normal_arr->InsertNextTuple3(n_vec[0], n_vec[1], n_vec[2]);
                 const Eigen::Vector3d opening_vec = opening * n_vec;
                 opening_vec_arr->InsertNextTuple3(
                     opening_vec[0], opening_vec[1], opening_vec[2]);
                 state_arr->InsertNextValue(closed ? 0.0 : 1.0);
                 plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
+                family_id_arr->InsertNextValue(static_cast<double>(plane_id));
                 site_arr->InsertNextValue(
                     static_cast<double>(parent_element_id_));
                 parent_arr->InsertNextValue(
@@ -164,20 +180,18 @@ class LocalVTKOutputWriter {
         }
 
         grid->SetPoints(pts);
-        if (opening_arr->GetNumberOfTuples() > 0) {
-            grid->GetCellData()->AddArray(opening_arr);
-            grid->GetCellData()->AddArray(opening_max_arr);
-            grid->GetCellData()->AddArray(normal_arr);
-            grid->GetCellData()->AddArray(opening_vec_arr);
-            grid->GetCellData()->AddArray(state_arr);
-            grid->GetCellData()->AddArray(plane_id_arr);
-            grid->GetCellData()->AddArray(site_arr);
-            grid->GetCellData()->AddArray(parent_arr);
-        }
-        if (disp_arr->GetNumberOfTuples() > 0) {
-            grid->GetPointData()->AddArray(disp_arr);
-            grid->GetPointData()->SetActiveVectors("displacement");
-        }
+        grid->GetCellData()->AddArray(opening_arr);
+        grid->GetCellData()->AddArray(opening_max_arr);
+        grid->GetCellData()->AddArray(visible_arr);
+        grid->GetCellData()->AddArray(normal_arr);
+        grid->GetCellData()->AddArray(opening_vec_arr);
+        grid->GetCellData()->AddArray(state_arr);
+        grid->GetCellData()->AddArray(plane_id_arr);
+        grid->GetCellData()->AddArray(family_id_arr);
+        grid->GetCellData()->AddArray(site_arr);
+        grid->GetCellData()->AddArray(parent_arr);
+        grid->GetPointData()->AddArray(disp_arr);
+        grid->GetPointData()->SetActiveVectors("displacement");
         fall_n::vtk::write_vtu(grid, filename);
     }
 
@@ -530,9 +544,40 @@ public:
         profile_ = profile;
     }
 
+    void set_crack_filter_mode(LocalVTKCrackFilterMode mode) noexcept
+    {
+        crack_filter_mode_ = mode;
+    }
+
+    void set_gauss_field_profile(LocalVTKGaussFieldProfile profile) noexcept
+    {
+        gauss_field_profile_ = profile;
+    }
+
+    void set_placement_frame(LocalVTKPlacementFrame frame) noexcept
+    {
+        placement_frame_ = frame;
+    }
+
     [[nodiscard]] LocalVTKOutputProfile profile() const noexcept
     {
         return profile_;
+    }
+
+    [[nodiscard]] LocalVTKCrackFilterMode crack_filter_mode() const noexcept
+    {
+        return crack_filter_mode_;
+    }
+
+    [[nodiscard]] LocalVTKGaussFieldProfile
+    gauss_field_profile() const noexcept
+    {
+        return gauss_field_profile_;
+    }
+
+    [[nodiscard]] LocalVTKPlacementFrame placement_frame() const noexcept
+    {
+        return placement_frame_;
     }
 
     [[nodiscard]] std::string mesh_path(int step_count) const
@@ -548,6 +593,11 @@ public:
     [[nodiscard]] std::string cracks_path(int step_count) const
     {
         return snapshot_prefix_(step_count) + "_cracks.vtu";
+    }
+
+    [[nodiscard]] std::string cracks_visible_path(int step_count) const
+    {
+        return snapshot_prefix_(step_count) + "_cracks_visible.vtu";
     }
 
     [[nodiscard]] std::string rebar_path(int step_count) const
@@ -575,28 +625,85 @@ public:
         const auto prefix = snapshot_prefix_(step_count);
 
         fall_n::vtk::VTKModelExporter exporter{model};
+        exporter.set_gauss_field_profile(gauss_field_profile_);
+        exporter.set_current_point_coordinates(
+            placement_frame_ == LocalVTKPlacementFrame::Current);
         exporter.set_displacement();
         if (profile_ != LocalVTKOutputProfile::Minimal) {
             exporter.compute_material_fields();
+            if (profile_ == LocalVTKOutputProfile::Publication) {
+                exporter.ensure_gauss_damage_crack_diagnostics();
+            }
         }
+        exporter.set_gauss_metadata(
+            parent_element_id_,
+            parent_element_id_,
+            1.0);
         exporter.set_local_axes(local_ex, local_ey, local_ez);
         exporter.write_mesh(prefix + "_mesh.vtu");
-        if (profile_ == LocalVTKOutputProfile::Debug) {
+        if (profile_ != LocalVTKOutputProfile::Minimal) {
             exporter.write_gauss_points(prefix + "_gauss.vtu");
+        }
+
+        if (placement_frame_ == LocalVTKPlacementFrame::Both) {
+            fall_n::vtk::VTKModelExporter current_exporter{model};
+            current_exporter.set_gauss_field_profile(gauss_field_profile_);
+            current_exporter.set_current_point_coordinates(true);
+            current_exporter.set_displacement();
+            if (profile_ != LocalVTKOutputProfile::Minimal) {
+                current_exporter.compute_material_fields();
+                if (profile_ == LocalVTKOutputProfile::Publication) {
+                    current_exporter.ensure_gauss_damage_crack_diagnostics();
+                }
+            }
+            current_exporter.set_gauss_metadata(
+                parent_element_id_,
+                parent_element_id_,
+                1.0);
+            current_exporter.set_local_axes(local_ex, local_ey, local_ez);
+            current_exporter.write_mesh(prefix + "_current_mesh.vtu");
+            if (profile_ != LocalVTKOutputProfile::Minimal) {
+                current_exporter.write_gauss_points(
+                    prefix + "_current_gauss.vtu");
+            }
         }
 
         if (pvd_mesh_) {
             pvd_mesh_->add_timestep(time, prefix + "_mesh.vtu");
         }
-        if (pvd_gauss_ && profile_ == LocalVTKOutputProfile::Debug) {
+        if (pvd_gauss_ && profile_ != LocalVTKOutputProfile::Minimal) {
             pvd_gauss_->add_timestep(time, prefix + "_gauss.vtu");
         }
 
-        if (profile_ != LocalVTKOutputProfile::Minimal && !cracks.empty()) {
-            write_crack_planes_vtu_(
-                prefix + "_cracks.vtu", sub, cracks, min_crack_opening);
+        if (profile_ != LocalVTKOutputProfile::Minimal) {
+            const bool write_raw =
+                crack_filter_mode_ == LocalVTKCrackFilterMode::All ||
+                crack_filter_mode_ == LocalVTKCrackFilterMode::Both;
+            const bool write_visible =
+                crack_filter_mode_ == LocalVTKCrackFilterMode::Visible ||
+                crack_filter_mode_ == LocalVTKCrackFilterMode::Both;
+            if (write_raw) {
+                write_crack_planes_vtu_(prefix + "_cracks.vtu",
+                                        sub,
+                                        cracks,
+                                        min_crack_opening,
+                                        false);
+            }
+            if (write_visible) {
+                write_crack_planes_vtu_(prefix + "_cracks_visible.vtu",
+                                        sub,
+                                        cracks,
+                                        min_crack_opening,
+                                        true);
+            }
             if (pvd_cracks_) {
-                pvd_cracks_->add_timestep(time, prefix + "_cracks.vtu");
+                if (write_raw) {
+                    pvd_cracks_->add_timestep(time, prefix + "_cracks.vtu");
+                }
+                if (write_visible) {
+                    pvd_cracks_->add_timestep(
+                        time, prefix + "_cracks_visible.vtu");
+                }
             }
         }
 

@@ -69,6 +69,24 @@ vtkSmartPointer<vtkUnstructuredGrid> make_gauss_cloud_grid() {
     qp_stress_von_mises->SetValue(3, 4.0);
     grid->GetPointData()->AddArray(qp_stress_von_mises);
 
+    const auto add_metadata = [&](const char* name, double base) {
+        vtkNew<vtkDoubleArray> values;
+        values->SetName(name);
+        values->SetNumberOfComponents(1);
+        values->SetNumberOfTuples(4);
+        for (vtkIdType i = 0; i < 4; ++i) {
+            values->SetValue(i, base + static_cast<double>(i));
+        }
+        grid->GetPointData()->AddArray(values);
+    };
+    add_metadata("gauss_id", 0.0);
+    add_metadata("element_id", 10.0);
+    add_metadata("material_id", 20.0);
+    add_metadata("site_id", 30.0);
+    add_metadata("parent_element_id", 40.0);
+    add_metadata("qp_damage", 0.0);
+    add_metadata("qp_num_cracks", 0.0);
+
     return grid;
 }
 
@@ -120,6 +138,24 @@ void test_gauss_cloud_roundtrip_keeps_point_fields() {
         roundtripped->GetPointData()->GetArray("qp_stress_von_mises");
     assert(qp_stress_von_mises != nullptr);
     assert(approx(qp_stress_von_mises->GetComponent(2, 0), 3.0));
+
+    for (const auto* name : {"gauss_id",
+                             "element_id",
+                             "material_id",
+                             "site_id",
+                             "parent_element_id",
+                             "qp_damage",
+                             "qp_num_cracks"})
+    {
+        auto* metadata = roundtripped->GetPointData()->GetArray(name);
+        assert(metadata != nullptr);
+        assert(metadata->GetNumberOfComponents() == 1);
+        assert(metadata->GetNumberOfTuples() == 4);
+    }
+    assert(approx(roundtripped->GetPointData()
+                      ->GetArray("parent_element_id")
+                      ->GetComponent(3, 0),
+                  43.0));
 
     auto* active_vectors = roundtripped->GetPointData()->GetVectors();
     assert(active_vectors != nullptr);

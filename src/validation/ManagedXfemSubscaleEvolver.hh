@@ -280,9 +280,45 @@ public:
         }
     }
 
+    void set_vtk_crack_filter_mode(LocalVTKCrackFilterMode mode) noexcept
+    {
+        vtk_crack_filter_mode_ = mode;
+        if (adapter_) {
+            adapter_->set_vtk_crack_filter_mode(mode);
+        }
+    }
+
+    void set_vtk_gauss_field_profile(
+        LocalVTKGaussFieldProfile profile) noexcept
+    {
+        vtk_gauss_field_profile_ = profile;
+        if (adapter_) {
+            adapter_->set_vtk_gauss_field_profile(profile);
+        }
+    }
+
+    void set_vtk_placement_frame(LocalVTKPlacementFrame frame) noexcept
+    {
+        vtk_placement_frame_ = frame;
+        if (adapter_) {
+            adapter_->set_vtk_placement_frame(frame);
+        }
+    }
+
     [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
     {
         return vtk_output_profile_;
+    }
+
+    [[nodiscard]] LocalVTKGaussFieldProfile
+    vtk_gauss_field_profile() const noexcept
+    {
+        return vtk_gauss_field_profile_;
+    }
+
+    [[nodiscard]] LocalVTKPlacementFrame vtk_placement_frame() const noexcept
+    {
+        return vtk_placement_frame_;
     }
 
     [[nodiscard]] SubModelSolverResult solve_step(double time)
@@ -633,6 +669,10 @@ public:
             if (pvd_cracks_ && !snapshot.cracks_path.empty()) {
                 pvd_cracks_->add_timestep(time, snapshot.cracks_path);
             }
+            if (pvd_cracks_ && !snapshot.cracks_visible_path.empty()) {
+                pvd_cracks_->add_timestep(time,
+                                          snapshot.cracks_visible_path);
+            }
             write_vtk_collections_();
         }
         return snapshot;
@@ -674,6 +714,9 @@ private:
         }
         adapter_.emplace(options_);
         adapter_->set_vtk_output_profile(vtk_output_profile_);
+        adapter_->set_vtk_crack_filter_mode(vtk_crack_filter_mode_);
+        adapter_->set_vtk_gauss_field_profile(vtk_gauss_field_profile_);
+        adapter_->set_vtk_placement_frame(vtk_placement_frame_);
         initialized_ = adapter_->initialize_managed_local_model(patch_);
         return initialized_;
     }
@@ -1032,6 +1075,12 @@ private:
     bool has_committed_control_{false};
     bool vtk_output_configured_{false};
     LocalVTKOutputProfile vtk_output_profile_{LocalVTKOutputProfile::Debug};
+    LocalVTKCrackFilterMode vtk_crack_filter_mode_{
+        LocalVTKCrackFilterMode::Both};
+    LocalVTKGaussFieldProfile vtk_gauss_field_profile_{
+        LocalVTKGaussFieldProfile::Debug};
+    LocalVTKPlacementFrame vtk_placement_frame_{
+        LocalVTKPlacementFrame::Reference};
     std::filesystem::path vtk_output_dir_{};
     std::optional<PVDWriter> pvd_mesh_{};
     std::optional<PVDWriter> pvd_gauss_{};
