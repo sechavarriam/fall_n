@@ -607,6 +607,7 @@ private:
             CouplingTerminationReason::OneWayStepCompleted;
 
         set_macro_trial_mode_(false);
+        inject_or_clear_({});
         if (!macro_solver_->step()) {
             capture_macro_solver_diagnostics_();
             last_report_.converged = false;

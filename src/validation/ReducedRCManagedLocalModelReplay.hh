@@ -21,6 +21,7 @@
 // =============================================================================
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -122,6 +123,14 @@ struct ReducedRCManagedLocalPatchSpec {
     bool independent_domain_and_mesh{true};
     bool vtk_time_series_required{true};
     bool warm_start_required{true};
+    bool vtk_global_placement{false};
+    std::array<double, 3> vtk_origin{0.0, 0.0, 0.0};
+    std::array<double, 3> vtk_e_x{1.0, 0.0, 0.0};
+    std::array<double, 3> vtk_e_y{0.0, 1.0, 0.0};
+    std::array<double, 3> vtk_e_z{0.0, 0.0, 1.0};
+    std::size_t vtk_parent_element_id{0};
+    std::size_t vtk_section_gp{0};
+    double vtk_xi{0.0};
 };
 
 struct ReducedRCManagedLocalBoundarySample {
