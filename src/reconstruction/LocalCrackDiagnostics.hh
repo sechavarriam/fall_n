@@ -97,7 +97,7 @@ public:
                     }
 
                     const bool visible =
-                        max_open_history >= min_crack_opening;
+                        max_open_history > min_crack_opening;
 
                     if (visible) {
                         ++state.summary.num_cracked_gps;
