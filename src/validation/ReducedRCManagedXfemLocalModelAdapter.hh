@@ -101,7 +101,9 @@ struct ReducedRCManagedXfemLocalVTKSnapshot {
     std::string mesh_path{};
     std::string gauss_path{};
     std::string cracks_path{};
+    std::string cracks_visible_path{};
     std::size_t crack_record_count{0};
+    std::size_t visible_crack_record_count{0};
     std::string status_label{"not_written"};
 };
 
@@ -153,9 +155,36 @@ public:
         vtk_output_profile_ = profile;
     }
 
+    void set_vtk_crack_filter_mode(LocalVTKCrackFilterMode mode) noexcept
+    {
+        vtk_crack_filter_mode_ = mode;
+    }
+
+    void set_vtk_gauss_field_profile(
+        LocalVTKGaussFieldProfile profile) noexcept
+    {
+        vtk_gauss_field_profile_ = profile;
+    }
+
+    void set_vtk_placement_frame(LocalVTKPlacementFrame frame) noexcept
+    {
+        vtk_placement_frame_ = frame;
+    }
+
     [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
     {
         return vtk_output_profile_;
+    }
+
+    [[nodiscard]] LocalVTKGaussFieldProfile
+    vtk_gauss_field_profile() const noexcept
+    {
+        return vtk_gauss_field_profile_;
+    }
+
+    [[nodiscard]] LocalVTKPlacementFrame vtk_placement_frame() const noexcept
+    {
+        return vtk_placement_frame_;
     }
 
     [[nodiscard]] bool initialize_managed_local_model(
@@ -506,31 +535,133 @@ public:
             snapshot.mesh_path = prefix.string() + "_mesh.vtu";
             snapshot.gauss_path = prefix.string() + "_gauss.vtu";
             snapshot.cracks_path = prefix.string() + "_cracks.vtu";
+            snapshot.cracks_visible_path =
+                prefix.string() + "_cracks_visible.vtu";
 
             fall_n::vtk::VTKModelExporter exporter{*model_};
+            exporter.set_gauss_field_profile(vtk_gauss_field_profile_);
+            exporter.set_current_point_coordinates(
+                vtk_placement_frame_ == LocalVTKPlacementFrame::Current);
+            if (patch_.vtk_global_placement) {
+                Eigen::Matrix3d basis = Eigen::Matrix3d::Identity();
+                for (int r = 0; r < 3; ++r) {
+                    basis(r, 0) = patch_.vtk_e_x[static_cast<std::size_t>(r)];
+                    basis(r, 1) = patch_.vtk_e_y[static_cast<std::size_t>(r)];
+                    basis(r, 2) = patch_.vtk_e_z[static_cast<std::size_t>(r)];
+                }
+                exporter.set_point_transform(
+                    Eigen::Vector3d{patch_.vtk_origin[0],
+                                    patch_.vtk_origin[1],
+                                    patch_.vtk_origin[2]},
+                    basis);
+            }
             exporter.set_displacement();
             if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
                 exporter.compute_material_fields();
+                if (vtk_output_profile_ == LocalVTKOutputProfile::Publication) {
+                    exporter.ensure_gauss_damage_crack_diagnostics();
+                }
             }
+            exporter.set_gauss_metadata(
+                patch_.site_index,
+                patch_.vtk_global_placement
+                    ? patch_.vtk_parent_element_id
+                    : patch_.site_index,
+                1.0);
             exporter.write_mesh(snapshot.mesh_path);
-            if (vtk_output_profile_ == LocalVTKOutputProfile::Debug) {
+            if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
                 exporter.write_gauss_points(snapshot.gauss_path);
             } else {
                 snapshot.gauss_path.clear();
             }
 
+            if (vtk_placement_frame_ == LocalVTKPlacementFrame::Both) {
+                fall_n::vtk::VTKModelExporter current_exporter{*model_};
+                current_exporter.set_gauss_field_profile(
+                    vtk_gauss_field_profile_);
+                current_exporter.set_current_point_coordinates(true);
+                if (patch_.vtk_global_placement) {
+                    Eigen::Matrix3d basis = Eigen::Matrix3d::Identity();
+                    for (int r = 0; r < 3; ++r) {
+                        basis(r, 0) =
+                            patch_.vtk_e_x[static_cast<std::size_t>(r)];
+                        basis(r, 1) =
+                            patch_.vtk_e_y[static_cast<std::size_t>(r)];
+                        basis(r, 2) =
+                            patch_.vtk_e_z[static_cast<std::size_t>(r)];
+                    }
+                    current_exporter.set_point_transform(
+                        Eigen::Vector3d{patch_.vtk_origin[0],
+                                        patch_.vtk_origin[1],
+                                        patch_.vtk_origin[2]},
+                        basis);
+                }
+                current_exporter.set_displacement();
+                if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
+                    current_exporter.compute_material_fields();
+                    if (vtk_output_profile_ ==
+                        LocalVTKOutputProfile::Publication)
+                    {
+                        current_exporter
+                            .ensure_gauss_damage_crack_diagnostics();
+                    }
+                }
+                current_exporter.set_gauss_metadata(
+                    patch_.site_index,
+                    patch_.vtk_global_placement
+                        ? patch_.vtk_parent_element_id
+                        : patch_.site_index,
+                    1.0);
+                current_exporter.write_mesh(
+                    prefix.string() + "_current_mesh.vtu");
+                if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
+                    current_exporter.write_gauss_points(
+                        prefix.string() + "_current_gauss.vtu");
+                }
+            }
+
             const auto cracks = collect_crack_records_();
             snapshot.crack_record_count = cracks.size();
             if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
-                write_crack_records_vtu_(
-                    snapshot.cracks_path,
-                    cracks,
-                    *grid_,
-                    patch_.site_index,
-                    patch_.site_index,
-                    min_abs_crack_opening);
+                const auto parent_element_id = patch_.vtk_global_placement
+                    ? patch_.vtk_parent_element_id
+                    : patch_.site_index;
+                const bool write_raw =
+                    vtk_crack_filter_mode_ == LocalVTKCrackFilterMode::All ||
+                    vtk_crack_filter_mode_ == LocalVTKCrackFilterMode::Both;
+                const bool write_visible =
+                    vtk_crack_filter_mode_ ==
+                        LocalVTKCrackFilterMode::Visible ||
+                    vtk_crack_filter_mode_ == LocalVTKCrackFilterMode::Both;
+                if (write_raw) {
+                    write_crack_records_vtu_(
+                        snapshot.cracks_path,
+                        cracks,
+                        *grid_,
+                        patch_.site_index,
+                        parent_element_id,
+                        min_abs_crack_opening,
+                        false,
+                        patch_);
+                } else {
+                    snapshot.cracks_path.clear();
+                }
+                if (write_visible) {
+                    write_crack_records_vtu_(
+                        snapshot.cracks_visible_path,
+                        cracks,
+                        *grid_,
+                        patch_.site_index,
+                        parent_element_id,
+                        min_abs_crack_opening,
+                        true,
+                        patch_);
+                } else {
+                    snapshot.cracks_visible_path.clear();
+                }
             } else {
                 snapshot.cracks_path.clear();
+                snapshot.cracks_visible_path.clear();
             }
 
             snapshot.written = true;
@@ -615,7 +746,9 @@ private:
         const PrismaticGrid& grid,
         std::size_t site_id,
         std::size_t parent_element_id,
-        double min_abs_crack_opening)
+        double min_abs_crack_opening,
+        bool visible_only,
+        const ReducedRCManagedLocalPatchSpec& patch)
     {
         const double half =
             0.2 * std::min({grid.dx, grid.dy, grid.dz}) / 2.0;
@@ -626,6 +759,14 @@ private:
         vtkNew<vtkDoubleArray> opening_arr;
         opening_arr->SetName("crack_opening");
         opening_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> opening_max_arr;
+        opening_max_arr->SetName("crack_opening_max");
+        opening_max_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> visible_arr;
+        visible_arr->SetName("crack_visible");
+        visible_arr->SetNumberOfComponents(1);
 
         vtkNew<vtkDoubleArray> normal_arr;
         normal_arr->SetName("crack_normal");
@@ -638,6 +779,10 @@ private:
         vtkNew<vtkDoubleArray> state_arr;
         state_arr->SetName("crack_state");
         state_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> plane_id_arr;
+        plane_id_arr->SetName("crack_plane_id");
+        plane_id_arr->SetNumberOfComponents(1);
 
         vtkNew<vtkDoubleArray> site_arr;
         site_arr->SetName("site_id");
@@ -663,16 +808,40 @@ private:
         traction_arr->SetName("cohesive_traction_proxy");
         traction_arr->SetNumberOfComponents(2);
 
+        Eigen::Matrix3d basis = Eigen::Matrix3d::Identity();
+        Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+        if (patch.vtk_global_placement) {
+            origin = Eigen::Vector3d{patch.vtk_origin[0],
+                                     patch.vtk_origin[1],
+                                     patch.vtk_origin[2]};
+            for (int r = 0; r < 3; ++r) {
+                basis(r, 0) = patch.vtk_e_x[static_cast<std::size_t>(r)];
+                basis(r, 1) = patch.vtk_e_y[static_cast<std::size_t>(r)];
+                basis(r, 2) = patch.vtk_e_z[static_cast<std::size_t>(r)];
+            }
+        }
+        const auto map_point = [&](const Eigen::Vector3d& p) {
+            return patch.vtk_global_placement ? origin + basis * p : p;
+        };
+        const auto map_vector = [&](const Eigen::Vector3d& v) {
+            return patch.vtk_global_placement ? basis * v : v;
+        };
+
         auto add_crack = [&](const CrackRecord& record,
                              const Eigen::Vector3d& normal_raw,
                              double opening,
-                             bool closed) {
-            if (std::abs(opening) < min_abs_crack_opening ||
+                             double opening_max,
+                             bool closed,
+                             int plane_id) {
+            const double visible_opening =
+                std::max(std::abs(opening), std::abs(opening_max));
+            const bool visible = visible_opening >= min_abs_crack_opening;
+            if ((visible_only && !visible) ||
                 normal_raw.squaredNorm() < 1.0e-20) {
                 return;
             }
 
-            const Eigen::Vector3d normal = normal_raw.normalized();
+            const Eigen::Vector3d normal = map_vector(normal_raw).normalized();
             Eigen::Vector3d tangent_1;
             if (std::abs(normal.x()) < 0.9) {
                 tangent_1 = normal.cross(Eigen::Vector3d::UnitX()).normalized();
@@ -681,12 +850,15 @@ private:
             }
             const Eigen::Vector3d tangent_2 =
                 normal.cross(tangent_1).normalized();
+            const Eigen::Vector3d position = map_point(record.position);
+            const Eigen::Vector3d displacement =
+                map_vector(record.displacement);
 
             const Eigen::Vector3d corners[4] = {
-                record.position - half * tangent_1 - half * tangent_2,
-                record.position + half * tangent_1 - half * tangent_2,
-                record.position + half * tangent_1 + half * tangent_2,
-                record.position - half * tangent_1 + half * tangent_2,
+                position - half * tangent_1 - half * tangent_2,
+                position + half * tangent_1 - half * tangent_2,
+                position + half * tangent_1 + half * tangent_2,
+                position - half * tangent_1 + half * tangent_2,
             };
 
             vtkIdType ids[4];
@@ -695,19 +867,22 @@ private:
                     corners[corner].x(),
                     corners[corner].y(),
                     corners[corner].z());
-                disp_arr->InsertNextTuple3(record.displacement.x(),
-                                           record.displacement.y(),
-                                           record.displacement.z());
+                disp_arr->InsertNextTuple3(displacement.x(),
+                                           displacement.y(),
+                                           displacement.z());
             }
 
             crack_grid->InsertNextCell(VTK_QUAD, 4, ids);
             opening_arr->InsertNextValue(opening);
+            opening_max_arr->InsertNextValue(opening_max);
+            visible_arr->InsertNextValue(visible ? 1.0 : 0.0);
             normal_arr->InsertNextTuple3(normal.x(), normal.y(), normal.z());
             const Eigen::Vector3d opening_vec = opening * normal;
             opening_vec_arr->InsertNextTuple3(opening_vec.x(),
                                              opening_vec.y(),
                                              opening_vec.z());
             state_arr->InsertNextValue(closed ? 0.0 : 1.0);
+            plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
             site_arr->InsertNextValue(static_cast<double>(site_id));
             parent_arr->InsertNextValue(
                 static_cast<double>(parent_element_id));
@@ -727,38 +902,43 @@ private:
                 add_crack(record,
                           record.normal_1,
                           record.opening_1,
-                          record.closed_1);
+                          record.opening_max_1,
+                          record.closed_1,
+                          1);
             }
             if (record.num_cracks >= 2) {
                 add_crack(record,
                           record.normal_2,
                           record.opening_2,
-                          record.closed_2);
+                          record.opening_max_2,
+                          record.closed_2,
+                          2);
             }
             if (record.num_cracks >= 3) {
                 add_crack(record,
                           record.normal_3,
                           record.opening_3,
-                          record.closed_3);
+                          record.opening_max_3,
+                          record.closed_3,
+                          3);
             }
         }
 
         crack_grid->SetPoints(pts);
-        if (opening_arr->GetNumberOfTuples() > 0) {
-            crack_grid->GetCellData()->AddArray(opening_arr);
-            crack_grid->GetCellData()->AddArray(normal_arr);
-            crack_grid->GetCellData()->AddArray(opening_vec_arr);
-            crack_grid->GetCellData()->AddArray(state_arr);
-            crack_grid->GetCellData()->AddArray(site_arr);
-            crack_grid->GetCellData()->AddArray(parent_arr);
-            crack_grid->GetCellData()->AddArray(damage_arr);
-            crack_grid->GetCellData()->AddArray(cohesive_traction_arr);
-            crack_grid->GetCellData()->AddArray(traction_arr);
-        }
-        if (disp_arr->GetNumberOfTuples() > 0) {
-            crack_grid->GetPointData()->AddArray(disp_arr);
-            crack_grid->GetPointData()->SetActiveVectors("displacement");
-        }
+        crack_grid->GetCellData()->AddArray(opening_arr);
+        crack_grid->GetCellData()->AddArray(opening_max_arr);
+        crack_grid->GetCellData()->AddArray(visible_arr);
+        crack_grid->GetCellData()->AddArray(normal_arr);
+        crack_grid->GetCellData()->AddArray(opening_vec_arr);
+        crack_grid->GetCellData()->AddArray(state_arr);
+        crack_grid->GetCellData()->AddArray(plane_id_arr);
+        crack_grid->GetCellData()->AddArray(site_arr);
+        crack_grid->GetCellData()->AddArray(parent_arr);
+        crack_grid->GetCellData()->AddArray(damage_arr);
+        crack_grid->GetCellData()->AddArray(cohesive_traction_arr);
+        crack_grid->GetCellData()->AddArray(traction_arr);
+        crack_grid->GetPointData()->AddArray(disp_arr);
+        crack_grid->GetPointData()->SetActiveVectors("displacement");
         fall_n::vtk::write_vtu(crack_grid, filename);
     }
 
@@ -1096,6 +1276,12 @@ private:
     ReducedRCManagedXfemLocalModelAdapterOptions options_{};
     ReducedRCManagedLocalPatchSpec patch_{};
     LocalVTKOutputProfile vtk_output_profile_{LocalVTKOutputProfile::Debug};
+    LocalVTKCrackFilterMode vtk_crack_filter_mode_{
+        LocalVTKCrackFilterMode::Both};
+    LocalVTKGaussFieldProfile vtk_gauss_field_profile_{
+        LocalVTKGaussFieldProfile::Debug};
+    LocalVTKPlacementFrame vtk_placement_frame_{
+        LocalVTKPlacementFrame::Reference};
     std::unique_ptr<Domain<3>> domain_{};
     std::optional<PrismaticGrid> grid_{};
     std::unique_ptr<XFEMModel> model_{};

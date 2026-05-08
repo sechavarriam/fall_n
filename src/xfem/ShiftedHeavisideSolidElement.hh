@@ -946,6 +946,7 @@ public:
             record.num_cracks = 1;
             record.normal_1 = traction_measure.normal;
             record.opening_1 = split.normal_opening;
+            record.opening_max_1 = std::abs(split.normal_opening);
             record.closed_1 = split.normal_opening <= 0.0;
             record.damage = response.damage;
             record.damage_scalar_available = true;

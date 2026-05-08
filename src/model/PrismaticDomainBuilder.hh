@@ -635,10 +635,10 @@ inline PrismaticSpec align_to_beam(
         ez[0]*ex[1] - ez[1]*ex[0]
     };
 
-    // Origin = midpoint of A and B
-    std::array<double, 3> origin{
-        (A[0]+B[0])/2.0, (A[1]+B[1])/2.0, (A[2]+B[2])/2.0
-    };
+    // The prismatic mesh uses local z in [0,L], so the placement
+    // origin must be face A. Using the midpoint shifts every local
+    // continuous column by L/2 along the macro element axis.
+    std::array<double, 3> origin{A[0], A[1], A[2]};
 
     return PrismaticSpec{
         .width  = width,

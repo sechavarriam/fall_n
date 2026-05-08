@@ -824,9 +824,36 @@ public:
         output_writer_.set_profile(profile);
     }
 
+    void set_vtk_crack_filter_mode(LocalVTKCrackFilterMode mode) noexcept
+    {
+        output_writer_.set_crack_filter_mode(mode);
+    }
+
+    void set_vtk_gauss_field_profile(
+        LocalVTKGaussFieldProfile profile) noexcept
+    {
+        output_writer_.set_gauss_field_profile(profile);
+    }
+
+    void set_vtk_placement_frame(LocalVTKPlacementFrame frame) noexcept
+    {
+        output_writer_.set_placement_frame(frame);
+    }
+
     [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
     {
         return output_writer_.profile();
+    }
+
+    [[nodiscard]] LocalVTKGaussFieldProfile
+    vtk_gauss_field_profile() const noexcept
+    {
+        return output_writer_.gauss_field_profile();
+    }
+
+    [[nodiscard]] LocalVTKPlacementFrame vtk_placement_frame() const noexcept
+    {
+        return output_writer_.placement_frame();
     }
 
     // Non-copyable
@@ -1245,14 +1272,23 @@ public:
         snapshot.written = true;
         snapshot.mesh_path = output_writer_.mesh_path(step);
         snapshot.gauss_path =
-            output_writer_.profile() == LocalVTKOutputProfile::Debug
+            output_writer_.profile() != LocalVTKOutputProfile::Minimal
                 ? output_writer_.gauss_path(step)
                 : std::string{};
-        snapshot.cracks_path =
-            latest_cracks_.empty() ||
-                    output_writer_.profile() == LocalVTKOutputProfile::Minimal
-                ? std::string{}
-                : output_writer_.cracks_path(step);
+        if (output_writer_.profile() != LocalVTKOutputProfile::Minimal) {
+            const auto mode = output_writer_.crack_filter_mode();
+            if (mode == LocalVTKCrackFilterMode::All ||
+                mode == LocalVTKCrackFilterMode::Both)
+            {
+                snapshot.cracks_path = output_writer_.cracks_path(step);
+            }
+            if (mode == LocalVTKCrackFilterMode::Visible ||
+                mode == LocalVTKCrackFilterMode::Both)
+            {
+                snapshot.cracks_visible_path =
+                    output_writer_.cracks_visible_path(step);
+            }
+        }
         snapshot.crack_record_count = latest_cracks_.size();
         snapshot.status_label = "continuum_kobathe_written";
         return snapshot;

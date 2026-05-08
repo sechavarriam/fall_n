@@ -79,6 +79,152 @@ void write_csv_array(std::ostream& out, const std::array<double, N>& values)
     }
 }
 
+struct LocalSiteTransformRecord {
+    std::size_t local_site_index{0};
+    std::size_t macro_element_id{0};
+    std::size_t section_gp{0};
+    double xi{0.0};
+    std::string local_family;
+    bool global_placement_applied{false};
+    LocalVTKPlacementFrame placement_frame{LocalVTKPlacementFrame::Reference};
+    Eigen::Vector3d origin{Eigen::Vector3d::Zero()};
+    Eigen::Matrix3d basis{Eigen::Matrix3d::Identity()};
+};
+
+[[nodiscard]] Eigen::Vector3d as_vec3(const std::array<double, 3>& values)
+{
+    return Eigen::Vector3d{values[0], values[1], values[2]};
+}
+
+[[nodiscard]] std::array<double, 3> as_array3(const Eigen::Vector3d& values)
+{
+    return {values[0], values[1], values[2]};
+}
+
+[[nodiscard]] LocalSiteTransformRecord make_local_site_transform(
+    const ElementKinematics& ek,
+    const CouplingSite& site,
+    std::size_t local_site_index,
+    std::string local_family,
+    bool global_placement_applied,
+    LocalVTKPlacementFrame placement_frame)
+{
+    const Eigen::Vector3d origin = as_vec3(ek.endpoint_A);
+    const Eigen::Vector3d endpoint_b = as_vec3(ek.endpoint_B);
+    Eigen::Vector3d e_z = endpoint_b - origin;
+    if (e_z.norm() <= 1.0e-14) {
+        e_z = Eigen::Vector3d::UnitZ();
+    } else {
+        e_z.normalize();
+    }
+
+    Eigen::Vector3d up = as_vec3(ek.up_direction);
+    if (up.norm() <= 1.0e-14) {
+        up = Eigen::Vector3d::UnitY();
+    } else {
+        up.normalize();
+    }
+    if (std::abs(up.dot(e_z)) > 0.98) {
+        up = std::abs(Eigen::Vector3d::UnitY().dot(e_z)) < 0.98
+            ? Eigen::Vector3d::UnitY()
+            : Eigen::Vector3d::UnitX();
+    }
+
+    Eigen::Vector3d e_x = up.cross(e_z);
+    if (e_x.norm() <= 1.0e-14) {
+        e_x = Eigen::Vector3d::UnitX();
+    } else {
+        e_x.normalize();
+    }
+    Eigen::Vector3d e_y = e_z.cross(e_x);
+    if (e_y.norm() <= 1.0e-14) {
+        e_y = Eigen::Vector3d::UnitY();
+    } else {
+        e_y.normalize();
+    }
+
+    Eigen::Matrix3d basis;
+    basis.col(0) = e_x;
+    basis.col(1) = e_y;
+    basis.col(2) = e_z;
+
+    return LocalSiteTransformRecord{
+        .local_site_index = local_site_index,
+        .macro_element_id = site.macro_element_id,
+        .section_gp = site.section_gp,
+        .xi = site.xi,
+        .local_family = std::move(local_family),
+        .global_placement_applied = global_placement_applied,
+        .placement_frame = placement_frame,
+        .origin = origin,
+        .basis = basis};
+}
+
+void write_local_site_transform_files(
+    const std::filesystem::path& recorder_dir,
+    const std::vector<LocalSiteTransformRecord>& rows)
+{
+    std::filesystem::create_directories(recorder_dir);
+
+    const auto csv_path = recorder_dir / "local_site_transform.csv";
+    std::ofstream csv(csv_path);
+    csv << "local_site_index,macro_element_id,section_gp,xi,local_family,"
+        << "global_placement_applied,placement_frame,origin_x,origin_y,origin_z,"
+        << "R00,R01,R02,R10,R11,R12,R20,R21,R22\n";
+    csv << std::scientific << std::setprecision(16);
+    for (const auto& row : rows) {
+        csv << row.local_site_index << ','
+            << row.macro_element_id << ','
+            << row.section_gp << ','
+            << row.xi << ','
+            << row.local_family << ','
+            << (row.global_placement_applied ? 1 : 0) << ','
+            << to_string(row.placement_frame) << ','
+            << row.origin[0] << ','
+            << row.origin[1] << ','
+            << row.origin[2];
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                csv << ',' << row.basis(r, c);
+            }
+        }
+        csv << '\n';
+    }
+
+    const auto json_path = recorder_dir / "local_site_transform.json";
+    std::ofstream json(json_path);
+    json << "{\n"
+         << "  \"schema\": \"fall_n_local_site_transform_v1\",\n"
+         << "  \"mapping\": \"x_global = origin + R * x_local\",\n"
+         << "  \"records\": [\n";
+    json << std::scientific << std::setprecision(16);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        json << "    {\n"
+             << "      \"local_site_index\": " << row.local_site_index << ",\n"
+             << "      \"macro_element_id\": " << row.macro_element_id << ",\n"
+             << "      \"section_gp\": " << row.section_gp << ",\n"
+             << "      \"xi\": " << row.xi << ",\n"
+             << "      \"local_family\": " << std::quoted(row.local_family) << ",\n"
+             << "      \"global_placement_applied\": "
+             << (row.global_placement_applied ? "true" : "false") << ",\n"
+             << "      \"placement_frame\": "
+             << std::quoted(std::string(to_string(row.placement_frame))) << ",\n"
+             << "      \"origin\": [" << row.origin[0] << ", "
+             << row.origin[1] << ", " << row.origin[2] << "],\n"
+             << "      \"R\": [\n";
+        for (int r = 0; r < 3; ++r) {
+            json << "        [" << row.basis(r, 0) << ", "
+                 << row.basis(r, 1) << ", " << row.basis(r, 2) << "]"
+                 << (r + 1 < 3 ? "," : "") << "\n";
+        }
+        json << "      ]\n"
+             << "    }" << (i + 1 < rows.size() ? "," : "") << "\n";
+    }
+    json << "  ]\n"
+         << "}\n";
+}
+
 void write_csv_vector6(std::ostream& out, const Eigen::Vector<double, 6>& v)
 {
     for (int i = 0; i < 6; ++i) {
@@ -151,6 +297,19 @@ static std::string OUT    = BASE + "data/output/lshaped_multiscale_16/";
         return rel.generic_string();
     }
     return absolute_or_relative.generic_string();
+}
+
+[[nodiscard]] std::string current_frame_path_for(
+    std::string path,
+    std::string_view suffix)
+{
+    if (path.empty() || !path.ends_with(suffix)) {
+        return {};
+    }
+    path.erase(path.size() - suffix.size());
+    path += "_current";
+    path += suffix;
+    return path;
 }
 
 // ── L-shaped frame geometry ─────────────────────────────────────────────────
@@ -1251,6 +1410,12 @@ int main(int argc, char* argv[]) {
     bool adaptive_managed_local_transition = false;
     LocalVTKOutputProfile local_vtk_profile =
         LocalVTKOutputProfile::Debug;
+    LocalVTKCrackFilterMode local_vtk_crack_filter_mode =
+        LocalVTKCrackFilterMode::Both;
+    LocalVTKGaussFieldProfile local_vtk_gauss_field_profile =
+        LocalVTKGaussFieldProfile::Minimal;
+    LocalVTKPlacementFrame local_vtk_placement_frame =
+        LocalVTKPlacementFrame::Reference;
     TwoWayFailureRecoveryPolicy fe2_recovery_policy{};
     std::string local_family = "managed-xfem";
     std::size_t fe2_max_sites = N_CRITICAL;
@@ -1267,7 +1432,9 @@ int main(int argc, char* argv[]) {
     int kobathe_snes_max_it = 60;
     double kobathe_snes_atol = 1.0e-6;
     double kobathe_snes_rtol = 1.0e-2;
+    double local_vtk_crack_opening_threshold = 0.25e-3;
     double kobathe_min_crack_opening = 0.25e-3;
+    bool local_vtk_global_placement = false;
     int fe2_max_staggered_iter = MAX_STAGGERED_ITER;
     double fe2_staggered_tol = STAGGERED_TOL;
     double fe2_relaxation = STAGGERED_RELAX;
@@ -1407,6 +1574,26 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--local-vtk-profile" && i + 1 < argc) {
             local_vtk_profile =
                 parse_local_vtk_output_profile(argv[++i]);
+        } else if (arg == "--local-vtk-crack-opening-threshold" &&
+                   i + 1 < argc) {
+            local_vtk_crack_opening_threshold = std::stod(argv[++i]);
+            kobathe_min_crack_opening = local_vtk_crack_opening_threshold;
+        } else if (arg == "--local-vtk-crack-filter-mode" &&
+                   i + 1 < argc) {
+            local_vtk_crack_filter_mode =
+                parse_local_vtk_crack_filter_mode(argv[++i]);
+        } else if (arg == "--local-vtk-gauss-fields" &&
+                   i + 1 < argc) {
+            local_vtk_gauss_field_profile =
+                parse_local_vtk_gauss_field_profile(argv[++i]);
+        } else if (arg == "--local-vtk-placement-frame" &&
+                   i + 1 < argc) {
+            local_vtk_placement_frame =
+                parse_local_vtk_placement_frame(argv[++i]);
+            local_vtk_global_placement = true;
+        } else if (arg == "--local-vtk-global-placement") {
+            local_vtk_global_placement = true;
+            local_vtk_placement_frame = LocalVTKPlacementFrame::Reference;
         } else if (arg == "--local-family" && i + 1 < argc) {
             local_family = argv[++i];
         } else if (arg == "--global-vtk-interval" && i + 1 < argc) {
@@ -1445,6 +1632,7 @@ int main(int argc, char* argv[]) {
             kobathe_snes_rtol = std::stod(argv[++i]);
         } else if (arg == "--kobathe-min-crack-opening" && i + 1 < argc) {
             kobathe_min_crack_opening = std::stod(argv[++i]);
+            local_vtk_crack_opening_threshold = kobathe_min_crack_opening;
         } else if (arg == "--linear-alarm-criterion" && i + 1 < argc) {
             linear_alarm_criterion_name = argv[++i];
         } else if (arg == "--linear-alarm-threshold" && i + 1 < argc) {
@@ -1543,6 +1731,10 @@ int main(int argc, char* argv[]) {
     }
     if (!(kobathe_snes_atol > 0.0) || !(kobathe_snes_rtol > 0.0)) {
         throw std::invalid_argument("--kobathe-snes-atol/rtol must be positive.");
+    }
+    if (!(local_vtk_crack_opening_threshold >= 0.0)) {
+        throw std::invalid_argument(
+            "--local-vtk-crack-opening-threshold must be non-negative.");
     }
     if (!(kobathe_min_crack_opening >= 0.0)) {
         throw std::invalid_argument("--kobathe-min-crack-opening must be non-negative.");
@@ -1660,6 +1852,11 @@ int main(int argc, char* argv[]) {
              "--python-exe",
              "--output-root",
              "--local-vtk-profile",
+             "--local-vtk-crack-opening-threshold",
+             "--local-vtk-crack-filter-mode",
+             "--local-vtk-gauss-fields",
+             "--local-vtk-placement-frame",
+             "--local-vtk-global-placement",
              "--local-family",
              "--fixed-dt",
              "--adaptive-ts",
@@ -1723,12 +1920,19 @@ int main(int argc, char* argv[]) {
     std::println("  Scale factor  : {:.2f}", eq_scale);
     std::println("  Run mode      : {}", global_only
                  ? "global fall_n reference"
-                 : "managed-XFEM FE2 two-way");
+                 : (fe2_one_way_only ? "managed FE2 one-way"
+                                      : "managed FE2 two-way"));
     std::println("  Sections      : {}", elastic_sections
                  ? "elasticized RC fiber parity slice"
                  : "nonlinear RC fiber sections");
     std::println("  Local family  : {}", local_family);
     std::println("  Local VTK     : {}", to_string(local_vtk_profile));
+    std::println("  Local VTK cracks: threshold={:.3e} m, mode={}, gauss={}, placement={}, global_placement={}",
+                 local_vtk_crack_opening_threshold,
+                 to_string(local_vtk_crack_filter_mode),
+                 to_string(local_vtk_gauss_field_profile),
+                 to_string(local_vtk_placement_frame),
+                 local_vtk_global_placement ? "on" : "off");
     std::println("  FE2 recovery  : {}",
                  to_string(fe2_recovery_policy.mode));
 
@@ -2542,6 +2746,13 @@ int main(int argc, char* argv[]) {
     for (auto eid : crit_elem_ids) {
         critical_kinematics.push_back(extract_beam_kinematics(eid));
     }
+    std::unordered_map<std::size_t, ElementKinematics> kinematics_by_element;
+    kinematics_by_element.reserve(critical_kinematics.size());
+    for (const auto& ek : critical_kinematics) {
+        kinematics_by_element.emplace(ek.element_id, ek);
+    }
+    std::vector<LocalSiteTransformRecord> local_site_transforms;
+    local_site_transforms.reserve(3 * critical_kinematics.size());
 
     const bool use_managed_xfem = local_family == "managed-xfem";
     const bool use_continuum_kobathe =
@@ -2557,7 +2768,8 @@ int main(int argc, char* argv[]) {
     std::ofstream xfem_site_csv(
         OUT + "recorders/local_macro_inferred_sites.csv");
     xfem_site_csv
-        << "macro_element_id,range,fixed_end_score,loaded_end_score,"
+        << "local_site_index,macro_element_id,range,fixed_end_score,"
+        << "loaded_end_score,candidate_score,activation_reason,"
         << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
         << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
         << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
@@ -2567,9 +2779,9 @@ int main(int argc, char* argv[]) {
     std::vector<CouplingSite> local_sites;
     std::vector<int> local_ranges;
     std::vector<MultiscaleCoordinator> continuum_coordinators;
-    local_evolvers.reserve(crit_elem_ids.size());
-    local_sites.reserve(crit_elem_ids.size());
-    local_ranges.reserve(crit_elem_ids.size());
+    local_evolvers.reserve(3 * crit_elem_ids.size());
+    local_sites.reserve(3 * crit_elem_ids.size());
+    local_ranges.reserve(3 * crit_elem_ids.size());
 
     std::size_t one_way_completed_sites = 0;
     int one_way_total_iterations = 0;
@@ -2596,24 +2808,87 @@ int main(int argc, char* argv[]) {
                         std::abs(kin.kappa_z)) / curvature_scale;
     };
 
+    struct MacroLocalCandidate {
+        double z_over_l{0.05};
+        double score{0.0};
+        ReducedRCLocalLongitudinalBiasLocation bias{
+            ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+        std::string_view reason{"fixed_end"};
+    };
+
     for (const auto& ek : critical_kinematics) {
         const auto eid = ek.element_id;
         const int range = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
         const double fixed_score = endpoint_score(ek.kin_A);
         const double loaded_score = endpoint_score(ek.kin_B);
         const bool both_active = fixed_score >= 1.0 && loaded_score >= 1.0;
-        const double section_z =
-            both_active ? (fixed_score >= loaded_score ? 0.0 : 1.0)
-                        : (fixed_score >= loaded_score ? 0.0 : 1.0);
+
+        std::vector<MacroLocalCandidate> candidates;
+        candidates.reserve(3);
+        const double dominant_score = std::max(fixed_score, loaded_score);
+        const auto add_candidate =
+            [&](double z_over_l,
+                double score,
+                ReducedRCLocalLongitudinalBiasLocation bias,
+                std::string_view reason) {
+                if (score <= 0.0) {
+                    return;
+                }
+                const auto duplicate = std::ranges::find_if(
+                    candidates,
+                    [z_over_l](const MacroLocalCandidate& candidate) {
+                        return std::abs(candidate.z_over_l - z_over_l) <
+                               1.0e-12;
+                    });
+                if (duplicate == candidates.end()) {
+                    candidates.push_back(MacroLocalCandidate{
+                        .z_over_l = z_over_l,
+                        .score = score,
+                        .bias = bias,
+                        .reason = reason});
+                }
+            };
+
+        add_candidate(0.05, fixed_score,
+                      ReducedRCLocalLongitudinalBiasLocation::fixed_end,
+                      "fixed_end_score");
+        if (loaded_score >= 1.0 ||
+            loaded_score >= 0.75 * std::max(dominant_score, 1.0e-12))
+        {
+            add_candidate(0.95, loaded_score,
+                          ReducedRCLocalLongitudinalBiasLocation::loaded_end,
+                          "loaded_end_score");
+        }
+        if (both_active) {
+            add_candidate(0.50, 0.5 * (fixed_score + loaded_score),
+                          ReducedRCLocalLongitudinalBiasLocation::both_ends,
+                          "both_ends_center_probe");
+        }
+        if (candidates.empty()) {
+            add_candidate(
+                fixed_score >= loaded_score ? 0.05 : 0.95,
+                dominant_score,
+                fixed_score >= loaded_score
+                    ? ReducedRCLocalLongitudinalBiasLocation::fixed_end
+                    : ReducedRCLocalLongitudinalBiasLocation::loaded_end,
+                "dominant_endpoint_fallback");
+        }
+        std::ranges::sort(candidates, [](const auto& lhs, const auto& rhs) {
+            return lhs.score > rhs.score;
+        });
+
+        for (const auto& candidate : candidates) {
+        const double section_z = candidate.z_over_l;
+        const std::size_t local_site_index = local_evolvers.size();
 
         ReducedRCMultiscaleReplaySitePlan site{};
-        site.site_index = eid;
+        site.site_index = local_site_index;
         site.z_over_l = section_z;
-        site.activation_score = std::max(fixed_score, loaded_score);
+        site.activation_score = candidate.score;
         site.selected_for_replay = true;
 
         ReducedRCManagedLocalPatchSpec base_patch{};
-        base_patch.site_index = eid;
+        base_patch.site_index = local_site_index;
         const Eigen::Vector3d endpoint_A{
             ek.endpoint_A[0], ek.endpoint_A[1], ek.endpoint_A[2]};
         const Eigen::Vector3d endpoint_B{
@@ -2628,20 +2903,25 @@ int main(int argc, char* argv[]) {
         base_patch.boundary_mode =
             ReducedRCManagedLocalBoundaryMode::affine_section_dirichlet;
 
-        const auto patch = make_reduced_rc_macro_inferred_xfem_patch(
+        auto patch = make_reduced_rc_macro_inferred_xfem_patch(
             site,
             base_patch,
             ReducedRCMacroEndpointDemand{
                 .fixed_end_score = fixed_score,
                 .loaded_end_score = loaded_score,
                 .macro_section_z_over_l = section_z});
+        patch.crack_z_over_l = candidate.z_over_l;
+        patch.longitudinal_bias_location = candidate.bias;
+        patch.crack_position_inferred_from_macro = true;
+        patch.double_hinge_bias_inferred_from_macro =
+            candidate.bias == ReducedRCLocalLongitudinalBiasLocation::both_ends;
 
         const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
             return (1.0 - z) * a + z * b;
         };
 
         ReducedRCStructuralReplaySample sample{};
-        sample.site_index = eid;
+        sample.site_index = local_site_index;
         sample.pseudo_time = transition_report->trigger_time;
         sample.physical_time = transition_report->trigger_time;
         sample.z_over_l = patch.crack_z_over_l;
@@ -2652,6 +2932,23 @@ int main(int argc, char* argv[]) {
             std::max(fixed_score, loaded_score), 0.0, 1.0);
         const auto site_for_patch = BeamMacroBridge<StructModel, BeamElemT>{model}
             .default_site(eid, 2.0 * patch.crack_z_over_l - 1.0);
+        if (local_vtk_global_placement) {
+            const auto transform = make_local_site_transform(
+                ek,
+                site_for_patch,
+                local_evolvers.size(),
+                local_family,
+                true,
+                local_vtk_placement_frame);
+            patch.vtk_global_placement = true;
+            patch.vtk_origin = as_array3(transform.origin);
+            patch.vtk_e_x = as_array3(transform.basis.col(0));
+            patch.vtk_e_y = as_array3(transform.basis.col(1));
+            patch.vtk_e_z = as_array3(transform.basis.col(2));
+            patch.vtk_parent_element_id = site_for_patch.macro_element_id;
+            patch.vtk_section_gp = site_for_patch.section_gp;
+            patch.vtk_xi = site_for_patch.xi;
+        }
         const auto macro_state_for_patch =
             BeamMacroBridge<StructModel, BeamElemT>{model}
                 .extract_section_state(site_for_patch);
@@ -2695,8 +2992,10 @@ int main(int argc, char* argv[]) {
         }
 
         xfem_site_csv
+            << local_site_index << ","
             << eid << "," << range << ","
             << fixed_score << "," << loaded_score << ","
+            << candidate.score << "," << candidate.reason << ","
             << patch.crack_z_over_l << ","
             << to_string(patch.longitudinal_bias_location) << ","
             << patch.longitudinal_bias_power << ","
@@ -2722,9 +3021,12 @@ int main(int argc, char* argv[]) {
             << adapter_elements << "\n";
 
         std::println(
-            "  element {}: crack z/L={:.3f}, bias={}, local_family={}, replay={}, iters={}",
+            "  site {} / element {}: crack z/L={:.3f}, score={:.3f}, reason={}, bias={}, local_family={}, replay={}, iters={}",
+            local_site_index,
             eid,
             patch.crack_z_over_l,
+            candidate.score,
+            candidate.reason,
             to_string(patch.longitudinal_bias_location),
             local_family,
             use_managed_xfem
@@ -2733,12 +3035,23 @@ int main(int argc, char* argv[]) {
             replay_iterations);
 
         if (use_managed_xfem) {
+            local_site_transforms.push_back(make_local_site_transform(
+                ek,
+                site_for_patch,
+                local_evolvers.size(),
+                local_family,
+                local_vtk_global_placement,
+                local_vtk_placement_frame));
             ManagedXfemSubscaleEvolver ev{eid, patch, options};
             ev.set_vtk_output_profile(local_vtk_profile);
+            ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
+            ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
+            ev.set_vtk_placement_frame(local_vtk_placement_frame);
             ev.set_adaptive_transition_policy(local_transition_policy);
             local_evolvers.emplace_back(std::move(ev));
             local_sites.push_back(site_for_patch);
             local_ranges.push_back(range);
+        }
         }
     }
     xfem_site_csv.close();
@@ -2812,6 +3125,8 @@ int main(int argc, char* argv[]) {
                     continuum_dir,
                     0};
                 ev.set_vtk_output_profile(local_vtk_profile);
+                ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
+                ev.set_vtk_placement_frame(local_vtk_placement_frame);
                 ev.set_incremental_params(
                     managed_local_transition_steps,
                     managed_local_max_bisections);
@@ -2824,8 +3139,21 @@ int main(int argc, char* argv[]) {
                                    kobathe_snes_atol,
                                    kobathe_snes_rtol);
                 ev.set_min_crack_opening(kobathe_min_crack_opening);
+                ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
                 const auto site = BeamMacroBridge<StructModel, BeamElemT>{model}
                     .default_site(sub.parent_element_id);
+                if (const auto it = kinematics_by_element.find(
+                        sub.parent_element_id);
+                    it != kinematics_by_element.end())
+                {
+                    local_site_transforms.push_back(make_local_site_transform(
+                        it->second,
+                        site,
+                        local_evolvers.size(),
+                        local_family,
+                        true,
+                        local_vtk_placement_frame));
+                }
                 local_ranges.push_back(range);
                 local_sites.push_back(site);
                 local_evolvers.emplace_back(std::move(ev), continuum_family);
@@ -2833,12 +3161,17 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    write_local_site_transform_files(
+        std::filesystem::path(OUT) / "recorders",
+        local_site_transforms);
+    std::println("  Local-site transforms: {}recorders/local_site_transform.csv/json",
+                 OUT);
+
     if (fe2_one_way_only && use_managed_xfem) {
+        const auto selected_local_site_count = local_evolvers.size();
         const bool overall =
-            !crit_elem_ids.empty() &&
-            one_way_completed_sites == crit_elem_ids.size();
-        (void)fall_n::write_multiscale_vtk_time_index_csv(
-            OUT + "recorders/multiscale_time_index.csv", vtk_time_index);
+            selected_local_site_count > 0 &&
+            one_way_completed_sites == selected_local_site_count;
 
         std::ofstream one_way_json(
             OUT + "recorders/seismic_fe2_one_way_summary.json");
@@ -2864,6 +3197,8 @@ int main(int argc, char* argv[]) {
             << "  \"critical_element\": "
             << transition_report->critical_element << ",\n"
             << "  \"selected_site_count\": "
+            << selected_local_site_count << ",\n"
+            << "  \"selected_macro_element_count\": "
             << crit_elem_ids.size() << ",\n"
             << "  \"completed_site_count\": "
             << one_way_completed_sites << ",\n"
@@ -2874,18 +3209,31 @@ int main(int argc, char* argv[]) {
             << "  \"mesh_template\": {\"nx\": " << SUB_NX
             << ", \"ny\": " << SUB_NY
             << ", \"nz\": " << SUB_NZ << "},\n"
+            << "  \"local_vtk_profile\": \""
+            << to_string(local_vtk_profile) << "\",\n"
+            << "  \"local_vtk_crack_opening_threshold_m\": "
+            << local_vtk_crack_opening_threshold << ",\n"
+            << "  \"local_vtk_crack_filter_mode\": \""
+            << to_string(local_vtk_crack_filter_mode) << "\",\n"
+            << "  \"local_vtk_gauss_fields\": \""
+            << to_string(local_vtk_gauss_field_profile) << "\",\n"
+            << "  \"local_vtk_placement_frame\": \""
+            << to_string(local_vtk_placement_frame) << "\",\n"
+            << "  \"local_vtk_global_placement\": "
+            << (local_vtk_global_placement ? "true" : "false") << ",\n"
             << "  \"macro_inferred_sites_csv\": "
             << "\"recorders/local_macro_inferred_sites.csv\",\n"
+            << "  \"local_site_transform_csv\": "
+            << "\"recorders/local_site_transform.csv\",\n"
             << "  \"overall_pass\": "
             << (overall ? "true" : "false") << "\n"
             << "}\n";
 
-        std::println("\n[13] FE2 ONE-WAY ONLY: stopping before macro feedback.");
+        std::println("\n[13] FE2 ONE-WAY ONLY: using one-way downscaling for the macro history.");
         std::println("  completed local sites : {}/{}",
-                     one_way_completed_sites, crit_elem_ids.size());
-        std::println("  summary               : {}recorders/seismic_fe2_one_way_summary.json",
+                     one_way_completed_sites, selected_local_site_count);
+        std::println("  preflight summary     : {}recorders/seismic_fe2_one_way_summary.json",
                      OUT);
-        return overall ? 0 : 2;
     }
 
     std::map<int, std::vector<std::size_t>> crit_by_range;
@@ -2901,6 +3249,12 @@ int main(int argc, char* argv[]) {
     std::println("\n[13] Creating FE2 subscale evolvers...");
     std::println("  Local model family : {}", local_family);
     std::println("  Local VTK profile  : {}", to_string(local_vtk_profile));
+    std::println("  Local VTK cracks   : threshold={:.3e} m, mode={}, gauss={}, placement={}, global_placement={}",
+                 local_vtk_crack_opening_threshold,
+                 to_string(local_vtk_crack_filter_mode),
+                 to_string(local_vtk_gauss_field_profile),
+                 to_string(local_vtk_placement_frame),
+                 local_vtk_global_placement ? "on" : "off");
     std::println("  Ko-Bathe path      : {}",
                  use_continuum_kobathe
                      ? "connected to seismic FE2 local pool"
@@ -3027,6 +3381,12 @@ int main(int argc, char* argv[]) {
                             : "local default/secant"),
                  fe2_central_fd_tangent ? "central" : "forward");
 
+    const auto fe2_case_kind = fe2_one_way_only
+        ? fall_n::SeismicFE2CampaignCaseKind::fe2_one_way
+        : fall_n::SeismicFE2CampaignCaseKind::fe2_two_way;
+    const std::string fe2_evolution_label =
+        fe2_one_way_only ? "FE2 one-way" : "FE2 two-way";
+
     // ─────────────────────────────────────────────────────────────────────
     //  14. Initial sub-model solve at yield time
     // ─────────────────────────────────────────────────────────────────────
@@ -3044,7 +3404,7 @@ int main(int argc, char* argv[]) {
         failure_json
             << "{\n"
             << "  \"schema\": \"seismic_fe2_initialization_failure_v1\",\n"
-            << "  \"case_kind\": \"fe2_two_way\",\n"
+            << "  \"case_kind\": \"" << fall_n::to_string(fe2_case_kind) << "\",\n"
             << "  \"local_model_family\": \"" << local_family << "\",\n"
             << "  \"macro_element_family\": \"TimoshenkoBeamN<4>_GaussLobatto\",\n"
             << "  \"structural_mass_policy\": \""
@@ -3110,19 +3470,30 @@ int main(int argc, char* argv[]) {
             ev.write_vtk_snapshot(
                 transition_report->trigger_time,
                 local_step,
-                0.0);
+                local_vtk_crack_opening_threshold);
         const auto local_mesh_rel = local_vtk_snapshot.written
             ? output_relative_path(local_vtk_snapshot.mesh_path)
             : std::string{};
         const auto local_gauss_rel = local_vtk_snapshot.written
             ? output_relative_path(local_vtk_snapshot.gauss_path)
             : std::string{};
+        const auto local_current_mesh_rel =
+            local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                ? current_frame_path_for(local_mesh_rel, "_mesh.vtu")
+                : std::string{};
+        const auto local_current_gauss_rel =
+            local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                ? current_frame_path_for(local_gauss_rel, "_gauss.vtu")
+                : std::string{};
         const auto local_cracks_rel = local_vtk_snapshot.written
             ? output_relative_path(local_vtk_snapshot.cracks_path)
             : std::string{};
+        const auto local_cracks_visible_rel = local_vtk_snapshot.written
+            ? output_relative_path(local_vtk_snapshot.cracks_visible_path)
+            : std::string{};
         const auto cs = ev.crack_summary();
         vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
-            .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+            .case_kind = fe2_case_kind,
             .role = use_continuum_kobathe
                 ? fall_n::SeismicFE2VisualizationRole::local_continuum_site
                 : fall_n::SeismicFE2VisualizationRole::local_xfem_site,
@@ -3132,15 +3503,20 @@ int main(int argc, char* argv[]) {
             .pseudo_time = transition_report->trigger_time,
             .local_site_index = i,
             .macro_element_id = ev.parent_element_id(),
-            .section_gp = 0,
+            .section_gp = i < local_sites.size() ? local_sites[i].section_gp : 0,
             .global_vtk_path = global_yield_vtk_rel_path(),
             .local_vtk_path = local_mesh_rel,
             .notes = std::format(
-                "{} initial local VTK status={} gauss={} crack_surface={} crack_records={} cracked_gps={} cracks={}",
+                "{} initial local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={}",
                 local_family,
                 local_vtk_snapshot.status_label,
                 local_gauss_rel,
+                local_current_mesh_rel,
+                local_current_gauss_rel,
                 local_cracks_rel,
+                local_cracks_visible_rel,
+                to_string(local_vtk_gauss_field_profile),
+                to_string(local_vtk_placement_frame),
                 local_vtk_snapshot.crack_record_count,
                 cs.num_cracked_gps,
                 cs.total_cracks)});
@@ -3624,13 +4000,15 @@ int main(int argc, char* argv[]) {
             pvd_global.add_timestep(t, vtm_file);
             last_global_vtk_rel_path = vtm_rel;
             vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
-                .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+                .case_kind = fe2_case_kind,
                 .role = fall_n::SeismicFE2VisualizationRole::global_frame,
                 .global_step = static_cast<std::size_t>(evol_step),
                 .physical_time = t,
                 .pseudo_time = t,
                 .global_vtk_path = vtm_rel,
-                .notes = "global frame snapshot during FE2 two-way evolution"});
+                .notes = std::format(
+                    "global frame snapshot during {} evolution",
+                    fe2_evolution_label)});
         }
 
         if (local_vtk_interval > 0) {
@@ -3650,19 +4028,35 @@ int main(int argc, char* argv[]) {
                     ? step_summaries[i]
                     : ev.crack_summary();
                 const auto local_vtk_snapshot =
-                    ev.write_vtk_snapshot(t, local_step, 0.0);
+                    ev.write_vtk_snapshot(
+                        t,
+                        local_step,
+                        local_vtk_crack_opening_threshold);
                 const auto local_mesh_rel = local_vtk_snapshot.written
                     ? output_relative_path(local_vtk_snapshot.mesh_path)
                     : std::string{};
                 const auto local_gauss_rel = local_vtk_snapshot.written
                     ? output_relative_path(local_vtk_snapshot.gauss_path)
                     : std::string{};
+                const auto local_current_mesh_rel =
+                    local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                        ? current_frame_path_for(local_mesh_rel, "_mesh.vtu")
+                        : std::string{};
+                const auto local_current_gauss_rel =
+                    local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                        ? current_frame_path_for(local_gauss_rel, "_gauss.vtu")
+                        : std::string{};
                 const auto local_cracks_rel = local_vtk_snapshot.written
                     ? output_relative_path(local_vtk_snapshot.cracks_path)
                     : std::string{};
+                const auto local_cracks_visible_rel =
+                    local_vtk_snapshot.written
+                        ? output_relative_path(
+                              local_vtk_snapshot.cracks_visible_path)
+                        : std::string{};
 
                 vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
-                    .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+                    .case_kind = fe2_case_kind,
                     .role = use_continuum_kobathe
                         ? fall_n::SeismicFE2VisualizationRole::local_continuum_site
                         : fall_n::SeismicFE2VisualizationRole::local_xfem_site,
@@ -3671,15 +4065,20 @@ int main(int argc, char* argv[]) {
                     .pseudo_time = t,
                     .local_site_index = i,
                     .macro_element_id = ev.parent_element_id(),
-                    .section_gp = 0,
+                    .section_gp = i < local_sites.size() ? local_sites[i].section_gp : 0,
                     .global_vtk_path = last_global_vtk_rel_path,
                     .local_vtk_path = local_mesh_rel,
                     .notes = std::format(
-                        "{} local VTK status={} gauss={} crack_surface={} crack_records={} cracked_gps={} cracks={} nearest_global_frame=throttled",
+                        "{} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={} nearest_global_frame=throttled",
                         local_family,
                         local_vtk_snapshot.status_label,
                         local_gauss_rel,
+                        local_current_mesh_rel,
+                        local_current_gauss_rel,
                         local_cracks_rel,
+                        local_cracks_visible_rel,
+                        to_string(local_vtk_gauss_field_profile),
+                        to_string(local_vtk_placement_frame),
                         local_vtk_snapshot.crack_record_count,
                         cs.num_cracked_gps,
                         cs.total_cracks)});
@@ -3738,13 +4137,15 @@ int main(int argc, char* argv[]) {
         pvd_global.add_timestep(static_cast<double>(t_end), vtm_file);
         last_global_vtk_rel_path = vtm_rel;
         vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
-            .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+            .case_kind = fe2_case_kind,
             .role = fall_n::SeismicFE2VisualizationRole::global_frame,
             .global_step = static_cast<std::size_t>(evol_step),
             .physical_time = static_cast<double>(t_end),
             .pseudo_time = static_cast<double>(t_end),
             .global_vtk_path = vtm_rel,
-            .notes = "final global frame snapshot after FE2 two-way evolution"});
+            .notes = std::format(
+                "final global frame snapshot after {} evolution",
+                fe2_evolution_label)});
         std::println("\n  [VTK] Final frame written: {}", vtm_file);
         std::cout << std::flush;
     }
@@ -3765,19 +4166,30 @@ int main(int argc, char* argv[]) {
             const auto local_vtk_snapshot =
                 ev.write_vtk_snapshot(static_cast<double>(t_end),
                                       local_step,
-                                      0.0);
+                                      local_vtk_crack_opening_threshold);
             const auto local_mesh_rel = local_vtk_snapshot.written
                 ? output_relative_path(local_vtk_snapshot.mesh_path)
                 : std::string{};
             const auto local_gauss_rel = local_vtk_snapshot.written
                 ? output_relative_path(local_vtk_snapshot.gauss_path)
                 : std::string{};
+            const auto local_current_mesh_rel =
+                local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                    ? current_frame_path_for(local_mesh_rel, "_mesh.vtu")
+                    : std::string{};
+            const auto local_current_gauss_rel =
+                local_vtk_placement_frame == LocalVTKPlacementFrame::Both
+                    ? current_frame_path_for(local_gauss_rel, "_gauss.vtu")
+                    : std::string{};
             const auto local_cracks_rel = local_vtk_snapshot.written
                 ? output_relative_path(local_vtk_snapshot.cracks_path)
                 : std::string{};
+            const auto local_cracks_visible_rel = local_vtk_snapshot.written
+                ? output_relative_path(local_vtk_snapshot.cracks_visible_path)
+                : std::string{};
 
             vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
-                .case_kind = fall_n::SeismicFE2CampaignCaseKind::fe2_two_way,
+                .case_kind = fe2_case_kind,
                 .role = use_continuum_kobathe
                     ? fall_n::SeismicFE2VisualizationRole::local_continuum_site
                     : fall_n::SeismicFE2VisualizationRole::local_xfem_site,
@@ -3786,15 +4198,20 @@ int main(int argc, char* argv[]) {
                 .pseudo_time = static_cast<double>(t_end),
                 .local_site_index = i,
                 .macro_element_id = ev.parent_element_id(),
-                .section_gp = 0,
+                .section_gp = i < local_sites.size() ? local_sites[i].section_gp : 0,
                 .global_vtk_path = last_global_vtk_rel_path,
                 .local_vtk_path = local_mesh_rel,
                 .notes = std::format(
-                    "final {} local VTK status={} gauss={} crack_surface={} crack_records={} cracked_gps={} cracks={}",
+                    "final {} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={}",
                     local_family,
                     local_vtk_snapshot.status_label,
                     local_gauss_rel,
+                    local_current_mesh_rel,
+                    local_current_gauss_rel,
                     local_cracks_rel,
+                    local_cracks_visible_rel,
+                    to_string(local_vtk_gauss_field_profile),
+                    to_string(local_vtk_placement_frame),
                     local_vtk_snapshot.crack_record_count,
                     cs.num_cracked_gps,
                     cs.total_cracks)});

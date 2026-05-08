@@ -93,10 +93,13 @@ public:
                             max_open_history,
                             std::max(
                                 std::abs(snap.crack_openings[crack]),
-                                std::abs(snap.crack_opening_max[crack])));
+                                 std::abs(snap.crack_opening_max[crack])));
                     }
 
-                    if (max_open_history >= min_crack_opening) {
+                    const bool visible =
+                        max_open_history >= min_crack_opening;
+
+                    if (visible) {
                         ++state.summary.num_cracked_gps;
                         state.summary.total_cracks += snap.num_cracks;
                         state.summary.max_opening =
@@ -132,8 +135,9 @@ public:
                                          snap.tau_o_max);
                             state.summary.fracture_history_available = true;
                         }
+                    }
 
-                        if (retain_detail && flat_gp < gp_info.size()) {
+                    if (retain_detail && flat_gp < gp_info.size()) {
                             CrackRecord cr;
                             cr.position = gp_info[flat_gp].pos;
                             cr.displacement = gp_info[flat_gp].disp;
@@ -166,7 +170,6 @@ public:
                                 cr.closed_3 = snap.crack_closed[2];
                             }
                             state.cracks.push_back(cr);
-                        }
                     }
                 }
                 ++flat_gp;

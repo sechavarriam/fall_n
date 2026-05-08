@@ -90,6 +90,7 @@
 #include <vtkXMLUnstructuredGridWriter.h>
 
 #include "VTKTensorFieldDerivatives.hh"
+#include "src/reconstruction/LocalVTKOutputProfile.hh"
 
 namespace fall_n::vtk {
 
@@ -398,6 +399,59 @@ private:
     std::vector<std::string> attached_mesh_point_field_names_;
     std::vector<std::string> attached_mesh_cell_field_names_;
     std::vector<std::string> attached_gauss_point_field_names_;
+    LocalVTKGaussFieldProfile gauss_field_profile_{
+        LocalVTKGaussFieldProfile::Debug};
+    bool point_transform_enabled_{false};
+    Eigen::Vector3d point_transform_origin_{Eigen::Vector3d::Zero()};
+    Eigen::Matrix3d point_transform_basis_{Eigen::Matrix3d::Identity()};
+    bool current_point_coordinates_{false};
+    bool gauss_metadata_enabled_{true};
+    double gauss_site_id_{0.0};
+    double gauss_parent_element_id_{0.0};
+    double gauss_material_id_{0.0};
+
+    [[nodiscard]] Eigen::Vector3d transform_point_(
+        double x,
+        double y,
+        double z) const noexcept
+    {
+        const Eigen::Vector3d local{x, y, z};
+        if (!point_transform_enabled_) {
+            return local;
+        }
+        return point_transform_origin_ + point_transform_basis_ * local;
+    }
+
+    [[nodiscard]] Eigen::Vector3d transform_vector_(
+        double x,
+        double y,
+        double z) const noexcept
+    {
+        const Eigen::Vector3d local{x, y, z};
+        if (!point_transform_enabled_) {
+            return local;
+        }
+        return point_transform_basis_ * local;
+    }
+
+    [[nodiscard]] Eigen::Vector3d nodal_displacement_(
+        std::size_t node_id) const noexcept
+    {
+        const auto* displacement = find_nodal_field("displacement");
+        if (displacement == nullptr ||
+            displacement->num_components != static_cast<int>(dim) ||
+            displacement->data.size() < (node_id + 1) * dim)
+        {
+            return Eigen::Vector3d::Zero();
+        }
+
+        Eigen::Vector3d u = Eigen::Vector3d::Zero();
+        for (std::size_t d = 0; d < dim; ++d) {
+            u[static_cast<Eigen::Index>(d)] =
+                displacement->data[node_id * dim + d];
+        }
+        return u;
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     //  Internal: load mesh topology into VTK
@@ -413,18 +467,33 @@ private:
             static_cast<vtkIdType>(domain.num_vertices()));
 
         for (const auto& vertex : domain.vertices()) {
+            const auto node_id = static_cast<std::size_t>(vertex.id());
             if constexpr (dim == 3) {
-                mesh_points_->SetPoint(
-                    static_cast<vtkIdType>(vertex.id()),
+                auto p = transform_point_(
                     vertex.coord(0), vertex.coord(1), vertex.coord(2));
+                if (current_point_coordinates_) {
+                    p += nodal_displacement_(node_id);
+                }
+                mesh_points_->SetPoint(
+                    static_cast<vtkIdType>(vertex.id()),
+                    p[0], p[1], p[2]);
             } else if constexpr (dim == 2) {
-                mesh_points_->SetPoint(
-                    static_cast<vtkIdType>(vertex.id()),
+                auto p = transform_point_(
                     vertex.coord(0), vertex.coord(1), 0.0);
-            } else {
+                if (current_point_coordinates_) {
+                    p += nodal_displacement_(node_id);
+                }
                 mesh_points_->SetPoint(
                     static_cast<vtkIdType>(vertex.id()),
-                    vertex.coord(0), 0.0, 0.0);
+                    p[0], p[1], p[2]);
+            } else {
+                auto p = transform_point_(vertex.coord(0), 0.0, 0.0);
+                if (current_point_coordinates_) {
+                    p += nodal_displacement_(node_id);
+                }
+                mesh_points_->SetPoint(
+                    static_cast<vtkIdType>(vertex.id()),
+                    p[0], p[1], p[2]);
             }
         }
         mesh_points_->Modified();
@@ -454,18 +523,42 @@ private:
         const auto n_gp = domain.num_integration_points();
 
         gauss_points_->SetNumberOfPoints(static_cast<vtkIdType>(n_gp));
+        const std::vector<double> gauss_displacement =
+            current_point_coordinates_
+                ? interpolate_gauss_displacement_field()
+                : std::vector<double>{};
+
+        const auto add_gauss_displacement =
+            [&](std::size_t gp_id, Eigen::Vector3d& p) {
+                if (gauss_displacement.size() < (gp_id + 1) * dim) {
+                    return;
+                }
+                for (std::size_t d = 0; d < dim; ++d) {
+                    p[static_cast<Eigen::Index>(d)] +=
+                        gauss_displacement[gp_id * dim + d];
+                }
+            };
 
         for (const auto& elem : domain.elements()) {
             for (const auto& gp : elem.integration_points()) {
+                const auto gp_id = static_cast<std::size_t>(gp.id());
                 if constexpr (dim == 3) {
+                    auto p = transform_point_(
+                        gp.coord(0), gp.coord(1), gp.coord(2));
+                    add_gauss_displacement(gp_id, p);
                     gauss_points_->SetPoint(
-                        gp.id(), gp.coord(0), gp.coord(1), gp.coord(2));
+                        gp.id(), p[0], p[1], p[2]);
                 } else if constexpr (dim == 2) {
+                    auto p = transform_point_(
+                        gp.coord(0), gp.coord(1), 0.0);
+                    add_gauss_displacement(gp_id, p);
                     gauss_points_->SetPoint(
-                        gp.id(), gp.coord(0), gp.coord(1), 0.0);
+                        gp.id(), p[0], p[1], p[2]);
                 } else {
+                    auto p = transform_point_(gp.coord(0), 0.0, 0.0);
+                    add_gauss_displacement(gp_id, p);
                     gauss_points_->SetPoint(
-                        gp.id(), gp.coord(0), 0.0, 0.0);
+                        gp.id(), p[0], p[1], p[2]);
                 }
             }
         }
@@ -558,6 +651,63 @@ private:
             nodal_fields_.end(),
             [](const auto& field) { return field.name != "displacement"; });
         nodal_fields_.erase(keep_from, nodal_fields_.end());
+    }
+
+    [[nodiscard]] bool has_gauss_field_(std::string_view name) const noexcept
+    {
+        return std::ranges::any_of(
+            gauss_fields_,
+            [name](const FieldBuffer& field) { return field.name == name; });
+    }
+
+    [[nodiscard]] bool should_write_gauss_field_(
+        std::string_view name) const noexcept
+    {
+        if (gauss_field_profile_ == LocalVTKGaussFieldProfile::Debug ||
+            gauss_field_profile_ == LocalVTKGaussFieldProfile::Full)
+        {
+            return true;
+        }
+
+        const auto is_crack_field = [](std::string_view field) {
+            return field == "qp_num_cracks" ||
+                   field == "qp_crack_normal_1" ||
+                   field == "qp_crack_normal_2" ||
+                   field == "qp_crack_normal_3" ||
+                   field == "qp_crack_strain_1" ||
+                   field == "qp_crack_strain_2" ||
+                   field == "qp_crack_strain_3" ||
+                   field == "qp_crack_closed_1" ||
+                   field == "qp_crack_closed_2" ||
+                   field == "qp_crack_closed_3" ||
+                   field == "qp_sigma_o_max" ||
+                   field == "qp_tau_o_max";
+        };
+
+        if (gauss_field_profile_ == LocalVTKGaussFieldProfile::Visual) {
+            return name == "qp_equivalent_plastic_strain" ||
+                   name == "qp_damage" ||
+                   is_crack_field(name);
+        }
+
+        return name == "qp_stress_von_mises" ||
+               name == "qp_stress_beltrami_haigh" ||
+               name == "qp_stress_mean_stress" ||
+               name == "qp_stress_hydrostatic_stress" ||
+               name == "qp_stress_octahedral_shear_stress" ||
+               name == "qp_stress_xx" ||
+               name == "qp_stress_yy" ||
+               name == "qp_stress_zz" ||
+               name == "qp_stress_max_principal" ||
+               name == "qp_stress_min_principal" ||
+               name == "qp_strain_equivalent_strain" ||
+               name == "qp_strain_volumetric_strain" ||
+               name == "qp_strain_xx" ||
+               name == "qp_strain_yy" ||
+               name == "qp_strain_zz" ||
+               name == "qp_equivalent_plastic_strain" ||
+               name == "qp_damage" ||
+               is_crack_field(name);
     }
 
     void detach_mesh_exported_arrays() {
@@ -1166,6 +1316,48 @@ public:
     explicit VTKModelExporter(ModelT& model)
         : model_(std::addressof(model)) {}
 
+    void set_point_transform(const Eigen::Vector3d& origin,
+                             const Eigen::Matrix3d& local_to_global)
+    {
+        point_transform_origin_ = origin;
+        point_transform_basis_ = local_to_global;
+        point_transform_enabled_ = true;
+    }
+
+    void clear_point_transform() noexcept
+    {
+        point_transform_enabled_ = false;
+        point_transform_origin_.setZero();
+        point_transform_basis_.setIdentity();
+    }
+
+    void set_current_point_coordinates(bool enabled) noexcept
+    {
+        current_point_coordinates_ = enabled;
+    }
+
+    void set_gauss_field_profile(LocalVTKGaussFieldProfile profile) noexcept
+    {
+        gauss_field_profile_ = profile;
+    }
+
+    [[nodiscard]] LocalVTKGaussFieldProfile
+    gauss_field_profile() const noexcept
+    {
+        return gauss_field_profile_;
+    }
+
+    void set_gauss_metadata(std::size_t site_id,
+                            std::size_t parent_element_id,
+                            double material_id = 0.0) noexcept
+    {
+        gauss_metadata_enabled_ = true;
+        gauss_site_id_ = static_cast<double>(site_id);
+        gauss_parent_element_id_ =
+            static_cast<double>(parent_element_id);
+        gauss_material_id_ = material_id;
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     //  set_local_axes — attach per-cell local axis vectors
     // ══════════════════════════════════════════════════════════════════════
@@ -1179,6 +1371,42 @@ public:
     //  the analyst to visualise local axes using the Glyph filter in
     //  ParaView (arrow glyphs oriented by each vector).
     //
+
+    void ensure_gauss_damage_crack_diagnostics()
+    {
+        const auto n_gp = model_->get_domain().num_integration_points();
+
+        const auto add_scalar_if_missing =
+            [&](std::string name, double value) {
+                if (has_gauss_field_(name)) {
+                    return;
+                }
+                push_scalar_field_buffer(
+                    gauss_fields_,
+                    std::move(name),
+                    std::vector<double>(n_gp, value));
+            };
+        const auto add_vector_if_missing =
+            [&](std::string name, double value) {
+                if (has_gauss_field_(name)) {
+                    return;
+                }
+                push_field_buffer(
+                    gauss_fields_,
+                    std::move(name),
+                    std::vector<double>(n_gp * 3, value),
+                    3);
+            };
+
+        add_scalar_if_missing("qp_damage", 0.0);
+        add_scalar_if_missing("qp_num_cracks", 0.0);
+        add_vector_if_missing("qp_crack_normal_1", 0.0);
+        add_vector_if_missing("qp_crack_normal_2", 0.0);
+        add_vector_if_missing("qp_crack_normal_3", 0.0);
+        add_scalar_if_missing("qp_crack_closed_1", 1.0);
+        add_scalar_if_missing("qp_crack_closed_2", 1.0);
+        add_scalar_if_missing("qp_crack_closed_3", 1.0);
+    }
 
     void set_local_axes(const std::array<double, 3>& e_x,
                         const std::array<double, 3>& e_y,
@@ -1233,6 +1461,23 @@ public:
         fb.data.assign(u, u + dim * model_->get_domain().num_nodes());
 
         VecRestoreArray(u_local, &u);
+
+        if (point_transform_enabled_) {
+            const auto n = model_->get_domain().num_nodes();
+            for (std::size_t node = 0; node < n; ++node) {
+                Eigen::Vector3d v = Eigen::Vector3d::Zero();
+                for (std::size_t d = 0; d < dim; ++d) {
+                    v[static_cast<Eigen::Index>(d)] =
+                        fb.data[node * dim + d];
+                }
+                const Eigen::Vector3d vg = transform_vector_(
+                    v[0], v[1], v[2]);
+                for (std::size_t d = 0; d < dim; ++d) {
+                    fb.data[node * dim + d] =
+                        vg[static_cast<Eigen::Index>(d)];
+                }
+            }
+        }
 
         auto existing = std::find_if(
             nodal_fields_.begin(),
@@ -1953,6 +2198,13 @@ public:
         detach_mesh_cell_arrays();
 
         for (const auto& field : nodal_fields_) {
+            if (current_point_coordinates_ && field.name == "displacement") {
+                FieldBuffer residual = field;
+                std::ranges::fill(residual.data, 0.0);
+                attach_point_field(mesh_grid_, residual);
+                attached_mesh_point_field_names_.push_back(residual.name);
+                continue;
+            }
             attach_point_field(mesh_grid_, field);
             attached_mesh_point_field_names_.push_back(field.name);
         }
@@ -1979,16 +2231,61 @@ public:
         ensure_gauss_loaded();
         detach_gauss_exported_arrays();
 
+        if (gauss_metadata_enabled_) {
+            const auto n_gp = model_->get_domain().num_integration_points();
+            std::vector<double> gauss_id(n_gp, 0.0);
+            std::vector<double> element_id(n_gp, 0.0);
+            std::vector<double> material_id(n_gp, gauss_material_id_);
+            std::vector<double> site_id(n_gp, gauss_site_id_);
+            std::vector<double> parent_element_id(
+                n_gp, gauss_parent_element_id_);
+
+            for (const auto& elem : model_->get_domain().elements()) {
+                for (const auto& gp : elem.integration_points()) {
+                    const auto id = static_cast<std::size_t>(gp.id());
+                    if (id >= n_gp) {
+                        continue;
+                    }
+                    gauss_id[id] = static_cast<double>(id);
+                    element_id[id] = static_cast<double>(elem.id());
+                }
+            }
+
+            std::vector<FieldBuffer> metadata_fields;
+            metadata_fields.reserve(5);
+            metadata_fields.push_back(
+                FieldBuffer{"gauss_id", std::move(gauss_id), 1});
+            metadata_fields.push_back(
+                FieldBuffer{"element_id", std::move(element_id), 1});
+            metadata_fields.push_back(
+                FieldBuffer{"material_id", std::move(material_id), 1});
+            metadata_fields.push_back(
+                FieldBuffer{"site_id", std::move(site_id), 1});
+            metadata_fields.push_back(FieldBuffer{
+                "parent_element_id", std::move(parent_element_id), 1});
+
+            for (const auto& field : metadata_fields) {
+                attach_point_field(gauss_grid_, field);
+                attached_gauss_point_field_names_.push_back(field.name);
+            }
+        }
+
         FieldBuffer displacement;
         displacement.name = "displacement";
         displacement.num_components = static_cast<int>(dim);
         displacement.data = interpolate_gauss_displacement_field();
+        if (current_point_coordinates_) {
+            std::ranges::fill(displacement.data, 0.0);
+        }
         if (!displacement.data.empty()) {
             attach_point_field(gauss_grid_, displacement);
             attached_gauss_point_field_names_.push_back(displacement.name);
         }
 
         for (const auto& field : gauss_fields_) {
+            if (!should_write_gauss_field_(field.name)) {
+                continue;
+            }
             attach_point_field(gauss_grid_, field);
             attached_gauss_point_field_names_.push_back(field.name);
         }
