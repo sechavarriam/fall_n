@@ -1,6 +1,0 @@
-reduced_rc_column_structural_matrix 1 0.214963
-reduced_rc_column_section_baseline 1 0.0765399
-reduced_rc_column_validation_claim_catalog 1 0.0228234
-reduced_rc_column_benchmark_trace_catalog 1 0.0247638
-reduced_rc_column_evidence_closure_catalog 1 0.0235611
----

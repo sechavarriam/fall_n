@@ -1,2 +1,0 @@
-analysis_director 1 1.43771
----
