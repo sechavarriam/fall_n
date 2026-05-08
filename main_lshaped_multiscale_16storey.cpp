@@ -1440,6 +1440,7 @@ int main(int argc, char* argv[]) {
     double fe2_relaxation = STAGGERED_RELAX;
     int fe2_macro_cutback_attempts = 0;
     int fe2_macro_backtrack_attempts = 0;
+    int fe2_steps_after_activation = -1;
     double fe2_macro_cutback_factor = 0.5;
     double fe2_macro_backtrack_factor = 0.5;
     bool fe2_adaptive_site_relaxation = false;
@@ -1517,6 +1518,10 @@ int main(int argc, char* argv[]) {
         if (arg == "--fe2-adaptive-site-relax" ||
             arg == "--fe2-adaptive-relax") {
             fe2_adaptive_site_relaxation = true;
+            continue;
+        }
+        if (arg == "--one-local-step-after-activation") {
+            fe2_steps_after_activation = 1;
             continue;
         }
         if (arg == "--restart-from-linear-alarm") {
@@ -1672,6 +1677,9 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fe2-max-staggered" && i + 1 < argc) {
             fe2_max_staggered_iter =
                 std::max(2, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--fe2-steps-after-activation" && i + 1 < argc) {
+            fe2_steps_after_activation =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--fe2-tol" && i + 1 < argc) {
             fe2_staggered_tol = std::stod(argv[++i]);
         } else if (arg == "--fe2-relax" && i + 1 < argc) {
@@ -1822,6 +1830,8 @@ int main(int argc, char* argv[]) {
              "--fe2-central-fd-tangent",
              "--fe2-max-sites",
              "--fe2-max-staggered",
+             "--fe2-steps-after-activation",
+             "--one-local-step-after-activation",
              "--fe2-tol",
              "--fe2-relax",
              "--fe2-macro-cutback-attempts",
@@ -2094,6 +2104,10 @@ int main(int argc, char* argv[]) {
                      restart_time, restart_step);
     }
     std::println("  Duration         : {} s", duration);
+    if (fe2_steps_after_activation >= 0) {
+        std::println("  FE2 stop policy  : {} step(s) after activation",
+                     fe2_steps_after_activation);
+    }
     std::println("  Global VTK every : {} Phase-2 steps",
                  global_vtk_interval > 0
                      ? std::to_string(global_vtk_interval)
@@ -3291,6 +3305,27 @@ int main(int argc, char* argv[]) {
         : fall_n::SeismicFE2CampaignCaseKind::fe2_two_way;
     const std::string fe2_evolution_label =
         fe2_one_way_only ? "FE2 one-way" : "FE2 two-way";
+    double phase2_end_time = duration;
+    if (fe2_steps_after_activation >= 0) {
+        const double requested_end =
+            transition_report->trigger_time +
+            static_cast<double>(fe2_steps_after_activation) * DT;
+        phase2_end_time = std::min(duration, requested_end);
+        if (requested_end > duration + 1.0e-14) {
+            std::println(
+                "  [activation-step-limit] Requested {} FE2 step(s) after "
+                "activation, but duration ends at {:.4f} s; using {:.4f} s.",
+                fe2_steps_after_activation,
+                duration,
+                phase2_end_time);
+        } else {
+            std::println(
+                "  [activation-step-limit] Phase 2 will stop at {:.4f} s "
+                "({} FE2 step(s) after activation).",
+                phase2_end_time,
+                fe2_steps_after_activation);
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     //  14. Initial sub-model solve at yield time
@@ -3436,6 +3471,11 @@ int main(int argc, char* argv[]) {
     std::println("     Evolving global + {} {} local models simultaneously...",
                  analysis.model().num_local_models(),
                  local_family);
+    if (fe2_steps_after_activation >= 0) {
+        std::println("     Stop policy: activation + {} FE2 step(s), t_end={:.4f} s",
+                     fe2_steps_after_activation,
+                     phase2_end_time);
+    }
 
     const std::string evol_frame_dir = OUT + "evolution";
     PVDWriter pvd_global(evol_frame_dir + "/frame");
@@ -3786,7 +3826,7 @@ int main(int argc, char* argv[]) {
     // Phase 2: reset dt to nominal and disable adaptation for stable FE² coupling.
     {
         TS ts = solver.get_ts();
-        TSSetMaxTime(ts, duration);
+        TSSetMaxTime(ts, phase2_end_time);
         TSSetTimeStep(ts, DT);
         TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
         TSAdapt adapt;
@@ -3802,7 +3842,9 @@ int main(int argc, char* argv[]) {
     for (;;) {
         PetscReal t_current;
         TSGetTime(solver.get_ts(), &t_current);
-        if (static_cast<double>(t_current) >= duration - 1e-14) break;
+        if (static_cast<double>(t_current) >= phase2_end_time - 1e-14) {
+            break;
+        }
 
         // Advance one global step
         if (!analysis.step()) {

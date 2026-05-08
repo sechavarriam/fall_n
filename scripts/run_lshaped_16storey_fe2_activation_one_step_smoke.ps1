@@ -1,10 +1,10 @@
 param(
     [string]$BuildDir = "build",
-    [ValidateSet("xfem", "kobathe-hex27", "both", "smoke")]
+    [ValidateSet("xfem", "kobathe-hex27", "both")]
     [string]$Mode = "both",
     [double]$StartTime = 87.65,
-    [double]$Duration = 10.0,
-    [double]$SmokeDuration = 0.10,
+    [double]$SearchDuration = 10.0,
+    [int]$StepsAfterActivation = 1,
     [int]$GlobalVtkInterval = 1,
     [int]$LocalVtkInterval = 1,
     [double]$CrackOpeningThreshold = 0.0005,
@@ -13,9 +13,9 @@ param(
     [ValidateSet("reference", "current", "both")]
     [string]$PlacementFrame = "both",
     [int]$Fe2MaxSites = 3,
-    [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
+    [double]$Scale = 20.0,
+    [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
-    [double]$LinearAlarmRestartTime = 5.20,
     [switch]$SkipPostprocess,
     [switch]$SkipAudit
 )
@@ -33,11 +33,6 @@ function Format-Real([double]$Value) {
     return $Value.ToString("R", $InvariantCulture)
 }
 
-$runDuration = if ($Mode -eq "smoke") { $SmokeDuration } else { $Duration }
-$driverDuration = $runDuration
-if ($UseLinearAlarmRestart -and $runDuration -le $LinearAlarmRestartTime) {
-    $driverDuration = $LinearAlarmRestartTime + $runDuration
-}
 $families = @()
 switch ($Mode) {
     "xfem" { $families = @(@{ Name = "xfem"; Family = "managed-xfem" }) }
@@ -46,12 +41,6 @@ switch ($Mode) {
         $families = @(
             @{ Name = "xfem"; Family = "managed-xfem" },
             @{ Name = "kobathe_hex27"; Family = "continuum-kobathe-hex27" }
-        )
-    }
-    "smoke" {
-        $families = @(
-            @{ Name = "smoke_xfem"; Family = "managed-xfem" },
-            @{ Name = "smoke_kobathe_hex27"; Family = "continuum-kobathe-hex27" }
         )
     }
 }
@@ -63,8 +52,10 @@ foreach ($item in $families) {
     $args = @(
         "--fe2-one-way-only",
         "--local-family", $item.Family,
+        "--scale", (Format-Real $Scale),
         "--start-time", (Format-Real $StartTime),
-        "--duration", (Format-Real $driverDuration),
+        "--duration", (Format-Real $SearchDuration),
+        "--fe2-steps-after-activation", "$StepsAfterActivation",
         "--output-root", $outputRoot,
         "--global-vtk-interval", "$GlobalVtkInterval",
         "--local-vtk-interval", "$LocalVtkInterval",
@@ -82,21 +73,21 @@ foreach ($item in $families) {
         $args += "--restart-from-linear-alarm"
     }
 
-    Write-Host "Running $($item.Name) FE2 one-way publication case..."
+    Write-Host "Running activation + $StepsAfterActivation FE2 step smoke: $($item.Name)..."
     & $exe @args
     if ($LASTEXITCODE -ne 0) {
         throw "$($item.Name) failed with exit code $LASTEXITCODE"
     }
 
     $manifest = @{
-        schema = "fall_n_lshaped_16storey_publication_10s_run_v1"
+        schema = "fall_n_lshaped_16storey_activation_one_step_smoke_v1"
         mode = $item.Name
         local_family = $item.Family
+        scale = $Scale
         start_time_s = $StartTime
-        requested_duration_s = $runDuration
-        driver_duration_s = $driverDuration
+        search_duration_s = $SearchDuration
+        steps_after_activation = $StepsAfterActivation
         restart_from_linear_alarm = [bool]$UseLinearAlarmRestart
-        linear_alarm_restart_time_s = $LinearAlarmRestartTime
         local_vtk_profile = "publication"
         local_vtk_crack_opening_threshold_m = $CrackOpeningThreshold
         local_vtk_crack_filter_mode = "both"
@@ -106,11 +97,11 @@ foreach ($item in $families) {
         fe2_max_sites = $Fe2MaxSites
         output_root = "$outputRoot"
     } | ConvertTo-Json -Depth 4
-    Set-Content -Path (Join-Path $outputRoot "publication_run_manifest.json") -Value $manifest
+    Set-Content -Path (Join-Path $outputRoot "activation_one_step_manifest.json") -Value $manifest
 
     if (-not $SkipAudit) {
         $audit = Join-Path $repoRoot "scripts/audit_publication_vtk.py"
-        $auditOut = Join-Path $outputRoot "recorders/publication_vtk_audit.json"
+        $auditOut = Join-Path $outputRoot "recorders/publication_vtk_audit_activation_one_step.json"
         & python $audit --root $outputRoot --output $auditOut --gauss-fields-profile $GaussFields --crack-opening-threshold (Format-Real $CrackOpeningThreshold) --max-files-per-category 8
         if ($LASTEXITCODE -ne 0) {
             throw "$($item.Name) VTK audit failed with exit code $LASTEXITCODE"
@@ -118,4 +109,4 @@ foreach ($item in $families) {
     }
 }
 
-Write-Host "Publication FE2 campaign finished."
+Write-Host "Activation one-step FE2 smoke finished."
