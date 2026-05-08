@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 int main(int argc, char** argv)
@@ -33,6 +34,29 @@ int main(int argc, char** argv)
 
     static_assert(fall_n::LocalModelAdapter<
                   fall_n::ManagedXfemSubscaleEvolver>);
+
+    {
+        const auto vtk_root =
+            std::filesystem::temp_directory_path() /
+            "fall_n_managed_xfem_site_id_test";
+        std::filesystem::remove_all(vtk_root);
+
+        fall_n::ManagedXfemSubscaleEvolver indexed{42, patch, options};
+        indexed.configure_vtk_output(vtk_root);
+        assert(std::filesystem::exists(
+            vtk_root / "site_00004_element_00042"));
+
+        auto zero_site_patch = patch;
+        zero_site_patch.site_index = 0;
+        zero_site_patch.crack_position_inferred_from_macro = true;
+        fall_n::ManagedXfemSubscaleEvolver zero_site{
+            42, zero_site_patch, options};
+        zero_site.configure_vtk_output(vtk_root);
+        assert(std::filesystem::exists(
+            vtk_root / "site_00000_element_00042"));
+
+        std::filesystem::remove_all(vtk_root);
+    }
 
     {
         fall_n::ManagedXfemAdaptiveTransitionPolicy policy{};

@@ -211,7 +211,11 @@ public:
         , patch_{std::move(patch)}
         , options_{options}
     {
-        patch_.site_index = parent_element_id_;
+        if (patch_.site_index == 0 && parent_element_id_ != 0 &&
+            !patch_.crack_position_inferred_from_macro &&
+            !patch_.vtk_global_placement) {
+            patch_.site_index = parent_element_id_;
+        }
     }
 
     ManagedXfemSubscaleEvolver(ManagedXfemSubscaleEvolver&&) noexcept =
@@ -775,7 +779,7 @@ private:
     {
         const double z = std::clamp(patch_.crack_z_over_l, 0.0, 1.0);
         ReducedRCStructuralReplaySample sample{};
-        sample.site_index = parent_element_id_;
+        sample.site_index = patch_.site_index;
         sample.pseudo_time = time;
         sample.physical_time = time;
         sample.z_over_l = z;
