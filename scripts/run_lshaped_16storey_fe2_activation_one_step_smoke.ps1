@@ -13,6 +13,8 @@ param(
     [ValidateSet("reference", "current", "both")]
     [string]$PlacementFrame = "both",
     [int]$Fe2MaxSites = 3,
+    [switch]$IncludeColumnProbeSites,
+    [switch]$IncludeCenterProbeSite,
     [double]$Scale = 20.0,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
@@ -72,6 +74,12 @@ foreach ($item in $families) {
     if ($UseLinearAlarmRestart) {
         $args += "--restart-from-linear-alarm"
     }
+    if ($IncludeColumnProbeSites) {
+        $args += "--fe2-include-column-probe-sites"
+    }
+    if ($IncludeCenterProbeSite) {
+        $args += "--fe2-include-center-probe-site"
+    }
 
     Write-Host "Running activation + $StepsAfterActivation FE2 step smoke: $($item.Name)..."
     & $exe @args
@@ -95,6 +103,8 @@ foreach ($item in $families) {
         local_vtk_placement_frame = $PlacementFrame
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
+        include_column_probe_sites = [bool]$IncludeColumnProbeSites
+        include_center_probe_site = [bool]$IncludeCenterProbeSite
         output_root = "$outputRoot"
     } | ConvertTo-Json -Depth 4
     Set-Content -Path (Join-Path $outputRoot "activation_one_step_manifest.json") -Value $manifest

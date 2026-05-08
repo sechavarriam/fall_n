@@ -640,6 +640,8 @@ public:
             (vtk_output_dir_ / "managed_xfem_gauss").string());
         pvd_cracks_.emplace(
             (vtk_output_dir_ / "managed_xfem_cracks").string());
+        pvd_rebar_.emplace(
+            (vtk_output_dir_ / "managed_xfem_rebar_tubes").string());
         vtk_output_configured_ = true;
     }
 
@@ -676,6 +678,22 @@ public:
             if (pvd_cracks_ && !snapshot.cracks_visible_path.empty()) {
                 pvd_cracks_->add_timestep(time,
                                           snapshot.cracks_visible_path);
+            }
+            if (pvd_rebar_ && !snapshot.rebar_tubes_path.empty()) {
+                pvd_rebar_->add_timestep(time, snapshot.rebar_tubes_path);
+            }
+            if (pvd_rebar_ && !snapshot.rebar_path.empty()) {
+                pvd_rebar_->add_timestep(time, snapshot.rebar_path);
+            }
+            if (pvd_rebar_ && !snapshot.current_rebar_tubes_path.empty()) {
+                pvd_rebar_->add_timestep(
+                    time,
+                    snapshot.current_rebar_tubes_path);
+            }
+            if (pvd_rebar_ && !snapshot.current_rebar_path.empty()) {
+                pvd_rebar_->add_timestep(
+                    time,
+                    snapshot.current_rebar_path);
             }
             write_vtk_collections_();
         }
@@ -736,6 +754,9 @@ private:
             }
             if (pvd_cracks_) {
                 pvd_cracks_->write();
+            }
+            if (pvd_rebar_) {
+                pvd_rebar_->write();
             }
         } catch (...) {
             // Visualization must never invalidate a converged FE2 state.
@@ -1089,6 +1110,7 @@ private:
     std::optional<PVDWriter> pvd_mesh_{};
     std::optional<PVDWriter> pvd_gauss_{};
     std::optional<PVDWriter> pvd_cracks_{};
+    std::optional<PVDWriter> pvd_rebar_{};
 };
 
 static_assert(LocalModelAdapter<ManagedXfemSubscaleEvolver>);
