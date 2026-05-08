@@ -57,6 +57,8 @@ struct ReducedRCMacroInferredLocalSiteSelectionPolicy {
     double active_endpoint_score{1.0};
     double loaded_end_relative_score{0.75};
     bool include_center_when_both_active{true};
+    bool include_inactive_control_sites{false};
+    bool include_center_control_site{false};
 };
 
 [[nodiscard]] inline std::vector<ReducedRCMacroInferredLocalSiteCandidate>
@@ -125,6 +127,20 @@ infer_reduced_rc_macro_local_site_candidates(
                       std::min(fixed_score, loaded_score),
                       ReducedRCLocalLongitudinalBiasLocation::both_ends,
                       "both_ends_center_probe");
+    }
+
+    if (policy.include_inactive_control_sites) {
+        add_candidate(policy.loaded_end_z_over_l,
+                      loaded_score,
+                      ReducedRCLocalLongitudinalBiasLocation::loaded_end,
+                      "loaded_end_control_from_macro_score");
+        if (policy.include_center_control_site) {
+            const double center_score = 0.5 * (fixed_score + loaded_score);
+            add_candidate(policy.center_z_over_l,
+                          center_score,
+                          ReducedRCLocalLongitudinalBiasLocation::both_ends,
+                          "center_control_from_macro_scores");
+        }
     }
 
     std::sort(candidates.begin(),
