@@ -835,7 +835,7 @@ private:
                              int plane_id) {
             const double visible_opening =
                 std::max(std::abs(opening), std::abs(opening_max));
-            const bool visible = visible_opening >= min_abs_crack_opening;
+            const bool visible = visible_opening > min_abs_crack_opening;
             if ((visible_only && !visible) ||
                 normal_raw.squaredNorm() < 1.0e-20) {
                 return;

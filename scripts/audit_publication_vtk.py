@@ -129,6 +129,7 @@ def audit_vtu(
     path: Path,
     info: dict[str, Any],
     gauss_fields_profile: str,
+    crack_opening_threshold: float | None,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
     issues: list[dict[str, str]] = []
     cat = category(path)
@@ -147,6 +148,26 @@ def audit_vtu(
             issues.append(issue("error", path, f"missing crack CellData/{field}"))
         if cat == "cracks_visible":
             metrics["visible_crack_cells"] = info["cells"]
+            if crack_opening_threshold is not None:
+                openings = parse_ascii_numbers(info["cell_data"].get("crack_opening"))
+                opening_max = parse_ascii_numbers(info["cell_data"].get("crack_opening_max"))
+                count = max(len(openings), len(opening_max))
+                min_visible_opening = math.inf
+                for i in range(count):
+                    current = abs(openings[i]) if i < len(openings) else 0.0
+                    historical = abs(opening_max[i]) if i < len(opening_max) else 0.0
+                    visible_opening = max(current, historical)
+                    min_visible_opening = min(min_visible_opening, visible_opening)
+                    if visible_opening <= crack_opening_threshold:
+                        issues.append(issue(
+                            "error",
+                            path,
+                            "visible crack opening does not exceed "
+                            f"threshold {crack_opening_threshold:.6e} m",
+                        ))
+                        break
+                if math.isfinite(min_visible_opening):
+                    metrics["min_visible_crack_opening_m"] = min_visible_opening
         else:
             visible = parse_ascii_numbers(info["cell_data"].get("crack_visible"))
             if visible:
@@ -244,6 +265,12 @@ def main() -> int:
         default=0,
         help="sample at most this many VTUs per category; 0 audits all",
     )
+    parser.add_argument(
+        "--crack-opening-threshold",
+        type=float,
+        default=None,
+        help="if set, require every *_cracks_visible.vtu cell to exceed this opening threshold in metres",
+    )
     args = parser.parse_args()
 
     root = args.root
@@ -259,6 +286,8 @@ def main() -> int:
         "transform_records": 0,
         "transform_coherent": False,
         "gauss_fields_profile": args.gauss_fields_profile,
+        "crack_opening_threshold_m": args.crack_opening_threshold,
+        "min_visible_crack_opening_m": None,
         "sampled_files": 0,
         "total_vtu_files": 0,
     }
@@ -301,10 +330,23 @@ def main() -> int:
                 report["issues"].append(issue("error", path, f"cannot parse VTU: {exc}"))
                 continue
             infos[path] = info
-            issues, metrics = audit_vtu(path, info, args.gauss_fields_profile)
+            issues, metrics = audit_vtu(
+                path,
+                info,
+                args.gauss_fields_profile,
+                args.crack_opening_threshold,
+            )
             report["issues"].extend(issues)
             report["visible_crack_cells"] += int(metrics.get("visible_crack_cells", 0))
             report["gauss_points"] += int(metrics.get("gauss_points", 0))
+            min_visible = metrics.get("min_visible_crack_opening_m")
+            if min_visible is not None:
+                report["min_visible_crack_opening_m"] = min(
+                    min_visible,
+                    report["min_visible_crack_opening_m"]
+                    if report["min_visible_crack_opening_m"] is not None
+                    else min_visible,
+                )
             for family in metrics.get("crack_families", []):
                 if family not in report["kobathe_crack_families_active"]:
                     report["kobathe_crack_families_active"].append(family)

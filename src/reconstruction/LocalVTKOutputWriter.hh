@@ -109,7 +109,7 @@ class LocalVTKOutputWriter {
                 }
                 const double visible_opening =
                     std::max(std::abs(opening), std::abs(opening_max));
-                const bool visible = visible_opening >= min_crack_opening;
+                const bool visible = visible_opening > min_crack_opening;
                 if (visible_only && !visible) {
                     return;
                 }

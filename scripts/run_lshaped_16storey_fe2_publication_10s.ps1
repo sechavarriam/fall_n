@@ -7,7 +7,7 @@ param(
     [double]$SmokeDuration = 0.10,
     [int]$GlobalVtkInterval = 1,
     [int]$LocalVtkInterval = 1,
-    [double]$CrackOpeningThreshold = 0.00025,
+    [double]$CrackOpeningThreshold = 0.0005,
     [ValidateSet("visual", "minimal", "full", "debug")]
     [string]$GaussFields = "minimal",
     [ValidateSet("reference", "current", "both")]

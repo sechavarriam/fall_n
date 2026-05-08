@@ -1432,8 +1432,8 @@ int main(int argc, char* argv[]) {
     int kobathe_snes_max_it = 60;
     double kobathe_snes_atol = 1.0e-6;
     double kobathe_snes_rtol = 1.0e-2;
-    double local_vtk_crack_opening_threshold = 0.25e-3;
-    double kobathe_min_crack_opening = 0.25e-3;
+    double local_vtk_crack_opening_threshold = 0.5e-3;
+    double kobathe_min_crack_opening = 0.5e-3;
     bool local_vtk_global_placement = false;
     int fe2_max_staggered_iter = MAX_STAGGERED_ITER;
     double fe2_staggered_tol = STAGGERED_TOL;
