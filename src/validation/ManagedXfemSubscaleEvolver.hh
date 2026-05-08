@@ -816,9 +816,44 @@ private:
         sample.damage_indicator =
             std::min(1.0, std::max(std::abs(sample.curvature_y),
                                    std::abs(sample.curvature_z)) / 0.010);
-        return make_reduced_rc_managed_local_boundary_sample(
+        const auto relative_top_translation =
+            macro_relative_top_translation_local_();
+        if (relative_top_translation.allFinite()) {
+            sample.drift_mm = 1000.0 * relative_top_translation.x();
+        }
+        auto boundary = make_reduced_rc_managed_local_boundary_sample(
             sample, patch_, static_cast<std::size_t>(step_count_),
             axial_strain);
+        if (relative_top_translation.allFinite()) {
+            boundary.tip_drift_m = relative_top_translation.x();
+            boundary.imposed_top_translation_m.x() =
+                relative_top_translation.x();
+            boundary.imposed_top_translation_m.y() =
+                relative_top_translation.y();
+        }
+        return boundary;
+    }
+
+    [[nodiscard]] Eigen::Vector3d macro_relative_top_translation_local_()
+        const noexcept
+    {
+        Eigen::Matrix3d local_to_global = Eigen::Matrix3d::Identity();
+        if (patch_.vtk_global_placement) {
+            for (int r = 0; r < 3; ++r) {
+                local_to_global(r, 0) =
+                    patch_.vtk_e_x[static_cast<std::size_t>(r)];
+                local_to_global(r, 1) =
+                    patch_.vtk_e_y[static_cast<std::size_t>(r)];
+                local_to_global(r, 2) =
+                    patch_.vtk_e_z[static_cast<std::size_t>(r)];
+            }
+        }
+
+        const Eigen::Vector3d u_A_global =
+            kin_A_.R.transpose() * kin_A_.u_local;
+        const Eigen::Vector3d u_B_global =
+            kin_B_.R.transpose() * kin_B_.u_local;
+        return local_to_global.transpose() * (u_B_global - u_A_global);
     }
 
     [[nodiscard]] static Eigen::Vector<double, 6> sample_control_vector_(
