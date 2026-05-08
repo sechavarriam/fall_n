@@ -2746,11 +2746,6 @@ int main(int argc, char* argv[]) {
     for (auto eid : crit_elem_ids) {
         critical_kinematics.push_back(extract_beam_kinematics(eid));
     }
-    std::unordered_map<std::size_t, ElementKinematics> kinematics_by_element;
-    kinematics_by_element.reserve(critical_kinematics.size());
-    for (const auto& ek : critical_kinematics) {
-        kinematics_by_element.emplace(ek.element_id, ek);
-    }
     std::vector<LocalSiteTransformRecord> local_site_transforms;
     local_site_transforms.reserve(3 * critical_kinematics.size());
 
@@ -2767,21 +2762,30 @@ int main(int argc, char* argv[]) {
                  use_managed_xfem ? "managed XFEM" : "continuum Ko-Bathe");
     std::ofstream xfem_site_csv(
         OUT + "recorders/local_macro_inferred_sites.csv");
-    xfem_site_csv
-        << "local_site_index,macro_element_id,range,fixed_end_score,"
-        << "loaded_end_score,candidate_score,activation_reason,"
-        << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
-        << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
-        << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
-        << "completed,iterations,elapsed_seconds,nodes,elements\n";
+    xfem_site_csv << "local_site_index,macro_element_id,range,fixed_end_score,"
+                  << "loaded_end_score,candidate_score,activation_reason,"
+                  << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
+                  << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
+                  << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
+                  << "completed,iterations,elapsed_seconds,nodes,elements\n";
 
     std::vector<SeismicFE2LocalModel> local_evolvers;
     std::vector<CouplingSite> local_sites;
     std::vector<int> local_ranges;
     std::vector<MultiscaleCoordinator> continuum_coordinators;
+    struct ContinuumLocalSitePlan {
+      ElementKinematics kinematics;
+      CouplingSite site;
+      int range{0};
+      std::size_t local_site_index{0};
+      double z_over_l{0.0};
+    };
+    std::vector<ContinuumLocalSitePlan> continuum_site_plans;
     local_evolvers.reserve(3 * crit_elem_ids.size());
     local_sites.reserve(3 * crit_elem_ids.size());
     local_ranges.reserve(3 * crit_elem_ids.size());
+    continuum_site_plans.reserve(3 * crit_elem_ids.size());
+    std::size_t next_local_site_index = 0;
 
     std::size_t one_way_completed_sites = 0;
     int one_way_total_iterations = 0;
@@ -2793,93 +2797,31 @@ int main(int argc, char* argv[]) {
         managed_local_min_transition_steps;
     local_transition_policy.base_transition_steps =
         managed_local_transition_steps;
-    local_transition_policy.max_transition_steps =
-        std::max(managed_local_max_transition_steps,
-                 managed_local_transition_steps);
+    local_transition_policy.max_transition_steps = std::max(
+        managed_local_max_transition_steps, managed_local_transition_steps);
     local_transition_policy.min_bisections = managed_local_min_bisections;
     local_transition_policy.base_bisections = managed_local_max_bisections;
-    local_transition_policy.max_bisections =
-        std::max(managed_local_adaptive_max_bisections,
-                 managed_local_max_bisections);
+    local_transition_policy.max_bisections = std::max(
+        managed_local_adaptive_max_bisections, managed_local_max_bisections);
 
-    auto endpoint_score = [](const SectionKinematics& kin) {
-        constexpr double curvature_scale = 0.010;
-        return std::max(std::abs(kin.kappa_y),
-                        std::abs(kin.kappa_z)) / curvature_scale;
+    auto endpoint_score = [](const SectionKinematics &kin) {
+      constexpr double curvature_scale = 0.010;
+      return std::max(std::abs(kin.kappa_y), std::abs(kin.kappa_z)) /
+             curvature_scale;
     };
 
-    struct MacroLocalCandidate {
-        double z_over_l{0.05};
-        double score{0.0};
-        ReducedRCLocalLongitudinalBiasLocation bias{
-            ReducedRCLocalLongitudinalBiasLocation::fixed_end};
-        std::string_view reason{"fixed_end"};
-    };
+    for (const auto &ek : critical_kinematics) {
+      const auto eid = ek.element_id;
+      const int range = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
+      const double fixed_score = endpoint_score(ek.kin_A);
+      const double loaded_score = endpoint_score(ek.kin_B);
+      const auto candidates = infer_reduced_rc_macro_local_site_candidates(
+          ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
+                                       .loaded_end_score = loaded_score});
 
-    for (const auto& ek : critical_kinematics) {
-        const auto eid = ek.element_id;
-        const int range = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
-        const double fixed_score = endpoint_score(ek.kin_A);
-        const double loaded_score = endpoint_score(ek.kin_B);
-        const bool both_active = fixed_score >= 1.0 && loaded_score >= 1.0;
-
-        std::vector<MacroLocalCandidate> candidates;
-        candidates.reserve(3);
-        const double dominant_score = std::max(fixed_score, loaded_score);
-        const auto add_candidate =
-            [&](double z_over_l,
-                double score,
-                ReducedRCLocalLongitudinalBiasLocation bias,
-                std::string_view reason) {
-                if (score <= 0.0) {
-                    return;
-                }
-                const auto duplicate = std::ranges::find_if(
-                    candidates,
-                    [z_over_l](const MacroLocalCandidate& candidate) {
-                        return std::abs(candidate.z_over_l - z_over_l) <
-                               1.0e-12;
-                    });
-                if (duplicate == candidates.end()) {
-                    candidates.push_back(MacroLocalCandidate{
-                        .z_over_l = z_over_l,
-                        .score = score,
-                        .bias = bias,
-                        .reason = reason});
-                }
-            };
-
-        add_candidate(0.05, fixed_score,
-                      ReducedRCLocalLongitudinalBiasLocation::fixed_end,
-                      "fixed_end_score");
-        if (loaded_score >= 1.0 ||
-            loaded_score >= 0.75 * std::max(dominant_score, 1.0e-12))
-        {
-            add_candidate(0.95, loaded_score,
-                          ReducedRCLocalLongitudinalBiasLocation::loaded_end,
-                          "loaded_end_score");
-        }
-        if (both_active) {
-            add_candidate(0.50, 0.5 * (fixed_score + loaded_score),
-                          ReducedRCLocalLongitudinalBiasLocation::both_ends,
-                          "both_ends_center_probe");
-        }
-        if (candidates.empty()) {
-            add_candidate(
-                fixed_score >= loaded_score ? 0.05 : 0.95,
-                dominant_score,
-                fixed_score >= loaded_score
-                    ? ReducedRCLocalLongitudinalBiasLocation::fixed_end
-                    : ReducedRCLocalLongitudinalBiasLocation::loaded_end,
-                "dominant_endpoint_fallback");
-        }
-        std::ranges::sort(candidates, [](const auto& lhs, const auto& rhs) {
-            return lhs.score > rhs.score;
-        });
-
-        for (const auto& candidate : candidates) {
+      for (const auto &candidate : candidates) {
         const double section_z = candidate.z_over_l;
-        const std::size_t local_site_index = local_evolvers.size();
+        const std::size_t local_site_index = next_local_site_index++;
 
         ReducedRCMultiscaleReplaySitePlan site{};
         site.site_index = local_site_index;
@@ -2889,12 +2831,11 @@ int main(int argc, char* argv[]) {
 
         ReducedRCManagedLocalPatchSpec base_patch{};
         base_patch.site_index = local_site_index;
-        const Eigen::Vector3d endpoint_A{
-            ek.endpoint_A[0], ek.endpoint_A[1], ek.endpoint_A[2]};
-        const Eigen::Vector3d endpoint_B{
-            ek.endpoint_B[0], ek.endpoint_B[1], ek.endpoint_B[2]};
-        base_patch.characteristic_length_m =
-            (endpoint_B - endpoint_A).norm();
+        const Eigen::Vector3d endpoint_A{ek.endpoint_A[0], ek.endpoint_A[1],
+                                         ek.endpoint_A[2]};
+        const Eigen::Vector3d endpoint_B{ek.endpoint_B[0], ek.endpoint_B[1],
+                                         ek.endpoint_B[2]};
+        base_patch.characteristic_length_m = (endpoint_B - endpoint_A).norm();
         base_patch.section_width_m = COL_B[range];
         base_patch.section_depth_m = COL_H[range];
         base_patch.nx = SUB_NX;
@@ -2904,20 +2845,19 @@ int main(int argc, char* argv[]) {
             ReducedRCManagedLocalBoundaryMode::affine_section_dirichlet;
 
         auto patch = make_reduced_rc_macro_inferred_xfem_patch(
-            site,
-            base_patch,
-            ReducedRCMacroEndpointDemand{
-                .fixed_end_score = fixed_score,
-                .loaded_end_score = loaded_score,
-                .macro_section_z_over_l = section_z});
+            site, base_patch,
+            ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
+                                         .loaded_end_score = loaded_score,
+                                         .macro_section_z_over_l = section_z});
         patch.crack_z_over_l = candidate.z_over_l;
-        patch.longitudinal_bias_location = candidate.bias;
+        patch.longitudinal_bias_location = candidate.bias_location;
         patch.crack_position_inferred_from_macro = true;
         patch.double_hinge_bias_inferred_from_macro =
-            candidate.bias == ReducedRCLocalLongitudinalBiasLocation::both_ends;
+            candidate.bias_location ==
+            ReducedRCLocalLongitudinalBiasLocation::both_ends;
 
         const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
-            return (1.0 - z) * a + z * b;
+          return (1.0 - z) * a + z * b;
         };
 
         ReducedRCStructuralReplaySample sample{};
@@ -2928,26 +2868,23 @@ int main(int argc, char* argv[]) {
         const double axial_strain = lerp(ek.kin_A.eps_0, ek.kin_B.eps_0);
         sample.curvature_y = lerp(ek.kin_A.kappa_y, ek.kin_B.kappa_y);
         sample.curvature_z = lerp(ek.kin_A.kappa_z, ek.kin_B.kappa_z);
-        sample.damage_indicator = std::clamp(
-            std::max(fixed_score, loaded_score), 0.0, 1.0);
-        const auto site_for_patch = BeamMacroBridge<StructModel, BeamElemT>{model}
-            .default_site(eid, 2.0 * patch.crack_z_over_l - 1.0);
+        sample.damage_indicator =
+            std::clamp(std::max(fixed_score, loaded_score), 0.0, 1.0);
+        const auto site_for_patch =
+            BeamMacroBridge<StructModel, BeamElemT>{model}.default_site(
+                eid, 2.0 * patch.crack_z_over_l - 1.0);
         if (local_vtk_global_placement) {
-            const auto transform = make_local_site_transform(
-                ek,
-                site_for_patch,
-                local_evolvers.size(),
-                local_family,
-                true,
-                local_vtk_placement_frame);
-            patch.vtk_global_placement = true;
-            patch.vtk_origin = as_array3(transform.origin);
-            patch.vtk_e_x = as_array3(transform.basis.col(0));
-            patch.vtk_e_y = as_array3(transform.basis.col(1));
-            patch.vtk_e_z = as_array3(transform.basis.col(2));
-            patch.vtk_parent_element_id = site_for_patch.macro_element_id;
-            patch.vtk_section_gp = site_for_patch.section_gp;
-            patch.vtk_xi = site_for_patch.xi;
+          const auto transform = make_local_site_transform(
+              ek, site_for_patch, local_site_index, local_family, true,
+              local_vtk_placement_frame);
+          patch.vtk_global_placement = true;
+          patch.vtk_origin = as_array3(transform.origin);
+          patch.vtk_e_x = as_array3(transform.basis.col(0));
+          patch.vtk_e_y = as_array3(transform.basis.col(1));
+          patch.vtk_e_z = as_array3(transform.basis.col(2));
+          patch.vtk_parent_element_id = site_for_patch.macro_element_id;
+          patch.vtk_section_gp = site_for_patch.section_gp;
+          patch.vtk_xi = site_for_patch.xi;
         }
         const auto macro_state_for_patch =
             BeamMacroBridge<StructModel, BeamElemT>{model}
@@ -2971,101 +2908,88 @@ int main(int argc, char* argv[]) {
         std::size_t adapter_elements = 0;
 
         if (use_managed_xfem) {
-            ReducedRCManagedXfemLocalModelAdapter adapter{options};
-            ReducedRCManagedLocalReplaySettings replay_settings{};
-            replay_settings.default_axial_strain = axial_strain;
-            const auto replay = run_reduced_rc_managed_local_model_replay(
-                std::vector<ReducedRCStructuralReplaySample>{sample},
-                patch,
-                adapter,
-                replay_settings);
-            replay_completed = replay.completed();
-            replay_iterations = replay.total_nonlinear_iterations;
-            replay_seconds = replay.total_elapsed_seconds;
-            adapter_nodes = adapter.node_count();
-            adapter_elements = adapter.element_count();
-            if (replay_completed) {
-                ++one_way_completed_sites;
-            }
-            one_way_total_iterations += replay_iterations;
-            one_way_total_elapsed_seconds += replay_seconds;
+          ReducedRCManagedXfemLocalModelAdapter adapter{options};
+          ReducedRCManagedLocalReplaySettings replay_settings{};
+          replay_settings.default_axial_strain = axial_strain;
+          const auto replay = run_reduced_rc_managed_local_model_replay(
+              std::vector<ReducedRCStructuralReplaySample>{sample}, patch,
+              adapter, replay_settings);
+          replay_completed = replay.completed();
+          replay_iterations = replay.total_nonlinear_iterations;
+          replay_seconds = replay.total_elapsed_seconds;
+          adapter_nodes = adapter.node_count();
+          adapter_elements = adapter.element_count();
+          if (replay_completed) {
+            ++one_way_completed_sites;
+          }
+          one_way_total_iterations += replay_iterations;
+          one_way_total_elapsed_seconds += replay_seconds;
         }
 
-        xfem_site_csv
-            << local_site_index << ","
-            << eid << "," << range << ","
-            << fixed_score << "," << loaded_score << ","
-            << candidate.score << "," << candidate.reason << ","
-            << patch.crack_z_over_l << ","
-            << to_string(patch.longitudinal_bias_location) << ","
-            << patch.longitudinal_bias_power << ","
-            << patch.nx << "," << patch.ny << "," << patch.nz << ","
-            << site_for_patch.xi << ","
-            << site_for_patch.section_gp << ","
-            << axial_strain << ","
-            << sample.curvature_y << ","
-            << sample.curvature_z << ","
-            << lerp(ek.kin_A.gamma_y, ek.kin_B.gamma_y) << ","
-            << lerp(ek.kin_A.gamma_z, ek.kin_B.gamma_z) << ","
-            << lerp(ek.kin_A.twist, ek.kin_B.twist) << ","
-            << macro_state_for_patch.forces[0] << ","
-            << macro_state_for_patch.forces[1] << ","
-            << macro_state_for_patch.forces[2] << ","
-            << macro_state_for_patch.forces[3] << ","
-            << macro_state_for_patch.forces[4] << ","
-            << macro_state_for_patch.forces[5] << ","
-            << (replay_completed ? 1 : 0) << ","
-            << replay_iterations << ","
-            << replay_seconds << ","
-            << adapter_nodes << ","
-            << adapter_elements << "\n";
+        xfem_site_csv << local_site_index << "," << eid << "," << range << ","
+                      << fixed_score << "," << loaded_score << ","
+                      << candidate.score << "," << candidate.reason << ","
+                      << patch.crack_z_over_l << ","
+                      << to_string(patch.longitudinal_bias_location) << ","
+                      << patch.longitudinal_bias_power << "," << patch.nx << ","
+                      << patch.ny << "," << patch.nz << "," << site_for_patch.xi
+                      << "," << site_for_patch.section_gp << "," << axial_strain
+                      << "," << sample.curvature_y << "," << sample.curvature_z
+                      << "," << lerp(ek.kin_A.gamma_y, ek.kin_B.gamma_y) << ","
+                      << lerp(ek.kin_A.gamma_z, ek.kin_B.gamma_z) << ","
+                      << lerp(ek.kin_A.twist, ek.kin_B.twist) << ","
+                      << macro_state_for_patch.forces[0] << ","
+                      << macro_state_for_patch.forces[1] << ","
+                      << macro_state_for_patch.forces[2] << ","
+                      << macro_state_for_patch.forces[3] << ","
+                      << macro_state_for_patch.forces[4] << ","
+                      << macro_state_for_patch.forces[5] << ","
+                      << (replay_completed ? 1 : 0) << "," << replay_iterations
+                      << "," << replay_seconds << "," << adapter_nodes << ","
+                      << adapter_elements << "\n";
 
-        std::println(
-            "  site {} / element {}: crack z/L={:.3f}, score={:.3f}, reason={}, bias={}, local_family={}, replay={}, iters={}",
-            local_site_index,
-            eid,
-            patch.crack_z_over_l,
-            candidate.score,
-            candidate.reason,
-            to_string(patch.longitudinal_bias_location),
-            local_family,
-            use_managed_xfem
-                ? (replay_completed ? "ok" : "failed")
-                : "deferred_to_kobathe_pool",
-            replay_iterations);
+        std::println("  site {} / element {}: crack z/L={:.3f}, score={:.3f}, "
+                     "reason={}, bias={}, local_family={}, replay={}, iters={}",
+                     local_site_index, eid, patch.crack_z_over_l,
+                     candidate.score, candidate.reason,
+                     to_string(patch.longitudinal_bias_location), local_family,
+                     use_managed_xfem ? (replay_completed ? "ok" : "failed")
+                                      : "deferred_to_kobathe_pool",
+                     replay_iterations);
+
+        if (use_continuum_kobathe) {
+          ElementKinematics site_ek = ek;
+          site_ek.local_site_index = local_site_index;
+          site_ek.site_z_over_l = patch.crack_z_over_l;
+          continuum_site_plans.push_back(
+              ContinuumLocalSitePlan{.kinematics = site_ek,
+                                     .site = site_for_patch,
+                                     .range = range,
+                                     .local_site_index = local_site_index,
+                                     .z_over_l = patch.crack_z_over_l});
+        }
 
         if (use_managed_xfem) {
-            local_site_transforms.push_back(make_local_site_transform(
-                ek,
-                site_for_patch,
-                local_evolvers.size(),
-                local_family,
-                local_vtk_global_placement,
-                local_vtk_placement_frame));
-            ManagedXfemSubscaleEvolver ev{eid, patch, options};
-            ev.set_vtk_output_profile(local_vtk_profile);
-            ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
-            ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
-            ev.set_vtk_placement_frame(local_vtk_placement_frame);
-            ev.set_adaptive_transition_policy(local_transition_policy);
-            local_evolvers.emplace_back(std::move(ev));
-            local_sites.push_back(site_for_patch);
-            local_ranges.push_back(range);
+          local_site_transforms.push_back(make_local_site_transform(
+              ek, site_for_patch, local_site_index, local_family,
+              local_vtk_global_placement, local_vtk_placement_frame));
+          ManagedXfemSubscaleEvolver ev{eid, patch, options};
+          ev.set_vtk_output_profile(local_vtk_profile);
+          ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
+          ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
+          ev.set_vtk_placement_frame(local_vtk_placement_frame);
+          ev.set_adaptive_transition_policy(local_transition_policy);
+          local_evolvers.emplace_back(std::move(ev));
+          local_sites.push_back(site_for_patch);
+          local_ranges.push_back(range);
         }
-        }
+      }
     }
     xfem_site_csv.close();
 
     if (use_continuum_kobathe) {
-        std::map<int, std::vector<ElementKinematics>> by_range;
-        for (const auto& ek : critical_kinematics) {
-            const int range = elem_to_range.count(ek.element_id)
-                ? elem_to_range.at(ek.element_id)
-                : 0;
-            by_range[range].push_back(ek);
-        }
-
-        auto make_rebar_bars_for_range = [](int range) {
+      auto make_rebar_bars_for_range =
+          [](int range) {
             const double cvr = COL_CVR;
             const double bar_d = COL_BAR;
             const double bar_a =
@@ -3080,92 +3004,73 @@ int main(int argc, char* argv[]) {
                 {0.0, z0, bar_a, bar_d}, {0.0, z1, bar_a, bar_d},
                 {y0, 0.0, bar_a, bar_d}, {y1, 0.0, bar_a, bar_d},
             };
-        };
+          };
 
-        const HexOrder local_hex_order =
-            local_family == "continuum-kobathe-hex27"
-                ? HexOrder::Quadratic
-                : HexOrder::Serendipity;
-        const std::string continuum_dir = OUT + "continuum_kobathe_sites";
-        std::filesystem::create_directories(continuum_dir);
+      const HexOrder local_hex_order = local_family == "continuum-kobathe-hex27"
+                                           ? HexOrder::Quadratic
+                                           : HexOrder::Serendipity;
+      const std::string continuum_dir = OUT + "continuum_kobathe_sites";
+      std::filesystem::create_directories(continuum_dir);
 
-        continuum_coordinators.reserve(by_range.size());
-        for (const auto& [range, elements] : by_range) {
-            continuum_coordinators.emplace_back();
-            auto& coordinator = continuum_coordinators.back();
-            for (const auto& ek : elements) {
-                coordinator.add_critical_element(ek);
-            }
-            coordinator.build_sub_models(SubModelSpec{
-                .section_width = COL_B[range],
-                .section_height = COL_H[range],
-                .nx = SUB_NX,
-                .ny = SUB_NY,
-                .nz = SUB_NZ,
-                .hex_order = local_hex_order,
-                .rebar_bars = make_rebar_bars_for_range(range),
-                .rebar_E = STEEL_E,
-                .rebar_fy = STEEL_FY,
-                .rebar_b = STEEL_B,
-            });
+      continuum_coordinators.reserve(continuum_site_plans.size());
+      for (const auto &plan : continuum_site_plans) {
+        const int range = plan.range;
+        continuum_coordinators.emplace_back();
+        auto &coordinator = continuum_coordinators.back();
+        coordinator.add_critical_element(plan.kinematics);
+        coordinator.build_sub_models(SubModelSpec{
+            .section_width = COL_B[range],
+            .section_height = COL_H[range],
+            .nx = SUB_NX,
+            .ny = SUB_NY,
+            .nz = SUB_NZ,
+            .hex_order = local_hex_order,
+            .rebar_bars = make_rebar_bars_for_range(range),
+            .rebar_E = STEEL_E,
+            .rebar_fy = STEEL_FY,
+            .rebar_b = STEEL_B,
+        });
 
-            const auto report = coordinator.report();
-            std::println(
-                "  Ko-Bathe range {}: {} sites, {} elems, {} nodes, hex_order={}",
-                range,
-                report.num_sub_models,
-                report.total_elements,
-                report.total_nodes,
-                local_family == "continuum-kobathe-hex27" ? "Hex27" : "Hex20");
+        const auto report = coordinator.report();
+        std::println("  Ko-Bathe site {} / element {}: range {}, z/L={:.3f}, "
+                     "{} elems, {} nodes, hex_order={}",
+                     plan.local_site_index, plan.kinematics.element_id, range,
+                     plan.z_over_l, report.total_elements, report.total_nodes,
+                     local_family == "continuum-kobathe-hex27" ? "Hex27"
+                                                               : "Hex20");
 
-            for (auto& sub : coordinator.sub_models()) {
-                NonlinearSubModelEvolver ev{
-                    sub,
-                    COL_FPC[range],
-                    continuum_dir,
-                    0};
-                ev.set_vtk_output_profile(local_vtk_profile);
-                ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
-                ev.set_vtk_placement_frame(local_vtk_placement_frame);
-                ev.set_incremental_params(
-                    managed_local_transition_steps,
-                    managed_local_max_bisections);
-                ev.set_adaptive_substepping_limits(
-                    managed_local_max_transition_steps,
-                    managed_local_adaptive_max_bisections);
-                ev.set_rebar_material(STEEL_E, STEEL_FY, STEEL_B);
-                ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
-                ev.set_snes_params(kobathe_snes_max_it,
-                                   kobathe_snes_atol,
-                                   kobathe_snes_rtol);
-                ev.set_min_crack_opening(kobathe_min_crack_opening);
-                ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
-                const auto site = BeamMacroBridge<StructModel, BeamElemT>{model}
-                    .default_site(sub.parent_element_id);
-                if (const auto it = kinematics_by_element.find(
-                        sub.parent_element_id);
-                    it != kinematics_by_element.end())
-                {
-                    local_site_transforms.push_back(make_local_site_transform(
-                        it->second,
-                        site,
-                        local_evolvers.size(),
-                        local_family,
-                        true,
-                        local_vtk_placement_frame));
-                }
-                local_ranges.push_back(range);
-                local_sites.push_back(site);
-                local_evolvers.emplace_back(std::move(ev), continuum_family);
-            }
+        for (auto &sub : coordinator.sub_models()) {
+          NonlinearSubModelEvolver ev{sub, COL_FPC[range], continuum_dir, 0};
+          ev.set_vtk_output_profile(local_vtk_profile);
+          ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
+          ev.set_vtk_placement_frame(local_vtk_placement_frame);
+          ev.set_incremental_params(managed_local_transition_steps,
+                                    managed_local_max_bisections);
+          ev.set_adaptive_substepping_limits(
+              managed_local_max_transition_steps,
+              managed_local_adaptive_max_bisections);
+          ev.set_rebar_material(STEEL_E, STEEL_FY, STEEL_B);
+          ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
+          ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
+                             kobathe_snes_rtol);
+          ev.set_min_crack_opening(kobathe_min_crack_opening);
+          ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
+          const auto &site = plan.site;
+          local_site_transforms.push_back(make_local_site_transform(
+              plan.kinematics, site, plan.local_site_index, local_family, true,
+              local_vtk_placement_frame));
+          local_ranges.push_back(range);
+          local_sites.push_back(site);
+          local_evolvers.emplace_back(std::move(ev), continuum_family);
         }
+      }
     }
 
-    write_local_site_transform_files(
-        std::filesystem::path(OUT) / "recorders",
-        local_site_transforms);
-    std::println("  Local-site transforms: {}recorders/local_site_transform.csv/json",
-                 OUT);
+    write_local_site_transform_files(std::filesystem::path(OUT) / "recorders",
+                                     local_site_transforms);
+    std::println(
+        "  Local-site transforms: {}recorders/local_site_transform.csv/json",
+        OUT);
 
     if (fe2_one_way_only && use_managed_xfem) {
         const auto selected_local_site_count = local_evolvers.size();

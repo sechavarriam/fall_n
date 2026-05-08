@@ -786,7 +786,10 @@ public:
         , concrete_factory_{make_default_submodel_concrete_factory(
               fc_MPa, default_local_length_scale_mm_(sub))}
         , rebar_factory_{make_default_submodel_rebar_factory()}
-        , output_writer_{std::move(output_dir), sub.parent_element_id}
+        , output_writer_{std::move(output_dir),
+                         sub.parent_element_id,
+                         LocalVTKOutputProfile::Debug,
+                         sub.vtk_site_id()}
         , vtk_interval_{vtk_interval}
     {}
 
@@ -798,7 +801,10 @@ public:
         , fc_{fc_MPa}
         , concrete_factory_{std::move(concrete_factory)}
         , rebar_factory_{std::move(rebar_factory)}
-        , output_writer_{std::move(output_dir), sub.parent_element_id}
+        , output_writer_{std::move(output_dir),
+                         sub.parent_element_id,
+                         LocalVTKOutputProfile::Debug,
+                         sub.vtk_site_id()}
         , vtk_interval_{vtk_interval}
     {}
 
