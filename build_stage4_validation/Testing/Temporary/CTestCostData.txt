@@ -1,4 +1,0 @@
-reduced_rc_column_validation_claim_catalog 2 0.0396025
-reduced_rc_column_benchmark_trace_catalog 1 0.124367
-reduced_rc_column_evidence_closure_catalog 1 0.132901
----
