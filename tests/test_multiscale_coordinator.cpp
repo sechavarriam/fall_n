@@ -377,6 +377,50 @@ void test_rotated_element() {
           "axial displacement maps to global Y");
 }
 
+// =============================================================================
+//  Test 8: Distinct local-site IDs for repeated parent elements
+// =============================================================================
+
+void test_repeated_parent_local_site_ids() {
+    std::cout << "\nTest 8: Repeated parent local-site IDs\n";
+
+    fall_n::MultiscaleCoordinator coord;
+
+    auto fixed_site = make_beam_kinematics(
+        42, 0.0, 2.0,
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+        Eigen::Vector3d(0.0, 0.002, 0.0), Eigen::Vector3d::Zero());
+    fixed_site.local_site_index = 7;
+    fixed_site.site_z_over_l = 0.05;
+    coord.add_critical_element(std::move(fixed_site));
+
+    auto loaded_site = make_beam_kinematics(
+        42, 0.0, 2.0,
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+        Eigen::Vector3d(0.0, 0.002, 0.0), Eigen::Vector3d::Zero());
+    loaded_site.local_site_index = 8;
+    loaded_site.site_z_over_l = 0.95;
+    coord.add_critical_element(std::move(loaded_site));
+
+    fall_n::SubModelSpec spec{0.3, 0.3, 1, 1, 2};
+    coord.build_sub_models(spec);
+
+    check(coord.sub_models().size() == 2,
+          "two sub-models created for one parent element");
+    check(coord.sub_models()[0].parent_element_id == 42,
+          "first parent element preserved");
+    check(coord.sub_models()[1].parent_element_id == 42,
+          "second parent element preserved");
+    check(coord.sub_models()[0].vtk_site_id() == 7,
+          "first VTK site ID preserved");
+    check(coord.sub_models()[1].vtk_site_id() == 8,
+          "second VTK site ID preserved");
+    check(std::abs(coord.sub_models()[0].site_z_over_l - 0.05) < tol,
+          "first site z/L preserved");
+    check(std::abs(coord.sub_models()[1].site_z_over_l - 0.95) < tol,
+          "second site z/L preserved");
+}
+
 
 // =============================================================================
 //  main
@@ -396,6 +440,7 @@ int main(int argc, char** argv) {
     test_zero_displacement();
     test_mixed_state();
     test_rotated_element();
+    test_repeated_parent_local_site_ids();
 
     std::cout << "\n" << std::string(60, '=') << "\n"
               << "  Summary: " << passed << " passed, " << failed << " failed\n"

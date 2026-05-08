@@ -61,6 +61,8 @@ namespace fall_n {
 
 struct ElementKinematics {
     std::size_t element_id{0};
+    std::size_t local_site_index{std::numeric_limits<std::size_t>::max()};
+    double site_z_over_l{std::numeric_limits<double>::quiet_NaN()};
 
     SectionKinematics kin_A;   ///< Kinematics at end A (ξ=-1)
     SectionKinematics kin_B;   ///< Kinematics at end B (ξ=+1)
@@ -77,6 +79,8 @@ struct ElementKinematics {
 
 struct MultiscaleSubModel {
     std::size_t parent_element_id{0};
+    std::size_t local_site_index{std::numeric_limits<std::size_t>::max()};
+    double site_z_over_l{std::numeric_limits<double>::quiet_NaN()};
     Domain<3>     domain;
     PrismaticGrid grid{};
 
@@ -117,6 +121,12 @@ struct MultiscaleSubModel {
 
     [[nodiscard]] bool has_rebar() const noexcept {
         return rebar_range.first != rebar_range.last;
+    }
+
+    [[nodiscard]] std::size_t vtk_site_id() const noexcept {
+        return local_site_index == std::numeric_limits<std::size_t>::max()
+            ? parent_element_id
+            : local_site_index;
     }
 };
 
@@ -188,6 +198,8 @@ public:
         for (const auto& ek : critical_elements_) {
             MultiscaleSubModel sub;
             sub.parent_element_id = ek.element_id;
+            sub.local_site_index = ek.local_site_index;
+            sub.site_z_over_l = ek.site_z_over_l;
             sub.kin_A = ek.kin_A;
             sub.kin_B = ek.kin_B;
 
