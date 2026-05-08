@@ -63,6 +63,44 @@ int main()
                     fallback_policy.fallback_loaded_end_crack_z_over_l) <
            1.0e-14);
 
+    const auto contains_z = [](const auto& candidates, double z_over_l) {
+        for (const auto& candidate : candidates) {
+            if (std::abs(candidate.z_over_l - z_over_l) < 1.0e-14) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const auto fixed_candidates =
+        infer_reduced_rc_macro_local_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 0.65,
+                .loaded_end_score = 0.0});
+    assert(fixed_candidates.size() == 1);
+    assert(contains_z(fixed_candidates, 0.05));
+    assert(fixed_candidates.front().reason == "fixed_end_score");
+
+    const auto double_hinge_candidates =
+        infer_reduced_rc_macro_local_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 1.20,
+                .loaded_end_score = 1.10});
+    assert(double_hinge_candidates.size() == 3);
+    assert(contains_z(double_hinge_candidates, 0.05));
+    assert(contains_z(double_hinge_candidates, 0.50));
+    assert(contains_z(double_hinge_candidates, 0.95));
+
+    const auto paired_end_candidates =
+        infer_reduced_rc_macro_local_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 2.0,
+                .loaded_end_score = 1.6});
+    assert(paired_end_candidates.size() == 3);
+    assert(contains_z(paired_end_candidates, 0.05));
+    assert(contains_z(paired_end_candidates, 0.50));
+    assert(contains_z(paired_end_candidates, 0.95));
+
     std::printf("[macro-inferred-xfem-site-policy] fixed crack=%.3f "
                 "both crack=%.3f loaded crack=%.3f\n",
                 fixed_patch.crack_z_over_l,

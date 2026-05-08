@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string_view>
+#include <vector>
 
 #include "src/validation/ReducedRCManagedLocalModelReplay.hh"
 #include "src/validation/ReducedRCMultiscaleReplayPlan.hh"
@@ -39,6 +41,103 @@ struct ReducedRCMacroInferredXfemSitePolicy {
     double double_hinge_bias_power{2.20};
     bool preserve_macro_section_crack_location{true};
 };
+
+struct ReducedRCMacroInferredLocalSiteCandidate {
+    double z_over_l{0.05};
+    double score{0.0};
+    ReducedRCLocalLongitudinalBiasLocation bias_location{
+        ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+    std::string_view reason{"fixed_end_score"};
+};
+
+struct ReducedRCMacroInferredLocalSiteSelectionPolicy {
+    double fixed_end_z_over_l{0.05};
+    double center_z_over_l{0.50};
+    double loaded_end_z_over_l{0.95};
+    double active_endpoint_score{1.0};
+    double loaded_end_relative_score{0.75};
+    bool include_center_when_both_active{true};
+};
+
+[[nodiscard]] inline std::vector<ReducedRCMacroInferredLocalSiteCandidate>
+infer_reduced_rc_macro_local_site_candidates(
+    const ReducedRCMacroEndpointDemand& demand,
+    const ReducedRCMacroInferredLocalSiteSelectionPolicy& policy = {})
+{
+    std::vector<ReducedRCMacroInferredLocalSiteCandidate> candidates;
+    candidates.reserve(3);
+
+    const auto add_candidate =
+        [&](double z_over_l,
+            double score,
+            ReducedRCLocalLongitudinalBiasLocation bias_location,
+            std::string_view reason) {
+            if (!(score > 0.0) || !std::isfinite(score)) {
+                return;
+            }
+            const double z = std::clamp(z_over_l, 0.0, 1.0);
+            const auto duplicate = std::find_if(
+                candidates.begin(),
+                candidates.end(),
+                [z](const ReducedRCMacroInferredLocalSiteCandidate& c) {
+                    return std::abs(c.z_over_l - z) < 1.0e-12;
+                });
+            if (duplicate != candidates.end()) {
+                if (score > duplicate->score) {
+                    duplicate->score = score;
+                    duplicate->bias_location = bias_location;
+                    duplicate->reason = reason;
+                }
+                return;
+            }
+            candidates.push_back(ReducedRCMacroInferredLocalSiteCandidate{
+                .z_over_l = z,
+                .score = score,
+                .bias_location = bias_location,
+                .reason = reason,
+            });
+        };
+
+    const double fixed_score = demand.fixed_end_score;
+    const double loaded_score = demand.loaded_end_score;
+    const double dominant_score = std::max(fixed_score, loaded_score);
+
+    add_candidate(policy.fixed_end_z_over_l,
+                  fixed_score,
+                  ReducedRCLocalLongitudinalBiasLocation::fixed_end,
+                  "fixed_end_score");
+
+    const bool loaded_active = loaded_score >= policy.active_endpoint_score;
+    const bool loaded_near_dominant =
+        loaded_score >=
+        policy.loaded_end_relative_score * std::max(dominant_score, 1.0e-12);
+    if (loaded_active || loaded_near_dominant) {
+        add_candidate(policy.loaded_end_z_over_l,
+                      loaded_score,
+                      ReducedRCLocalLongitudinalBiasLocation::loaded_end,
+                      "loaded_end_score");
+    }
+
+    const bool fixed_active = fixed_score >= policy.active_endpoint_score;
+    if (policy.include_center_when_both_active && fixed_active &&
+        loaded_active) {
+        add_candidate(policy.center_z_over_l,
+                      std::min(fixed_score, loaded_score),
+                      ReducedRCLocalLongitudinalBiasLocation::both_ends,
+                      "both_ends_center_probe");
+    }
+
+    std::sort(candidates.begin(),
+              candidates.end(),
+              [](const ReducedRCMacroInferredLocalSiteCandidate& a,
+                 const ReducedRCMacroInferredLocalSiteCandidate& b) {
+                  if (std::abs(a.score - b.score) > 1.0e-12) {
+                      return a.score > b.score;
+                  }
+                  return a.z_over_l < b.z_over_l;
+              });
+    return candidates;
+}
 
 [[nodiscard]] inline ReducedRCLocalLongitudinalBiasLocation
 infer_reduced_rc_xfem_bias_location(

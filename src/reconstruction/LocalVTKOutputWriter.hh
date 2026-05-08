@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <format>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@ class LocalVTKOutputWriter {
     std::optional<PVDWriter> pvd_rebar_{};
     std::string output_dir_{};
     std::size_t parent_element_id_{0};
+    std::size_t site_id_{0};
     LocalVTKOutputProfile profile_{LocalVTKOutputProfile::Debug};
     LocalVTKCrackFilterMode crack_filter_mode_{LocalVTKCrackFilterMode::Both};
     LocalVTKGaussFieldProfile gauss_field_profile_{
@@ -39,7 +41,7 @@ class LocalVTKOutputWriter {
     {
         return std::format("{}/nlsub_{}_step_{:06d}",
                            output_dir_,
-                           parent_element_id_,
+                           site_id_,
                            step_count);
     }
 
@@ -150,8 +152,7 @@ class LocalVTKOutputWriter {
                 state_arr->InsertNextValue(closed ? 0.0 : 1.0);
                 plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
                 family_id_arr->InsertNextValue(static_cast<double>(plane_id));
-                site_arr->InsertNextValue(
-                    static_cast<double>(parent_element_id_));
+                site_arr->InsertNextValue(static_cast<double>(site_id_));
                 parent_arr->InsertNextValue(
                     static_cast<double>(parent_element_id_));
             };
@@ -524,19 +525,24 @@ public:
     LocalVTKOutputWriter(std::string output_dir,
                          std::size_t parent_element_id,
                          LocalVTKOutputProfile profile =
-                             LocalVTKOutputProfile::Debug)
+                             LocalVTKOutputProfile::Debug,
+                         std::size_t site_id =
+                             std::numeric_limits<std::size_t>::max())
         : output_dir_{std::move(output_dir)}
         , parent_element_id_{parent_element_id}
+        , site_id_{site_id == std::numeric_limits<std::size_t>::max()
+                       ? parent_element_id
+                       : site_id}
         , profile_{profile}
     {
         pvd_mesh_.emplace(output_dir_ + "/nlsub_"
-                          + std::to_string(parent_element_id_) + "_mesh");
+                          + std::to_string(site_id_) + "_mesh");
         pvd_gauss_.emplace(output_dir_ + "/nlsub_"
-                           + std::to_string(parent_element_id_) + "_gauss");
+                           + std::to_string(site_id_) + "_gauss");
         pvd_cracks_.emplace(output_dir_ + "/nlsub_"
-                            + std::to_string(parent_element_id_) + "_cracks");
+                            + std::to_string(site_id_) + "_cracks");
         pvd_rebar_.emplace(output_dir_ + "/nlsub_"
-                           + std::to_string(parent_element_id_) + "_rebar");
+                           + std::to_string(site_id_) + "_rebar");
     }
 
     void set_profile(LocalVTKOutputProfile profile) noexcept
@@ -636,7 +642,7 @@ public:
             }
         }
         exporter.set_gauss_metadata(
-            parent_element_id_,
+            site_id_,
             parent_element_id_,
             1.0);
         exporter.set_local_axes(local_ex, local_ey, local_ez);
@@ -657,7 +663,7 @@ public:
                 }
             }
             current_exporter.set_gauss_metadata(
-                parent_element_id_,
+                site_id_,
                 parent_element_id_,
                 1.0);
             current_exporter.set_local_axes(local_ex, local_ey, local_ez);
