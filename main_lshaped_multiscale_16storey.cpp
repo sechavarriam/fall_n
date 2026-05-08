@@ -103,6 +103,19 @@ struct LocalSiteTransformRecord {
     return {values[0], values[1], values[2]};
 }
 
+[[nodiscard]] Eigen::Vector3d macro_relative_top_translation_local(
+    const ElementKinematics& ek,
+    const Eigen::Matrix3d& local_to_global)
+{
+    const Eigen::Vector3d endpoint_A = as_vec3(ek.endpoint_A);
+    const Eigen::Vector3d endpoint_B = as_vec3(ek.endpoint_B);
+    const Eigen::Vector3d u_A =
+        displacement_at_global_point(ek.kin_A, endpoint_A);
+    const Eigen::Vector3d u_B =
+        displacement_at_global_point(ek.kin_B, endpoint_B);
+    return local_to_global.transpose() * (u_B - u_A);
+}
+
 [[nodiscard]] LocalSiteTransformRecord make_local_site_transform(
     const ElementKinematics& ek,
     const CouplingSite& site,
@@ -2931,21 +2944,25 @@ int main(int argc, char* argv[]) {
         const auto site_for_patch =
             BeamMacroBridge<StructModel, BeamElemT>{model}.default_site(
                 eid, 2.0 * patch.crack_z_over_l - 1.0);
+        const auto transform_for_patch = make_local_site_transform(
+            ek, site_for_patch, local_site_index, local_family,
+            local_vtk_global_placement, local_vtk_placement_frame);
         if (local_vtk_global_placement) {
-          const auto transform = make_local_site_transform(
-              ek, site_for_patch, local_site_index, local_family, true,
-              local_vtk_placement_frame);
           patch.vtk_global_placement = true;
-          patch.vtk_origin = as_array3(transform.origin);
-          patch.vtk_e_x = as_array3(transform.basis.col(0));
-          patch.vtk_e_y = as_array3(transform.basis.col(1));
-          patch.vtk_e_z = as_array3(transform.basis.col(2));
+          patch.vtk_origin = as_array3(transform_for_patch.origin);
+          patch.vtk_e_x = as_array3(transform_for_patch.basis.col(0));
+          patch.vtk_e_y = as_array3(transform_for_patch.basis.col(1));
+          patch.vtk_e_z = as_array3(transform_for_patch.basis.col(2));
           patch.vtk_displacement_offset =
-              as_array3(transform.origin_displacement);
+              as_array3(transform_for_patch.origin_displacement);
           patch.vtk_parent_element_id = site_for_patch.macro_element_id;
           patch.vtk_section_gp = site_for_patch.section_gp;
           patch.vtk_xi = site_for_patch.xi;
         }
+        const Eigen::Vector3d relative_top_translation =
+            macro_relative_top_translation_local(
+                ek, transform_for_patch.basis);
+        sample.drift_mm = 1000.0 * relative_top_translation.x();
         const auto macro_state_for_patch =
             BeamMacroBridge<StructModel, BeamElemT>{model}
                 .extract_section_state(site_for_patch);
@@ -2957,7 +2974,7 @@ int main(int argc, char* argv[]) {
         ReducedRCManagedXfemLocalModelAdapterOptions options{};
         options.downscaling_mode =
             ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode::
-                section_kinematics_only;
+                tip_drift_top_face;
         options.local_transition_steps = managed_local_transition_steps;
         options.local_max_bisections = managed_local_max_bisections;
 
@@ -3030,9 +3047,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (use_managed_xfem) {
-          local_site_transforms.push_back(make_local_site_transform(
-              ek, site_for_patch, local_site_index, local_family,
-              local_vtk_global_placement, local_vtk_placement_frame));
+          local_site_transforms.push_back(transform_for_patch);
           ManagedXfemSubscaleEvolver ev{eid, patch, options};
           ev.set_vtk_output_profile(local_vtk_profile);
           ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
