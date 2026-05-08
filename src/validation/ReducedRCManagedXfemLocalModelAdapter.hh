@@ -908,22 +908,104 @@ private:
             Eigen::Vector2d{-half_x,  0.0},
         };
 
+        PetscInt local_size = 0;
+        VecGetLocalSize(model_->state_vector(), &local_size);
+        const PetscScalar* u_arr = nullptr;
+        VecGetArrayRead(model_->state_vector(), &u_arr);
+
+        const auto locate_element =
+            [](const PrismaticGrid& grid,
+               int n_elem,
+               double value,
+               auto coord_at) {
+            const int step = std::max(1, grid.step);
+            if (n_elem <= 1) {
+                return 0;
+            }
+            constexpr double tol = 1.0e-12;
+            if (value <= coord_at(0) + tol) {
+                return 0;
+            }
+            for (int e = 0; e < n_elem; ++e) {
+                const double right = coord_at((e + 1) * step);
+                if (value <= right + tol) {
+                    return e;
+                }
+            }
+            return n_elem - 1;
+        };
+
+        const auto node_displacement =
+            [&](int ix, int iy, int iz) -> Eigen::Vector3d {
+            const PetscInt node_id = grid_->node_id(ix, iy, iz);
+            if (node_id < 0 ||
+                static_cast<std::size_t>(node_id) >= domain_->num_nodes()) {
+                return Eigen::Vector3d::Zero();
+            }
+            const auto& node =
+                domain_->node(static_cast<std::size_t>(node_id));
+            const auto dofs = node.dof_index();
+            Eigen::Vector3d u = Eigen::Vector3d::Zero();
+            for (std::size_t d = 0; d < 3 && d < dofs.size(); ++d) {
+                const PetscInt idx = dofs[d];
+                if (idx >= 0 && idx < local_size) {
+                    u[static_cast<Eigen::Index>(d)] =
+                        static_cast<double>(u_arr[idx]);
+                }
+            }
+            return u;
+        };
+
         const auto local_displacement =
             [&](const Eigen::Vector3d& p) -> Eigen::Vector3d {
-            const double zeta = std::clamp(p.z() / length, 0.0, 1.0);
-            const double ux = imposed_lateral_translation_x_(last_boundary_);
-            const double uy = options_.constrain_lateral_top_y
-                ? last_boundary_.imposed_top_translation_m.y()
-                : 0.0;
-            const double theta_y =
-                imposed_curvature_y_(last_boundary_) * length;
-            const double theta_z =
-                imposed_curvature_z_(last_boundary_) * length;
-            const double uz =
-                last_boundary_.imposed_top_translation_m.z() -
-                theta_y * p.x() +
-                theta_z * p.y();
-            return zeta * Eigen::Vector3d{ux, uy, uz};
+            const int ix_e = locate_element(
+                *grid_, grid_->nx, p.x(),
+                [this](int i) { return grid_->x_coordinate(i); });
+            const int iy_e = locate_element(
+                *grid_, grid_->ny, p.y(),
+                [this](int i) { return grid_->y_coordinate(i); });
+            const int iz_e = locate_element(
+                *grid_, grid_->nz, p.z(),
+                [this](int i) { return grid_->z_coordinate(i); });
+
+            const int step = std::max(1, grid_->step);
+            const int ix0 = ix_e * step;
+            const int iy0 = iy_e * step;
+            const int iz0 = iz_e * step;
+            const int ix1 = ix0 + step;
+            const int iy1 = iy0 + step;
+            const int iz1 = iz0 + step;
+
+            const auto fraction = [](double value, double a, double b) {
+                const double denom = b - a;
+                if (std::abs(denom) <= 1.0e-14) {
+                    return 0.0;
+                }
+                return std::clamp((value - a) / denom, 0.0, 1.0);
+            };
+            const double rx = fraction(
+                p.x(), grid_->x_coordinate(ix0), grid_->x_coordinate(ix1));
+            const double ry = fraction(
+                p.y(), grid_->y_coordinate(iy0), grid_->y_coordinate(iy1));
+            const double rz = fraction(
+                p.z(), grid_->z_coordinate(iz0), grid_->z_coordinate(iz1));
+
+            const double wx[2] = {1.0 - rx, rx};
+            const double wy[2] = {1.0 - ry, ry};
+            const double wz[2] = {1.0 - rz, rz};
+            Eigen::Vector3d u = Eigen::Vector3d::Zero();
+            for (int a = 0; a < 2; ++a) {
+                for (int b = 0; b < 2; ++b) {
+                    for (int c = 0; c < 2; ++c) {
+                        const double w = wx[a] * wy[b] * wz[c];
+                        u += w * node_displacement(
+                            a == 0 ? ix0 : ix1,
+                            b == 0 ? iy0 : iy1,
+                            c == 0 ? iz0 : iz1);
+                    }
+                }
+            }
+            return u;
         };
 
         const auto insert_tube_segment =
@@ -1042,6 +1124,7 @@ private:
         tube_grid->GetCellData()->AddArray(bar_id_arr);
         tube_grid->GetCellData()->AddArray(site_arr);
         tube_grid->GetCellData()->AddArray(parent_arr);
+        VecRestoreArrayRead(model_->state_vector(), &u_arr);
         fall_n::vtk::write_vtu(tube_grid, filename);
     }
 
