@@ -94,6 +94,10 @@ struct ReducedRCManagedXfemLocalModelAdapterOptions {
     bool incremental_local_logging{false};
     int local_transition_steps{3};
     int local_max_bisections{6};
+    double observation_rebar_cover_m{0.04};
+    double observation_rebar_diameter_m{0.025};
+    double observation_rebar_elastic_modulus_mpa{200000.0};
+    double observation_rebar_yield_strength_mpa{420.0};
 };
 
 struct ReducedRCManagedXfemLocalVTKSnapshot {
@@ -102,6 +106,10 @@ struct ReducedRCManagedXfemLocalVTKSnapshot {
     std::string gauss_path{};
     std::string cracks_path{};
     std::string cracks_visible_path{};
+    std::string rebar_path{};
+    std::string current_rebar_path{};
+    std::string rebar_tubes_path{};
+    std::string current_rebar_tubes_path{};
     std::size_t crack_record_count{0};
     std::size_t visible_crack_record_count{0};
     std::string status_label{"not_written"};
@@ -205,6 +213,10 @@ public:
             std::max(1.0, patch.longitudinal_bias_power);
         effective_longitudinal_bias_location_ =
             patch.longitudinal_bias_location;
+        effective_mesh_refinement_location_ =
+            patch.mesh_refinement_location_explicit
+                ? patch.mesh_refinement_location
+                : patch.longitudinal_bias_location;
         current_response_ = UpscalingResult{};
         last_response_ = UpscalingResult{};
         last_step_ = ReducedRCManagedLocalStepResult{};
@@ -223,7 +235,7 @@ public:
                     effective_longitudinal_bias_power_,
                 .longitudinal_bias_location =
                     to_prismatic_bias_location_(
-                        effective_longitudinal_bias_location_),
+                        effective_mesh_refinement_location_),
             });
 
             domain_ = std::make_unique<Domain<3>>(std::move(domain));
@@ -502,6 +514,12 @@ public:
         return effective_longitudinal_bias_location_;
     }
 
+    [[nodiscard]] ReducedRCLocalLongitudinalBiasLocation
+    effective_mesh_refinement_location() const noexcept
+    {
+        return effective_mesh_refinement_location_;
+    }
+
     [[nodiscard]] const PrismaticGrid* prismatic_grid() const noexcept
     {
         return grid_ ? &(*grid_) : nullptr;
@@ -537,6 +555,13 @@ public:
             snapshot.cracks_path = prefix.string() + "_cracks.vtu";
             snapshot.cracks_visible_path =
                 prefix.string() + "_cracks_visible.vtu";
+            snapshot.rebar_path = prefix.string() + "_rebar.vtu";
+            snapshot.current_rebar_path =
+                prefix.string() + "_current_rebar.vtu";
+            snapshot.rebar_tubes_path =
+                prefix.string() + "_rebar_tubes.vtu";
+            snapshot.current_rebar_tubes_path =
+                prefix.string() + "_current_rebar_tubes.vtu";
 
             fall_n::vtk::VTKModelExporter exporter{*model_};
             exporter.set_gauss_field_profile(vtk_gauss_field_profile_);
@@ -554,6 +579,10 @@ public:
                                     patch_.vtk_origin[1],
                                     patch_.vtk_origin[2]},
                     basis);
+                exporter.set_displacement_offset(
+                    Eigen::Vector3d{patch_.vtk_displacement_offset[0],
+                                    patch_.vtk_displacement_offset[1],
+                                    patch_.vtk_displacement_offset[2]});
             }
             exporter.set_displacement();
             if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
@@ -595,6 +624,11 @@ public:
                                         patch_.vtk_origin[1],
                                         patch_.vtk_origin[2]},
                         basis);
+                    current_exporter.set_displacement_offset(
+                        Eigen::Vector3d{
+                            patch_.vtk_displacement_offset[0],
+                            patch_.vtk_displacement_offset[1],
+                            patch_.vtk_displacement_offset[2]});
                 }
                 current_exporter.set_displacement();
                 if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
@@ -618,6 +652,28 @@ public:
                     current_exporter.write_gauss_points(
                         prefix.string() + "_current_gauss.vtu");
                 }
+            } else {
+                snapshot.current_rebar_path.clear();
+                snapshot.current_rebar_tubes_path.clear();
+            }
+
+            write_observation_rebar_vtu_(
+                snapshot.rebar_path,
+                vtk_placement_frame_ == LocalVTKPlacementFrame::Current,
+                false);
+            write_observation_rebar_vtu_(
+                snapshot.rebar_tubes_path,
+                vtk_placement_frame_ == LocalVTKPlacementFrame::Current,
+                true);
+            if (vtk_placement_frame_ == LocalVTKPlacementFrame::Both) {
+                write_observation_rebar_vtu_(
+                    snapshot.current_rebar_path,
+                    true,
+                    false);
+                write_observation_rebar_vtu_(
+                    snapshot.current_rebar_tubes_path,
+                    true,
+                    true);
             }
 
             const auto cracks = collect_crack_records_();
@@ -740,6 +796,255 @@ private:
         return summary;
     }
 
+    void write_observation_rebar_vtu_(
+        const std::string& filename,
+        bool current_points,
+        bool tube_surface) const
+    {
+        if (filename.empty() || !grid_) {
+            return;
+        }
+
+        vtkNew<vtkPoints> pts;
+        vtkNew<vtkUnstructuredGrid> tube_grid;
+
+        vtkNew<vtkDoubleArray> disp_arr;
+        disp_arr->SetName("displacement");
+        disp_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> stress_arr;
+        stress_arr->SetName("axial_stress");
+        stress_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> area_arr;
+        area_arr->SetName("bar_area");
+        area_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> tube_rad_arr;
+        tube_rad_arr->SetName("TubeRadius");
+        tube_rad_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> strain_arr;
+        strain_arr->SetName("axial_strain");
+        strain_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> yield_ratio_arr;
+        yield_ratio_arr->SetName("yield_ratio");
+        yield_ratio_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bar_id_arr;
+        bar_id_arr->SetName("bar_id");
+        bar_id_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> site_arr;
+        site_arr->SetName("site_id");
+        site_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> parent_arr;
+        parent_arr->SetName("parent_element_id");
+        parent_arr->SetNumberOfComponents(1);
+
+        Eigen::Matrix3d basis = Eigen::Matrix3d::Identity();
+        Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+        Eigen::Vector3d displacement_offset = Eigen::Vector3d::Zero();
+        if (patch_.vtk_global_placement) {
+            origin = Eigen::Vector3d{patch_.vtk_origin[0],
+                                     patch_.vtk_origin[1],
+                                     patch_.vtk_origin[2]};
+            displacement_offset =
+                Eigen::Vector3d{patch_.vtk_displacement_offset[0],
+                                patch_.vtk_displacement_offset[1],
+                                patch_.vtk_displacement_offset[2]};
+            for (int r = 0; r < 3; ++r) {
+                basis(r, 0) = patch_.vtk_e_x[static_cast<std::size_t>(r)];
+                basis(r, 1) = patch_.vtk_e_y[static_cast<std::size_t>(r)];
+                basis(r, 2) = patch_.vtk_e_z[static_cast<std::size_t>(r)];
+            }
+        }
+
+        const auto map_point = [&](const Eigen::Vector3d& p) {
+            return patch_.vtk_global_placement ? origin + basis * p : p;
+        };
+        const auto map_vector = [&](const Eigen::Vector3d& v) {
+            return patch_.vtk_global_placement ? basis * v : v;
+        };
+
+        const double length = patch_.characteristic_length_m;
+        const double radius = 0.5 * options_.observation_rebar_diameter_m;
+        const double cover_to_center =
+            options_.observation_rebar_cover_m + radius;
+        const double half_x =
+            0.5 * patch_.section_width_m - cover_to_center;
+        const double half_y =
+            0.5 * patch_.section_depth_m - cover_to_center;
+        const double bar_area =
+            3.1415926535897932384626433832795 * radius * radius;
+        const double fy =
+            std::max(1.0, options_.observation_rebar_yield_strength_mpa);
+        const double Es = options_.observation_rebar_elastic_modulus_mpa;
+
+        if (!(length > 0.0) || !(radius > 0.0) ||
+            !(half_x > 0.0) || !(half_y > 0.0)) {
+            tube_grid->SetPoints(pts);
+            tube_grid->GetPointData()->AddArray(disp_arr);
+            tube_grid->GetPointData()->SetActiveVectors("displacement");
+            fall_n::vtk::write_vtu(tube_grid, filename);
+            return;
+        }
+
+        std::vector<double> z_coords = grid_->z_coordinates;
+        if (z_coords.size() < 2) {
+            z_coords = {0.0, length};
+        }
+
+        const std::array<Eigen::Vector2d, 8> bars = {
+            Eigen::Vector2d{-half_x, -half_y},
+            Eigen::Vector2d{ half_x, -half_y},
+            Eigen::Vector2d{ half_x,  half_y},
+            Eigen::Vector2d{-half_x,  half_y},
+            Eigen::Vector2d{ 0.0,    -half_y},
+            Eigen::Vector2d{ half_x,  0.0},
+            Eigen::Vector2d{ 0.0,     half_y},
+            Eigen::Vector2d{-half_x,  0.0},
+        };
+
+        const auto local_displacement =
+            [&](const Eigen::Vector3d& p) -> Eigen::Vector3d {
+            const double zeta = std::clamp(p.z() / length, 0.0, 1.0);
+            const double ux = imposed_lateral_translation_x_(last_boundary_);
+            const double uy = options_.constrain_lateral_top_y
+                ? last_boundary_.imposed_top_translation_m.y()
+                : 0.0;
+            const double theta_y =
+                imposed_curvature_y_(last_boundary_) * length;
+            const double theta_z =
+                imposed_curvature_z_(last_boundary_) * length;
+            const double uz =
+                last_boundary_.imposed_top_translation_m.z() -
+                theta_y * p.x() +
+                theta_z * p.y();
+            return zeta * Eigen::Vector3d{ux, uy, uz};
+        };
+
+        const auto insert_tube_segment =
+            [&](const Eigen::Vector3d& local_p0,
+                const Eigen::Vector3d& local_p1,
+                double axial_sigma,
+                double axial_eps,
+                double bar_id)
+        {
+            Eigen::Vector3d u0 =
+                displacement_offset + map_vector(local_displacement(local_p0));
+            Eigen::Vector3d u1 =
+                displacement_offset + map_vector(local_displacement(local_p1));
+            Eigen::Vector3d p0 = map_point(local_p0);
+            Eigen::Vector3d p1 = map_point(local_p1);
+            if (current_points) {
+                p0 += u0;
+                p1 += u1;
+                u0.setZero();
+                u1.setZero();
+            }
+
+            const Eigen::Vector3d axis = p1 - p0;
+            const double segment_length = axis.norm();
+            if (segment_length <= 1.0e-14) {
+                return;
+            }
+            const Eigen::Vector3d e = axis / segment_length;
+            Eigen::Vector3d a =
+                std::abs(e.dot(Eigen::Vector3d::UnitX())) < 0.9
+                    ? Eigen::Vector3d::UnitX()
+                    : Eigen::Vector3d::UnitY();
+            const Eigen::Vector3d n1 = e.cross(a).normalized();
+            const Eigen::Vector3d n2 = e.cross(n1).normalized();
+
+            const auto add_rebar_cell_data = [&]() {
+                stress_arr->InsertNextValue(axial_sigma);
+                area_arr->InsertNextValue(bar_area);
+                tube_rad_arr->InsertNextValue(radius);
+                strain_arr->InsertNextValue(axial_eps);
+                yield_ratio_arr->InsertNextValue(
+                    std::abs(axial_sigma) / fy);
+                bar_id_arr->InsertNextValue(bar_id);
+                site_arr->InsertNextValue(
+                    static_cast<double>(patch_.site_index));
+                parent_arr->InsertNextValue(
+                    static_cast<double>(patch_.vtk_global_placement
+                        ? patch_.vtk_parent_element_id
+                        : patch_.site_index));
+            };
+
+            if (!tube_surface) {
+                vtkIdType ids[2];
+                ids[0] = pts->InsertNextPoint(p0.x(), p0.y(), p0.z());
+                disp_arr->InsertNextTuple3(u0.x(), u0.y(), u0.z());
+                ids[1] = pts->InsertNextPoint(p1.x(), p1.y(), p1.z());
+                disp_arr->InsertNextTuple3(u1.x(), u1.y(), u1.z());
+                tube_grid->InsertNextCell(VTK_LINE, 2, ids);
+                add_rebar_cell_data();
+                return;
+            }
+
+            constexpr int sides = 10;
+            constexpr double two_pi = 6.283185307179586476925286766559;
+            for (int s = 0; s < sides; ++s) {
+                const double th0 = two_pi * static_cast<double>(s) /
+                                   static_cast<double>(sides);
+                const double th1 = two_pi * static_cast<double>(s + 1) /
+                                   static_cast<double>(sides);
+                const Eigen::Vector3d r0 =
+                    radius * (std::cos(th0) * n1 + std::sin(th0) * n2);
+                const Eigen::Vector3d r1 =
+                    radius * (std::cos(th1) * n1 + std::sin(th1) * n2);
+                const Eigen::Vector3d corners[4] = {
+                    p0 + r0, p1 + r0, p1 + r1, p0 + r1};
+                const Eigen::Vector3d disps[4] = {u0, u1, u1, u0};
+                vtkIdType ids[4];
+                for (int k = 0; k < 4; ++k) {
+                    ids[k] = pts->InsertNextPoint(corners[k].x(),
+                                                  corners[k].y(),
+                                                  corners[k].z());
+                    disp_arr->InsertNextTuple3(disps[k].x(),
+                                               disps[k].y(),
+                                               disps[k].z());
+                }
+                tube_grid->InsertNextCell(VTK_QUAD, 4, ids);
+                add_rebar_cell_data();
+            }
+        };
+
+        for (std::size_t bar = 0; bar < bars.size(); ++bar) {
+            const double x = bars[bar].x();
+            const double y = bars[bar].y();
+            const double axial_eps =
+                last_boundary_.axial_strain -
+                imposed_curvature_y_(last_boundary_) * x +
+                imposed_curvature_z_(last_boundary_) * y;
+            const double axial_sigma = Es * axial_eps;
+            for (std::size_t iz = 0; iz + 1 < z_coords.size(); ++iz) {
+                insert_tube_segment(Eigen::Vector3d{x, y, z_coords[iz]},
+                                    Eigen::Vector3d{x, y, z_coords[iz + 1]},
+                                    axial_sigma,
+                                    axial_eps,
+                                    static_cast<double>(bar));
+            }
+        }
+
+        tube_grid->SetPoints(pts);
+        tube_grid->GetPointData()->AddArray(disp_arr);
+        tube_grid->GetPointData()->SetActiveVectors("displacement");
+        tube_grid->GetCellData()->AddArray(stress_arr);
+        tube_grid->GetCellData()->AddArray(area_arr);
+        tube_grid->GetCellData()->AddArray(tube_rad_arr);
+        tube_grid->GetCellData()->AddArray(strain_arr);
+        tube_grid->GetCellData()->AddArray(yield_ratio_arr);
+        tube_grid->GetCellData()->AddArray(bar_id_arr);
+        tube_grid->GetCellData()->AddArray(site_arr);
+        tube_grid->GetCellData()->AddArray(parent_arr);
+        fall_n::vtk::write_vtu(tube_grid, filename);
+    }
+
     static void write_crack_records_vtu_(
         const std::string& filename,
         const std::vector<CrackRecord>& cracks,
@@ -810,10 +1115,15 @@ private:
 
         Eigen::Matrix3d basis = Eigen::Matrix3d::Identity();
         Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+        Eigen::Vector3d displacement_offset = Eigen::Vector3d::Zero();
         if (patch.vtk_global_placement) {
             origin = Eigen::Vector3d{patch.vtk_origin[0],
                                      patch.vtk_origin[1],
                                      patch.vtk_origin[2]};
+            displacement_offset =
+                Eigen::Vector3d{patch.vtk_displacement_offset[0],
+                                patch.vtk_displacement_offset[1],
+                                patch.vtk_displacement_offset[2]};
             for (int r = 0; r < 3; ++r) {
                 basis(r, 0) = patch.vtk_e_x[static_cast<std::size_t>(r)];
                 basis(r, 1) = patch.vtk_e_y[static_cast<std::size_t>(r)];
@@ -852,7 +1162,7 @@ private:
                 normal.cross(tangent_1).normalized();
             const Eigen::Vector3d position = map_point(record.position);
             const Eigen::Vector3d displacement =
-                map_vector(record.displacement);
+                displacement_offset + map_vector(record.displacement);
 
             const Eigen::Vector3d corners[4] = {
                 position - half * tangent_1 - half * tangent_2,
@@ -1297,6 +1607,9 @@ private:
     double effective_longitudinal_bias_power_{1.0};
     ReducedRCLocalLongitudinalBiasLocation
         effective_longitudinal_bias_location_{
+            ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+    ReducedRCLocalLongitudinalBiasLocation
+        effective_mesh_refinement_location_{
             ReducedRCLocalLongitudinalBiasLocation::fixed_end};
     std::size_t initialization_count_{0};
     bool has_pending_boundary_{false};

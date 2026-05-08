@@ -101,6 +101,30 @@ int main()
     assert(contains_z(paired_end_candidates, 0.50));
     assert(contains_z(paired_end_candidates, 0.95));
 
+    ReducedRCMacroInferredLocalSiteSelectionPolicy control_policy{};
+    control_policy.include_inactive_control_sites = true;
+    const auto control_candidates =
+        infer_reduced_rc_macro_local_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 0.65,
+                .loaded_end_score = 0.45},
+            control_policy);
+    assert(control_candidates.size() == 2);
+    assert(contains_z(control_candidates, 0.05));
+    assert(contains_z(control_candidates, 0.95));
+
+    control_policy.include_center_control_site = true;
+    const auto center_control_candidates =
+        infer_reduced_rc_macro_local_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 0.65,
+                .loaded_end_score = 0.45},
+            control_policy);
+    assert(center_control_candidates.size() == 3);
+    assert(contains_z(center_control_candidates, 0.05));
+    assert(contains_z(center_control_candidates, 0.50));
+    assert(contains_z(center_control_candidates, 0.95));
+
     std::printf("[macro-inferred-xfem-site-policy] fixed crack=%.3f "
                 "both crack=%.3f loaded crack=%.3f\n",
                 fixed_patch.crack_z_over_l,

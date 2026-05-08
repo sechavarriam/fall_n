@@ -116,6 +116,9 @@ struct ReducedRCManagedLocalPatchSpec {
     double longitudinal_bias_power{1.0};
     ReducedRCLocalLongitudinalBiasLocation longitudinal_bias_location{
         ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+    ReducedRCLocalLongitudinalBiasLocation mesh_refinement_location{
+        ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+    bool mesh_refinement_location_explicit{false};
     bool crack_position_inferred_from_macro{false};
     bool double_hinge_bias_inferred_from_macro{false};
     ReducedRCManagedLocalBoundaryMode boundary_mode{
@@ -128,6 +131,7 @@ struct ReducedRCManagedLocalPatchSpec {
     std::array<double, 3> vtk_e_x{1.0, 0.0, 0.0};
     std::array<double, 3> vtk_e_y{0.0, 1.0, 0.0};
     std::array<double, 3> vtk_e_z{0.0, 0.0, 1.0};
+    std::array<double, 3> vtk_displacement_offset{0.0, 0.0, 0.0};
     std::size_t vtk_parent_element_id{0};
     std::size_t vtk_section_gp{0};
     double vtk_xi{0.0};

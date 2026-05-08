@@ -404,6 +404,8 @@ private:
     bool point_transform_enabled_{false};
     Eigen::Vector3d point_transform_origin_{Eigen::Vector3d::Zero()};
     Eigen::Matrix3d point_transform_basis_{Eigen::Matrix3d::Identity()};
+    Eigen::Vector3d displacement_offset_{Eigen::Vector3d::Zero()};
+    bool displacement_offset_enabled_{false};
     bool current_point_coordinates_{false};
     bool gauss_metadata_enabled_{true};
     double gauss_site_id_{0.0};
@@ -1331,6 +1333,18 @@ public:
         point_transform_basis_.setIdentity();
     }
 
+    void set_displacement_offset(const Eigen::Vector3d& offset) noexcept
+    {
+        displacement_offset_ = offset;
+        displacement_offset_enabled_ = true;
+    }
+
+    void clear_displacement_offset() noexcept
+    {
+        displacement_offset_.setZero();
+        displacement_offset_enabled_ = false;
+    }
+
     void set_current_point_coordinates(bool enabled) noexcept
     {
         current_point_coordinates_ = enabled;
@@ -1452,15 +1466,33 @@ public:
     }
 
     void set_displacement(Vec u_local) {
-        double* u;
-        VecGetArray(u_local, &u);
+        PetscInt local_size = 0;
+        VecGetLocalSize(u_local, &local_size);
+
+        const PetscScalar* u = nullptr;
+        VecGetArrayRead(u_local, &u);
 
         FieldBuffer fb;
         fb.name = "displacement";
         fb.num_components = static_cast<int>(dim);
-        fb.data.assign(u, u + dim * model_->get_domain().num_nodes());
+        fb.data.assign(model_->get_domain().num_nodes() * dim, 0.0);
 
-        VecRestoreArray(u_local, &u);
+        for (const auto& node : model_->get_domain().nodes()) {
+            const auto node_id = node.id();
+            if (node_id >= model_->get_domain().num_nodes()) {
+                continue;
+            }
+            const auto dofs = node.dof_index();
+            for (std::size_t d = 0; d < dim && d < dofs.size(); ++d) {
+                const PetscInt idx = dofs[d];
+                if (idx < 0 || idx >= local_size) {
+                    continue;
+                }
+                fb.data[node_id * dim + d] = static_cast<double>(u[idx]);
+            }
+        }
+
+        VecRestoreArrayRead(u_local, &u);
 
         if (point_transform_enabled_) {
             const auto n = model_->get_domain().num_nodes();
@@ -1475,6 +1507,17 @@ public:
                 for (std::size_t d = 0; d < dim; ++d) {
                     fb.data[node * dim + d] =
                         vg[static_cast<Eigen::Index>(d)];
+                }
+            }
+        }
+
+        if (displacement_offset_enabled_) {
+            const auto n = model_->get_domain().num_nodes();
+            for (std::size_t node = 0; node < n; ++node) {
+                for (std::size_t d = 0; d < dim; ++d) {
+                    fb.data[node * dim + d] +=
+                        displacement_offset_[
+                            static_cast<Eigen::Index>(d)];
                 }
             }
         }

@@ -129,6 +129,9 @@ int main(int argc, char** argv)
         check(adapter.effective_longitudinal_bias_location() ==
                   fall_n::ReducedRCLocalLongitudinalBiasLocation::both_ends,
               "managed XFEM stores both-end longitudinal bias");
+        check(adapter.effective_mesh_refinement_location() ==
+                  fall_n::ReducedRCLocalLongitudinalBiasLocation::both_ends,
+              "managed XFEM uses the crack bias as the default mesh bias");
         check(std::abs(adapter.effective_longitudinal_bias_power() - 2.0) <
                   1.0e-14,
               "managed XFEM stores macro-inferred bias power");
@@ -146,6 +149,43 @@ int main(int argc, char** argv)
                   "both-end bias refines the fixed-end side of the patch");
             check(last < middle,
                   "both-end bias refines the loaded-end side of the patch");
+        }
+    }
+
+    {
+        fall_n::ReducedRCManagedLocalPatchSpec refined_patch = patch;
+        refined_patch.nz = 6;
+        refined_patch.characteristic_length_m = 0.60;
+        refined_patch.crack_z_over_l = 0.10;
+        refined_patch.longitudinal_bias_location =
+            fall_n::ReducedRCLocalLongitudinalBiasLocation::fixed_end;
+        refined_patch.mesh_refinement_location =
+            fall_n::ReducedRCLocalLongitudinalBiasLocation::both_ends;
+        refined_patch.mesh_refinement_location_explicit = true;
+
+        fall_n::ReducedRCManagedXfemLocalModelAdapter adapter;
+        const bool ok = adapter.initialize_managed_local_model(refined_patch);
+
+        check(ok,
+              "managed XFEM accepts a mesh-refinement bias independent of the crack site");
+        check(adapter.effective_longitudinal_bias_location() ==
+                  fall_n::ReducedRCLocalLongitudinalBiasLocation::fixed_end,
+              "managed XFEM preserves the macro-inferred crack-side label");
+        check(adapter.effective_mesh_refinement_location() ==
+                  fall_n::ReducedRCLocalLongitudinalBiasLocation::both_ends,
+              "managed XFEM stores explicit both-end mesh refinement");
+        const auto* grid = adapter.prismatic_grid();
+        check(grid != nullptr,
+              "managed XFEM exposes grid metadata for explicit mesh refinement");
+        if (grid != nullptr && grid->z_coordinates.size() >= 5) {
+            const auto& z = grid->z_coordinates;
+            const double first = z[1] - z[0];
+            const double middle = z[z.size() / 2] - z[z.size() / 2 - 1];
+            const double last = z.back() - z[z.size() - 2];
+            check(first < middle,
+                  "explicit mesh refinement resolves the fixed-end side");
+            check(last < middle,
+                  "explicit mesh refinement resolves the loaded-end side");
         }
     }
 

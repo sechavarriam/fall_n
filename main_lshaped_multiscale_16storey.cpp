@@ -88,6 +88,8 @@ struct LocalSiteTransformRecord {
     bool global_placement_applied{false};
     LocalVTKPlacementFrame placement_frame{LocalVTKPlacementFrame::Reference};
     Eigen::Vector3d origin{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d origin_displacement{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d origin_current{Eigen::Vector3d::Zero()};
     Eigen::Matrix3d basis{Eigen::Matrix3d::Identity()};
 };
 
@@ -148,6 +150,10 @@ struct LocalSiteTransformRecord {
     basis.col(1) = e_y;
     basis.col(2) = e_z;
 
+    const Eigen::Vector3d origin_displacement =
+        displacement_at_global_point(ek.kin_A, origin);
+    const Eigen::Vector3d origin_current = origin + origin_displacement;
+
     return LocalSiteTransformRecord{
         .local_site_index = local_site_index,
         .macro_element_id = site.macro_element_id,
@@ -157,6 +163,8 @@ struct LocalSiteTransformRecord {
         .global_placement_applied = global_placement_applied,
         .placement_frame = placement_frame,
         .origin = origin,
+        .origin_displacement = origin_displacement,
+        .origin_current = origin_current,
         .basis = basis};
 }
 
@@ -170,6 +178,8 @@ void write_local_site_transform_files(
     std::ofstream csv(csv_path);
     csv << "local_site_index,macro_element_id,section_gp,xi,local_family,"
         << "global_placement_applied,placement_frame,origin_x,origin_y,origin_z,"
+        << "origin_displacement_x,origin_displacement_y,origin_displacement_z,"
+        << "origin_current_x,origin_current_y,origin_current_z,"
         << "R00,R01,R02,R10,R11,R12,R20,R21,R22\n";
     csv << std::scientific << std::setprecision(16);
     for (const auto& row : rows) {
@@ -182,7 +192,13 @@ void write_local_site_transform_files(
             << to_string(row.placement_frame) << ','
             << row.origin[0] << ','
             << row.origin[1] << ','
-            << row.origin[2];
+            << row.origin[2] << ','
+            << row.origin_displacement[0] << ','
+            << row.origin_displacement[1] << ','
+            << row.origin_displacement[2] << ','
+            << row.origin_current[0] << ','
+            << row.origin_current[1] << ','
+            << row.origin_current[2];
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 3; ++c) {
                 csv << ',' << row.basis(r, c);
@@ -212,6 +228,13 @@ void write_local_site_transform_files(
              << std::quoted(std::string(to_string(row.placement_frame))) << ",\n"
              << "      \"origin\": [" << row.origin[0] << ", "
              << row.origin[1] << ", " << row.origin[2] << "],\n"
+             << "      \"origin_displacement\": ["
+             << row.origin_displacement[0] << ", "
+             << row.origin_displacement[1] << ", "
+             << row.origin_displacement[2] << "],\n"
+             << "      \"origin_current\": [" << row.origin_current[0] << ", "
+             << row.origin_current[1] << ", "
+             << row.origin_current[2] << "],\n"
              << "      \"R\": [\n";
         for (int r = 0; r < 3; ++r) {
             json << "        [" << row.basis(r, 0) << ", "
@@ -1408,6 +1431,8 @@ int main(int argc, char* argv[]) {
     bool run_python_postprocess = true;
     bool fail_on_coupling_failure = false;
     bool adaptive_managed_local_transition = false;
+    bool fe2_include_column_probe_sites = false;
+    bool fe2_include_center_probe_site = false;
     LocalVTKOutputProfile local_vtk_profile =
         LocalVTKOutputProfile::Debug;
     LocalVTKCrackFilterMode local_vtk_crack_filter_mode =
@@ -1674,6 +1699,12 @@ int main(int argc, char* argv[]) {
             fe2_max_sites =
                 std::max<std::size_t>(1, static_cast<std::size_t>(
                     std::stoull(argv[++i])));
+        } else if (arg == "--fe2-include-column-probe-sites" ||
+                   arg == "--fe2-column-probe-sites") {
+            fe2_include_column_probe_sites = true;
+        } else if (arg == "--fe2-include-center-probe-site" ||
+                   arg == "--fe2-center-probe-site") {
+            fe2_include_center_probe_site = true;
         } else if (arg == "--fe2-max-staggered" && i + 1 < argc) {
             fe2_max_staggered_iter =
                 std::max(2, static_cast<int>(std::stol(argv[++i])));
@@ -1829,6 +1860,10 @@ int main(int argc, char* argv[]) {
              "--fe2-validate-tangent",
              "--fe2-central-fd-tangent",
              "--fe2-max-sites",
+             "--fe2-include-column-probe-sites",
+             "--fe2-column-probe-sites",
+             "--fe2-include-center-probe-site",
+             "--fe2-center-probe-site",
              "--fe2-max-staggered",
              "--fe2-steps-after-activation",
              "--one-local-step-after-activation",
@@ -2829,9 +2864,15 @@ int main(int argc, char* argv[]) {
       const int range = elem_to_range.count(eid) ? elem_to_range.at(eid) : 0;
       const double fixed_score = endpoint_score(ek.kin_A);
       const double loaded_score = endpoint_score(ek.kin_B);
+      ReducedRCMacroInferredLocalSiteSelectionPolicy site_selection_policy{};
+      site_selection_policy.include_inactive_control_sites =
+          fe2_include_column_probe_sites;
+      site_selection_policy.include_center_control_site =
+          fe2_include_center_probe_site;
       const auto candidates = infer_reduced_rc_macro_local_site_candidates(
           ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
-                                       .loaded_end_score = loaded_score});
+                                       .loaded_end_score = loaded_score},
+          site_selection_policy);
 
       for (const auto &candidate : candidates) {
         const double section_z = candidate.z_over_l;
@@ -2869,6 +2910,9 @@ int main(int argc, char* argv[]) {
         patch.double_hinge_bias_inferred_from_macro =
             candidate.bias_location ==
             ReducedRCLocalLongitudinalBiasLocation::both_ends;
+        patch.mesh_refinement_location =
+            ReducedRCLocalLongitudinalBiasLocation::both_ends;
+        patch.mesh_refinement_location_explicit = true;
 
         const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
           return (1.0 - z) * a + z * b;
@@ -2896,6 +2940,8 @@ int main(int argc, char* argv[]) {
           patch.vtk_e_x = as_array3(transform.basis.col(0));
           patch.vtk_e_y = as_array3(transform.basis.col(1));
           patch.vtk_e_z = as_array3(transform.basis.col(2));
+          patch.vtk_displacement_offset =
+              as_array3(transform.origin_displacement);
           patch.vtk_parent_element_id = site_for_patch.macro_element_id;
           patch.vtk_section_gp = site_for_patch.section_gp;
           patch.vtk_xi = site_for_patch.xi;
