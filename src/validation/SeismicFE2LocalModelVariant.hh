@@ -20,6 +20,13 @@ enum class SeismicFE2LocalFamily {
     continuum_kobathe_hex27
 };
 
+enum class SeismicFE2ContinuumKinematics {
+    small_strain,
+    total_lagrangian,
+    updated_lagrangian,
+    corotational
+};
+
 [[nodiscard]] inline std::string_view to_string(
     SeismicFE2LocalFamily family) noexcept
 {
@@ -34,13 +41,55 @@ enum class SeismicFE2LocalFamily {
     return "unknown";
 }
 
+[[nodiscard]] inline std::string_view to_string(
+    SeismicFE2ContinuumKinematics kinematics) noexcept
+{
+    switch (kinematics) {
+        case SeismicFE2ContinuumKinematics::small_strain:
+            return "small";
+        case SeismicFE2ContinuumKinematics::total_lagrangian:
+            return "tl";
+        case SeismicFE2ContinuumKinematics::updated_lagrangian:
+            return "ul";
+        case SeismicFE2ContinuumKinematics::corotational:
+            return "corotational";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] inline std::string_view continuum_kinematics_label(
+    SeismicFE2ContinuumKinematics kinematics) noexcept
+{
+    switch (kinematics) {
+        case SeismicFE2ContinuumKinematics::small_strain:
+            return "SmallStrain";
+        case SeismicFE2ContinuumKinematics::total_lagrangian:
+            return "TotalLagrangian";
+        case SeismicFE2ContinuumKinematics::updated_lagrangian:
+            return "UpdatedLagrangian";
+        case SeismicFE2ContinuumKinematics::corotational:
+            return "Corotational";
+    }
+    return "UnknownKinematics";
+}
+
 class SeismicFE2LocalModel {
 public:
     using ManagedCheckpoint = ManagedXfemSubscaleEvolver::checkpoint_type;
     using ContinuumCheckpoint = NonlinearSubModelEvolver::checkpoint_type;
+    using ContinuumTLCheckpoint =
+        TotalLagrangianNonlinearSubModelEvolver::checkpoint_type;
+    using ContinuumULCheckpoint =
+        UpdatedLagrangianNonlinearSubModelEvolver::checkpoint_type;
+    using ContinuumCRCheckpoint =
+        CorotationalNonlinearSubModelEvolver::checkpoint_type;
 
     struct checkpoint_type {
-        std::variant<ManagedCheckpoint, ContinuumCheckpoint> local{};
+        std::variant<ManagedCheckpoint,
+                     ContinuumCheckpoint,
+                     ContinuumTLCheckpoint,
+                     ContinuumULCheckpoint,
+                     ContinuumCRCheckpoint> local{};
         SectionHomogenizedResponse last_response{};
         ReducedRCManagedLocalBoundarySample audit_boundary_sample{};
         ReducedRCManagedLocalPatchSpec audit_patch{};
@@ -50,8 +99,14 @@ public:
     };
 
 private:
-    std::variant<ManagedXfemSubscaleEvolver, NonlinearSubModelEvolver> model_;
+    std::variant<ManagedXfemSubscaleEvolver,
+                 NonlinearSubModelEvolver,
+                 TotalLagrangianNonlinearSubModelEvolver,
+                 UpdatedLagrangianNonlinearSubModelEvolver,
+                 CorotationalNonlinearSubModelEvolver> model_;
     SeismicFE2LocalFamily family_{SeismicFE2LocalFamily::managed_xfem};
+    SeismicFE2ContinuumKinematics continuum_kinematics_{
+        SeismicFE2ContinuumKinematics::small_strain};
     SectionHomogenizedResponse last_response_{};
     bool has_last_response_{false};
     ReducedRCManagedLocalBoundarySample audit_boundary_sample_{};
@@ -63,12 +118,38 @@ public:
     explicit SeismicFE2LocalModel(ManagedXfemSubscaleEvolver model)
         : model_{std::move(model)}
         , family_{SeismicFE2LocalFamily::managed_xfem}
+        , continuum_kinematics_{SeismicFE2ContinuumKinematics::small_strain}
     {}
 
     SeismicFE2LocalModel(NonlinearSubModelEvolver model,
                          SeismicFE2LocalFamily family)
         : model_{std::move(model)}
         , family_{family}
+        , continuum_kinematics_{SeismicFE2ContinuumKinematics::small_strain}
+    {}
+
+    SeismicFE2LocalModel(TotalLagrangianNonlinearSubModelEvolver model,
+                         SeismicFE2LocalFamily family)
+        : model_{std::move(model)}
+        , family_{family}
+        , continuum_kinematics_{
+              SeismicFE2ContinuumKinematics::total_lagrangian}
+    {}
+
+    SeismicFE2LocalModel(UpdatedLagrangianNonlinearSubModelEvolver model,
+                         SeismicFE2LocalFamily family)
+        : model_{std::move(model)}
+        , family_{family}
+        , continuum_kinematics_{
+              SeismicFE2ContinuumKinematics::updated_lagrangian}
+    {}
+
+    SeismicFE2LocalModel(CorotationalNonlinearSubModelEvolver model,
+                         SeismicFE2LocalFamily family)
+        : model_{std::move(model)}
+        , family_{family}
+        , continuum_kinematics_{
+              SeismicFE2ContinuumKinematics::corotational}
     {}
 
     SeismicFE2LocalModel(SeismicFE2LocalModel&&) noexcept = default;
@@ -80,6 +161,12 @@ public:
     [[nodiscard]] SeismicFE2LocalFamily family() const noexcept
     {
         return family_;
+    }
+
+    [[nodiscard]] SeismicFE2ContinuumKinematics
+    continuum_kinematics() const noexcept
+    {
+        return continuum_kinematics_;
     }
 
     void update_kinematics(const SectionKinematics& kin_A,

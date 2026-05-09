@@ -96,15 +96,17 @@ namespace fall_n {
 
 
 // =============================================================================
-//  NonlinearSubModelEvolver
+//  BasicNonlinearSubModelEvolver
 // =============================================================================
 
-class NonlinearSubModelEvolver {
+template <typename KinematicPolicyT = continuum::SmallStrain>
+class BasicNonlinearSubModelEvolver {
 
     using Policy = ThreeDimensionalMaterial;
+    using KinematicPolicy = KinematicPolicyT;
     static constexpr std::size_t NDOF = 3;
-    using ContElem   = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
-    using MixedModel = Model<Policy, continuum::SmallStrain, NDOF, MultiElementPolicy>;
+    using ContElem   = ContinuumElement<Policy, NDOF, KinematicPolicy>;
+    using MixedModel = Model<Policy, KinematicPolicy, NDOF, MultiElementPolicy>;
     using StateOps = PersistentLocalStateOps<MixedModel>;
     using BoundaryConditionApplicator =
         LocalBoundaryConditionApplicator<MixedModel, MultiscaleSubModel>;
@@ -802,8 +804,9 @@ public:
         return default_local_length_scale_mm_(sub);
     }
 
-    NonlinearSubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
-                             std::string output_dir, int vtk_interval = 1)
+    BasicNonlinearSubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
+                                  std::string output_dir,
+                                  int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
         , concrete_factory_{make_default_submodel_concrete_factory(
@@ -816,10 +819,13 @@ public:
         , vtk_interval_{vtk_interval}
     {}
 
-    NonlinearSubModelEvolver(MultiscaleSubModel& sub, double fc_MPa,
-                             std::unique_ptr<ConcreteMaterialFactory> concrete_factory,
-                             std::unique_ptr<RebarMaterialFactory> rebar_factory,
-                             std::string output_dir, int vtk_interval = 1)
+    BasicNonlinearSubModelEvolver(
+        MultiscaleSubModel& sub,
+        double fc_MPa,
+        std::unique_ptr<ConcreteMaterialFactory> concrete_factory,
+        std::unique_ptr<RebarMaterialFactory> rebar_factory,
+        std::string output_dir,
+        int vtk_interval = 1)
         : sub_{&sub}
         , fc_{fc_MPa}
         , concrete_factory_{std::move(concrete_factory)}
@@ -831,7 +837,7 @@ public:
         , vtk_interval_{vtk_interval}
     {}
 
-    ~NonlinearSubModelEvolver() {
+    ~BasicNonlinearSubModelEvolver() {
         destroy_petsc_objects();
     }
 
@@ -886,11 +892,14 @@ public:
     }
 
     // Non-copyable
-    NonlinearSubModelEvolver(const NonlinearSubModelEvolver&) = delete;
-    NonlinearSubModelEvolver& operator=(const NonlinearSubModelEvolver&) = delete;
+    BasicNonlinearSubModelEvolver(
+        const BasicNonlinearSubModelEvolver&) = delete;
+    BasicNonlinearSubModelEvolver& operator=(
+        const BasicNonlinearSubModelEvolver&) = delete;
 
     // Movable
-    NonlinearSubModelEvolver(NonlinearSubModelEvolver&& o) noexcept
+    BasicNonlinearSubModelEvolver(
+        BasicNonlinearSubModelEvolver&& o) noexcept
         : sub_{o.sub_}, fc_{o.fc_}
         , local_ex_{o.local_ex_}, local_ey_{o.local_ey_}, local_ez_{o.local_ez_}
         , concrete_factory_{std::move(o.concrete_factory_)}
@@ -962,7 +971,8 @@ public:
                 penalty_coupling_law_};
     }
 
-    NonlinearSubModelEvolver& operator=(NonlinearSubModelEvolver&& o) noexcept {
+    BasicNonlinearSubModelEvolver& operator=(
+        BasicNonlinearSubModelEvolver&& o) noexcept {
         if (this != &o) {
             destroy_petsc_objects();
             sub_ = o.sub_; fc_ = o.fc_;
@@ -2216,8 +2226,23 @@ public:
     }
 };
 
+using NonlinearSubModelEvolver =
+    BasicNonlinearSubModelEvolver<continuum::SmallStrain>;
+using TotalLagrangianNonlinearSubModelEvolver =
+    BasicNonlinearSubModelEvolver<continuum::TotalLagrangian>;
+using UpdatedLagrangianNonlinearSubModelEvolver =
+    BasicNonlinearSubModelEvolver<continuum::UpdatedLagrangian>;
+using CorotationalNonlinearSubModelEvolver =
+    BasicNonlinearSubModelEvolver<continuum::Corotational>;
+
 static_assert(LocalModelAdapter<NonlinearSubModelEvolver>,
     "NonlinearSubModelEvolver must satisfy the LocalModelAdapter concept");
+static_assert(LocalModelAdapter<TotalLagrangianNonlinearSubModelEvolver>,
+    "TotalLagrangianNonlinearSubModelEvolver must satisfy the LocalModelAdapter concept");
+static_assert(LocalModelAdapter<UpdatedLagrangianNonlinearSubModelEvolver>,
+    "UpdatedLagrangianNonlinearSubModelEvolver must satisfy the LocalModelAdapter concept");
+static_assert(LocalModelAdapter<CorotationalNonlinearSubModelEvolver>,
+    "CorotationalNonlinearSubModelEvolver must satisfy the LocalModelAdapter concept");
 
 
 } // namespace fall_n
