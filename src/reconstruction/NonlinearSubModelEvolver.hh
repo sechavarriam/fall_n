@@ -175,6 +175,7 @@ class NonlinearSubModelEvolver {
     bool   use_arc_length_{false};
     int    consecutive_divergences_{0};
     bool   adaptive_subsequent_steps_{false};
+    bool   adaptive_subsequent_skip_full_step_{false};
     double last_good_frac_{1.0};   // cache next adaptive sub-step fraction
     double adaptive_growth_factor_{2.0};
     int    adaptive_easy_iteration_threshold_{8};
@@ -904,6 +905,8 @@ public:
         , use_arc_length_{o.use_arc_length_}
         , consecutive_divergences_{o.consecutive_divergences_}
         , adaptive_subsequent_steps_{o.adaptive_subsequent_steps_}
+        , adaptive_subsequent_skip_full_step_{
+              o.adaptive_subsequent_skip_full_step_}
         , last_good_frac_{o.last_good_frac_}
         , adaptive_growth_factor_{o.adaptive_growth_factor_}
         , adaptive_easy_iteration_threshold_{
@@ -975,6 +978,8 @@ public:
             use_arc_length_          = o.use_arc_length_;
             consecutive_divergences_ = o.consecutive_divergences_;
             adaptive_subsequent_steps_ = o.adaptive_subsequent_steps_;
+            adaptive_subsequent_skip_full_step_ =
+                o.adaptive_subsequent_skip_full_step_;
             last_good_frac_          = o.last_good_frac_;
             adaptive_growth_factor_  = o.adaptive_growth_factor_;
             adaptive_easy_iteration_threshold_ =
@@ -1030,6 +1035,7 @@ public:
         bool model_initialized{false};
         bool arc_length_active{false};
         bool adaptive_subsequent_steps{false};
+        bool adaptive_subsequent_skip_full_step{false};
         int consecutive_divergences{0};
         double last_good_fraction{1.0};
         double adaptive_growth_factor{2.0};
@@ -1062,6 +1068,9 @@ public:
         if (flag) {
             last_good_frac_ = std::clamp(last_good_frac_, 1.0e-12, 1.0);
         }
+    }
+    void skip_subsequent_full_step_when_adaptive(bool flag = true) noexcept {
+        adaptive_subsequent_skip_full_step_ = flag;
     }
     void set_adaptive_growth_factor(double factor) noexcept {
         if (!(factor >= 1.0)) {
@@ -1211,6 +1220,8 @@ public:
         checkpoint.model_initialized = model_ready_;
         checkpoint.arc_length_active = use_arc_length_;
         checkpoint.adaptive_subsequent_steps = adaptive_subsequent_steps_;
+        checkpoint.adaptive_subsequent_skip_full_step =
+            adaptive_subsequent_skip_full_step_;
         checkpoint.consecutive_divergences = consecutive_divergences_;
         checkpoint.last_good_fraction = last_good_frac_;
         checkpoint.adaptive_growth_factor = adaptive_growth_factor_;
@@ -1235,6 +1246,8 @@ public:
             checkpoint.kin_A, checkpoint.kin_B);
         use_arc_length_ = checkpoint.arc_length_active;
         adaptive_subsequent_steps_ = checkpoint.adaptive_subsequent_steps;
+        adaptive_subsequent_skip_full_step_ =
+            checkpoint.adaptive_subsequent_skip_full_step;
         consecutive_divergences_ = checkpoint.consecutive_divergences;
         last_good_frac_ = checkpoint.last_good_fraction;
         adaptive_growth_factor_ = checkpoint.adaptive_growth_factor;
@@ -1874,6 +1887,16 @@ private:
     SubModelSolverResult subsequent_solve() {
         if (use_arc_length_)
             return subsequent_solve_adaptive();
+
+        if (adaptive_subsequent_steps_
+            && adaptive_subsequent_skip_full_step_)
+        {
+            std::println(
+                "  [SubModel {}] Skipping full-step SNES; using adaptive "
+                "sub-stepping",
+                sub_->parent_element_id);
+            return subsequent_solve_adaptive();
+        }
 
         // ── Standard path: full-step SNES ────────────────────────────
 

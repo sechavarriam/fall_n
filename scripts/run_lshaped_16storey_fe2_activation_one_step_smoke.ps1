@@ -32,6 +32,7 @@ param(
     [double]$KobatheSnesRtol = 1.0e-2,
     [switch]$KobatheEnableArcLength,
     [switch]$KobatheDisableSubsequentAdaptive,
+    [switch]$KobatheSkipSubsequentFullStep,
     [double]$KobatheAdaptiveInitialFraction = 0.25,
     [double]$KobatheAdaptiveGrowthFactor = 2.0,
     [int]$KobatheAdaptiveEasyIters = 8,
@@ -121,6 +122,7 @@ foreach ($item in $families) {
          $KobatheSnesAtol -ne 1.0e-6 -or
          $KobatheSnesRtol -ne 1.0e-2 -or
          $KobatheDisableSubsequentAdaptive -or
+         $KobatheSkipSubsequentFullStep -or
          $KobatheAdaptiveInitialFraction -ne 0.25 -or
          $KobatheAdaptiveGrowthFactor -ne 2.0 -or
          $KobatheAdaptiveEasyIters -ne 8 -or
@@ -133,6 +135,9 @@ foreach ($item in $families) {
         }
         if ($KobatheDisableSubsequentAdaptive) {
             $args += "--kobathe-no-subsequent-adaptive"
+        }
+        if ($KobatheSkipSubsequentFullStep) {
+            $args += "--kobathe-skip-subsequent-full-step"
         }
         $args += "--kobathe-penalty-factor"
         $args += (Format-Real $KobathePenaltyFactor)
@@ -198,6 +203,7 @@ foreach ($item in $families) {
         kobathe_snes_rtol = $KobatheSnesRtol
         kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
         kobathe_subsequent_adaptive = (-not [bool]$KobatheDisableSubsequentAdaptive)
+        kobathe_skip_subsequent_full_step = [bool]$KobatheSkipSubsequentFullStep
         kobathe_adaptive_initial_fraction = $KobatheAdaptiveInitialFraction
         kobathe_adaptive_growth_factor = $KobatheAdaptiveGrowthFactor
         kobathe_adaptive_easy_iters = $KobatheAdaptiveEasyIters
