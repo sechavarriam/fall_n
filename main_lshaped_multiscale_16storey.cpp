@@ -1553,6 +1553,7 @@ int main(int argc, char* argv[]) {
     double kobathe_snes_rtol = 1.0e-2;
     bool kobathe_enable_arc_length = false;
     bool kobathe_subsequent_adaptive = true;
+    bool kobathe_skip_subsequent_full_step = false;
     double kobathe_adaptive_initial_fraction = 0.25;
     double kobathe_adaptive_growth_factor = 2.0;
     int kobathe_adaptive_easy_iterations = 8;
@@ -1781,6 +1782,10 @@ int main(int argc, char* argv[]) {
             kobathe_subsequent_adaptive = true;
         } else if (arg == "--kobathe-no-subsequent-adaptive") {
             kobathe_subsequent_adaptive = false;
+        } else if (arg == "--kobathe-skip-subsequent-full-step") {
+            kobathe_skip_subsequent_full_step = true;
+        } else if (arg == "--kobathe-attempt-subsequent-full-step") {
+            kobathe_skip_subsequent_full_step = false;
         } else if (arg == "--kobathe-adaptive-initial-fraction" && i + 1 < argc) {
             kobathe_adaptive_initial_fraction = std::stod(argv[++i]);
         } else if (arg == "--kobathe-adaptive-growth-factor" && i + 1 < argc) {
@@ -2107,6 +2112,8 @@ int main(int argc, char* argv[]) {
              "--kobathe-enable-arc-length",
              "--kobathe-subsequent-adaptive",
              "--kobathe-no-subsequent-adaptive",
+             "--kobathe-skip-subsequent-full-step",
+             "--kobathe-attempt-subsequent-full-step",
              "--kobathe-adaptive-initial-fraction",
              "--kobathe-adaptive-growth-factor",
              "--kobathe-adaptive-easy-iters",
@@ -3402,6 +3409,8 @@ int main(int argc, char* argv[]) {
           ev.set_arc_length_threshold(kobathe_arc_length_threshold);
           ev.enable_arc_length(kobathe_enable_arc_length);
           ev.enable_adaptive_subsequent_steps(kobathe_subsequent_adaptive);
+          ev.skip_subsequent_full_step_when_adaptive(
+              kobathe_skip_subsequent_full_step);
           ev.set_adaptive_initial_step_fraction(
               kobathe_adaptive_initial_fraction);
           ev.set_adaptive_growth_factor(kobathe_adaptive_growth_factor);
@@ -3547,11 +3556,13 @@ int main(int argc, char* argv[]) {
                      kobathe_snes_rtol,
                      kobathe_min_crack_opening);
         std::println("  Ko-Bathe adaptive : arc_length={}, subsequent={}, "
-                     "initial_frac={:.3f}, growth={:.2f}, threshold={}, "
+                     "skip_full_step={}, initial_frac={:.3f}, "
+                     "growth={:.2f}, threshold={}, "
                      "tail_rescue_attempts={}, easy_it={}, hard_it={}, "
                      "hard_shrink={:.2f}",
                      kobathe_enable_arc_length ? "on" : "off",
                      kobathe_subsequent_adaptive ? "on" : "off",
+                     kobathe_skip_subsequent_full_step ? "on" : "off",
                      kobathe_adaptive_initial_fraction,
                      kobathe_adaptive_growth_factor,
                      kobathe_arc_length_threshold,
