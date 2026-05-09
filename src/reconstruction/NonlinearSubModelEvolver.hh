@@ -177,6 +177,9 @@ class NonlinearSubModelEvolver {
     bool   adaptive_subsequent_steps_{false};
     double last_good_frac_{1.0};   // cache next adaptive sub-step fraction
     double adaptive_growth_factor_{2.0};
+    int    adaptive_easy_iteration_threshold_{8};
+    int    adaptive_hard_iteration_threshold_{18};
+    double adaptive_hard_iteration_shrink_factor_{0.5};
     int    arc_length_threshold_{3}; // switch after this many consecutive divergences
     int    adaptive_max_substeps_{30};
     int    adaptive_max_bisections_{10};
@@ -451,10 +454,16 @@ class NonlinearSubModelEvolver {
                 stats.achieved_fraction =
                     global_base_fraction + global_span_fraction * progress;
                 ++stats.total_substeps;
-                const double grown_step_frac = std::clamp(
-                    step_frac * adaptive_growth_factor_, 1.0e-12, 1.0);
+                double next_step_frac = step_frac;
+                if (snes_iters <= adaptive_easy_iteration_threshold_) {
+                    next_step_frac *= adaptive_growth_factor_;
+                } else if (snes_iters >= adaptive_hard_iteration_threshold_) {
+                    next_step_frac *= adaptive_hard_iteration_shrink_factor_;
+                }
+                next_step_frac = std::clamp(
+                    next_step_frac, 1.0e-12, 1.0);
                 if (track_last_good_fraction) {
-                    last_good_frac_ = grown_step_frac;
+                    last_good_frac_ = next_step_frac;
                 }
 
                 if (stats.total_substeps >= clamped_substeps
@@ -476,7 +485,7 @@ class NonlinearSubModelEvolver {
                     static_cast<int>(reason),
                     global_step_frac);
 
-                step_frac = std::min(grown_step_frac, 1.0 - progress);
+                step_frac = std::min(next_step_frac, 1.0 - progress);
                 if (step_frac <= 0.0) {
                     break;
                 }
@@ -897,6 +906,12 @@ public:
         , adaptive_subsequent_steps_{o.adaptive_subsequent_steps_}
         , last_good_frac_{o.last_good_frac_}
         , adaptive_growth_factor_{o.adaptive_growth_factor_}
+        , adaptive_easy_iteration_threshold_{
+              o.adaptive_easy_iteration_threshold_}
+        , adaptive_hard_iteration_threshold_{
+              o.adaptive_hard_iteration_threshold_}
+        , adaptive_hard_iteration_shrink_factor_{
+              o.adaptive_hard_iteration_shrink_factor_}
         , arc_length_threshold_{o.arc_length_threshold_}
         , adaptive_max_substeps_{o.adaptive_max_substeps_}
         , adaptive_max_bisections_{o.adaptive_max_bisections_}
@@ -962,6 +977,12 @@ public:
             adaptive_subsequent_steps_ = o.adaptive_subsequent_steps_;
             last_good_frac_          = o.last_good_frac_;
             adaptive_growth_factor_  = o.adaptive_growth_factor_;
+            adaptive_easy_iteration_threshold_ =
+                o.adaptive_easy_iteration_threshold_;
+            adaptive_hard_iteration_threshold_ =
+                o.adaptive_hard_iteration_threshold_;
+            adaptive_hard_iteration_shrink_factor_ =
+                o.adaptive_hard_iteration_shrink_factor_;
             arc_length_threshold_    = o.arc_length_threshold_;
             adaptive_max_substeps_   = o.adaptive_max_substeps_;
             adaptive_max_bisections_ = o.adaptive_max_bisections_;
@@ -1047,6 +1068,18 @@ public:
             factor = 1.0;
         }
         adaptive_growth_factor_ = std::min(factor, 16.0);
+    }
+    void set_adaptive_iteration_controller(
+        int easy_iterations,
+        int hard_iterations,
+        double hard_shrink_factor = 0.5) noexcept
+    {
+        adaptive_easy_iteration_threshold_ = std::max(0, easy_iterations);
+        adaptive_hard_iteration_threshold_ =
+            std::max(adaptive_easy_iteration_threshold_ + 1,
+                     hard_iterations);
+        adaptive_hard_iteration_shrink_factor_ =
+            std::clamp(hard_shrink_factor, 1.0e-3, 1.0);
     }
     void set_adaptive_initial_step_fraction(double fraction) noexcept {
         last_good_frac_ = std::clamp(fraction, 1.0e-12, 1.0);
