@@ -138,6 +138,7 @@ class NonlinearSubModelEvolver {
         Vec         f_ext;
         const std::vector<PenaltyCouplingEntry>* penalty_couplings{nullptr};
         double alpha_penalty{0.0};
+        PenaltyCouplingLaw penalty_coupling_law{};
     };
     Context ctx_{};
 
@@ -198,6 +199,7 @@ class NonlinearSubModelEvolver {
     //  Penalty coupling for embedded rebar (Master-Slave interpolation).
     //  α should be ≫ max(E_truss·A/L, E_hex/h) for good coupling.
     double alpha_penalty_{1.0e6};
+    PenaltyCouplingLaw penalty_coupling_law_{};
     int    snes_max_it_{50};
     double snes_atol_{1e-6};
     double snes_rtol_{1e-2};
@@ -730,11 +732,13 @@ class NonlinearSubModelEvolver {
 
                 for (int d = 0; d < 3; ++d) {
                     const double gap = u_arr[r_off + d] - u_interp[d];
-                    f_arr[r_off + d] += alpha * gap;
+                    const auto response =
+                        ctx->penalty_coupling_law.evaluate(gap, alpha);
+                    f_arr[r_off + d] += response.force;
                     for (const auto& [sp, Ni] : pc.hex_weights) {
                         PetscInt h_off;
                         PetscSectionGetOffset(sec, sp, &h_off);
-                        f_arr[h_off + d] -= alpha * Ni * gap;
+                        f_arr[h_off + d] -= Ni * response.force;
                     }
                 }
             }
@@ -774,7 +778,12 @@ class NonlinearSubModelEvolver {
         // ── Penalty stiffness for embedded rebar coupling ────────
         if (ctx->penalty_couplings && !ctx->penalty_couplings->empty()) {
             add_penalty_coupling_entries_to_jacobian(
-                *ctx->penalty_couplings, ctx->alpha_penalty, J_mat, dm);
+                *ctx->penalty_couplings,
+                ctx->alpha_penalty,
+                ctx->penalty_coupling_law,
+                u_local,
+                J_mat,
+                dm);
         }
 
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);
@@ -929,6 +938,7 @@ public:
               o.adaptive_tail_rescue_initial_fraction_}
         , min_crack_opening_{o.min_crack_opening_}
         , alpha_penalty_{o.alpha_penalty_}
+        , penalty_coupling_law_{o.penalty_coupling_law_}
         , snes_max_it_{o.snes_max_it_}
         , snes_atol_{o.snes_atol_}
         , snes_rtol_{o.snes_rtol_}
@@ -948,7 +958,8 @@ public:
             condensed_workspace_ = std::make_unique<CondensationWorkspace>();
         }
         ctx_ = {model_.get(), f_ext_,
-                &penalty_couplings_, alpha_penalty_};
+                &penalty_couplings_, alpha_penalty_,
+                penalty_coupling_law_};
     }
 
     NonlinearSubModelEvolver& operator=(NonlinearSubModelEvolver&& o) noexcept {
@@ -1003,6 +1014,7 @@ public:
                 o.adaptive_tail_rescue_initial_fraction_;
             min_crack_opening_       = o.min_crack_opening_;
             alpha_penalty_           = o.alpha_penalty_;
+            penalty_coupling_law_    = o.penalty_coupling_law_;
             snes_max_it_             = o.snes_max_it_;
             snes_atol_               = o.snes_atol_;
             snes_rtol_               = o.snes_rtol_;
@@ -1021,7 +1033,8 @@ public:
                     std::make_unique<CondensationWorkspace>();
             }
             ctx_ = {model_.get(), f_ext_,
-                    &penalty_couplings_, alpha_penalty_};
+                    &penalty_couplings_, alpha_penalty_,
+                    penalty_coupling_law_};
         }
         return *this;
     }
@@ -1122,6 +1135,18 @@ public:
     void set_min_crack_opening(double thr) noexcept { min_crack_opening_ = thr; }
 
     void set_penalty_alpha(double alpha) noexcept { alpha_penalty_ = alpha; }
+
+    void set_penalty_bond_slip_regularization(
+        bool enabled,
+        double slip_reference_m = 5.0e-4,
+        double residual_stiffness_ratio = 0.2) noexcept
+    {
+        penalty_coupling_law_.bond_slip_regularization = enabled;
+        penalty_coupling_law_.slip_reference_m =
+            std::max(std::abs(slip_reference_m), 1.0e-12);
+        penalty_coupling_law_.residual_stiffness_ratio =
+            std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+    }
 
     void set_snes_params(int max_it, double atol, double rtol) noexcept {
         snes_max_it_ = max_it;
@@ -1601,10 +1626,22 @@ private:
             }
         }
 
-        std::println("  [SubModel {}] Penalty coupling: {} interior rebar "
-                     "nodes, α = {:.1e}",
-                     sub_->parent_element_id,
-                     penalty_couplings_.size(), alpha_penalty_);
+        if (penalty_coupling_law_.bond_slip_regularization) {
+            std::println(
+                "  [SubModel {}] Bond-slip coupling: {} interior rebar "
+                "nodes, α0 = {:.1e}, αr/α0 = {:.2f}, s_ref = {:.3e} m",
+                sub_->parent_element_id,
+                penalty_couplings_.size(),
+                alpha_penalty_,
+                penalty_coupling_law_.residual_stiffness_ratio,
+                penalty_coupling_law_.slip_reference_m);
+        } else {
+            std::println("  [SubModel {}] Penalty coupling: {} interior "
+                         "rebar nodes, α = {:.1e}",
+                         sub_->parent_element_id,
+                         penalty_couplings_.size(),
+                         alpha_penalty_);
+        }
     }
 
 
@@ -1627,7 +1664,8 @@ private:
         VecSet(f_ext_, 0.0);
 
         ctx_ = {model_.get(), f_ext_,
-                &penalty_couplings_, alpha_penalty_};
+                &penalty_couplings_, alpha_penalty_,
+                penalty_coupling_law_};
 
         // Use l2 line search — minimizes ||F(x + αΔx)||² along the Newton
         // direction.  bt rejects too many steps with secant tangents (slow),

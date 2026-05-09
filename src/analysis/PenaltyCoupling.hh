@@ -1,6 +1,7 @@
 #ifndef FALL_N_SRC_ANALYSIS_PENALTYCOUPLING_HH
 #define FALL_N_SRC_ANALYSIS_PENALTYCOUPLING_HH
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <print>
@@ -127,6 +128,39 @@ struct PenaltyCouplingEntry {
     std::vector<std::pair<PetscInt, double>> hex_weights;
 };
 
+struct PenaltyCouplingSpringResponse {
+    double force{0.0};
+    double tangent{0.0};
+};
+
+struct PenaltyCouplingLaw {
+    bool bond_slip_regularization{false};
+    double slip_reference_m{5.0e-4};
+    double residual_stiffness_ratio{0.2};
+
+    [[nodiscard]] PenaltyCouplingSpringResponse
+    evaluate(double gap, double alpha) const noexcept
+    {
+        if (!bond_slip_regularization) {
+            return {.force = alpha * gap, .tangent = alpha};
+        }
+
+        const double alpha0 = std::max(0.0, alpha);
+        const double ratio =
+            std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+        const double alpha_residual = alpha0 * ratio;
+        const double alpha_bond = alpha0 - alpha_residual;
+        const double s_ref = std::max(std::abs(slip_reference_m), 1.0e-12);
+        const double arg = std::clamp(gap / s_ref, -50.0, 50.0);
+        const double th = std::tanh(arg);
+        const double sech2 = std::max(0.0, 1.0 - th * th);
+
+        return {
+            .force = alpha_residual * gap + alpha_bond * s_ref * th,
+            .tangent = alpha_residual + alpha_bond * sech2};
+    }
+};
+
 struct PenaltyDofTieEntry {
     PetscInt anchor_sieve_pt{-1};
     PetscInt slave_sieve_pt{-1};
@@ -200,6 +234,7 @@ inline std::array<double, 3> penalty_coupling_gap(
 inline void add_penalty_coupling_entries_to_global_residual(
     const std::vector<PenaltyCouplingEntry>& couplings,
     double alpha,
+    const PenaltyCouplingLaw& law,
     Vec u_local,
     Vec residual_global,
     DM dm)
@@ -220,11 +255,13 @@ inline void add_penalty_coupling_entries_to_global_residual(
         const auto gap = penalty_coupling_gap(pc, local_section, u_arr);
 
         for (int d = 0; d < 3; ++d) {
+            const auto response = law.evaluate(
+                gap[static_cast<std::size_t>(d)],
+                alpha);
             const PetscInt r_global = penalty_coupling_global_dof_index(
                 local_section, local_to_global, pc.rebar_sieve_pt, d);
             if (r_global >= 0) {
-                const PetscScalar value =
-                    alpha * gap[static_cast<std::size_t>(d)];
+                const PetscScalar value = response.force;
                 VecSetValues(
                     residual_global, 1, &r_global, &value, ADD_VALUES);
             }
@@ -235,10 +272,104 @@ inline void add_penalty_coupling_entries_to_global_residual(
                 if (h_global < 0) {
                     continue;
                 }
-                const PetscScalar value =
-                    -alpha * Ni * gap[static_cast<std::size_t>(d)];
+                const PetscScalar value = -Ni * response.force;
                 VecSetValues(
                     residual_global, 1, &h_global, &value, ADD_VALUES);
+            }
+        }
+    }
+
+    VecRestoreArrayRead(u_local, &u_arr);
+}
+
+inline void add_penalty_coupling_entries_to_global_residual(
+    const std::vector<PenaltyCouplingEntry>& couplings,
+    double alpha,
+    Vec u_local,
+    Vec residual_global,
+    DM dm)
+{
+    add_penalty_coupling_entries_to_global_residual(
+        couplings,
+        alpha,
+        PenaltyCouplingLaw{},
+        u_local,
+        residual_global,
+        dm);
+}
+
+inline void add_penalty_coupling_entries_to_jacobian(
+    const std::vector<PenaltyCouplingEntry>& couplings,
+    double alpha,
+    const PenaltyCouplingLaw& law,
+    Vec u_local,
+    Mat jacobian,
+    DM dm)
+{
+    if (couplings.empty()) {
+        return;
+    }
+
+    PetscSection local_section = nullptr;
+    ISLocalToGlobalMapping local_to_global = nullptr;
+    DMGetLocalSection(dm, &local_section);
+    DMGetLocalToGlobalMapping(dm, &local_to_global);
+
+    const PetscScalar* u_arr = nullptr;
+    VecGetArrayRead(u_local, &u_arr);
+
+    for (const auto& pc : couplings) {
+        const auto gap = penalty_coupling_gap(pc, local_section, u_arr);
+        for (int d = 0; d < 3; ++d) {
+            const auto response = law.evaluate(
+                gap[static_cast<std::size_t>(d)],
+                alpha);
+            const PetscInt r_global = penalty_coupling_global_dof_index(
+                local_section, local_to_global, pc.rebar_sieve_pt, d);
+            if (r_global >= 0) {
+                const PetscScalar value = response.tangent;
+                MatSetValues(
+                    jacobian, 1, &r_global, 1, &r_global, &value, ADD_VALUES);
+            }
+        }
+
+        for (const auto& [sp, Ni] : pc.hex_weights) {
+            for (int d = 0; d < 3; ++d) {
+                const PetscInt r_global = penalty_coupling_global_dof_index(
+                    local_section, local_to_global, pc.rebar_sieve_pt, d);
+                const PetscInt h_global = penalty_coupling_global_dof_index(
+                    local_section, local_to_global, sp, d);
+                if (r_global < 0 || h_global < 0) {
+                    continue;
+                }
+                const auto response = law.evaluate(
+                    gap[static_cast<std::size_t>(d)],
+                    alpha);
+                const PetscScalar value = -response.tangent * Ni;
+                MatSetValues(
+                    jacobian, 1, &r_global, 1, &h_global, &value, ADD_VALUES);
+                MatSetValues(
+                    jacobian, 1, &h_global, 1, &r_global, &value, ADD_VALUES);
+            }
+        }
+
+        for (const auto& [si, Ni] : pc.hex_weights) {
+            for (const auto& [sj, Nj] : pc.hex_weights) {
+                for (int d = 0; d < 3; ++d) {
+                    const auto response = law.evaluate(
+                        gap[static_cast<std::size_t>(d)],
+                        alpha);
+                    const PetscInt row = penalty_coupling_global_dof_index(
+                        local_section, local_to_global, si, d);
+                    const PetscInt col = penalty_coupling_global_dof_index(
+                        local_section, local_to_global, sj, d);
+                    if (row < 0 || col < 0) {
+                        continue;
+                    }
+                    const PetscScalar value = response.tangent * Ni * Nj;
+                    MatSetValues(
+                        jacobian, 1, &row, 1, &col, &value, ADD_VALUES);
+                }
             }
         }
     }
