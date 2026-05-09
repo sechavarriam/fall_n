@@ -1552,6 +1552,9 @@ int main(int argc, char* argv[]) {
     double kobathe_snes_atol = 1.0e-6;
     double kobathe_snes_rtol = 1.0e-2;
     bool kobathe_enable_arc_length = false;
+    bool kobathe_subsequent_adaptive = true;
+    double kobathe_adaptive_initial_fraction = 0.25;
+    double kobathe_adaptive_growth_factor = 2.0;
     int kobathe_arc_length_threshold = 3;
     int kobathe_tail_rescue_attempts = 0;
     double local_vtk_crack_opening_threshold = 0.5e-3;
@@ -1770,6 +1773,14 @@ int main(int argc, char* argv[]) {
             kobathe_snes_rtol = std::stod(argv[++i]);
         } else if (arg == "--kobathe-enable-arc-length") {
             kobathe_enable_arc_length = true;
+        } else if (arg == "--kobathe-subsequent-adaptive") {
+            kobathe_subsequent_adaptive = true;
+        } else if (arg == "--kobathe-no-subsequent-adaptive") {
+            kobathe_subsequent_adaptive = false;
+        } else if (arg == "--kobathe-adaptive-initial-fraction" && i + 1 < argc) {
+            kobathe_adaptive_initial_fraction = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-adaptive-growth-factor" && i + 1 < argc) {
+            kobathe_adaptive_growth_factor = std::stod(argv[++i]);
         } else if (arg == "--kobathe-arc-length-threshold" && i + 1 < argc) {
             kobathe_arc_length_threshold =
                 std::max(1, static_cast<int>(std::stol(argv[++i])));
@@ -1896,6 +1907,15 @@ int main(int argc, char* argv[]) {
     }
     if (!(kobathe_snes_atol > 0.0) || !(kobathe_snes_rtol > 0.0)) {
         throw std::invalid_argument("--kobathe-snes-atol/rtol must be positive.");
+    }
+    if (!(kobathe_adaptive_growth_factor >= 1.0)) {
+        throw std::invalid_argument(
+            "--kobathe-adaptive-growth-factor must be >= 1.0.");
+    }
+    if (!(kobathe_adaptive_initial_fraction > 0.0 &&
+          kobathe_adaptive_initial_fraction <= 1.0)) {
+        throw std::invalid_argument(
+            "--kobathe-adaptive-initial-fraction must be in (0, 1].");
     }
     if (!(local_vtk_crack_opening_threshold >= 0.0)) {
         throw std::invalid_argument(
@@ -2056,6 +2076,10 @@ int main(int argc, char* argv[]) {
              "--kobathe-snes-atol",
              "--kobathe-snes-rtol",
              "--kobathe-enable-arc-length",
+             "--kobathe-subsequent-adaptive",
+             "--kobathe-no-subsequent-adaptive",
+             "--kobathe-adaptive-initial-fraction",
+             "--kobathe-adaptive-growth-factor",
              "--kobathe-arc-length-threshold",
              "--kobathe-tail-rescue-attempts",
              "--kobathe-min-crack-opening",
@@ -3345,6 +3369,10 @@ int main(int argc, char* argv[]) {
                              kobathe_snes_rtol);
           ev.set_arc_length_threshold(kobathe_arc_length_threshold);
           ev.enable_arc_length(kobathe_enable_arc_length);
+          ev.enable_adaptive_subsequent_steps(kobathe_subsequent_adaptive);
+          ev.set_adaptive_initial_step_fraction(
+              kobathe_adaptive_initial_fraction);
+          ev.set_adaptive_growth_factor(kobathe_adaptive_growth_factor);
           if (kobathe_tail_rescue_attempts > 0) {
             ev.set_adaptive_tail_rescue_policy(
                 kobathe_tail_rescue_attempts,
@@ -3482,9 +3510,13 @@ int main(int argc, char* argv[]) {
                      kobathe_snes_atol,
                      kobathe_snes_rtol,
                      kobathe_min_crack_opening);
-        std::println("  Ko-Bathe adaptive : arc_length={}, threshold={}, "
+        std::println("  Ko-Bathe adaptive : arc_length={}, subsequent={}, "
+                     "initial_frac={:.3f}, growth={:.2f}, threshold={}, "
                      "tail_rescue_attempts={}",
                      kobathe_enable_arc_length ? "on" : "off",
+                     kobathe_subsequent_adaptive ? "on" : "off",
+                     kobathe_adaptive_initial_fraction,
+                     kobathe_adaptive_growth_factor,
                      kobathe_arc_length_threshold,
                      kobathe_tail_rescue_attempts);
     }
