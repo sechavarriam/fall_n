@@ -1470,6 +1470,9 @@ int main(int argc, char* argv[]) {
     int kobathe_snes_max_it = 60;
     double kobathe_snes_atol = 1.0e-6;
     double kobathe_snes_rtol = 1.0e-2;
+    bool kobathe_enable_arc_length = false;
+    int kobathe_arc_length_threshold = 3;
+    int kobathe_tail_rescue_attempts = 0;
     double local_vtk_crack_opening_threshold = 0.5e-3;
     double kobathe_min_crack_opening = 0.5e-3;
     bool local_vtk_global_placement = false;
@@ -1673,6 +1676,14 @@ int main(int argc, char* argv[]) {
             kobathe_snes_atol = std::stod(argv[++i]);
         } else if (arg == "--kobathe-snes-rtol" && i + 1 < argc) {
             kobathe_snes_rtol = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-enable-arc-length") {
+            kobathe_enable_arc_length = true;
+        } else if (arg == "--kobathe-arc-length-threshold" && i + 1 < argc) {
+            kobathe_arc_length_threshold =
+                std::max(1, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--kobathe-tail-rescue-attempts" && i + 1 < argc) {
+            kobathe_tail_rescue_attempts =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--kobathe-min-crack-opening" && i + 1 < argc) {
             kobathe_min_crack_opening = std::stod(argv[++i]);
             local_vtk_crack_opening_threshold = kobathe_min_crack_opening;
@@ -1934,6 +1945,9 @@ int main(int argc, char* argv[]) {
              "--kobathe-snes-max-it",
              "--kobathe-snes-atol",
              "--kobathe-snes-rtol",
+             "--kobathe-enable-arc-length",
+             "--kobathe-arc-length-threshold",
+             "--kobathe-tail-rescue-attempts",
              "--kobathe-min-crack-opening",
              "--linear-alarm-criterion",
              "--linear-alarm-threshold",
@@ -3128,6 +3142,16 @@ int main(int argc, char* argv[]) {
           ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
           ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
                              kobathe_snes_rtol);
+          ev.set_arc_length_threshold(kobathe_arc_length_threshold);
+          ev.enable_arc_length(kobathe_enable_arc_length);
+          if (kobathe_tail_rescue_attempts > 0) {
+            ev.set_adaptive_tail_rescue_policy(
+                kobathe_tail_rescue_attempts,
+                0.75,
+                12,
+                4,
+                0.5);
+          }
           ev.set_min_crack_opening(kobathe_min_crack_opening);
           ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
           const auto &site = plan.site;
@@ -3257,6 +3281,11 @@ int main(int argc, char* argv[]) {
                      kobathe_snes_atol,
                      kobathe_snes_rtol,
                      kobathe_min_crack_opening);
+        std::println("  Ko-Bathe adaptive : arc_length={}, threshold={}, "
+                     "tail_rescue_attempts={}",
+                     kobathe_enable_arc_length ? "on" : "off",
+                     kobathe_arc_length_threshold,
+                     kobathe_tail_rescue_attempts);
     }
 
     // ── Assemble MultiscaleModel + MultiscaleAnalysis ────────────────────
