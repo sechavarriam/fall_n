@@ -60,6 +60,19 @@ struct ManagedXfemTransitionControl {
     std::string reason{"fixed"};
 };
 
+inline void impose_macro_relative_top_translation(
+    ReducedRCManagedLocalBoundarySample& boundary,
+    const Eigen::Vector3d& relative_top_translation) noexcept
+{
+    if (!relative_top_translation.allFinite()) {
+        return;
+    }
+    boundary.tip_drift_m = relative_top_translation.x();
+    boundary.imposed_top_translation_m.x() = relative_top_translation.x();
+    boundary.imposed_top_translation_m.y() = relative_top_translation.y();
+    boundary.imposed_top_translation_m.z() = relative_top_translation.z();
+}
+
 [[nodiscard]] inline double managed_xfem_control_increment_severity(
     const Eigen::Vector<double, 6>& delta,
     const ManagedXfemAdaptiveTransitionPolicy& policy) noexcept
@@ -824,13 +837,8 @@ private:
         auto boundary = make_reduced_rc_managed_local_boundary_sample(
             sample, patch_, static_cast<std::size_t>(step_count_),
             axial_strain);
-        if (relative_top_translation.allFinite()) {
-            boundary.tip_drift_m = relative_top_translation.x();
-            boundary.imposed_top_translation_m.x() =
-                relative_top_translation.x();
-            boundary.imposed_top_translation_m.y() =
-                relative_top_translation.y();
-        }
+        impose_macro_relative_top_translation(boundary,
+                                              relative_top_translation);
         return boundary;
     }
 

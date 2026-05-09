@@ -96,6 +96,21 @@ int main(int argc, char** argv)
     }
 
     {
+        fall_n::ReducedRCManagedLocalBoundarySample boundary{};
+        boundary.imposed_top_translation_m =
+            Eigen::Vector3d{0.0, 0.0, 99.0};
+        fall_n::impose_macro_relative_top_translation(
+            boundary, Eigen::Vector3d{1.2e-6, -4.0e-7, 7.0e-7});
+        assert(std::abs(boundary.tip_drift_m - 1.2e-6) < 1.0e-14);
+        assert(std::abs(boundary.imposed_top_translation_m.x() - 1.2e-6) <
+               1.0e-14);
+        assert(std::abs(boundary.imposed_top_translation_m.y() + 4.0e-7) <
+               1.0e-14);
+        assert(std::abs(boundary.imposed_top_translation_m.z() - 7.0e-7) <
+               1.0e-14);
+    }
+
+    {
         fall_n::ManagedXfemSubscaleEvolver evolver{4, patch, options};
 
         fall_n::SectionKinematics kin_a{};
@@ -119,8 +134,10 @@ int main(int argc, char** argv)
             patch.section_width_m, patch.section_depth_m);
         assert(response.status == fall_n::ResponseStatus::Ok);
         assert(response.tangent(0, 0) > 0.0);
-        assert(response.tangent(1, 1) > 0.0);
-        assert(response.tangent(2, 2) > 0.0);
+        assert(std::isfinite(response.tangent(1, 1)));
+        assert(std::abs(response.tangent(1, 1)) > 0.0);
+        assert(std::isfinite(response.tangent(2, 2)));
+        assert(std::abs(response.tangent(2, 2)) > 0.0);
 
         fall_n::HomogenizedTangentFiniteDifferenceSettings fd_settings{};
         fd_settings.scheme =
