@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <format>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -15,6 +16,7 @@
 #include <petsc.h>
 
 #include "../analysis/MultiscaleCoordinator.hh"
+#include "../analysis/PenaltyCoupling.hh"
 #include "../post-processing/VTK/PVDWriter.hh"
 #include "../post-processing/VTK/VTKCellTraits.hh"
 #include "../post-processing/VTK/VTKModelExporter.hh"
@@ -36,6 +38,20 @@ class LocalVTKOutputWriter {
     LocalVTKGaussFieldProfile gauss_field_profile_{
         LocalVTKGaussFieldProfile::Debug};
     LocalVTKPlacementFrame placement_frame_{LocalVTKPlacementFrame::Reference};
+
+    struct RebarBondSlipSample {
+        bool valid{false};
+        Eigen::Vector3d slip{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d force{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d tangent{Eigen::Vector3d::Zero()};
+    };
+
+    struct RebarBondSlipSegment {
+        bool valid{false};
+        Eigen::Vector3d slip{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d force{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d tangent{Eigen::Vector3d::Zero()};
+    };
 
     [[nodiscard]] std::string snapshot_prefix_(int step_count) const
     {
@@ -335,7 +351,12 @@ class LocalVTKOutputWriter {
     void write_rebar_tubes_vtu_(const std::string& filename,
                                 ModelT& model,
                                 Vec displacement,
-                                const MultiscaleSubModel& sub) const
+                                const MultiscaleSubModel& sub,
+                                const std::vector<PenaltyCouplingEntry>*
+                                    penalty_couplings = nullptr,
+                                double penalty_alpha = 0.0,
+                                const PenaltyCouplingLaw& penalty_law =
+                                    PenaltyCouplingLaw{}) const
     {
         if (!sub.has_rebar()) {
             return;
@@ -352,6 +373,62 @@ class LocalVTKOutputWriter {
         VecGetArrayRead(u_local, &u_arr);
 
         auto& domain = model.get_domain();
+
+        PetscSection local_section = nullptr;
+        DMGetLocalSection(dm, &local_section);
+        std::map<PetscInt, RebarBondSlipSample> bond_slip_samples;
+        if (penalty_couplings && local_section) {
+            for (const auto& pc : *penalty_couplings) {
+                const auto gap =
+                    penalty_coupling_gap(pc, local_section, u_arr);
+                RebarBondSlipSample sample;
+                sample.valid = true;
+                for (int d = 0; d < 3; ++d) {
+                    const auto response = penalty_law.evaluate(
+                        gap[static_cast<std::size_t>(d)],
+                        penalty_alpha);
+                    sample.slip[d] = gap[static_cast<std::size_t>(d)];
+                    sample.force[d] = response.force;
+                    sample.tangent[d] = response.tangent;
+                }
+                bond_slip_samples[pc.rebar_sieve_pt] = sample;
+            }
+        }
+
+        const auto node_bond_slip_sample =
+            [&](PetscInt sieve_point) -> RebarBondSlipSample {
+            const auto it = bond_slip_samples.find(sieve_point);
+            if (it == bond_slip_samples.end()) {
+                return {};
+            }
+            return it->second;
+        };
+
+        const auto segment_bond_slip =
+            [](const RebarBondSlipSample& a,
+               const RebarBondSlipSample& b) -> RebarBondSlipSegment {
+            RebarBondSlipSegment segment;
+            double weight = 0.0;
+            if (a.valid) {
+                segment.slip += a.slip;
+                segment.force += a.force;
+                segment.tangent += a.tangent;
+                weight += 1.0;
+            }
+            if (b.valid) {
+                segment.slip += b.slip;
+                segment.force += b.force;
+                segment.tangent += b.tangent;
+                weight += 1.0;
+            }
+            if (weight > 0.0) {
+                segment.valid = true;
+                segment.slip /= weight;
+                segment.force /= weight;
+                segment.tangent /= weight;
+            }
+            return segment;
+        };
 
         vtkNew<vtkPoints> pts;
         vtkNew<vtkUnstructuredGrid> grid;
@@ -384,6 +461,46 @@ class LocalVTKOutputWriter {
         bar_id_arr->SetName("bar_id");
         bar_id_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> bond_slip_arr;
+        bond_slip_arr->SetName("bond_slip");
+        bond_slip_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_axial_arr;
+        bond_slip_axial_arr->SetName("bond_slip_axial");
+        bond_slip_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_transverse_arr;
+        bond_slip_transverse_arr->SetName("bond_slip_transverse");
+        bond_slip_transverse_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_vector_arr;
+        bond_slip_vector_arr->SetName("bond_slip_vector");
+        bond_slip_vector_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> bond_force_arr;
+        bond_force_arr->SetName("bond_force");
+        bond_force_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_force_axial_arr;
+        bond_force_axial_arr->SetName("bond_force_axial");
+        bond_force_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_force_transverse_arr;
+        bond_force_transverse_arr->SetName("bond_force_transverse");
+        bond_force_transverse_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_tangent_axial_arr;
+        bond_tangent_axial_arr->SetName("bond_tangent_axial");
+        bond_tangent_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_ratio_arr;
+        bond_slip_ratio_arr->SetName("bond_slip_ratio");
+        bond_slip_ratio_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_valid_arr;
+        bond_slip_valid_arr->SetName("bond_slip_valid");
+        bond_slip_valid_arr->SetNumberOfComponents(1);
+
         auto insert_tube_segment =
             [&](const Eigen::Vector3d& p0,
                 const Eigen::Vector3d& p1,
@@ -393,7 +510,9 @@ class LocalVTKOutputWriter {
                 double axial_sigma,
                 double axial_eps,
                 double area,
-                double bar_id)
+                double bar_id,
+                const RebarBondSlipSegment& bond_slip,
+                double slip_reference_m)
         {
             const Eigen::Vector3d axis = p1 - p0;
             const double length = axis.norm();
@@ -401,6 +520,20 @@ class LocalVTKOutputWriter {
                 return;
             }
             const Eigen::Vector3d e = axis / length;
+            const double axial_slip = bond_slip.slip.dot(e);
+            const double slip_norm = bond_slip.slip.norm();
+            const double transverse_slip = std::sqrt(std::max(
+                0.0, slip_norm * slip_norm - axial_slip * axial_slip));
+            const double axial_force = bond_slip.force.dot(e);
+            const double force_norm = bond_slip.force.norm();
+            const double transverse_force = std::sqrt(std::max(
+                0.0, force_norm * force_norm - axial_force * axial_force));
+            const double axial_tangent =
+                e.x() * e.x() * bond_slip.tangent.x() +
+                e.y() * e.y() * bond_slip.tangent.y() +
+                e.z() * e.z() * bond_slip.tangent.z();
+            const double slip_ratio =
+                slip_reference_m > 0.0 ? slip_norm / slip_reference_m : 0.0;
             Eigen::Vector3d a = std::abs(e.dot(Eigen::Vector3d::UnitX())) < 0.9
                 ? Eigen::Vector3d::UnitX()
                 : Eigen::Vector3d::UnitY();
@@ -437,6 +570,20 @@ class LocalVTKOutputWriter {
                 yield_ratio_arr->InsertNextValue(
                     std::abs(axial_sigma) / std::max(1.0, fy));
                 bar_id_arr->InsertNextValue(bar_id);
+                bond_slip_arr->InsertNextValue(slip_norm);
+                bond_slip_axial_arr->InsertNextValue(axial_slip);
+                bond_slip_transverse_arr->InsertNextValue(transverse_slip);
+                bond_slip_vector_arr->InsertNextTuple3(
+                    bond_slip.slip.x(),
+                    bond_slip.slip.y(),
+                    bond_slip.slip.z());
+                bond_force_arr->InsertNextValue(force_norm);
+                bond_force_axial_arr->InsertNextValue(axial_force);
+                bond_force_transverse_arr->InsertNextValue(transverse_force);
+                bond_tangent_axial_arr->InsertNextValue(axial_tangent);
+                bond_slip_ratio_arr->InsertNextValue(slip_ratio);
+                bond_slip_valid_arr->InsertNextValue(
+                    bond_slip.valid ? 1.0 : 0.0);
             }
         };
 
@@ -462,6 +609,7 @@ class LocalVTKOutputWriter {
                 fall_n::vtk::node_ordering_into(1, nn, local_perm.data());
             std::vector<Eigen::Vector3d> coords(vtk_nn);
             std::vector<Eigen::Vector3d> disps(vtk_nn);
+            std::vector<RebarBondSlipSample> bond_slips(vtk_nn);
             for (std::size_t vtk_k = 0; vtk_k < vtk_nn; ++vtk_k) {
                 auto& nd = domain.node(
                     geom.node(static_cast<std::size_t>(local_perm[vtk_k])));
@@ -472,6 +620,10 @@ class LocalVTKOutputWriter {
                     disp[d] = u_arr[nd.dof_index()[d]];
                 }
                 disps[vtk_k] = disp;
+                if (nd.sieve_id.has_value()) {
+                    bond_slips[vtk_k] =
+                        node_bond_slip_sample(nd.sieve_id.value());
+                }
             }
 
             auto& elem = model.elements()[i];
@@ -496,7 +648,10 @@ class LocalVTKOutputWriter {
                                     axial_sigma,
                                     axial_eps,
                                     area,
-                                    static_cast<double>(bar_b));
+                                    static_cast<double>(bar_b),
+                                    segment_bond_slip(
+                                        bond_slips[k], bond_slips[k + 1]),
+                                    penalty_law.slip_reference_m);
             }
         }
 
@@ -515,6 +670,16 @@ class LocalVTKOutputWriter {
             grid->GetCellData()->AddArray(strain_arr);
             grid->GetCellData()->AddArray(yield_ratio_arr);
             grid->GetCellData()->AddArray(bar_id_arr);
+            grid->GetCellData()->AddArray(bond_slip_arr);
+            grid->GetCellData()->AddArray(bond_slip_axial_arr);
+            grid->GetCellData()->AddArray(bond_slip_transverse_arr);
+            grid->GetCellData()->AddArray(bond_slip_vector_arr);
+            grid->GetCellData()->AddArray(bond_force_arr);
+            grid->GetCellData()->AddArray(bond_force_axial_arr);
+            grid->GetCellData()->AddArray(bond_force_transverse_arr);
+            grid->GetCellData()->AddArray(bond_tangent_axial_arr);
+            grid->GetCellData()->AddArray(bond_slip_ratio_arr);
+            grid->GetCellData()->AddArray(bond_slip_valid_arr);
         }
         fall_n::vtk::write_vtu(grid, filename);
     }
@@ -626,7 +791,12 @@ public:
                         const std::array<double, 3>& local_ey,
                         const std::array<double, 3>& local_ez,
                         const std::vector<CrackRecord>& cracks,
-                        double min_crack_opening)
+                        double min_crack_opening,
+                        const std::vector<PenaltyCouplingEntry>*
+                            penalty_couplings = nullptr,
+                        double penalty_alpha = 0.0,
+                        const PenaltyCouplingLaw& penalty_law =
+                            PenaltyCouplingLaw{})
     {
         const auto prefix = snapshot_prefix_(step_count);
 
@@ -716,7 +886,13 @@ public:
         if (profile_ != LocalVTKOutputProfile::Minimal && sub.has_rebar()) {
             write_rebar_vtu_(prefix + "_rebar.vtu", model, displacement, sub);
             write_rebar_tubes_vtu_(
-                prefix + "_rebar_tubes.vtu", model, displacement, sub);
+                prefix + "_rebar_tubes.vtu",
+                model,
+                displacement,
+                sub,
+                penalty_couplings,
+                penalty_alpha,
+                penalty_law);
             if (pvd_rebar_) {
                 pvd_rebar_->add_timestep(time, prefix + "_rebar.vtu");
                 pvd_rebar_->add_timestep(time, prefix + "_rebar_tubes.vtu");
