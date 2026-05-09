@@ -83,8 +83,13 @@ foreach ($item in $families) {
     if ($IncludeCenterProbeSite) {
         $args += "--fe2-include-center-probe-site"
     }
-    if ($item.Family -like "continuum-kobathe*" -and $KobatheEnableArcLength) {
-        $args += "--kobathe-enable-arc-length"
+    if ($item.Family -like "continuum-kobathe*" -and
+        ($KobatheEnableArcLength -or
+         $KobatheArcLengthThreshold -ne 3 -or
+         $KobatheTailRescueAttempts -gt 0)) {
+        if ($KobatheEnableArcLength) {
+            $args += "--kobathe-enable-arc-length"
+        }
         $args += "--kobathe-arc-length-threshold"
         $args += "$KobatheArcLengthThreshold"
         if ($KobatheTailRescueAttempts -gt 0) {
