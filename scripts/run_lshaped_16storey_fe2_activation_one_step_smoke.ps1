@@ -18,6 +18,9 @@ param(
     [double]$Scale = 20.0,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
+    [switch]$KobatheEnableArcLength,
+    [int]$KobatheArcLengthThreshold = 3,
+    [int]$KobatheTailRescueAttempts = 0,
     [switch]$SkipPostprocess,
     [switch]$SkipAudit
 )
@@ -80,6 +83,15 @@ foreach ($item in $families) {
     if ($IncludeCenterProbeSite) {
         $args += "--fe2-include-center-probe-site"
     }
+    if ($item.Family -like "continuum-kobathe*" -and $KobatheEnableArcLength) {
+        $args += "--kobathe-enable-arc-length"
+        $args += "--kobathe-arc-length-threshold"
+        $args += "$KobatheArcLengthThreshold"
+        if ($KobatheTailRescueAttempts -gt 0) {
+            $args += "--kobathe-tail-rescue-attempts"
+            $args += "$KobatheTailRescueAttempts"
+        }
+    }
 
     Write-Host "Running activation + $StepsAfterActivation FE2 step smoke: $($item.Name)..."
     & $exe @args
@@ -105,6 +117,9 @@ foreach ($item in $families) {
         fe2_max_sites = $Fe2MaxSites
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
+        kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
+        kobathe_arc_length_threshold = $KobatheArcLengthThreshold
+        kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
         output_root = "$outputRoot"
     } | ConvertTo-Json -Depth 4
     Set-Content -Path (Join-Path $outputRoot "activation_one_step_manifest.json") -Value $manifest
