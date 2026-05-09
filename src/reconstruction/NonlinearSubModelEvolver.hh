@@ -2173,7 +2173,10 @@ private:
             local_ey_,
             local_ez_,
             latest_cracks_,
-            min_crack_opening_);
+            min_crack_opening_,
+            &penalty_couplings_,
+            alpha_penalty_,
+            penalty_coupling_law_);
     }
 
 public:

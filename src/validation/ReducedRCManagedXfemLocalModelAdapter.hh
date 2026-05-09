@@ -861,6 +861,46 @@ private:
         bar_id_arr->SetName("bar_id");
         bar_id_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> bond_slip_arr;
+        bond_slip_arr->SetName("bond_slip");
+        bond_slip_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_axial_arr;
+        bond_slip_axial_arr->SetName("bond_slip_axial");
+        bond_slip_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_transverse_arr;
+        bond_slip_transverse_arr->SetName("bond_slip_transverse");
+        bond_slip_transverse_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_vector_arr;
+        bond_slip_vector_arr->SetName("bond_slip_vector");
+        bond_slip_vector_arr->SetNumberOfComponents(3);
+
+        vtkNew<vtkDoubleArray> bond_force_arr;
+        bond_force_arr->SetName("bond_force");
+        bond_force_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_force_axial_arr;
+        bond_force_axial_arr->SetName("bond_force_axial");
+        bond_force_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_force_transverse_arr;
+        bond_force_transverse_arr->SetName("bond_force_transverse");
+        bond_force_transverse_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_tangent_axial_arr;
+        bond_tangent_axial_arr->SetName("bond_tangent_axial");
+        bond_tangent_axial_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_ratio_arr;
+        bond_slip_ratio_arr->SetName("bond_slip_ratio");
+        bond_slip_ratio_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_slip_valid_arr;
+        bond_slip_valid_arr->SetName("bond_slip_valid");
+        bond_slip_valid_arr->SetNumberOfComponents(1);
+
         vtkNew<vtkDoubleArray> site_arr;
         site_arr->SetName("site_id");
         site_arr->SetNumberOfComponents(1);
@@ -1074,6 +1114,16 @@ private:
                 yield_ratio_arr->InsertNextValue(
                     std::abs(axial_sigma) / fy);
                 bar_id_arr->InsertNextValue(bar_id);
+                bond_slip_arr->InsertNextValue(0.0);
+                bond_slip_axial_arr->InsertNextValue(0.0);
+                bond_slip_transverse_arr->InsertNextValue(0.0);
+                bond_slip_vector_arr->InsertNextTuple3(0.0, 0.0, 0.0);
+                bond_force_arr->InsertNextValue(0.0);
+                bond_force_axial_arr->InsertNextValue(0.0);
+                bond_force_transverse_arr->InsertNextValue(0.0);
+                bond_tangent_axial_arr->InsertNextValue(0.0);
+                bond_slip_ratio_arr->InsertNextValue(0.0);
+                bond_slip_valid_arr->InsertNextValue(0.0);
                 site_arr->InsertNextValue(
                     static_cast<double>(patch_.site_index));
                 parent_arr->InsertNextValue(
@@ -1150,6 +1200,16 @@ private:
         tube_grid->GetCellData()->AddArray(strain_arr);
         tube_grid->GetCellData()->AddArray(yield_ratio_arr);
         tube_grid->GetCellData()->AddArray(bar_id_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_axial_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_transverse_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_vector_arr);
+        tube_grid->GetCellData()->AddArray(bond_force_arr);
+        tube_grid->GetCellData()->AddArray(bond_force_axial_arr);
+        tube_grid->GetCellData()->AddArray(bond_force_transverse_arr);
+        tube_grid->GetCellData()->AddArray(bond_tangent_axial_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_ratio_arr);
+        tube_grid->GetCellData()->AddArray(bond_slip_valid_arr);
         tube_grid->GetCellData()->AddArray(site_arr);
         tube_grid->GetCellData()->AddArray(parent_arr);
         VecRestoreArrayRead(model_->state_vector(), &u_arr);

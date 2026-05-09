@@ -48,6 +48,18 @@ REBAR_FIELDS = {
     "axial_stress",
     "yield_ratio",
 }
+REBAR_TUBE_BOND_SLIP_FIELDS = {
+    "bond_slip",
+    "bond_slip_axial",
+    "bond_slip_transverse",
+    "bond_slip_vector",
+    "bond_force",
+    "bond_force_axial",
+    "bond_force_transverse",
+    "bond_tangent_axial",
+    "bond_slip_ratio",
+    "bond_slip_valid",
+}
 
 
 def issue(severity: str, path: Path | str, message: str) -> dict[str, str]:
@@ -255,6 +267,15 @@ def audit_vtu(
     if cat in {"rebar", "rebar_tubes"}:
         for field in sorted(REBAR_FIELDS - cell_names):
             issues.append(issue("error", path, f"missing rebar CellData/{field}"))
+    if cat == "rebar_tubes":
+        for field in sorted(REBAR_TUBE_BOND_SLIP_FIELDS - cell_names):
+            issues.append(issue("error", path, f"missing rebar tube CellData/{field}"))
+        slips = parse_ascii_numbers(info["cell_data"].get("bond_slip"))
+        valid = parse_ascii_numbers(info["cell_data"].get("bond_slip_valid"))
+        if slips:
+            metrics["max_bond_slip_m"] = max(abs(value) for value in slips)
+        if valid:
+            metrics["bond_slip_valid_cells"] = sum(1 for value in valid if value >= 0.5)
 
     return issues, metrics
 
@@ -567,6 +588,8 @@ def main() -> int:
         "gauss_fields_profile": args.gauss_fields_profile,
         "crack_opening_threshold_m": args.crack_opening_threshold,
         "min_visible_crack_opening_m": None,
+        "max_bond_slip_m": None,
+        "bond_slip_valid_cells": 0,
         "local_global_endpoint_checks": 0,
         "local_global_endpoint_max_gap_m": None,
         "local_global_current_endpoint_max_gap_m": None,
@@ -622,6 +645,15 @@ def main() -> int:
             report["issues"].extend(issues)
             report["visible_crack_cells"] += int(metrics.get("visible_crack_cells", 0))
             report["gauss_points"] += int(metrics.get("gauss_points", 0))
+            report["bond_slip_valid_cells"] += int(metrics.get("bond_slip_valid_cells", 0))
+            max_bond_slip = metrics.get("max_bond_slip_m")
+            if max_bond_slip is not None:
+                report["max_bond_slip_m"] = max(
+                    max_bond_slip,
+                    report["max_bond_slip_m"]
+                    if report["max_bond_slip_m"] is not None
+                    else max_bond_slip,
+                )
             min_visible = metrics.get("min_visible_crack_opening_m")
             if min_visible is not None:
                 report["min_visible_crack_opening_m"] = min(
