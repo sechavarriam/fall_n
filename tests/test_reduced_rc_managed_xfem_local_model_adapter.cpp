@@ -39,6 +39,26 @@ int main(int argc, char** argv)
     patch.ny = 1;
     patch.nz = 2;
 
+    {
+        const double eps =
+            fall_n::ReducedRCManagedXfemLocalModelAdapter::
+                prism_section_axial_strain_from_beam_generalized(
+                    0.001, 0.010, -0.004, 0.25, -0.10);
+        check(std::abs(eps - 0.0039) < 1.0e-14,
+              "managed XFEM prism axes preserve beam-section curvature signs");
+
+        const double u_plus =
+            fall_n::ReducedRCManagedXfemLocalModelAdapter::
+                prism_top_axial_displacement_from_beam_generalized(
+                    0.002, 3.0, 0.010, 0.0, 0.25, 0.0);
+        const double u_minus =
+            fall_n::ReducedRCManagedXfemLocalModelAdapter::
+                prism_top_axial_displacement_from_beam_generalized(
+                    0.002, 3.0, 0.010, 0.0, -0.25, 0.0);
+        check(u_plus > u_minus,
+              "positive beam kappa_y extends positive prism-x fibres");
+    }
+
     std::vector<fall_n::ReducedRCStructuralReplaySample> history(3);
     for (std::size_t i = 0; i < history.size(); ++i) {
         auto& sample = history[i];
