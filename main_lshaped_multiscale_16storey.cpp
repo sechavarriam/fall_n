@@ -1554,6 +1554,9 @@ int main(int argc, char* argv[]) {
     bool kobathe_enable_arc_length = false;
     bool kobathe_subsequent_adaptive = true;
     bool kobathe_skip_subsequent_full_step = false;
+    bool kobathe_bond_slip_regularization = false;
+    double kobathe_bond_slip_reference = 0.5e-3;
+    double kobathe_bond_slip_residual_ratio = 0.2;
     double kobathe_adaptive_initial_fraction = 0.25;
     double kobathe_adaptive_growth_factor = 2.0;
     int kobathe_adaptive_easy_iterations = 8;
@@ -1786,6 +1789,14 @@ int main(int argc, char* argv[]) {
             kobathe_skip_subsequent_full_step = true;
         } else if (arg == "--kobathe-attempt-subsequent-full-step") {
             kobathe_skip_subsequent_full_step = false;
+        } else if (arg == "--kobathe-bond-slip") {
+            kobathe_bond_slip_regularization = true;
+        } else if (arg == "--kobathe-no-bond-slip") {
+            kobathe_bond_slip_regularization = false;
+        } else if (arg == "--kobathe-bond-slip-reference" && i + 1 < argc) {
+            kobathe_bond_slip_reference = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-bond-slip-residual-ratio" && i + 1 < argc) {
+            kobathe_bond_slip_residual_ratio = std::stod(argv[++i]);
         } else if (arg == "--kobathe-adaptive-initial-fraction" && i + 1 < argc) {
             kobathe_adaptive_initial_fraction = std::stod(argv[++i]);
         } else if (arg == "--kobathe-adaptive-growth-factor" && i + 1 < argc) {
@@ -1926,6 +1937,15 @@ int main(int argc, char* argv[]) {
     }
     if (!(kobathe_snes_atol > 0.0) || !(kobathe_snes_rtol > 0.0)) {
         throw std::invalid_argument("--kobathe-snes-atol/rtol must be positive.");
+    }
+    if (!(kobathe_bond_slip_reference > 0.0)) {
+        throw std::invalid_argument(
+            "--kobathe-bond-slip-reference must be positive.");
+    }
+    if (!(kobathe_bond_slip_residual_ratio >= 0.0 &&
+          kobathe_bond_slip_residual_ratio <= 1.0)) {
+        throw std::invalid_argument(
+            "--kobathe-bond-slip-residual-ratio must be in [0, 1].");
     }
     if (!(kobathe_adaptive_growth_factor >= 1.0)) {
         throw std::invalid_argument(
@@ -2114,6 +2134,10 @@ int main(int argc, char* argv[]) {
              "--kobathe-no-subsequent-adaptive",
              "--kobathe-skip-subsequent-full-step",
              "--kobathe-attempt-subsequent-full-step",
+             "--kobathe-bond-slip",
+             "--kobathe-no-bond-slip",
+             "--kobathe-bond-slip-reference",
+             "--kobathe-bond-slip-residual-ratio",
              "--kobathe-adaptive-initial-fraction",
              "--kobathe-adaptive-growth-factor",
              "--kobathe-adaptive-easy-iters",
@@ -3404,6 +3428,10 @@ int main(int argc, char* argv[]) {
               managed_local_adaptive_max_bisections);
           ev.set_rebar_material(STEEL_E, STEEL_FY, STEEL_B);
           ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
+          ev.set_penalty_bond_slip_regularization(
+              kobathe_bond_slip_regularization,
+              kobathe_bond_slip_reference,
+              kobathe_bond_slip_residual_ratio);
           ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
                              kobathe_snes_rtol);
           ev.set_arc_length_threshold(kobathe_arc_length_threshold);
@@ -3555,6 +3583,11 @@ int main(int argc, char* argv[]) {
                      kobathe_snes_atol,
                      kobathe_snes_rtol,
                      kobathe_min_crack_opening);
+        std::println("  Ko-Bathe bond-slip : enabled={}, s_ref={:.3e} m, "
+                     "residual_ratio={:.2f}",
+                     kobathe_bond_slip_regularization ? "on" : "off",
+                     kobathe_bond_slip_reference,
+                     kobathe_bond_slip_residual_ratio);
         std::println("  Ko-Bathe adaptive : arc_length={}, subsequent={}, "
                      "skip_full_step={}, initial_frac={:.3f}, "
                      "growth={:.2f}, threshold={}, "
