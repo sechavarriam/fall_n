@@ -14,6 +14,8 @@ param(
     [ValidateSet("reference", "current", "both")]
     [string]$PlacementFrame = "both",
     [int]$Fe2MaxSites = 3,
+    [switch]$IncludeColumnProbeSites,
+    [switch]$IncludeCenterProbeSite,
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
     [double]$LinearAlarmRestartTime = 5.20,
@@ -80,6 +82,12 @@ foreach ($item in $families) {
         "--local-vtk-placement-frame", $PlacementFrame,
         "--fe2-max-sites", "$Fe2MaxSites"
     )
+    if ($IncludeColumnProbeSites) {
+        $args += "--fe2-include-column-probe-sites"
+    }
+    if ($IncludeCenterProbeSite) {
+        $args += "--fe2-include-center-probe-site"
+    }
     if ($SkipPostprocess) {
         $args += "--skip-postprocess"
     }
@@ -124,6 +132,8 @@ foreach ($item in $families) {
         local_vtk_placement_frame = $PlacementFrame
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
+        include_column_probe_sites = [bool]$IncludeColumnProbeSites
+        include_center_probe_site = [bool]$IncludeCenterProbeSite
         kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
         kobathe_arc_length_threshold = $KobatheArcLengthThreshold
         kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
