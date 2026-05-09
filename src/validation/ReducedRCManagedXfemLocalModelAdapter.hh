@@ -146,6 +146,33 @@ public:
                           3,
                           XFEMPolicy>;
 
+    [[nodiscard]] static double
+    prism_section_axial_strain_from_beam_generalized(
+        double axial_strain,
+        double curvature_y,
+        double curvature_z,
+        double x_prism,
+        double y_prism) noexcept
+    {
+        // Local-site placement maps prism x to -beam z and prism y to beam y.
+        // FieldTransfer uses eps_xx = eps0 - z_beam*kappa_y + y_beam*kappa_z.
+        return axial_strain + curvature_y * x_prism + curvature_z * y_prism;
+    }
+
+    [[nodiscard]] static double
+    prism_top_axial_displacement_from_beam_generalized(
+        double top_axial_translation_m,
+        double patch_length_m,
+        double curvature_y,
+        double curvature_z,
+        double x_prism,
+        double y_prism) noexcept
+    {
+        return top_axial_translation_m +
+               patch_length_m *
+                   (curvature_y * x_prism + curvature_z * y_prism);
+    }
+
     explicit ReducedRCManagedXfemLocalModelAdapter(
         ReducedRCManagedXfemLocalModelAdapterOptions options = {})
         : options_{options}
@@ -331,24 +358,22 @@ public:
             const auto id = static_cast<std::size_t>(node_id);
             const auto& node = domain_->node(id);
 
-            // Affine beam-section map for the first one-direction closure:
-            // top-face translation plus rotation about local y.  The term
-            // -theta_y*x introduces the axial extension/compression gradient
-            // conjugate to curvature without tying the local mesh to any macro
-            // integration point topology.
+            // Affine beam-section map in prism axes.  The helper keeps this
+            // convention identical to FieldTransfer and to the rebar VTK
+            // observable below.
             const double x = node.coord(0);
             const double ux = imposed_lateral_translation_x_(sample);
             const double uy = options_.constrain_lateral_top_y
                 ? sample.imposed_top_translation_m.y()
                 : 0.0;
-            const double theta_y =
-                imposed_curvature_y_(sample) * patch_.characteristic_length_m;
-            const double theta_z =
-                imposed_curvature_z_(sample) * patch_.characteristic_length_m;
             const double uz =
-                sample.imposed_top_translation_m.z() -
-                theta_y * x +
-                theta_z * node.coord(1);
+                prism_top_axial_displacement_from_beam_generalized(
+                    sample.imposed_top_translation_m.z(),
+                    patch_.characteristic_length_m,
+                    imposed_curvature_y_(sample),
+                    imposed_curvature_z_(sample),
+                    x,
+                    node.coord(1));
 
             model_->set_imposed_value_unassembled(id, 0, ux);
             model_->set_imposed_value_unassembled(id, 1, uy);
@@ -1100,9 +1125,12 @@ private:
             const double x = bars[bar].x();
             const double y = bars[bar].y();
             const double axial_eps =
-                last_boundary_.axial_strain -
-                imposed_curvature_y_(last_boundary_) * x +
-                imposed_curvature_z_(last_boundary_) * y;
+                prism_section_axial_strain_from_beam_generalized(
+                    last_boundary_.axial_strain,
+                    imposed_curvature_y_(last_boundary_),
+                    imposed_curvature_z_(last_boundary_),
+                    x,
+                    y);
             const double axial_sigma = Es * axial_eps;
             for (std::size_t iz = 0; iz + 1 < z_coords.size(); ++iz) {
                 insert_tube_segment(Eigen::Vector3d{x, y, z_coords[iz]},
