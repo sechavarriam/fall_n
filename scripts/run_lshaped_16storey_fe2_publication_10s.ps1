@@ -17,6 +17,9 @@ param(
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
     [double]$LinearAlarmRestartTime = 5.20,
+    [switch]$KobatheEnableArcLength,
+    [int]$KobatheArcLengthThreshold = 3,
+    [int]$KobatheTailRescueAttempts = 0,
     [switch]$SkipPostprocess,
     [switch]$SkipAudit
 )
@@ -83,6 +86,20 @@ foreach ($item in $families) {
     if ($UseLinearAlarmRestart) {
         $args += "--restart-from-linear-alarm"
     }
+    if ($item.Family -like "continuum-kobathe*" -and
+        ($KobatheEnableArcLength -or
+         $KobatheArcLengthThreshold -ne 3 -or
+         $KobatheTailRescueAttempts -gt 0)) {
+        if ($KobatheEnableArcLength) {
+            $args += "--kobathe-enable-arc-length"
+        }
+        $args += "--kobathe-arc-length-threshold"
+        $args += "$KobatheArcLengthThreshold"
+        if ($KobatheTailRescueAttempts -gt 0) {
+            $args += "--kobathe-tail-rescue-attempts"
+            $args += "$KobatheTailRescueAttempts"
+        }
+    }
 
     Write-Host "Running $($item.Name) FE2 one-way publication case..."
     & $exe @args
@@ -107,6 +124,9 @@ foreach ($item in $families) {
         local_vtk_placement_frame = $PlacementFrame
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
+        kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
+        kobathe_arc_length_threshold = $KobatheArcLengthThreshold
+        kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
         output_root = "$outputRoot"
     } | ConvertTo-Json -Depth 4
     Set-Content -Path (Join-Path $outputRoot "publication_run_manifest.json") -Value $manifest

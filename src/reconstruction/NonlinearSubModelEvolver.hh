@@ -1854,6 +1854,7 @@ private:
                              "after {} consecutive SNES divergences",
                              sub_->parent_element_id,
                              consecutive_divergences_);
+                return subsequent_solve_adaptive();
             }
         }
 
