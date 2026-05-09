@@ -450,6 +450,7 @@ static constexpr std::size_t MACRO_BEAM_N = 4;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using DynSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
+using StaticSolver = NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using BeamElemT    = TimoshenkoBeamN<MACRO_BEAM_N, TimoshenkoBeam3D>;
 using ShellElemT   = MITC4Shell<>;
 
@@ -644,6 +645,85 @@ make_uniform_ground_motion_influence(ModelT& model,
     FALL_N_PETSC_CHECK(DMCreateGlobalVector(dm, influence.ptr()));
     FALL_N_PETSC_CHECK(MatMult(mass_matrix, unit_global.get(), influence.get()));
     return influence;
+}
+
+struct LShapedGravityPreloadAudit {
+    bool enabled{false};
+    bool converged{false};
+    double gravity_accel{9.80665};
+    int preload_steps{0};
+    int preload_max_bisections{0};
+    double mass_per_direction{0.0};
+    double primary_grid_nodal_mass{0.0};
+    double force_norm_inf{0.0};
+    double force_norm_l2{0.0};
+    double displacement_norm_inf{0.0};
+    int snes_reason{0};
+    int snes_iterations{0};
+    double function_norm{0.0};
+};
+
+template <typename ModelT>
+[[nodiscard]] static petsc::OwnedVec
+make_vertical_gravity_force_from_mass(ModelT& model,
+                                      bool primary_nodal_mass,
+                                      std::size_t primary_node_limit,
+                                      double gravity_accel,
+                                      LShapedGravityPreloadAudit& audit)
+{
+    petsc::OwnedMat gravity_mass;
+    FALL_N_PETSC_CHECK(DMCreateMatrix(model.get_plex(), gravity_mass.ptr()));
+    FALL_N_PETSC_CHECK(MatSetOption(
+        gravity_mass.get(), MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE));
+    model.assemble_mass_matrix(gravity_mass.get());
+
+    audit.mass_per_direction =
+        translational_mass_per_direction(model, gravity_mass.get());
+    if (primary_nodal_mass) {
+        audit.primary_grid_nodal_mass =
+            assemble_primary_grid_nodal_mass_matrix(
+                model,
+                gravity_mass.get(),
+                primary_node_limit,
+                audit.mass_per_direction);
+    }
+
+    auto gravity_force =
+        make_uniform_ground_motion_influence(model, gravity_mass.get(), 2);
+    FALL_N_PETSC_CHECK(VecScale(
+        gravity_force.get(),
+        static_cast<PetscScalar>(-std::abs(gravity_accel))));
+    FALL_N_PETSC_CHECK(VecNorm(
+        gravity_force.get(), NORM_INFINITY, &audit.force_norm_inf));
+    FALL_N_PETSC_CHECK(VecNorm(
+        gravity_force.get(), NORM_2, &audit.force_norm_l2));
+    return gravity_force;
+}
+
+static void write_gravity_preload_audit_csv(
+    const std::string& path,
+    const LShapedGravityPreloadAudit& audit)
+{
+    std::ofstream out(path);
+    out << "enabled,converged,gravity_accel,preload_steps,"
+        << "preload_max_bisections,mass_per_direction,"
+        << "primary_grid_nodal_mass,force_norm_inf,force_norm_l2,"
+        << "displacement_norm_inf,snes_reason,snes_iterations,function_norm\n";
+    out << std::boolalpha
+        << audit.enabled << ","
+        << audit.converged << ","
+        << std::scientific << std::setprecision(12)
+        << audit.gravity_accel << ","
+        << audit.preload_steps << ","
+        << audit.preload_max_bisections << ","
+        << audit.mass_per_direction << ","
+        << audit.primary_grid_nodal_mass << ","
+        << audit.force_norm_inf << ","
+        << audit.force_norm_l2 << ","
+        << audit.displacement_norm_inf << ","
+        << audit.snes_reason << ","
+        << audit.snes_iterations << ","
+        << audit.function_norm << "\n";
 }
 
 static void write_petsc_binary_vec(Vec vec, const std::string& path)
@@ -1441,6 +1521,7 @@ int main(int argc, char* argv[]) {
     bool restart_from_state = false;
     bool write_activation_restart = false;
     bool activation_restart_only = false;
+    bool gravity_preload = false;
     bool run_python_postprocess = true;
     bool fail_on_coupling_failure = false;
     bool adaptive_managed_local_transition = false;
@@ -1497,6 +1578,9 @@ int main(int argc, char* argv[]) {
     std::string restart_velocity_path;
     std::string activation_restart_prefix;
     double restart_time = 0.0;
+    double gravity_accel = 9.80665;
+    int gravity_preload_steps = 8;
+    int gravity_preload_bisections = 6;
     PetscInt restart_step = 0;
     auto element_mass_policy = fall_n::StructuralMassPolicy::consistent;
     for (int i = 1; i < argc; ++i) {
@@ -1584,6 +1668,14 @@ int main(int argc, char* argv[]) {
         if (arg == "--activation-restart-only") {
             write_activation_restart = true;
             activation_restart_only = true;
+            continue;
+        }
+        if (arg == "--gravity-preload") {
+            gravity_preload = true;
+            continue;
+        }
+        if (arg == "--no-gravity-preload") {
+            gravity_preload = false;
             continue;
         }
         if (arg == "--skip-postprocess" || arg == "--no-postprocess") {
@@ -1719,6 +1811,16 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--activation-restart-prefix" && i + 1 < argc) {
             write_activation_restart = true;
             activation_restart_prefix = argv[++i];
+        } else if (arg == "--gravity-accel" && i + 1 < argc) {
+            gravity_accel = std::stod(argv[++i]);
+        } else if (arg == "--gravity-preload-steps" && i + 1 < argc) {
+            gravity_preload = true;
+            gravity_preload_steps =
+                std::max(1, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--gravity-preload-bisections" && i + 1 < argc) {
+            gravity_preload = true;
+            gravity_preload_bisections =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--fe2-max-sites" && i + 1 < argc) {
             fe2_max_sites =
                 std::max<std::size_t>(1, static_cast<std::size_t>(
@@ -1841,6 +1943,9 @@ int main(int argc, char* argv[]) {
     if (fe2_site_relax_min_alpha < 0.0 || fe2_site_relax_min_alpha > 1.0) {
         throw std::invalid_argument("--fe2-site-relax-min-alpha must be in [0,1].");
     }
+    if (gravity_accel <= 0.0) {
+        throw std::invalid_argument("--gravity-accel must be positive.");
+    }
     if (local_family != "managed-xfem" &&
         local_family != "continuum-kobathe-hex20" &&
         local_family != "continuum-kobathe-hex27")
@@ -1913,6 +2018,11 @@ int main(int argc, char* argv[]) {
              "--restart-velocity",
              "--restart-time",
              "--restart-step",
+             "--gravity-preload",
+             "--no-gravity-preload",
+             "--gravity-accel",
+             "--gravity-preload-steps",
+             "--gravity-preload-bisections",
              "--skip-postprocess",
              "--no-postprocess",
              "--fail-on-coupling-failure",
@@ -2128,9 +2238,83 @@ int main(int argc, char* argv[]) {
     model.fix_z(0.0);
     model.setup();
     model.set_structural_mass_policy(element_mass_policy);
+    model.set_density(RC_DENSITY);
 
     std::println("  Total structural elements : {}", model.elements().size());
     std::println("  Element mass policy       : {}", fall_n::to_string(element_mass_policy));
+
+    const std::size_t primary_node_limit =
+        static_cast<std::size_t>((NUM_STORIES + 1) * X_GRID.size() * Y_GRID.size());
+
+    LShapedGravityPreloadAudit gravity_audit{};
+    gravity_audit.enabled = gravity_preload;
+    gravity_audit.gravity_accel = gravity_accel;
+    gravity_audit.preload_steps = gravity_preload_steps;
+    gravity_audit.preload_max_bisections = gravity_preload_bisections;
+
+    petsc::OwnedVec gravity_force_global;
+    petsc::OwnedVec gravity_displacement_global;
+    if (gravity_preload) {
+        std::println("\n[5g] Static gravity preload before seismic dynamics...");
+        gravity_force_global =
+            make_vertical_gravity_force_from_mass(
+                model,
+                primary_nodal_mass,
+                primary_node_limit,
+                gravity_accel,
+                gravity_audit);
+
+        PetscOptionsSetValue(nullptr, "-snes_max_it", "80");
+        PetscOptionsSetValue(nullptr, "-snes_rtol", "1e-8");
+        PetscOptionsSetValue(nullptr, "-snes_atol", "1e-8");
+        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "bt");
+        PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
+        PetscOptionsSetValue(nullptr, "-pc_type", "lu");
+
+        StaticSolver gravity_solver{&model};
+        gravity_solver.set_incremental_logging(true);
+        gravity_solver.setup();
+        FALL_N_PETSC_CHECK(VecCopy(
+            gravity_force_global.get(),
+            gravity_solver.external_force_vector()));
+
+        gravity_audit.converged =
+            gravity_solver.solve_incremental(
+                gravity_preload_steps,
+                gravity_preload_bisections);
+        gravity_audit.snes_reason =
+            static_cast<int>(gravity_solver.converged_reason());
+        gravity_audit.snes_iterations =
+            static_cast<int>(gravity_solver.num_iterations());
+        gravity_audit.function_norm = gravity_solver.function_norm();
+        gravity_displacement_global = gravity_solver.clone_solution_vector();
+        FALL_N_PETSC_CHECK(VecNorm(
+            gravity_displacement_global.get(),
+            NORM_INFINITY,
+            &gravity_audit.displacement_norm_inf));
+
+        std::filesystem::create_directories(OUT + "recorders/");
+        write_gravity_preload_audit_csv(
+            OUT + "recorders/gravity_preload_audit.csv",
+            gravity_audit);
+
+        std::println("  Gravity force ||F_g||_inf  : {:.6e} MN",
+                     gravity_audit.force_norm_inf);
+        std::println("  Gravity preload ||u_g||_inf: {:.6e} m",
+                     gravity_audit.displacement_norm_inf);
+        std::println("  Gravity preload solve      : {} (reason={}, iters={}, ||F||={:.6e})",
+                     gravity_audit.converged ? "converged" : "failed",
+                     gravity_audit.snes_reason,
+                     gravity_audit.snes_iterations,
+                     gravity_audit.function_norm);
+
+        if (!gravity_audit.converged) {
+            throw std::runtime_error(
+                "Gravity preload failed; dynamic seismic run was not started.");
+        }
+    } else {
+        std::println("\n[5g] Static gravity preload: disabled");
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     //  6. Dynamic solver: density, Rayleigh damping, 3-component ground motion
@@ -2140,7 +2324,18 @@ int main(int argc, char* argv[]) {
     DynSolver solver{&model};
     solver.set_density(RC_DENSITY);
     solver.set_rayleigh_damping(OMEGA_1, OMEGA_3, XI_DAMP);
-    solver.set_force_function([](double, Vec) {});
+    solver.set_force_function([&gravity_force_global](double, Vec f_ext_global) {
+        if (gravity_force_global) {
+            FALL_N_PETSC_CHECK(VecCopy(gravity_force_global.get(), f_ext_global));
+        }
+    });
+    if (gravity_displacement_global) {
+        solver.set_initial_displacement(gravity_displacement_global.get());
+        petsc::OwnedVec zero_velocity;
+        FALL_N_PETSC_CHECK(DMCreateGlobalVector(model.get_plex(), zero_velocity.ptr()));
+        FALL_N_PETSC_CHECK(VecSet(zero_velocity.get(), 0.0));
+        solver.set_initial_velocity(zero_velocity.get());
+    }
 
     BoundaryConditionSet<3> bcs;
     bcs.add_ground_motion({0, eq_ns.as_time_function()}, eq_scale);  // X (NS)
@@ -2161,6 +2356,12 @@ int main(int argc, char* argv[]) {
                  primary_nodal_mass
                      ? "primary-grid nodal diagnostic"
                      : std::string(fall_n::to_string(element_mass_policy)));
+    std::println("  Gravity preload  : {}",
+                 gravity_preload ? "enabled" : "disabled");
+    if (gravity_preload && restart_from_state) {
+        std::println("  Gravity/restart  : restart state overrides u_g; "
+                     "verify the restart was generated with the same gravity load.");
+    }
     if (restart_from_state) {
         std::println("  Restart state    : t = {:.4f} s, step = {}",
                      restart_time, restart_step);
