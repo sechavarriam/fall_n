@@ -707,6 +707,11 @@ fall_n_add_test(TARGET fall_n_penalty_coupling_law_test
     SOURCE tests/test_penalty_coupling_law.cpp
     LIBS FULL  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_kobathe_kinematic_variants_test
+    NAME kobathe_kinematic_variants
+    SOURCE tests/test_kobathe_kinematic_variants.cpp
+    LIBS FULL  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_point_test
     NAME point_geometry  SOURCE tests/test_point.cpp
     LIBS CORE  LABEL unit)
