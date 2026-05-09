@@ -5,6 +5,7 @@ param(
     [double]$StartTime = 87.65,
     [double]$Duration = 10.0,
     [double]$SmokeDuration = 0.10,
+    [double]$Scale = 20.0,
     [int]$GlobalVtkInterval = 1,
     [int]$LocalVtkInterval = 1,
     [double]$CrackOpeningThreshold = 0.0005,
@@ -63,6 +64,7 @@ foreach ($item in $families) {
     $args = @(
         "--fe2-one-way-only",
         "--local-family", $item.Family,
+        "--scale", (Format-Real $Scale),
         "--start-time", (Format-Real $StartTime),
         "--duration", (Format-Real $driverDuration),
         "--output-root", $outputRoot,
@@ -92,6 +94,7 @@ foreach ($item in $families) {
         schema = "fall_n_lshaped_16storey_publication_10s_run_v1"
         mode = $item.Name
         local_family = $item.Family
+        scale = $Scale
         start_time_s = $StartTime
         requested_duration_s = $runDuration
         driver_duration_s = $driverDuration
