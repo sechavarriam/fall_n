@@ -618,13 +618,27 @@ private:
         capture_macro_solver_diagnostics_();
         capture_attempted_macro_state_();
 
+        std::vector<LocalCheckpointT> local_checkpoints;
+        local_checkpoints.reserve(model_.num_local_models());
+        for (auto& local_model : model_.local_models()) {
+            local_checkpoints.push_back(local_model.capture_checkpoint());
+        }
+
         auto t0 = std::chrono::steady_clock::now();
         std::vector<SectionHomogenizedResponse> responses;
         solve_locals_once_(macro_solver_->current_time(),
                            responses,
                            last_report_.failed_submodels);
         last_responses_ = responses;
-        finalize_local_models_(macro_solver_->current_time(), &responses);
+        if (last_report_.failed_submodels == 0) {
+            finalize_local_models_(macro_solver_->current_time(), &responses);
+        } else {
+            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                model_.local_models()[i].restore_checkpoint(
+                    local_checkpoints[i]);
+                model_.local_models()[i].set_auto_commit(true);
+            }
+        }
         sync_local_runtime_report_();
         auto t1 = std::chrono::steady_clock::now();
 
