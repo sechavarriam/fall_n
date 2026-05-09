@@ -174,7 +174,9 @@ class NonlinearSubModelEvolver {
     //  Arc-length control (Phase 2.3) 
     bool   use_arc_length_{false};
     int    consecutive_divergences_{0};
-    double last_good_frac_{0.5};   // cache last converged sub-step fraction
+    bool   adaptive_subsequent_steps_{false};
+    double last_good_frac_{1.0};   // cache next adaptive sub-step fraction
+    double adaptive_growth_factor_{2.0};
     int    arc_length_threshold_{3}; // switch after this many consecutive divergences
     int    adaptive_max_substeps_{30};
     int    adaptive_max_bisections_{10};
@@ -449,8 +451,10 @@ class NonlinearSubModelEvolver {
                 stats.achieved_fraction =
                     global_base_fraction + global_span_fraction * progress;
                 ++stats.total_substeps;
+                const double grown_step_frac = std::clamp(
+                    step_frac * adaptive_growth_factor_, 1.0e-12, 1.0);
                 if (track_last_good_fraction) {
-                    last_good_frac_ = global_step_frac;
+                    last_good_frac_ = grown_step_frac;
                 }
 
                 if (stats.total_substeps >= clamped_substeps
@@ -472,7 +476,7 @@ class NonlinearSubModelEvolver {
                     static_cast<int>(reason),
                     global_step_frac);
 
-                step_frac = std::min(step_frac * 2.0, 1.0 - progress);
+                step_frac = std::min(grown_step_frac, 1.0 - progress);
                 if (step_frac <= 0.0) {
                     break;
                 }
@@ -890,7 +894,9 @@ public:
         , first_step_bisect_{o.first_step_bisect_}
         , use_arc_length_{o.use_arc_length_}
         , consecutive_divergences_{o.consecutive_divergences_}
+        , adaptive_subsequent_steps_{o.adaptive_subsequent_steps_}
         , last_good_frac_{o.last_good_frac_}
+        , adaptive_growth_factor_{o.adaptive_growth_factor_}
         , arc_length_threshold_{o.arc_length_threshold_}
         , adaptive_max_substeps_{o.adaptive_max_substeps_}
         , adaptive_max_bisections_{o.adaptive_max_bisections_}
@@ -953,7 +959,9 @@ public:
             first_step_bisect_     = o.first_step_bisect_;
             use_arc_length_          = o.use_arc_length_;
             consecutive_divergences_ = o.consecutive_divergences_;
+            adaptive_subsequent_steps_ = o.adaptive_subsequent_steps_;
             last_good_frac_          = o.last_good_frac_;
+            adaptive_growth_factor_  = o.adaptive_growth_factor_;
             arc_length_threshold_    = o.arc_length_threshold_;
             adaptive_max_substeps_   = o.adaptive_max_substeps_;
             adaptive_max_bisections_ = o.adaptive_max_bisections_;
@@ -1000,8 +1008,10 @@ public:
         SectionKinematics kin_B{};
         bool model_initialized{false};
         bool arc_length_active{false};
+        bool adaptive_subsequent_steps{false};
         int consecutive_divergences{0};
-        double last_good_fraction{0.5};
+        double last_good_fraction{1.0};
+        double adaptive_growth_factor{2.0};
     };
 
     using checkpoint_type = SolverCheckpoint;
@@ -1026,6 +1036,21 @@ public:
 
     void enable_arc_length(bool flag = true) { use_arc_length_ = flag; }
     void set_arc_length_threshold(int t) { arc_length_threshold_ = t; }
+    void enable_adaptive_subsequent_steps(bool flag = true) noexcept {
+        adaptive_subsequent_steps_ = flag;
+        if (flag) {
+            last_good_frac_ = std::clamp(last_good_frac_, 1.0e-12, 1.0);
+        }
+    }
+    void set_adaptive_growth_factor(double factor) noexcept {
+        if (!(factor >= 1.0)) {
+            factor = 1.0;
+        }
+        adaptive_growth_factor_ = std::min(factor, 16.0);
+    }
+    void set_adaptive_initial_step_fraction(double fraction) noexcept {
+        last_good_frac_ = std::clamp(fraction, 1.0e-12, 1.0);
+    }
     void set_adaptive_substepping_limits(int max_substeps,
                                          int max_bisections) noexcept
     {
@@ -1152,8 +1177,10 @@ public:
         checkpoint.kin_B = sub_->kin_B;
         checkpoint.model_initialized = model_ready_;
         checkpoint.arc_length_active = use_arc_length_;
+        checkpoint.adaptive_subsequent_steps = adaptive_subsequent_steps_;
         checkpoint.consecutive_divergences = consecutive_divergences_;
         checkpoint.last_good_fraction = last_good_frac_;
+        checkpoint.adaptive_growth_factor = adaptive_growth_factor_;
 
         if (model_ready_ && U_ && model_) {
             checkpoint.model.emplace(model_->capture_checkpoint());
@@ -1174,8 +1201,10 @@ public:
         make_bc_applicator_().update_kinematics(
             checkpoint.kin_A, checkpoint.kin_B);
         use_arc_length_ = checkpoint.arc_length_active;
+        adaptive_subsequent_steps_ = checkpoint.adaptive_subsequent_steps;
         consecutive_divergences_ = checkpoint.consecutive_divergences;
         last_good_frac_ = checkpoint.last_good_fraction;
+        adaptive_growth_factor_ = checkpoint.adaptive_growth_factor;
 
         if (!checkpoint.model_initialized) {
             reset_transient_model_();
@@ -1804,11 +1833,10 @@ private:
 
     //  Subsequent solve: update BCs, Newton from current state 
     //
-    //  If SNES diverges repeatedly (≥ arc_length_threshold_ consecutive
-    //  failures), the solver automatically enables arc-length control for
-    //  subsequent steps.  Once arc-length is active, the solver uses adaptive
-    //  displacement sub-stepping — the BC increment is subdivided and each
-    //  sub-step is solved by Newton; on failure the step size is bisected.
+    //  The standard path attempts the full macro increment first.  If that
+    //  fails and adaptive subsequent stepping is enabled, the same increment
+    //  is retried through local pseudo-time substeps; failures bisect the
+    //  increment and easy convergence grows the next attempt.
 
     SubModelSolverResult subsequent_solve() {
         if (use_arc_length_)
@@ -1846,10 +1874,19 @@ private:
             VecCopy(imp_work_, model_->imposed_solution()); // restore imposed BCs
             revert_state();
 
+            if (adaptive_subsequent_steps_) {
+                std::println(
+                    "  [SubModel {}] Full-step SNES diverged; retrying with "
+                    "adaptive sub-stepping",
+                    sub_->parent_element_id);
+                return subsequent_solve_adaptive();
+            }
+
             // Auto-switch to arc-length after repeated divergences
             ++consecutive_divergences_;
             if (consecutive_divergences_ >= arc_length_threshold_) {
                 use_arc_length_ = true;
+                adaptive_subsequent_steps_ = true;
                 std::println("  [SubModel {}] Auto-enabling adaptive sub-stepping "
                              "after {} consecutive SNES divergences",
                              sub_->parent_element_id,
@@ -1882,7 +1919,7 @@ private:
     //
     //  Interpolates boundary conditions from the previous converged state
     //  to the full target in sub-increments.  On SNES failure the step
-    //  fraction is bisected; on success, the fraction doubles (up to 1).
+    //  fraction is bisected; on success, the fraction grows (up to 1).
     //  The method fails only when the minimum step fraction is reached.
 
     SubModelSolverResult subsequent_solve_adaptive() {
