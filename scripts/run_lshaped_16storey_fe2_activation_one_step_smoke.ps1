@@ -27,6 +27,8 @@ param(
     [int]$GravityPreloadSteps = 8,
     [int]$GravityPreloadBisections = 6,
     [double]$KobathePenaltyFactor = 10.0,
+    [ValidateSet("small", "tl", "ul", "corotational")]
+    [string]$KobatheKinematics = "small",
     [int]$KobatheSnesMaxIt = 60,
     [double]$KobatheSnesAtol = 1.0e-6,
     [double]$KobatheSnesRtol = 1.0e-2,
@@ -121,6 +123,7 @@ foreach ($item in $families) {
     if ($item.Family -like "continuum-kobathe*" -and
         ($KobatheEnableArcLength -or
          $KobathePenaltyFactor -ne 10.0 -or
+         $KobatheKinematics -ne "small" -or
          $KobatheSnesMaxIt -ne 60 -or
          $KobatheSnesAtol -ne 1.0e-6 -or
          $KobatheSnesRtol -ne 1.0e-2 -or
@@ -150,6 +153,8 @@ foreach ($item in $families) {
         }
         $args += "--kobathe-penalty-factor"
         $args += (Format-Real $KobathePenaltyFactor)
+        $args += "--kobathe-kinematics"
+        $args += $KobatheKinematics
         $args += "--kobathe-bond-slip-reference"
         $args += (Format-Real $KobatheBondSlipReference)
         $args += "--kobathe-bond-slip-residual-ratio"
@@ -211,6 +216,7 @@ foreach ($item in $families) {
         managed_local_max_transition_steps = $ManagedLocalMaxTransitionSteps
         managed_local_adaptive_max_bisections = $ManagedLocalAdaptiveMaxBisections
         kobathe_penalty_factor = $KobathePenaltyFactor
+        kobathe_kinematics = $KobatheKinematics
         kobathe_snes_max_it = $KobatheSnesMaxIt
         kobathe_snes_atol = $KobatheSnesAtol
         kobathe_snes_rtol = $KobatheSnesRtol

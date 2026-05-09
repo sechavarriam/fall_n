@@ -1537,6 +1537,8 @@ int main(int argc, char* argv[]) {
         LocalVTKPlacementFrame::Reference;
     TwoWayFailureRecoveryPolicy fe2_recovery_policy{};
     std::string local_family = "managed-xfem";
+    SeismicFE2ContinuumKinematics kobathe_kinematics =
+        SeismicFE2ContinuumKinematics::small_strain;
     std::size_t fe2_max_sites = N_CRITICAL;
     int global_vtk_interval = FRAME_VTK_INTERVAL;
     int local_vtk_interval = EVOL_VTK_INTERVAL;
@@ -1772,6 +1774,27 @@ int main(int argc, char* argv[]) {
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--kobathe-penalty-factor" && i + 1 < argc) {
             kobathe_penalty_factor = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-kinematics" && i + 1 < argc) {
+            const std::string value = argv[++i];
+            if (value == "small" || value == "small-strain" ||
+                value == "small_strain") {
+                kobathe_kinematics =
+                    SeismicFE2ContinuumKinematics::small_strain;
+            } else if (value == "tl" || value == "total-lagrangian" ||
+                       value == "total_lagrangian") {
+                kobathe_kinematics =
+                    SeismicFE2ContinuumKinematics::total_lagrangian;
+            } else if (value == "ul" || value == "updated-lagrangian" ||
+                       value == "updated_lagrangian") {
+                kobathe_kinematics =
+                    SeismicFE2ContinuumKinematics::updated_lagrangian;
+            } else if (value == "corotational" || value == "cr") {
+                kobathe_kinematics =
+                    SeismicFE2ContinuumKinematics::corotational;
+            } else {
+                throw std::invalid_argument(
+                    "--kobathe-kinematics must be small, tl, ul, or corotational.");
+            }
         } else if (arg == "--kobathe-snes-max-it" && i + 1 < argc) {
             kobathe_snes_max_it =
                 std::max(1, static_cast<int>(std::stol(argv[++i])));
@@ -2126,6 +2149,7 @@ int main(int argc, char* argv[]) {
              "--managed-local-min-bisections",
              "--managed-local-adaptive-max-bisections",
              "--kobathe-penalty-factor",
+             "--kobathe-kinematics",
              "--kobathe-snes-max-it",
              "--kobathe-snes-atol",
              "--kobathe-snes-rtol",
@@ -3410,59 +3434,83 @@ int main(int argc, char* argv[]) {
 
         const auto report = coordinator.report();
         std::println("  Ko-Bathe site {} / element {}: range {}, z/L={:.3f}, "
-                     "{} elems, {} nodes, hex_order={}",
+                     "{} elems, {} nodes, hex_order={}, kinematics={}",
                      plan.local_site_index, plan.kinematics.element_id, range,
                      plan.z_over_l, report.total_elements, report.total_nodes,
                      local_family == "continuum-kobathe-hex27" ? "Hex27"
-                                                               : "Hex20");
+                                                               : "Hex20",
+                     continuum_kinematics_label(kobathe_kinematics));
 
         for (auto &sub : coordinator.sub_models()) {
-          NonlinearSubModelEvolver ev{sub, COL_FPC[range], continuum_dir, 0};
-          ev.set_vtk_output_profile(local_vtk_profile);
-          ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
-          ev.set_vtk_placement_frame(local_vtk_placement_frame);
-          ev.set_incremental_params(managed_local_transition_steps,
-                                    managed_local_max_bisections);
-          ev.set_adaptive_substepping_limits(
-              managed_local_max_transition_steps,
-              managed_local_adaptive_max_bisections);
-          ev.set_rebar_material(STEEL_E, STEEL_FY, STEEL_B);
-          ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
-          ev.set_penalty_bond_slip_regularization(
-              kobathe_bond_slip_regularization,
-              kobathe_bond_slip_reference,
-              kobathe_bond_slip_residual_ratio);
-          ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
-                             kobathe_snes_rtol);
-          ev.set_arc_length_threshold(kobathe_arc_length_threshold);
-          ev.enable_arc_length(kobathe_enable_arc_length);
-          ev.enable_adaptive_subsequent_steps(kobathe_subsequent_adaptive);
-          ev.skip_subsequent_full_step_when_adaptive(
-              kobathe_skip_subsequent_full_step);
-          ev.set_adaptive_initial_step_fraction(
-              kobathe_adaptive_initial_fraction);
-          ev.set_adaptive_growth_factor(kobathe_adaptive_growth_factor);
-          ev.set_adaptive_iteration_controller(
-              kobathe_adaptive_easy_iterations,
-              kobathe_adaptive_hard_iterations,
-              kobathe_adaptive_hard_shrink_factor);
-          if (kobathe_tail_rescue_attempts > 0) {
-            ev.set_adaptive_tail_rescue_policy(
-                kobathe_tail_rescue_attempts,
-                0.75,
-                12,
-                4,
-                0.5);
+          auto configure_and_store_evolver = [&](auto ev) {
+            ev.set_vtk_output_profile(local_vtk_profile);
+            ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
+            ev.set_vtk_placement_frame(local_vtk_placement_frame);
+            ev.set_incremental_params(managed_local_transition_steps,
+                                      managed_local_max_bisections);
+            ev.set_adaptive_substepping_limits(
+                managed_local_max_transition_steps,
+                managed_local_adaptive_max_bisections);
+            ev.set_rebar_material(STEEL_E, STEEL_FY, STEEL_B);
+            ev.set_penalty_alpha(EC_RANGE[range] * kobathe_penalty_factor);
+            ev.set_penalty_bond_slip_regularization(
+                kobathe_bond_slip_regularization,
+                kobathe_bond_slip_reference,
+                kobathe_bond_slip_residual_ratio);
+            ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
+                               kobathe_snes_rtol);
+            ev.set_arc_length_threshold(kobathe_arc_length_threshold);
+            ev.enable_arc_length(kobathe_enable_arc_length);
+            ev.enable_adaptive_subsequent_steps(kobathe_subsequent_adaptive);
+            ev.skip_subsequent_full_step_when_adaptive(
+                kobathe_skip_subsequent_full_step);
+            ev.set_adaptive_initial_step_fraction(
+                kobathe_adaptive_initial_fraction);
+            ev.set_adaptive_growth_factor(kobathe_adaptive_growth_factor);
+            ev.set_adaptive_iteration_controller(
+                kobathe_adaptive_easy_iterations,
+                kobathe_adaptive_hard_iterations,
+                kobathe_adaptive_hard_shrink_factor);
+            if (kobathe_tail_rescue_attempts > 0) {
+              ev.set_adaptive_tail_rescue_policy(
+                  kobathe_tail_rescue_attempts,
+                  0.75,
+                  12,
+                  4,
+                  0.5);
+            }
+            ev.set_min_crack_opening(kobathe_min_crack_opening);
+            ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
+            const auto &site = plan.site;
+            local_site_transforms.push_back(make_local_site_transform(
+                plan.kinematics, site, plan.local_site_index, local_family,
+                true, local_vtk_placement_frame));
+            local_ranges.push_back(range);
+            local_sites.push_back(site);
+            local_evolvers.emplace_back(std::move(ev), continuum_family);
+          };
+
+          switch (kobathe_kinematics) {
+            case SeismicFE2ContinuumKinematics::small_strain:
+              configure_and_store_evolver(NonlinearSubModelEvolver{
+                  sub, COL_FPC[range], continuum_dir, 0});
+              break;
+            case SeismicFE2ContinuumKinematics::total_lagrangian:
+              configure_and_store_evolver(
+                  TotalLagrangianNonlinearSubModelEvolver{
+                      sub, COL_FPC[range], continuum_dir, 0});
+              break;
+            case SeismicFE2ContinuumKinematics::updated_lagrangian:
+              configure_and_store_evolver(
+                  UpdatedLagrangianNonlinearSubModelEvolver{
+                      sub, COL_FPC[range], continuum_dir, 0});
+              break;
+            case SeismicFE2ContinuumKinematics::corotational:
+              configure_and_store_evolver(
+                  CorotationalNonlinearSubModelEvolver{
+                      sub, COL_FPC[range], continuum_dir, 0});
+              break;
           }
-          ev.set_min_crack_opening(kobathe_min_crack_opening);
-          ev.set_vtk_crack_filter_mode(local_vtk_crack_filter_mode);
-          const auto &site = plan.site;
-          local_site_transforms.push_back(make_local_site_transform(
-              plan.kinematics, site, plan.local_site_index, local_family, true,
-              local_vtk_placement_frame));
-          local_ranges.push_back(range);
-          local_sites.push_back(site);
-          local_evolvers.emplace_back(std::move(ev), continuum_family);
         }
       }
     }
@@ -3583,6 +3631,8 @@ int main(int argc, char* argv[]) {
                      kobathe_snes_atol,
                      kobathe_snes_rtol,
                      kobathe_min_crack_opening);
+        std::println("  Ko-Bathe kinematics: {}",
+                     continuum_kinematics_label(kobathe_kinematics));
         std::println("  Ko-Bathe bond-slip : enabled={}, s_ref={:.3e} m, "
                      "residual_ratio={:.2f}",
                      kobathe_bond_slip_regularization ? "on" : "off",
