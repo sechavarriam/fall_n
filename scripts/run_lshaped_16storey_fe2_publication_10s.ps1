@@ -31,6 +31,9 @@ param(
     [double]$KobatheSnesAtol = 1.0e-6,
     [double]$KobatheSnesRtol = 1.0e-2,
     [switch]$KobatheEnableArcLength,
+    [switch]$KobatheDisableSubsequentAdaptive,
+    [double]$KobatheAdaptiveInitialFraction = 0.25,
+    [double]$KobatheAdaptiveGrowthFactor = 2.0,
     [int]$KobatheArcLengthThreshold = 3,
     [int]$KobatheTailRescueAttempts = 0,
     [switch]$SkipPostprocess,
@@ -123,10 +126,16 @@ foreach ($item in $families) {
          $KobatheSnesMaxIt -ne 60 -or
          $KobatheSnesAtol -ne 1.0e-6 -or
          $KobatheSnesRtol -ne 1.0e-2 -or
+         $KobatheDisableSubsequentAdaptive -or
+         $KobatheAdaptiveInitialFraction -ne 0.25 -or
+         $KobatheAdaptiveGrowthFactor -ne 2.0 -or
          $KobatheArcLengthThreshold -ne 3 -or
          $KobatheTailRescueAttempts -gt 0)) {
         if ($KobatheEnableArcLength) {
             $args += "--kobathe-enable-arc-length"
+        }
+        if ($KobatheDisableSubsequentAdaptive) {
+            $args += "--kobathe-no-subsequent-adaptive"
         }
         $args += "--kobathe-penalty-factor"
         $args += (Format-Real $KobathePenaltyFactor)
@@ -136,6 +145,10 @@ foreach ($item in $families) {
         $args += (Format-Real $KobatheSnesAtol)
         $args += "--kobathe-snes-rtol"
         $args += (Format-Real $KobatheSnesRtol)
+        $args += "--kobathe-adaptive-initial-fraction"
+        $args += (Format-Real $KobatheAdaptiveInitialFraction)
+        $args += "--kobathe-adaptive-growth-factor"
+        $args += (Format-Real $KobatheAdaptiveGrowthFactor)
         $args += "--kobathe-arc-length-threshold"
         $args += "$KobatheArcLengthThreshold"
         if ($KobatheTailRescueAttempts -gt 0) {
@@ -181,6 +194,9 @@ foreach ($item in $families) {
         kobathe_snes_atol = $KobatheSnesAtol
         kobathe_snes_rtol = $KobatheSnesRtol
         kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
+        kobathe_subsequent_adaptive = (-not [bool]$KobatheDisableSubsequentAdaptive)
+        kobathe_adaptive_initial_fraction = $KobatheAdaptiveInitialFraction
+        kobathe_adaptive_growth_factor = $KobatheAdaptiveGrowthFactor
         kobathe_arc_length_threshold = $KobatheArcLengthThreshold
         kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
         output_root = "$outputRoot"
