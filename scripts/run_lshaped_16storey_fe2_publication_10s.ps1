@@ -6,6 +6,7 @@ param(
     [double]$Duration = 10.0,
     [double]$SmokeDuration = 0.10,
     [double]$Scale = 20.0,
+    [double]$Fe2Phase2Dt = 0.02,
     [int]$GlobalVtkInterval = 1,
     [int]$LocalVtkInterval = 1,
     [double]$CrackOpeningThreshold = 0.0005,
@@ -34,6 +35,9 @@ param(
     [switch]$KobatheDisableSubsequentAdaptive,
     [double]$KobatheAdaptiveInitialFraction = 0.25,
     [double]$KobatheAdaptiveGrowthFactor = 2.0,
+    [int]$KobatheAdaptiveEasyIters = 8,
+    [int]$KobatheAdaptiveHardIters = 18,
+    [double]$KobatheAdaptiveHardShrinkFactor = 0.5,
     [int]$KobatheArcLengthThreshold = 3,
     [int]$KobatheTailRescueAttempts = 0,
     [switch]$SkipPostprocess,
@@ -95,6 +99,7 @@ foreach ($item in $families) {
         "--local-vtk-gauss-fields", $GaussFields,
         "--local-vtk-placement-frame", $PlacementFrame,
         "--fe2-max-sites", "$Fe2MaxSites",
+        "--fe2-phase2-dt", (Format-Real $Fe2Phase2Dt),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
         "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
@@ -129,6 +134,9 @@ foreach ($item in $families) {
          $KobatheDisableSubsequentAdaptive -or
          $KobatheAdaptiveInitialFraction -ne 0.25 -or
          $KobatheAdaptiveGrowthFactor -ne 2.0 -or
+         $KobatheAdaptiveEasyIters -ne 8 -or
+         $KobatheAdaptiveHardIters -ne 18 -or
+         $KobatheAdaptiveHardShrinkFactor -ne 0.5 -or
          $KobatheArcLengthThreshold -ne 3 -or
          $KobatheTailRescueAttempts -gt 0)) {
         if ($KobatheEnableArcLength) {
@@ -149,6 +157,12 @@ foreach ($item in $families) {
         $args += (Format-Real $KobatheAdaptiveInitialFraction)
         $args += "--kobathe-adaptive-growth-factor"
         $args += (Format-Real $KobatheAdaptiveGrowthFactor)
+        $args += "--kobathe-adaptive-easy-iters"
+        $args += "$KobatheAdaptiveEasyIters"
+        $args += "--kobathe-adaptive-hard-iters"
+        $args += "$KobatheAdaptiveHardIters"
+        $args += "--kobathe-adaptive-hard-shrink-factor"
+        $args += (Format-Real $KobatheAdaptiveHardShrinkFactor)
         $args += "--kobathe-arc-length-threshold"
         $args += "$KobatheArcLengthThreshold"
         if ($KobatheTailRescueAttempts -gt 0) {
@@ -180,6 +194,7 @@ foreach ($item in $families) {
         local_vtk_placement_frame = $PlacementFrame
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
+        fe2_phase2_dt = $Fe2Phase2Dt
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
         gravity_preload = [bool]$GravityPreload
@@ -197,6 +212,9 @@ foreach ($item in $families) {
         kobathe_subsequent_adaptive = (-not [bool]$KobatheDisableSubsequentAdaptive)
         kobathe_adaptive_initial_fraction = $KobatheAdaptiveInitialFraction
         kobathe_adaptive_growth_factor = $KobatheAdaptiveGrowthFactor
+        kobathe_adaptive_easy_iters = $KobatheAdaptiveEasyIters
+        kobathe_adaptive_hard_iters = $KobatheAdaptiveHardIters
+        kobathe_adaptive_hard_shrink_factor = $KobatheAdaptiveHardShrinkFactor
         kobathe_arc_length_threshold = $KobatheArcLengthThreshold
         kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
         output_root = "$outputRoot"

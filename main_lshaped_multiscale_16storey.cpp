@@ -1555,6 +1555,9 @@ int main(int argc, char* argv[]) {
     bool kobathe_subsequent_adaptive = true;
     double kobathe_adaptive_initial_fraction = 0.25;
     double kobathe_adaptive_growth_factor = 2.0;
+    int kobathe_adaptive_easy_iterations = 8;
+    int kobathe_adaptive_hard_iterations = 18;
+    double kobathe_adaptive_hard_shrink_factor = 0.5;
     int kobathe_arc_length_threshold = 3;
     int kobathe_tail_rescue_attempts = 0;
     double local_vtk_crack_opening_threshold = 0.5e-3;
@@ -1563,6 +1566,7 @@ int main(int argc, char* argv[]) {
     int fe2_max_staggered_iter = MAX_STAGGERED_ITER;
     double fe2_staggered_tol = STAGGERED_TOL;
     double fe2_relaxation = STAGGERED_RELAX;
+    double fe2_phase2_dt = DT;
     int fe2_macro_cutback_attempts = 0;
     int fe2_macro_backtrack_attempts = 0;
     int fe2_steps_after_activation = -1;
@@ -1781,6 +1785,14 @@ int main(int argc, char* argv[]) {
             kobathe_adaptive_initial_fraction = std::stod(argv[++i]);
         } else if (arg == "--kobathe-adaptive-growth-factor" && i + 1 < argc) {
             kobathe_adaptive_growth_factor = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-adaptive-easy-iters" && i + 1 < argc) {
+            kobathe_adaptive_easy_iterations =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--kobathe-adaptive-hard-iters" && i + 1 < argc) {
+            kobathe_adaptive_hard_iterations =
+                std::max(1, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--kobathe-adaptive-hard-shrink-factor" && i + 1 < argc) {
+            kobathe_adaptive_hard_shrink_factor = std::stod(argv[++i]);
         } else if (arg == "--kobathe-arc-length-threshold" && i + 1 < argc) {
             kobathe_arc_length_threshold =
                 std::max(1, static_cast<int>(std::stol(argv[++i])));
@@ -1852,6 +1864,8 @@ int main(int argc, char* argv[]) {
             fe2_staggered_tol = std::stod(argv[++i]);
         } else if (arg == "--fe2-relax" && i + 1 < argc) {
             fe2_relaxation = std::stod(argv[++i]);
+        } else if (arg == "--fe2-phase2-dt" && i + 1 < argc) {
+            fe2_phase2_dt = std::stod(argv[++i]);
         } else if (arg == "--fe2-macro-cutback-attempts" && i + 1 < argc) {
             fe2_macro_cutback_attempts =
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
@@ -1917,6 +1931,17 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--kobathe-adaptive-initial-fraction must be in (0, 1].");
     }
+    if (kobathe_adaptive_hard_iterations <=
+        kobathe_adaptive_easy_iterations) {
+        throw std::invalid_argument(
+            "--kobathe-adaptive-hard-iters must be greater than "
+            "--kobathe-adaptive-easy-iters.");
+    }
+    if (!(kobathe_adaptive_hard_shrink_factor > 0.0 &&
+          kobathe_adaptive_hard_shrink_factor <= 1.0)) {
+        throw std::invalid_argument(
+            "--kobathe-adaptive-hard-shrink-factor must be in (0, 1].");
+    }
     if (!(local_vtk_crack_opening_threshold >= 0.0)) {
         throw std::invalid_argument(
             "--local-vtk-crack-opening-threshold must be non-negative.");
@@ -1947,6 +1972,9 @@ int main(int argc, char* argv[]) {
     }
     if (fe2_relaxation < 0.0 || fe2_relaxation > 1.0) {
         throw std::invalid_argument("--fe2-relax must be in [0,1].");
+    }
+    if (!(fe2_phase2_dt > 0.0)) {
+        throw std::invalid_argument("--fe2-phase2-dt must be positive.");
     }
     if (fe2_macro_cutback_factor <= 0.0 || fe2_macro_cutback_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-cutback-factor must be in (0,1).");
@@ -2018,6 +2046,7 @@ int main(int argc, char* argv[]) {
              "--one-local-step-after-activation",
              "--fe2-tol",
              "--fe2-relax",
+             "--fe2-phase2-dt",
              "--fe2-macro-cutback-attempts",
              "--fe2-macro-cutback-factor",
              "--fe2-macro-backtrack-attempts",
@@ -2080,6 +2109,9 @@ int main(int argc, char* argv[]) {
              "--kobathe-no-subsequent-adaptive",
              "--kobathe-adaptive-initial-fraction",
              "--kobathe-adaptive-growth-factor",
+             "--kobathe-adaptive-easy-iters",
+             "--kobathe-adaptive-hard-iters",
+             "--kobathe-adaptive-hard-shrink-factor",
              "--kobathe-arc-length-threshold",
              "--kobathe-tail-rescue-attempts",
              "--kobathe-min-crack-opening",
@@ -3373,6 +3405,10 @@ int main(int argc, char* argv[]) {
           ev.set_adaptive_initial_step_fraction(
               kobathe_adaptive_initial_fraction);
           ev.set_adaptive_growth_factor(kobathe_adaptive_growth_factor);
+          ev.set_adaptive_iteration_controller(
+              kobathe_adaptive_easy_iterations,
+              kobathe_adaptive_hard_iterations,
+              kobathe_adaptive_hard_shrink_factor);
           if (kobathe_tail_rescue_attempts > 0) {
             ev.set_adaptive_tail_rescue_policy(
                 kobathe_tail_rescue_attempts,
@@ -3512,13 +3548,17 @@ int main(int argc, char* argv[]) {
                      kobathe_min_crack_opening);
         std::println("  Ko-Bathe adaptive : arc_length={}, subsequent={}, "
                      "initial_frac={:.3f}, growth={:.2f}, threshold={}, "
-                     "tail_rescue_attempts={}",
+                     "tail_rescue_attempts={}, easy_it={}, hard_it={}, "
+                     "hard_shrink={:.2f}",
                      kobathe_enable_arc_length ? "on" : "off",
                      kobathe_subsequent_adaptive ? "on" : "off",
                      kobathe_adaptive_initial_fraction,
                      kobathe_adaptive_growth_factor,
                      kobathe_arc_length_threshold,
-                     kobathe_tail_rescue_attempts);
+                     kobathe_tail_rescue_attempts,
+                     kobathe_adaptive_easy_iterations,
+                     kobathe_adaptive_hard_iterations,
+                     kobathe_adaptive_hard_shrink_factor);
     }
 
     // ── Assemble MultiscaleModel + MultiscaleAnalysis ────────────────────
@@ -3590,9 +3630,11 @@ int main(int argc, char* argv[]) {
     }
 
     std::println("  MultiscaleAnalysis : {}, max_iter={}, "
-                 "force/tangent tol={:.2f}, relax={:.2f}",
+                 "force/tangent tol={:.2f}, relax={:.2f}, "
+                 "phase2_dt={:.6f} s",
                  fe2_one_way_only ? "OneWayDownscaling" : "IteratedTwoWayFE2",
-                 fe2_max_staggered_iter, fe2_staggered_tol, fe2_relaxation);
+                 fe2_max_staggered_iter, fe2_staggered_tol,
+                 fe2_relaxation, fe2_phase2_dt);
     std::println("  Local executor     : SerialExecutor "
                  "(PETSc local SNES isolation for validation)");
     std::println("  Macro safeguards   : cutback={}@{:.2f}, backtrack={}@{:.2f}",
@@ -3633,7 +3675,7 @@ int main(int argc, char* argv[]) {
     if (fe2_steps_after_activation >= 0) {
         const double requested_end =
             transition_report->trigger_time +
-            static_cast<double>(fe2_steps_after_activation) * DT;
+            static_cast<double>(fe2_steps_after_activation) * fe2_phase2_dt;
         phase2_end_time = std::min(duration, requested_end);
         if (requested_end > duration + 1.0e-14) {
             std::println(
@@ -4151,7 +4193,7 @@ int main(int argc, char* argv[]) {
     {
         TS ts = solver.get_ts();
         TSSetMaxTime(ts, phase2_end_time);
-        TSSetTimeStep(ts, DT);
+        TSSetTimeStep(ts, fe2_phase2_dt);
         TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
         TSAdapt adapt;
         TSGetAdapt(ts, &adapt);
