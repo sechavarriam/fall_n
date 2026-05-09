@@ -862,6 +862,50 @@ void test_hybrid_observation_window_advances_after_micro_failure()
                "hybrid observation commits exactly one macro step");
 }
 
+void test_one_way_downscaling_does_not_finalize_failed_local_step()
+{
+    FakeSolver solver;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.solve_converged = false;
+    local.response_status = ResponseStatus::SolveFailed;
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<OneWayDownscaling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(!ok, "one-way downscaling reports failed local observation");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::MicroSolveFailed,
+        "one-way local failure is reported explicitly");
+    CHECK_TRUE(solver.committed_step == 1,
+               "one-way macro step remains advanced and unmodified by the local failure");
+    CHECK_TRUE(analysis.analysis_step() == 0,
+               "failed one-way observation is not counted as an accepted coupled step");
+    CHECK_TRUE(analysis.model().local_models()[0].commit_trial_calls == 0,
+               "failed one-way local state is not committed");
+    CHECK_TRUE(analysis.model().local_models()[0].end_calls == 0,
+               "failed one-way local state does not advance the local VTK step counter");
+    CHECK_TRUE(!analysis.last_responses().empty() &&
+                   analysis.last_responses()[0].status == ResponseStatus::SolveFailed,
+               "failed one-way response remains available for diagnostics");
+}
+
 void test_lagged_feedback_reports_regularized_response_without_hard_failure()
 {
     FakeSolver solver;
@@ -1168,6 +1212,7 @@ int main()
     test_iterated_two_way_rolls_back_on_macro_failure();
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_hybrid_observation_window_advances_after_micro_failure();
+    test_one_way_downscaling_does_not_finalize_failed_local_step();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();
     test_invalid_operator_counts_as_hard_failure();
     test_iterated_two_way_matches_between_serial_and_openmp_executors();
