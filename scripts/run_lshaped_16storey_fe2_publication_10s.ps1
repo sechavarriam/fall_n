@@ -16,9 +16,20 @@ param(
     [int]$Fe2MaxSites = 3,
     [switch]$IncludeColumnProbeSites,
     [switch]$IncludeCenterProbeSite,
+    [int]$ManagedLocalTransitionSteps = 2,
+    [int]$ManagedLocalMaxTransitionSteps = 8,
+    [int]$ManagedLocalAdaptiveMaxBisections = 10,
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
     [double]$LinearAlarmRestartTime = 5.20,
+    [switch]$GravityPreload,
+    [double]$GravityAccel = 9.80665,
+    [int]$GravityPreloadSteps = 8,
+    [int]$GravityPreloadBisections = 6,
+    [double]$KobathePenaltyFactor = 10.0,
+    [int]$KobatheSnesMaxIt = 60,
+    [double]$KobatheSnesAtol = 1.0e-6,
+    [double]$KobatheSnesRtol = 1.0e-2,
     [switch]$KobatheEnableArcLength,
     [int]$KobatheArcLengthThreshold = 3,
     [int]$KobatheTailRescueAttempts = 0,
@@ -80,7 +91,10 @@ foreach ($item in $families) {
         "--local-vtk-crack-filter-mode", "both",
         "--local-vtk-gauss-fields", $GaussFields,
         "--local-vtk-placement-frame", $PlacementFrame,
-        "--fe2-max-sites", "$Fe2MaxSites"
+        "--fe2-max-sites", "$Fe2MaxSites",
+        "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
+        "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
+        "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
     )
     if ($IncludeColumnProbeSites) {
         $args += "--fe2-include-column-probe-sites"
@@ -94,13 +108,34 @@ foreach ($item in $families) {
     if ($UseLinearAlarmRestart) {
         $args += "--restart-from-linear-alarm"
     }
+    if ($GravityPreload) {
+        $args += "--gravity-preload"
+        $args += "--gravity-accel"
+        $args += (Format-Real $GravityAccel)
+        $args += "--gravity-preload-steps"
+        $args += "$GravityPreloadSteps"
+        $args += "--gravity-preload-bisections"
+        $args += "$GravityPreloadBisections"
+    }
     if ($item.Family -like "continuum-kobathe*" -and
         ($KobatheEnableArcLength -or
+         $KobathePenaltyFactor -ne 10.0 -or
+         $KobatheSnesMaxIt -ne 60 -or
+         $KobatheSnesAtol -ne 1.0e-6 -or
+         $KobatheSnesRtol -ne 1.0e-2 -or
          $KobatheArcLengthThreshold -ne 3 -or
          $KobatheTailRescueAttempts -gt 0)) {
         if ($KobatheEnableArcLength) {
             $args += "--kobathe-enable-arc-length"
         }
+        $args += "--kobathe-penalty-factor"
+        $args += (Format-Real $KobathePenaltyFactor)
+        $args += "--kobathe-snes-max-it"
+        $args += "$KobatheSnesMaxIt"
+        $args += "--kobathe-snes-atol"
+        $args += (Format-Real $KobatheSnesAtol)
+        $args += "--kobathe-snes-rtol"
+        $args += (Format-Real $KobatheSnesRtol)
         $args += "--kobathe-arc-length-threshold"
         $args += "$KobatheArcLengthThreshold"
         if ($KobatheTailRescueAttempts -gt 0) {
@@ -134,6 +169,17 @@ foreach ($item in $families) {
         fe2_max_sites = $Fe2MaxSites
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
+        gravity_preload = [bool]$GravityPreload
+        gravity_accel = $GravityAccel
+        gravity_preload_steps = $GravityPreloadSteps
+        gravity_preload_bisections = $GravityPreloadBisections
+        managed_local_transition_steps = $ManagedLocalTransitionSteps
+        managed_local_max_transition_steps = $ManagedLocalMaxTransitionSteps
+        managed_local_adaptive_max_bisections = $ManagedLocalAdaptiveMaxBisections
+        kobathe_penalty_factor = $KobathePenaltyFactor
+        kobathe_snes_max_it = $KobatheSnesMaxIt
+        kobathe_snes_atol = $KobatheSnesAtol
+        kobathe_snes_rtol = $KobatheSnesRtol
         kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
         kobathe_arc_length_threshold = $KobatheArcLengthThreshold
         kobathe_tail_rescue_attempts = $KobatheTailRescueAttempts
