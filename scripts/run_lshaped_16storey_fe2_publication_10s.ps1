@@ -34,6 +34,9 @@ param(
     [switch]$KobatheEnableArcLength,
     [switch]$KobatheDisableSubsequentAdaptive,
     [switch]$KobatheSkipSubsequentFullStep,
+    [switch]$KobatheBondSlip,
+    [double]$KobatheBondSlipReference = 0.0005,
+    [double]$KobatheBondSlipResidualRatio = 0.2,
     [double]$KobatheAdaptiveInitialFraction = 0.25,
     [double]$KobatheAdaptiveGrowthFactor = 2.0,
     [int]$KobatheAdaptiveEasyIters = 8,
@@ -134,6 +137,9 @@ foreach ($item in $families) {
          $KobatheSnesRtol -ne 1.0e-2 -or
          $KobatheDisableSubsequentAdaptive -or
          $KobatheSkipSubsequentFullStep -or
+         $KobatheBondSlip -or
+         $KobatheBondSlipReference -ne 0.0005 -or
+         $KobatheBondSlipResidualRatio -ne 0.2 -or
          $KobatheAdaptiveInitialFraction -ne 0.25 -or
          $KobatheAdaptiveGrowthFactor -ne 2.0 -or
          $KobatheAdaptiveEasyIters -ne 8 -or
@@ -150,8 +156,15 @@ foreach ($item in $families) {
         if ($KobatheSkipSubsequentFullStep) {
             $args += "--kobathe-skip-subsequent-full-step"
         }
+        if ($KobatheBondSlip) {
+            $args += "--kobathe-bond-slip"
+        }
         $args += "--kobathe-penalty-factor"
         $args += (Format-Real $KobathePenaltyFactor)
+        $args += "--kobathe-bond-slip-reference"
+        $args += (Format-Real $KobatheBondSlipReference)
+        $args += "--kobathe-bond-slip-residual-ratio"
+        $args += (Format-Real $KobatheBondSlipResidualRatio)
         $args += "--kobathe-snes-max-it"
         $args += "$KobatheSnesMaxIt"
         $args += "--kobathe-snes-atol"
@@ -216,6 +229,9 @@ foreach ($item in $families) {
         kobathe_enable_arc_length = [bool]$KobatheEnableArcLength
         kobathe_subsequent_adaptive = (-not [bool]$KobatheDisableSubsequentAdaptive)
         kobathe_skip_subsequent_full_step = [bool]$KobatheSkipSubsequentFullStep
+        kobathe_bond_slip = [bool]$KobatheBondSlip
+        kobathe_bond_slip_reference_m = $KobatheBondSlipReference
+        kobathe_bond_slip_residual_ratio = $KobatheBondSlipResidualRatio
         kobathe_adaptive_initial_fraction = $KobatheAdaptiveInitialFraction
         kobathe_adaptive_growth_factor = $KobatheAdaptiveGrowthFactor
         kobathe_adaptive_easy_iters = $KobatheAdaptiveEasyIters
