@@ -8,6 +8,7 @@ run on a headless node before opening the case in ParaView.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import re
@@ -125,6 +126,63 @@ def parse_ascii_numbers(array: ET.Element | None) -> list[float]:
     return [float(x) for x in re.findall(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?", text)]
 
 
+def triples(values: list[float]) -> list[list[float]]:
+    return [values[i : i + 3] for i in range(0, len(values), 3)]
+
+
+def vec_add(a: list[float], b: list[float]) -> list[float]:
+    return [a[i] + b[i] for i in range(3)]
+
+
+def vec_sub(a: list[float], b: list[float]) -> list[float]:
+    return [a[i] - b[i] for i in range(3)]
+
+
+def vec_dot(a: list[float], b: list[float]) -> float:
+    return sum(a[i] * b[i] for i in range(3))
+
+
+def vec_norm(a: list[float]) -> float:
+    return math.sqrt(sum(x * x for x in a))
+
+
+def vec_mean(points: list[list[float]]) -> list[float]:
+    if not points:
+        return [math.nan, math.nan, math.nan]
+    return [sum(p[i] for p in points) / len(points) for i in range(3)]
+
+
+def parse_points_from_piece(piece: ET.Element | None) -> list[list[float]]:
+    if piece is None:
+        return []
+    points = piece.find("./Points/DataArray")
+    return triples(parse_ascii_numbers(points))
+
+
+def parse_point_vector(piece: ET.Element | None, name: str) -> list[list[float]]:
+    if piece is None:
+        return []
+    for array in piece.findall("./PointData/DataArray"):
+        if array.attrib.get("Name") == name:
+            return triples(parse_ascii_numbers(array))
+    return []
+
+
+def parse_lines(piece: ET.Element | None) -> list[list[int]]:
+    if piece is None:
+        return []
+    conn_el = piece.find("./Lines/DataArray[@Name='connectivity']")
+    off_el = piece.find("./Lines/DataArray[@Name='offsets']")
+    conn = [int(round(x)) for x in parse_ascii_numbers(conn_el)]
+    offsets = [int(round(x)) for x in parse_ascii_numbers(off_el)]
+    lines: list[list[int]] = []
+    start = 0
+    for offset in offsets:
+        lines.append(conn[start:offset])
+        start = offset
+    return lines
+
+
 def audit_vtu(
     path: Path,
     info: dict[str, Any],
@@ -201,6 +259,216 @@ def audit_vtu(
     return issues, metrics
 
 
+def parse_vtm_axis_path(vtm_path: Path) -> Path | None:
+    try:
+        root = ET.parse(vtm_path).getroot()
+    except Exception:
+        return None
+    for data_set in root.findall(".//DataSet"):
+        if data_set.attrib.get("name") == "axis":
+            rel = data_set.attrib.get("file")
+            return vtm_path.parent / rel if rel else None
+    return None
+
+
+def current_frame_path_for(local_path: str) -> str:
+    if local_path.endswith("_mesh.vtu"):
+        return local_path[:-len("_mesh.vtu")] + "_current_mesh.vtu"
+    return ""
+
+
+def current_frame_path_from_notes(notes: str, local_path: str) -> str:
+    match = re.search(r"(?:^|\s)current_mesh=([^,\s]+)", notes)
+    if match:
+        return match.group(1)
+    return current_frame_path_for(local_path)
+
+
+def local_face_centroids(
+    reference_mesh: Path,
+    sample_mesh: Path,
+    transform_record: dict[str, Any],
+    warp_sample: bool = False,
+) -> tuple[list[float], list[float]]:
+    ref_piece = ET.parse(reference_mesh).getroot().find(".//Piece")
+    sample_piece = ET.parse(sample_mesh).getroot().find(".//Piece")
+    ref_points = parse_points_from_piece(ref_piece)
+    sample_points = parse_points_from_piece(sample_piece)
+    if warp_sample:
+        sample_displacement = parse_point_vector(sample_piece, "displacement")
+        if sample_displacement:
+            sample_points = [
+                vec_add(point, sample_displacement[i])
+                for i, point in enumerate(sample_points)
+            ]
+    if len(ref_points) != len(sample_points) or not ref_points:
+        return [math.nan] * 3, [math.nan] * 3
+
+    origin = [float(x) for x in transform_record.get("origin", [0.0, 0.0, 0.0])]
+    R = transform_record.get("R", [[1.0, 0.0, 0.0],
+                                   [0.0, 1.0, 0.0],
+                                   [0.0, 0.0, 1.0]])
+    cols = [[float(R[r][c]) for r in range(3)] for c in range(3)]
+
+    def local_z(point: list[float]) -> float:
+        shifted = vec_sub(point, origin)
+        return vec_dot(shifted, cols[2])
+
+    z_values = [local_z(point) for point in ref_points]
+    z_min = min(z_values)
+    z_max = max(z_values)
+    tol = max(1.0e-9, 1.0e-8 * max(1.0, abs(z_max - z_min)))
+    bottom = [sample_points[i] for i, z in enumerate(z_values) if abs(z - z_min) <= tol]
+    top = [sample_points[i] for i, z in enumerate(z_values) if abs(z - z_max) <= tol]
+    return vec_mean(bottom), vec_mean(top)
+
+
+def global_axis_endpoints(axis_path: Path, macro_element_id: int) -> tuple[list[float], list[float]]:
+    piece = ET.parse(axis_path).getroot().find(".//Piece")
+    points = parse_points_from_piece(piece)
+    displacement = parse_point_vector(piece, "displacement")
+    lines = parse_lines(piece)
+    if macro_element_id < 0 or macro_element_id >= len(lines):
+        return [math.nan] * 3, [math.nan] * 3
+    ids = lines[macro_element_id]
+    if not ids:
+        return [math.nan] * 3, [math.nan] * 3
+    first = ids[0]
+    last = ids[-1]
+    if not displacement:
+        displacement = [[0.0, 0.0, 0.0] for _ in points]
+    return vec_add(points[first], displacement[first]), vec_add(points[last], displacement[last])
+
+
+def audit_time_index_and_endpoint_coincidence(
+    root: Path,
+    tolerance: float,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    issues: list[dict[str, str]] = []
+    metrics: dict[str, Any] = {
+        "local_global_endpoint_checks": 0,
+        "local_global_endpoint_max_gap_m": None,
+        "local_global_current_endpoint_max_gap_m": None,
+        "local_global_reference_warp_endpoint_max_gap_m": None,
+    }
+    index_path = root / "recorders" / "multiscale_time_index.csv"
+    if not index_path.exists():
+        issues.append(issue("warning", index_path, "missing multiscale_time_index.csv"))
+        return issues, metrics
+
+    transform_path = root / "recorders" / "local_site_transform.json"
+    if not transform_path.exists():
+        issues.append(issue("warning", transform_path, "missing local_site_transform.json"))
+        return issues, metrics
+    transform_payload = json.loads(transform_path.read_text(encoding="utf-8"))
+    transforms = {
+        int(record.get("local_site_index", -1)): record
+        for record in transform_payload.get("records", [])
+    }
+
+    rows: list[dict[str, str]]
+    with index_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    global_times = {
+        float(row["physical_time"])
+        for row in rows
+        if row.get("role") == "global_frame"
+        and row.get("case_kind") == "fe2_one_way"
+        and row.get("global_vtk_path")
+    }
+    local_times = {
+        float(row["physical_time"])
+        for row in rows
+        if row.get("role", "").startswith("local_")
+        and row.get("case_kind") == "fe2_one_way"
+        and row.get("local_vtk_path")
+    }
+    initial_time = min(local_times) if local_times else None
+    for time in sorted(global_times):
+        if initial_time is not None and abs(time - initial_time) <= 1.0e-9:
+            continue
+        if not any(abs(time - local_time) <= 1.0e-9 for local_time in local_times):
+            issues.append(issue(
+                "error",
+                index_path,
+                f"global frame at t={time:.9g} has no local VTK row at the same time",
+            ))
+
+    axis_cache: dict[str, Path | None] = {}
+    max_gap = 0.0
+    current_max_gap = 0.0
+    reference_warp_max_gap = 0.0
+    for row in rows:
+        role = row.get("role", "")
+        if not role.startswith("local_"):
+            continue
+        local_path_text = row.get("local_vtk_path", "")
+        global_path_text = row.get("global_vtk_path", "")
+        if not local_path_text or not global_path_text:
+            continue
+        current_path_text = current_frame_path_from_notes(
+            row.get("notes", ""), local_path_text)
+        if not current_path_text:
+            continue
+        site_id = int(row.get("local_site_index") or -1)
+        macro_element_id = int(row.get("macro_element_id") or -1)
+        transform = transforms.get(site_id)
+        if transform is None:
+            issues.append(issue("error", transform_path, f"missing transform for local site {site_id}"))
+            continue
+
+        reference_mesh = root / local_path_text
+        current_mesh = root / current_path_text
+        global_vtm = root / global_path_text
+        if not reference_mesh.exists() or not current_mesh.exists() or not global_vtm.exists():
+            continue
+        axis_key = str(global_vtm)
+        if axis_key not in axis_cache:
+            axis_cache[axis_key] = parse_vtm_axis_path(global_vtm)
+        axis_path = axis_cache[axis_key]
+        if axis_path is None or not axis_path.exists():
+            issues.append(issue("error", global_vtm, "cannot resolve global axis block"))
+            continue
+
+        local_bottom, local_top = local_face_centroids(
+            reference_mesh, current_mesh, transform, warp_sample=False)
+        warped_bottom, warped_top = local_face_centroids(
+            reference_mesh, reference_mesh, transform, warp_sample=True)
+        global_bottom, global_top = global_axis_endpoints(
+            axis_path, macro_element_id)
+        bottom_gap = vec_norm(vec_sub(local_bottom, global_bottom))
+        top_gap = vec_norm(vec_sub(local_top, global_top))
+        warped_bottom_gap = vec_norm(vec_sub(warped_bottom, global_bottom))
+        warped_top_gap = vec_norm(vec_sub(warped_top, global_top))
+        current_gap = max(bottom_gap, top_gap)
+        reference_warp_gap = max(warped_bottom_gap, warped_top_gap)
+        gap = max(current_gap, reference_warp_gap)
+        if math.isfinite(gap):
+            max_gap = max(max_gap, gap)
+            current_max_gap = max(current_max_gap, current_gap)
+            reference_warp_max_gap = max(reference_warp_max_gap, reference_warp_gap)
+            metrics["local_global_endpoint_checks"] += 1
+        if gap > tolerance:
+            issues.append(issue(
+                "error",
+                current_mesh,
+                "local face centroids do not match global axis endpoints "
+                f"for element {macro_element_id} at t={row.get('physical_time')} "
+                f"(current_bottom_gap={bottom_gap:.6e} m, "
+                f"current_top_gap={top_gap:.6e} m, "
+                f"reference_warp_bottom_gap={warped_bottom_gap:.6e} m, "
+                f"reference_warp_top_gap={warped_top_gap:.6e} m, "
+                f"tol={tolerance:.6e} m)",
+            ))
+
+    if metrics["local_global_endpoint_checks"]:
+        metrics["local_global_endpoint_max_gap_m"] = max_gap
+        metrics["local_global_current_endpoint_max_gap_m"] = current_max_gap
+        metrics["local_global_reference_warp_endpoint_max_gap_m"] = reference_warp_max_gap
+    return issues, metrics
+
+
 def audit_transforms(root: Path) -> tuple[list[dict[str, str]], dict[str, Any]]:
     issues: list[dict[str, str]] = []
     metrics: dict[str, Any] = {"transform_records": 0, "transform_coherent": False}
@@ -271,6 +539,17 @@ def main() -> int:
         default=None,
         help="if set, require every *_cracks_visible.vtu cell to exceed this opening threshold in metres",
     )
+    parser.add_argument(
+        "--check-local-global-endpoints",
+        action="store_true",
+        help="check local current face centroids against the matching global axis endpoints at the same time",
+    )
+    parser.add_argument(
+        "--endpoint-tolerance",
+        type=float,
+        default=5.0e-5,
+        help="endpoint coincidence tolerance in metres for --check-local-global-endpoints",
+    )
     args = parser.parse_args()
 
     root = args.root
@@ -288,6 +567,10 @@ def main() -> int:
         "gauss_fields_profile": args.gauss_fields_profile,
         "crack_opening_threshold_m": args.crack_opening_threshold,
         "min_visible_crack_opening_m": None,
+        "local_global_endpoint_checks": 0,
+        "local_global_endpoint_max_gap_m": None,
+        "local_global_current_endpoint_max_gap_m": None,
+        "local_global_reference_warp_endpoint_max_gap_m": None,
         "sampled_files": 0,
         "total_vtu_files": 0,
     }
@@ -377,6 +660,13 @@ def main() -> int:
         transform_issues, transform_metrics = audit_transforms(root)
         report["issues"].extend(transform_issues)
         report.update(transform_metrics)
+
+        if args.check_local_global_endpoints:
+            endpoint_issues, endpoint_metrics = (
+                audit_time_index_and_endpoint_coincidence(
+                    root, args.endpoint_tolerance))
+            report["issues"].extend(endpoint_issues)
+            report.update(endpoint_metrics)
 
     text = json.dumps(report, indent=2)
     if args.output:
