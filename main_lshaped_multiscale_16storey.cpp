@@ -3291,7 +3291,8 @@ int main(int argc, char* argv[]) {
             fe2_staggered_tol, fe2_staggered_tol),
         std::make_unique<ConstantRelaxation>(fe2_relaxation),
         SerialExecutor{});
-    analysis.set_coupling_start_step(COUPLING_START_STEP);
+    analysis.set_coupling_start_step(
+        fe2_one_way_only ? 1 : COUPLING_START_STEP);
     analysis.set_section_dimensions(COL_B[first_range], COL_H[first_range]);
     analysis.set_macro_step_cutback(
         fe2_macro_cutback_attempts, fe2_macro_cutback_factor);

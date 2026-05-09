@@ -112,7 +112,7 @@ foreach ($item in $families) {
     if (-not $SkipAudit) {
         $audit = Join-Path $repoRoot "scripts/audit_publication_vtk.py"
         $auditOut = Join-Path $outputRoot "recorders/publication_vtk_audit_activation_one_step.json"
-        & python $audit --root $outputRoot --output $auditOut --gauss-fields-profile $GaussFields --crack-opening-threshold (Format-Real $CrackOpeningThreshold) --max-files-per-category 8
+        & python $audit --root $outputRoot --output $auditOut --gauss-fields-profile $GaussFields --crack-opening-threshold (Format-Real $CrackOpeningThreshold) --max-files-per-category 8 --check-local-global-endpoints
         if ($LASTEXITCODE -ne 0) {
             throw "$($item.Name) VTK audit failed with exit code $LASTEXITCODE"
         }
