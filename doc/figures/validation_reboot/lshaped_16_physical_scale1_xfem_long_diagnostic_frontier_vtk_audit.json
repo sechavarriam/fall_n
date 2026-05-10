@@ -1,0 +1,36 @@
+{
+  "schema": "fall_n_publication_vtk_audit_v1",
+  "root": "data\\output\\lshaped_16storey_physical_scale1_xfem_linear_steel_alarm_10s_diag_20260509",
+  "files": {
+    "cracks_raw": 8,
+    "cracks_visible": 8,
+    "gauss": 8,
+    "mesh": 8,
+    "rebar": 8,
+    "rebar_tubes": 8
+  },
+  "missing_files": [],
+  "issues": [
+    {
+      "severity": "error",
+      "path": "data\\output\\lshaped_16storey_physical_scale1_xfem_linear_steel_alarm_10s_diag_20260509\\local_sites\\site_00000_element_00001\\managed_xfem_step_001244_current_mesh.vtu",
+      "message": "local face centroids do not match global axis endpoints for element 1 at t=1.72301 (current_bottom_gap=0.000000e+00 m, current_top_gap=3.727013e-03 m, reference_warp_bottom_gap=0.000000e+00 m, reference_warp_top_gap=3.727013e-03 m, tol=1.000000e-04 m)"
+    }
+  ],
+  "visible_crack_cells": 76,
+  "gauss_points": 2048,
+  "kobathe_crack_families_active": [],
+  "transform_records": 6,
+  "transform_coherent": true,
+  "gauss_fields_profile": "minimal",
+  "crack_opening_threshold_m": 0.0005,
+  "min_visible_crack_opening_m": 0.0005193148077190575,
+  "max_bond_slip_m": 0.0,
+  "bond_slip_valid_cells": 0,
+  "local_global_endpoint_checks": 1500,
+  "local_global_endpoint_max_gap_m": 0.003727012819733173,
+  "local_global_current_endpoint_max_gap_m": 0.003727012819733173,
+  "local_global_reference_warp_endpoint_max_gap_m": 0.003727012819733173,
+  "sampled_files": 48,
+  "total_vtu_files": 15000
+}
