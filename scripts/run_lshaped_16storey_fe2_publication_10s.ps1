@@ -39,7 +39,7 @@ param(
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
-    [int]$ManagedLocalFailureRescueAttempts = 2,
+    [int]$ManagedLocalFailureRescueAttempts = 0,
     [double]$ManagedLocalFailureRescueStepFactor = 2.0,
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
