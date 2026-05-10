@@ -1549,6 +1549,8 @@ int main(int argc, char* argv[]) {
     int managed_local_max_transition_steps = 8;
     int managed_local_min_bisections = 4;
     int managed_local_adaptive_max_bisections = 10;
+    int managed_local_failure_rescue_attempts = 0;
+    double managed_local_failure_rescue_step_factor = 2.0;
     double kobathe_penalty_factor = 10.0;
     int kobathe_snes_max_it = 60;
     double kobathe_snes_atol = 1.0e-6;
@@ -1780,6 +1782,13 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--managed-local-adaptive-max-bisections" && i + 1 < argc) {
             managed_local_adaptive_max_bisections =
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--managed-local-failure-rescue-attempts" &&
+                   i + 1 < argc) {
+            managed_local_failure_rescue_attempts =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--managed-local-failure-rescue-step-factor" &&
+                   i + 1 < argc) {
+            managed_local_failure_rescue_step_factor = std::stod(argv[++i]);
         } else if (arg == "--kobathe-penalty-factor" && i + 1 < argc) {
             kobathe_penalty_factor = std::stod(argv[++i]);
         } else if (arg == "--kobathe-kinematics" && i + 1 < argc) {
@@ -2081,6 +2090,10 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--fe2-local-solve-budget-cutback-factor must be in (0,1).");
     }
+    if (managed_local_failure_rescue_step_factor < 1.0) {
+        throw std::invalid_argument(
+            "--managed-local-failure-rescue-step-factor must be >= 1.");
+    }
     if (fe2_macro_backtrack_factor <= 0.0 || fe2_macro_backtrack_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-backtrack-factor must be in (0,1).");
     }
@@ -2211,6 +2224,8 @@ int main(int argc, char* argv[]) {
              "--managed-local-max-bisections",
              "--managed-local-min-bisections",
              "--managed-local-adaptive-max-bisections",
+             "--managed-local-failure-rescue-attempts",
+             "--managed-local-failure-rescue-step-factor",
              "--kobathe-penalty-factor",
              "--kobathe-kinematics",
              "--kobathe-snes-max-it",
@@ -2571,6 +2586,9 @@ int main(int argc, char* argv[]) {
                      managed_local_transition_steps,
                      managed_local_max_bisections);
     }
+    std::println("  Local rescue     : {} attempt(s), step factor = {:.2f}",
+                 managed_local_failure_rescue_attempts,
+                 managed_local_failure_rescue_step_factor);
 
     // ─────────────────────────────────────────────────────────────────────
     //  7. Observers
@@ -3254,6 +3272,10 @@ int main(int argc, char* argv[]) {
     local_transition_policy.base_bisections = managed_local_max_bisections;
     local_transition_policy.max_bisections = std::max(
         managed_local_adaptive_max_bisections, managed_local_max_bisections);
+    local_transition_policy.failure_rescue_attempts =
+        managed_local_failure_rescue_attempts;
+    local_transition_policy.failure_rescue_step_factor =
+        managed_local_failure_rescue_step_factor;
 
     auto endpoint_score = [](const SectionKinematics &kin) {
       constexpr double curvature_scale = 0.010;

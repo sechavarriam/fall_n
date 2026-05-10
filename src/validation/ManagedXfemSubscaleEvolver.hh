@@ -50,6 +50,8 @@ struct ManagedXfemAdaptiveTransitionPolicy {
     double warning_increment_severity{0.65};
     double critical_increment_severity{1.50};
     int high_iteration_threshold{10};
+    int failure_rescue_attempts{0};
+    double failure_rescue_step_factor{2.0};
 };
 
 struct ManagedXfemTransitionControl {
@@ -353,6 +355,7 @@ public:
             return result;
         }
 
+        const auto step_start_checkpoint = capture_checkpoint();
         trial_sample_ = make_sample_(time);
         has_trial_sample_ = true;
         const auto trial_control = sample_control_vector_(trial_sample_);
@@ -381,8 +384,58 @@ public:
             return result;
         }
 
-        const auto step =
+        auto step =
             adapter_->solve_current_pseudo_time_step(trial_sample_);
+        if ((!step.converged || step.hard_failure) &&
+            options_.use_incremental_local_transitions &&
+            adaptive_transition_policy_.failure_rescue_attempts > 0) {
+            const auto failed_transition_control = last_transition_control_;
+            const int max_steps = std::max(
+                1,
+                std::max(adaptive_transition_policy_.max_transition_steps,
+                         failed_transition_control.transition_steps));
+            const int max_bisections = std::max(
+                0,
+                std::max(adaptive_transition_policy_.max_bisections,
+                         failed_transition_control.max_bisections));
+            const double rescue_factor = std::max(
+                1.0,
+                adaptive_transition_policy_.failure_rescue_step_factor);
+            const int attempts =
+                std::max(0, adaptive_transition_policy_.failure_rescue_attempts);
+            for (int rescue = 1;
+                 rescue <= attempts && (!step.converged || step.hard_failure);
+                 ++rescue) {
+                restore_checkpoint(step_start_checkpoint);
+                if (!ensure_initialized_()) {
+                    break;
+                }
+                trial_sample_ = make_sample_(time);
+                has_trial_sample_ = true;
+                const int target_steps = static_cast<int>(std::ceil(
+                    static_cast<double>(
+                        std::max(1,
+                                 failed_transition_control.transition_steps)) *
+                    std::pow(rescue_factor, rescue)));
+                last_transition_control_.transition_steps =
+                    std::clamp(target_steps, 1, max_steps);
+                last_transition_control_.max_bisections = max_bisections;
+                last_transition_control_.adaptive = true;
+                last_transition_control_.reason =
+                    std::format("failure_rescue_{}", rescue);
+                adapter_->set_local_transition_controls(
+                    last_transition_control_.transition_steps,
+                    last_transition_control_.max_bisections);
+                if (!adapter_->apply_macro_boundary_sample(trial_sample_)) {
+                    step.converged = false;
+                    step.hard_failure = true;
+                    step.status_label =
+                        "managed_xfem_failure_rescue_boundary_failed";
+                    break;
+                }
+                step = adapter_->solve_current_pseudo_time_step(trial_sample_);
+            }
+        }
         result.converged = step.converged && !step.hard_failure;
         result.failure_cause = result.converged
             ? SubModelFailureCause::None
