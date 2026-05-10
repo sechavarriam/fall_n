@@ -17,9 +17,13 @@ param(
     [switch]$IncludeCenterProbeSite,
     [double]$Scale = 1.0,
     [double]$Fe2Phase2Dt = 0.02,
+    [int]$Fe2OneWayMicroCutbackAttempts = 6,
+    [double]$Fe2OneWayMicroCutbackFactor = 0.5,
+    [double]$Fe2OneWayMicroCutbackMinDt = 0.000125,
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
+    [switch]$DisableManagedLocalAdaptiveTransition,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
     [switch]$GravityPreload,
@@ -100,12 +104,18 @@ foreach ($item in $families) {
         "--local-vtk-placement-frame", $PlacementFrame,
         "--fe2-max-sites", "$Fe2MaxSites",
         "--fe2-phase2-dt", (Format-Real $Fe2Phase2Dt),
+        "--fe2-one-way-micro-cutback-attempts", "$Fe2OneWayMicroCutbackAttempts",
+        "--fe2-one-way-micro-cutback-factor", (Format-Real $Fe2OneWayMicroCutbackFactor),
+        "--fe2-one-way-micro-cutback-min-dt", (Format-Real $Fe2OneWayMicroCutbackMinDt),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
         "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
     )
     if ($SkipPostprocess) {
         $args += "--skip-postprocess"
+    }
+    if (-not $DisableManagedLocalAdaptiveTransition) {
+        $args += "--adaptive-managed-local-transition"
     }
     if ($UseLinearAlarmRestart) {
         $args += "--restart-from-linear-alarm"
@@ -211,6 +221,10 @@ foreach ($item in $families) {
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
         fe2_phase2_dt = $Fe2Phase2Dt
+        fe2_one_way_micro_cutback_attempts = $Fe2OneWayMicroCutbackAttempts
+        fe2_one_way_micro_cutback_factor = $Fe2OneWayMicroCutbackFactor
+        fe2_one_way_micro_cutback_min_dt = $Fe2OneWayMicroCutbackMinDt
+        managed_local_adaptive_transition = (-not [bool]$DisableManagedLocalAdaptiveTransition)
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
         gravity_preload = [bool]$GravityPreload
