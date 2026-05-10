@@ -67,6 +67,9 @@ private:
     double predictor_admissibility_backtrack_factor_{0.5};
     int macro_step_cutback_attempts_{0};
     double macro_step_cutback_factor_{0.5};
+    int one_way_micro_cutback_attempts_{0};
+    double one_way_micro_cutback_factor_{0.5};
+    double one_way_micro_cutback_min_increment_{0.0};
     int macro_failure_backtrack_attempts_{0};
     double macro_failure_backtrack_factor_{0.5};
     SiteAdaptiveRelaxationSettings site_adaptive_relaxation_{};
@@ -128,6 +131,12 @@ private:
         report.macro_step_cutback_last_factor = 1.0;
         report.macro_step_cutback_initial_increment = 0.0;
         report.macro_step_cutback_last_increment = 0.0;
+        report.one_way_micro_cutback_attempts = 0;
+        report.one_way_micro_cutback_succeeded = false;
+        report.one_way_micro_cutback_last_factor = 1.0;
+        report.one_way_micro_cutback_initial_increment = 0.0;
+        report.one_way_micro_cutback_last_increment = 0.0;
+        report.one_way_micro_cutback_failed_submodels = 0;
         report.predictor_inadmissible_sites.clear();
         report.site_iteration_records.clear();
     }
@@ -472,6 +481,58 @@ private:
         }
     }
 
+    [[nodiscard]] bool macro_solver_supports_time_step_control_() const
+    {
+        if constexpr (requires(MacroSolverT& solver, double dt) {
+                          { solver.get_time_step() }
+                              -> std::convertible_to<double>;
+                          solver.set_time_step(dt);
+                      }) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    [[nodiscard]] double macro_solver_current_increment_() const
+    {
+        if constexpr (requires(MacroSolverT& solver) {
+                          { solver.get_time_step() }
+                              -> std::convertible_to<double>;
+                      }) {
+            return macro_solver_->get_time_step();
+        } else if constexpr (requires(MacroSolverT& solver) {
+                                 { solver.get_increment_size() }
+                                     -> std::convertible_to<double>;
+                             }) {
+            return macro_solver_->get_increment_size();
+        } else {
+            return 0.0;
+        }
+    }
+
+    void macro_solver_set_increment_(double increment)
+    {
+        if (!(increment > 0.0)) {
+            return;
+        }
+        if constexpr (requires(MacroSolverT& solver, double dt) {
+                          solver.set_time_step(dt);
+                      }) {
+            macro_solver_->set_time_step(increment);
+        } else if constexpr (requires(MacroSolverT& solver, double dp) {
+                                 solver.set_increment_size(dp);
+                             }) {
+            macro_solver_->set_increment_size(increment);
+        }
+    }
+
+    [[nodiscard]] bool macro_solver_supports_one_way_cutback_() const
+    {
+        return macro_solver_supports_time_step_control_()
+            || macro_solver_supports_increment_control_();
+    }
+
     void solve_locals_once_(double time,
                             std::vector<SectionHomogenizedResponse>& responses,
                             int& failed_submodels)
@@ -607,52 +668,151 @@ private:
             CouplingTerminationReason::OneWayStepCompleted;
 
         set_macro_trial_mode_(false);
-        inject_or_clear_({});
-        if (!macro_solver_->step()) {
-            capture_macro_solver_diagnostics_();
-            last_report_.converged = false;
-            last_report_.termination_reason =
-                CouplingTerminationReason::MacroSolveFailed;
-            return false;
-        }
-        capture_macro_solver_diagnostics_();
-        capture_attempted_macro_state_();
-
-        std::vector<LocalCheckpointT> local_checkpoints;
-        local_checkpoints.reserve(model_.num_local_models());
+        const auto macro_checkpoint = macro_solver_->capture_checkpoint();
+        std::vector<LocalCheckpointT> local_step_checkpoints;
+        local_step_checkpoints.reserve(model_.num_local_models());
         for (auto& local_model : model_.local_models()) {
-            local_checkpoints.push_back(local_model.capture_checkpoint());
+            local_step_checkpoints.push_back(local_model.capture_checkpoint());
         }
 
-        auto t0 = std::chrono::steady_clock::now();
-        std::vector<SectionHomogenizedResponse> responses;
-        solve_locals_once_(macro_solver_->current_time(),
-                           responses,
-                           last_report_.failed_submodels);
-        last_responses_ = responses;
-        if (last_report_.failed_submodels == 0) {
-            finalize_local_models_(macro_solver_->current_time(), &responses);
-        } else {
-            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+        const double nominal_increment = macro_solver_current_increment_();
+        const bool cutback_supported =
+            macro_solver_supports_one_way_cutback_()
+            && nominal_increment > 0.0;
+        const int max_cutback_attempts =
+            cutback_supported ? std::max(0, one_way_micro_cutback_attempts_)
+                              : 0;
+        const double cutback_factor =
+            std::clamp(one_way_micro_cutback_factor_, 0.0, 1.0);
+        const double min_increment =
+            one_way_micro_cutback_min_increment_ > 0.0
+                ? one_way_micro_cutback_min_increment_
+                : 0.0;
+        const auto restore_step_start = [&]() {
+            macro_solver_->restore_checkpoint(macro_checkpoint);
+            for (std::size_t i = 0;
+                 i < model_.num_local_models() &&
+                 i < local_step_checkpoints.size();
+                 ++i)
+            {
                 model_.local_models()[i].restore_checkpoint(
-                    local_checkpoints[i]);
+                    local_step_checkpoints[i]);
                 model_.local_models()[i].set_auto_commit(true);
             }
-        }
-        sync_local_runtime_report_();
-        auto t1 = std::chrono::steady_clock::now();
+            set_macro_trial_mode_(false);
+            inject_or_clear_({});
+        };
 
-        last_report_.micro_solve_seconds =
-            std::chrono::duration<double>(t1 - t0).count();
-        last_report_.converged = (last_report_.failed_submodels == 0);
-        if (!last_report_.converged) {
-            last_report_.termination_reason =
-                CouplingTerminationReason::MicroSolveFailed;
+        double requested_increment = nominal_increment;
+        bool attempted_micro_failure = false;
+        int failed_submodels_before_retry = 0;
+
+        for (int attempt = 0; attempt <= max_cutback_attempts; ++attempt) {
+            if (attempt > 0) {
+                restore_step_start();
+                const double factor = std::pow(cutback_factor, attempt);
+                requested_increment = nominal_increment * factor;
+                if (min_increment > 0.0) {
+                    requested_increment =
+                        std::max(min_increment, requested_increment);
+                }
+                if (!(requested_increment > 0.0)
+                    || requested_increment >=
+                           macro_solver_current_increment_() *
+                               (1.0 - 1.0e-12))
+                {
+                    break;
+                }
+                macro_solver_set_increment_(requested_increment);
+                last_report_.one_way_micro_cutback_attempts = attempt;
+                last_report_.one_way_micro_cutback_last_factor = factor;
+                last_report_.one_way_micro_cutback_last_increment =
+                    requested_increment;
+            } else {
+                inject_or_clear_({});
+                if (cutback_supported) {
+                    last_report_.one_way_micro_cutback_initial_increment =
+                        nominal_increment;
+                    last_report_.one_way_micro_cutback_last_increment =
+                        nominal_increment;
+                }
+            }
+
+            if (!macro_solver_->step()) {
+                capture_macro_solver_diagnostics_();
+                last_report_.converged = false;
+                last_report_.termination_reason =
+                    CouplingTerminationReason::MacroSolveFailed;
+                if (attempt > 0) {
+                    last_report_.rollback_performed = true;
+                    restore_step_start();
+                }
+                return false;
+            }
+            capture_macro_solver_diagnostics_();
+            capture_attempted_macro_state_();
+
+            auto t0 = std::chrono::steady_clock::now();
+            std::vector<SectionHomogenizedResponse> responses;
+            solve_locals_once_(macro_solver_->current_time(),
+                               responses,
+                               last_report_.failed_submodels);
+            last_responses_ = responses;
+
+            if (last_report_.failed_submodels == 0) {
+                finalize_local_models_(macro_solver_->current_time(), &responses);
+                sync_local_runtime_report_();
+                auto t1 = std::chrono::steady_clock::now();
+                last_report_.micro_solve_seconds +=
+                    std::chrono::duration<double>(t1 - t0).count();
+                last_report_.converged = true;
+                last_report_.termination_reason =
+                    CouplingTerminationReason::OneWayStepCompleted;
+                if (attempted_micro_failure) {
+                    last_report_.one_way_micro_cutback_succeeded = true;
+                    last_report_.one_way_micro_cutback_failed_submodels =
+                        failed_submodels_before_retry;
+                    last_report_.one_way_replay_status =
+                        "one_way_micro_cutback_recovered";
+                }
+                ++analysis_steps_;
+                return true;
+            }
+
+            attempted_micro_failure = true;
+            failed_submodels_before_retry =
+                std::max(failed_submodels_before_retry,
+                         last_report_.failed_submodels);
+            for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
+                model_.local_models()[i].restore_checkpoint(
+                    local_step_checkpoints[i]);
+                model_.local_models()[i].set_auto_commit(true);
+            }
+            sync_local_runtime_report_();
+            auto t1 = std::chrono::steady_clock::now();
+            last_report_.micro_solve_seconds +=
+                std::chrono::duration<double>(t1 - t0).count();
+
+            if (attempt >= max_cutback_attempts ||
+                !cutback_supported ||
+                cutback_factor <= 0.0 ||
+                (min_increment > 0.0 &&
+                 requested_increment <= min_increment * (1.0 + 1.0e-12)))
+            {
+                break;
+            }
         }
-        if (last_report_.converged) {
-            ++analysis_steps_;
+
+        last_report_.converged = false;
+        last_report_.termination_reason =
+            CouplingTerminationReason::MicroSolveFailed;
+        last_report_.one_way_micro_cutback_failed_submodels =
+            failed_submodels_before_retry;
+        if (attempted_micro_failure && max_cutback_attempts > 0) {
+            last_report_.one_way_replay_status =
+                "one_way_micro_cutback_failed";
         }
-        return last_report_.converged;
+        return false;
     }
 
     bool perform_lagged_feedback_()
@@ -1464,6 +1624,14 @@ public:
     {
         macro_step_cutback_attempts_ = std::max(0, attempts);
         macro_step_cutback_factor_ = std::clamp(factor, 0.0, 1.0);
+    }
+    void set_one_way_micro_cutback(int attempts,
+                                   double factor = 0.5,
+                                   double min_increment = 0.0)
+    {
+        one_way_micro_cutback_attempts_ = std::max(0, attempts);
+        one_way_micro_cutback_factor_ = std::clamp(factor, 0.0, 1.0);
+        one_way_micro_cutback_min_increment_ = std::max(0.0, min_increment);
     }
     void set_site_adaptive_relaxation(
         SiteAdaptiveRelaxationSettings settings)

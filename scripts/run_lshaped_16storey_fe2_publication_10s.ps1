@@ -25,8 +25,12 @@ param(
     [double]$Fe2SiteRelaxMinAlpha = 0.05,
     [int]$Fe2MacroCutbackAttempts = 0,
     [double]$Fe2MacroCutbackFactor = 0.5,
+    [int]$Fe2OneWayMicroCutbackAttempts = 6,
+    [double]$Fe2OneWayMicroCutbackFactor = 0.5,
+    [double]$Fe2OneWayMicroCutbackMinDt = 0.000125,
     [int]$Fe2MacroBacktrackAttempts = 0,
     [double]$Fe2MacroBacktrackFactor = 0.5,
+    [switch]$DisableManagedLocalAdaptiveTransition,
     [switch]$IncludeColumnProbeSites,
     [switch]$IncludeCenterProbeSite,
     [int]$ManagedLocalTransitionSteps = 2,
@@ -135,6 +139,9 @@ foreach ($item in $families) {
         "--fe2-site-relax-min-alpha", (Format-Real $Fe2SiteRelaxMinAlpha),
         "--fe2-macro-cutback-attempts", "$Fe2MacroCutbackAttempts",
         "--fe2-macro-cutback-factor", (Format-Real $Fe2MacroCutbackFactor),
+        "--fe2-one-way-micro-cutback-attempts", "$Fe2OneWayMicroCutbackAttempts",
+        "--fe2-one-way-micro-cutback-factor", (Format-Real $Fe2OneWayMicroCutbackFactor),
+        "--fe2-one-way-micro-cutback-min-dt", (Format-Real $Fe2OneWayMicroCutbackMinDt),
         "--fe2-macro-backtrack-attempts", "$Fe2MacroBacktrackAttempts",
         "--fe2-macro-backtrack-factor", (Format-Real $Fe2MacroBacktrackFactor),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
@@ -146,6 +153,9 @@ foreach ($item in $families) {
     }
     if ($Fe2DisablePhase2DtRegrowth) {
         $args += "--fe2-disable-phase2-dt-regrowth"
+    }
+    if (-not $DisableManagedLocalAdaptiveTransition) {
+        $args += "--adaptive-managed-local-transition"
     }
     if ($IncludeColumnProbeSites) {
         $args += "--fe2-include-column-probe-sites"
@@ -291,8 +301,12 @@ foreach ($item in $families) {
         fe2_site_relax_min_alpha = $Fe2SiteRelaxMinAlpha
         fe2_macro_cutback_attempts = $Fe2MacroCutbackAttempts
         fe2_macro_cutback_factor = $Fe2MacroCutbackFactor
+        fe2_one_way_micro_cutback_attempts = $Fe2OneWayMicroCutbackAttempts
+        fe2_one_way_micro_cutback_factor = $Fe2OneWayMicroCutbackFactor
+        fe2_one_way_micro_cutback_min_dt = $Fe2OneWayMicroCutbackMinDt
         fe2_macro_backtrack_attempts = $Fe2MacroBacktrackAttempts
         fe2_macro_backtrack_factor = $Fe2MacroBacktrackFactor
+        managed_local_adaptive_transition = (-not [bool]$DisableManagedLocalAdaptiveTransition)
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
         gravity_preload = [bool]$GravityPreload

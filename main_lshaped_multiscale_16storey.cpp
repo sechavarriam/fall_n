@@ -1577,9 +1577,12 @@ int main(int argc, char* argv[]) {
     double fe2_phase2_dt_growth_factor = 1.25;
     int fe2_phase2_dt_easy_steps = 2;
     int fe2_macro_cutback_attempts = 0;
+    int fe2_one_way_micro_cutback_attempts = 0;
     int fe2_macro_backtrack_attempts = 0;
     int fe2_steps_after_activation = -1;
     double fe2_macro_cutback_factor = 0.5;
+    double fe2_one_way_micro_cutback_factor = 0.5;
+    double fe2_one_way_micro_cutback_min_dt = 1.25e-4;
     double fe2_macro_backtrack_factor = 0.5;
     bool fe2_adaptive_site_relaxation = false;
     int fe2_site_relax_attempts = 4;
@@ -1919,6 +1922,16 @@ int main(int argc, char* argv[]) {
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--fe2-macro-cutback-factor" && i + 1 < argc) {
             fe2_macro_cutback_factor = std::stod(argv[++i]);
+        } else if (arg == "--fe2-one-way-micro-cutback-attempts" &&
+                   i + 1 < argc) {
+            fe2_one_way_micro_cutback_attempts =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--fe2-one-way-micro-cutback-factor" &&
+                   i + 1 < argc) {
+            fe2_one_way_micro_cutback_factor = std::stod(argv[++i]);
+        } else if (arg == "--fe2-one-way-micro-cutback-min-dt" &&
+                   i + 1 < argc) {
+            fe2_one_way_micro_cutback_min_dt = std::stod(argv[++i]);
         } else if (arg == "--fe2-macro-backtrack-attempts" && i + 1 < argc) {
             fe2_macro_backtrack_attempts =
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
@@ -2039,6 +2052,15 @@ int main(int argc, char* argv[]) {
     if (fe2_macro_cutback_factor <= 0.0 || fe2_macro_cutback_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-cutback-factor must be in (0,1).");
     }
+    if (fe2_one_way_micro_cutback_factor <= 0.0 ||
+        fe2_one_way_micro_cutback_factor >= 1.0) {
+        throw std::invalid_argument(
+            "--fe2-one-way-micro-cutback-factor must be in (0,1).");
+    }
+    if (!(fe2_one_way_micro_cutback_min_dt > 0.0)) {
+        throw std::invalid_argument(
+            "--fe2-one-way-micro-cutback-min-dt must be positive.");
+    }
     if (fe2_macro_backtrack_factor <= 0.0 || fe2_macro_backtrack_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-backtrack-factor must be in (0,1).");
     }
@@ -2112,6 +2134,9 @@ int main(int argc, char* argv[]) {
              "--fe2-disable-phase2-dt-regrowth",
              "--fe2-macro-cutback-attempts",
              "--fe2-macro-cutback-factor",
+             "--fe2-one-way-micro-cutback-attempts",
+             "--fe2-one-way-micro-cutback-factor",
+             "--fe2-one-way-micro-cutback-min-dt",
              "--fe2-macro-backtrack-attempts",
              "--fe2-macro-backtrack-factor",
              "--fe2-adaptive-site-relax",
@@ -3707,6 +3732,10 @@ int main(int argc, char* argv[]) {
     analysis.set_section_dimensions(COL_B[first_range], COL_H[first_range]);
     analysis.set_macro_step_cutback(
         fe2_macro_cutback_attempts, fe2_macro_cutback_factor);
+    analysis.set_one_way_micro_cutback(
+        fe2_one_way_micro_cutback_attempts,
+        fe2_one_way_micro_cutback_factor,
+        fe2_one_way_micro_cutback_min_dt);
     analysis.set_macro_failure_backtracking(
         fe2_macro_backtrack_attempts, fe2_macro_backtrack_factor);
     analysis.set_two_way_failure_recovery_policy(fe2_recovery_policy);
@@ -3755,6 +3784,10 @@ int main(int argc, char* argv[]) {
                  fe2_macro_cutback_factor,
                  fe2_macro_backtrack_attempts,
                  fe2_macro_backtrack_factor);
+    std::println("  One-way micro retry: cutback={}@{:.2f}, min_dt={:.3e} s",
+                 fe2_one_way_micro_cutback_attempts,
+                 fe2_one_way_micro_cutback_factor,
+                 fe2_one_way_micro_cutback_min_dt);
     std::println("  Failure recovery   : {}, max_hybrid_steps={}, "
                  "return_success_steps={}, work_gap_tol={:.3f}, force_jump_tol={:.3f}",
                  to_string(fe2_recovery_policy.mode),
@@ -3994,6 +4027,12 @@ int main(int argc, char* argv[]) {
         << "predictor_attempts,predictor_alpha,"
         << "cutback_attempts,cutback_succeeded,cutback_factor,"
         << "cutback_initial_increment,cutback_last_increment,"
+        << "one_way_micro_cutback_attempts,"
+        << "one_way_micro_cutback_succeeded,"
+        << "one_way_micro_cutback_factor,"
+        << "one_way_micro_cutback_initial_increment,"
+        << "one_way_micro_cutback_last_increment,"
+        << "one_way_micro_cutback_failed_submodels,"
         << "macro_backtracking_attempts,macro_backtracking_succeeded,"
         << "macro_backtracking_alpha,local_active_sites,"
         << "local_inactive_sites,local_solve_attempts,"
@@ -4108,6 +4147,12 @@ int main(int argc, char* argv[]) {
             << "," << r.macro_step_cutback_last_factor
             << "," << r.macro_step_cutback_initial_increment
             << "," << r.macro_step_cutback_last_increment
+            << "," << r.one_way_micro_cutback_attempts
+            << "," << (r.one_way_micro_cutback_succeeded ? 1 : 0)
+            << "," << r.one_way_micro_cutback_last_factor
+            << "," << r.one_way_micro_cutback_initial_increment
+            << "," << r.one_way_micro_cutback_last_increment
+            << "," << r.one_way_micro_cutback_failed_submodels
             << "," << r.macro_backtracking_attempts
             << "," << (r.macro_backtracking_succeeded ? 1 : 0)
             << "," << r.macro_backtracking_last_alpha
