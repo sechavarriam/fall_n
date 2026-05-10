@@ -1,0 +1,15 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_linear_control_plot_v1",
+  "case_dir": "data\\output\\lshaped_16storey_physical_scale1_linear_control_20260509",
+  "roof_csv": "data\\output\\lshaped_16storey_physical_scale1_linear_control_20260509\\recorders\\roof_displacement_newmark_linear_reference.csv",
+  "source_summary": "data\\output\\lshaped_16storey_physical_scale1_linear_control_20260509\\recorders\\newmark_linear_reference_summary.json",
+  "eq_scale": 1.0,
+  "duration_s": 10.0,
+  "steps": 500,
+  "peak_abs_roof_centroid_component_m": 0.20332644244525003,
+  "source_peak_abs_roof_component_m": 0.221047409356,
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_linear_control.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_linear_control.png"
+  ]
+}
