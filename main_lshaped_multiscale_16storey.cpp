@@ -1747,7 +1747,6 @@ int main(int argc, char* argv[]) {
             local_vtk_global_placement = true;
         } else if (arg == "--local-vtk-global-placement") {
             local_vtk_global_placement = true;
-            local_vtk_placement_frame = LocalVTKPlacementFrame::Reference;
         } else if (arg == "--local-family" && i + 1 < argc) {
             local_family = argv[++i];
         } else if (arg == "--global-vtk-interval" && i + 1 < argc) {
