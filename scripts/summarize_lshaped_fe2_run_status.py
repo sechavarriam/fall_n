@@ -79,7 +79,7 @@ def summarize(run_dir: Path) -> dict[str, object]:
     log = parse_log(run_dir / "run_stdout.log")
 
     summary: dict[str, object] = {
-        "schema": "fall_n_lshaped_fe2_run_status_v1",
+        "schema": "fall_n_lshaped_fe2_run_status_v2",
         "run_dir": str(run_dir.relative_to(ROOT)) if run_dir.is_relative_to(ROOT) else str(run_dir),
         "has_global_history": bool(history),
         "has_crack_evolution": bool(cracks),
@@ -128,7 +128,11 @@ def summarize(run_dir: Path) -> dict[str, object]:
     if coupling:
         accepted = [row for row in coupling if row.get("phase") == "accepted_step"]
         failed = [row for row in coupling if row.get("phase") == "failed_step"]
-        rows = accepted + failed
+        cost_budget = [
+            row for row in coupling
+            if row.get("phase") == "stopped_cost_budget"
+        ]
+        rows = accepted + failed + cost_budget
         micro_attempts = [
             as_int(row, "one_way_micro_cutback_attempts") for row in rows
         ]
@@ -139,11 +143,24 @@ def summarize(run_dir: Path) -> dict[str, object]:
         summary["coupling"] = {
             "accepted_rows": len(accepted),
             "failed_rows": len(failed),
+            "cost_budget_stop_rows": len(cost_budget),
             "max_one_way_micro_cutback_attempts": max(micro_attempts) if micro_attempts else 0,
             "one_way_micro_cutback_recovered_steps": len(micro_recovered),
             "last_termination": coupling[-1].get("termination", ""),
             "last_one_way_replay_status": coupling[-1].get("one_way_replay_status", ""),
         }
+        if cost_budget:
+            last_stop = cost_budget[-1]
+            summary["coupling"]["diagnostic_stop"] = {
+                "reason": "LocalSolveCostBudget",
+                "time_s": as_float(last_stop, "time"),
+                "step": as_int(last_stop, "step"),
+                "micro_solve_seconds": as_float(last_stop, "micro_solve_seconds"),
+                "one_way_micro_cutback_attempts": as_int(
+                    last_stop, "one_way_micro_cutback_attempts"),
+                "one_way_micro_cutback_last_increment": as_float(
+                    last_stop, "one_way_micro_cutback_last_increment"),
+            }
         if failed and not summary["log"]["failure_detected"]:
             last_failed = failed[-1]
             summary["log"]["failure_detected"] = True
