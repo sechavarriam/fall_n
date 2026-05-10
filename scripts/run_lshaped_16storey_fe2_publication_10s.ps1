@@ -22,7 +22,11 @@ param(
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
-    [double]$LinearAlarmRestartTime = 5.20,
+    [string]$LinearAlarmRestartDir = "data/output/lshaped_16storey_physical_scale1_linear_steel_yield_20260509/recorders",
+    [string]$LinearAlarmRestartDisplacement = "",
+    [string]$LinearAlarmRestartVelocity = "",
+    [double]$LinearAlarmRestartTime = 1.30,
+    [int]$LinearAlarmRestartStep = 65,
     [switch]$GravityPreload,
     [double]$GravityAccel = 9.80665,
     [int]$GravityPreloadSteps = 8,
@@ -125,7 +129,31 @@ foreach ($item in $families) {
         $args += "--skip-postprocess"
     }
     if ($UseLinearAlarmRestart) {
-        $args += "--restart-from-linear-alarm"
+        $restartDir = Join-Path $repoRoot $LinearAlarmRestartDir
+        $restartDisp = if ([string]::IsNullOrWhiteSpace($LinearAlarmRestartDisplacement)) {
+            Join-Path $restartDir "linear_first_alarm_displacement.vec"
+        } else {
+            $LinearAlarmRestartDisplacement
+        }
+        $restartVel = if ([string]::IsNullOrWhiteSpace($LinearAlarmRestartVelocity)) {
+            Join-Path $restartDir "linear_first_alarm_velocity.vec"
+        } else {
+            $LinearAlarmRestartVelocity
+        }
+        if (-not (Test-Path $restartDisp)) {
+            throw "Linear alarm restart displacement not found: $restartDisp"
+        }
+        if (-not (Test-Path $restartVel)) {
+            throw "Linear alarm restart velocity not found: $restartVel"
+        }
+        $args += "--restart-displacement"
+        $args += (Resolve-Path -LiteralPath $restartDisp).Path
+        $args += "--restart-velocity"
+        $args += (Resolve-Path -LiteralPath $restartVel).Path
+        $args += "--restart-time"
+        $args += (Format-Real $LinearAlarmRestartTime)
+        $args += "--restart-step"
+        $args += "$LinearAlarmRestartStep"
     }
     if ($GravityPreload) {
         $args += "--gravity-preload"
@@ -214,7 +242,9 @@ foreach ($item in $families) {
         requested_duration_s = $runDuration
         driver_duration_s = $driverDuration
         restart_from_linear_alarm = [bool]$UseLinearAlarmRestart
+        linear_alarm_restart_dir = $LinearAlarmRestartDir
         linear_alarm_restart_time_s = $LinearAlarmRestartTime
+        linear_alarm_restart_step = $LinearAlarmRestartStep
         local_vtk_profile = "publication"
         local_vtk_crack_opening_threshold_m = $CrackOpeningThreshold
         local_vtk_crack_filter_mode = "both"
