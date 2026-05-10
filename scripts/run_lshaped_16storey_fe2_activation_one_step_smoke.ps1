@@ -26,7 +26,7 @@ param(
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
-    [int]$ManagedLocalFailureRescueAttempts = 2,
+    [int]$ManagedLocalFailureRescueAttempts = 0,
     [double]$ManagedLocalFailureRescueStepFactor = 2.0,
     [switch]$DisableManagedLocalAdaptiveTransition,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
