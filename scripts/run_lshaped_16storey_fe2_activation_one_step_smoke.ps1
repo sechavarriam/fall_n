@@ -15,7 +15,7 @@ param(
     [int]$Fe2MaxSites = 3,
     [switch]$IncludeColumnProbeSites,
     [switch]$IncludeCenterProbeSite,
-    [double]$Scale = 20.0,
+    [double]$Scale = 1.0,
     [double]$Fe2Phase2Dt = 0.02,
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
@@ -60,6 +60,11 @@ if (-not (Test-Path $exe)) {
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 function Format-Real([double]$Value) {
     return $Value.ToString("R", $InvariantCulture)
+}
+
+$isPhysicalScale = [math]::Abs($Scale - 1.0) -lt 1.0e-12
+if (-not $isPhysicalScale -and $OutputRootBase -notmatch "stress[_-]?test") {
+    throw "Non-physical scale=$Scale is reserved for stress tests. Use scale=1.0 for physical activation smokes, or include 'stress_test' in OutputRootBase."
 }
 
 $families = @()

@@ -1,0 +1,36 @@
+{
+  "schema": "fall_n_myg004_window_acceleration_v1",
+  "event": "Tohoku 2011-03-11 Mw 9.0",
+  "station": "MYG004 Tsukidate",
+  "scale": 1.0,
+  "window_start_s": 87.65,
+  "window_end_s": 97.65,
+  "components": {
+    "NS": {
+      "file": "data\\input\\earthquakes\\Japan2011\\Tsukidate-MYG004\\MYG0041103111446.NS",
+      "dt_s": 0.01,
+      "pga_window_mps2": 26.794289606213148,
+      "pga_window_g": 2.732257152668154,
+      "time_of_pga_window_s": 95.60000000000001
+    },
+    "EW": {
+      "file": "data\\input\\earthquakes\\Japan2011\\Tsukidate-MYG004\\MYG0041103111446.EW",
+      "dt_s": 0.01,
+      "pga_window_mps2": 12.85384274113135,
+      "pga_window_g": 1.3107271842200294,
+      "time_of_pga_window_s": 95.66
+    },
+    "UD": {
+      "file": "data\\input\\earthquakes\\Japan2011\\Tsukidate-MYG004\\MYG0041103111446.UD",
+      "dt_s": 0.01,
+      "pga_window_mps2": 18.866497993372217,
+      "pga_window_g": 1.9238473885957201,
+      "time_of_pga_window_s": 95.31
+    }
+  },
+  "figures": [
+    "doc\\figures\\validation_reboot\\myg004_tohoku_2011_window_acceleration.pdf",
+    "doc\\figures\\validation_reboot\\myg004_tohoku_2011_window_acceleration.png"
+  ],
+  "decimated_csv": "doc\\figures\\validation_reboot\\myg004_tohoku_2011_window_acceleration_decimated.csv"
+}
