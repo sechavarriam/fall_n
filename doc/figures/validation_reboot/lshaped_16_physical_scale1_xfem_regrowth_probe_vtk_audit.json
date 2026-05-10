@@ -1,0 +1,30 @@
+{
+  "schema": "fall_n_publication_vtk_audit_v1",
+  "root": "data\\output\\lshaped_16storey_physical_scale1_xfem_regrowth_probe_20260510",
+  "files": {
+    "cracks_raw": 12,
+    "cracks_visible": 12,
+    "gauss": 12,
+    "mesh": 12,
+    "rebar": 12,
+    "rebar_tubes": 12
+  },
+  "missing_files": [],
+  "issues": [],
+  "visible_crack_cells": 84,
+  "gauss_points": 3072,
+  "kobathe_crack_families_active": [],
+  "transform_records": 6,
+  "transform_coherent": true,
+  "gauss_fields_profile": "minimal",
+  "crack_opening_threshold_m": 0.0005,
+  "min_visible_crack_opening_m": 0.0005358505420862848,
+  "max_bond_slip_m": 0.0,
+  "bond_slip_valid_cells": 0,
+  "local_global_endpoint_checks": 0,
+  "local_global_endpoint_max_gap_m": null,
+  "local_global_current_endpoint_max_gap_m": null,
+  "local_global_reference_warp_endpoint_max_gap_m": null,
+  "sampled_files": 72,
+  "total_vtu_files": 108
+}
