@@ -20,6 +20,9 @@ param(
     [int]$Fe2OneWayMicroCutbackAttempts = 6,
     [double]$Fe2OneWayMicroCutbackFactor = 0.5,
     [double]$Fe2OneWayMicroCutbackMinDt = 0.000125,
+    [double]$Fe2LocalSolveWallBudgetSeconds = 0.0,
+    [double]$Fe2LocalSolveBudgetCutbackFactor = 0.5,
+    [switch]$Fe2StopOnLocalSolveBudget,
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
@@ -107,12 +110,17 @@ foreach ($item in $families) {
         "--fe2-one-way-micro-cutback-attempts", "$Fe2OneWayMicroCutbackAttempts",
         "--fe2-one-way-micro-cutback-factor", (Format-Real $Fe2OneWayMicroCutbackFactor),
         "--fe2-one-way-micro-cutback-min-dt", (Format-Real $Fe2OneWayMicroCutbackMinDt),
+        "--fe2-local-solve-wall-budget-seconds", (Format-Real $Fe2LocalSolveWallBudgetSeconds),
+        "--fe2-local-solve-budget-cutback-factor", (Format-Real $Fe2LocalSolveBudgetCutbackFactor),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
         "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
     )
     if ($SkipPostprocess) {
         $args += "--skip-postprocess"
+    }
+    if ($Fe2StopOnLocalSolveBudget) {
+        $args += "--fe2-stop-on-local-solve-budget"
     }
     if (-not $DisableManagedLocalAdaptiveTransition) {
         $args += "--adaptive-managed-local-transition"
@@ -224,6 +232,9 @@ foreach ($item in $families) {
         fe2_one_way_micro_cutback_attempts = $Fe2OneWayMicroCutbackAttempts
         fe2_one_way_micro_cutback_factor = $Fe2OneWayMicroCutbackFactor
         fe2_one_way_micro_cutback_min_dt = $Fe2OneWayMicroCutbackMinDt
+        fe2_local_solve_wall_budget_seconds = $Fe2LocalSolveWallBudgetSeconds
+        fe2_local_solve_budget_cutback_factor = $Fe2LocalSolveBudgetCutbackFactor
+        fe2_stop_on_local_solve_budget = [bool]$Fe2StopOnLocalSolveBudget
         managed_local_adaptive_transition = (-not [bool]$DisableManagedLocalAdaptiveTransition)
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
