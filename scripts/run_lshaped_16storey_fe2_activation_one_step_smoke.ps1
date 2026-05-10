@@ -26,6 +26,8 @@ param(
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
+    [int]$ManagedLocalFailureRescueAttempts = 2,
+    [double]$ManagedLocalFailureRescueStepFactor = 2.0,
     [switch]$DisableManagedLocalAdaptiveTransition,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
@@ -114,7 +116,9 @@ foreach ($item in $families) {
         "--fe2-local-solve-budget-cutback-factor", (Format-Real $Fe2LocalSolveBudgetCutbackFactor),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
-        "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
+        "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections",
+        "--managed-local-failure-rescue-attempts", "$ManagedLocalFailureRescueAttempts",
+        "--managed-local-failure-rescue-step-factor", (Format-Real $ManagedLocalFailureRescueStepFactor)
     )
     if ($SkipPostprocess) {
         $args += "--skip-postprocess"
@@ -245,6 +249,8 @@ foreach ($item in $families) {
         managed_local_transition_steps = $ManagedLocalTransitionSteps
         managed_local_max_transition_steps = $ManagedLocalMaxTransitionSteps
         managed_local_adaptive_max_bisections = $ManagedLocalAdaptiveMaxBisections
+        managed_local_failure_rescue_attempts = $ManagedLocalFailureRescueAttempts
+        managed_local_failure_rescue_step_factor = $ManagedLocalFailureRescueStepFactor
         kobathe_penalty_factor = $KobathePenaltyFactor
         kobathe_kinematics = $KobatheKinematics
         kobathe_snes_max_it = $KobatheSnesMaxIt
