@@ -1573,6 +1573,9 @@ int main(int argc, char* argv[]) {
     double fe2_staggered_tol = STAGGERED_TOL;
     double fe2_relaxation = STAGGERED_RELAX;
     double fe2_phase2_dt = DT;
+    bool fe2_phase2_dt_regrowth = true;
+    double fe2_phase2_dt_growth_factor = 1.25;
+    int fe2_phase2_dt_easy_steps = 2;
     int fe2_macro_cutback_attempts = 0;
     int fe2_macro_backtrack_attempts = 0;
     int fe2_steps_after_activation = -1;
@@ -1905,6 +1908,13 @@ int main(int argc, char* argv[]) {
             fe2_relaxation = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt" && i + 1 < argc) {
             fe2_phase2_dt = std::stod(argv[++i]);
+        } else if (arg == "--fe2-phase2-dt-growth-factor" && i + 1 < argc) {
+            fe2_phase2_dt_growth_factor = std::stod(argv[++i]);
+        } else if (arg == "--fe2-phase2-dt-easy-steps" && i + 1 < argc) {
+            fe2_phase2_dt_easy_steps =
+                std::max(1, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--fe2-disable-phase2-dt-regrowth") {
+            fe2_phase2_dt_regrowth = false;
         } else if (arg == "--fe2-macro-cutback-attempts" && i + 1 < argc) {
             fe2_macro_cutback_attempts =
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
@@ -2024,6 +2034,9 @@ int main(int argc, char* argv[]) {
     if (!(fe2_phase2_dt > 0.0)) {
         throw std::invalid_argument("--fe2-phase2-dt must be positive.");
     }
+    if (fe2_phase2_dt_growth_factor < 1.0) {
+        throw std::invalid_argument("--fe2-phase2-dt-growth-factor must be >= 1.");
+    }
     if (fe2_macro_cutback_factor <= 0.0 || fe2_macro_cutback_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-cutback-factor must be in (0,1).");
     }
@@ -2095,6 +2108,9 @@ int main(int argc, char* argv[]) {
              "--fe2-tol",
              "--fe2-relax",
              "--fe2-phase2-dt",
+             "--fe2-phase2-dt-growth-factor",
+             "--fe2-phase2-dt-easy-steps",
+             "--fe2-disable-phase2-dt-regrowth",
              "--fe2-macro-cutback-attempts",
              "--fe2-macro-cutback-factor",
              "--fe2-macro-backtrack-attempts",
@@ -3729,6 +3745,10 @@ int main(int argc, char* argv[]) {
                  fe2_one_way_only ? "OneWayDownscaling" : "IteratedTwoWayFE2",
                  fe2_max_staggered_iter, fe2_staggered_tol,
                  fe2_relaxation, fe2_phase2_dt);
+    std::println("  Phase-2 dt growth  : {} (factor={:.2f}, easy_steps={})",
+                 fe2_phase2_dt_regrowth ? "enabled" : "disabled",
+                 fe2_phase2_dt_growth_factor,
+                 fe2_phase2_dt_easy_steps);
     std::println("  Local executor     : SerialExecutor "
                  "(PETSc local SNES isolation for validation)");
     std::println("  Macro safeguards   : cutback={}@{:.2f}, backtrack={}@{:.2f}",
@@ -4299,6 +4319,7 @@ int main(int argc, char* argv[]) {
     }
 
     bool coupling_failed = false;
+    int fe2_phase2_dt_easy_counter = 0;
     for (;;) {
         PetscReal t_current;
         TSGetTime(solver.get_ts(), &t_current);
@@ -4516,6 +4537,43 @@ int main(int argc, char* argv[]) {
                          evol_step, t, static_cast<double>(u_norm2),
                          evol_max_damage, total_cracks, staggered_iters);
             std::cout << std::flush;
+        }
+
+        if (fe2_phase2_dt_regrowth && fe2_phase2_dt_growth_factor > 1.0) {
+            const double current_dt = solver.get_time_step();
+            const bool below_nominal =
+                current_dt < fe2_phase2_dt * (1.0 - 1.0e-10);
+            if (below_nominal) {
+                const auto& report = analysis.last_report();
+                const bool recovery_used =
+                    report.macro_step_cutback_succeeded ||
+                    report.macro_backtracking_succeeded ||
+                    report.adaptive_relaxation_applied;
+                fe2_phase2_dt_easy_counter =
+                    recovery_used ? 0 : fe2_phase2_dt_easy_counter + 1;
+                if (fe2_phase2_dt_easy_counter >= fe2_phase2_dt_easy_steps) {
+                    double next_dt =
+                        std::min(fe2_phase2_dt,
+                                 current_dt * fe2_phase2_dt_growth_factor);
+                    if (phase2_end_time > t) {
+                        next_dt = std::min(next_dt, phase2_end_time - t);
+                    }
+                    if (next_dt > current_dt * (1.0 + 1.0e-10)) {
+                        solver.set_time_step(next_dt);
+                        if (progress_print_interval > 0 &&
+                            evol_step % progress_print_interval == 0)
+                        {
+                            std::println(
+                                "      [dt] phase-2 regrowth: {:.6e} -> {:.6e} s",
+                                current_dt, next_dt);
+                            std::cout << std::flush;
+                        }
+                    }
+                    fe2_phase2_dt_easy_counter = 0;
+                }
+            } else {
+                fe2_phase2_dt_easy_counter = 0;
+            }
         }
     }
 

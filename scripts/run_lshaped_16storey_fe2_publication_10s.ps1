@@ -15,6 +15,9 @@ param(
     [ValidateSet("reference", "current", "both")]
     [string]$PlacementFrame = "both",
     [int]$Fe2MaxSites = 3,
+    [switch]$Fe2DisablePhase2DtRegrowth,
+    [double]$Fe2Phase2DtGrowthFactor = 1.25,
+    [int]$Fe2Phase2DtEasySteps = 2,
     [switch]$Fe2AdaptiveSiteRelaxation,
     [int]$Fe2SiteRelaxAttempts = 4,
     [double]$Fe2SiteRelaxGrowth = 1.25,
@@ -124,6 +127,8 @@ foreach ($item in $families) {
         "--local-vtk-placement-frame", $PlacementFrame,
         "--fe2-max-sites", "$Fe2MaxSites",
         "--fe2-phase2-dt", (Format-Real $Fe2Phase2Dt),
+        "--fe2-phase2-dt-growth-factor", (Format-Real $Fe2Phase2DtGrowthFactor),
+        "--fe2-phase2-dt-easy-steps", "$Fe2Phase2DtEasySteps",
         "--fe2-site-relax-attempts", "$Fe2SiteRelaxAttempts",
         "--fe2-site-relax-growth", (Format-Real $Fe2SiteRelaxGrowth),
         "--fe2-site-relax-factor", (Format-Real $Fe2SiteRelaxFactor),
@@ -138,6 +143,9 @@ foreach ($item in $families) {
     )
     if ($Fe2AdaptiveSiteRelaxation) {
         $args += "--fe2-adaptive-site-relax"
+    }
+    if ($Fe2DisablePhase2DtRegrowth) {
+        $args += "--fe2-disable-phase2-dt-regrowth"
     }
     if ($IncludeColumnProbeSites) {
         $args += "--fe2-include-column-probe-sites"
@@ -273,6 +281,9 @@ foreach ($item in $families) {
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
         fe2_phase2_dt = $Fe2Phase2Dt
+        fe2_phase2_dt_regrowth = -not [bool]$Fe2DisablePhase2DtRegrowth
+        fe2_phase2_dt_growth_factor = $Fe2Phase2DtGrowthFactor
+        fe2_phase2_dt_easy_steps = $Fe2Phase2DtEasySteps
         fe2_adaptive_site_relaxation = [bool]$Fe2AdaptiveSiteRelaxation
         fe2_site_relax_attempts = $Fe2SiteRelaxAttempts
         fe2_site_relax_growth = $Fe2SiteRelaxGrowth
