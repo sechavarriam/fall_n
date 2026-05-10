@@ -62,7 +62,7 @@ def main() -> int:
     parser.add_argument("--prefix", default="lshaped_16_physical_scale1_xfem_long_diagnostic_frontier")
     args = parser.parse_args()
 
-    run_dir = args.run_dir
+    run_dir = args.run_dir.resolve()
     history = read_csv(run_dir / "recorders" / "global_history.csv")
     cracks = read_csv(run_dir / "recorders" / "crack_evolution.csv")
     audit = json.loads((run_dir / "recorders" / "publication_vtk_audit.json").read_text(encoding="utf-8"))
@@ -126,7 +126,7 @@ def main() -> int:
     final_accepted_time = t[-1]
     summary = {
         "schema": "fall_n_lshaped_physical_scale1_xfem_long_diagnostic_frontier_v1",
-        "run_dir": str(run_dir.relative_to(ROOT)),
+        "run_dir": str(run_dir.relative_to(ROOT) if run_dir.is_relative_to(ROOT) else run_dir),
         "eq_scale": fe2_summary["eq_scale"],
         "selected_site_count": fe2_summary["selected_site_count"],
         "completed_site_count": fe2_summary["completed_site_count"],
