@@ -1583,6 +1583,9 @@ int main(int argc, char* argv[]) {
     double fe2_macro_cutback_factor = 0.5;
     double fe2_one_way_micro_cutback_factor = 0.5;
     double fe2_one_way_micro_cutback_min_dt = 1.25e-4;
+    double fe2_local_solve_wall_budget_seconds = 0.0;
+    double fe2_local_solve_budget_cutback_factor = 0.5;
+    bool fe2_stop_on_local_solve_budget = false;
     double fe2_macro_backtrack_factor = 0.5;
     bool fe2_adaptive_site_relaxation = false;
     int fe2_site_relax_attempts = 4;
@@ -1932,6 +1935,14 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fe2-one-way-micro-cutback-min-dt" &&
                    i + 1 < argc) {
             fe2_one_way_micro_cutback_min_dt = std::stod(argv[++i]);
+        } else if (arg == "--fe2-local-solve-wall-budget-seconds" &&
+                   i + 1 < argc) {
+            fe2_local_solve_wall_budget_seconds = std::stod(argv[++i]);
+        } else if (arg == "--fe2-local-solve-budget-cutback-factor" &&
+                   i + 1 < argc) {
+            fe2_local_solve_budget_cutback_factor = std::stod(argv[++i]);
+        } else if (arg == "--fe2-stop-on-local-solve-budget") {
+            fe2_stop_on_local_solve_budget = true;
         } else if (arg == "--fe2-macro-backtrack-attempts" && i + 1 < argc) {
             fe2_macro_backtrack_attempts =
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
@@ -2061,6 +2072,15 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--fe2-one-way-micro-cutback-min-dt must be positive.");
     }
+    if (fe2_local_solve_wall_budget_seconds < 0.0) {
+        throw std::invalid_argument(
+            "--fe2-local-solve-wall-budget-seconds must be non-negative.");
+    }
+    if (fe2_local_solve_budget_cutback_factor <= 0.0 ||
+        fe2_local_solve_budget_cutback_factor >= 1.0) {
+        throw std::invalid_argument(
+            "--fe2-local-solve-budget-cutback-factor must be in (0,1).");
+    }
     if (fe2_macro_backtrack_factor <= 0.0 || fe2_macro_backtrack_factor >= 1.0) {
         throw std::invalid_argument("--fe2-macro-backtrack-factor must be in (0,1).");
     }
@@ -2137,6 +2157,9 @@ int main(int argc, char* argv[]) {
              "--fe2-one-way-micro-cutback-attempts",
              "--fe2-one-way-micro-cutback-factor",
              "--fe2-one-way-micro-cutback-min-dt",
+             "--fe2-local-solve-wall-budget-seconds",
+             "--fe2-local-solve-budget-cutback-factor",
+             "--fe2-stop-on-local-solve-budget",
              "--fe2-macro-backtrack-attempts",
              "--fe2-macro-backtrack-factor",
              "--fe2-adaptive-site-relax",
@@ -3788,6 +3811,13 @@ int main(int argc, char* argv[]) {
                  fe2_one_way_micro_cutback_attempts,
                  fe2_one_way_micro_cutback_factor,
                  fe2_one_way_micro_cutback_min_dt);
+    std::println("  Local solve budget : {}{}",
+                 fe2_local_solve_wall_budget_seconds > 0.0
+                     ? std::format("{:.1f} s, cutback@{:.2f}",
+                                   fe2_local_solve_wall_budget_seconds,
+                                   fe2_local_solve_budget_cutback_factor)
+                     : std::string{"disabled"},
+                 fe2_stop_on_local_solve_budget ? ", stop-on-budget" : "");
     std::println("  Failure recovery   : {}, max_hybrid_steps={}, "
                  "return_success_steps={}, work_gap_tol={:.3f}, force_jump_tol={:.3f}",
                  to_string(fe2_recovery_policy.mode),
@@ -4583,6 +4613,45 @@ int main(int argc, char* argv[]) {
             std::cout << std::flush;
         }
 
+        bool local_solve_budget_triggered = false;
+        if (fe2_local_solve_wall_budget_seconds > 0.0) {
+            const auto& report = analysis.last_report();
+            local_solve_budget_triggered =
+                report.micro_solve_seconds >
+                fe2_local_solve_wall_budget_seconds;
+            if (local_solve_budget_triggered) {
+                const double current_dt = solver.get_time_step();
+                const double reduced_dt = std::max(
+                    fe2_one_way_micro_cutback_min_dt,
+                    current_dt * fe2_local_solve_budget_cutback_factor);
+                if (reduced_dt < current_dt * (1.0 - 1.0e-12)) {
+                    solver.set_time_step(reduced_dt);
+                    fe2_phase2_dt_easy_counter = 0;
+                    std::println(
+                        "      [dt] local solve budget: {:.3f} s > {:.3f} s; "
+                        "dt {:.6e} -> {:.6e} s",
+                        report.micro_solve_seconds,
+                        fe2_local_solve_wall_budget_seconds,
+                        current_dt,
+                        reduced_dt);
+                } else {
+                    std::println(
+                        "      [dt] local solve budget: {:.3f} s > {:.3f} s; "
+                        "dt already at floor {:.6e} s",
+                        report.micro_solve_seconds,
+                        fe2_local_solve_wall_budget_seconds,
+                        current_dt);
+                }
+                std::cout << std::flush;
+                if (fe2_stop_on_local_solve_budget) {
+                    write_coupling_audit_row(
+                        t, evol_step, "stopped_cost_budget", false);
+                    coupling_failed = true;
+                    break;
+                }
+            }
+        }
+
         if (fe2_phase2_dt_regrowth && fe2_phase2_dt_growth_factor > 1.0) {
             const double current_dt = solver.get_time_step();
             const bool below_nominal =
@@ -4592,7 +4661,9 @@ int main(int argc, char* argv[]) {
                 const bool recovery_used =
                     report.macro_step_cutback_succeeded ||
                     report.macro_backtracking_succeeded ||
-                    report.adaptive_relaxation_applied;
+                    report.adaptive_relaxation_applied ||
+                    report.one_way_micro_cutback_succeeded ||
+                    local_solve_budget_triggered;
                 fe2_phase2_dt_easy_counter =
                     recovery_used ? 0 : fe2_phase2_dt_easy_counter + 1;
                 if (fe2_phase2_dt_easy_counter >= fe2_phase2_dt_easy_steps) {
