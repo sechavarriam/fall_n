@@ -257,6 +257,7 @@ struct FakeLocalModel {
     int end_calls{0};
     bool auto_commit{true};
     bool solve_converged{true};
+    std::function<bool(double)> solve_guard{};
     ResponseStatus response_status{ResponseStatus::Ok};
     bool tangent_regularized{false};
     int failed_perturbations{0};
@@ -287,7 +288,11 @@ struct FakeLocalModel {
     [[nodiscard]] FakeLocalResult solve_step(double)
     {
         ++solve_calls;
-        return {.converged = solve_converged};
+        const bool guarded_ok =
+            solve_guard ? solve_guard(solver ? solver->get_increment_size()
+                                             : 0.0)
+                        : true;
+        return {.converged = solve_converged && guarded_ok};
     }
 
     [[nodiscard]] Eigen::Matrix<double, 6, 6>
@@ -906,6 +911,58 @@ void test_one_way_downscaling_does_not_finalize_failed_local_step()
                "failed one-way response remains available for diagnostics");
 }
 
+void test_one_way_downscaling_recovers_micro_failure_with_cutback()
+{
+    FakeSolver solver;
+    solver.increment_size = 1.0;
+
+    using BridgeT = FakeBridge;
+    using ModelT = MultiscaleModel<BridgeT, FakeLocalModel>;
+    using AnalysisT =
+        MultiscaleAnalysis<FakeSolver, BridgeT, FakeLocalModel>;
+
+    ModelT model{BridgeT{&solver, 1}};
+    FakeLocalModel local{&solver, 0};
+    local.solve_guard = [](double increment) {
+        return increment <= 0.5 + 1.0e-12;
+    };
+    model.register_local_model(
+        CouplingSite{.macro_element_id = 0, .section_gp = 0, .xi = 0.0},
+        std::move(local));
+
+    AnalysisT analysis(
+        solver,
+        std::move(model),
+        std::make_unique<OneWayDownscaling>(),
+        std::make_unique<ForceAndTangentConvergence>(),
+        std::make_unique<NoRelaxation>());
+    analysis.set_coupling_start_step(1);
+    analysis.set_one_way_micro_cutback(2, 0.5, 0.1);
+
+    const bool ok = analysis.step();
+    CHECK_TRUE(ok,
+               "one-way downscaling retries a failed local observation with a reduced macro increment");
+    CHECK_TRUE(
+        analysis.last_report().termination_reason
+            == CouplingTerminationReason::OneWayStepCompleted,
+        "recovered one-way cutback reports an accepted one-way step");
+    CHECK_TRUE(analysis.last_report().one_way_micro_cutback_attempts == 1,
+               "one-way micro cutback records the retry count");
+    CHECK_TRUE(analysis.last_report().one_way_micro_cutback_succeeded,
+               "one-way micro cutback records successful recovery");
+    CHECK_TRUE(std::abs(solver.committed_time - 0.5) < 1.0e-12,
+               "recovered one-way step advances only by the accepted reduced increment");
+    CHECK_TRUE(std::abs(solver.increment_size - 0.5) < 1.0e-12,
+               "accepted reduced increment remains active for external dt regrowth");
+    CHECK_TRUE(analysis.analysis_step() == 1,
+               "recovered one-way step counts as one accepted coupled step");
+    CHECK_TRUE(analysis.model().local_models()[0].end_calls == 1,
+               "recovered one-way local state is finalized exactly once");
+    CHECK_TRUE(analysis.last_report().one_way_replay_status ==
+                   "one_way_micro_cutback_recovered",
+               "one-way replay status distinguishes recovered micro cutback");
+}
+
 void test_lagged_feedback_reports_regularized_response_without_hard_failure()
 {
     FakeSolver solver;
@@ -1213,6 +1270,7 @@ int main()
     test_iterated_two_way_rolls_back_on_micro_failure();
     test_hybrid_observation_window_advances_after_micro_failure();
     test_one_way_downscaling_does_not_finalize_failed_local_step();
+    test_one_way_downscaling_recovers_micro_failure_with_cutback();
     test_lagged_feedback_reports_regularized_response_without_hard_failure();
     test_invalid_operator_counts_as_hard_failure();
     test_iterated_two_way_matches_between_serial_and_openmp_executors();

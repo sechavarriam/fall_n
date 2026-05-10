@@ -275,6 +275,12 @@ struct CouplingIterationReport {
     double macro_step_cutback_last_factor{1.0};
     double macro_step_cutback_initial_increment{0.0};
     double macro_step_cutback_last_increment{0.0};
+    int one_way_micro_cutback_attempts{0};
+    bool one_way_micro_cutback_succeeded{false};
+    double one_way_micro_cutback_last_factor{1.0};
+    double one_way_micro_cutback_initial_increment{0.0};
+    double one_way_micro_cutback_last_increment{0.0};
+    int one_way_micro_cutback_failed_submodels{0};
     int macro_backtracking_attempts{0};
     bool macro_backtracking_succeeded{false};
     double macro_backtracking_last_alpha{1.0};

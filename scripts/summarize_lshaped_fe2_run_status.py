@@ -73,6 +73,7 @@ def summarize(run_dir: Path) -> dict[str, object]:
     recorders = run_dir / "recorders"
     history = read_csv_tail(recorders / "global_history.csv")
     cracks = read_csv_tail(recorders / "crack_evolution.csv")
+    coupling = read_csv_tail(recorders / "fe2_two_way_coupling_audit.csv")
     fe2 = load_json(recorders / "seismic_fe2_one_way_summary.json")
     audit = load_json(recorders / "publication_vtk_audit.json")
     log = parse_log(run_dir / "run_stdout.log")
@@ -123,6 +124,33 @@ def summarize(run_dir: Path) -> dict[str, object]:
             "max_opening_m": max(openings),
             "samples": len(cracks),
         }
+
+    if coupling:
+        accepted = [row for row in coupling if row.get("phase") == "accepted_step"]
+        failed = [row for row in coupling if row.get("phase") == "failed_step"]
+        rows = accepted + failed
+        micro_attempts = [
+            as_int(row, "one_way_micro_cutback_attempts") for row in rows
+        ]
+        micro_recovered = [
+            row for row in rows
+            if as_int(row, "one_way_micro_cutback_succeeded") != 0
+        ]
+        summary["coupling"] = {
+            "accepted_rows": len(accepted),
+            "failed_rows": len(failed),
+            "max_one_way_micro_cutback_attempts": max(micro_attempts) if micro_attempts else 0,
+            "one_way_micro_cutback_recovered_steps": len(micro_recovered),
+            "last_termination": coupling[-1].get("termination", ""),
+            "last_one_way_replay_status": coupling[-1].get("one_way_replay_status", ""),
+        }
+        if failed and not summary["log"]["failure_detected"]:
+            last_failed = failed[-1]
+            summary["log"]["failure_detected"] = True
+            summary["log"]["failure_time_s"] = as_float(last_failed, "time")
+            summary["log"]["failure_reason"] = last_failed.get("termination", "")
+            summary["log"]["failed_submodels"] = as_int(
+                last_failed, "failed_submodels", 0)
 
     if audit:
         summary["vtk_audit"] = {
