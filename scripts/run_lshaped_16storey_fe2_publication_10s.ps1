@@ -5,7 +5,7 @@ param(
     [double]$StartTime = 87.65,
     [double]$Duration = 10.0,
     [double]$SmokeDuration = 0.10,
-    [double]$Scale = 20.0,
+    [double]$Scale = 1.0,
     [double]$Fe2Phase2Dt = 0.02,
     [int]$GlobalVtkInterval = 1,
     [int]$LocalVtkInterval = 1,
@@ -61,6 +61,11 @@ if (-not (Test-Path $exe)) {
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 function Format-Real([double]$Value) {
     return $Value.ToString("R", $InvariantCulture)
+}
+
+$isPhysicalScale = [math]::Abs($Scale - 1.0) -lt 1.0e-12
+if (-not $isPhysicalScale -and $OutputRootBase -notmatch "stress[_-]?test") {
+    throw "Non-physical scale=$Scale is reserved for stress tests. Use scale=1.0 for publication runs, or include 'stress_test' in OutputRootBase."
 }
 
 $runDuration = if ($Mode -eq "smoke") { $SmokeDuration } else { $Duration }
