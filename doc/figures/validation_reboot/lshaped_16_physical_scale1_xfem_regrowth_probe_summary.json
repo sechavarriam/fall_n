@@ -1,0 +1,33 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_xfem_long_diagnostic_frontier_v1",
+  "run_dir": "data\\output\\lshaped_16storey_physical_scale1_xfem_regrowth_probe_20260510",
+  "eq_scale": 1,
+  "selected_site_count": 6,
+  "completed_site_count": 6,
+  "final_accepted_time_s": 1.859437,
+  "final_accepted_step": 93,
+  "max_u_inf_m": 0.2024958,
+  "final_u_inf_m": 0.1011541,
+  "max_peak_damage": 1.997843,
+  "final_peak_damage": 1.997843,
+  "max_crack_opening_m": 0.00382233,
+  "final_total_cracks": 96,
+  "failure": {
+    "failure_detected": false,
+    "failure_time_s": null,
+    "failure_reason": "",
+    "failed_submodels": null,
+    "evolution_steps": 93,
+    "summary_final_time_s": 1.8594,
+    "summary_peak_damage": 1.997843,
+    "summary_active_cracks": 96
+  },
+  "vtk_issue_count": 0,
+  "vtk_endpoint_max_gap_m": null,
+  "vtk_audit_promotable": true,
+  "vtk_failure_note": "Final VTK snapshot is not publication-promotable when issue_count > 0.",
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_xfem_regrowth_probe.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_xfem_regrowth_probe.png"
+  ]
+}
