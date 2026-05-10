@@ -1,0 +1,22 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_fe2_activation_gate_plot_v1",
+  "linear_alarm_dir": "data\\output\\lshaped_16storey_physical_scale1_linear_steel_yield_20260509",
+  "fe2_dir": "data\\output\\lshaped_16storey_physical_scale1_xfem_linear_steel_alarm_onestep_20260509",
+  "eq_scale": 1.0,
+  "alarm_time_s": 1.3,
+  "alarm_element": 2,
+  "peak_linear_roof_component_m": 0.8332819940738,
+  "peak_linear_damage_index": 3.773693780202,
+  "fe2_transition_time_s": 1.3002,
+  "fe2_selected_site_count": 6,
+  "fe2_completed_site_count": 6,
+  "fe2_overall_pass": true,
+  "vtk_issue_count": 0,
+  "vtk_visible_crack_cells": 390,
+  "vtk_gauss_points": 15360,
+  "vtk_endpoint_max_gap_m": 7.637634917241018e-07,
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_fe2_activation_gate.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_fe2_activation_gate.png"
+  ]
+}
