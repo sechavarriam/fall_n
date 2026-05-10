@@ -1,0 +1,31 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_kobathe_hex27_smoke_plot_v1",
+  "run_dir": "data\\output\\lshaped_16storey_physical_scale1_kobathe_linear_steel_alarm_onestep_20260509",
+  "eq_scale": 1.0,
+  "first_yield_time_s": 1.3002,
+  "first_yield_element": 1,
+  "submodels": 2,
+  "evolution_steps": 1,
+  "peak_damage": 1.17452,
+  "active_cracks": 482,
+  "selected_site_count": 2,
+  "vtk_issue_count": 0,
+  "vtk_total_vtu_files": 32,
+  "vtk_visible_crack_cells": 1868,
+  "vtk_gauss_points": 8448,
+  "kobathe_crack_families_active": [
+    1,
+    2,
+    3
+  ],
+  "min_visible_crack_opening_m": 0.0005002839328961897,
+  "max_crack_opening_m": 0.0007078035,
+  "total_cracks": 482,
+  "local_global_endpoint_max_gap_m": 8.39872565816399e-08,
+  "local_global_reference_warp_endpoint_max_gap_m": 1.2560751648319306e-15,
+  "max_bond_slip_m": 4.7710968763389674e-08,
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_kobathe_hex27_smoke.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_kobathe_hex27_smoke.png"
+  ]
+}
