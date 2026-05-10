@@ -1,0 +1,33 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_xfem_long_diagnostic_frontier_v1",
+  "run_dir": "data\\output\\lshaped_16storey_physical_scale1_xfem_linear_steel_alarm_10s_diag_20260509",
+  "eq_scale": 1,
+  "selected_site_count": 6,
+  "completed_site_count": 6,
+  "final_accepted_time_s": 1.7227,
+  "final_accepted_step": 1244,
+  "max_u_inf_m": 0.2024572,
+  "final_u_inf_m": 0.1477952,
+  "max_peak_damage": 1.978953,
+  "final_peak_damage": 1.978953,
+  "max_crack_opening_m": 0.003985494,
+  "final_total_cracks": 96,
+  "failure": {
+    "failure_detected": true,
+    "failure_time_s": 1.723,
+    "failure_reason": "MicroSolveFailed",
+    "failed_submodels": 1,
+    "evolution_steps": 1244,
+    "summary_final_time_s": 1.723,
+    "summary_peak_damage": 1.978953,
+    "summary_active_cracks": 96
+  },
+  "vtk_issue_count": 1,
+  "vtk_endpoint_max_gap_m": 0.003727012819733173,
+  "vtk_audit_promotable": false,
+  "vtk_failure_note": "Final VTK snapshot is not publication-promotable when issue_count > 0.",
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_xfem_long_diagnostic_frontier.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_physical_scale1_xfem_long_diagnostic_frontier.png"
+  ]
+}
