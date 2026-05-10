@@ -15,6 +15,15 @@ param(
     [ValidateSet("reference", "current", "both")]
     [string]$PlacementFrame = "both",
     [int]$Fe2MaxSites = 3,
+    [switch]$Fe2AdaptiveSiteRelaxation,
+    [int]$Fe2SiteRelaxAttempts = 4,
+    [double]$Fe2SiteRelaxGrowth = 1.25,
+    [double]$Fe2SiteRelaxFactor = 0.5,
+    [double]$Fe2SiteRelaxMinAlpha = 0.05,
+    [int]$Fe2MacroCutbackAttempts = 0,
+    [double]$Fe2MacroCutbackFactor = 0.5,
+    [int]$Fe2MacroBacktrackAttempts = 0,
+    [double]$Fe2MacroBacktrackFactor = 0.5,
     [switch]$IncludeColumnProbeSites,
     [switch]$IncludeCenterProbeSite,
     [int]$ManagedLocalTransitionSteps = 2,
@@ -115,10 +124,21 @@ foreach ($item in $families) {
         "--local-vtk-placement-frame", $PlacementFrame,
         "--fe2-max-sites", "$Fe2MaxSites",
         "--fe2-phase2-dt", (Format-Real $Fe2Phase2Dt),
+        "--fe2-site-relax-attempts", "$Fe2SiteRelaxAttempts",
+        "--fe2-site-relax-growth", (Format-Real $Fe2SiteRelaxGrowth),
+        "--fe2-site-relax-factor", (Format-Real $Fe2SiteRelaxFactor),
+        "--fe2-site-relax-min-alpha", (Format-Real $Fe2SiteRelaxMinAlpha),
+        "--fe2-macro-cutback-attempts", "$Fe2MacroCutbackAttempts",
+        "--fe2-macro-cutback-factor", (Format-Real $Fe2MacroCutbackFactor),
+        "--fe2-macro-backtrack-attempts", "$Fe2MacroBacktrackAttempts",
+        "--fe2-macro-backtrack-factor", (Format-Real $Fe2MacroBacktrackFactor),
         "--managed-local-transition-steps", "$ManagedLocalTransitionSteps",
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
         "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections"
     )
+    if ($Fe2AdaptiveSiteRelaxation) {
+        $args += "--fe2-adaptive-site-relax"
+    }
     if ($IncludeColumnProbeSites) {
         $args += "--fe2-include-column-probe-sites"
     }
@@ -253,6 +273,15 @@ foreach ($item in $families) {
         local_vtk_global_placement = $true
         fe2_max_sites = $Fe2MaxSites
         fe2_phase2_dt = $Fe2Phase2Dt
+        fe2_adaptive_site_relaxation = [bool]$Fe2AdaptiveSiteRelaxation
+        fe2_site_relax_attempts = $Fe2SiteRelaxAttempts
+        fe2_site_relax_growth = $Fe2SiteRelaxGrowth
+        fe2_site_relax_factor = $Fe2SiteRelaxFactor
+        fe2_site_relax_min_alpha = $Fe2SiteRelaxMinAlpha
+        fe2_macro_cutback_attempts = $Fe2MacroCutbackAttempts
+        fe2_macro_cutback_factor = $Fe2MacroCutbackFactor
+        fe2_macro_backtrack_attempts = $Fe2MacroBacktrackAttempts
+        fe2_macro_backtrack_factor = $Fe2MacroBacktrackFactor
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
         gravity_preload = [bool]$GravityPreload
