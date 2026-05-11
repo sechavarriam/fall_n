@@ -2714,6 +2714,10 @@ int main(int argc, char* argv[]) {
 
     std::vector<fall_n::MultiscaleVTKTimeIndexRow> vtk_time_index;
     std::string last_global_vtk_rel_path = global_yield_vtk_rel_path();
+    const auto flush_vtk_time_index = [&]() -> bool {
+        return fall_n::write_multiscale_vtk_time_index_csv(
+            OUT + "recorders/multiscale_time_index.csv", vtk_time_index);
+    };
 
     // ─────────────────────────────────────────────────────────────────────
     //  9. Phase 1: Global nonlinear dynamic analysis until first yield
@@ -3083,6 +3087,20 @@ int main(int argc, char* argv[]) {
         sep('=');
         std::println("\n[12] GLOBAL-ONLY REFERENCE: continuing to {:.3f} s...",
                      duration);
+        {
+            TS ts = solver.get_ts();
+            TSSetMaxTime(ts, duration);
+            TSSetTimeStep(ts, fe2_phase2_dt);
+            TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
+            TSAdapt adapt;
+            TSGetAdapt(ts, &adapt);
+            TSAdaptSetType(adapt, TSADAPTNONE);
+            PetscReal dt_current;
+            TSGetTimeStep(ts, &dt_current);
+            std::println("  [TS] Global-only reference dt reset to {:.6f} s",
+                         static_cast<double>(dt_current));
+            std::cout << std::flush;
+        }
 
         fall_n::StepDirector<StructModel> global_reference_director =
             [&peak_damage_global, &damage_crit, &global_csv,
@@ -4026,6 +4044,7 @@ int main(int argc, char* argv[]) {
                 cs.total_cracks)});
         last_indexed_local_steps[i] = local_step;
     }
+    (void)flush_vtk_time_index();
 
     // ─────────────────────────────────────────────────────────────────────
     //  15. Phase 2: Resume global + evolve sub-models step-by-step
@@ -4533,9 +4552,11 @@ int main(int argc, char* argv[]) {
                 .notes = std::format(
                     "global frame snapshot during {} evolution",
                     fe2_evolution_label)});
+            (void)flush_vtk_time_index();
         }
 
         if (local_vtk_interval > 0) {
+            bool local_vtk_index_updated = false;
             for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
                 auto& ev = analysis.model().local_models()[i];
                 const int local_step = ev.step_count();
@@ -4607,6 +4628,10 @@ int main(int argc, char* argv[]) {
                         cs.num_cracked_gps,
                         cs.total_cracks)});
                 last_indexed_local_steps[i] = local_step;
+                local_vtk_index_updated = true;
+            }
+            if (local_vtk_index_updated) {
+                (void)flush_vtk_time_index();
             }
         }
 
