@@ -1,0 +1,33 @@
+{
+  "schema": "fall_n_lshaped_physical_scale1_xfem_long_diagnostic_frontier_v1",
+  "run_dir": "data\\output\\lshaped_16storey_physical_scale1_xfem_checkpoint_10s_20260510\\xfem",
+  "eq_scale": 1,
+  "selected_site_count": 6,
+  "completed_site_count": 6,
+  "final_accepted_time_s": 10.000289,
+  "final_accepted_step": 1722,
+  "max_u_inf_m": 0.4102847,
+  "final_u_inf_m": 0.2022314,
+  "max_peak_damage": 4.864644,
+  "final_peak_damage": 4.864644,
+  "max_crack_opening_m": 0.01074461,
+  "final_total_cracks": 96,
+  "failure": {
+    "failure_detected": false,
+    "failure_time_s": null,
+    "failure_reason": "",
+    "failed_submodels": null,
+    "evolution_steps": 1722,
+    "summary_final_time_s": 10.0003,
+    "summary_peak_damage": 4.864644,
+    "summary_active_cracks": 96
+  },
+  "vtk_issue_count": 0,
+  "vtk_endpoint_max_gap_m": 9.090392957721092e-07,
+  "vtk_audit_promotable": true,
+  "vtk_failure_note": "Final VTK snapshot is not publication-promotable when issue_count > 0.",
+  "figures": [
+    "data\\output\\lshaped_16storey_physical_scale1_xfem_checkpoint_10s_20260510\\xfem\\figures\\xfem10s.pdf",
+    "data\\output\\lshaped_16storey_physical_scale1_xfem_checkpoint_10s_20260510\\xfem\\figures\\xfem10s.png"
+  ]
+}
