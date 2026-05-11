@@ -146,6 +146,30 @@ public:
                           3,
                           XFEMPolicy>;
 
+    struct checkpoint_type {
+        ReducedRCManagedLocalPatchSpec patch{};
+        ReducedRCManagedLocalBoundarySample last_boundary{};
+        ReducedRCManagedLocalBoundarySample pending_boundary{};
+        ReducedRCManagedLocalBoundarySample accepted_boundary{};
+        ReducedRCManagedLocalStepResult last_step{};
+        UpscalingResult current_response{};
+        UpscalingResult last_response{};
+        double effective_crack_z_over_l{
+            std::numeric_limits<double>::quiet_NaN()};
+        double effective_longitudinal_bias_power{1.0};
+        ReducedRCLocalLongitudinalBiasLocation
+            effective_longitudinal_bias_location{
+                ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+        ReducedRCLocalLongitudinalBiasLocation
+            effective_mesh_refinement_location{
+                ReducedRCLocalLongitudinalBiasLocation::fixed_end};
+        std::size_t initialization_count{0};
+        bool has_pending_boundary{false};
+        bool has_accepted_boundary{false};
+        bool initialized{false};
+        std::optional<XFEMModel::checkpoint_type> model_checkpoint{};
+    };
+
     [[nodiscard]] static double
     prism_section_axial_strain_from_beam_generalized(
         double axial_strain,
@@ -177,6 +201,86 @@ public:
         ReducedRCManagedXfemLocalModelAdapterOptions options = {})
         : options_{options}
     {}
+
+    [[nodiscard]] checkpoint_type capture_checkpoint() const
+    {
+        checkpoint_type checkpoint{};
+        checkpoint.patch = patch_;
+        checkpoint.last_boundary = last_boundary_;
+        checkpoint.pending_boundary = pending_boundary_;
+        checkpoint.accepted_boundary = accepted_boundary_;
+        checkpoint.last_step = last_step_;
+        checkpoint.current_response = current_response_;
+        checkpoint.last_response = last_response_;
+        checkpoint.effective_crack_z_over_l = effective_crack_z_over_l_;
+        checkpoint.effective_longitudinal_bias_power =
+            effective_longitudinal_bias_power_;
+        checkpoint.effective_longitudinal_bias_location =
+            effective_longitudinal_bias_location_;
+        checkpoint.effective_mesh_refinement_location =
+            effective_mesh_refinement_location_;
+        checkpoint.initialization_count = initialization_count_;
+        checkpoint.has_pending_boundary = has_pending_boundary_;
+        checkpoint.has_accepted_boundary = has_accepted_boundary_;
+        checkpoint.initialized = initialized_;
+        if (initialized_ && model_) {
+            checkpoint.model_checkpoint = model_->capture_checkpoint();
+        }
+        return checkpoint;
+    }
+
+    void restore_checkpoint(const checkpoint_type& checkpoint)
+    {
+        const bool can_deep_restore =
+            checkpoint.initialized && checkpoint.model_checkpoint.has_value() &&
+            initialized_ && model_;
+        if (can_deep_restore) {
+            model_->restore_checkpoint(*checkpoint.model_checkpoint);
+        } else if (checkpoint.initialized &&
+                   checkpoint.model_checkpoint.has_value()) {
+            // Model checkpoints own element copies whose geometry pointers are
+            // valid only for the original live domain.  If the adapter was
+            // destroyed, rebuild topology and keep metadata, but do not copy
+            // stale element pointers into the new model.
+            (void)initialize_managed_local_model(checkpoint.patch);
+            if (model_ && checkpoint.has_accepted_boundary) {
+                (void)apply_macro_boundary_sample(
+                    checkpoint.accepted_boundary);
+            } else if (model_ && checkpoint.has_pending_boundary) {
+                (void)apply_macro_boundary_sample(
+                    checkpoint.pending_boundary);
+            }
+        } else {
+            if (checkpoint.initialized) {
+                (void)initialize_managed_local_model(checkpoint.patch);
+            } else {
+                initialized_ = false;
+                model_.reset();
+                domain_.reset();
+                grid_.reset();
+                top_face_nodes_.clear();
+            }
+        }
+
+        patch_ = checkpoint.patch;
+        last_boundary_ = checkpoint.last_boundary;
+        pending_boundary_ = checkpoint.pending_boundary;
+        accepted_boundary_ = checkpoint.accepted_boundary;
+        last_step_ = checkpoint.last_step;
+        current_response_ = checkpoint.current_response;
+        last_response_ = checkpoint.last_response;
+        effective_crack_z_over_l_ = checkpoint.effective_crack_z_over_l;
+        effective_longitudinal_bias_power_ =
+            checkpoint.effective_longitudinal_bias_power;
+        effective_longitudinal_bias_location_ =
+            checkpoint.effective_longitudinal_bias_location;
+        effective_mesh_refinement_location_ =
+            checkpoint.effective_mesh_refinement_location;
+        initialization_count_ = checkpoint.initialization_count;
+        has_pending_boundary_ = checkpoint.has_pending_boundary;
+        has_accepted_boundary_ = checkpoint.has_accepted_boundary;
+        initialized_ = checkpoint.initialized && model_ != nullptr;
+    }
 
     void set_local_transition_controls(int transition_steps,
                                        int max_bisections) noexcept

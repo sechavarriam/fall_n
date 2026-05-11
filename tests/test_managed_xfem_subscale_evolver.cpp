@@ -162,11 +162,20 @@ int main(int argc, char** argv)
             fall_n::TangentComputationMode::PreferLinearizedCondensation);
 
         const auto checkpoint = evolver.capture_checkpoint();
+        assert(checkpoint.adapter_checkpoint.has_value());
+        assert(checkpoint.adapter_checkpoint->model_checkpoint.has_value());
+        const auto checkpoint_initializations =
+            checkpoint.adapter_checkpoint->initialization_count;
         evolver.end_of_step(0.0);
         assert(evolver.step_count() == 1);
 
         evolver.restore_checkpoint(checkpoint);
         assert(evolver.step_count() == 0);
+        const auto restored_checkpoint = evolver.capture_checkpoint();
+        assert(restored_checkpoint.adapter_checkpoint.has_value());
+        assert(restored_checkpoint.adapter_checkpoint->model_checkpoint.has_value());
+        assert(restored_checkpoint.adapter_checkpoint->initialization_count ==
+               checkpoint_initializations);
         const auto second = evolver.solve_step(0.1);
         assert(second.converged);
         evolver.commit_state();
