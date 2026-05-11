@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -77,6 +78,43 @@ void write_csv_array(std::ostream& out, const std::array<double, N>& values)
     for (const auto value : values) {
         out << "," << value;
     }
+}
+
+[[nodiscard]] std::vector<double> read_first_column_time_grid_csv(
+    const std::string& path,
+    double t_min,
+    double t_max)
+{
+    std::ifstream in(path);
+    if (!in) {
+        throw std::runtime_error("Cannot open time-grid CSV: " + path);
+    }
+
+    std::vector<double> times;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        const auto comma = line.find(',');
+        const auto token = line.substr(0, comma);
+        try {
+            const double t = std::stod(token);
+            if (!std::isfinite(t)) {
+                continue;
+            }
+            if (t <= t_min + 1.0e-12 || t > t_max + 1.0e-9) {
+                continue;
+            }
+            if (!times.empty() && std::abs(t - times.back()) <= 1.0e-12) {
+                continue;
+            }
+            times.push_back(t);
+        } catch (const std::exception&) {
+            // Header or non-numeric first column.
+        }
+    }
+    return times;
 }
 
 struct LocalSiteTransformRecord {
@@ -1576,6 +1614,7 @@ int main(int argc, char* argv[]) {
     double fe2_relaxation = STAGGERED_RELAX;
     double fe2_phase2_dt = DT;
     double global_reference_phase2_initial_dt = 0.0;
+    std::string global_reference_time_grid_csv;
     bool fe2_phase2_dt_regrowth = true;
     double fe2_phase2_dt_growth_factor = 1.25;
     int fe2_phase2_dt_easy_steps = 2;
@@ -1926,6 +1965,9 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--global-reference-phase2-initial-dt" &&
                    i + 1 < argc) {
             global_reference_phase2_initial_dt = std::stod(argv[++i]);
+        } else if (arg == "--global-reference-time-grid-csv" &&
+                   i + 1 < argc) {
+            global_reference_time_grid_csv = argv[++i];
         } else if (arg == "--fe2-phase2-dt-growth-factor" && i + 1 < argc) {
             fe2_phase2_dt_growth_factor = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt-easy-steps" && i + 1 < argc) {
@@ -2074,6 +2116,13 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--global-reference-phase2-initial-dt must be non-negative.");
     }
+    if (!global_reference_time_grid_csv.empty() &&
+        !std::filesystem::exists(global_reference_time_grid_csv))
+    {
+        throw std::invalid_argument(
+            "--global-reference-time-grid-csv does not exist: " +
+            global_reference_time_grid_csv);
+    }
     if (fe2_phase2_dt_growth_factor < 1.0) {
         throw std::invalid_argument("--fe2-phase2-dt-growth-factor must be >= 1.");
     }
@@ -2171,6 +2220,7 @@ int main(int argc, char* argv[]) {
              "--fe2-relax",
              "--fe2-phase2-dt",
              "--global-reference-phase2-initial-dt",
+             "--global-reference-time-grid-csv",
              "--fe2-phase2-dt-growth-factor",
              "--fe2-phase2-dt-easy-steps",
              "--fe2-disable-phase2-dt-regrowth",
@@ -3096,13 +3146,34 @@ int main(int argc, char* argv[]) {
         sep('=');
         std::println("\n[12] GLOBAL-ONLY REFERENCE: continuing to {:.3f} s...",
                      duration);
+
+        std::vector<double> global_reference_time_grid;
+        std::size_t global_reference_time_grid_index = 0;
+        if (!global_reference_time_grid_csv.empty()) {
+            global_reference_time_grid = read_first_column_time_grid_csv(
+                global_reference_time_grid_csv,
+                solver.current_time(),
+                duration);
+            if (global_reference_time_grid.empty()) {
+                throw std::runtime_error(
+                    "The global reference time-grid CSV contains no target "
+                    "times inside the Phase-2 replay window.");
+            }
+            std::println(
+                "  [TS] Global-only reference time grid: {} target time(s) "
+                "from {}",
+                global_reference_time_grid.size(),
+                global_reference_time_grid_csv);
+        }
+        const double global_reference_initial_dt =
+            !global_reference_time_grid.empty()
+                ? global_reference_time_grid.front() - solver.current_time()
+            : global_reference_phase2_initial_dt > 0.0
+                ? global_reference_phase2_initial_dt
+                : fe2_phase2_dt;
         {
             TS ts = solver.get_ts();
             TSSetMaxTime(ts, duration);
-            const double global_reference_initial_dt =
-                global_reference_phase2_initial_dt > 0.0
-                    ? global_reference_phase2_initial_dt
-                    : fe2_phase2_dt;
             TSSetTimeStep(ts, global_reference_initial_dt);
             TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
             TSAdapt adapt;
@@ -3122,9 +3193,9 @@ int main(int argc, char* argv[]) {
         std::ofstream global_step_audit_csv(
             rec_dir + "global_reference_step_audit.csv");
         global_step_audit_csv
-            << "evol_step,time_start,time_end,dt_initial,dt_attempt,"
+            << "evol_step,time_start,time_end,dt_initial,dt_attempt,dt_actual,"
             << "cutback_attempt,cutback_factor,accepted,wall_seconds,"
-            << "u_inf,peak_damage\n";
+            << "u_inf,peak_damage,grid_target_time,grid_reached_target\n";
 
         fall_n::StepDirector<StructModel> global_reference_director =
             [&peak_damage_global, &damage_crit, &global_csv,
@@ -3171,12 +3242,38 @@ int main(int argc, char* argv[]) {
         while (solver.current_time() < duration - 1.0e-14) {
             const auto checkpoint = solver.capture_checkpoint();
             const double t0 = solver.current_time();
+            const bool use_time_grid = !global_reference_time_grid.empty();
+            double grid_target_time =
+                std::numeric_limits<double>::quiet_NaN();
+            if (use_time_grid) {
+                while (global_reference_time_grid_index <
+                           global_reference_time_grid.size() &&
+                       global_reference_time_grid[global_reference_time_grid_index] <=
+                           t0 + 1.0e-11)
+                {
+                    ++global_reference_time_grid_index;
+                }
+                grid_target_time =
+                    global_reference_time_grid_index <
+                            global_reference_time_grid.size()
+                        ? std::min(
+                              global_reference_time_grid[
+                                  global_reference_time_grid_index],
+                              duration)
+                        : duration;
+            }
             const double dt_initial =
-                std::min(solver.get_time_step(), duration - t0);
+                use_time_grid
+                    ? grid_target_time - t0
+                    : std::min(solver.get_time_step(), duration - t0);
+            if (dt_initial <= 1.0e-14) {
+                break;
+            }
             bool accepted = false;
             int accepted_attempt = 0;
             double accepted_factor = 1.0;
             double accepted_dt = dt_initial;
+            double accepted_actual_dt = 0.0;
             double accepted_wall_seconds = 0.0;
 
             for (int attempt = 0;
@@ -3205,6 +3302,7 @@ int main(int argc, char* argv[]) {
                     accepted_attempt = attempt;
                     accepted_factor = factor;
                     accepted_dt = dt_attempt;
+                    accepted_actual_dt = t1 - t0;
                     accepted_wall_seconds =
                         std::chrono::duration<double>(t_end - t_start).count();
                     break;
@@ -3240,6 +3338,19 @@ int main(int argc, char* argv[]) {
                 global_reference_failed = true;
             }
 
+            const bool grid_reached_target =
+                !use_time_grid ||
+                static_cast<double>(t) >= grid_target_time - 1.0e-9;
+            if (use_time_grid && grid_reached_target) {
+                while (global_reference_time_grid_index <
+                           global_reference_time_grid.size() &&
+                       global_reference_time_grid[global_reference_time_grid_index] <=
+                           static_cast<double>(t) + 1.0e-9)
+                {
+                    ++global_reference_time_grid_index;
+                }
+            }
+
             PetscReal u_norm = 0.0;
             VecNorm(model.state_vector(), NORM_INFINITY, &u_norm);
             global_step_audit_csv
@@ -3250,12 +3361,15 @@ int main(int argc, char* argv[]) {
                 << std::scientific << std::setprecision(6)
                 << "," << dt_initial
                 << "," << accepted_dt
+                << "," << accepted_actual_dt
                 << "," << accepted_attempt
                 << "," << accepted_factor
                 << ",1"
                 << "," << accepted_wall_seconds
                 << "," << static_cast<double>(u_norm)
                 << "," << peak_damage_global
+                << "," << csv_scalar_or_nan(use_time_grid, grid_target_time)
+                << "," << (grid_reached_target ? 1 : 0)
                 << "\n" << std::flush;
 
             if (global_vtk_interval > 0 &&
@@ -3302,7 +3416,8 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            if (fe2_phase2_dt_regrowth &&
+            if (!use_time_grid &&
+                fe2_phase2_dt_regrowth &&
                 fe2_phase2_dt_growth_factor > 1.0)
             {
                 const double current_dt = solver.get_time_step();
@@ -3391,10 +3506,11 @@ int main(int argc, char* argv[]) {
             << "  \"t_final_s\": " << static_cast<double>(t_end) << ",\n"
             << "  \"phase2_nominal_dt_s\": " << fe2_phase2_dt << ",\n"
             << "  \"phase2_initial_dt_s\": "
-            << (global_reference_phase2_initial_dt > 0.0
-                    ? global_reference_phase2_initial_dt
-                    : fe2_phase2_dt)
-            << ",\n"
+            << global_reference_initial_dt << ",\n"
+            << "  \"phase2_time_grid_csv\": \""
+            << global_reference_time_grid_csv << "\",\n"
+            << "  \"phase2_time_grid_target_count\": "
+            << global_reference_time_grid.size() << ",\n"
             << "  \"first_yield_time_s\": "
             << transition_report->trigger_time << ",\n"
             << "  \"first_yield_element\": "
