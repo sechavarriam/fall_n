@@ -101,6 +101,28 @@ int main()
     assert(contains_z(paired_end_candidates, 0.50));
     assert(contains_z(paired_end_candidates, 0.95));
 
+    const auto whole_element_paired =
+        infer_reduced_rc_macro_whole_element_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 2.0,
+                .loaded_end_score = 1.6});
+    assert(whole_element_paired.size() == 1);
+    assert(std::abs(whole_element_paired.front().z_over_l - 0.50) <
+           1.0e-14);
+    assert(whole_element_paired.front().bias_location ==
+           ReducedRCLocalLongitudinalBiasLocation::both_ends);
+
+    const auto whole_element_fixed =
+        infer_reduced_rc_macro_whole_element_site_candidates(
+            ReducedRCMacroEndpointDemand{
+                .fixed_end_score = 2.0,
+                .loaded_end_score = 0.1});
+    assert(whole_element_fixed.size() == 1);
+    assert(std::abs(whole_element_fixed.front().z_over_l - 0.05) <
+           1.0e-14);
+    assert(whole_element_fixed.front().reason ==
+           "whole_element_fixed_end_dominant");
+
     ReducedRCMacroInferredLocalSiteSelectionPolicy control_policy{};
     control_policy.include_inactive_control_sites = true;
     const auto control_candidates =

@@ -155,6 +155,45 @@ infer_reduced_rc_macro_local_site_candidates(
     return candidates;
 }
 
+[[nodiscard]] inline std::vector<ReducedRCMacroInferredLocalSiteCandidate>
+infer_reduced_rc_macro_whole_element_site_candidates(
+    const ReducedRCMacroEndpointDemand& demand,
+    const ReducedRCMacroInferredLocalSiteSelectionPolicy& policy = {})
+{
+    const double fixed_score = demand.fixed_end_score;
+    const double loaded_score = demand.loaded_end_score;
+    const double dominant_score = std::max(fixed_score, loaded_score);
+    if (!(dominant_score > 0.0) || !std::isfinite(dominant_score)) {
+        return {};
+    }
+
+    const bool fixed_active = fixed_score >= policy.active_endpoint_score;
+    const bool loaded_active = loaded_score >= policy.active_endpoint_score;
+    const bool paired_end_demand =
+        (fixed_active && loaded_active) ||
+        (std::min(fixed_score, loaded_score) >=
+         policy.loaded_end_relative_score * std::max(dominant_score, 1.0e-12));
+
+    double z_over_l = policy.center_z_over_l;
+    std::string_view reason = "whole_element_both_ends";
+    if (!paired_end_demand) {
+        if (fixed_score >= loaded_score) {
+            z_over_l = policy.fixed_end_z_over_l;
+            reason = "whole_element_fixed_end_dominant";
+        } else {
+            z_over_l = policy.loaded_end_z_over_l;
+            reason = "whole_element_loaded_end_dominant";
+        }
+    }
+
+    return {ReducedRCMacroInferredLocalSiteCandidate{
+        .z_over_l = std::clamp(z_over_l, 0.0, 1.0),
+        .score = dominant_score,
+        .bias_location = ReducedRCLocalLongitudinalBiasLocation::both_ends,
+        .reason = reason,
+    }};
+}
+
 [[nodiscard]] inline ReducedRCLocalLongitudinalBiasLocation
 infer_reduced_rc_xfem_bias_location(
     const ReducedRCMacroEndpointDemand& demand,
