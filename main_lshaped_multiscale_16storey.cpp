@@ -1575,6 +1575,7 @@ int main(int argc, char* argv[]) {
     double fe2_staggered_tol = STAGGERED_TOL;
     double fe2_relaxation = STAGGERED_RELAX;
     double fe2_phase2_dt = DT;
+    double global_reference_phase2_initial_dt = 0.0;
     bool fe2_phase2_dt_regrowth = true;
     double fe2_phase2_dt_growth_factor = 1.25;
     int fe2_phase2_dt_easy_steps = 2;
@@ -1922,6 +1923,9 @@ int main(int argc, char* argv[]) {
             fe2_relaxation = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt" && i + 1 < argc) {
             fe2_phase2_dt = std::stod(argv[++i]);
+        } else if (arg == "--global-reference-phase2-initial-dt" &&
+                   i + 1 < argc) {
+            global_reference_phase2_initial_dt = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt-growth-factor" && i + 1 < argc) {
             fe2_phase2_dt_growth_factor = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt-easy-steps" && i + 1 < argc) {
@@ -2066,6 +2070,10 @@ int main(int argc, char* argv[]) {
     if (!(fe2_phase2_dt > 0.0)) {
         throw std::invalid_argument("--fe2-phase2-dt must be positive.");
     }
+    if (global_reference_phase2_initial_dt < 0.0) {
+        throw std::invalid_argument(
+            "--global-reference-phase2-initial-dt must be non-negative.");
+    }
     if (fe2_phase2_dt_growth_factor < 1.0) {
         throw std::invalid_argument("--fe2-phase2-dt-growth-factor must be >= 1.");
     }
@@ -2162,6 +2170,7 @@ int main(int argc, char* argv[]) {
              "--fe2-tol",
              "--fe2-relax",
              "--fe2-phase2-dt",
+             "--global-reference-phase2-initial-dt",
              "--fe2-phase2-dt-growth-factor",
              "--fe2-phase2-dt-easy-steps",
              "--fe2-disable-phase2-dt-regrowth",
@@ -3090,17 +3099,32 @@ int main(int argc, char* argv[]) {
         {
             TS ts = solver.get_ts();
             TSSetMaxTime(ts, duration);
-            TSSetTimeStep(ts, fe2_phase2_dt);
+            const double global_reference_initial_dt =
+                global_reference_phase2_initial_dt > 0.0
+                    ? global_reference_phase2_initial_dt
+                    : fe2_phase2_dt;
+            TSSetTimeStep(ts, global_reference_initial_dt);
             TSSetExactFinalTime(ts, TS_EXACTFINALTIME_STEPOVER);
             TSAdapt adapt;
             TSGetAdapt(ts, &adapt);
             TSAdaptSetType(adapt, TSADAPTNONE);
             PetscReal dt_current;
             TSGetTimeStep(ts, &dt_current);
-            std::println("  [TS] Global-only reference dt reset to {:.6f} s",
-                         static_cast<double>(dt_current));
+            std::println(
+                "  [TS] Global-only reference dt reset to {:.6f} s "
+                "(nominal {:.6f} s)",
+                static_cast<double>(dt_current),
+                fe2_phase2_dt);
             std::cout << std::flush;
         }
+
+        const std::string rec_dir = OUT + "recorders/";
+        std::ofstream global_step_audit_csv(
+            rec_dir + "global_reference_step_audit.csv");
+        global_step_audit_csv
+            << "evol_step,time_start,time_end,dt_initial,dt_attempt,"
+            << "cutback_attempt,cutback_factor,accepted,wall_seconds,"
+            << "u_inf,peak_damage\n";
 
         fall_n::StepDirector<StructModel> global_reference_director =
             [&peak_damage_global, &damage_crit, &global_csv,
@@ -3130,14 +3154,197 @@ int main(int argc, char* argv[]) {
             return fall_n::StepVerdict::Continue;
         };
 
-        solver.step_to(duration, global_reference_director);
-
         const auto beam_profile =
             fall_n::reconstruction::RectangularSectionProfile<2>{
                 COL_B[0], COL_H[0]};
         const auto shell_profile =
             fall_n::reconstruction::ShellThicknessProfile<5>{};
         PVDWriter pvd_global(OUT + "evolution/frame_global_reference");
+
+        bool global_reference_failed = false;
+        int global_reference_evol_step = 0;
+        int global_reference_cutback_count = 0;
+        int global_reference_easy_counter = 0;
+        const int global_reference_max_cutbacks =
+            std::max(0, fe2_macro_cutback_attempts);
+
+        while (solver.current_time() < duration - 1.0e-14) {
+            const auto checkpoint = solver.capture_checkpoint();
+            const double t0 = solver.current_time();
+            const double dt_initial =
+                std::min(solver.get_time_step(), duration - t0);
+            bool accepted = false;
+            int accepted_attempt = 0;
+            double accepted_factor = 1.0;
+            double accepted_dt = dt_initial;
+            double accepted_wall_seconds = 0.0;
+
+            for (int attempt = 0;
+                 attempt <= global_reference_max_cutbacks;
+                 ++attempt)
+            {
+                const double factor =
+                    std::pow(fe2_macro_cutback_factor, attempt);
+                const double dt_attempt = dt_initial * factor;
+                const bool final_short_step =
+                    dt_initial < fe2_one_way_micro_cutback_min_dt;
+                if (dt_attempt < fe2_one_way_micro_cutback_min_dt &&
+                    !final_short_step)
+                {
+                    break;
+                }
+
+                solver.restore_checkpoint(checkpoint);
+                solver.set_time_step(dt_attempt);
+                const auto t_start = std::chrono::steady_clock::now();
+                const bool ok = solver.step();
+                const auto t_end = std::chrono::steady_clock::now();
+                const double t1 = solver.current_time();
+                if (ok && t1 > t0 + 1.0e-12) {
+                    accepted = true;
+                    accepted_attempt = attempt;
+                    accepted_factor = factor;
+                    accepted_dt = dt_attempt;
+                    accepted_wall_seconds =
+                        std::chrono::duration<double>(t_end - t_start).count();
+                    break;
+                }
+            }
+
+            if (!accepted) {
+                solver.restore_checkpoint(checkpoint);
+                global_reference_failed = true;
+                std::println(
+                    "  [global] failed to advance from t={:.6f} s after {} "
+                    "cutback attempt(s)",
+                    t0, global_reference_max_cutbacks);
+                std::cout << std::flush;
+                break;
+            }
+
+            ++global_reference_evol_step;
+            if (accepted_attempt > 0) {
+                ++global_reference_cutback_count;
+                global_reference_easy_counter = 0;
+            }
+
+            PetscInt sn;
+            PetscReal t;
+            Vec U_cur, V_cur;
+            FALL_N_PETSC_CHECK(TSGetStepNumber(solver.get_ts(), &sn));
+            FALL_N_PETSC_CHECK(TSGetTime(solver.get_ts(), &t));
+            FALL_N_PETSC_CHECK(TS2GetSolution(solver.get_ts(), &U_cur, &V_cur));
+            const fall_n::StepEvent ev{sn, static_cast<double>(t), U_cur, V_cur};
+            const auto verdict = global_reference_director(ev, model);
+            if (verdict == fall_n::StepVerdict::Stop) {
+                global_reference_failed = true;
+            }
+
+            PetscReal u_norm = 0.0;
+            VecNorm(model.state_vector(), NORM_INFINITY, &u_norm);
+            global_step_audit_csv
+                << std::fixed << std::setprecision(6)
+                << global_reference_evol_step
+                << "," << t0
+                << "," << static_cast<double>(t)
+                << std::scientific << std::setprecision(6)
+                << "," << dt_initial
+                << "," << accepted_dt
+                << "," << accepted_attempt
+                << "," << accepted_factor
+                << ",1"
+                << "," << accepted_wall_seconds
+                << "," << static_cast<double>(u_norm)
+                << "," << peak_damage_global
+                << "\n" << std::flush;
+
+            if (global_vtk_interval > 0 &&
+                global_reference_evol_step % global_vtk_interval == 0)
+            {
+                const auto vtm_rel = std::format(
+                    "evolution/frame_global_reference_{:06d}.vtm",
+                    global_reference_evol_step);
+                const auto vtm_file = OUT + vtm_rel;
+                fall_n::vtk::StructuralVTMExporter vtm{
+                    model, beam_profile, shell_profile};
+                vtm.set_displacement(model.state_vector());
+                vtm.set_yield_strain(EPS_YIELD);
+                vtm.write(vtm_file);
+                pvd_global.add_timestep(static_cast<double>(t), vtm_file);
+                vtk_time_index.push_back(fall_n::MultiscaleVTKTimeIndexRow{
+                    .case_kind = fall_n::SeismicFE2CampaignCaseKind::global_falln,
+                    .role = fall_n::SeismicFE2VisualizationRole::global_frame,
+                    .global_step = static_cast<std::size_t>(
+                        std::max<PetscInt>(sn, 0)),
+                    .physical_time = static_cast<double>(t),
+                    .pseudo_time = static_cast<double>(t),
+                    .global_vtk_path = vtm_rel,
+                    .notes = "global-only reference frame during phase-2 replay"});
+                (void)flush_vtk_time_index();
+            }
+
+            if ((progress_print_interval > 0 &&
+                 global_reference_evol_step % progress_print_interval == 0) ||
+                global_reference_evol_step <= 3)
+            {
+                std::println(
+                    "    [global] step={:4d}  t={:.3f} s  |u|={:.3e} m  "
+                    "damage={:.4f}  cutback={}",
+                    global_reference_evol_step,
+                    static_cast<double>(t),
+                    static_cast<double>(u_norm),
+                    peak_damage_global,
+                    accepted_attempt);
+                std::cout << std::flush;
+            }
+
+            if (global_reference_failed) {
+                break;
+            }
+
+            if (fe2_phase2_dt_regrowth &&
+                fe2_phase2_dt_growth_factor > 1.0)
+            {
+                const double current_dt = solver.get_time_step();
+                const bool below_nominal =
+                    current_dt < fe2_phase2_dt * (1.0 - 1.0e-10);
+                if (below_nominal) {
+                    global_reference_easy_counter =
+                        accepted_attempt == 0
+                            ? global_reference_easy_counter + 1
+                            : 0;
+                    if (global_reference_easy_counter >=
+                        fe2_phase2_dt_easy_steps)
+                    {
+                        double next_dt = std::min(
+                            fe2_phase2_dt,
+                            current_dt * fe2_phase2_dt_growth_factor);
+                        if (duration > static_cast<double>(t)) {
+                            next_dt =
+                                std::min(next_dt, duration - static_cast<double>(t));
+                        }
+                        if (next_dt > current_dt * (1.0 + 1.0e-10)) {
+                            solver.set_time_step(next_dt);
+                            if (progress_print_interval > 0 &&
+                                global_reference_evol_step %
+                                    progress_print_interval == 0)
+                            {
+                                std::println(
+                                    "      [dt] global reference regrowth: "
+                                    "{:.6e} -> {:.6e} s",
+                                    current_dt, next_dt);
+                                std::cout << std::flush;
+                            }
+                        }
+                        global_reference_easy_counter = 0;
+                    }
+                } else {
+                    global_reference_easy_counter = 0;
+                }
+            }
+        }
+
+        global_step_audit_csv.close();
 
         PetscReal t_end;
         TSGetTime(solver.get_ts(), &t_end);
@@ -3161,7 +3368,6 @@ int main(int argc, char* argv[]) {
             .global_vtk_path = vtm_rel,
             .notes = "final global-only fall_n reference frame"});
 
-        const std::string rec_dir = OUT + "recorders/";
         composite.template get<2>().write_csv(
             rec_dir + "roof_displacement_global_reference.csv");
         composite.template get<1>().write_hysteresis_csv(
@@ -3183,11 +3389,24 @@ int main(int argc, char* argv[]) {
             << "  \"record_start_time_s\": " << start_time << ",\n"
             << "  \"duration_s\": " << duration << ",\n"
             << "  \"t_final_s\": " << static_cast<double>(t_end) << ",\n"
+            << "  \"phase2_nominal_dt_s\": " << fe2_phase2_dt << ",\n"
+            << "  \"phase2_initial_dt_s\": "
+            << (global_reference_phase2_initial_dt > 0.0
+                    ? global_reference_phase2_initial_dt
+                    : fe2_phase2_dt)
+            << ",\n"
             << "  \"first_yield_time_s\": "
             << transition_report->trigger_time << ",\n"
             << "  \"first_yield_element\": "
             << transition_report->critical_element << ",\n"
             << "  \"peak_damage_index\": " << peak_damage_global << ",\n"
+            << "  \"phase2_step_count\": " << global_reference_evol_step << ",\n"
+            << "  \"phase2_cutback_count\": "
+            << global_reference_cutback_count << ",\n"
+            << "  \"phase2_failed\": "
+            << (global_reference_failed ? "true" : "false") << ",\n"
+            << "  \"phase2_step_audit_csv\": "
+            << "\"recorders/global_reference_step_audit.csv\",\n"
             << "  \"global_vtk_final\": \"" << vtm_rel << "\"\n"
             << "}\n";
         global_csv.close();
