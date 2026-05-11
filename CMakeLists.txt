@@ -209,6 +209,9 @@ fall_n_use_multiscale_api(fall_n_lshaped_multiscale)
 add_executable(fall_n_lshaped_multiscale_16 main_lshaped_multiscale_16storey.cpp)
 fall_n_use_multiscale_api(fall_n_lshaped_multiscale_16)
 
+add_executable(fall_n_managed_xfem_site_replay main_managed_xfem_site_replay.cpp)
+fall_n_use_multiscale_api(fall_n_managed_xfem_site_replay)
+
 # ── L-shaped RC building, bidirectional seismic, reinforced multiscale ────────
 add_executable(fall_n_lshaped_rc main_lshaped_rc.cpp)
 target_link_libraries(fall_n_lshaped_rc PUBLIC MPI::MPI_CXX PkgConfig::PETSC Eigen3::Eigen ${VTK_LIBRARIES})
