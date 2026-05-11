@@ -141,6 +141,20 @@ struct LocalSiteTransformRecord {
     return {values[0], values[1], values[2]};
 }
 
+[[nodiscard]] LongitudinalBiasLocation to_prismatic_bias_location(
+    ReducedRCLocalLongitudinalBiasLocation location) noexcept
+{
+    switch (location) {
+        case ReducedRCLocalLongitudinalBiasLocation::fixed_end:
+            return LongitudinalBiasLocation::FixedEnd;
+        case ReducedRCLocalLongitudinalBiasLocation::loaded_end:
+            return LongitudinalBiasLocation::LoadedEnd;
+        case ReducedRCLocalLongitudinalBiasLocation::both_ends:
+            return LongitudinalBiasLocation::BothEnds;
+    }
+    return LongitudinalBiasLocation::FixedEnd;
+}
+
 [[nodiscard]] Eigen::Vector3d macro_relative_top_translation_local(
     const ElementKinematics& ek,
     const Eigen::Matrix3d& local_to_global)
@@ -323,6 +337,39 @@ parse_two_way_failure_recovery_mode(std::string_view raw)
     throw std::invalid_argument(
         "Unknown --fe2-recovery-policy. Use strict_two_way, "
         "hybrid_observation_window, or one_way_only.");
+}
+
+enum class XfemLocalSiteMode {
+    WholeElement,
+    IndependentProbes
+};
+
+[[nodiscard]] std::string_view to_string(XfemLocalSiteMode mode) noexcept
+{
+    switch (mode) {
+        case XfemLocalSiteMode::WholeElement:
+            return "whole_element";
+        case XfemLocalSiteMode::IndependentProbes:
+            return "independent_probes";
+    }
+    return "unknown_xfem_local_site_mode";
+}
+
+[[nodiscard]] XfemLocalSiteMode parse_xfem_local_site_mode(
+    std::string_view raw)
+{
+    std::string value{raw};
+    std::ranges::replace(value, '-', '_');
+    if (value == "whole_element" || value == "whole" ||
+        value == "single_element" || value == "one_site_per_element") {
+        return XfemLocalSiteMode::WholeElement;
+    }
+    if (value == "independent_probes" || value == "independent" ||
+        value == "legacy_multi_site" || value == "multi_site") {
+        return XfemLocalSiteMode::IndependentProbes;
+    }
+    throw std::invalid_argument(
+        "Unknown --xfem-local-site-mode. Use whole_element or independent_probes.");
 }
 
 void write_csv_diag6(std::ostream& out,
@@ -1565,6 +1612,7 @@ int main(int argc, char* argv[]) {
     bool adaptive_managed_local_transition = false;
     bool fe2_include_column_probe_sites = false;
     bool fe2_include_center_probe_site = false;
+    XfemLocalSiteMode xfem_local_site_mode = XfemLocalSiteMode::WholeElement;
     LocalVTKOutputProfile local_vtk_profile =
         LocalVTKOutputProfile::Debug;
     LocalVTKCrackFilterMode local_vtk_crack_filter_mode =
@@ -1950,6 +1998,14 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fe2-include-center-probe-site" ||
                    arg == "--fe2-center-probe-site") {
             fe2_include_center_probe_site = true;
+        } else if (arg == "--xfem-local-site-mode" && i + 1 < argc) {
+            xfem_local_site_mode = parse_xfem_local_site_mode(argv[++i]);
+        } else if (arg == "--xfem-whole-element-sites" ||
+                   arg == "--xfem-one-site-per-element") {
+            xfem_local_site_mode = XfemLocalSiteMode::WholeElement;
+        } else if (arg == "--xfem-independent-probes" ||
+                   arg == "--xfem-legacy-multi-site") {
+            xfem_local_site_mode = XfemLocalSiteMode::IndependentProbes;
         } else if (arg == "--fe2-max-staggered" && i + 1 < argc) {
             fe2_max_staggered_iter =
                 std::max(2, static_cast<int>(std::stol(argv[++i])));
@@ -2213,6 +2269,11 @@ int main(int argc, char* argv[]) {
              "--fe2-column-probe-sites",
              "--fe2-include-center-probe-site",
              "--fe2-center-probe-site",
+             "--xfem-local-site-mode",
+             "--xfem-whole-element-sites",
+             "--xfem-one-site-per-element",
+             "--xfem-independent-probes",
+             "--xfem-legacy-multi-site",
              "--fe2-max-staggered",
              "--fe2-steps-after-activation",
              "--one-local-step-after-activation",
@@ -3586,6 +3647,8 @@ int main(int argc, char* argv[]) {
         OUT + "recorders/local_macro_inferred_sites.csv");
     xfem_site_csv << "local_site_index,macro_element_id,range,fixed_end_score,"
                   << "loaded_end_score,candidate_score,activation_reason,"
+                  << "site_model_scope,probe_fixed_z_over_l,"
+                  << "probe_center_z_over_l,probe_loaded_z_over_l,"
                   << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
                   << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
                   << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
@@ -3601,6 +3664,13 @@ int main(int argc, char* argv[]) {
       int range{0};
       std::size_t local_site_index{0};
       double z_over_l{0.0};
+      double fixed_end_score{0.0};
+      double loaded_end_score{0.0};
+      double candidate_score{0.0};
+      std::string activation_reason;
+      ReducedRCLocalLongitudinalBiasLocation longitudinal_bias_location{
+          ReducedRCLocalLongitudinalBiasLocation::both_ends};
+      double longitudinal_bias_power{1.0};
     };
     std::vector<ContinuumLocalSitePlan> continuum_site_plans;
     local_evolvers.reserve(3 * crit_elem_ids.size());
@@ -3646,10 +3716,20 @@ int main(int argc, char* argv[]) {
           fe2_include_column_probe_sites;
       site_selection_policy.include_center_control_site =
           fe2_include_center_probe_site;
-      const auto candidates = infer_reduced_rc_macro_local_site_candidates(
+      auto candidates = infer_reduced_rc_macro_local_site_candidates(
           ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
                                        .loaded_end_score = loaded_score},
           site_selection_policy);
+      const bool use_whole_element_local_site =
+          use_continuum_kobathe ||
+          (use_managed_xfem &&
+           xfem_local_site_mode == XfemLocalSiteMode::WholeElement);
+      if (use_whole_element_local_site) {
+        candidates = infer_reduced_rc_macro_whole_element_site_candidates(
+            ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
+                                         .loaded_end_score = loaded_score},
+            site_selection_policy);
+      }
 
       for (const auto &candidate : candidates) {
         const double section_z = candidate.z_over_l;
@@ -3676,17 +3756,23 @@ int main(int argc, char* argv[]) {
         base_patch.boundary_mode =
             ReducedRCManagedLocalBoundaryMode::affine_section_dirichlet;
 
+        ReducedRCMacroInferredXfemSitePolicy xfem_patch_policy{};
         auto patch = make_reduced_rc_macro_inferred_xfem_patch(
             site, base_patch,
             ReducedRCMacroEndpointDemand{.fixed_end_score = fixed_score,
                                          .loaded_end_score = loaded_score,
-                                         .macro_section_z_over_l = section_z});
+                                         .macro_section_z_over_l = section_z},
+            xfem_patch_policy);
         patch.crack_z_over_l = candidate.z_over_l;
         patch.longitudinal_bias_location = candidate.bias_location;
         patch.crack_position_inferred_from_macro = true;
         patch.double_hinge_bias_inferred_from_macro =
             candidate.bias_location ==
             ReducedRCLocalLongitudinalBiasLocation::both_ends;
+        patch.longitudinal_bias_power =
+            patch.double_hinge_bias_inferred_from_macro
+                ? xfem_patch_policy.double_hinge_bias_power
+                : xfem_patch_policy.single_hinge_bias_power;
         patch.mesh_refinement_location =
             ReducedRCLocalLongitudinalBiasLocation::both_ends;
         patch.mesh_refinement_location_explicit = true;
@@ -3770,6 +3856,13 @@ int main(int argc, char* argv[]) {
         xfem_site_csv << local_site_index << "," << eid << "," << range << ","
                       << fixed_score << "," << loaded_score << ","
                       << candidate.score << "," << candidate.reason << ","
+                      << (use_whole_element_local_site
+                              ? "whole_element"
+                              : "independent_probe")
+                      << "," << site_selection_policy.fixed_end_z_over_l
+                      << "," << site_selection_policy.center_z_over_l
+                      << "," << site_selection_policy.loaded_end_z_over_l
+                      << ","
                       << patch.crack_z_over_l << ","
                       << to_string(patch.longitudinal_bias_location) << ","
                       << patch.longitudinal_bias_power << "," << patch.nx << ","
@@ -3789,9 +3882,13 @@ int main(int argc, char* argv[]) {
                       << "," << replay_seconds << "," << adapter_nodes << ","
                       << adapter_elements << "\n";
 
-        std::println("  site {} / element {}: crack z/L={:.3f}, score={:.3f}, "
-                     "reason={}, bias={}, local_family={}, replay={}, iters={}",
-                     local_site_index, eid, patch.crack_z_over_l,
+        std::println("  site {} / element {}: scope={}, crack z/L={:.3f}, "
+                     "score={:.3f}, reason={}, bias={}, local_family={}, "
+                     "replay={}, iters={}",
+                     local_site_index, eid,
+                     use_whole_element_local_site ? "whole_element"
+                                                  : "independent_probe",
+                     patch.crack_z_over_l,
                      candidate.score, candidate.reason,
                      to_string(patch.longitudinal_bias_location), local_family,
                      use_managed_xfem ? (replay_completed ? "ok" : "failed")
@@ -3807,7 +3904,16 @@ int main(int argc, char* argv[]) {
                                      .site = site_for_patch,
                                      .range = range,
                                      .local_site_index = local_site_index,
-                                     .z_over_l = patch.crack_z_over_l});
+                                     .z_over_l = patch.crack_z_over_l,
+                                     .fixed_end_score = fixed_score,
+                                     .loaded_end_score = loaded_score,
+                                     .candidate_score = candidate.score,
+                                     .activation_reason =
+                                         std::string(candidate.reason),
+                                     .longitudinal_bias_location =
+                                         patch.longitudinal_bias_location,
+                                     .longitudinal_bias_power =
+                                         patch.longitudinal_bias_power});
         }
 
         if (use_managed_xfem) {
@@ -3864,6 +3970,9 @@ int main(int argc, char* argv[]) {
             .ny = SUB_NY,
             .nz = SUB_NZ,
             .hex_order = local_hex_order,
+            .longitudinal_bias_power = plan.longitudinal_bias_power,
+            .longitudinal_bias_location = to_prismatic_bias_location(
+                plan.longitudinal_bias_location),
             .rebar_bars = make_rebar_bars_for_range(range),
             .rebar_E = STEEL_E,
             .rebar_fy = STEEL_FY,
@@ -3872,9 +3981,13 @@ int main(int argc, char* argv[]) {
 
         const auto report = coordinator.report();
         std::println("  Ko-Bathe site {} / element {}: range {}, z/L={:.3f}, "
+                     "reason={}, bias={}, bias_power={:.2f}, "
                      "{} elems, {} nodes, hex_order={}, kinematics={}",
                      plan.local_site_index, plan.kinematics.element_id, range,
-                     plan.z_over_l, report.total_elements, report.total_nodes,
+                     plan.z_over_l, plan.activation_reason,
+                     to_string(plan.longitudinal_bias_location),
+                     plan.longitudinal_bias_power,
+                     report.total_elements, report.total_nodes,
                      local_family == "continuum-kobathe-hex27" ? "Hex27"
                                                                : "Hex20",
                      continuum_kinematics_label(kobathe_kinematics));
@@ -3972,7 +4085,9 @@ int main(int argc, char* argv[]) {
             << "  \"schema\": \"seismic_fe2_one_way_summary_v1\",\n"
             << "  \"case_kind\": \"fe2_one_way\",\n"
             << "  \"local_model_policy\": "
-            << "\"managed_independent_domain_per_selected_macro_site\",\n"
+            << "\"managed_single_domain_per_macro_element_with_internal_observables\",\n"
+            << "  \"xfem_local_site_mode\": \""
+            << to_string(xfem_local_site_mode) << "\",\n"
             << "  \"local_model_family\": "
             << "\"ManagedXFEM_ShiftedHeaviside_CohesiveCrackBand\",\n"
             << "  \"macro_element_family\": "
@@ -4040,6 +4155,10 @@ int main(int argc, char* argv[]) {
     sep('=');
     std::println("\n[13] Creating FE2 subscale evolvers...");
     std::println("  Local model family : {}", local_family);
+    if (use_managed_xfem) {
+        std::println("  XFEM site mode     : {}",
+                     to_string(xfem_local_site_mode));
+    }
     std::println("  Local VTK profile  : {}", to_string(local_vtk_profile));
     std::println("  Local VTK cracks   : threshold={:.3e} m, mode={}, gauss={}, placement={}, global_placement={}",
                  local_vtk_crack_opening_threshold,

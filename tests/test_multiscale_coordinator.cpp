@@ -423,6 +423,41 @@ void test_repeated_parent_local_site_ids() {
 
 
 // =============================================================================
+//  Test 9: Longitudinal bias is passed to continuum prismatic meshes
+// =============================================================================
+
+void test_longitudinal_bias_passthrough() {
+    std::cout << "\nTest 9: Longitudinal bias passthrough\n";
+
+    fall_n::MultiscaleCoordinator coord;
+    auto ek = make_beam_kinematics(
+        24, 0.0, 2.0,
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+        Eigen::Vector3d(0.0, 0.002, 0.0), Eigen::Vector3d::Zero());
+    coord.add_critical_element(std::move(ek));
+
+    fall_n::SubModelSpec spec{0.3, 0.3, 1, 1, 4};
+    spec.longitudinal_bias_power = 2.0;
+    spec.longitudinal_bias_location =
+        fall_n::LongitudinalBiasLocation::BothEnds;
+    coord.build_sub_models(spec);
+
+    const auto& grid = coord.sub_models()[0].grid;
+    check(grid.longitudinal_bias_location ==
+              fall_n::LongitudinalBiasLocation::BothEnds,
+          "grid preserves BothEnds bias location");
+    check(std::abs(grid.longitudinal_bias_power - 2.0) < tol,
+          "grid preserves longitudinal bias power");
+    check(grid.z_coordinates.size() == 5,
+          "linear 4-element mesh stores 5 longitudinal coordinates");
+    check(grid.z_coordinates[1] < 0.5,
+          "near fixed end spacing is refined relative to uniform mesh");
+    check(grid.z_coordinates[3] > 1.5,
+          "near loaded end spacing is refined relative to uniform mesh");
+}
+
+
+// =============================================================================
 //  main
 // =============================================================================
 
@@ -441,6 +476,7 @@ int main(int argc, char** argv) {
     test_mixed_state();
     test_rotated_element();
     test_repeated_parent_local_site_ids();
+    test_longitudinal_bias_passthrough();
 
     std::cout << "\n" << std::string(60, '=') << "\n"
               << "  Summary: " << passed << " passed, " << failed << " failed\n"
