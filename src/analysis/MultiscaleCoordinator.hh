@@ -208,6 +208,9 @@ public:
                 spec.section_width, spec.section_height,
                 spec.nx, spec.ny, spec.nz,
                 "Solid", spec.hex_order);
+            pspec.longitudinal_bias_power = spec.longitudinal_bias_power;
+            pspec.longitudinal_bias_location =
+                spec.longitudinal_bias_location;
 
             if (spec.has_rebar()) {
                 // Pass physical (y,z) bar positions directly — the rebar

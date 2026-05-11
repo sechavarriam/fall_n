@@ -437,6 +437,9 @@ struct SubModelSpec {
     double section_height;
     int    nx, ny, nz;
     HexOrder hex_order = HexOrder::Linear;
+    double longitudinal_bias_power = 1.0;
+    LongitudinalBiasLocation longitudinal_bias_location =
+        LongitudinalBiasLocation::FixedEnd;
 
     // ── Rebar configuration (optional — for MixedModel sub-models) ──
     //
@@ -503,6 +506,8 @@ SubModelResult build_beam_submodel(
     auto pspec = align_to_beam(A, B, up,
                                spec.section_width, spec.section_height,
                                spec.nx, spec.ny, spec.nz);
+    pspec.longitudinal_bias_power = spec.longitudinal_bias_power;
+    pspec.longitudinal_bias_location = spec.longitudinal_bias_location;
     auto [domain, grid] = make_prismatic_domain(pspec);
 
     // Extract section kinematics at both ends
