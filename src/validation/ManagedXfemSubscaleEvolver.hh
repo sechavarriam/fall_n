@@ -204,6 +204,9 @@ public:
         CrackSummary last_crack_summary{};
         MaterialHistoryTransferPacket trial_material_history{};
         MaterialHistoryTransferPacket committed_material_history{};
+        std::optional<
+            ReducedRCManagedXfemLocalModelAdapter::checkpoint_type>
+            adapter_checkpoint{};
         Eigen::Vector<double, 6> committed_control{
             Eigen::Vector<double, 6>::Zero()};
         ManagedXfemTransitionControl last_transition_control{};
@@ -583,6 +586,12 @@ public:
             .last_crack_summary = last_crack_summary_,
             .trial_material_history = trial_material_history_,
             .committed_material_history = committed_material_history_,
+            .adapter_checkpoint =
+                adapter_ ? std::optional<
+                               ReducedRCManagedXfemLocalModelAdapter::
+                                   checkpoint_type>{
+                               adapter_->capture_checkpoint()}
+                         : std::nullopt,
             .committed_control = committed_control_,
             .last_transition_control = last_transition_control_,
             .adaptive_transition_policy = adaptive_transition_policy_,
@@ -623,10 +632,23 @@ public:
         has_committed_control_ = checkpoint.has_committed_control;
         auto_commit_ = checkpoint.auto_commit;
         step_count_ = checkpoint.step_count;
-        adapter_.reset();
-        initialized_ = false;
+        if (checkpoint.adapter_checkpoint.has_value()) {
+            if (!adapter_) {
+                adapter_.emplace(options_);
+            }
+            adapter_->set_vtk_output_profile(vtk_output_profile_);
+            adapter_->set_vtk_crack_filter_mode(vtk_crack_filter_mode_);
+            adapter_->set_vtk_gauss_field_profile(vtk_gauss_field_profile_);
+            adapter_->set_vtk_placement_frame(vtk_placement_frame_);
+            adapter_->restore_checkpoint(*checkpoint.adapter_checkpoint);
+            initialized_ = checkpoint.adapter_checkpoint->initialized;
+        } else {
+            adapter_.reset();
+            initialized_ = false;
+        }
         has_cached_fd_response_ = false;
-        if ((has_trial_sample_ || has_committed_sample_) &&
+        if (!checkpoint.adapter_checkpoint.has_value() &&
+            (has_trial_sample_ || has_committed_sample_) &&
             ensure_initialized_()) {
             const auto& sample =
                 has_trial_sample_ ? trial_sample_ : committed_sample_;
