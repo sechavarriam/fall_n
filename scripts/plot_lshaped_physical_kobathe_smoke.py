@@ -25,7 +25,6 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 
 
 def parse_log(path: Path) -> dict[str, float | int | str | None]:
-    text = path.read_text(encoding="utf-8", errors="replace")
     out: dict[str, float | int | str | None] = {
         "eq_scale": None,
         "first_yield_time_s": None,
@@ -35,6 +34,9 @@ def parse_log(path: Path) -> dict[str, float | int | str | None]:
         "peak_damage": None,
         "active_cracks": None,
     }
+    if not path.exists():
+        return out
+    text = path.read_text(encoding="utf-8", errors="replace")
     patterns = {
         "eq_scale": r"scale=([0-9.]+)",
         "first_yield_time_s": r"First yield:\s+t\s+=\s+([0-9.eE+-]+)",
@@ -52,6 +54,19 @@ def parse_log(path: Path) -> dict[str, float | int | str | None]:
     return out
 
 
+def first_existing(paths: list[Path]) -> Path:
+    for path in paths:
+        if path.exists():
+            return path
+    return paths[0]
+
+
+def plot_log_value(value: float | int | None) -> float:
+    if value is None:
+        return 1.0e-12
+    return max(float(value), 1.0e-12)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", type=Path, default=DEFAULT_RUN)
@@ -59,11 +74,21 @@ def main() -> int:
     parser.add_argument("--prefix", default="lshaped_16_physical_scale1_kobathe_hex27_smoke")
     args = parser.parse_args()
 
-    run_dir = args.run_dir
-    audit = json.loads((run_dir / "recorders" / "publication_vtk_audit.json").read_text(encoding="utf-8"))
+    run_dir = args.run_dir.resolve()
+    output_dir = args.output_dir.resolve()
+    audit_path = first_existing([
+        run_dir / "recorders" / "publication_vtk_audit.json",
+        run_dir / "recorders" / "vtk_audit_summary.json",
+        run_dir / "recorders" / "vtk_audit_summary_partial.json",
+    ])
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
     sites = read_csv(run_dir / "recorders" / "local_macro_inferred_sites.csv")
     cracks = read_csv(run_dir / "recorders" / "crack_evolution.csv")
-    log_summary = parse_log(run_dir / "run_stdout.log")
+    log_path = first_existing([
+        run_dir / "run_stdout.log",
+        run_dir.parent / "kobathe_smoke_stdout.log",
+    ])
+    log_summary = parse_log(log_path)
 
     site_labels = [f"site {row['local_site_index']}\nz/L={float(row['crack_z_over_l']):.2f}" for row in sites]
     site_scores = [float(row["candidate_score"]) for row in sites]
@@ -95,21 +120,22 @@ def main() -> int:
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
     ax = axes[1, 1]
-    gap = audit["local_global_endpoint_max_gap_m"]
-    warp_gap = audit["local_global_reference_warp_endpoint_max_gap_m"]
-    slip = audit["max_bond_slip_m"]
-    ax.bar(["endpoint gap", "warp gap", "bond slip"], [gap, warp_gap, slip],
+    gap = audit.get("local_global_endpoint_max_gap_m")
+    warp_gap = audit.get("local_global_reference_warp_endpoint_max_gap_m")
+    slip = audit.get("max_bond_slip_m")
+    ax.bar(["endpoint gap", "warp gap", "bond slip"],
+           [plot_log_value(gap), plot_log_value(warp_gap), plot_log_value(slip)],
            color=["#1f77b4", "#2ca02c", "#ff7f0e"])
     ax.set_yscale("log")
     ax.set_ylabel("m")
     ax.set_title(f"Placement/slip checks; max opening={max_opening_mm:.3f} mm")
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
-    fig.suptitle("Physical scale=1 FE2/Ko-Bathe Hex27 one-step smoke", fontsize=12)
+    fig.suptitle("Physical scale=1 FE2/Ko-Bathe Hex27 smoke", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.965))
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    pdf = args.output_dir / f"{args.prefix}.pdf"
-    png = args.output_dir / f"{args.prefix}.png"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pdf = output_dir / f"{args.prefix}.pdf"
+    png = output_dir / f"{args.prefix}.png"
     fig.savefig(pdf)
     fig.savefig(png, dpi=180)
     plt.close(fig)
@@ -117,6 +143,8 @@ def main() -> int:
     summary = {
         "schema": "fall_n_lshaped_physical_scale1_kobathe_hex27_smoke_plot_v1",
         "run_dir": str(run_dir.relative_to(ROOT)),
+        "audit": str(audit_path.relative_to(ROOT)),
+        "log": str(log_path.relative_to(ROOT)),
         **log_summary,
         "selected_site_count": len(sites),
         "vtk_issue_count": len(audit["issues"]),
@@ -132,7 +160,7 @@ def main() -> int:
         "max_bond_slip_m": audit["max_bond_slip_m"],
         "figures": [str(pdf.relative_to(ROOT)), str(png.relative_to(ROOT))],
     }
-    out_json = args.output_dir / f"{args.prefix}_summary.json"
+    out_json = output_dir / f"{args.prefix}_summary.json"
     out_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
     return 0
