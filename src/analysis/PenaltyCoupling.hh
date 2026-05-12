@@ -133,10 +133,49 @@ struct PenaltyCouplingSpringResponse {
     double tangent{0.0};
 };
 
+struct PenaltyCouplingEffectiveState {
+    double slip_reference_m{5.0e-4};
+    double residual_stiffness_ratio{0.2};
+    double transition_fraction{0.0};
+};
+
 struct PenaltyCouplingLaw {
     bool bond_slip_regularization{false};
     double slip_reference_m{5.0e-4};
     double residual_stiffness_ratio{0.2};
+    bool adaptive_slip_regularization{false};
+    double adaptive_slip_reference_max_factor{1.0};
+    double adaptive_residual_stiffness_ratio_floor{-1.0};
+
+    [[nodiscard]] PenaltyCouplingEffectiveState
+    effective_state(double gap) const noexcept
+    {
+        const double s0 = std::max(std::abs(slip_reference_m), 1.0e-12);
+        const double r0 = std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+        if (!adaptive_slip_regularization) {
+            return {
+                .slip_reference_m = s0,
+                .residual_stiffness_ratio = r0,
+                .transition_fraction = 0.0};
+        }
+
+        const double x = std::abs(gap) / s0;
+        const double x2 = x * x;
+        const double m = x2 / (1.0 + x2);
+        const double max_factor =
+            std::max(1.0, adaptive_slip_reference_max_factor);
+        const double rf = std::clamp(
+            adaptive_residual_stiffness_ratio_floor < 0.0
+                ? r0
+                : adaptive_residual_stiffness_ratio_floor,
+            0.0,
+            r0);
+
+        return {
+            .slip_reference_m = s0 * (1.0 + (max_factor - 1.0) * m),
+            .residual_stiffness_ratio = r0 - (r0 - rf) * m,
+            .transition_fraction = m};
+    }
 
     [[nodiscard]] PenaltyCouplingSpringResponse
     evaluate(double gap, double alpha) const noexcept
@@ -146,18 +185,50 @@ struct PenaltyCouplingLaw {
         }
 
         const double alpha0 = std::max(0.0, alpha);
+        const auto state = effective_state(gap);
         const double ratio =
-            std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+            std::clamp(state.residual_stiffness_ratio, 0.0, 1.0);
         const double alpha_residual = alpha0 * ratio;
         const double alpha_bond = alpha0 - alpha_residual;
-        const double s_ref = std::max(std::abs(slip_reference_m), 1.0e-12);
+        const double s_ref =
+            std::max(std::abs(state.slip_reference_m), 1.0e-12);
         const double arg = std::clamp(gap / s_ref, -50.0, 50.0);
         const double th = std::tanh(arg);
         const double sech2 = std::max(0.0, 1.0 - th * th);
 
+        if (!adaptive_slip_regularization || gap == 0.0) {
+            return {
+                .force = alpha_residual * gap + alpha_bond * s_ref * th,
+                .tangent = alpha_residual + alpha_bond * sech2};
+        }
+
+        const double s0 = std::max(std::abs(slip_reference_m), 1.0e-12);
+        const double x = std::abs(gap) / s0;
+        const double sign = gap >= 0.0 ? 1.0 : -1.0;
+        const double denom = 1.0 + x * x;
+        const double dm_dgap =
+            (2.0 * x / (denom * denom)) * sign / s0;
+        const double max_factor =
+            std::max(1.0, adaptive_slip_reference_max_factor);
+        const double ds_dgap = s0 * (max_factor - 1.0) * dm_dgap;
+        const double r0 = std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+        const double rf = std::clamp(
+            adaptive_residual_stiffness_ratio_floor < 0.0
+                ? r0
+                : adaptive_residual_stiffness_ratio_floor,
+            0.0,
+            r0);
+        const double dr_dgap = -(r0 - rf) * dm_dgap;
+        const double bond_force = s_ref * th;
+        const double dbond_dgap =
+            ds_dgap * th + sech2 * (1.0 - gap * ds_dgap / s_ref);
+        const double tangent = alpha0 *
+            (ratio + dr_dgap * (gap - bond_force) +
+             (1.0 - ratio) * dbond_dgap);
+
         return {
             .force = alpha_residual * gap + alpha_bond * s_ref * th,
-            .tangent = alpha_residual + alpha_bond * sech2};
+            .tangent = std::max(0.0, tangent)};
     }
 };
 
@@ -525,7 +596,7 @@ public:
     void add_to_global_residual(Vec u_local, Vec residual_global, DM dm) const
     {
         add_penalty_coupling_entries_to_global_residual(
-            couplings_, alpha_, u_local, residual_global, dm);
+            couplings_, alpha_, law_, u_local, residual_global, dm);
     }
 
     void add_to_residual(Vec u_local, Vec residual_local, DM dm) const
@@ -552,10 +623,10 @@ public:
         DMRestoreLocalVector(dm, &coupling_local);
     }
 
-    void add_to_jacobian(Vec /*u_local*/, Mat jacobian, DM dm) const
+    void add_to_jacobian(Vec u_local, Mat jacobian, DM dm) const
     {
         add_penalty_coupling_entries_to_jacobian(
-            couplings_, alpha_, jacobian, dm);
+            couplings_, alpha_, law_, u_local, jacobian, dm);
     }
 
     [[nodiscard]] std::size_t num_couplings() const noexcept
@@ -568,8 +639,19 @@ public:
         return alpha_;
     }
 
+    void set_law(PenaltyCouplingLaw law) noexcept
+    {
+        law_ = law;
+    }
+
+    [[nodiscard]] const PenaltyCouplingLaw& law() const noexcept
+    {
+        return law_;
+    }
+
 private:
     double alpha_{1.0e6};
+    PenaltyCouplingLaw law_{};
     std::vector<PenaltyCouplingEntry> couplings_{};
 };
 

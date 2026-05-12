@@ -493,6 +493,24 @@ class LocalVTKOutputWriter {
         bond_tangent_axial_arr->SetName("bond_tangent_axial");
         bond_tangent_axial_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> bond_tangent_ratio_arr;
+        bond_tangent_ratio_arr->SetName("bond_tangent_ratio");
+        bond_tangent_ratio_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_effective_slip_reference_arr;
+        bond_effective_slip_reference_arr->SetName(
+            "bond_effective_slip_reference");
+        bond_effective_slip_reference_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_residual_stiffness_ratio_arr;
+        bond_residual_stiffness_ratio_arr->SetName(
+            "bond_residual_stiffness_ratio");
+        bond_residual_stiffness_ratio_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> bond_adaptive_fraction_arr;
+        bond_adaptive_fraction_arr->SetName("bond_adaptive_fraction");
+        bond_adaptive_fraction_arr->SetNumberOfComponents(1);
+
         vtkNew<vtkDoubleArray> bond_slip_ratio_arr;
         bond_slip_ratio_arr->SetName("bond_slip_ratio");
         bond_slip_ratio_arr->SetNumberOfComponents(1);
@@ -511,8 +529,7 @@ class LocalVTKOutputWriter {
                 double axial_eps,
                 double area,
                 double bar_id,
-                const RebarBondSlipSegment& bond_slip,
-                double slip_reference_m)
+                const RebarBondSlipSegment& bond_slip)
         {
             const Eigen::Vector3d axis = p1 - p0;
             const double length = axis.norm();
@@ -533,7 +550,13 @@ class LocalVTKOutputWriter {
                 e.y() * e.y() * bond_slip.tangent.y() +
                 e.z() * e.z() * bond_slip.tangent.z();
             const double slip_ratio =
-                slip_reference_m > 0.0 ? slip_norm / slip_reference_m : 0.0;
+                penalty_law.slip_reference_m > 0.0
+                    ? slip_norm / penalty_law.slip_reference_m
+                    : 0.0;
+            const auto effective_bond =
+                penalty_law.effective_state(axial_slip);
+            const double tangent_ratio =
+                penalty_alpha > 0.0 ? axial_tangent / penalty_alpha : 0.0;
             Eigen::Vector3d a = std::abs(e.dot(Eigen::Vector3d::UnitX())) < 0.9
                 ? Eigen::Vector3d::UnitX()
                 : Eigen::Vector3d::UnitY();
@@ -581,6 +604,13 @@ class LocalVTKOutputWriter {
                 bond_force_axial_arr->InsertNextValue(axial_force);
                 bond_force_transverse_arr->InsertNextValue(transverse_force);
                 bond_tangent_axial_arr->InsertNextValue(axial_tangent);
+                bond_tangent_ratio_arr->InsertNextValue(tangent_ratio);
+                bond_effective_slip_reference_arr->InsertNextValue(
+                    effective_bond.slip_reference_m);
+                bond_residual_stiffness_ratio_arr->InsertNextValue(
+                    effective_bond.residual_stiffness_ratio);
+                bond_adaptive_fraction_arr->InsertNextValue(
+                    effective_bond.transition_fraction);
                 bond_slip_ratio_arr->InsertNextValue(slip_ratio);
                 bond_slip_valid_arr->InsertNextValue(
                     bond_slip.valid ? 1.0 : 0.0);
@@ -650,8 +680,7 @@ class LocalVTKOutputWriter {
                                     area,
                                     static_cast<double>(bar_b),
                                     segment_bond_slip(
-                                        bond_slips[k], bond_slips[k + 1]),
-                                    penalty_law.slip_reference_m);
+                                        bond_slips[k], bond_slips[k + 1]));
             }
         }
 
@@ -678,6 +707,12 @@ class LocalVTKOutputWriter {
             grid->GetCellData()->AddArray(bond_force_axial_arr);
             grid->GetCellData()->AddArray(bond_force_transverse_arr);
             grid->GetCellData()->AddArray(bond_tangent_axial_arr);
+            grid->GetCellData()->AddArray(bond_tangent_ratio_arr);
+            grid->GetCellData()->AddArray(
+                bond_effective_slip_reference_arr);
+            grid->GetCellData()->AddArray(
+                bond_residual_stiffness_ratio_arr);
+            grid->GetCellData()->AddArray(bond_adaptive_fraction_arr);
             grid->GetCellData()->AddArray(bond_slip_ratio_arr);
             grid->GetCellData()->AddArray(bond_slip_valid_arr);
         }

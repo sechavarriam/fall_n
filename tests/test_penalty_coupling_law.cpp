@@ -74,6 +74,43 @@ void test_bond_slip_regularization()
           "bond-slip analytic tangent matches finite difference");
 }
 
+void test_adaptive_bond_slip_regularization()
+{
+    fall_n::PenaltyCouplingLaw law;
+    law.bond_slip_regularization = true;
+    law.slip_reference_m = 5.0e-4;
+    law.residual_stiffness_ratio = 0.2;
+    law.adaptive_slip_regularization = true;
+    law.adaptive_slip_reference_max_factor = 4.0;
+    law.adaptive_residual_stiffness_ratio_floor = 0.05;
+
+    const double alpha = 280000.0;
+    const double small_gap = 1.0e-8;
+    const double large_gap = 4.0e-3;
+
+    const auto small_state = law.effective_state(small_gap);
+    const auto large_state = law.effective_state(large_gap);
+    const auto large = law.evaluate(large_gap, alpha);
+
+    check(near(small_state.slip_reference_m, law.slip_reference_m, 1.0e-8),
+          "adaptive bond-slip keeps the initial reference at tiny slip");
+    check(large_state.slip_reference_m > law.slip_reference_m,
+          "adaptive bond-slip increases the effective slip reference");
+    check(large_state.residual_stiffness_ratio <
+              law.residual_stiffness_ratio,
+          "adaptive bond-slip degrades residual bond stiffness");
+    check(large.tangent > 0.0 && large.tangent < alpha,
+          "adaptive bond-slip tangent remains positive and softened");
+
+    const double h = 1.0e-7;
+    const auto plus = law.evaluate(large_gap + h, alpha);
+    const auto minus = law.evaluate(large_gap - h, alpha);
+    const double fd_tangent = (plus.force - minus.force) / (2.0 * h);
+
+    check(std::abs(fd_tangent - large.tangent) < 1.0e-1,
+          "adaptive bond-slip analytic tangent matches finite difference");
+}
+
 }  // namespace
 
 int main()
@@ -82,6 +119,7 @@ int main()
 
     test_linear_default();
     test_bond_slip_regularization();
+    test_adaptive_bond_slip_regularization();
 
     std::cout << "Summary: " << g_pass << " passed, " << g_fail
               << " failed\n";

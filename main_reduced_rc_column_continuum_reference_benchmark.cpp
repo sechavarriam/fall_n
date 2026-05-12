@@ -81,11 +81,20 @@ struct CliOptions {
         "opening-exponential"};
     double concrete_crack_band_closure_shear_gain{1.0};
     double concrete_crack_band_open_compression_transfer_ratio{0.05};
+    double kobathe_crack_eta_n_override{-1.0};
+    double kobathe_crack_eta_s_override{-1.0};
+    double kobathe_crack_closure_transition_strain_override{-1.0};
+    int kobathe_crack_smooth_closure_override{-1};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     std::string continuation{"reversal-guarded"};
     int continuation_segment_substep_factor{2};
     double penalty_alpha_scale_over_ec{1.0e4};
+    bool bond_slip_regularization{false};
+    double bond_slip_reference_m{5.0e-4};
+    double bond_slip_residual_stiffness_ratio{0.2};
+    double bond_slip_adaptive_reference_max_factor{1.0};
+    double bond_slip_adaptive_residual_stiffness_ratio_floor{-1.0};
     double top_cap_penalty_alpha_scale_over_ec{1.0e4};
     double top_cap_bending_rotation_drift_ratio{0.0};
     double monotonic_tip_mm{2.5};
@@ -798,6 +807,9 @@ parse_predictor_policy_kind(std::string value)
             "[--concrete-crack-band-shear-transfer-law constant-residual|opening-exponential|compression-gated-opening] "
             "[--concrete-crack-band-closure-shear-gain value] "
             "[--concrete-crack-band-open-compression-transfer-ratio value] "
+            "[--kobathe-crack-eta-n value] [--kobathe-crack-eta-s value] "
+            "[--kobathe-crack-closure-transition-strain value] "
+            "[--kobathe-crack-smooth-closure|--kobathe-crack-abrupt-closure] "
             "[--transverse-reinforcement-penalty-alpha-scale-over-ec value] "
             "[--transverse-reinforcement-area-scale value] "
             "[--host-probe label:x:y:z] "
@@ -809,6 +821,10 @@ parse_predictor_policy_kind(std::string value)
             "[--axial-compression-mn value] [--axial-preload-steps N] "
             "[--continuation-segment-substep-factor N] "
             "[--penalty-alpha-scale-over-ec value] "
+            "[--bond-slip] [--bond-slip-reference m] "
+            "[--bond-slip-residual-ratio value] "
+            "[--bond-slip-adaptive-reference-max-factor value] "
+            "[--bond-slip-adaptive-residual-ratio-floor value] "
             "[--top-cap-penalty-alpha-scale-over-ec value] "
             "[--monotonic-tip-mm value] [--monotonic-steps N] "
             "[--amplitudes-mm comma,separated] [--steps-per-segment N] "
@@ -978,6 +994,26 @@ parse_predictor_policy_kind(std::string value)
         options.concrete_crack_band_open_compression_transfer_ratio =
             std::stod(value);
     }
+    if (const auto value = value_of("--kobathe-crack-eta-n");
+        !value.empty()) {
+        options.kobathe_crack_eta_n_override = std::stod(value);
+    }
+    if (const auto value = value_of("--kobathe-crack-eta-s");
+        !value.empty()) {
+        options.kobathe_crack_eta_s_override = std::stod(value);
+    }
+    if (const auto value =
+            value_of("--kobathe-crack-closure-transition-strain");
+        !value.empty()) {
+        options.kobathe_crack_closure_transition_strain_override =
+            std::stod(value);
+    }
+    if (has_flag("--kobathe-crack-smooth-closure")) {
+        options.kobathe_crack_smooth_closure_override = 1;
+    }
+    if (has_flag("--kobathe-crack-abrupt-closure")) {
+        options.kobathe_crack_smooth_closure_override = 0;
+    }
     if (const auto value = value_of(
             "--transverse-reinforcement-penalty-alpha-scale-over-ec");
         !value.empty()) {
@@ -995,6 +1031,31 @@ parse_predictor_policy_kind(std::string value)
     if (const auto value = value_of("--penalty-alpha-scale-over-ec");
         !value.empty()) {
         options.penalty_alpha_scale_over_ec = std::stod(value);
+    }
+    if (has_flag("--bond-slip")) {
+        options.bond_slip_regularization = true;
+    }
+    if (has_flag("--no-bond-slip")) {
+        options.bond_slip_regularization = false;
+    }
+    if (const auto value = value_of("--bond-slip-reference");
+        !value.empty()) {
+        options.bond_slip_reference_m = std::stod(value);
+    }
+    if (const auto value = value_of("--bond-slip-residual-ratio");
+        !value.empty()) {
+        options.bond_slip_residual_stiffness_ratio = std::stod(value);
+    }
+    if (const auto value =
+            value_of("--bond-slip-adaptive-reference-max-factor");
+        !value.empty()) {
+        options.bond_slip_adaptive_reference_max_factor = std::stod(value);
+    }
+    if (const auto value =
+            value_of("--bond-slip-adaptive-residual-ratio-floor");
+        !value.empty()) {
+        options.bond_slip_adaptive_residual_stiffness_ratio_floor =
+            std::stod(value);
     }
     if (const auto value =
             value_of("--top-cap-penalty-alpha-scale-over-ec");
@@ -1517,8 +1578,26 @@ void write_runtime_manifest(
         << spec.concrete_crack_band_closure_shear_gain << ",\n"
         << "  \"concrete_crack_band_open_compression_transfer_ratio\": "
         << spec.concrete_crack_band_open_compression_transfer_ratio << ",\n"
+        << "  \"kobathe_crack_eta_n_override\": "
+        << spec.kobathe_crack_eta_n_override << ",\n"
+        << "  \"kobathe_crack_eta_s_override\": "
+        << spec.kobathe_crack_eta_s_override << ",\n"
+        << "  \"kobathe_crack_closure_transition_strain_override\": "
+        << spec.kobathe_crack_closure_transition_strain_override << ",\n"
+        << "  \"kobathe_crack_smooth_closure_override\": "
+        << spec.kobathe_crack_smooth_closure_override << ",\n"
         << "  \"penalty_alpha_scale_over_ec\": "
         << spec.penalty_alpha_scale_over_ec << ",\n"
+        << "  \"bond_slip_regularization\": "
+        << (spec.bond_slip_regularization ? "true" : "false") << ",\n"
+        << "  \"bond_slip_reference_m\": "
+        << spec.bond_slip_reference_m << ",\n"
+        << "  \"bond_slip_residual_stiffness_ratio\": "
+        << spec.bond_slip_residual_stiffness_ratio << ",\n"
+        << "  \"bond_slip_adaptive_reference_max_factor\": "
+        << spec.bond_slip_adaptive_reference_max_factor << ",\n"
+        << "  \"bond_slip_adaptive_residual_stiffness_ratio_floor\": "
+        << spec.bond_slip_adaptive_residual_stiffness_ratio_floor << ",\n"
         << "  \"top_cap_penalty_alpha_scale_over_ec\": "
         << spec.top_cap_penalty_alpha_scale_over_ec << ",\n"
         << "  \"transverse_reinforcement_penalty_alpha_scale_over_ec\": "
@@ -1833,12 +1912,28 @@ int main(int argc, char** argv)
                 options.concrete_crack_band_closure_shear_gain,
             .concrete_crack_band_open_compression_transfer_ratio =
                 options.concrete_crack_band_open_compression_transfer_ratio,
+            .kobathe_crack_eta_n_override =
+                options.kobathe_crack_eta_n_override,
+            .kobathe_crack_eta_s_override =
+                options.kobathe_crack_eta_s_override,
+            .kobathe_crack_closure_transition_strain_override =
+                options.kobathe_crack_closure_transition_strain_override,
+            .kobathe_crack_smooth_closure_override =
+                options.kobathe_crack_smooth_closure_override,
             .transverse_reinforcement_penalty_alpha_scale_over_ec =
                 options
                     .transverse_reinforcement_penalty_alpha_scale_over_ec,
             .transverse_reinforcement_area_scale =
                 options.transverse_reinforcement_area_scale,
             .penalty_alpha_scale_over_ec = options.penalty_alpha_scale_over_ec,
+            .bond_slip_regularization = options.bond_slip_regularization,
+            .bond_slip_reference_m = options.bond_slip_reference_m,
+            .bond_slip_residual_stiffness_ratio =
+                options.bond_slip_residual_stiffness_ratio,
+            .bond_slip_adaptive_reference_max_factor =
+                options.bond_slip_adaptive_reference_max_factor,
+            .bond_slip_adaptive_residual_stiffness_ratio_floor =
+                options.bond_slip_adaptive_residual_stiffness_ratio_floor,
             .top_cap_penalty_alpha_scale_over_ec =
                 options.top_cap_penalty_alpha_scale_over_ec,
             .top_cap_bending_rotation_drift_ratio =
