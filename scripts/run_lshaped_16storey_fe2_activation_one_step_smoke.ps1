@@ -31,6 +31,11 @@ param(
     [switch]$DisableManagedLocalAdaptiveTransition,
     [string]$OutputRootBase = "data/output/lshaped_16storey_activation_one_step",
     [switch]$UseLinearAlarmRestart,
+    [string]$LinearAlarmRestartDir = "data/output/lshaped_16storey_physical_scale1_linear_steel_yield_20260509/recorders",
+    [string]$LinearAlarmRestartDisplacement = "",
+    [string]$LinearAlarmRestartVelocity = "",
+    [double]$LinearAlarmRestartTime = 1.30,
+    [int]$LinearAlarmRestartStep = 65,
     [switch]$GravityPreload,
     [double]$GravityAccel = 9.80665,
     [int]$GravityPreloadSteps = 8,
@@ -137,7 +142,31 @@ foreach ($item in $families) {
         $args += "--adaptive-managed-local-transition"
     }
     if ($UseLinearAlarmRestart) {
-        $args += "--restart-from-linear-alarm"
+        $restartDir = Join-Path $repoRoot $LinearAlarmRestartDir
+        $disp = if ($LinearAlarmRestartDisplacement) {
+            $LinearAlarmRestartDisplacement
+        } else {
+            Join-Path $restartDir "linear_first_alarm_displacement.vec"
+        }
+        $vel = if ($LinearAlarmRestartVelocity) {
+            $LinearAlarmRestartVelocity
+        } else {
+            Join-Path $restartDir "linear_first_alarm_velocity.vec"
+        }
+        if (-not (Test-Path $disp)) {
+            throw "Linear alarm restart displacement not found: $disp"
+        }
+        if (-not (Test-Path $vel)) {
+            throw "Linear alarm restart velocity not found: $vel"
+        }
+        $args += "--restart-displacement"
+        $args += (Resolve-Path -LiteralPath $disp).Path
+        $args += "--restart-velocity"
+        $args += (Resolve-Path -LiteralPath $vel).Path
+        $args += "--restart-time"
+        $args += (Format-Real $LinearAlarmRestartTime)
+        $args += "--restart-step"
+        $args += "$LinearAlarmRestartStep"
     }
     if ($GravityPreload) {
         $args += "--gravity-preload"
@@ -261,6 +290,9 @@ foreach ($item in $families) {
         search_duration_s = $SearchDuration
         steps_after_activation = $StepsAfterActivation
         restart_from_linear_alarm = [bool]$UseLinearAlarmRestart
+        linear_alarm_restart_dir = $LinearAlarmRestartDir
+        linear_alarm_restart_time_s = $LinearAlarmRestartTime
+        linear_alarm_restart_step = $LinearAlarmRestartStep
         local_vtk_profile = "publication"
         local_vtk_crack_opening_threshold_m = $CrackOpeningThreshold
         local_vtk_crack_filter_mode = "both"
