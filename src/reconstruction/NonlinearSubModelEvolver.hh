@@ -1149,13 +1149,22 @@ public:
     void set_penalty_bond_slip_regularization(
         bool enabled,
         double slip_reference_m = 5.0e-4,
-        double residual_stiffness_ratio = 0.2) noexcept
+        double residual_stiffness_ratio = 0.2,
+        double adaptive_slip_reference_max_factor = 1.0,
+        double adaptive_residual_stiffness_ratio_floor = -1.0) noexcept
     {
         penalty_coupling_law_.bond_slip_regularization = enabled;
         penalty_coupling_law_.slip_reference_m =
             std::max(std::abs(slip_reference_m), 1.0e-12);
         penalty_coupling_law_.residual_stiffness_ratio =
             std::clamp(residual_stiffness_ratio, 0.0, 1.0);
+        penalty_coupling_law_.adaptive_slip_regularization =
+            adaptive_slip_reference_max_factor > 1.0 ||
+            adaptive_residual_stiffness_ratio_floor >= 0.0;
+        penalty_coupling_law_.adaptive_slip_reference_max_factor =
+            std::max(1.0, adaptive_slip_reference_max_factor);
+        penalty_coupling_law_.adaptive_residual_stiffness_ratio_floor =
+            adaptive_residual_stiffness_ratio_floor;
     }
 
     void set_snes_params(int max_it, double atol, double rtol) noexcept {
@@ -1645,6 +1654,16 @@ private:
                 alpha_penalty_,
                 penalty_coupling_law_.residual_stiffness_ratio,
                 penalty_coupling_law_.slip_reference_m);
+            if (penalty_coupling_law_.adaptive_slip_regularization) {
+                std::println(
+                    "  [SubModel {}] Adaptive bond-slip: s_ref_max/s_ref = "
+                    "{:.2f}, αr_floor/α0 = {:.2f}",
+                    sub_->parent_element_id,
+                    penalty_coupling_law_
+                        .adaptive_slip_reference_max_factor,
+                    penalty_coupling_law_
+                        .adaptive_residual_stiffness_ratio_floor);
+            }
         } else {
             std::println("  [SubModel {}] Penalty coupling: {} interior "
                          "rebar nodes, α = {:.1e}",
