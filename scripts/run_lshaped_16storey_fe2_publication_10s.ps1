@@ -36,6 +36,8 @@ param(
     [switch]$DisableManagedLocalAdaptiveTransition,
     [switch]$IncludeColumnProbeSites,
     [switch]$IncludeCenterProbeSite,
+    [ValidateSet("whole_element", "independent_probes")]
+    [string]$XfemLocalSiteMode = "whole_element",
     [int]$ManagedLocalTransitionSteps = 2,
     [int]$ManagedLocalMaxTransitionSteps = 8,
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
@@ -64,6 +66,13 @@ param(
     [switch]$KobatheBondSlip,
     [double]$KobatheBondSlipReference = 0.0005,
     [double]$KobatheBondSlipResidualRatio = 0.2,
+    [double]$KobatheBondSlipAdaptiveReferenceMaxFactor = 1.0,
+    [double]$KobatheBondSlipAdaptiveResidualRatioFloor = -1.0,
+    [double]$KobatheCrackEtaN = -1.0,
+    [double]$KobatheCrackEtaS = -1.0,
+    [double]$KobatheCrackClosureTransitionStrain = -1.0,
+    [switch]$KobatheCrackSmoothClosure,
+    [switch]$KobatheCrackAbruptClosure,
     [double]$KobatheAdaptiveInitialFraction = 0.25,
     [double]$KobatheAdaptiveGrowthFactor = 2.0,
     [int]$KobatheAdaptiveEasyIters = 8,
@@ -175,6 +184,10 @@ foreach ($item in $families) {
     if ($IncludeCenterProbeSite) {
         $args += "--fe2-include-center-probe-site"
     }
+    if ($item.Family -eq "managed-xfem") {
+        $args += "--xfem-local-site-mode"
+        $args += $XfemLocalSiteMode
+    }
     if ($SkipPostprocess) {
         $args += "--skip-postprocess"
     }
@@ -226,6 +239,13 @@ foreach ($item in $families) {
          $KobatheBondSlip -or
          $KobatheBondSlipReference -ne 0.0005 -or
          $KobatheBondSlipResidualRatio -ne 0.2 -or
+         $KobatheBondSlipAdaptiveReferenceMaxFactor -ne 1.0 -or
+         $KobatheBondSlipAdaptiveResidualRatioFloor -ge 0.0 -or
+         $KobatheCrackEtaN -ge 0.0 -or
+         $KobatheCrackEtaS -ge 0.0 -or
+         $KobatheCrackClosureTransitionStrain -ge 0.0 -or
+         $KobatheCrackSmoothClosure -or
+         $KobatheCrackAbruptClosure -or
          $KobatheAdaptiveInitialFraction -ne 0.25 -or
          $KobatheAdaptiveGrowthFactor -ne 2.0 -or
          $KobatheAdaptiveEasyIters -ne 8 -or
@@ -253,6 +273,28 @@ foreach ($item in $families) {
         $args += (Format-Real $KobatheBondSlipReference)
         $args += "--kobathe-bond-slip-residual-ratio"
         $args += (Format-Real $KobatheBondSlipResidualRatio)
+        $args += "--kobathe-bond-slip-adaptive-reference-max-factor"
+        $args += (Format-Real $KobatheBondSlipAdaptiveReferenceMaxFactor)
+        $args += "--kobathe-bond-slip-adaptive-residual-ratio-floor"
+        $args += (Format-Real $KobatheBondSlipAdaptiveResidualRatioFloor)
+        if ($KobatheCrackEtaN -ge 0.0) {
+            $args += "--kobathe-crack-eta-n"
+            $args += (Format-Real $KobatheCrackEtaN)
+        }
+        if ($KobatheCrackEtaS -ge 0.0) {
+            $args += "--kobathe-crack-eta-s"
+            $args += (Format-Real $KobatheCrackEtaS)
+        }
+        if ($KobatheCrackClosureTransitionStrain -ge 0.0) {
+            $args += "--kobathe-crack-closure-transition-strain"
+            $args += (Format-Real $KobatheCrackClosureTransitionStrain)
+        }
+        if ($KobatheCrackSmoothClosure) {
+            $args += "--kobathe-crack-smooth-closure"
+        }
+        if ($KobatheCrackAbruptClosure) {
+            $args += "--kobathe-crack-abrupt-closure"
+        }
         $args += "--kobathe-snes-max-it"
         $args += "$KobatheSnesMaxIt"
         $args += "--kobathe-snes-atol"
@@ -324,6 +366,7 @@ foreach ($item in $families) {
         managed_local_adaptive_transition = (-not [bool]$DisableManagedLocalAdaptiveTransition)
         include_column_probe_sites = [bool]$IncludeColumnProbeSites
         include_center_probe_site = [bool]$IncludeCenterProbeSite
+        xfem_local_site_mode = $XfemLocalSiteMode
         gravity_preload = [bool]$GravityPreload
         gravity_accel = $GravityAccel
         gravity_preload_steps = $GravityPreloadSteps
@@ -344,6 +387,13 @@ foreach ($item in $families) {
         kobathe_bond_slip = [bool]$KobatheBondSlip
         kobathe_bond_slip_reference_m = $KobatheBondSlipReference
         kobathe_bond_slip_residual_ratio = $KobatheBondSlipResidualRatio
+        kobathe_bond_slip_adaptive_reference_max_factor = $KobatheBondSlipAdaptiveReferenceMaxFactor
+        kobathe_bond_slip_adaptive_residual_ratio_floor = $KobatheBondSlipAdaptiveResidualRatioFloor
+        kobathe_crack_eta_n = $KobatheCrackEtaN
+        kobathe_crack_eta_s = $KobatheCrackEtaS
+        kobathe_crack_closure_transition_strain = $KobatheCrackClosureTransitionStrain
+        kobathe_crack_smooth_closure = [bool]$KobatheCrackSmoothClosure
+        kobathe_crack_abrupt_closure = [bool]$KobatheCrackAbruptClosure
         kobathe_adaptive_initial_fraction = $KobatheAdaptiveInitialFraction
         kobathe_adaptive_growth_factor = $KobatheAdaptiveGrowthFactor
         kobathe_adaptive_easy_iters = $KobatheAdaptiveEasyIters

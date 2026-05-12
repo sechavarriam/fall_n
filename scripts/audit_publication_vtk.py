@@ -589,6 +589,8 @@ def main() -> int:
         "crack_opening_threshold_m": args.crack_opening_threshold,
         "min_visible_crack_opening_m": None,
         "max_bond_slip_m": None,
+        "max_bond_adaptive_fraction": None,
+        "min_bond_tangent_ratio": None,
         "bond_slip_valid_cells": 0,
         "local_global_endpoint_checks": 0,
         "local_global_endpoint_max_gap_m": None,
@@ -653,6 +655,22 @@ def main() -> int:
                     report["max_bond_slip_m"]
                     if report["max_bond_slip_m"] is not None
                     else max_bond_slip,
+                )
+            adaptive = parse_ascii_numbers(info.get("cell_data", {}).get("bond_adaptive_fraction"))
+            if adaptive:
+                report["max_bond_adaptive_fraction"] = max(
+                    max(adaptive),
+                    report["max_bond_adaptive_fraction"]
+                    if report["max_bond_adaptive_fraction"] is not None
+                    else max(adaptive),
+                )
+            tangent_ratio = parse_ascii_numbers(info.get("cell_data", {}).get("bond_tangent_ratio"))
+            if tangent_ratio:
+                report["min_bond_tangent_ratio"] = min(
+                    min(tangent_ratio),
+                    report["min_bond_tangent_ratio"]
+                    if report["min_bond_tangent_ratio"] is not None
+                    else min(tangent_ratio),
                 )
             min_visible = metrics.get("min_visible_crack_opening_m")
             if min_visible is not None:

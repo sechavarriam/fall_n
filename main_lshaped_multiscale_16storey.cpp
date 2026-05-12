@@ -34,6 +34,7 @@
 
 #include "header_files.hh"
 #include "src/utils/PythonPlotter.hh"
+#include "src/materials/SubmodelMaterialFactoryDefaults.hh"
 #include "src/validation/ManagedXfemSubscaleEvolver.hh"
 #include "src/validation/ReducedRCMacroInferredXfemSitePolicy.hh"
 #include "src/validation/ReducedRCManagedXfemLocalModelAdapter.hh"
@@ -1647,6 +1648,12 @@ int main(int argc, char* argv[]) {
     bool kobathe_bond_slip_regularization = false;
     double kobathe_bond_slip_reference = 0.5e-3;
     double kobathe_bond_slip_residual_ratio = 0.2;
+    double kobathe_bond_slip_adaptive_reference_max_factor = 1.0;
+    double kobathe_bond_slip_adaptive_residual_ratio_floor = -1.0;
+    double kobathe_crack_eta_n_override = -1.0;
+    double kobathe_crack_eta_s_override = -1.0;
+    double kobathe_crack_closure_transition_strain_override = -1.0;
+    int kobathe_crack_smooth_closure_override = -1;
     double kobathe_adaptive_initial_fraction = 0.25;
     double kobathe_adaptive_growth_factor = 2.0;
     int kobathe_adaptive_easy_iterations = 8;
@@ -1668,11 +1675,14 @@ int main(int argc, char* argv[]) {
     int fe2_phase2_dt_easy_steps = 2;
     int fe2_macro_cutback_attempts = 0;
     int fe2_one_way_micro_cutback_attempts = 0;
+    int fe2_two_way_convergence_cutback_attempts = 0;
     int fe2_macro_backtrack_attempts = 0;
     int fe2_steps_after_activation = -1;
     double fe2_macro_cutback_factor = 0.5;
     double fe2_one_way_micro_cutback_factor = 0.5;
     double fe2_one_way_micro_cutback_min_dt = 1.25e-4;
+    double fe2_two_way_convergence_cutback_factor = 0.5;
+    double fe2_two_way_convergence_cutback_min_dt = 1.25e-4;
     double fe2_local_solve_wall_budget_seconds = 0.0;
     double fe2_local_solve_budget_cutback_factor = 0.5;
     bool fe2_stop_on_local_solve_budget = false;
@@ -1925,6 +1935,26 @@ int main(int argc, char* argv[]) {
             kobathe_bond_slip_reference = std::stod(argv[++i]);
         } else if (arg == "--kobathe-bond-slip-residual-ratio" && i + 1 < argc) {
             kobathe_bond_slip_residual_ratio = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-bond-slip-adaptive-reference-max-factor" &&
+                   i + 1 < argc) {
+            kobathe_bond_slip_adaptive_reference_max_factor =
+                std::stod(argv[++i]);
+        } else if (arg == "--kobathe-bond-slip-adaptive-residual-ratio-floor" &&
+                   i + 1 < argc) {
+            kobathe_bond_slip_adaptive_residual_ratio_floor =
+                std::stod(argv[++i]);
+        } else if (arg == "--kobathe-crack-eta-n" && i + 1 < argc) {
+            kobathe_crack_eta_n_override = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-crack-eta-s" && i + 1 < argc) {
+            kobathe_crack_eta_s_override = std::stod(argv[++i]);
+        } else if (arg == "--kobathe-crack-closure-transition-strain" &&
+                   i + 1 < argc) {
+            kobathe_crack_closure_transition_strain_override =
+                std::stod(argv[++i]);
+        } else if (arg == "--kobathe-crack-smooth-closure") {
+            kobathe_crack_smooth_closure_override = 1;
+        } else if (arg == "--kobathe-crack-abrupt-closure") {
+            kobathe_crack_smooth_closure_override = 0;
         } else if (arg == "--kobathe-adaptive-initial-fraction" && i + 1 < argc) {
             kobathe_adaptive_initial_fraction = std::stod(argv[++i]);
         } else if (arg == "--kobathe-adaptive-growth-factor" && i + 1 < argc) {
@@ -2046,6 +2076,16 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fe2-one-way-micro-cutback-min-dt" &&
                    i + 1 < argc) {
             fe2_one_way_micro_cutback_min_dt = std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-convergence-cutback-attempts" &&
+                   i + 1 < argc) {
+            fe2_two_way_convergence_cutback_attempts =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--fe2-two-way-convergence-cutback-factor" &&
+                   i + 1 < argc) {
+            fe2_two_way_convergence_cutback_factor = std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-convergence-cutback-min-dt" &&
+                   i + 1 < argc) {
+            fe2_two_way_convergence_cutback_min_dt = std::stod(argv[++i]);
         } else if (arg == "--fe2-local-solve-wall-budget-seconds" &&
                    i + 1 < argc) {
             fe2_local_solve_wall_budget_seconds = std::stod(argv[++i]);
@@ -2113,6 +2153,19 @@ int main(int argc, char* argv[]) {
           kobathe_bond_slip_residual_ratio <= 1.0)) {
         throw std::invalid_argument(
             "--kobathe-bond-slip-residual-ratio must be in [0, 1].");
+    }
+    if (kobathe_crack_eta_n_override >= 0.0 &&
+        !(kobathe_crack_eta_n_override <= 1.0)) {
+        throw std::invalid_argument("--kobathe-crack-eta-n must be in [0, 1].");
+    }
+    if (kobathe_crack_eta_s_override >= 0.0 &&
+        !(kobathe_crack_eta_s_override <= 1.0)) {
+        throw std::invalid_argument("--kobathe-crack-eta-s must be in [0, 1].");
+    }
+    if (kobathe_crack_closure_transition_strain_override >= 0.0 &&
+        !std::isfinite(kobathe_crack_closure_transition_strain_override)) {
+        throw std::invalid_argument(
+            "--kobathe-crack-closure-transition-strain must be finite.");
     }
     if (!(kobathe_adaptive_growth_factor >= 1.0)) {
         throw std::invalid_argument(
@@ -2194,6 +2247,15 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--fe2-one-way-micro-cutback-min-dt must be positive.");
     }
+    if (fe2_two_way_convergence_cutback_factor <= 0.0 ||
+        fe2_two_way_convergence_cutback_factor >= 1.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-convergence-cutback-factor must be in (0,1).");
+    }
+    if (!(fe2_two_way_convergence_cutback_min_dt > 0.0)) {
+        throw std::invalid_argument(
+            "--fe2-two-way-convergence-cutback-min-dt must be positive.");
+    }
     if (fe2_local_solve_wall_budget_seconds < 0.0) {
         throw std::invalid_argument(
             "--fe2-local-solve-wall-budget-seconds must be non-negative.");
@@ -2229,6 +2291,16 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument(
             "--local-family must be managed-xfem, continuum-kobathe-hex20, "
             "or continuum-kobathe-hex27.");
+    }
+    if (!fe2_one_way_only &&
+        local_family == "managed-xfem" &&
+        xfem_local_site_mode != XfemLocalSiteMode::WholeElement)
+    {
+        throw std::invalid_argument(
+            "FE2 two-way with managed XFEM requires "
+            "--xfem-local-site-mode whole_element. Independent probes are "
+            "one-way diagnostics unless an explicit macro-element response "
+            "aggregator is implemented.");
     }
     if (ts_type != "alpha2" && !linear_newmark_audit_only) {
         throw std::invalid_argument(
@@ -2290,6 +2362,9 @@ int main(int argc, char* argv[]) {
              "--fe2-one-way-micro-cutback-attempts",
              "--fe2-one-way-micro-cutback-factor",
              "--fe2-one-way-micro-cutback-min-dt",
+             "--fe2-two-way-convergence-cutback-attempts",
+             "--fe2-two-way-convergence-cutback-factor",
+             "--fe2-two-way-convergence-cutback-min-dt",
              "--fe2-local-solve-wall-budget-seconds",
              "--fe2-local-solve-budget-cutback-factor",
              "--fe2-stop-on-local-solve-budget",
@@ -2360,6 +2435,13 @@ int main(int argc, char* argv[]) {
              "--kobathe-no-bond-slip",
              "--kobathe-bond-slip-reference",
              "--kobathe-bond-slip-residual-ratio",
+             "--kobathe-bond-slip-adaptive-reference-max-factor",
+             "--kobathe-bond-slip-adaptive-residual-ratio-floor",
+             "--kobathe-crack-eta-n",
+             "--kobathe-crack-eta-s",
+             "--kobathe-crack-closure-transition-strain",
+             "--kobathe-crack-smooth-closure",
+             "--kobathe-crack-abrupt-closure",
              "--kobathe-adaptive-initial-fraction",
              "--kobathe-adaptive-growth-factor",
              "--kobathe-adaptive-easy-iters",
@@ -3957,6 +4039,26 @@ int main(int argc, char* argv[]) {
       const std::string continuum_dir = OUT + "continuum_kobathe_sites";
       std::filesystem::create_directories(continuum_dir);
 
+      auto make_kobathe_crack_stabilization = [&]() {
+        KoBathe3DCrackStabilization stabilization =
+            KoBathe3DCrackStabilization::stabilized_default();
+        if (kobathe_crack_eta_n_override >= 0.0) {
+          stabilization.eta_N = kobathe_crack_eta_n_override;
+        }
+        if (kobathe_crack_eta_s_override >= 0.0) {
+          stabilization.eta_S = kobathe_crack_eta_s_override;
+        }
+        if (kobathe_crack_closure_transition_strain_override >= 0.0) {
+          stabilization.closure_transition_strain =
+              kobathe_crack_closure_transition_strain_override;
+        }
+        if (kobathe_crack_smooth_closure_override >= 0) {
+          stabilization.smooth_closure =
+              kobathe_crack_smooth_closure_override != 0;
+        }
+        return stabilization;
+      };
+
       continuum_coordinators.reserve(continuum_site_plans.size());
       for (const auto &plan : continuum_site_plans) {
         const int range = plan.range;
@@ -3993,6 +4095,19 @@ int main(int argc, char* argv[]) {
                      continuum_kinematics_label(kobathe_kinematics));
 
         for (auto &sub : coordinator.sub_models()) {
+          auto make_kobathe_concrete_factory_for_sub = [&]() {
+            return std::make_unique<KoBatheConcreteMaterialFactory>(
+                COL_FPC[range],
+                NonlinearSubModelEvolver::default_local_length_scale_mm(sub),
+                0.06,
+                0.0,
+                make_kobathe_crack_stabilization(),
+                false);
+          };
+          auto make_kobathe_rebar_factory = [&]() {
+            return make_default_submodel_rebar_factory(
+                STEEL_E, STEEL_FY, STEEL_B);
+          };
           auto configure_and_store_evolver = [&](auto ev) {
             ev.set_vtk_output_profile(local_vtk_profile);
             ev.set_vtk_gauss_field_profile(local_vtk_gauss_field_profile);
@@ -4007,7 +4122,9 @@ int main(int argc, char* argv[]) {
             ev.set_penalty_bond_slip_regularization(
                 kobathe_bond_slip_regularization,
                 kobathe_bond_slip_reference,
-                kobathe_bond_slip_residual_ratio);
+                kobathe_bond_slip_residual_ratio,
+                kobathe_bond_slip_adaptive_reference_max_factor,
+                kobathe_bond_slip_adaptive_residual_ratio_floor);
             ev.set_snes_params(kobathe_snes_max_it, kobathe_snes_atol,
                                kobathe_snes_rtol);
             ev.set_arc_length_threshold(kobathe_arc_length_threshold);
@@ -4044,22 +4161,29 @@ int main(int argc, char* argv[]) {
           switch (kobathe_kinematics) {
             case SeismicFE2ContinuumKinematics::small_strain:
               configure_and_store_evolver(NonlinearSubModelEvolver{
-                  sub, COL_FPC[range], continuum_dir, 0});
+                  sub, COL_FPC[range], make_kobathe_concrete_factory_for_sub(),
+                  make_kobathe_rebar_factory(), continuum_dir, 0});
               break;
             case SeismicFE2ContinuumKinematics::total_lagrangian:
               configure_and_store_evolver(
                   TotalLagrangianNonlinearSubModelEvolver{
-                      sub, COL_FPC[range], continuum_dir, 0});
+                      sub, COL_FPC[range],
+                      make_kobathe_concrete_factory_for_sub(),
+                      make_kobathe_rebar_factory(), continuum_dir, 0});
               break;
             case SeismicFE2ContinuumKinematics::updated_lagrangian:
               configure_and_store_evolver(
                   UpdatedLagrangianNonlinearSubModelEvolver{
-                      sub, COL_FPC[range], continuum_dir, 0});
+                      sub, COL_FPC[range],
+                      make_kobathe_concrete_factory_for_sub(),
+                      make_kobathe_rebar_factory(), continuum_dir, 0});
               break;
             case SeismicFE2ContinuumKinematics::corotational:
               configure_and_store_evolver(
                   CorotationalNonlinearSubModelEvolver{
-                      sub, COL_FPC[range], continuum_dir, 0});
+                      sub, COL_FPC[range],
+                      make_kobathe_concrete_factory_for_sub(),
+                      make_kobathe_rebar_factory(), continuum_dir, 0});
               break;
           }
         }
@@ -4191,10 +4315,35 @@ int main(int argc, char* argv[]) {
         std::println("  Ko-Bathe kinematics: {}",
                      continuum_kinematics_label(kobathe_kinematics));
         std::println("  Ko-Bathe bond-slip : enabled={}, s_ref={:.3e} m, "
-                     "residual_ratio={:.2f}",
+                     "residual_ratio={:.2f}, adaptive_ref_max={:.2f}, "
+                     "adaptive_residual_floor={:.2f}",
                      kobathe_bond_slip_regularization ? "on" : "off",
                      kobathe_bond_slip_reference,
-                     kobathe_bond_slip_residual_ratio);
+                     kobathe_bond_slip_residual_ratio,
+                     kobathe_bond_slip_adaptive_reference_max_factor,
+                     kobathe_bond_slip_adaptive_residual_ratio_floor);
+        KoBathe3DCrackStabilization crack_stab =
+            KoBathe3DCrackStabilization::stabilized_default();
+        if (kobathe_crack_eta_n_override >= 0.0) {
+            crack_stab.eta_N = kobathe_crack_eta_n_override;
+        }
+        if (kobathe_crack_eta_s_override >= 0.0) {
+            crack_stab.eta_S = kobathe_crack_eta_s_override;
+        }
+        if (kobathe_crack_closure_transition_strain_override >= 0.0) {
+            crack_stab.closure_transition_strain =
+                kobathe_crack_closure_transition_strain_override;
+        }
+        if (kobathe_crack_smooth_closure_override >= 0) {
+            crack_stab.smooth_closure =
+                kobathe_crack_smooth_closure_override != 0;
+        }
+        std::println("  Ko-Bathe crack stab: eta_N={:.3f}, eta_S={:.3f}, "
+                     "closure_transition={:.3e}, smooth={}",
+                     crack_stab.eta_N,
+                     crack_stab.eta_S,
+                     crack_stab.closure_transition_strain,
+                     crack_stab.smooth_closure ? "on" : "off");
         std::println("  Ko-Bathe adaptive : arc_length={}, subsequent={}, "
                      "skip_full_step={}, initial_frac={:.3f}, "
                      "growth={:.2f}, threshold={}, "
@@ -4305,6 +4454,10 @@ int main(int argc, char* argv[]) {
                  fe2_one_way_micro_cutback_attempts,
                  fe2_one_way_micro_cutback_factor,
                  fe2_one_way_micro_cutback_min_dt);
+    std::println("  Two-way conv retry : cutback={}@{:.2f}, min_dt={:.3e} s",
+                 fe2_two_way_convergence_cutback_attempts,
+                 fe2_two_way_convergence_cutback_factor,
+                 fe2_two_way_convergence_cutback_min_dt);
     std::println("  Local solve budget : {}{}",
                  fe2_local_solve_wall_budget_seconds > 0.0
                      ? std::format("{:.1f} s, cutback@{:.2f}",
@@ -4896,12 +5049,65 @@ int main(int argc, char* argv[]) {
             break;
         }
 
-        // Advance one global step
-        if (!analysis.step()) {
+        bool multiscale_step_accepted = false;
+        int two_way_cutbacks_this_step = 0;
+        for (;;) {
+            if (analysis.step()) {
+                multiscale_step_accepted = true;
+                break;
+            }
+
             const auto& report = analysis.last_report();
             const double audit_time = report.attempted_state_valid
                 ? report.attempted_macro_time
                 : solver.current_time();
+            const bool retry_two_way_convergence =
+                !fe2_one_way_only &&
+                report.termination_reason ==
+                    fall_n::CouplingTerminationReason::MaxIterationsReached &&
+                report.failed_submodels == 0 &&
+                two_way_cutbacks_this_step <
+                    fe2_two_way_convergence_cutback_attempts;
+
+            if (retry_two_way_convergence) {
+                const double current_dt = solver.get_time_step();
+                const double reduced_dt = std::max(
+                    fe2_two_way_convergence_cutback_min_dt,
+                    current_dt * fe2_two_way_convergence_cutback_factor);
+                write_coupling_audit_row(
+                    audit_time,
+                    evol_step + 1,
+                    "two_way_cutback_retry",
+                    false);
+                write_site_audit_rows(
+                    audit_time,
+                    evol_step + 1,
+                    "two_way_cutback_retry");
+                write_iteration_site_audit_rows(
+                    audit_time,
+                    evol_step + 1,
+                    "two_way_cutback_retry");
+                if (reduced_dt < current_dt * (1.0 - 1.0e-12)) {
+                    ++two_way_cutbacks_this_step;
+                    solver.set_time_step(reduced_dt);
+                    fe2_phase2_dt_easy_counter = 0;
+                    std::println(
+                        "      [dt] two-way convergence cutback {}/{}: "
+                        "reason={}, iter={}, force_res={:.3e}, "
+                        "tangent_res={:.3e}; dt {:.6e} -> {:.6e} s",
+                        two_way_cutbacks_this_step,
+                        fe2_two_way_convergence_cutback_attempts,
+                        to_string(report.termination_reason),
+                        report.iterations,
+                        report.max_force_residual_rel,
+                        report.max_tangent_residual_rel,
+                        current_dt,
+                        reduced_dt);
+                    std::cout << std::flush;
+                    continue;
+                }
+            }
+
             write_coupling_audit_row(
                 audit_time, evol_step + 1, "failed_step", false);
             write_site_audit_rows(
@@ -4918,6 +5124,10 @@ int main(int argc, char* argv[]) {
                          report.max_force_residual_rel,
                          report.max_tangent_residual_rel);
             coupling_failed = true;
+            break;
+        }
+
+        if (!multiscale_step_accepted) {
             break;
         }
 

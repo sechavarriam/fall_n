@@ -1916,6 +1916,21 @@ make_concrete_profile_details(
             break;
     }
 
+    if (spec.kobathe_crack_eta_n_override >= 0.0) {
+        crack_stabilization.eta_N = spec.kobathe_crack_eta_n_override;
+    }
+    if (spec.kobathe_crack_eta_s_override >= 0.0) {
+        crack_stabilization.eta_S = spec.kobathe_crack_eta_s_override;
+    }
+    if (spec.kobathe_crack_closure_transition_strain_override >= 0.0) {
+        crack_stabilization.closure_transition_strain =
+            spec.kobathe_crack_closure_transition_strain_override;
+    }
+    if (spec.kobathe_crack_smooth_closure_override >= 0) {
+        crack_stabilization.smooth_closure =
+            spec.kobathe_crack_smooth_closure_override != 0;
+    }
+
     const KoBatheParameters params{
         spec.reference_spec.concrete_fpc_mpa,
         requested_tp_ratio,
@@ -2850,6 +2865,31 @@ run_reduced_rc_column_continuum_case_result_impl(
             spec.penalty_alpha_scale_over_ec * ec_mpa,
             false,
             spec.hex_order);
+        PenaltyCouplingLaw bond_law;
+        bond_law.bond_slip_regularization = spec.bond_slip_regularization;
+        bond_law.slip_reference_m =
+            std::max(std::abs(spec.bond_slip_reference_m), 1.0e-12);
+        bond_law.residual_stiffness_ratio = std::clamp(
+            spec.bond_slip_residual_stiffness_ratio, 0.0, 1.0);
+        bond_law.adaptive_slip_regularization =
+            spec.bond_slip_adaptive_reference_max_factor > 1.0 ||
+            spec.bond_slip_adaptive_residual_stiffness_ratio_floor >= 0.0;
+        bond_law.adaptive_slip_reference_max_factor =
+            std::max(1.0, spec.bond_slip_adaptive_reference_max_factor);
+        bond_law.adaptive_residual_stiffness_ratio_floor =
+            spec.bond_slip_adaptive_residual_stiffness_ratio_floor;
+        coupling.set_law(bond_law);
+        if (bond_law.bond_slip_regularization) {
+            std::println(
+                "  Longitudinal bond-slip: s_ref = {:.3e} m, "
+                "αr/α0 = {:.2f}, adaptive={}, s_ref_max/s_ref = {:.2f}, "
+                "αr_floor/α0 = {:.2f}",
+                bond_law.slip_reference_m,
+                bond_law.residual_stiffness_ratio,
+                bond_law.adaptive_slip_regularization ? "on" : "off",
+                bond_law.adaptive_slip_reference_max_factor,
+                bond_law.adaptive_residual_stiffness_ratio_floor);
+        }
     }
     if (has_embedded_transverse_rebars) {
         transverse_coupling.setup_embedded_nodes(

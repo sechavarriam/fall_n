@@ -372,9 +372,18 @@ struct ReducedRCColumnContinuumRunSpec {
                 opening_exponential};
     double concrete_crack_band_closure_shear_gain{1.0};
     double concrete_crack_band_open_compression_transfer_ratio{0.05};
+    double kobathe_crack_eta_n_override{-1.0};
+    double kobathe_crack_eta_s_override{-1.0};
+    double kobathe_crack_closure_transition_strain_override{-1.0};
+    int kobathe_crack_smooth_closure_override{-1};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     double penalty_alpha_scale_over_ec{1.0e4};
+    bool bond_slip_regularization{false};
+    double bond_slip_reference_m{5.0e-4};
+    double bond_slip_residual_stiffness_ratio{0.2};
+    double bond_slip_adaptive_reference_max_factor{1.0};
+    double bond_slip_adaptive_residual_stiffness_ratio_floor{-1.0};
     double top_cap_penalty_alpha_scale_over_ec{1.0e4};
     double top_cap_bending_rotation_drift_ratio{0.0};
     double axial_compression_force_mn{0.0};
