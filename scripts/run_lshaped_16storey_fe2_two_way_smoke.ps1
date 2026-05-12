@@ -50,7 +50,6 @@ $args = @(
     "--duration", (Format-Real $Duration),
     "--output-root", $out,
     "--fe2-max-sites", "$Fe2MaxSites",
-    "--fe2-steps-after-activation", "$Fe2StepsAfterActivation",
     "--fe2-phase2-dt", (Format-Real $Fe2Phase2Dt),
     "--fe2-max-staggered", "$Fe2MaxStaggered",
     "--fe2-tol", (Format-Real $Fe2Tolerance),
@@ -74,6 +73,11 @@ $args = @(
     "--local-vtk-global-placement",
     "--python-exe", $PythonExe
 )
+
+if ($Fe2StepsAfterActivation -ge 0) {
+    $args += "--fe2-steps-after-activation"
+    $args += "$Fe2StepsAfterActivation"
+}
 
 if ($SkipPostprocess) {
     $args += "--skip-postprocess"
