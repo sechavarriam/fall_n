@@ -6,6 +6,7 @@ param(
     [int]$Fe2MaxSites = 1,
     [int]$Fe2StepsAfterActivation = 1,
     [double]$Fe2Phase2Dt = 0.005,
+    [string]$PythonExe = "py -3.12",
     [int]$Fe2MaxStaggered = 12,
     [double]$Fe2Tolerance = 0.05,
     [double]$Fe2Relaxation = 0.35,
@@ -70,7 +71,8 @@ $args = @(
     "--local-vtk-crack-filter-mode", "both",
     "--local-vtk-gauss-fields", "minimal",
     "--local-vtk-placement-frame", "both",
-    "--local-vtk-global-placement"
+    "--local-vtk-global-placement",
+    "--python-exe", $PythonExe
 )
 
 if ($SkipPostprocess) {
@@ -111,6 +113,7 @@ $manifest = @{
     fe2_max_staggered = $Fe2MaxStaggered
     fe2_tolerance = $Fe2Tolerance
     fe2_relaxation = $Fe2Relaxation
+    python_exe = $PythonExe
     fe2_macro_cutback_attempts = $Fe2MacroCutbackAttempts
     fe2_two_way_convergence_cutback_attempts = $Fe2TwoWayConvergenceCutbackAttempts
     fe2_two_way_convergence_cutback_factor = $Fe2TwoWayConvergenceCutbackFactor
