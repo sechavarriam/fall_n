@@ -18,6 +18,15 @@
 
 #include <Eigen/Dense>
 
+#include <vtkCellData.h>
+#include <vtkDoubleArray.h>
+#include <vtkIntArray.h>
+#include <vtkNew.h>
+#include <vtkPointData.h>
+#include <vtkPoints.h>
+#include <vtkUnstructuredGrid.h>
+#include <vtkCellType.h>
+
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -1418,11 +1427,32 @@ template <typename ModelT>
     return record;
 }
 
+template <typename ModelT, typename GeometryT>
+[[nodiscard]] Eigen::Vector3d interpolate_element_displacement(
+    const ModelT& model,
+    const GeometryT& geom,
+    std::span<const double> xi)
+{
+    Eigen::Vector3d displacement = Eigen::Vector3d::Zero();
+    for (std::size_t node = 0; node < geom.num_nodes(); ++node) {
+        const auto node_id = static_cast<std::size_t>(geom.node(node));
+        const double N = geom.H(node, xi);
+        for (std::size_t d = 0; d < 3; ++d) {
+            displacement[static_cast<Eigen::Index>(d)] +=
+                N * query::nodal_dof_value(
+                        model, model.state_vector(), node_id, d);
+        }
+    }
+    return displacement;
+}
+
 template <typename ModelT>
 void write_crack_planes_snapshot(
     const std::string& filename,
     const ModelT& model,
     const PrismaticGrid& grid,
+    double visible_crack_opening_threshold,
+    bool visible_only = false,
     double min_abs_crack_opening = 1.0e-12)
 {
     const double half =
@@ -1431,23 +1461,73 @@ void write_crack_planes_snapshot(
     vtkNew<vtkPoints> pts;
     vtkNew<vtkUnstructuredGrid> crack_grid;
 
+    vtkNew<vtkDoubleArray> displacement_arr;
+    displacement_arr->SetName("displacement");
+    displacement_arr->SetNumberOfComponents(3);
+
     vtkNew<vtkDoubleArray> opening_arr;
     opening_arr->SetName("crack_opening");
     opening_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> opening_max_arr;
+    opening_max_arr->SetName("crack_opening_max");
+    opening_max_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkIntArray> visible_arr;
+    visible_arr->SetName("crack_visible");
+    visible_arr->SetNumberOfComponents(1);
 
     vtkNew<vtkDoubleArray> normal_arr;
     normal_arr->SetName("crack_normal");
     normal_arr->SetNumberOfComponents(3);
 
+    vtkNew<vtkDoubleArray> opening_vector_arr;
+    opening_vector_arr->SetName("crack_opening_vector");
+    opening_vector_arr->SetNumberOfComponents(3);
+
     vtkNew<vtkDoubleArray> state_arr;
     state_arr->SetName("crack_state");
     state_arr->SetNumberOfComponents(1);
 
-    for (const auto& element : model.elements()) {
-        for (const auto& gp : element.gauss_point_snapshots(model.state_vector())) {
+    vtkNew<vtkIntArray> crack_family_arr;
+    crack_family_arr->SetName("crack_family_id");
+    crack_family_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkIntArray> element_arr;
+    element_arr->SetName("element_id");
+    element_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkIntArray> gauss_arr;
+    gauss_arr->SetName("gauss_id");
+    gauss_arr->SetNumberOfComponents(1);
+
+    const auto host_element_count = std::min(
+        model.elements().size(),
+        static_cast<std::size_t>(grid.nx * grid.ny * grid.nz));
+    const auto& domain = model.get_domain();
+    for (std::size_t element_index = 0;
+         element_index < host_element_count;
+         ++element_index) {
+        const auto& element = model.elements().at(element_index);
+        const auto snapshots =
+            element.gauss_point_snapshots(model.state_vector());
+        const auto& geom = domain.element(element_index);
+        for (std::size_t gp_index = 0; gp_index < snapshots.size(); ++gp_index) {
+            const auto& gp = snapshots[gp_index];
+            const auto xi = geom.reference_integration_point(gp_index);
+            const auto displacement =
+                interpolate_element_displacement(model, geom, xi);
             for (int crack = 0; crack < std::min(gp.num_cracks, 3); ++crack) {
                 const double opening = gp.crack_openings[crack];
-                if (std::abs(opening) < min_abs_crack_opening) {
+                const double opening_max = gp.crack_opening_max[crack];
+                const bool crack_visible =
+                    std::max(std::abs(opening), std::abs(opening_max)) >=
+                    visible_crack_opening_threshold;
+                if (visible_only && !crack_visible) {
+                    continue;
+                }
+                if (!visible_only && std::abs(opening) < min_abs_crack_opening &&
+                    std::abs(opening_max) < min_abs_crack_opening) {
                     continue;
                 }
 
@@ -1479,23 +1559,316 @@ void write_crack_planes_snapshot(
                         corners[corner].x(),
                         corners[corner].y(),
                         corners[corner].z());
+                    displacement_arr->InsertNextTuple3(
+                        displacement.x(),
+                        displacement.y(),
+                        displacement.z());
                 }
 
                 crack_grid->InsertNextCell(VTK_QUAD, 4, ids);
                 opening_arr->InsertNextValue(opening);
+                opening_max_arr->InsertNextValue(opening_max);
+                visible_arr->InsertNextValue(crack_visible ? 1 : 0);
                 normal_arr->InsertNextTuple3(normal.x(), normal.y(), normal.z());
+                const Eigen::Vector3d opening_vector = opening * normal;
+                opening_vector_arr->InsertNextTuple3(
+                    opening_vector.x(),
+                    opening_vector.y(),
+                    opening_vector.z());
                 state_arr->InsertNextValue(gp.crack_closed[crack] ? 0.0 : 1.0);
+                crack_family_arr->InsertNextValue(crack + 1);
+                element_arr->InsertNextValue(static_cast<int>(element_index));
+                gauss_arr->InsertNextValue(static_cast<int>(gp_index));
             }
         }
     }
 
     crack_grid->SetPoints(pts);
-    if (opening_arr->GetNumberOfTuples() > 0) {
-        crack_grid->GetCellData()->AddArray(opening_arr);
-        crack_grid->GetCellData()->AddArray(normal_arr);
-        crack_grid->GetCellData()->AddArray(state_arr);
-    }
+    crack_grid->GetPointData()->AddArray(displacement_arr);
+    crack_grid->GetPointData()->SetActiveVectors("displacement");
+    crack_grid->GetCellData()->AddArray(opening_arr);
+    crack_grid->GetCellData()->AddArray(opening_max_arr);
+    crack_grid->GetCellData()->AddArray(visible_arr);
+    crack_grid->GetCellData()->AddArray(normal_arr);
+    crack_grid->GetCellData()->AddArray(opening_vector_arr);
+    crack_grid->GetCellData()->AddArray(state_arr);
+    crack_grid->GetCellData()->AddArray(crack_family_arr);
+    crack_grid->GetCellData()->AddArray(element_arr);
+    crack_grid->GetCellData()->AddArray(gauss_arr);
     fall_n::vtk::write_vtu(crack_grid, filename);
+}
+
+template <typename ModelT>
+void write_rebar_tubes_snapshot(
+    const std::string& filename,
+    const ModelT& model,
+    const ReinforcedDomainResult& reinforced,
+    const RebarSpec& rebar,
+    double steel_yield_mpa,
+    int tube_sides = 10)
+{
+    vtkNew<vtkPoints> pts;
+    vtkNew<vtkUnstructuredGrid> tube_grid;
+
+    vtkNew<vtkDoubleArray> displacement_arr;
+    displacement_arr->SetName("displacement");
+    displacement_arr->SetNumberOfComponents(3);
+
+    vtkNew<vtkDoubleArray> tube_radius_arr;
+    tube_radius_arr->SetName("TubeRadius");
+    tube_radius_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkIntArray> bar_id_arr;
+    bar_id_arr->SetName("bar_id");
+    bar_id_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkIntArray> bar_element_arr;
+    bar_element_arr->SetName("bar_element_id");
+    bar_element_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> bar_area_arr;
+    bar_area_arr->SetName("bar_area");
+    bar_area_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> axial_strain_arr;
+    axial_strain_arr->SetName("axial_strain");
+    axial_strain_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> axial_stress_arr;
+    axial_stress_arr->SetName("axial_stress");
+    axial_stress_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> yield_ratio_arr;
+    yield_ratio_arr->SetName("yield_ratio");
+    yield_ratio_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> slip_arr;
+    slip_arr->SetName("slip");
+    slip_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> bond_slip_arr;
+    bond_slip_arr->SetName("bond_slip");
+    bond_slip_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> bond_slip_axial_arr;
+    bond_slip_axial_arr->SetName("bond_slip_axial");
+    bond_slip_axial_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> bond_slip_transverse_arr;
+    bond_slip_transverse_arr->SetName("bond_slip_transverse");
+    bond_slip_transverse_arr->SetNumberOfComponents(1);
+
+    vtkNew<vtkDoubleArray> bond_slip_vector_arr;
+    bond_slip_vector_arr->SetName("bond_slip_vector");
+    bond_slip_vector_arr->SetNumberOfComponents(3);
+
+    if (rebar.bars.empty() ||
+        reinforced.rebar_range.first == reinforced.rebar_range.last) {
+        tube_grid->SetPoints(pts);
+        tube_grid->GetPointData()->AddArray(displacement_arr);
+        tube_grid->GetPointData()->SetActiveVectors("displacement");
+        tube_grid->GetCellData()->AddArray(tube_radius_arr);
+        tube_grid->GetCellData()->AddArray(bar_id_arr);
+        tube_grid->GetCellData()->AddArray(bar_area_arr);
+        tube_grid->GetCellData()->AddArray(axial_strain_arr);
+        tube_grid->GetCellData()->AddArray(axial_stress_arr);
+        tube_grid->GetCellData()->AddArray(yield_ratio_arr);
+        tube_grid->GetCellData()->AddArray(slip_arr);
+        fall_n::vtk::write_vtu(tube_grid, filename);
+        return;
+    }
+
+    const auto& domain = model.get_domain();
+    const auto& elements = model.elements();
+    const auto layer_count = static_cast<std::size_t>(reinforced.grid.nz);
+    const auto rebar_nodes_per_bar =
+        static_cast<std::size_t>(reinforced.grid.step * reinforced.grid.nz + 1);
+    tube_sides = std::max(tube_sides, 6);
+
+    const auto insert_cell_data =
+        [&](int bar_id,
+            int element_id,
+            double radius,
+            double area,
+            double axial_strain,
+            double axial_stress,
+            const Eigen::Vector3d& segment_axis,
+            const Eigen::Vector3d& slip_vector) {
+            tube_radius_arr->InsertNextValue(radius);
+            bar_id_arr->InsertNextValue(bar_id);
+            bar_element_arr->InsertNextValue(element_id);
+            bar_area_arr->InsertNextValue(area);
+            axial_strain_arr->InsertNextValue(axial_strain);
+            axial_stress_arr->InsertNextValue(axial_stress);
+            yield_ratio_arr->InsertNextValue(
+                steel_yield_mpa > 0.0
+                    ? std::abs(axial_stress) / steel_yield_mpa
+                    : 0.0);
+            const double axial_slip = segment_axis.dot(slip_vector);
+            const double transverse_slip =
+                (slip_vector - axial_slip * segment_axis).norm();
+            slip_arr->InsertNextValue(slip_vector.norm());
+            bond_slip_arr->InsertNextValue(slip_vector.norm());
+            bond_slip_axial_arr->InsertNextValue(axial_slip);
+            bond_slip_transverse_arr->InsertNextValue(transverse_slip);
+            bond_slip_vector_arr->InsertNextTuple3(
+                slip_vector.x(),
+                slip_vector.y(),
+                slip_vector.z());
+        };
+
+    for (std::size_t element_index = reinforced.rebar_range.first;
+         element_index < reinforced.rebar_range.last;
+         ++element_index) {
+        const auto rebar_slot = element_index - reinforced.rebar_range.first;
+        const auto bar_index =
+            layer_count > 0 ? rebar_slot / layer_count : std::size_t{0};
+        const auto bar_element_layer =
+            layer_count > 0 ? rebar_slot % layer_count : std::size_t{0};
+        if (bar_index >= rebar.bars.size()) {
+            continue;
+        }
+
+        const auto& bar = rebar.bars.at(bar_index);
+        const auto& geom = domain.element(element_index);
+        const auto& fem = elements.at(element_index);
+        const auto fields = fem.collect_gauss_fields(model.state_vector());
+
+        double axial_strain = 0.0;
+        double axial_stress = 0.0;
+        for (const auto& field : fields) {
+            axial_strain += !field.strain.empty() ? field.strain.front() : 0.0;
+            axial_stress += !field.stress.empty() ? field.stress.front() : 0.0;
+        }
+        if (!fields.empty()) {
+            axial_strain /= static_cast<double>(fields.size());
+            axial_stress /= static_cast<double>(fields.size());
+        }
+
+        const auto first_embedding_index = bar_index * rebar_nodes_per_bar;
+        std::vector<Eigen::Vector3d> positions;
+        std::vector<Eigen::Vector3d> displacements;
+        std::vector<Eigen::Vector3d> slip_vectors;
+        positions.reserve(geom.num_nodes());
+        displacements.reserve(geom.num_nodes());
+        slip_vectors.reserve(geom.num_nodes());
+
+        for (std::size_t node = 0; node < geom.num_nodes(); ++node) {
+            const auto rebar_node_id = static_cast<std::size_t>(geom.node(node));
+            const auto& vertex = domain.vertex(rebar_node_id);
+            positions.push_back(
+                Eigen::Vector3d{vertex.coord(0), vertex.coord(1), vertex.coord(2)});
+            const auto u_rebar =
+                query_rebar_node_displacement(model, rebar_node_id);
+            displacements.push_back(u_rebar);
+
+            std::size_t rebar_node_layer = 0;
+            if (reinforced.rebar_line_num_nodes == 3) {
+                rebar_node_layer = 2 * bar_element_layer + node;
+            } else {
+                rebar_node_layer =
+                    static_cast<std::size_t>(reinforced.grid.step) *
+                        bar_element_layer +
+                    node * static_cast<std::size_t>(reinforced.grid.step);
+            }
+            Eigen::Vector3d slip_vector = Eigen::Vector3d::Zero();
+            if (rebar_node_layer < rebar_nodes_per_bar &&
+                first_embedding_index + rebar_node_layer <
+                    reinforced.embeddings.size()) {
+                const auto& emb =
+                    reinforced.embeddings.at(first_embedding_index + rebar_node_layer);
+                const auto u_host =
+                    interpolate_host_displacement_at_embedding_node(
+                        model, reinforced, emb);
+                slip_vector = u_rebar - u_host;
+            }
+            slip_vectors.push_back(slip_vector);
+        }
+
+        const double radius =
+            std::max(0.5 * bar.diameter, 1.0e-5);
+        for (std::size_t segment = 0; segment + 1 < positions.size(); ++segment) {
+            const Eigen::Vector3d p0 = positions[segment];
+            const Eigen::Vector3d p1 = positions[segment + 1];
+            Eigen::Vector3d axis = p1 - p0;
+            const double length = axis.norm();
+            if (length <= 1.0e-14) {
+                continue;
+            }
+            axis /= length;
+
+            Eigen::Vector3d n1 =
+                std::abs(axis.x()) < 0.9
+                    ? axis.cross(Eigen::Vector3d::UnitX()).normalized()
+                    : axis.cross(Eigen::Vector3d::UnitY()).normalized();
+            const Eigen::Vector3d n2 = axis.cross(n1).normalized();
+
+            std::vector<vtkIdType> ring0;
+            std::vector<vtkIdType> ring1;
+            ring0.reserve(static_cast<std::size_t>(tube_sides));
+            ring1.reserve(static_cast<std::size_t>(tube_sides));
+            for (int side = 0; side < tube_sides; ++side) {
+                const double theta =
+                    2.0 * std::numbers::pi *
+                    static_cast<double>(side) /
+                    static_cast<double>(tube_sides);
+                const Eigen::Vector3d offset =
+                    radius * (std::cos(theta) * n1 + std::sin(theta) * n2);
+                const Eigen::Vector3d q0 = p0 + offset;
+                const Eigen::Vector3d q1 = p1 + offset;
+                ring0.push_back(
+                    pts->InsertNextPoint(q0.x(), q0.y(), q0.z()));
+                displacement_arr->InsertNextTuple3(
+                    displacements[segment].x(),
+                    displacements[segment].y(),
+                    displacements[segment].z());
+                ring1.push_back(
+                    pts->InsertNextPoint(q1.x(), q1.y(), q1.z()));
+                displacement_arr->InsertNextTuple3(
+                    displacements[segment + 1].x(),
+                    displacements[segment + 1].y(),
+                    displacements[segment + 1].z());
+            }
+
+            const Eigen::Vector3d slip_vector =
+                0.5 * (slip_vectors[segment] + slip_vectors[segment + 1]);
+            for (int side = 0; side < tube_sides; ++side) {
+                const int next = (side + 1) % tube_sides;
+                vtkIdType ids[4] = {
+                    ring0[static_cast<std::size_t>(side)],
+                    ring1[static_cast<std::size_t>(side)],
+                    ring1[static_cast<std::size_t>(next)],
+                    ring0[static_cast<std::size_t>(next)]};
+                tube_grid->InsertNextCell(VTK_QUAD, 4, ids);
+                insert_cell_data(
+                    static_cast<int>(bar_index),
+                    static_cast<int>(element_index),
+                    radius,
+                    bar.area,
+                    axial_strain,
+                    axial_stress,
+                    axis,
+                    slip_vector);
+            }
+        }
+    }
+
+    tube_grid->SetPoints(pts);
+    tube_grid->GetPointData()->AddArray(displacement_arr);
+    tube_grid->GetPointData()->SetActiveVectors("displacement");
+    tube_grid->GetCellData()->AddArray(tube_radius_arr);
+    tube_grid->GetCellData()->AddArray(bar_id_arr);
+    tube_grid->GetCellData()->AddArray(bar_element_arr);
+    tube_grid->GetCellData()->AddArray(bar_area_arr);
+    tube_grid->GetCellData()->AddArray(axial_strain_arr);
+    tube_grid->GetCellData()->AddArray(axial_stress_arr);
+    tube_grid->GetCellData()->AddArray(yield_ratio_arr);
+    tube_grid->GetCellData()->AddArray(slip_arr);
+    tube_grid->GetCellData()->AddArray(bond_slip_arr);
+    tube_grid->GetCellData()->AddArray(bond_slip_axial_arr);
+    tube_grid->GetCellData()->AddArray(bond_slip_transverse_arr);
+    tube_grid->GetCellData()->AddArray(bond_slip_vector_arr);
+    fall_n::vtk::write_vtu(tube_grid, filename);
 }
 
 void write_hysteresis_csv(
@@ -2663,6 +3036,9 @@ run_reduced_rc_column_continuum_case_result_impl(
 
     std::vector<FEM_Element> elements;
     elements.reserve(domain.num_elements());
+    const bool use_green_lagrange_rebar =
+        spec.kinematic_policy_kind !=
+        ReducedRCColumnContinuumKinematicPolicyKind::small_strain;
 
     for (std::size_t element_index = 0;
          element_index < reinforced.rebar_range.first;
@@ -2698,19 +3074,21 @@ run_reduced_rc_column_continuum_case_result_impl(
             (element_index - reinforced.rebar_range.first) /
             static_cast<std::size_t>(grid.nz);
         if (reinforced.rebar_line_num_nodes == 3) {
-            elements.emplace_back(
-                TrussElement<3, 3>{
-                    &domain.element(element_index),
-                    rebar_material,
-                    rebar.bars.at(bar_index).area});
+            TrussElement<3, 3> truss{
+                &domain.element(element_index),
+                rebar_material,
+                rebar.bars.at(bar_index).area};
+            truss.set_green_lagrange_strain(use_green_lagrange_rebar);
+            elements.emplace_back(std::move(truss));
             continue;
         }
 
-        elements.emplace_back(
-            TrussElement<3, 2>{
-                &domain.element(element_index),
-                rebar_material,
-                rebar.bars.at(bar_index).area});
+        TrussElement<3, 2> truss{
+            &domain.element(element_index),
+            rebar_material,
+            rebar.bars.at(bar_index).area};
+        truss.set_green_lagrange_strain(use_green_lagrange_rebar);
+        elements.emplace_back(std::move(truss));
     }
 
     for (std::size_t element_index = reinforced.embedded_rebar_range.first;
@@ -2720,11 +3098,12 @@ run_reduced_rc_column_continuum_case_result_impl(
             element_index - reinforced.embedded_rebar_range.first;
         const auto& metadata =
             reinforced.embedded_rebar_elements.at(embedded_index);
-        elements.emplace_back(
-            TrussElement<3, 2>{
-                &domain.element(element_index),
-                transverse_rebar_material,
-                metadata.area});
+        TrussElement<3, 2> truss{
+            &domain.element(element_index),
+            transverse_rebar_material,
+            metadata.area};
+        truss.set_green_lagrange_strain(use_green_lagrange_rebar);
+        elements.emplace_back(std::move(truss));
     }
 
     ModelT model{domain, std::move(elements)};
@@ -3034,12 +3413,17 @@ run_reduced_rc_column_continuum_case_result_impl(
     std::optional<PVDWriter> pvd_mesh{};
     std::optional<PVDWriter> pvd_gauss{};
     std::optional<PVDWriter> pvd_cracks{};
+    std::optional<PVDWriter> pvd_cracks_visible{};
+    std::optional<PVDWriter> pvd_rebar_tubes{};
     const auto vtk_dir = std::filesystem::path(out_dir) / "vtk";
     if (spec.write_vtk) {
         std::filesystem::create_directories(vtk_dir);
         pvd_mesh.emplace((vtk_dir / "continuum_mesh").string());
         pvd_gauss.emplace((vtk_dir / "continuum_gauss").string());
         pvd_cracks.emplace((vtk_dir / "continuum_cracks").string());
+        pvd_cracks_visible.emplace(
+            (vtk_dir / "continuum_cracks_visible").string());
+        pvd_rebar_tubes.emplace((vtk_dir / "continuum_rebar_tubes").string());
     }
 
     result.hysteresis_records.reserve(static_cast<std::size_t>(runtime_steps + 1));
@@ -3284,9 +3668,30 @@ run_reduced_rc_column_continuum_case_result_impl(
             const auto mesh_path = prefix.string() + "_mesh.vtu";
             const auto gauss_path = prefix.string() + "_gauss.vtu";
             const auto cracks_path = prefix.string() + "_cracks.vtu";
+            const auto cracks_visible_path =
+                prefix.string() + "_cracks_visible.vtu";
+            const auto rebar_tubes_path =
+                prefix.string() + "_rebar_tubes.vtu";
             exporter.write_mesh(mesh_path);
             exporter.write_gauss_points(gauss_path);
-            write_crack_planes_snapshot(cracks_path, active_model, grid);
+            write_crack_planes_snapshot(
+                cracks_path,
+                active_model,
+                grid,
+                spec.vtk_visible_crack_opening_threshold_m,
+                false);
+            write_crack_planes_snapshot(
+                cracks_visible_path,
+                active_model,
+                grid,
+                spec.vtk_visible_crack_opening_threshold_m,
+                true);
+            write_rebar_tubes_snapshot(
+                rebar_tubes_path,
+                active_model,
+                reinforced,
+                rebar,
+                spec.reference_spec.steel_fy_mpa);
 
             if (pvd_mesh) {
                 pvd_mesh->add_timestep(runtime_p, mesh_path);
@@ -3296,6 +3701,13 @@ run_reduced_rc_column_continuum_case_result_impl(
             }
             if (pvd_cracks) {
                 pvd_cracks->add_timestep(runtime_p, cracks_path);
+            }
+            if (pvd_cracks_visible) {
+                pvd_cracks_visible->add_timestep(
+                    runtime_p, cracks_visible_path);
+            }
+            if (pvd_rebar_tubes) {
+                pvd_rebar_tubes->add_timestep(runtime_p, rebar_tubes_path);
             }
         };
 

@@ -321,6 +321,30 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 add_executable(
+    fall_n_reduced_rc_column_continuum_publication_probe
+    main_reduced_rc_column_continuum_reference_benchmark.cpp
+    src/validation/ReducedRCColumnContinuumBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_column_continuum_publication_probe)
+target_include_directories(
+    fall_n_reduced_rc_column_continuum_publication_probe PRIVATE
+    ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_column_continuum_publication_probe PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_column_continuum_publication_probe
+  MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(
+      fall_n_reduced_rc_column_continuum_publication_probe PUBLIC
+      OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(
     fall_n_reduced_rc_column_section_reference_benchmark
     main_reduced_rc_column_section_reference_benchmark.cpp
     src/validation/ReducedRCColumnSectionBaseline.cpp)
