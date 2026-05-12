@@ -13,24 +13,75 @@
     {
       "label": "fall_n Timoshenko N=10 Lobatto",
       "role": "structural_reference",
-      "path": "data\\output\\cyclic_validation\\reboot_external_benchmark_cyclic_200mm_publication_20260511\\fall_n\\comparison_hysteresis.csv",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\fe2_validation\\structural_n10_lobatto_200mm_preflight\\comparison_hysteresis.csv",
       "status": "available",
       "base_shear_sign_factor_to_structural": 1.0,
       "records": 49.0,
       "max_abs_drift_mm": 200.0,
-      "peak_abs_base_shear_kN": 23.4041103,
-      "loop_work_MN_m": -0.014535009204993184,
-      "reference_loop_work_MN_m": -0.014535009204993184,
+      "peak_abs_base_shear_kN": 23.530507999999998,
+      "loop_work_MN_m": -0.014521865956026612,
+      "metric_scope": "common_protocol_pseudotime",
+      "reference_loop_work_MN_m": -0.014521865956026612,
       "loop_work_ratio_to_structural": 1.0,
       "rms_base_shear_error_kN": 0.0,
       "peak_normalized_rms_base_shear_error": 0.0,
       "max_base_shear_error_kN": 0.0
     },
     {
-      "label": "OpenSeesPy bridge",
+      "label": "OpenSees hi-fi structural",
       "role": "external_reference",
-      "path": "data\\output\\cyclic_validation\\reboot_external_benchmark_cyclic_200mm_publication_20260511\\opensees",
-      "status": "manifest_without_hysteresis"
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_multielement_hifi_cyclic_50mm_force2d_20260511\\opensees_hifi\\hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": 1.0,
+      "records": 13.0,
+      "max_abs_drift_mm": 50.0,
+      "peak_abs_base_shear_kN": 17.49311751362233,
+      "loop_work_MN_m": -4.1493955014116525e-05,
+      "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed",
+      "paired_fall_n_multielement_hifi_audit": {
+        "status": "completed",
+        "scope": "reduced_rc_structural_multielement_hifi_reference",
+        "comparison": {
+          "hysteresis": {
+            "shared_step_count": 13,
+            "active_step_count": 10,
+            "activity_floor": 0.0008954236250000001,
+            "max_abs_base_shear_error": 0.0004505491679081975,
+            "max_rel_base_shear_error": 0.05745513337183603,
+            "rms_rel_base_shear_error": 0.03360039121426309
+          },
+          "base_moment": {
+            "shared_step_count": 13,
+            "active_step_count": 10,
+            "activity_floor": 0.00281153377,
+            "max_abs_base_moment_error": 0.0014146758405097423,
+            "max_rel_base_moment_error": 0.05745513606671973,
+            "rms_rel_base_moment_error": 0.03360038214800491
+          },
+          "base_curvature": {
+            "shared_step_count": 13,
+            "active_step_count": 10,
+            "activity_floor": 0.00076708294,
+            "max_abs_base_curvature_error": 0.0005030721029033337,
+            "max_rel_base_curvature_error": 0.03279124739342604,
+            "rms_rel_base_curvature_error": 0.017641577341541256
+          },
+          "station_parity": {
+            "fall_n_station_count": 18,
+            "opensees_station_count": 18,
+            "common_station_count": 18,
+            "max_abs_xi_mismatch": 4.5975301343759156e-10,
+            "same_station_count": true
+          }
+        },
+        "timing": {
+          "fall_n_process_wall_seconds": 7.873051299946383,
+          "opensees_process_wall_seconds": 1.9880253999726847,
+          "fall_n_reported_total_wall_seconds": 5.093899,
+          "opensees_reported_total_wall_seconds": 1.045105900033377,
+          "fall_n_over_opensees_process_ratio": 3.9602367756742733
+        }
+      }
     },
     {
       "label": "XFEM promoted",
@@ -42,14 +93,15 @@
       "max_abs_drift_mm": 200.0,
       "peak_abs_base_shear_kN": 25.729490000000002,
       "loop_work_MN_m": -0.015291583977747759,
-      "reference_loop_work_MN_m": -0.014535009204993184,
-      "loop_work_ratio_to_structural": 1.052051894985706,
-      "rms_base_shear_error_kN": 2.349094583349464,
-      "peak_normalized_rms_base_shear_error": 0.10037102685118791,
-      "max_base_shear_error_kN": 6.777026439946402
+      "metric_scope": "common_protocol_pseudotime",
+      "reference_loop_work_MN_m": -0.014521865956026612,
+      "loop_work_ratio_to_structural": 1.0530040715189022,
+      "rms_base_shear_error_kN": 2.299392514757831,
+      "peak_normalized_rms_base_shear_error": 0.09771962911968714,
+      "max_base_shear_error_kN": 6.7328048485858405
     },
     {
-      "label": "Ko-Bathe Hex27-Truss3 TL smoke 50 mm",
+      "label": "Ko-Bathe Hex27 smoke 50mm",
       "role": "kobathe_candidate",
       "path": "data\\output\\cyclic_validation_kobathe_hex27_truss3_rerun_20260511\\smoke_50mm_hex27_truss3_tl_lateralcap\\hysteresis.csv",
       "status": "available",
@@ -58,12 +110,8 @@
       "max_abs_drift_mm": 50.0,
       "peak_abs_base_shear_kN": 50.124638399999995,
       "loop_work_MN_m": 6.800490851731822e-10,
-      "reference_loop_work_MN_m": -0.014535009204993184,
-      "loop_work_ratio_to_structural": -4.678697313377457e-08,
-      "rms_base_shear_error_kN": 34.348340571467624,
-      "peak_normalized_rms_base_shear_error": 1.4676200091001803,
-      "max_base_shear_error_kN": 52.320694
+      "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed"
     }
   ],
-  "notes": "Missing OpenSees or Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."
+  "notes": "The OpenSees curve is the multi-element high-fidelity structural comparator used to audit the fall_n structural reference, not the simplified bridge diagnostic. Missing OpenSees or Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."
 }
