@@ -37,6 +37,7 @@ class TrussElement {
 
     struct AxialQuadratureState {
         BMatrixT B = BMatrixT::Zero();
+        std::array<double, num_nodes_> dN_ds{};
         double strain = 0.0;
         double measure = 0.0;
         double weight = 0.0;
@@ -48,6 +49,7 @@ class TrussElement {
     double area_{0.0};
     double reference_length_{0.0};
     double density_{0.0};
+    bool use_green_lagrange_strain_{false};
 
     std::vector<PetscInt> dof_indices_{};
     bool dofs_cached_{false};
@@ -152,16 +154,60 @@ class TrussElement {
         }
         tangent /= tangent_norm;
 
+        Eigen::Matrix<double, static_cast<int>(Dim), 1> displacement_gradient =
+            Eigen::Matrix<double, static_cast<int>(Dim), 1>::Zero();
+
         for (std::size_t node = 0; node < num_nodes_; ++node) {
             const double dN_ds = geometry_->dH_dx(node, 0, xi) / tangent_norm;
+            state.dN_ds[node] = dN_ds;
             for (std::size_t dim = 0; dim < Dim; ++dim) {
-                state.B[static_cast<Eigen::Index>(node * Dim + dim)] =
-                    dN_ds * tangent[static_cast<Eigen::Index>(dim)];
+                displacement_gradient[static_cast<Eigen::Index>(dim)] +=
+                    dN_ds * u_e[static_cast<Eigen::Index>(node * Dim + dim)];
             }
         }
 
-        state.strain = state.B.dot(u_e);
+        const auto strain_gradient =
+            use_green_lagrange_strain_
+                ? tangent + displacement_gradient
+                : tangent;
+
+        for (std::size_t node = 0; node < num_nodes_; ++node) {
+            const double dN_ds = state.dN_ds[node];
+            for (std::size_t dim = 0; dim < Dim; ++dim) {
+                state.B[static_cast<Eigen::Index>(node * Dim + dim)] =
+                    dN_ds *
+                    strain_gradient[static_cast<Eigen::Index>(dim)];
+            }
+        }
+
+        state.strain = tangent.dot(displacement_gradient);
+        if (use_green_lagrange_strain_) {
+            state.strain += 0.5 * displacement_gradient.squaredNorm();
+        }
         return state;
+    }
+
+    void add_green_lagrange_geometric_stiffness_(
+        KMatrixT& K_e,
+        const AxialQuadratureState& state,
+        double axial_stress) const
+    {
+        if (!use_green_lagrange_strain_) {
+            return;
+        }
+
+        for (std::size_t a = 0; a < num_nodes_; ++a) {
+            for (std::size_t b = 0; b < num_nodes_; ++b) {
+                const double coeff =
+                    area_ * state.weight_measure * axial_stress *
+                    state.dN_ds[a] * state.dN_ds[b];
+                for (std::size_t dim = 0; dim < Dim; ++dim) {
+                    K_e(
+                        static_cast<Eigen::Index>(a * Dim + dim),
+                        static_cast<Eigen::Index>(b * Dim + dim)) += coeff;
+                }
+            }
+        }
     }
 
     void commit_material_state_(const FVectorT& u_e)
@@ -224,6 +270,16 @@ public:
     [[nodiscard]] const auto& geometry() const noexcept { return *geometry_; }
     [[nodiscard]] double area() const noexcept { return area_; }
     [[nodiscard]] double length() const noexcept { return reference_length_; }
+
+    void set_green_lagrange_strain(bool enabled) noexcept
+    {
+        use_green_lagrange_strain_ = enabled;
+    }
+
+    [[nodiscard]] bool green_lagrange_strain_enabled() const noexcept
+    {
+        return use_green_lagrange_strain_;
+    }
 
     [[nodiscard]] const Material<UniaxialMaterial>& material() const noexcept
     {
@@ -350,6 +406,10 @@ public:
                 materials_[gp].tangent(Strain<1>{state.strain})(0, 0);
             K_e += (area_ * state.weight_measure * Et) *
                    (state.B.transpose() * state.B);
+            const auto sigma =
+                materials_[gp].compute_response(Strain<1>{state.strain});
+            add_green_lagrange_geometric_stiffness_(
+                K_e, state, sigma.components());
         }
 
         ensure_dof_cache();
@@ -379,6 +439,10 @@ public:
                 materials_[gp].tangent(Strain<1>{state.strain})(0, 0);
             K_e += (area_ * state.weight_measure * Et) *
                    (state.B.transpose() * state.B);
+            const auto sigma =
+                materials_[gp].compute_response(Strain<1>{state.strain});
+            add_green_lagrange_geometric_stiffness_(
+                K_e, state, sigma.components());
         }
 
         Eigen::MatrixXd out(total_dofs_, total_dofs_);

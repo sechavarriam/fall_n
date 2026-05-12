@@ -105,6 +105,7 @@ struct CliOptions {
     bool write_crack_summary_csv{true};
     bool write_vtk{false};
     int vtk_stride{1};
+    double vtk_visible_crack_opening_threshold_m{5.0e-4};
     bool print_progress{false};
     std::vector<
         fall_n::validation_reboot::ReducedRCColumnContinuumRunSpec::HostProbeSpec>
@@ -1080,6 +1081,16 @@ parse_predictor_policy_kind(std::string value)
     if (const auto value = value_of("--vtk-stride"); !value.empty()) {
         options.vtk_stride = std::stoi(value);
     }
+    if (const auto value =
+            value_of("--vtk-visible-crack-opening-threshold");
+        !value.empty()) {
+        options.vtk_visible_crack_opening_threshold_m = std::stod(value);
+    }
+    if (const auto value =
+            value_of("--vtk-crack-opening-threshold");
+        !value.empty()) {
+        options.vtk_visible_crack_opening_threshold_m = std::stod(value);
+    }
     if (has_flag("--disable-equilibrated-axial-preload-stage")) {
         options.use_equilibrated_axial_preload_stage = false;
     }
@@ -1604,6 +1615,8 @@ void write_runtime_manifest(
         << spec.transverse_reinforcement_penalty_alpha_scale_over_ec << ",\n"
         << "  \"transverse_reinforcement_area_scale\": "
         << spec.transverse_reinforcement_area_scale << ",\n"
+        << "  \"vtk_visible_crack_opening_threshold_m\": "
+        << spec.vtk_visible_crack_opening_threshold_m << ",\n"
         << "  \"mesh\": {\"nx\": " << spec.nx
         << ", \"ny\": " << spec.ny
         << ", \"nz\": " << spec.nz
@@ -1963,6 +1976,8 @@ int main(int argc, char** argv)
             .write_host_probe_csv = true,
             .write_vtk = options.write_vtk,
             .vtk_stride = std::max(options.vtk_stride, 1),
+            .vtk_visible_crack_opening_threshold_m =
+                options.vtk_visible_crack_opening_threshold_m,
             .print_progress = options.print_progress,
             .host_probe_specs = options.host_probe_specs,
         };
