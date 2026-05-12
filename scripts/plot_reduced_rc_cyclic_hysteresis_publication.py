@@ -3,8 +3,9 @@
 
 The figure is intentionally data-first: every local/continuum candidate is
 drawn against the promoted fall_n structural reference and, when available, the
-external OpenSeesPy bridge.  The same script can be rerun after a long Ko-Bathe
-campaign finishes by passing its output directory or its ``hysteresis.csv``.
+external high-fidelity OpenSeesPy structural comparator.  The same script can
+be rerun after a long Ko-Bathe campaign finishes by passing its output
+directory or its ``hysteresis.csv``.
 """
 
 from __future__ import annotations
@@ -38,8 +39,11 @@ def parse_args() -> argparse.Namespace:
         "--opensees",
         type=Path,
         default=repo
-        / "data/output/cyclic_validation/reboot_external_benchmark_cyclic_200mm_publication_20260511/opensees",
-        help="Directory or CSV for the OpenSeesPy bridge. Missing is recorded.",
+        / "data/output/cyclic_validation/reboot_structural_multielement_hifi_cyclic_50mm_force2d_20260511/opensees_hifi",
+        help=(
+            "Directory or CSV for the high-fidelity structural OpenSeesPy "
+            "comparator. Missing is recorded."
+        ),
     )
     parser.add_argument(
         "--kobathe",
@@ -162,6 +166,28 @@ def loop_work(rows: list[dict[str, float]]) -> float:
 def curve_metrics(candidate: list[dict[str, float]], reference: list[dict[str, float]]) -> dict[str, float]:
     peak_ref = max((abs(row["base_shear_MN"]) for row in reference), default=math.nan)
     peak_candidate = max((abs(row["base_shear_MN"]) for row in candidate), default=math.nan)
+    max_drift_candidate = max((abs(row["drift_m"]) for row in candidate), default=math.nan)
+    max_drift_reference = max((abs(row["drift_m"]) for row in reference), default=math.nan)
+    basic = {
+        "records": float(len(candidate)),
+        "max_abs_drift_mm": 1000.0 * max_drift_candidate if math.isfinite(max_drift_candidate) else math.nan,
+        "peak_abs_base_shear_kN": 1000.0 * peak_candidate if math.isfinite(peak_candidate) else math.nan,
+        "loop_work_MN_m": loop_work(candidate),
+    }
+    if (
+        not math.isfinite(max_drift_candidate)
+        or not math.isfinite(max_drift_reference)
+        or max_drift_reference <= 1.0e-14
+        or abs(max_drift_candidate - max_drift_reference) / max_drift_reference > 0.02
+    ):
+        return {
+            **basic,
+            "metric_scope": (
+                "display_only_amplitude_window_mismatch; RMS and loop-work "
+                "ratios to the 200 mm structural reference are intentionally "
+                "not computed"
+            ),
+        }
     errors: list[float] = []
     for row in candidate:
         ref = interpolate_by_p(reference, row.get("p", math.nan))
@@ -170,9 +196,8 @@ def curve_metrics(candidate: list[dict[str, float]], reference: list[dict[str, f
     rms = math.sqrt(sum(value * value for value in errors) / len(errors)) if errors else math.nan
     max_abs = max((abs(value) for value in errors), default=math.nan)
     return {
-        "records": float(len(candidate)),
-        "max_abs_drift_mm": 1000.0 * max((abs(row["drift_m"]) for row in candidate), default=math.nan),
-        "peak_abs_base_shear_kN": 1000.0 * peak_candidate if math.isfinite(peak_candidate) else math.nan,
+        **basic,
+        "metric_scope": "common_protocol_pseudotime",
         "loop_work_MN_m": loop_work(candidate),
         "reference_loop_work_MN_m": loop_work(reference),
         "loop_work_ratio_to_structural": (
@@ -188,19 +213,43 @@ def curve_metrics(candidate: list[dict[str, float]], reference: list[dict[str, f
     }
 
 
+def signed_stiffness_proxy(rows: list[dict[str, float]]) -> float:
+    return sum(
+        row["drift_m"] * row["base_shear_MN"]
+        for row in rows
+        if math.isfinite(row.get("drift_m", math.nan))
+        and math.isfinite(row.get("base_shear_MN", math.nan))
+    )
+
+
 def sign_factor_to_reference(candidate: list[dict[str, float]], reference: list[dict[str, float]]) -> float:
-    raw: list[float] = []
-    flipped: list[float] = []
-    for row in candidate:
-        ref = interpolate_by_p(reference, row.get("p", math.nan))
-        if math.isfinite(ref):
-            raw.append(row["base_shear_MN"] - ref)
-            flipped.append(-row["base_shear_MN"] - ref)
-    if not raw:
+    candidate_proxy = signed_stiffness_proxy(candidate)
+    reference_proxy = signed_stiffness_proxy(reference)
+    if abs(candidate_proxy) <= 1.0e-14 or abs(reference_proxy) <= 1.0e-14:
         return 1.0
-    raw_rms = math.sqrt(sum(value * value for value in raw) / len(raw))
-    flipped_rms = math.sqrt(sum(value * value for value in flipped) / len(flipped))
-    return -1.0 if flipped_rms < raw_rms else 1.0
+    return -1.0 if candidate_proxy * reference_proxy < 0.0 else 1.0
+
+
+def paired_hifi_summary(path: Path) -> dict[str, Any] | None:
+    roots: list[Path] = []
+    if path.is_file():
+        roots.extend([path.parent, path.parent.parent])
+    else:
+        roots.extend([path, path.parent])
+    for root in roots:
+        candidate = root / "structural_multielement_hifi_audit_summary.json"
+        if candidate.exists():
+            try:
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            return {
+                "status": payload.get("status"),
+                "scope": payload.get("benchmark_scope"),
+                "comparison": payload.get("comparison"),
+                "timing": payload.get("timing"),
+            }
+    return None
 
 
 def scaled_shear(rows: list[dict[str, float]], factor: float) -> list[dict[str, float]]:
@@ -281,7 +330,7 @@ def main() -> int:
     )
     add_curve(
         curves,
-        label="OpenSeesPy bridge",
+        label="OpenSees hi-fi structural",
         role="external_reference",
         path=args.opensees,
         preferred=("hysteresis.csv",),
@@ -347,13 +396,17 @@ def main() -> int:
         )
         row["base_shear_sign_factor_to_structural"] = factor
         row.update(curve_metrics(rows, reference_rows))
+        if curve["role"] == "external_reference":
+            hifi_summary = paired_hifi_summary(Path(str(curve["path"])))
+            if hifi_summary is not None:
+                row["paired_fall_n_multielement_hifi_audit"] = hifi_summary
         summary_curves.append(row)
 
     ax.axhline(0.0, color="#9ca3af", linewidth=0.8)
     ax.axvline(0.0, color="#9ca3af", linewidth=0.8)
     ax.set_xlabel("Tip displacement [mm]")
     ax.set_ylabel("Base shear [kN]")
-    ax.set_title("Cyclic RC-column hysteresis: structural, OpenSees, and local models")
+    ax.set_title("Cyclic RC-column hysteresis: structural, OpenSees hi-fi, and local models")
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
 
@@ -370,10 +423,12 @@ def main() -> int:
         "figures": outputs,
         "curves": summary_curves,
         "notes": (
-            "Missing OpenSees or Ko-Bathe curves are recorded explicitly so the "
-            "Chapter 9 claim-support audit can distinguish absent data from a "
-            "failed physics result. Rerun this script after each long cyclic "
-            "candidate finishes."
+            "The OpenSees curve is the multi-element high-fidelity structural "
+            "comparator used to audit the fall_n structural reference, not the "
+            "simplified bridge diagnostic. Missing OpenSees or Ko-Bathe curves "
+            "are recorded explicitly so the Chapter 9 claim-support audit can "
+            "distinguish absent data from a failed physics result. Rerun this "
+            "script after each long cyclic candidate finishes."
         ),
     }
     args.figures_dir.mkdir(parents=True, exist_ok=True)
