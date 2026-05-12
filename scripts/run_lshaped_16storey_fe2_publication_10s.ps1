@@ -43,6 +43,7 @@ param(
     [int]$ManagedLocalAdaptiveMaxBisections = 10,
     [int]$ManagedLocalFailureRescueAttempts = 0,
     [double]$ManagedLocalFailureRescueStepFactor = 2.0,
+    [string]$PythonExe = "py -3.12",
     [string]$OutputRootBase = "data/output/lshaped_16storey_publication_10s",
     [switch]$UseLinearAlarmRestart,
     [string]$LinearAlarmRestartDir = "data/output/lshaped_16storey_physical_scale1_linear_steel_yield_20260509/recorders",
@@ -95,6 +96,18 @@ if (-not (Test-Path $exe)) {
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 function Format-Real([double]$Value) {
     return $Value.ToString("R", $InvariantCulture)
+}
+function Invoke-PythonCommand([string[]]$Arguments) {
+    $parts = $PythonExe -split '\s+'
+    if ($parts.Count -lt 1 -or [string]::IsNullOrWhiteSpace($parts[0])) {
+        throw "PythonExe is empty."
+    }
+    $pythonCommand = $parts[0]
+    $pythonBaseArgs = @()
+    if ($parts.Count -gt 1) {
+        $pythonBaseArgs = @($parts | Select-Object -Skip 1)
+    }
+    & $pythonCommand @pythonBaseArgs @Arguments
 }
 
 $isPhysicalScale = [math]::Abs($Scale - 1.0) -lt 1.0e-12
@@ -164,7 +177,8 @@ foreach ($item in $families) {
         "--managed-local-max-transition-steps", "$ManagedLocalMaxTransitionSteps",
         "--managed-local-adaptive-max-bisections", "$ManagedLocalAdaptiveMaxBisections",
         "--managed-local-failure-rescue-attempts", "$ManagedLocalFailureRescueAttempts",
-        "--managed-local-failure-rescue-step-factor", (Format-Real $ManagedLocalFailureRescueStepFactor)
+        "--managed-local-failure-rescue-step-factor", (Format-Real $ManagedLocalFailureRescueStepFactor),
+        "--python-exe", $PythonExe
     )
     if ($Fe2AdaptiveSiteRelaxation) {
         $args += "--fe2-adaptive-site-relax"
@@ -376,6 +390,7 @@ foreach ($item in $families) {
         managed_local_adaptive_max_bisections = $ManagedLocalAdaptiveMaxBisections
         managed_local_failure_rescue_attempts = $ManagedLocalFailureRescueAttempts
         managed_local_failure_rescue_step_factor = $ManagedLocalFailureRescueStepFactor
+        python_exe = $PythonExe
         kobathe_penalty_factor = $KobathePenaltyFactor
         kobathe_kinematics = $KobatheKinematics
         kobathe_snes_max_it = $KobatheSnesMaxIt
@@ -408,7 +423,7 @@ foreach ($item in $families) {
     if (-not $SkipAudit) {
         $audit = Join-Path $repoRoot "scripts/audit_publication_vtk.py"
         $auditOut = Join-Path $outputRoot "recorders/publication_vtk_audit.json"
-        & python $audit --root $outputRoot --output $auditOut --gauss-fields-profile $GaussFields --crack-opening-threshold (Format-Real $CrackOpeningThreshold) --max-files-per-category 8 --check-local-global-endpoints
+        Invoke-PythonCommand @($audit, "--root", $outputRoot, "--output", $auditOut, "--gauss-fields-profile", $GaussFields, "--crack-opening-threshold", (Format-Real $CrackOpeningThreshold), "--max-files-per-category", "8", "--check-local-global-endpoints")
         if ($LASTEXITCODE -ne 0) {
             throw "$($item.Name) VTK audit failed with exit code $LASTEXITCODE"
         }
