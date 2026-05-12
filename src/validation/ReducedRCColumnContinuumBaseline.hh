@@ -416,6 +416,7 @@ struct ReducedRCColumnContinuumRunSpec {
     bool write_host_probe_csv{true};
     bool write_vtk{false};
     int vtk_stride{1};
+    double vtk_visible_crack_opening_threshold_m{5.0e-4};
     bool print_progress{true};
     ReducedRCColumnReferenceSpec reference_spec{};
     struct HostProbeSpec {
