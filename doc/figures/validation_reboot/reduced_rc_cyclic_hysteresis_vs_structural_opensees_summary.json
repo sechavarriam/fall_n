@@ -1,0 +1,69 @@
+{
+  "status": "completed",
+  "scope": "reduced_rc_column_cyclic_hysteresis_publication_overlay",
+  "figures": {
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.pdf",
+    "validation_reboot_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.pdf",
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.png",
+    "validation_reboot_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.png",
+    "svg": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.svg",
+    "validation_reboot_svg": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\reduced_rc_cyclic_hysteresis_vs_structural_opensees.svg"
+  },
+  "curves": [
+    {
+      "label": "fall_n Timoshenko N=10 Lobatto",
+      "role": "structural_reference",
+      "path": "data\\output\\cyclic_validation\\reboot_external_benchmark_cyclic_200mm_publication_20260511\\fall_n\\comparison_hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": 1.0,
+      "records": 49.0,
+      "max_abs_drift_mm": 200.0,
+      "peak_abs_base_shear_kN": 23.4041103,
+      "loop_work_MN_m": -0.014535009204993184,
+      "reference_loop_work_MN_m": -0.014535009204993184,
+      "loop_work_ratio_to_structural": 1.0,
+      "rms_base_shear_error_kN": 0.0,
+      "peak_normalized_rms_base_shear_error": 0.0,
+      "max_base_shear_error_kN": 0.0
+    },
+    {
+      "label": "OpenSeesPy bridge",
+      "role": "external_reference",
+      "path": "data\\output\\cyclic_validation\\reboot_external_benchmark_cyclic_200mm_publication_20260511\\opensees",
+      "status": "manifest_without_hysteresis"
+    },
+    {
+      "label": "XFEM promoted",
+      "role": "xfem_reference",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation_200mm_rerun_20260509\\xfem_corrected\\newton_l2\\global_xfem_newton_hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": -1.0,
+      "records": 156.0,
+      "max_abs_drift_mm": 200.0,
+      "peak_abs_base_shear_kN": 25.729490000000002,
+      "loop_work_MN_m": -0.015291583977747759,
+      "reference_loop_work_MN_m": -0.014535009204993184,
+      "loop_work_ratio_to_structural": 1.052051894985706,
+      "rms_base_shear_error_kN": 2.349094583349464,
+      "peak_normalized_rms_base_shear_error": 0.10037102685118791,
+      "max_base_shear_error_kN": 6.777026439946402
+    },
+    {
+      "label": "Ko-Bathe Hex27-Truss3 TL smoke 50 mm",
+      "role": "kobathe_candidate",
+      "path": "data\\output\\cyclic_validation_kobathe_hex27_truss3_rerun_20260511\\smoke_50mm_hex27_truss3_tl_lateralcap\\hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": 1.0,
+      "records": 13.0,
+      "max_abs_drift_mm": 50.0,
+      "peak_abs_base_shear_kN": 50.124638399999995,
+      "loop_work_MN_m": 6.800490851731822e-10,
+      "reference_loop_work_MN_m": -0.014535009204993184,
+      "loop_work_ratio_to_structural": -4.678697313377457e-08,
+      "rms_base_shear_error_kN": 34.348340571467624,
+      "peak_normalized_rms_base_shear_error": 1.4676200091001803,
+      "max_base_shear_error_kN": 52.320694
+    }
+  ],
+  "notes": "Missing OpenSees or Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."
+}
