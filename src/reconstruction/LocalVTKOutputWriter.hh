@@ -100,6 +100,22 @@ class LocalVTKOutputWriter {
         plane_id_arr->SetName("crack_plane_id");
         plane_id_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> sequence_id_arr;
+        sequence_id_arr->SetName("crack_sequence_id");
+        sequence_id_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> activation_step_arr;
+        activation_step_arr->SetName("crack_activation_step");
+        activation_step_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> activation_time_arr;
+        activation_time_arr->SetName("crack_activation_time");
+        activation_time_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> source_id_arr;
+        source_id_arr->SetName("crack_source_id");
+        source_id_arr->SetNumberOfComponents(1);
+
         vtkNew<vtkDoubleArray> family_id_arr;
         family_id_arr->SetName("crack_family_id");
         family_id_arr->SetNumberOfComponents(1);
@@ -121,7 +137,11 @@ class LocalVTKOutputWriter {
                                 double opening,
                                 double opening_max,
                                 bool closed,
-                                int plane_id) {
+                                int plane_id,
+                                int sequence_id,
+                                int activation_step,
+                                double activation_time,
+                                int source_id) {
                 if (n_vec.squaredNorm() < 1.0e-20) {
                     return;
                 }
@@ -167,6 +187,12 @@ class LocalVTKOutputWriter {
                     opening_vec[0], opening_vec[1], opening_vec[2]);
                 state_arr->InsertNextValue(closed ? 0.0 : 1.0);
                 plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
+                sequence_id_arr->InsertNextValue(
+                    static_cast<double>(sequence_id));
+                activation_step_arr->InsertNextValue(
+                    static_cast<double>(activation_step));
+                activation_time_arr->InsertNextValue(activation_time);
+                source_id_arr->InsertNextValue(static_cast<double>(source_id));
                 family_id_arr->InsertNextValue(static_cast<double>(plane_id));
                 site_arr->InsertNextValue(static_cast<double>(site_id_));
                 parent_arr->InsertNextValue(
@@ -178,21 +204,33 @@ class LocalVTKOutputWriter {
                          cr.opening_1,
                          cr.opening_max_1,
                          cr.closed_1,
-                         1);
+                         cr.plane_id > 0 ? cr.plane_id : 1,
+                         cr.sequence_id > 0 ? cr.sequence_id : 1,
+                         cr.activation_step,
+                         cr.activation_time,
+                         cr.source_id);
             }
             if (cr.num_cracks >= 2) {
                 add_quad(cr.normal_2,
                          cr.opening_2,
                          cr.opening_max_2,
                          cr.closed_2,
-                         2);
+                         2,
+                         cr.sequence_id > 0 ? cr.sequence_id : 2,
+                         cr.activation_step,
+                         cr.activation_time,
+                         cr.source_id);
             }
             if (cr.num_cracks >= 3) {
                 add_quad(cr.normal_3,
                          cr.opening_3,
                          cr.opening_max_3,
                          cr.closed_3,
-                         3);
+                         3,
+                         cr.sequence_id > 0 ? cr.sequence_id : 3,
+                         cr.activation_step,
+                         cr.activation_time,
+                         cr.source_id);
             }
         }
 
@@ -204,6 +242,10 @@ class LocalVTKOutputWriter {
         grid->GetCellData()->AddArray(opening_vec_arr);
         grid->GetCellData()->AddArray(state_arr);
         grid->GetCellData()->AddArray(plane_id_arr);
+        grid->GetCellData()->AddArray(sequence_id_arr);
+        grid->GetCellData()->AddArray(activation_step_arr);
+        grid->GetCellData()->AddArray(activation_time_arr);
+        grid->GetCellData()->AddArray(source_id_arr);
         grid->GetCellData()->AddArray(family_id_arr);
         grid->GetCellData()->AddArray(site_arr);
         grid->GetCellData()->AddArray(parent_arr);

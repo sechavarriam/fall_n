@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "src/reconstruction/NonlinearSubModelEvolver.hh"
 #include "src/validation/ManagedXfemSubscaleEvolver.hh"
@@ -404,6 +405,45 @@ public:
     {
         return std::visit([](const auto& model) {
             return model.crack_summary();
+        }, model_);
+    }
+
+    [[nodiscard]] const std::vector<
+        ReducedRCManagedLocalCrackPlaneSequenceRecord>&
+    crack_plane_sequence_records() const noexcept
+    {
+        static const std::vector<
+            ReducedRCManagedLocalCrackPlaneSequenceRecord> empty{};
+        return std::visit([](const auto& model)
+            -> const std::vector<
+                ReducedRCManagedLocalCrackPlaneSequenceRecord>& {
+            if constexpr (requires { model.crack_plane_sequence_records(); }) {
+                return model.crack_plane_sequence_records();
+            } else {
+                return empty;
+            }
+        }, model_);
+    }
+
+    [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
+    {
+        return std::visit([](const auto& model) -> std::size_t {
+            if constexpr (requires { model.active_crack_plane_count(); }) {
+                return model.active_crack_plane_count();
+            } else {
+                return 0;
+            }
+        }, model_);
+    }
+
+    [[nodiscard]] int last_active_crack_plane_id() const noexcept
+    {
+        return std::visit([](const auto& model) -> int {
+            if constexpr (requires { model.last_active_crack_plane_id(); }) {
+                return model.last_active_crack_plane_id();
+            } else {
+                return 0;
+            }
         }, model_);
     }
 

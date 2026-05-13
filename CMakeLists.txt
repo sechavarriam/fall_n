@@ -209,6 +209,10 @@ fall_n_use_multiscale_api(fall_n_lshaped_multiscale)
 add_executable(fall_n_lshaped_multiscale_16 main_lshaped_multiscale_16storey.cpp)
 fall_n_use_multiscale_api(fall_n_lshaped_multiscale_16)
 
+add_executable(fall_n_lshaped_multiscale_16_tangent_regularized
+        main_lshaped_multiscale_16storey.cpp)
+fall_n_use_multiscale_api(fall_n_lshaped_multiscale_16_tangent_regularized)
+
 add_executable(fall_n_managed_xfem_site_replay main_managed_xfem_site_replay.cpp)
 fall_n_use_multiscale_api(fall_n_managed_xfem_site_replay)
 
@@ -341,6 +345,30 @@ vtk_module_autoinit(
 if(OpenMP_CXX_FOUND)
   target_link_libraries(
       fall_n_reduced_rc_column_continuum_publication_probe PUBLIC
+      OpenMP::OpenMP_CXX)
+endif()
+
+add_executable(
+    fall_n_reduced_rc_column_continuum_publication_probe_conservative
+    main_reduced_rc_column_continuum_reference_benchmark.cpp
+    src/validation/ReducedRCColumnContinuumBaseline.cpp)
+fall_n_reduce_benchmark_debug_info(
+    fall_n_reduced_rc_column_continuum_publication_probe_conservative)
+target_include_directories(
+    fall_n_reduced_rc_column_continuum_publication_probe_conservative PRIVATE
+    ${CMAKE_SOURCE_DIR})
+target_link_libraries(
+    fall_n_reduced_rc_column_continuum_publication_probe_conservative PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen
+    ${VTK_LIBRARIES})
+vtk_module_autoinit(
+  TARGETS fall_n_reduced_rc_column_continuum_publication_probe_conservative
+  MODULES ${VTK_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(
+      fall_n_reduced_rc_column_continuum_publication_probe_conservative PUBLIC
       OpenMP::OpenMP_CXX)
 endif()
 

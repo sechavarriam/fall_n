@@ -112,12 +112,38 @@ struct TwoWayFailureRecoveryPolicy {
     int return_success_steps{5};
     double work_gap_tolerance{0.05};
     double force_jump_tolerance{0.05};
+    bool strict_work_gap_gate{false};
 };
 
 enum class RegularizationPolicyKind {
     None,
     SPDProjection,
-    DiagonalFloor
+    DiagonalFloor,
+    TwoWayTangentBlend,
+    TwoWayTangentSpectralFloor,
+    TwoWayTangentBlendSpectral,
+    TwoWayFeedbackWorkGapLimiter
+};
+
+enum class TwoWayTangentRegularizationMode {
+    None,
+    Blend,
+    SpectralFloor,
+    BlendSpectral
+};
+
+struct TwoWayTangentRegularizationSettings {
+    TwoWayTangentRegularizationMode mode{
+        TwoWayTangentRegularizationMode::None};
+    double blend_alpha{0.35};
+    double negative_eigen_floor_ratio{0.25};
+    double positive_eigen_floor_ratio{0.02};
+};
+
+struct TwoWayFeedbackLimiterSettings {
+    bool enabled{false};
+    double work_gap_limit{0.05};
+    double min_alpha{0.01};
 };
 
 struct CouplingSite {
@@ -180,6 +206,12 @@ struct SectionHomogenizedResponse {
     double tangent_max_symmetric_eigenvalue{0.0};
     double tangent_trace{0.0};
     int tangent_nonpositive_diagonal_entries{0};
+    double tangent_regularization_pre_min_symmetric_eigenvalue{0.0};
+    double tangent_regularization_pre_max_symmetric_eigenvalue{0.0};
+    double tangent_regularization_post_min_symmetric_eigenvalue{0.0};
+    double tangent_regularization_post_max_symmetric_eigenvalue{0.0};
+    double tangent_regularization_relative_change{0.0};
+    double tangent_regularization_force_delta_norm{0.0};
 };
 
 struct CouplingSiteIterationRecord {
@@ -204,6 +236,12 @@ struct CouplingSiteIterationRecord {
     double tangent_max_symmetric_eigenvalue{0.0};
     double tangent_trace{0.0};
     int tangent_nonpositive_diagonal_entries{0};
+    double tangent_regularization_pre_min_symmetric_eigenvalue{0.0};
+    double tangent_regularization_pre_max_symmetric_eigenvalue{0.0};
+    double tangent_regularization_post_min_symmetric_eigenvalue{0.0};
+    double tangent_regularization_post_max_symmetric_eigenvalue{0.0};
+    double tangent_regularization_relative_change{0.0};
+    double tangent_regularization_force_delta_norm{0.0};
     bool adaptive_relaxation_applied{false};
     int adaptive_relaxation_attempts{0};
     double adaptive_relaxation_alpha{1.0};
@@ -354,6 +392,18 @@ inline void append_site_iteration_record(
         .tangent_trace = response.tangent_trace,
         .tangent_nonpositive_diagonal_entries =
             response.tangent_nonpositive_diagonal_entries,
+        .tangent_regularization_pre_min_symmetric_eigenvalue =
+            response.tangent_regularization_pre_min_symmetric_eigenvalue,
+        .tangent_regularization_pre_max_symmetric_eigenvalue =
+            response.tangent_regularization_pre_max_symmetric_eigenvalue,
+        .tangent_regularization_post_min_symmetric_eigenvalue =
+            response.tangent_regularization_post_min_symmetric_eigenvalue,
+        .tangent_regularization_post_max_symmetric_eigenvalue =
+            response.tangent_regularization_post_max_symmetric_eigenvalue,
+        .tangent_regularization_relative_change =
+            response.tangent_regularization_relative_change,
+        .tangent_regularization_force_delta_norm =
+            response.tangent_regularization_force_delta_norm,
         .adaptive_relaxation_applied = adaptive_relaxation_applied,
         .adaptive_relaxation_attempts = adaptive_relaxation_attempts,
         .adaptive_relaxation_alpha = adaptive_relaxation_alpha,
@@ -608,8 +658,32 @@ to_string(RegularizationPolicyKind kind)
             return "SPDProjection";
         case RegularizationPolicyKind::DiagonalFloor:
             return "DiagonalFloor";
+        case RegularizationPolicyKind::TwoWayTangentBlend:
+            return "TwoWayTangentBlend";
+        case RegularizationPolicyKind::TwoWayTangentSpectralFloor:
+            return "TwoWayTangentSpectralFloor";
+        case RegularizationPolicyKind::TwoWayTangentBlendSpectral:
+            return "TwoWayTangentBlendSpectral";
+        case RegularizationPolicyKind::TwoWayFeedbackWorkGapLimiter:
+            return "TwoWayFeedbackWorkGapLimiter";
     }
     return "UnknownRegularizationPolicy";
+}
+
+[[nodiscard]] inline constexpr std::string_view
+to_string(TwoWayTangentRegularizationMode mode)
+{
+    switch (mode) {
+        case TwoWayTangentRegularizationMode::None:
+            return "none";
+        case TwoWayTangentRegularizationMode::Blend:
+            return "blend";
+        case TwoWayTangentRegularizationMode::SpectralFloor:
+            return "spectral_floor";
+        case TwoWayTangentRegularizationMode::BlendSpectral:
+            return "blend_spectral";
+    }
+    return "unknown_two_way_tangent_regularization";
 }
 
 // ─── Plan v2 §Fase 4C — UpscalingResult ──────────────────────────────────
