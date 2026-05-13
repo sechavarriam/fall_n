@@ -21,6 +21,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -63,23 +65,29 @@ struct ShiftedHeavisideSolidOptions {
     return "unknown";
 }
 
+struct XFEMPrincipalStrainPlaneCandidate {
+    bool valid{false};
+    double principal_strain{0.0};
+    Eigen::Vector3d point{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d normal{Eigen::Vector3d::UnitZ()};
+};
+
 // Small-strain solid XFEM element with shifted-Heaviside enrichment.
 //
 // Unknown layout per enriched host node:
-//   [u_x, u_y, u_z, a_x, a_y, a_z]
+//   [u_x, u_y, u_z, a1_x, a1_y, a1_z, a2_x, ...]
 //
 // The regular volumetric operator uses
-//   u_h = sum_I N_I u_I + sum_I N_I (H(x) - H(x_I)) a_I,
+//   u_h = sum_I N_I u_I
+//       + sum_p sum_I N_I (H_p(x) - H_p(x_I)) a_{pI},
 // while the cohesive crack surface receives the distributional part through
-//   [[u]] = 2 sum_I N_I a_I.
+//   [[u]]_p = 2 sum_I N_I a_{pI}.
 //
 // This class is intentionally separate from ContinuumElement so the standard
 // hot path remains compact and so XFEM-specific costs are paid only by XFEM
-// models.  The first implementation targets the RC local-model use case:
-// a planar crack crossing a hexahedral solid.  Cohesive integration currently
-// supports planes normal to global z on prismatic hexes; arbitrary crack
-// triangulation is the next extension point, not a hidden hard-code in the
-// standard element.
+// models.  It supports one or more planar shifted-Heaviside discontinuities
+// with arbitrary normals; each plane receives its own enriched vector block
+// and its own cohesive-surface state.
 template <typename MaterialPolicy,
           typename KinematicPolicy = continuum::SmallStrain>
     requires ShiftedHeavisideKinematicPolicy<KinematicPolicy>
@@ -89,6 +97,12 @@ public:
     using MaterialT = Material<MaterialPolicy>;
     using MaterialPointT = MaterialPoint<MaterialPolicy>;
     using StateVariableT = typename MaterialPolicy::StateVariableT;
+
+    struct InternalState {
+        std::vector<MaterialPointT> material_points{};
+        std::vector<std::vector<CohesiveCrackState>> cohesive_states{};
+        std::vector<XFEMCrackPlane> crack_planes{};
+    };
 
     static constexpr std::size_t dim = 3;
     static constexpr std::size_t standard_dofs = dim;
@@ -107,6 +121,7 @@ private:
         std::size_t node{0};
         std::size_t component{0};
         bool enriched{false};
+        std::size_t plane{std::numeric_limits<std::size_t>::max()};
         double node_heaviside{0.0};
     };
 
@@ -115,26 +130,37 @@ private:
         double weight_area{0.0};
     };
 
+    static constexpr std::size_t no_plane_ =
+        std::numeric_limits<std::size_t>::max();
+
     ElementGeometry<dim>* geometry_{nullptr};
     std::vector<MaterialPointT> material_points_{};
-    PlaneCrackLevelSet crack_{};
+    std::vector<PlaneCrackLevelSet> cracks_{};
+    std::vector<XFEMCrackPlane> crack_planes_{};
     BilinearCohesiveLawParameters cohesive_{};
     ShiftedHeavisideSolidOptions options_{};
-    std::vector<std::uint8_t> enriched_local_nodes_{};
-    std::vector<CohesiveCrackState> cohesive_state_{};
+    std::vector<std::vector<std::uint8_t>> enriched_local_nodes_by_plane_{};
+    std::vector<std::vector<CohesiveCrackState>> cohesive_state_by_plane_{};
 
     std::vector<DofSlot> dof_slots_{};
     std::vector<PetscInt> dof_indices_{};
     bool dofs_cached_{false};
 
-    [[nodiscard]] bool is_cut_() const
+    [[nodiscard]] bool is_cut_by_plane_(std::size_t plane) const
     {
+        if (plane >= cracks_.size()) {
+            return false;
+        }
+        if (plane < crack_planes_.size() && !crack_planes_[plane].active) {
+            return false;
+        }
+        const auto& crack = cracks_[plane];
         bool has_positive = false;
         bool has_negative = false;
         bool has_interface = false;
         for (std::size_t i = 0; i < num_nodes(); ++i) {
             const auto x = node_position_(i);
-            switch (crack_.side(x, options_.cut_tolerance)) {
+            switch (crack.side(x, options_.cut_tolerance)) {
                 case HeavisideSide::positive:
                     has_positive = true;
                     break;
@@ -148,6 +174,23 @@ private:
         }
         return (has_positive && has_negative) ||
                (has_interface && (has_positive || has_negative));
+    }
+
+    [[nodiscard]] static std::vector<XFEMCrackPlane>
+    make_legacy_crack_planes_(const std::vector<PlaneCrackLevelSet>& cracks)
+    {
+        std::vector<XFEMCrackPlane> planes;
+        planes.reserve(cracks.size());
+        for (std::size_t i = 0; i < cracks.size(); ++i) {
+            planes.emplace_back(cracks[i],
+                                static_cast<int>(i + 1),
+                                static_cast<int>(i + 1),
+                                XFEMCrackPlaneSource::legacy,
+                                0,
+                                0.0,
+                                true);
+        }
+        return planes;
     }
 
     [[nodiscard]] Eigen::Vector3d node_position_(std::size_t i) const
@@ -168,54 +211,87 @@ private:
 
     void initialize_enrichment_mask_()
     {
-        enriched_local_nodes_.assign(num_nodes(), 0);
-        if (!is_cut_()) {
-            return;
-        }
-        for (auto& flag : enriched_local_nodes_) {
-            flag = 1;
+        enriched_local_nodes_by_plane_.assign(
+            cracks_.size(), std::vector<std::uint8_t>(num_nodes(), 0));
+        for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+            if (!is_cut_by_plane_(plane)) {
+                continue;
+            }
+            for (auto& flag : enriched_local_nodes_by_plane_[plane]) {
+                flag = 1;
+            }
         }
     }
 
     [[nodiscard]] bool has_enrichment_() const noexcept
     {
         return std::ranges::any_of(
-            enriched_local_nodes_,
-            [](std::uint8_t flag) { return flag != 0; });
+            enriched_local_nodes_by_plane_,
+            [](const auto& plane_mask) {
+                return std::ranges::any_of(
+                    plane_mask,
+                    [](std::uint8_t flag) { return flag != 0; });
+            });
+    }
+
+    [[nodiscard]] bool node_has_any_enrichment_(
+        std::size_t node) const noexcept
+    {
+        return std::ranges::any_of(
+            enriched_local_nodes_by_plane_,
+            [node](const auto& plane_mask) {
+                return node < plane_mask.size() && plane_mask[node] != 0;
+            });
+    }
+
+    [[nodiscard]] bool node_has_plane_enrichment_(
+        std::size_t plane,
+        std::size_t node) const noexcept
+    {
+        return plane < enriched_local_nodes_by_plane_.size() &&
+               node < enriched_local_nodes_by_plane_[plane].size() &&
+               enriched_local_nodes_by_plane_[plane][node] != 0;
     }
 
     void collect_dof_indices_()
     {
         dof_slots_.clear();
         dof_indices_.clear();
-        dof_slots_.reserve(num_nodes() * 2 * dim);
-        dof_indices_.reserve(num_nodes() * 2 * dim);
+        dof_slots_.reserve(num_nodes() * (1 + cracks_.size()) * dim);
+        dof_indices_.reserve(num_nodes() * (1 + cracks_.size()) * dim);
 
         for (std::size_t node = 0; node < num_nodes(); ++node) {
             const auto node_dofs = geometry_->node_p(node).dof_index();
-            const double h_node = signed_heaviside(
-                crack_.signed_distance(node_position_(node)),
-                options_.cut_tolerance);
             if (node_dofs.size() < dim) {
                 throw std::runtime_error(
                     "XFEM solid found a node with fewer than three displacement DOFs.");
             }
             for (std::size_t c = 0; c < dim; ++c) {
-                dof_slots_.push_back({node, c, false, h_node});
+                dof_slots_.push_back({node, c, false, no_plane_, 0.0});
                 dof_indices_.push_back(node_dofs[c]);
             }
-            if (enriched_local_nodes_[node] == 0) {
+            if (!node_has_any_enrichment_(node)) {
                 continue;
             }
             if (node_dofs.size() <
-                ShiftedHeavisideDofLayout<dim>::total_dofs) {
+                shifted_heaviside_total_dofs<dim>(cracks_.size())) {
                 throw std::runtime_error(
                     "XFEM solid enriched node does not expose enriched PETSc DOFs.");
             }
-            for (std::size_t c = 0; c < dim; ++c) {
-                dof_slots_.push_back({node, c, true, h_node});
-                dof_indices_.push_back(
-                    node_dofs[shifted_heaviside_enriched_component<dim>(c)]);
+            for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+                if (!node_has_plane_enrichment_(plane, node)) {
+                    continue;
+                }
+                const double h_node = signed_heaviside(
+                    cracks_[plane].signed_distance(node_position_(node)),
+                    options_.cut_tolerance);
+                for (std::size_t c = 0; c < dim; ++c) {
+                    dof_slots_.push_back({node, c, true, plane, h_node});
+                    dof_indices_.push_back(
+                        node_dofs[shifted_heaviside_enriched_component<dim>(
+                            plane,
+                            c)]);
+                }
             }
         }
         dofs_cached_ = true;
@@ -242,15 +318,19 @@ private:
     {
         const auto grad = physical_gradients_(xi);
         const auto x = mapped_point_(xi);
-        const double h_x =
-            signed_heaviside(crack_.signed_distance(x), options_.cut_tolerance);
         auto slot_at = [&](std::size_t local_col) {
             const auto& slot = dof_slots_[local_col];
+            double scale = 1.0;
+            if (slot.enriched && slot.plane < cracks_.size()) {
+                const double h_x = signed_heaviside(
+                    cracks_[slot.plane].signed_distance(x),
+                    options_.cut_tolerance);
+                scale = h_x - slot.node_heaviside;
+            }
             return ShiftedHeavisideKinematicSlot{
                 .node = slot.node,
                 .component = slot.component,
-                .enrichment_scale =
-                    slot.enriched ? (h_x - slot.node_heaviside) : 1.0};
+                .enrichment_scale = scale};
         };
         return compute_shifted_heaviside_B_from_slot_provider<dim>(
             grad,
@@ -264,15 +344,19 @@ private:
     {
         const auto grad = physical_gradients_(xi);
         const auto x = mapped_point_(xi);
-        const double h_x =
-            signed_heaviside(crack_.signed_distance(x), options_.cut_tolerance);
         auto slot_at = [&](std::size_t local_col) {
             const auto& slot = dof_slots_[local_col];
+            double scale = 1.0;
+            if (slot.enriched && slot.plane < cracks_.size()) {
+                const double h_x = signed_heaviside(
+                    cracks_[slot.plane].signed_distance(x),
+                    options_.cut_tolerance);
+                scale = h_x - slot.node_heaviside;
+            }
             return ShiftedHeavisideKinematicSlot{
                 .node = slot.node,
                 .component = slot.component,
-                .enrichment_scale =
-                    slot.enriched ? (h_x - slot.node_heaviside) : 1.0};
+                .enrichment_scale = scale};
         };
         return evaluate_shifted_heaviside_kinematics_from_slot_provider<
             KinematicPolicy,
@@ -295,11 +379,14 @@ private:
 
         const auto grad = physical_gradients_(xi);
         const auto x = mapped_point_(xi);
-        const double h_x =
-            signed_heaviside(crack_.signed_distance(x), options_.cut_tolerance);
         const auto& slot = dof_slots_[local_col];
-        const double scale =
-            slot.enriched ? (h_x - slot.node_heaviside) : 1.0;
+        double scale = 1.0;
+        if (slot.enriched && slot.plane < cracks_.size()) {
+            const double h_x = signed_heaviside(
+                cracks_[slot.plane].signed_distance(x),
+                options_.cut_tolerance);
+            scale = h_x - slot.node_heaviside;
+        }
         for (std::size_t j = 0; j < dim; ++j) {
             dF(static_cast<Eigen::Index>(slot.component),
                static_cast<Eigen::Index>(j)) =
@@ -318,46 +405,196 @@ private:
         return {p[0], p[1], p[2]};
     }
 
-    [[nodiscard]] std::vector<SurfacePoint> crack_surface_points_() const
+    [[nodiscard]] std::optional<std::array<double, 3>>
+    reference_coordinates_for_physical_(const Eigen::Vector3d& target) const
     {
-        if (!has_enrichment_()) {
-            return {};
-        }
-        if (std::abs(std::abs(crack_.normal.z()) - 1.0) > 1.0e-10) {
-            throw std::runtime_error(
-                "XFEM cohesive integration currently supports global-z crack normals.");
+        std::array<double, 3> xi{0.0, 0.0, 0.0};
+        for (int iter = 0; iter < 12; ++iter) {
+            const auto mapped = geometry_->map_local_point(
+                std::span<const double>{xi.data(), xi.size()});
+            const Eigen::Vector3d x{mapped[0], mapped[1], mapped[2]};
+            const Eigen::Vector3d residual = x - target;
+            if (residual.norm() < 1.0e-11) {
+                return xi;
+            }
+            const auto J = geometry_->evaluate_jacobian(
+                std::span<const double>{xi.data(), xi.size()});
+            if (J.cols() != 3) {
+                return std::nullopt;
+            }
+            const Eigen::Vector3d delta =
+                J.colPivHouseholderQr().solve(residual);
+            if (!delta.allFinite()) {
+                return std::nullopt;
+            }
+            for (std::size_t i = 0; i < 3; ++i) {
+                xi[i] -= delta[static_cast<Eigen::Index>(i)];
+                xi[i] = std::clamp(xi[i], -1.25, 1.25);
+            }
         }
 
-        double z_min = node_position_(0).z();
-        double z_max = z_min;
-        for (std::size_t i = 1; i < num_nodes(); ++i) {
-            const double z = node_position_(i).z();
-            z_min = std::min(z_min, z);
-            z_max = std::max(z_max, z);
+        const auto mapped = geometry_->map_local_point(
+            std::span<const double>{xi.data(), xi.size()});
+        const Eigen::Vector3d x{mapped[0], mapped[1], mapped[2]};
+        if ((x - target).norm() < 1.0e-8) {
+            return xi;
         }
-        const double z_plane = crack_.point.z();
-        if (z_plane < z_min - options_.cut_tolerance ||
-            z_plane > z_max + options_.cut_tolerance ||
-            std::abs(z_max - z_min) <= options_.cut_tolerance) {
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::vector<std::pair<std::size_t, std::size_t>>
+    candidate_edges_() const
+    {
+        std::vector<std::pair<std::size_t, std::size_t>> edges;
+        auto add_edge = [&](std::size_t a, std::size_t b) {
+            if (a == b || a >= num_nodes() || b >= num_nodes()) {
+                return;
+            }
+            if (a > b) {
+                std::swap(a, b);
+            }
+            const auto e = std::pair{a, b};
+            if (std::ranges::find(edges, e) == edges.end()) {
+                edges.push_back(e);
+            }
+        };
+
+        const std::size_t nf = geometry_->num_faces();
+        for (std::size_t f = 0; f < nf; ++f) {
+            const auto face_nodes = geometry_->face_node_indices(f);
+            if (face_nodes.size() < 2) {
+                continue;
+            }
+            for (std::size_t i = 0; i < face_nodes.size(); ++i) {
+                add_edge(face_nodes[i],
+                         face_nodes[(i + 1) % face_nodes.size()]);
+            }
+        }
+
+        if (edges.empty() && num_nodes() == 8) {
+            static constexpr std::array<std::pair<std::size_t, std::size_t>,
+                                        12>
+                hex8_edges{{
+                    {0, 1},
+                    {1, 3},
+                    {3, 2},
+                    {2, 0},
+                    {4, 5},
+                    {5, 7},
+                    {7, 6},
+                    {6, 4},
+                    {0, 4},
+                    {1, 5},
+                    {2, 6},
+                    {3, 7},
+                }};
+            edges.assign(hex8_edges.begin(), hex8_edges.end());
+        }
+        return edges;
+    }
+
+    [[nodiscard]] std::vector<SurfacePoint> crack_surface_points_(
+        std::size_t plane) const
+    {
+        if (plane >= cracks_.size()) {
+            return {};
+        }
+        if (!std::ranges::any_of(enriched_local_nodes_by_plane_[plane],
+                                 [](std::uint8_t f) { return f != 0; })) {
             return {};
         }
 
-        const double zeta =
-            -1.0 + 2.0 * (z_plane - z_min) / (z_max - z_min);
-        const double g = 1.0 / std::sqrt(3.0);
-        const std::array<double, 2> pts{-g, g};
+        const auto& crack = cracks_[plane];
+        const auto edges = candidate_edges_();
+        if (edges.empty()) {
+            return {};
+        }
+
+        std::vector<Eigen::Vector3d> polygon;
+        auto add_unique = [&](const Eigen::Vector3d& x) {
+            for (const auto& p : polygon) {
+                if ((p - x).norm() <= 1.0e-9) {
+                    return;
+                }
+            }
+            polygon.push_back(x);
+        };
+
+        for (const auto& [a, b] : edges) {
+            const Eigen::Vector3d xa = node_position_(a);
+            const Eigen::Vector3d xb = node_position_(b);
+            const double da = crack.signed_distance(xa);
+            const double db = crack.signed_distance(xb);
+            const bool a_on = std::abs(da) <= options_.cut_tolerance;
+            const bool b_on = std::abs(db) <= options_.cut_tolerance;
+            if (a_on) {
+                add_unique(xa);
+            }
+            if (b_on) {
+                add_unique(xb);
+            }
+            if ((da < -options_.cut_tolerance &&
+                 db > options_.cut_tolerance) ||
+                (da > options_.cut_tolerance &&
+                 db < -options_.cut_tolerance)) {
+                const double t = da / (da - db);
+                add_unique(xa + t * (xb - xa));
+            }
+        }
+
+        if (polygon.size() < 3) {
+            return {};
+        }
+
+        Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+        for (const auto& p : polygon) {
+            centroid += p;
+        }
+        centroid /= static_cast<double>(polygon.size());
+
+        Eigen::Vector3d tangent_1;
+        if (std::abs(crack.normal.x()) < 0.9) {
+            tangent_1 =
+                crack.normal.cross(Eigen::Vector3d::UnitX()).normalized();
+        } else {
+            tangent_1 =
+                crack.normal.cross(Eigen::Vector3d::UnitY()).normalized();
+        }
+        const Eigen::Vector3d tangent_2 =
+            crack.normal.cross(tangent_1).normalized();
+
+        std::ranges::sort(
+            polygon,
+            [&](const Eigen::Vector3d& a, const Eigen::Vector3d& b) {
+                const Eigen::Vector3d ra = a - centroid;
+                const Eigen::Vector3d rb = b - centroid;
+                const double aa =
+                    std::atan2(ra.dot(tangent_2), ra.dot(tangent_1));
+                const double ab =
+                    std::atan2(rb.dot(tangent_2), rb.dot(tangent_1));
+                return aa < ab;
+            });
+
         std::vector<SurfacePoint> surface;
-        surface.reserve(4);
-        for (const double xi : pts) {
-            for (const double eta : pts) {
-                std::array<double, 3> xihat{xi, eta, zeta};
-                const auto J = geometry_->evaluate_jacobian(
-                    std::span<const double>{xihat.data(), xihat.size()});
-                const Eigen::Vector3d a = J.col(0);
-                const Eigen::Vector3d b = J.col(1);
-                const double area = a.cross(b).norm();
-                if (area > options_.minimum_area_measure) {
-                    surface.push_back({xihat, area});
+        surface.reserve(3 * (polygon.size() - 2));
+        static constexpr std::array<std::array<double, 3>, 3> bary{{
+            {2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0},
+            {1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0},
+            {1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0},
+        }};
+        for (std::size_t i = 1; i + 1 < polygon.size(); ++i) {
+            const Eigen::Vector3d p0 = centroid;
+            const Eigen::Vector3d p1 = polygon[i];
+            const Eigen::Vector3d p2 = polygon[i + 1];
+            const double area = 0.5 * (p1 - p0).cross(p2 - p0).norm();
+            if (area <= options_.minimum_area_measure) {
+                continue;
+            }
+            for (const auto& b : bary) {
+                const Eigen::Vector3d xq =
+                    b[0] * p0 + b[1] * p1 + b[2] * p2;
+                if (auto xi = reference_coordinates_for_physical_(xq)) {
+                    surface.push_back({*xi, area / 3.0});
                 }
             }
         }
@@ -370,84 +607,45 @@ private:
         Eigen::MatrixXd* K_e,
         bool advance_state)
     {
-        const auto surface = crack_surface_points_();
-        if (surface.empty()) {
-            return;
-        }
-        if (cohesive_state_.size() != surface.size()) {
-            cohesive_state_.assign(surface.size(), {});
+        if (cohesive_state_by_plane_.size() != cracks_.size()) {
+            cohesive_state_by_plane_.resize(cracks_.size());
         }
 
-        for (std::size_t qp = 0; qp < surface.size(); ++qp) {
-            const auto& sp = surface[qp];
-            Eigen::Vector3d jump = Eigen::Vector3d::Zero();
-
-            std::vector<std::pair<std::size_t, double>> enriched_weights;
-            enriched_weights.reserve(num_nodes());
-            for (std::size_t node = 0; node < num_nodes(); ++node) {
-                if (enriched_local_nodes_[node] == 0) {
-                    continue;
-                }
-                const double N = geometry_->H(
-                    node,
-                    std::span<const double>{sp.xi.data(), sp.xi.size()});
-                if (std::abs(N) <= 1.0e-14) {
-                    continue;
-                }
-                enriched_weights.emplace_back(node, 2.0 * N);
+        for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+            const auto surface = crack_surface_points_(plane);
+            if (surface.empty()) {
+                continue;
+            }
+            auto& cohesive_state = cohesive_state_by_plane_[plane];
+            if (cohesive_state.size() != surface.size()) {
+                cohesive_state.assign(surface.size(), {});
             }
 
-            for (std::size_t local_col = 0; local_col < dof_slots_.size();
-                 ++local_col) {
-                const auto& slot = dof_slots_[local_col];
-                if (!slot.enriched) {
-                    continue;
-                }
-                double coeff = 0.0;
-                for (const auto& [node, w] : enriched_weights) {
-                    if (node == slot.node) {
-                        coeff = w;
-                        break;
+            for (std::size_t qp = 0; qp < surface.size(); ++qp) {
+                const auto& sp = surface[qp];
+                Eigen::Vector3d jump = Eigen::Vector3d::Zero();
+
+                std::vector<std::pair<std::size_t, double>> enriched_weights;
+                enriched_weights.reserve(num_nodes());
+                for (std::size_t node = 0; node < num_nodes(); ++node) {
+                    if (!node_has_plane_enrichment_(plane, node)) {
+                        continue;
                     }
+                    const double N = geometry_->H(
+                        node,
+                        std::span<const double>{sp.xi.data(),
+                                                sp.xi.size()});
+                    if (std::abs(N) <= 1.0e-14) {
+                        continue;
+                    }
+                    enriched_weights.emplace_back(node, 2.0 * N);
                 }
-                if (coeff == 0.0) {
-                    continue;
-                }
-                jump[static_cast<Eigen::Index>(slot.component)] +=
-                    coeff * u_e[static_cast<Eigen::Index>(local_col)];
-            }
 
-            const auto surface_kinematics =
-                evaluate_shifted_heaviside_cohesive_surface_kinematics<
-                    KinematicPolicy>(
-                    crack_.normal,
-                    shifted_heaviside_kinematics_(sp.xi, u_e));
-            const auto traction_measure =
-                select_shifted_heaviside_cohesive_traction_measure(
-                    options_.cohesive_traction_measure_kind,
-                    surface_kinematics);
-            const double surface_weight =
-                sp.weight_area * traction_measure.area_scale;
-
-            const auto split =
-                split_crack_jump(traction_measure.normal, jump);
-            const auto response = evaluate_bilinear_cohesive_law(
-                cohesive_,
-                cohesive_state_[qp],
-                traction_measure.normal,
-                split.normal_opening,
-                split.tangential_jump);
-
-            if (advance_state) {
-                cohesive_state_[qp] =
-                    advance_bilinear_cohesive_state(response);
-            }
-
-            if (f_e != nullptr) {
-                for (std::size_t local_col = 0; local_col < dof_slots_.size();
+                for (std::size_t local_col = 0;
+                     local_col < dof_slots_.size();
                      ++local_col) {
                     const auto& slot = dof_slots_[local_col];
-                    if (!slot.enriched) {
+                    if (!slot.enriched || slot.plane != plane) {
                         continue;
                     }
                     double coeff = 0.0;
@@ -460,50 +658,99 @@ private:
                     if (coeff == 0.0) {
                         continue;
                     }
-                    (*f_e)[static_cast<Eigen::Index>(local_col)] +=
-                        surface_weight * coeff *
-                        response.traction[
-                            static_cast<Eigen::Index>(slot.component)];
+                    jump[static_cast<Eigen::Index>(slot.component)] +=
+                        coeff * u_e[static_cast<Eigen::Index>(local_col)];
                 }
-            }
 
-            if (K_e != nullptr) {
-                for (std::size_t a = 0; a < dof_slots_.size(); ++a) {
-                    const auto& sa = dof_slots_[a];
-                    if (!sa.enriched) {
-                        continue;
-                    }
-                    double ca = 0.0;
-                    for (const auto& [node, w] : enriched_weights) {
-                        if (node == sa.node) {
-                            ca = w;
-                            break;
-                        }
-                    }
-                    if (ca == 0.0) {
-                        continue;
-                    }
-                    for (std::size_t b = 0; b < dof_slots_.size(); ++b) {
-                        const auto& sb = dof_slots_[b];
-                        if (!sb.enriched) {
+                const auto surface_kinematics =
+                    evaluate_shifted_heaviside_cohesive_surface_kinematics<
+                        KinematicPolicy>(
+                        cracks_[plane].normal,
+                        shifted_heaviside_kinematics_(sp.xi, u_e));
+                const auto traction_measure =
+                    select_shifted_heaviside_cohesive_traction_measure(
+                        options_.cohesive_traction_measure_kind,
+                        surface_kinematics);
+                const double surface_weight =
+                    sp.weight_area * traction_measure.area_scale;
+
+                const auto split =
+                    split_crack_jump(traction_measure.normal, jump);
+                const auto response = evaluate_bilinear_cohesive_law(
+                    cohesive_,
+                    cohesive_state[qp],
+                    traction_measure.normal,
+                    split.normal_opening,
+                    split.tangential_jump);
+
+                if (advance_state) {
+                    cohesive_state[qp] =
+                        advance_bilinear_cohesive_state(response);
+                }
+
+                if (f_e != nullptr) {
+                    for (std::size_t local_col = 0;
+                         local_col < dof_slots_.size();
+                         ++local_col) {
+                        const auto& slot = dof_slots_[local_col];
+                        if (!slot.enriched || slot.plane != plane) {
                             continue;
                         }
-                        double cb = 0.0;
+                        double coeff = 0.0;
                         for (const auto& [node, w] : enriched_weights) {
-                            if (node == sb.node) {
-                                cb = w;
+                            if (node == slot.node) {
+                                coeff = w;
                                 break;
                             }
                         }
-                        if (cb == 0.0) {
+                        if (coeff == 0.0) {
                             continue;
                         }
-                        (*K_e)(static_cast<Eigen::Index>(a),
-                               static_cast<Eigen::Index>(b)) +=
-                            surface_weight * ca * cb *
-                            response.tangent_stiffness(
-                                static_cast<Eigen::Index>(sa.component),
-                                static_cast<Eigen::Index>(sb.component));
+                        (*f_e)[static_cast<Eigen::Index>(local_col)] +=
+                            surface_weight * coeff *
+                            response.traction[
+                                static_cast<Eigen::Index>(slot.component)];
+                    }
+                }
+
+                if (K_e != nullptr) {
+                    for (std::size_t a = 0; a < dof_slots_.size(); ++a) {
+                        const auto& sa = dof_slots_[a];
+                        if (!sa.enriched || sa.plane != plane) {
+                            continue;
+                        }
+                        double ca = 0.0;
+                        for (const auto& [node, w] : enriched_weights) {
+                            if (node == sa.node) {
+                                ca = w;
+                                break;
+                            }
+                        }
+                        if (ca == 0.0) {
+                            continue;
+                        }
+                        for (std::size_t b = 0; b < dof_slots_.size(); ++b) {
+                            const auto& sb = dof_slots_[b];
+                            if (!sb.enriched || sb.plane != plane) {
+                                continue;
+                            }
+                            double cb = 0.0;
+                            for (const auto& [node, w] : enriched_weights) {
+                                if (node == sb.node) {
+                                    cb = w;
+                                    break;
+                                }
+                            }
+                            if (cb == 0.0) {
+                                continue;
+                            }
+                            (*K_e)(static_cast<Eigen::Index>(a),
+                                   static_cast<Eigen::Index>(b)) +=
+                                surface_weight * ca * cb *
+                                response.tangent_stiffness(
+                                    static_cast<Eigen::Index>(sa.component),
+                                    static_cast<Eigen::Index>(sb.component));
+                        }
                     }
                 }
             }
@@ -582,119 +829,128 @@ private:
         const Eigen::VectorXd& u_e)
     {
         Eigen::MatrixXd K_e = cohesive_frozen_surface_tangent_(u_e);
-        const auto surface = crack_surface_points_();
-        if (surface.empty()) {
-            return K_e;
-        }
-        if (cohesive_state_.size() != surface.size()) {
-            cohesive_state_.assign(surface.size(), {});
+        if (cohesive_state_by_plane_.size() != cracks_.size()) {
+            cohesive_state_by_plane_.resize(cracks_.size());
         }
 
-        for (std::size_t qp = 0; qp < surface.size(); ++qp) {
-            const auto& sp = surface[qp];
-            Eigen::Vector3d jump = Eigen::Vector3d::Zero();
-
-            std::vector<std::pair<std::size_t, double>> enriched_weights;
-            enriched_weights.reserve(num_nodes());
-            for (std::size_t node = 0; node < num_nodes(); ++node) {
-                if (enriched_local_nodes_[node] == 0) {
-                    continue;
-                }
-                const double N = geometry_->H(
-                    node,
-                    std::span<const double>{sp.xi.data(), sp.xi.size()});
-                if (std::abs(N) > 1.0e-14) {
-                    enriched_weights.emplace_back(node, 2.0 * N);
-                }
+        for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+            const auto surface = crack_surface_points_(plane);
+            if (surface.empty()) {
+                continue;
+            }
+            auto& cohesive_state = cohesive_state_by_plane_[plane];
+            if (cohesive_state.size() != surface.size()) {
+                cohesive_state.assign(surface.size(), {});
             }
 
-            for (std::size_t local_col = 0; local_col < dof_slots_.size();
-                 ++local_col) {
-                const auto& slot = dof_slots_[local_col];
-                if (!slot.enriched) {
-                    continue;
-                }
-                double coeff = 0.0;
-                for (const auto& [node, w] : enriched_weights) {
-                    if (node == slot.node) {
-                        coeff = w;
-                        break;
-                    }
-                }
-                if (coeff != 0.0) {
-                    jump[static_cast<Eigen::Index>(slot.component)] +=
-                        coeff * u_e[static_cast<Eigen::Index>(local_col)];
-                }
-            }
+            for (std::size_t qp = 0; qp < surface.size(); ++qp) {
+                const auto& sp = surface[qp];
+                Eigen::Vector3d jump = Eigen::Vector3d::Zero();
 
-            const auto gp = shifted_heaviside_kinematics_(sp.xi, u_e);
-            const auto surface_kinematics =
-                evaluate_shifted_heaviside_cohesive_surface_kinematics<
-                    KinematicPolicy>(crack_.normal, gp);
-            const auto traction_measure =
-                select_shifted_heaviside_cohesive_traction_measure(
-                    options_.cohesive_traction_measure_kind,
-                    surface_kinematics);
-            const auto split =
-                split_crack_jump(traction_measure.normal, jump);
-            const auto response = evaluate_bilinear_cohesive_law(
-                cohesive_,
-                cohesive_state_[qp],
-                traction_measure.normal,
-                split.normal_opening,
-                split.tangential_jump);
-            const Eigen::Matrix3d traction_normal_tangent =
-                cohesive_traction_normal_tangent_(
-                    traction_measure.normal,
-                    jump,
-                    cohesive_state_[qp]);
-
-            for (std::size_t b = 0; b < dof_slots_.size(); ++b) {
-                if (traction_measure.uses_reference_surface) {
-                    continue;
-                }
-                const auto surface_differential =
-                    evaluate_shifted_heaviside_cohesive_surface_differential<
-                        KinematicPolicy>(
-                        crack_.normal,
-                        gp,
-                        shifted_heaviside_deformation_gradient_direction_(
-                            sp.xi,
-                            b));
-                if (!surface_differential
-                         .includes_surface_measure_derivative) {
-                    continue;
-                }
-                const Eigen::Vector3d dtraction =
-                    traction_normal_tangent *
-                    surface_differential.normal_directional_derivative;
-
-                for (std::size_t a = 0; a < dof_slots_.size(); ++a) {
-                    const auto& sa = dof_slots_[a];
-                    if (!sa.enriched) {
+                std::vector<std::pair<std::size_t, double>> enriched_weights;
+                enriched_weights.reserve(num_nodes());
+                for (std::size_t node = 0; node < num_nodes(); ++node) {
+                    if (!node_has_plane_enrichment_(plane, node)) {
                         continue;
                     }
-                    double ca = 0.0;
+                    const double N = geometry_->H(
+                        node,
+                        std::span<const double>{sp.xi.data(),
+                                                sp.xi.size()});
+                    if (std::abs(N) > 1.0e-14) {
+                        enriched_weights.emplace_back(node, 2.0 * N);
+                    }
+                }
+
+                for (std::size_t local_col = 0;
+                     local_col < dof_slots_.size();
+                     ++local_col) {
+                    const auto& slot = dof_slots_[local_col];
+                    if (!slot.enriched || slot.plane != plane) {
+                        continue;
+                    }
+                    double coeff = 0.0;
                     for (const auto& [node, w] : enriched_weights) {
-                        if (node == sa.node) {
-                            ca = w;
+                        if (node == slot.node) {
+                            coeff = w;
                             break;
                         }
                     }
-                    if (ca == 0.0) {
+                    if (coeff != 0.0) {
+                        jump[static_cast<Eigen::Index>(slot.component)] +=
+                            coeff * u_e[static_cast<Eigen::Index>(local_col)];
+                    }
+                }
+
+                const auto gp = shifted_heaviside_kinematics_(sp.xi, u_e);
+                const auto surface_kinematics =
+                    evaluate_shifted_heaviside_cohesive_surface_kinematics<
+                        KinematicPolicy>(cracks_[plane].normal, gp);
+                const auto traction_measure =
+                    select_shifted_heaviside_cohesive_traction_measure(
+                        options_.cohesive_traction_measure_kind,
+                        surface_kinematics);
+                const auto split =
+                    split_crack_jump(traction_measure.normal, jump);
+                const auto response = evaluate_bilinear_cohesive_law(
+                    cohesive_,
+                    cohesive_state[qp],
+                    traction_measure.normal,
+                    split.normal_opening,
+                    split.tangential_jump);
+                const Eigen::Matrix3d traction_normal_tangent =
+                    cohesive_traction_normal_tangent_(
+                        traction_measure.normal,
+                        jump,
+                        cohesive_state[qp]);
+
+                for (std::size_t b = 0; b < dof_slots_.size(); ++b) {
+                    if (traction_measure.uses_reference_surface) {
                         continue;
                     }
-                    const auto row = static_cast<Eigen::Index>(a);
-                    const auto col = static_cast<Eigen::Index>(b);
-                    const auto component =
-                        static_cast<Eigen::Index>(sa.component);
-                    K_e(row, col) +=
-                        sp.weight_area * ca *
-                        (surface_differential
-                                 .area_scale_directional_derivative *
-                            response.traction[component] +
-                         traction_measure.area_scale *
-                             dtraction[component]);
+                    const auto surface_differential =
+                        evaluate_shifted_heaviside_cohesive_surface_differential<
+                            KinematicPolicy>(
+                            cracks_[plane].normal,
+                            gp,
+                            shifted_heaviside_deformation_gradient_direction_(
+                                sp.xi,
+                                b));
+                    if (!surface_differential
+                             .includes_surface_measure_derivative) {
+                        continue;
+                    }
+                    const Eigen::Vector3d dtraction =
+                        traction_normal_tangent *
+                        surface_differential.normal_directional_derivative;
+
+                    for (std::size_t a = 0; a < dof_slots_.size(); ++a) {
+                        const auto& sa = dof_slots_[a];
+                        if (!sa.enriched || sa.plane != plane) {
+                            continue;
+                        }
+                        double ca = 0.0;
+                        for (const auto& [node, w] : enriched_weights) {
+                            if (node == sa.node) {
+                                ca = w;
+                                break;
+                            }
+                        }
+                        if (ca == 0.0) {
+                            continue;
+                        }
+                        const auto row = static_cast<Eigen::Index>(a);
+                        const auto col = static_cast<Eigen::Index>(b);
+                        const auto component =
+                            static_cast<Eigen::Index>(sa.component);
+                        K_e(row, col) +=
+                            sp.weight_area * ca *
+                            (surface_differential
+                                     .area_scale_directional_derivative *
+                                 response.traction[component] +
+                             traction_measure.area_scale *
+                                 dtraction[component]);
+                    }
                 }
             }
         }
@@ -809,6 +1065,19 @@ private:
         return out;
     }
 
+    [[nodiscard]] static Eigen::Matrix3d strain_tensor_from_voigt_(
+        const Eigen::Matrix<double, 6, 1>& strain) noexcept
+    {
+        Eigen::Matrix3d eps = Eigen::Matrix3d::Zero();
+        eps(0, 0) = strain[0];
+        eps(1, 1) = strain[1];
+        eps(2, 2) = strain[2];
+        eps(1, 2) = eps(2, 1) = 0.5 * strain[3];
+        eps(0, 2) = eps(2, 0) = 0.5 * strain[4];
+        eps(0, 1) = eps(1, 0) = 0.5 * strain[5];
+        return eps;
+    }
+
 public:
     ShiftedHeavisideSolidElement() = delete;
 
@@ -818,8 +1087,38 @@ public:
         PlaneCrackLevelSet crack,
         BilinearCohesiveLawParameters cohesive,
         ShiftedHeavisideSolidOptions options = {})
+        : ShiftedHeavisideSolidElement(
+              geometry,
+              std::move(material),
+              std::vector<PlaneCrackLevelSet>{std::move(crack)},
+              std::move(cohesive),
+              options)
+    {
+    }
+
+    ShiftedHeavisideSolidElement(
+        ElementGeometry<dim>* geometry,
+        MaterialT material,
+        std::vector<PlaneCrackLevelSet> cracks,
+        BilinearCohesiveLawParameters cohesive,
+        ShiftedHeavisideSolidOptions options = {})
+        : ShiftedHeavisideSolidElement(
+              geometry,
+              std::move(material),
+              make_legacy_crack_planes_(cracks),
+              std::move(cohesive),
+              options)
+    {
+    }
+
+    ShiftedHeavisideSolidElement(
+        ElementGeometry<dim>* geometry,
+        MaterialT material,
+        std::vector<XFEMCrackPlane> crack_planes,
+        BilinearCohesiveLawParameters cohesive,
+        ShiftedHeavisideSolidOptions options = {})
         : geometry_{geometry},
-          crack_{std::move(crack)},
+          crack_planes_{std::move(crack_planes)},
           cohesive_{std::move(cohesive)},
           options_{options}
     {
@@ -830,6 +1129,21 @@ public:
         if constexpr (MaterialPolicy::dim != dim) {
             throw std::invalid_argument(
                 "ShiftedHeavisideSolidElement currently supports 3D materials.");
+        }
+        if (crack_planes_.empty()) {
+            throw std::invalid_argument(
+                "ShiftedHeavisideSolidElement requires at least one crack plane.");
+        }
+        cracks_.clear();
+        cracks_.reserve(crack_planes_.size());
+        for (auto& plane : crack_planes_) {
+            if (plane.plane_id <= 0) {
+                plane.plane_id = static_cast<int>(cracks_.size() + 1);
+            }
+            if (plane.sequence_id <= 0) {
+                plane.sequence_id = plane.plane_id;
+            }
+            cracks_.push_back(plane.geometry);
         }
         initialize_material_sites_(std::move(material));
         initialize_enrichment_mask_();
@@ -863,6 +1177,76 @@ public:
 
     [[nodiscard]] bool is_cut_by_crack() const { return has_enrichment_(); }
 
+    [[nodiscard]] bool plane_has_surface(std::size_t plane) const
+    {
+        return plane < cracks_.size() && !crack_surface_points_(plane).empty();
+    }
+
+    [[nodiscard]] const std::vector<XFEMCrackPlane>& crack_planes()
+        const noexcept
+    {
+        return crack_planes_;
+    }
+
+    [[nodiscard]] InternalState capture_internal_state() const
+    {
+        return InternalState{
+            .material_points = material_points_,
+            .cohesive_states = cohesive_state_by_plane_,
+            .crack_planes = crack_planes_};
+    }
+
+    void restore_existing_plane_internal_state(const InternalState& state)
+    {
+        if (state.material_points.size() == material_points_.size()) {
+            material_points_ = state.material_points;
+            bind_integration_points();
+        }
+
+        std::vector<std::vector<CohesiveCrackState>> restored(
+            crack_planes_.size());
+        for (std::size_t new_plane = 0;
+             new_plane < crack_planes_.size();
+             ++new_plane) {
+            for (std::size_t old_plane = 0;
+                 old_plane < state.crack_planes.size();
+                 ++old_plane) {
+                if (state.crack_planes[old_plane].plane_id ==
+                    crack_planes_[new_plane].plane_id) {
+                    if (old_plane < state.cohesive_states.size()) {
+                        restored[new_plane] =
+                            state.cohesive_states[old_plane];
+                    }
+                    break;
+                }
+            }
+        }
+        cohesive_state_by_plane_ = std::move(restored);
+    }
+
+    [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            crack_planes_,
+            [](const XFEMCrackPlane& plane) { return plane.active; }));
+    }
+
+    [[nodiscard]] int last_active_crack_plane_id() const noexcept
+    {
+        int last = 0;
+        int last_sequence = std::numeric_limits<int>::min();
+        for (const auto& plane : crack_planes_) {
+            if (!plane.active) {
+                continue;
+            }
+            if (plane.sequence_id >= last_sequence) {
+                last_sequence = plane.sequence_id;
+                last = plane.plane_id;
+            }
+        }
+        return last;
+    }
+
     [[nodiscard]] std::vector<fall_n::CrackRecord>
     collect_crack_records(Vec u_local)
     {
@@ -872,91 +1256,105 @@ public:
         }
 
         ensure_dof_cache_();
-        const auto surface = crack_surface_points_();
-        if (surface.empty()) {
-            return records;
+        if (cohesive_state_by_plane_.size() != cracks_.size()) {
+            cohesive_state_by_plane_.resize(cracks_.size());
         }
-        if (cohesive_state_.size() != surface.size()) {
-            cohesive_state_.assign(surface.size(), {});
-        }
-
         const auto u_e = extract_element_dofs(u_local);
-        records.reserve(surface.size());
 
-        for (std::size_t qp = 0; qp < surface.size(); ++qp) {
-            const auto& sp = surface[qp];
-            Eigen::Vector3d jump = Eigen::Vector3d::Zero();
-
-            std::vector<std::pair<std::size_t, double>> enriched_weights;
-            enriched_weights.reserve(num_nodes());
-            for (std::size_t node = 0; node < num_nodes(); ++node) {
-                if (enriched_local_nodes_[node] == 0) {
-                    continue;
-                }
-                const double N = geometry_->H(
-                    node,
-                    std::span<const double>{sp.xi.data(), sp.xi.size()});
-                if (std::abs(N) <= 1.0e-14) {
-                    continue;
-                }
-                enriched_weights.emplace_back(node, 2.0 * N);
+        for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+            const auto surface = crack_surface_points_(plane);
+            if (surface.empty()) {
+                continue;
             }
+            auto& cohesive_state = cohesive_state_by_plane_[plane];
+            if (cohesive_state.size() != surface.size()) {
+                cohesive_state.assign(surface.size(), {});
+            }
+            records.reserve(records.size() + surface.size());
 
-            for (std::size_t local_col = 0; local_col < dof_slots_.size();
-                 ++local_col) {
-                const auto& slot = dof_slots_[local_col];
-                if (!slot.enriched) {
-                    continue;
-                }
-                double coeff = 0.0;
-                for (const auto& [node, w] : enriched_weights) {
-                    if (node == slot.node) {
-                        coeff = w;
-                        break;
+            for (std::size_t qp = 0; qp < surface.size(); ++qp) {
+                const auto& sp = surface[qp];
+                Eigen::Vector3d jump = Eigen::Vector3d::Zero();
+
+                std::vector<std::pair<std::size_t, double>> enriched_weights;
+                enriched_weights.reserve(num_nodes());
+                for (std::size_t node = 0; node < num_nodes(); ++node) {
+                    if (!node_has_plane_enrichment_(plane, node)) {
+                        continue;
                     }
+                    const double N = geometry_->H(
+                        node,
+                        std::span<const double>{sp.xi.data(),
+                                                sp.xi.size()});
+                    if (std::abs(N) <= 1.0e-14) {
+                        continue;
+                    }
+                    enriched_weights.emplace_back(node, 2.0 * N);
                 }
-                if (coeff == 0.0) {
-                    continue;
+
+                for (std::size_t local_col = 0;
+                     local_col < dof_slots_.size();
+                     ++local_col) {
+                    const auto& slot = dof_slots_[local_col];
+                    if (!slot.enriched || slot.plane != plane) {
+                        continue;
+                    }
+                    double coeff = 0.0;
+                    for (const auto& [node, w] : enriched_weights) {
+                        if (node == slot.node) {
+                            coeff = w;
+                            break;
+                        }
+                    }
+                    if (coeff == 0.0) {
+                        continue;
+                    }
+                    jump[static_cast<Eigen::Index>(slot.component)] +=
+                        coeff * u_e[static_cast<Eigen::Index>(local_col)];
                 }
-                jump[static_cast<Eigen::Index>(slot.component)] +=
-                    coeff * u_e[static_cast<Eigen::Index>(local_col)];
+
+                const auto surface_kinematics =
+                    evaluate_shifted_heaviside_cohesive_surface_kinematics<
+                        KinematicPolicy>(
+                        cracks_[plane].normal,
+                        shifted_heaviside_kinematics_(sp.xi, u_e));
+                const auto traction_measure =
+                    select_shifted_heaviside_cohesive_traction_measure(
+                        options_.cohesive_traction_measure_kind,
+                        surface_kinematics);
+                const auto split =
+                    split_crack_jump(traction_measure.normal, jump);
+                const auto response = evaluate_bilinear_cohesive_law(
+                    cohesive_,
+                    cohesive_state[qp],
+                    traction_measure.normal,
+                    split.normal_opening,
+                    split.tangential_jump);
+
+                fall_n::CrackRecord record{};
+                record.position = mapped_point_(sp.xi);
+                record.displacement = jump;
+                const auto& plane_descriptor = crack_planes_[plane];
+                record.plane_id = plane_descriptor.plane_id;
+                record.sequence_id = plane_descriptor.sequence_id;
+                record.activation_step = plane_descriptor.activation_step;
+                record.activation_time = plane_descriptor.activation_time;
+                record.source_id = source_id(plane_descriptor.source);
+                record.num_cracks = 1;
+                record.normal_1 = traction_measure.normal;
+                record.opening_1 = split.normal_opening;
+                record.opening_max_1 = std::abs(split.normal_opening);
+                record.closed_1 = split.normal_opening <= 0.0;
+                record.damage = response.damage;
+                record.damage_scalar_available = true;
+                record.fracture_history_available = true;
+                record.sigma_o_max =
+                    response.traction.dot(traction_measure.normal);
+                record.tau_o_max =
+                    (response.traction -
+                     record.sigma_o_max * traction_measure.normal).norm();
+                records.push_back(record);
             }
-
-            const auto surface_kinematics =
-                evaluate_shifted_heaviside_cohesive_surface_kinematics<
-                    KinematicPolicy>(
-                    crack_.normal,
-                    shifted_heaviside_kinematics_(sp.xi, u_e));
-            const auto traction_measure =
-                select_shifted_heaviside_cohesive_traction_measure(
-                    options_.cohesive_traction_measure_kind,
-                    surface_kinematics);
-            const auto split =
-                split_crack_jump(traction_measure.normal, jump);
-            const auto response = evaluate_bilinear_cohesive_law(
-                cohesive_,
-                cohesive_state_[qp],
-                traction_measure.normal,
-                split.normal_opening,
-                split.tangential_jump);
-
-            fall_n::CrackRecord record{};
-            record.position = mapped_point_(sp.xi);
-            record.displacement = jump;
-            record.num_cracks = 1;
-            record.normal_1 = traction_measure.normal;
-            record.opening_1 = split.normal_opening;
-            record.opening_max_1 = std::abs(split.normal_opening);
-            record.closed_1 = split.normal_opening <= 0.0;
-            record.damage = response.damage;
-            record.damage_scalar_available = true;
-            record.fracture_history_available = true;
-            record.sigma_o_max =
-                response.traction.dot(traction_measure.normal);
-            record.tau_o_max =
-                (response.traction -
-                 record.sigma_o_max * traction_measure.normal).norm();
-            records.push_back(record);
         }
 
         return records;
@@ -975,8 +1373,8 @@ public:
         for (std::size_t i = 0; i < num_nodes(); ++i) {
             auto& node = geometry_->node_p(i);
             const std::size_t required =
-                enriched_local_nodes_[i] != 0
-                    ? ShiftedHeavisideDofLayout<dim>::total_dofs
+                node_has_any_enrichment_(i)
+                    ? shifted_heaviside_total_dofs<dim>(cracks_.size())
                     : ShiftedHeavisideDofLayout<dim>::standard_dofs;
             if (node.num_dof() < required) {
                 node.set_num_dof(required);
@@ -1156,6 +1554,39 @@ public:
     {
         ensure_dof_cache_();
         return dof_indices_;
+    }
+
+    [[nodiscard]] XFEMPrincipalStrainPlaneCandidate
+    max_principal_strain_plane_candidate(Vec u_local)
+    {
+        XFEMPrincipalStrainPlaneCandidate best{};
+        const auto u_e = extract_element_dofs(u_local);
+        for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+            const auto ref_pt = geometry_->reference_integration_point(gp);
+            std::array<double, 3> xi{ref_pt[0], ref_pt[1], ref_pt[2]};
+            const auto kin = shifted_heaviside_kinematics_(xi, u_e);
+            const Eigen::Matrix3d eps =
+                strain_tensor_from_voigt_(kin.strain_voigt);
+            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver{eps};
+            if (solver.info() != Eigen::Success) {
+                continue;
+            }
+            const double value = solver.eigenvalues()[2];
+            if (!std::isfinite(value)) {
+                continue;
+            }
+            if (!best.valid || value > best.principal_strain) {
+                Eigen::Vector3d normal = solver.eigenvectors().col(2);
+                if (normal.squaredNorm() <= 1.0e-20) {
+                    normal = Eigen::Vector3d::UnitZ();
+                }
+                best.valid = true;
+                best.principal_strain = value;
+                best.point = mapped_point_(xi);
+                best.normal = normal.normalized();
+            }
+        }
+        return best;
     }
 };
 

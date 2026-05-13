@@ -11,6 +11,11 @@ namespace fall_n {
 struct CrackRecord {
     Eigen::Vector3d position;
     Eigen::Vector3d displacement{Eigen::Vector3d::Zero()};
+    int             plane_id{0};
+    int             sequence_id{0};
+    int             activation_step{0};
+    double          activation_time{0.0};
+    int             source_id{0};
     int             num_cracks{0};
     Eigen::Vector3d normal_1{Eigen::Vector3d::Zero()};
     Eigen::Vector3d normal_2{Eigen::Vector3d::Zero()};

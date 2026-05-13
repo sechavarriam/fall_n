@@ -82,6 +82,14 @@ struct Args {
     double cohesive_fracture_energy_scale{1.0};
     double cohesive_residual_shear_fraction{
         std::numeric_limits<double>::quiet_NaN()};
+    fall_n::ReducedRCManagedLocalMultiplaneMode xfem_multiplane_mode{
+        fall_n::ReducedRCManagedLocalMultiplaneMode::single_horizontal};
+    std::vector<fall_n::ReducedRCManagedLocalCrackPlaneSpec>
+        xfem_crack_planes{};
+    int xfem_auto_plane_max_count{3};
+    double xfem_auto_plane_onset_multiplier{1.0};
+    double xfem_auto_plane_min_angle_deg{10.0};
+    double xfem_auto_plane_min_spacing_factor{0.25};
 };
 
 struct ReplayStepRecord {
@@ -219,6 +227,76 @@ parse_bias_location(const std::string& value)
     return fall_n::ReducedRCLocalLongitudinalBiasLocation::fixed_end;
 }
 
+[[nodiscard]] fall_n::ReducedRCManagedLocalMultiplaneMode
+parse_multiplane_mode(std::string value)
+{
+    std::ranges::replace(value, '-', '_');
+    if (value == "single_horizontal" || value == "single") {
+        return fall_n::ReducedRCManagedLocalMultiplaneMode::single_horizontal;
+    }
+    if (value == "prescribed") {
+        return fall_n::ReducedRCManagedLocalMultiplaneMode::prescribed;
+    }
+    if (value == "auto" || value == "automatic") {
+        return fall_n::ReducedRCManagedLocalMultiplaneMode::automatic;
+    }
+    if (value == "hybrid") {
+        return fall_n::ReducedRCManagedLocalMultiplaneMode::hybrid;
+    }
+    throw std::runtime_error(
+        "unknown --xfem-multiplane-mode: " + value);
+}
+
+[[nodiscard]] std::vector<std::string> split_char(std::string_view text,
+                                                  char delimiter)
+{
+    std::vector<std::string> parts;
+    std::string current;
+    for (char ch : text) {
+        if (ch == delimiter) {
+            parts.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    parts.push_back(current);
+    return parts;
+}
+
+[[nodiscard]] std::array<double, 3> parse_vector3(std::string_view text)
+{
+    const auto parts = split_char(text, ',');
+    if (parts.size() != 3) {
+        throw std::runtime_error("expected a comma-separated vector3");
+    }
+    return {std::stod(parts[0]), std::stod(parts[1]), std::stod(parts[2])};
+}
+
+[[nodiscard]] fall_n::ReducedRCManagedLocalCrackPlaneSpec
+parse_crack_plane_spec(std::string_view text)
+{
+    const auto fields = split_char(text, ':');
+    if (fields.size() != 4) {
+        throw std::runtime_error(
+            "--xfem-crack-plane expects plane_id:sequence_id:px,py,pz:nx,ny,nz");
+    }
+    fall_n::ReducedRCManagedLocalCrackPlaneSpec spec{};
+    spec.plane_id = std::stoi(fields[0]);
+    spec.sequence_id = std::stoi(fields[1]);
+    spec.point = parse_vector3(fields[2]);
+    spec.normal = parse_vector3(fields[3]);
+    spec.source = fall_n::ReducedRCManagedLocalCrackPlaneSource::prescribed;
+    spec.active = true;
+    const Eigen::Vector3d n{spec.normal[0], spec.normal[1], spec.normal[2]};
+    if (n.norm() <= 1.0e-14) {
+        throw std::runtime_error("--xfem-crack-plane normal must be non-zero");
+    }
+    const Eigen::Vector3d nn = n.normalized();
+    spec.normal = {nn.x(), nn.y(), nn.z()};
+    return spec;
+}
+
 [[nodiscard]] fall_n::ReducedRCManagedLocalPatchSpec
 make_patch(const CsvRow& site_row,
            const CsvRow* transform_row,
@@ -240,6 +318,15 @@ make_patch(const CsvRow& site_row,
     patch.ny = std::max<std::size_t>(1, get_size(site_row, "ny", 2));
     patch.nz = std::max<std::size_t>(1, get_size(site_row, "nz", 8));
     patch.crack_z_over_l = get_double(site_row, "crack_z_over_l", 0.05);
+    patch.xfem_multiplane_mode = args.xfem_multiplane_mode;
+    patch.crack_planes = args.xfem_crack_planes;
+    patch.xfem_auto_plane_max_count = args.xfem_auto_plane_max_count;
+    patch.xfem_auto_plane_onset_multiplier =
+        args.xfem_auto_plane_onset_multiplier;
+    patch.xfem_auto_plane_min_angle_deg =
+        args.xfem_auto_plane_min_angle_deg;
+    patch.xfem_auto_plane_min_spacing_factor =
+        args.xfem_auto_plane_min_spacing_factor;
     patch.longitudinal_bias_power =
         get_double(site_row, "bias_power", 1.6);
     patch.longitudinal_bias_location =
@@ -413,6 +500,30 @@ make_replay_steps(const std::vector<CsvRow>& rows,
         } else if (key == "--cohesive-residual-shear-fraction") {
             args.cohesive_residual_shear_fraction =
                 std::stod(require_value(key));
+        } else if (key == "--xfem-multiplane-mode") {
+            args.xfem_multiplane_mode =
+                parse_multiplane_mode(require_value(key));
+        } else if (key == "--xfem-crack-plane") {
+            args.xfem_crack_planes.push_back(
+                parse_crack_plane_spec(require_value(key)));
+            if (args.xfem_multiplane_mode ==
+                fall_n::ReducedRCManagedLocalMultiplaneMode::
+                    single_horizontal) {
+                args.xfem_multiplane_mode =
+                    fall_n::ReducedRCManagedLocalMultiplaneMode::prescribed;
+            }
+        } else if (key == "--xfem-auto-plane-max-count") {
+            args.xfem_auto_plane_max_count =
+                std::stoi(require_value(key));
+        } else if (key == "--xfem-auto-plane-onset-multiplier") {
+            args.xfem_auto_plane_onset_multiplier =
+                std::stod(require_value(key));
+        } else if (key == "--xfem-auto-plane-min-angle-deg") {
+            args.xfem_auto_plane_min_angle_deg =
+                std::stod(require_value(key));
+        } else if (key == "--xfem-auto-plane-min-spacing-factor") {
+            args.xfem_auto_plane_min_spacing_factor =
+                std::stod(require_value(key));
         } else if (key == "--write-final-vtk") {
             args.write_final_vtk = true;
         } else if (key == "--no-incremental-transitions") {
@@ -421,7 +532,9 @@ make_replay_steps(const std::vector<CsvRow>& rows,
             std::cout
                 << "Usage: fall_n_managed_xfem_site_replay "
                 << "--run-dir <campaign/xfem> --site-index 4 "
-                << "--end-time 1.965 --output-dir <dir>\n";
+                << "--end-time 1.965 --output-dir <dir> "
+                << "[--xfem-multiplane-mode hybrid] "
+                << "[--xfem-crack-plane id:seq:px,py,pz:nx,ny,nz]\n";
             std::exit(0);
         }
     }
@@ -447,7 +560,8 @@ void write_summary(const std::filesystem::path& path,
                    double last_time,
                    const fall_n::ReducedRCManagedLocalStepResult& last_step,
                    const fall_n::CrackSummary& crack_summary,
-                   const fall_n::ReducedRCManagedXfemLocalVTKSnapshot& vtk)
+                   const fall_n::ReducedRCManagedXfemLocalVTKSnapshot& vtk,
+                   std::size_t sequence_record_count)
 {
     std::ofstream out(path);
     out << std::setprecision(16);
@@ -474,6 +588,14 @@ void write_summary(const std::filesystem::path& path,
     out << "  \"num_cracked_gps\": " << crack_summary.num_cracked_gps
         << ",\n";
     out << "  \"total_cracks\": " << crack_summary.total_cracks << ",\n";
+    out << "  \"xfem_multiplane_mode\": \""
+        << fall_n::to_string(patch.xfem_multiplane_mode) << "\",\n";
+    out << "  \"active_crack_plane_count\": "
+        << vtk.active_crack_plane_count << ",\n";
+    out << "  \"last_active_crack_plane_id\": "
+        << vtk.last_active_crack_plane_id << ",\n";
+    out << "  \"crack_plane_sequence_records\": "
+        << sequence_record_count << ",\n";
     out << "  \"max_opening_m\": " << crack_summary.max_opening << ",\n";
     out << "  \"max_historical_opening_m\": "
         << crack_summary.max_historical_opening << ",\n";
@@ -509,6 +631,7 @@ int main(int argc, char* argv[])
         PetscSessionGuard petsc{};
 
         std::filesystem::create_directories(args.output_dir);
+        std::filesystem::create_directories(args.output_dir / "recorders");
 
         const auto sites_csv =
             args.recorders_dir / "local_macro_inferred_sites.csv";
@@ -643,7 +766,15 @@ int main(int argc, char* argv[])
                 last_time,
                 static_cast<int>(accepted),
                 args.crack_opening_threshold_m);
+        } else {
+            vtk.active_crack_plane_count = adapter.active_crack_plane_count();
+            vtk.last_active_crack_plane_id =
+                adapter.last_active_crack_plane_id();
         }
+
+        adapter.write_crack_plane_sequence_csv(
+            args.output_dir / "recorders" /
+            "xfem_crack_plane_sequence.csv");
 
         write_summary(args.output_dir / "site_replay_summary.json",
                       args,
@@ -656,7 +787,8 @@ int main(int argc, char* argv[])
                       last_time,
                       last_step,
                       last_cracks,
-                      vtk);
+                      vtk,
+                      adapter.crack_plane_sequence_records().size());
 
         std::cout << "Managed XFEM site replay "
                   << (completed ? "completed" : "stopped") << ": site="

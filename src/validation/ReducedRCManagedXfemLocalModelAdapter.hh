@@ -112,6 +112,8 @@ struct ReducedRCManagedXfemLocalVTKSnapshot {
     std::string current_rebar_tubes_path{};
     std::size_t crack_record_count{0};
     std::size_t visible_crack_record_count{0};
+    std::size_t active_crack_plane_count{0};
+    int last_active_crack_plane_id{0};
     std::string status_label{"not_written"};
 };
 
@@ -164,8 +166,11 @@ public:
             effective_mesh_refinement_location{
                 ReducedRCLocalLongitudinalBiasLocation::fixed_end};
         std::size_t initialization_count{0};
+        std::vector<ReducedRCManagedLocalCrackPlaneSequenceRecord>
+            plane_sequence_records{};
         bool has_pending_boundary{false};
         bool has_accepted_boundary{false};
+        bool automatic_activation_during_solve{true};
         bool initialized{false};
         std::optional<XFEMModel::checkpoint_type> model_checkpoint{};
     };
@@ -220,8 +225,11 @@ public:
         checkpoint.effective_mesh_refinement_location =
             effective_mesh_refinement_location_;
         checkpoint.initialization_count = initialization_count_;
+        checkpoint.plane_sequence_records = plane_sequence_records_;
         checkpoint.has_pending_boundary = has_pending_boundary_;
         checkpoint.has_accepted_boundary = has_accepted_boundary_;
+        checkpoint.automatic_activation_during_solve =
+            automatic_activation_during_solve_;
         checkpoint.initialized = initialized_;
         if (initialized_ && model_) {
             checkpoint.model_checkpoint = model_->capture_checkpoint();
@@ -277,8 +285,11 @@ public:
         effective_mesh_refinement_location_ =
             checkpoint.effective_mesh_refinement_location;
         initialization_count_ = checkpoint.initialization_count;
+        plane_sequence_records_ = checkpoint.plane_sequence_records;
         has_pending_boundary_ = checkpoint.has_pending_boundary;
         has_accepted_boundary_ = checkpoint.has_accepted_boundary;
+        automatic_activation_during_solve_ =
+            checkpoint.automatic_activation_during_solve;
         initialized_ = checkpoint.initialized && model_ != nullptr;
     }
 
@@ -310,6 +321,18 @@ public:
         vtk_placement_frame_ = frame;
     }
 
+    void set_automatic_crack_plane_activation_during_solve(
+        bool enabled) noexcept
+    {
+        automatic_activation_during_solve_ = enabled;
+    }
+
+    void activate_automatic_crack_plane_after_accepted_step(
+        const ReducedRCManagedLocalBoundarySample& sample)
+    {
+        maybe_activate_automatic_crack_plane_after_accepted_step_(sample);
+    }
+
     [[nodiscard]] LocalVTKOutputProfile vtk_output_profile() const noexcept
     {
         return vtk_output_profile_;
@@ -327,7 +350,8 @@ public:
     }
 
     [[nodiscard]] bool initialize_managed_local_model(
-        const ReducedRCManagedLocalPatchSpec& patch)
+        const ReducedRCManagedLocalPatchSpec& patch,
+        bool reset_plane_sequence_records = true)
     {
         if (patch.characteristic_length_m <= 0.0 ||
             patch.section_width_m <= 0.0 ||
@@ -336,6 +360,10 @@ public:
             patch.ny == 0 ||
             patch.nz == 0) {
             return false;
+        }
+
+        if (reset_plane_sequence_records) {
+            plane_sequence_records_.clear();
         }
 
         patch_ = patch;
@@ -379,19 +407,58 @@ public:
                 mat_site,
                 ElasticUpdate{}};
 
-            const double requested_crack_ratio =
-                std::isfinite(patch.crack_z_over_l)
-                    ? patch.crack_z_over_l
-                    : options_.crack_z_over_patch_length;
-            const double crack_ratio =
-                adjusted_crack_z_ratio_for_mesh_(requested_crack_ratio,
-                                                 patch.nz);
-            effective_crack_z_over_l_ = crack_ratio;
-            const double crack_z =
-                crack_ratio * patch.characteristic_length_m;
-            const fall_n::xfem::PlaneCrackLevelSet crack{
-                Eigen::Vector3d{0.0, 0.0, crack_z},
-                Eigen::Vector3d::UnitZ()};
+            if (patch_.crack_planes.empty()) {
+                const double requested_crack_ratio =
+                    std::isfinite(patch_.crack_z_over_l)
+                        ? patch_.crack_z_over_l
+                        : options_.crack_z_over_patch_length;
+                const double crack_ratio =
+                    adjusted_crack_z_ratio_for_mesh_(requested_crack_ratio,
+                                                     patch_.nz);
+                effective_crack_z_over_l_ = crack_ratio;
+                const double crack_z =
+                    crack_ratio * patch_.characteristic_length_m;
+                ReducedRCManagedLocalCrackPlaneSpec implicit{};
+                implicit.point = {0.0, 0.0, crack_z};
+                implicit.normal = {0.0, 0.0, 1.0};
+                implicit.plane_id = 1;
+                implicit.sequence_id = 1;
+                implicit.source =
+                    patch_.xfem_multiplane_mode ==
+                            ReducedRCManagedLocalMultiplaneMode::
+                                single_horizontal
+                        ? ReducedRCManagedLocalCrackPlaneSource::legacy
+                        : ReducedRCManagedLocalCrackPlaneSource::prescribed;
+                implicit.active =
+                    patch_.xfem_multiplane_mode !=
+                    ReducedRCManagedLocalMultiplaneMode::automatic;
+                patch_.crack_planes.push_back(implicit);
+            } else {
+                effective_crack_z_over_l_ =
+                    std::clamp(patch_.crack_planes.front().point[2] /
+                                   patch_.characteristic_length_m,
+                               0.0,
+                               1.0);
+            }
+
+            std::vector<fall_n::xfem::XFEMCrackPlane> crack_planes;
+            crack_planes.reserve(patch_.crack_planes.size());
+            for (const auto& plane : patch_.crack_planes) {
+                crack_planes.emplace_back(
+                    fall_n::xfem::PlaneCrackLevelSet{
+                        Eigen::Vector3d{plane.point[0],
+                                        plane.point[1],
+                                        plane.point[2]},
+                        Eigen::Vector3d{plane.normal[0],
+                                        plane.normal[1],
+                                        plane.normal[2]}},
+                    plane.plane_id,
+                    plane.sequence_id,
+                    to_xfem_source_(plane.source),
+                    plane.activation_step,
+                    plane.activation_time,
+                    plane.active);
+            }
             const fall_n::xfem::BilinearCohesiveLawParameters cohesive{
                 .normal_stiffness = options_.cohesive_normal_stiffness_mpa_per_m,
                 .shear_stiffness = options_.cohesive_shear_stiffness_mpa_per_m,
@@ -406,7 +473,7 @@ public:
             std::vector<XFEMElement> elements;
             elements.reserve(domain_->num_elements());
             for (auto& geometry : domain_->elements()) {
-                elements.emplace_back(&geometry, material, crack, cohesive);
+                elements.emplace_back(&geometry, material, crack_planes, cohesive);
             }
 
             model_ = std::make_unique<XFEMModel>(*domain_, std::move(elements));
@@ -425,6 +492,7 @@ public:
             model_->setup();
             initialized_ = true;
             has_accepted_boundary_ = false;
+            record_initial_crack_planes_();
             return true;
         } catch (...) {
             initialized_ = false;
@@ -582,6 +650,10 @@ public:
             } else {
                 last_response_ = response;
             }
+            if (ok && automatic_activation_during_solve_) {
+                maybe_activate_automatic_crack_plane_after_accepted_step_(
+                    sample);
+            }
             return step;
         } catch (...) {
             const auto t1 = std::chrono::steady_clock::now();
@@ -660,6 +732,59 @@ public:
         state.cracks = collect_crack_records_();
         state.summary = summarize_crack_records_(state.cracks);
         return state;
+    }
+
+    [[nodiscard]] const std::vector<ReducedRCManagedLocalCrackPlaneSequenceRecord>&
+    crack_plane_sequence_records() const noexcept
+    {
+        return plane_sequence_records_;
+    }
+
+    void write_crack_plane_sequence_csv(
+        const std::filesystem::path& path) const
+    {
+        if (!path.parent_path().empty()) {
+            std::filesystem::create_directories(path.parent_path());
+        }
+        std::ofstream out(path);
+        out << "site_id,plane_id,sequence_id,source,activation_step,"
+               "activation_time,point_x,point_y,point_z,normal_x,normal_y,"
+               "normal_z,criterion_value,status\n";
+        for (const auto& record : plane_sequence_records_) {
+            out << record.site_id << "," << record.plane_id << ","
+                << record.sequence_id << "," << to_string(record.source)
+                << "," << record.activation_step << ","
+                << record.activation_time << "," << record.point[0] << ","
+                << record.point[1] << "," << record.point[2] << ","
+                << record.normal[0] << "," << record.normal[1] << ","
+                << record.normal[2] << "," << record.criterion_value << ","
+                << record.status << "\n";
+        }
+    }
+
+    [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            patch_.crack_planes,
+            [](const ReducedRCManagedLocalCrackPlaneSpec& plane) {
+                return plane.active;
+            }));
+    }
+
+    [[nodiscard]] int last_active_crack_plane_id() const noexcept
+    {
+        int last = 0;
+        int last_sequence = std::numeric_limits<int>::min();
+        for (const auto& plane : patch_.crack_planes) {
+            if (!plane.active) {
+                continue;
+            }
+            if (plane.sequence_id >= last_sequence) {
+                last_sequence = plane.sequence_id;
+                last = plane.plane_id;
+            }
+        }
+        return last;
     }
 
     [[nodiscard]] ReducedRCManagedXfemLocalVTKSnapshot write_vtk_snapshot(
@@ -807,6 +932,9 @@ public:
 
             const auto cracks = collect_crack_records_();
             snapshot.crack_record_count = cracks.size();
+            snapshot.active_crack_plane_count = active_crack_plane_count();
+            snapshot.last_active_crack_plane_id =
+                last_active_crack_plane_id();
             if (vtk_output_profile_ != LocalVTKOutputProfile::Minimal) {
                 const auto parent_element_id = patch_.vtk_global_placement
                     ? patch_.vtk_parent_element_id
@@ -863,6 +991,76 @@ public:
     }
 
 private:
+    [[nodiscard]] static fall_n::xfem::XFEMCrackPlaneSource to_xfem_source_(
+        ReducedRCManagedLocalCrackPlaneSource source) noexcept
+    {
+        switch (source) {
+            case ReducedRCManagedLocalCrackPlaneSource::legacy:
+                return fall_n::xfem::XFEMCrackPlaneSource::legacy;
+            case ReducedRCManagedLocalCrackPlaneSource::prescribed:
+                return fall_n::xfem::XFEMCrackPlaneSource::prescribed;
+            case ReducedRCManagedLocalCrackPlaneSource::automatic:
+                return fall_n::xfem::XFEMCrackPlaneSource::automatic;
+        }
+        return fall_n::xfem::XFEMCrackPlaneSource::legacy;
+    }
+
+    [[nodiscard]] bool plane_has_surface_(std::size_t plane_index) const
+    {
+        if (!model_) {
+            return false;
+        }
+        for (const auto& element : model_->elements()) {
+            if (element.plane_has_surface(plane_index)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool has_sequence_record_for_plane_(int plane_id) const
+        noexcept
+    {
+        return std::ranges::any_of(
+            plane_sequence_records_,
+            [plane_id](const auto& record) {
+                return record.plane_id == plane_id;
+            });
+    }
+
+    void append_plane_sequence_record_(
+        const ReducedRCManagedLocalCrackPlaneSpec& plane,
+        std::string_view status)
+    {
+        if (has_sequence_record_for_plane_(plane.plane_id)) {
+            return;
+        }
+        plane_sequence_records_.push_back(
+            ReducedRCManagedLocalCrackPlaneSequenceRecord{
+                .site_id = patch_.site_index,
+                .plane_id = plane.plane_id,
+                .sequence_id = plane.sequence_id,
+                .source = plane.source,
+                .activation_step = plane.activation_step,
+                .activation_time = plane.activation_time,
+                .point = plane.point,
+                .normal = plane.normal,
+                .criterion_value = plane.criterion_value,
+                .status = status});
+    }
+
+    void record_initial_crack_planes_()
+    {
+        for (std::size_t i = 0; i < patch_.crack_planes.size(); ++i) {
+            const auto& plane = patch_.crack_planes[i];
+            const std::string_view status =
+                !plane.active ? "inactive"
+                              : (plane_has_surface_(i) ? "active"
+                                                       : "inactive_not_cut");
+            append_plane_sequence_record_(plane, status);
+        }
+    }
+
     [[nodiscard]] std::vector<CrackRecord> collect_crack_records_()
     {
         std::vector<CrackRecord> records;
@@ -1364,6 +1562,22 @@ private:
         plane_id_arr->SetName("crack_plane_id");
         plane_id_arr->SetNumberOfComponents(1);
 
+        vtkNew<vtkDoubleArray> sequence_id_arr;
+        sequence_id_arr->SetName("crack_sequence_id");
+        sequence_id_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> activation_step_arr;
+        activation_step_arr->SetName("crack_activation_step");
+        activation_step_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> activation_time_arr;
+        activation_time_arr->SetName("crack_activation_time");
+        activation_time_arr->SetNumberOfComponents(1);
+
+        vtkNew<vtkDoubleArray> source_id_arr;
+        source_id_arr->SetName("crack_source_id");
+        source_id_arr->SetNumberOfComponents(1);
+
         vtkNew<vtkDoubleArray> site_arr;
         site_arr->SetName("site_id");
         site_arr->SetNumberOfComponents(1);
@@ -1417,7 +1631,11 @@ private:
                              double opening,
                              double opening_max,
                              bool closed,
-                             int plane_id) {
+                             int plane_id,
+                             int sequence_id,
+                             int activation_step,
+                             double activation_time,
+                             int source_id) {
             const double visible_opening =
                 std::max(std::abs(opening), std::abs(opening_max));
             const bool visible = visible_opening > min_abs_crack_opening;
@@ -1468,6 +1686,12 @@ private:
                                              opening_vec.z());
             state_arr->InsertNextValue(closed ? 0.0 : 1.0);
             plane_id_arr->InsertNextValue(static_cast<double>(plane_id));
+            sequence_id_arr->InsertNextValue(
+                static_cast<double>(sequence_id));
+            activation_step_arr->InsertNextValue(
+                static_cast<double>(activation_step));
+            activation_time_arr->InsertNextValue(activation_time);
+            source_id_arr->InsertNextValue(static_cast<double>(source_id));
             site_arr->InsertNextValue(static_cast<double>(site_id));
             parent_arr->InsertNextValue(
                 static_cast<double>(parent_element_id));
@@ -1489,7 +1713,11 @@ private:
                           record.opening_1,
                           record.opening_max_1,
                           record.closed_1,
-                          1);
+                          record.plane_id > 0 ? record.plane_id : 1,
+                          record.sequence_id > 0 ? record.sequence_id : 1,
+                          record.activation_step,
+                          record.activation_time,
+                          record.source_id);
             }
             if (record.num_cracks >= 2) {
                 add_crack(record,
@@ -1497,7 +1725,11 @@ private:
                           record.opening_2,
                           record.opening_max_2,
                           record.closed_2,
-                          2);
+                          2,
+                          record.sequence_id > 0 ? record.sequence_id : 2,
+                          record.activation_step,
+                          record.activation_time,
+                          record.source_id);
             }
             if (record.num_cracks >= 3) {
                 add_crack(record,
@@ -1505,7 +1737,11 @@ private:
                           record.opening_3,
                           record.opening_max_3,
                           record.closed_3,
-                          3);
+                          3,
+                          record.sequence_id > 0 ? record.sequence_id : 3,
+                          record.activation_step,
+                          record.activation_time,
+                          record.source_id);
             }
         }
 
@@ -1517,6 +1753,10 @@ private:
         crack_grid->GetCellData()->AddArray(opening_vec_arr);
         crack_grid->GetCellData()->AddArray(state_arr);
         crack_grid->GetCellData()->AddArray(plane_id_arr);
+        crack_grid->GetCellData()->AddArray(sequence_id_arr);
+        crack_grid->GetCellData()->AddArray(activation_step_arr);
+        crack_grid->GetCellData()->AddArray(activation_time_arr);
+        crack_grid->GetCellData()->AddArray(source_id_arr);
         crack_grid->GetCellData()->AddArray(site_arr);
         crack_grid->GetCellData()->AddArray(parent_arr);
         crack_grid->GetCellData()->AddArray(damage_arr);
@@ -1525,6 +1765,297 @@ private:
         crack_grid->GetPointData()->AddArray(disp_arr);
         crack_grid->GetPointData()->SetActiveVectors("displacement");
         fall_n::vtk::write_vtu(crack_grid, filename);
+    }
+
+    [[nodiscard]] bool automatic_multiplane_enabled_() const noexcept
+    {
+        return patch_.xfem_multiplane_mode ==
+                   ReducedRCManagedLocalMultiplaneMode::automatic ||
+               patch_.xfem_multiplane_mode ==
+                   ReducedRCManagedLocalMultiplaneMode::hybrid;
+    }
+
+    [[nodiscard]] int automatic_plane_count_() const noexcept
+    {
+        return static_cast<int>(std::ranges::count_if(
+            patch_.crack_planes,
+            [](const ReducedRCManagedLocalCrackPlaneSpec& plane) {
+                return plane.source ==
+                       ReducedRCManagedLocalCrackPlaneSource::automatic;
+            }));
+    }
+
+    [[nodiscard]] int next_plane_id_() const noexcept
+    {
+        int next = 1;
+        for (const auto& plane : patch_.crack_planes) {
+            next = std::max(next, plane.plane_id + 1);
+        }
+        return next;
+    }
+
+    [[nodiscard]] int next_sequence_id_() const noexcept
+    {
+        int next = 1;
+        for (const auto& plane : patch_.crack_planes) {
+            next = std::max(next, plane.sequence_id + 1);
+        }
+        return next;
+    }
+
+    [[nodiscard]] bool is_duplicate_auto_plane_(
+        const Eigen::Vector3d& point,
+        const Eigen::Vector3d& normal) const noexcept
+    {
+        if (!grid_) {
+            return true;
+        }
+        constexpr double pi = 3.1415926535897932384626433832795;
+        const double angle_rad =
+            std::clamp(patch_.xfem_auto_plane_min_angle_deg, 0.0, 89.9) *
+            pi / 180.0;
+        const double cos_limit = std::cos(angle_rad);
+        const double spacing =
+            std::max(0.0, patch_.xfem_auto_plane_min_spacing_factor) *
+            std::min({grid_->dx, grid_->dy, grid_->dz});
+
+        for (const auto& plane : patch_.crack_planes) {
+            if (!plane.active) {
+                continue;
+            }
+            Eigen::Vector3d n{plane.normal[0],
+                              plane.normal[1],
+                              plane.normal[2]};
+            const double norm = n.norm();
+            if (norm <= 1.0e-14) {
+                continue;
+            }
+            n /= norm;
+            const double alignment = std::abs(n.dot(normal));
+            const Eigen::Vector3d p{plane.point[0],
+                                    plane.point[1],
+                                    plane.point[2]};
+            const double distance = std::abs(n.dot(point - p));
+            if (alignment >= cos_limit && distance <= spacing) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    struct NodalComponentState {
+        std::vector<std::vector<double>> values{};
+        std::vector<ReducedRCManagedLocalCrackPlaneSpec> planes{};
+        std::vector<XFEMElement::InternalState> element_states{};
+    };
+
+    [[nodiscard]] NodalComponentState capture_nodal_component_state_() const
+    {
+        NodalComponentState state{};
+        state.planes = patch_.crack_planes;
+        if (!model_ || !domain_) {
+            return state;
+        }
+        state.element_states.reserve(model_->elements().size());
+        for (const auto& element : model_->elements()) {
+            state.element_states.push_back(element.capture_internal_state());
+        }
+        state.values.resize(domain_->num_nodes());
+        for (std::size_t node_id = 0; node_id < domain_->num_nodes();
+             ++node_id) {
+            const auto& node = domain_->node(node_id);
+            const auto dofs = node.dof_index();
+            state.values[node_id].assign(dofs.size(), 0.0);
+            if (dofs.empty()) {
+                continue;
+            }
+            VecGetValues(model_->state_vector(),
+                         static_cast<PetscInt>(dofs.size()),
+                         dofs.data(),
+                         state.values[node_id].data());
+        }
+        return state;
+    }
+
+    [[nodiscard]] static std::optional<std::size_t> plane_index_by_id_(
+        const std::vector<ReducedRCManagedLocalCrackPlaneSpec>& planes,
+        int plane_id) noexcept
+    {
+        for (std::size_t i = 0; i < planes.size(); ++i) {
+            if (planes[i].plane_id == plane_id) {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void restore_nodal_component_state_(
+        const NodalComponentState& old_state)
+    {
+        if (!model_ || !domain_) {
+            return;
+        }
+        std::vector<PetscInt> indices;
+        std::vector<PetscScalar> values;
+        for (std::size_t node_id = 0; node_id < domain_->num_nodes();
+             ++node_id) {
+            const auto& node = domain_->node(node_id);
+            const auto dofs = node.dof_index();
+            if (node_id >= old_state.values.size()) {
+                continue;
+            }
+            const auto& old_values = old_state.values[node_id];
+            for (std::size_t c = 0; c < 3 && c < dofs.size() &&
+                                    c < old_values.size();
+                 ++c) {
+                indices.push_back(dofs[c]);
+                values.push_back(static_cast<PetscScalar>(old_values[c]));
+            }
+            for (std::size_t new_plane = 0;
+                 new_plane < patch_.crack_planes.size();
+                 ++new_plane) {
+                const auto old_plane = plane_index_by_id_(
+                    old_state.planes, patch_.crack_planes[new_plane].plane_id);
+                if (!old_plane) {
+                    continue;
+                }
+                for (std::size_t c = 0; c < 3; ++c) {
+                    const std::size_t old_component =
+                        3 + (*old_plane) * 3 + c;
+                    const std::size_t new_component =
+                        3 + new_plane * 3 + c;
+                    if (old_component >= old_values.size() ||
+                        new_component >= dofs.size()) {
+                        continue;
+                    }
+                    indices.push_back(dofs[new_component]);
+                    values.push_back(
+                        static_cast<PetscScalar>(old_values[old_component]));
+                }
+            }
+        }
+        if (!indices.empty()) {
+            VecSetValues(model_->state_vector(),
+                         static_cast<PetscInt>(indices.size()),
+                         indices.data(),
+                         values.data(),
+                         INSERT_VALUES);
+            VecAssemblyBegin(model_->state_vector());
+            VecAssemblyEnd(model_->state_vector());
+        }
+    }
+
+    void restore_element_internal_state_(
+        const NodalComponentState& old_state)
+    {
+        if (!model_) {
+            return;
+        }
+        const std::size_t count =
+            std::min(model_->elements().size(),
+                     old_state.element_states.size());
+        for (std::size_t e = 0; e < count; ++e) {
+            model_->elements()[e].restore_existing_plane_internal_state(
+                old_state.element_states[e]);
+        }
+    }
+
+    [[nodiscard]] bool rebuild_model_with_planes_preserving_state_(
+        std::vector<ReducedRCManagedLocalCrackPlaneSpec> new_planes)
+    {
+        const auto old_state = capture_nodal_component_state_();
+        const auto saved_last_boundary = last_boundary_;
+        const auto saved_pending_boundary = pending_boundary_;
+        const auto saved_accepted_boundary = accepted_boundary_;
+        const auto saved_last_step = last_step_;
+        const auto saved_current_response = current_response_;
+        const auto saved_last_response = last_response_;
+        const bool saved_has_pending = has_pending_boundary_;
+        const bool saved_has_accepted = has_accepted_boundary_;
+
+        auto next_patch = patch_;
+        next_patch.crack_planes = std::move(new_planes);
+        if (!initialize_managed_local_model(next_patch, false)) {
+            return false;
+        }
+
+        restore_element_internal_state_(old_state);
+        restore_nodal_component_state_(old_state);
+        last_boundary_ = saved_last_boundary;
+        pending_boundary_ = saved_pending_boundary;
+        accepted_boundary_ = saved_accepted_boundary;
+        last_step_ = saved_last_step;
+        current_response_ = saved_current_response;
+        last_response_ = saved_last_response;
+        has_pending_boundary_ = saved_has_pending;
+        has_accepted_boundary_ = saved_has_accepted;
+        if (has_pending_boundary_) {
+            (void)apply_boundary_values_to_model_(pending_boundary_);
+        } else if (has_accepted_boundary_) {
+            (void)apply_boundary_values_to_model_(accepted_boundary_);
+        }
+        return true;
+    }
+
+    void maybe_activate_automatic_crack_plane_after_accepted_step_(
+        const ReducedRCManagedLocalBoundarySample& sample)
+    {
+        if (!automatic_multiplane_enabled_() || !model_ || !grid_) {
+            return;
+        }
+        if (automatic_plane_count_() >=
+            std::max(0, patch_.xfem_auto_plane_max_count)) {
+            return;
+        }
+
+        fall_n::xfem::XFEMPrincipalStrainPlaneCandidate best{};
+        for (auto& element : model_->elements()) {
+            const auto candidate =
+                element.max_principal_strain_plane_candidate(
+                    model_->state_vector());
+            if (candidate.valid &&
+                (!best.valid ||
+                 candidate.principal_strain > best.principal_strain)) {
+                best = candidate;
+            }
+        }
+        if (!best.valid || best.principal_strain <= 0.0) {
+            return;
+        }
+
+        const double threshold =
+            std::max(0.0, patch_.xfem_auto_plane_onset_multiplier) *
+            options_.cohesive_tensile_strength_mpa /
+            std::max(options_.concrete_elastic_modulus_mpa, 1.0e-12);
+        if (best.principal_strain < threshold) {
+            return;
+        }
+        if (is_duplicate_auto_plane_(best.point, best.normal)) {
+            return;
+        }
+
+        ReducedRCManagedLocalCrackPlaneSpec plane{};
+        plane.point = {best.point.x(), best.point.y(), best.point.z()};
+        plane.normal = {best.normal.x(), best.normal.y(), best.normal.z()};
+        plane.plane_id = next_plane_id_();
+        plane.sequence_id = next_sequence_id_();
+        plane.source = ReducedRCManagedLocalCrackPlaneSource::automatic;
+        plane.activation_step = static_cast<int>(sample.sample_index);
+        plane.activation_time = sample.pseudo_time;
+        plane.criterion_value = best.principal_strain;
+        plane.active = true;
+
+        auto new_planes = patch_.crack_planes;
+        new_planes.push_back(plane);
+        if (rebuild_model_with_planes_preserving_state_(std::move(new_planes))) {
+            const auto new_index = plane_index_by_id_(
+                patch_.crack_planes, plane.plane_id);
+            const std::string_view status =
+                new_index && plane_has_surface_(*new_index)
+                    ? "active"
+                    : "inactive_not_cut";
+            append_plane_sequence_record_(plane, status);
+        }
     }
 
     [[nodiscard]] static constexpr LongitudinalBiasLocation
@@ -1871,6 +2402,8 @@ private:
     std::optional<PrismaticGrid> grid_{};
     std::unique_ptr<XFEMModel> model_{};
     std::vector<PetscInt> top_face_nodes_{};
+    std::vector<ReducedRCManagedLocalCrackPlaneSequenceRecord>
+        plane_sequence_records_{};
     ReducedRCManagedLocalBoundarySample last_boundary_{};
     ReducedRCManagedLocalBoundarySample pending_boundary_{};
     ReducedRCManagedLocalBoundarySample accepted_boundary_{};
@@ -1889,6 +2422,7 @@ private:
     std::size_t initialization_count_{0};
     bool has_pending_boundary_{false};
     bool has_accepted_boundary_{false};
+    bool automatic_activation_during_solve_{true};
     bool initialized_{false};
 };
 

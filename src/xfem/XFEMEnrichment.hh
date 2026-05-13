@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <span>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace fall_n::xfem {
@@ -73,6 +74,60 @@ struct PlaneCrackLevelSet {
     {
         return side_of(signed_distance(x), tolerance);
     }
+};
+
+enum class XFEMCrackPlaneSource {
+    legacy = 0,
+    prescribed = 1,
+    automatic = 2
+};
+
+[[nodiscard]] constexpr std::string_view to_string(
+    XFEMCrackPlaneSource source) noexcept
+{
+    switch (source) {
+        case XFEMCrackPlaneSource::legacy:
+            return "legacy";
+        case XFEMCrackPlaneSource::prescribed:
+            return "prescribed";
+        case XFEMCrackPlaneSource::automatic:
+            return "automatic";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] constexpr int source_id(XFEMCrackPlaneSource source) noexcept
+{
+    return static_cast<int>(source);
+}
+
+struct XFEMCrackPlane {
+    PlaneCrackLevelSet geometry{};
+    int plane_id{1};
+    int sequence_id{1};
+    XFEMCrackPlaneSource source{XFEMCrackPlaneSource::legacy};
+    int activation_step{0};
+    double activation_time{0.0};
+    bool active{true};
+
+    XFEMCrackPlane() = default;
+
+    XFEMCrackPlane(PlaneCrackLevelSet plane,
+                   int id,
+                   int sequence,
+                   XFEMCrackPlaneSource plane_source =
+                       XFEMCrackPlaneSource::prescribed,
+                   int step = 0,
+                   double time = 0.0,
+                   bool is_active = true)
+        : geometry{std::move(plane)},
+          plane_id{id},
+          sequence_id{sequence},
+          source{plane_source},
+          activation_step{step},
+          activation_time{time},
+          active{is_active}
+    {}
 };
 
 struct ShiftedHeavisideEnrichment {

@@ -13,14 +13,13 @@
 namespace fall_n::xfem {
 
 // Shifted-Heaviside XFEM stores the ordinary displacement vector first and
-// appends one enriched displacement vector to each enriched host node:
+// appends one enriched displacement vector per discontinuity plane to each
+// enriched host node:
 //
-//   q_I = [u_x, u_y, u_z, a_x, a_y, a_z]
+//   q_I = [u_x, u_y, u_z, a1_x, a1_y, a1_z, a2_x, ...]
 //
-// The ordering is intentionally local and PETSc-section based.  Standard
-// continuum and truss kernels keep assembling only the leading displacement
-// block, while XFEM-specific kernels address the appended enriched block
-// through the mapping helpers below.
+// The single-plane helpers below preserve the historical API.  The overloads
+// that accept a plane index are used by MultiPlaneXFEM kernels.
 
 template <std::size_t Dim>
 struct ShiftedHeavisideDofLayout {
@@ -36,6 +35,24 @@ shifted_heaviside_enriched_component(std::size_t displacement_component)
 {
     return ShiftedHeavisideDofLayout<Dim>::enriched_offset +
            displacement_component;
+}
+
+template <std::size_t Dim>
+[[nodiscard]] constexpr std::size_t shifted_heaviside_enriched_component(
+    std::size_t plane_index,
+    std::size_t displacement_component)
+{
+    return ShiftedHeavisideDofLayout<Dim>::standard_dofs +
+           plane_index * ShiftedHeavisideDofLayout<Dim>::enriched_dofs +
+           displacement_component;
+}
+
+template <std::size_t Dim>
+[[nodiscard]] constexpr std::size_t
+shifted_heaviside_total_dofs(std::size_t plane_count)
+{
+    return ShiftedHeavisideDofLayout<Dim>::standard_dofs +
+           plane_count * ShiftedHeavisideDofLayout<Dim>::enriched_dofs;
 }
 
 template <std::size_t Dim>
