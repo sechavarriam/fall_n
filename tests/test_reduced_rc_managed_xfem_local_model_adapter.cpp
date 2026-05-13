@@ -4,6 +4,7 @@
 #include <petsc.h>
 
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -207,6 +208,99 @@ int main(int argc, char** argv)
             check(last < middle,
                   "explicit mesh refinement resolves the loaded-end side");
         }
+    }
+
+    {
+        fall_n::ReducedRCManagedLocalPatchSpec prescribed_patch = patch;
+        prescribed_patch.nz = 3;
+        prescribed_patch.characteristic_length_m = 0.30;
+        prescribed_patch.xfem_multiplane_mode =
+            fall_n::ReducedRCManagedLocalMultiplaneMode::prescribed;
+        prescribed_patch.crack_planes.push_back(
+            fall_n::ReducedRCManagedLocalCrackPlaneSpec{
+                .point = {0.0, 0.0, 0.11},
+                .normal = {0.20, 0.35, 1.0},
+                .plane_id = 10,
+                .sequence_id = 2,
+                .source =
+                    fall_n::ReducedRCManagedLocalCrackPlaneSource::prescribed,
+                .activation_step = 4,
+                .activation_time = 0.125,
+                .criterion_value = 0.0,
+                .active = true});
+
+        fall_n::ReducedRCManagedXfemLocalModelAdapter adapter;
+        const bool ok =
+            adapter.initialize_managed_local_model(prescribed_patch);
+
+        check(ok, "managed XFEM accepts prescribed arbitrary crack planes");
+        check(adapter.active_crack_plane_count() == 1,
+              "managed XFEM counts prescribed active crack planes");
+        check(adapter.last_active_crack_plane_id() == 10,
+              "managed XFEM preserves prescribed plane ids");
+        const auto& records = adapter.crack_plane_sequence_records();
+        check(!records.empty() && records.front().plane_id == 10 &&
+                  records.front().sequence_id == 2 &&
+                  records.front().source ==
+                      fall_n::ReducedRCManagedLocalCrackPlaneSource::
+                          prescribed,
+              "managed XFEM writes prescribed plane sequence metadata");
+    }
+
+    {
+        fall_n::ReducedRCManagedLocalPatchSpec hybrid_patch = patch;
+        hybrid_patch.nz = 3;
+        hybrid_patch.characteristic_length_m = 0.30;
+        hybrid_patch.xfem_multiplane_mode =
+            fall_n::ReducedRCManagedLocalMultiplaneMode::hybrid;
+        hybrid_patch.xfem_auto_plane_max_count = 1;
+        hybrid_patch.xfem_auto_plane_onset_multiplier = 0.0;
+        hybrid_patch.xfem_auto_plane_min_angle_deg = 5.0;
+        hybrid_patch.xfem_auto_plane_min_spacing_factor = 0.0;
+        hybrid_patch.crack_planes.push_back(
+            fall_n::ReducedRCManagedLocalCrackPlaneSpec{
+                .point = {0.0, 0.0, 0.08},
+                .normal = {1.0, 0.0, 0.0},
+                .plane_id = 10,
+                .sequence_id = 2,
+                .source =
+                    fall_n::ReducedRCManagedLocalCrackPlaneSource::prescribed,
+                .active = true});
+
+        fall_n::ReducedRCManagedXfemLocalModelAdapter adapter;
+        const bool initialized =
+            adapter.initialize_managed_local_model(hybrid_patch);
+        fall_n::ReducedRCManagedLocalBoundarySample sample{};
+        sample.site_index = hybrid_patch.site_index;
+        sample.sample_index = 12;
+        sample.pseudo_time = 0.20;
+        sample.physical_time = 0.20;
+        sample.z_over_l = hybrid_patch.crack_z_over_l;
+        sample.imposed_top_translation_m =
+            Eigen::Vector3d{0.0, 0.0, 1.0e-4};
+
+        const bool boundary_ok =
+            initialized && adapter.apply_macro_boundary_sample(sample);
+        const auto step = boundary_ok
+            ? adapter.solve_current_pseudo_time_step(sample)
+            : fall_n::ReducedRCManagedLocalStepResult{};
+
+        bool saw_auto_plane = false;
+        for (const auto& record : adapter.crack_plane_sequence_records()) {
+            saw_auto_plane =
+                saw_auto_plane ||
+                (record.source ==
+                     fall_n::ReducedRCManagedLocalCrackPlaneSource::
+                         automatic &&
+                 record.activation_step == 12 &&
+                 std::abs(record.activation_time - 0.20) < 1.0e-14);
+        }
+        check(initialized && boundary_ok && step.converged,
+              "managed XFEM hybrid local step converges before auto activation");
+        check(adapter.active_crack_plane_count() == 2,
+              "managed XFEM activates one automatic plane after an accepted step");
+        check(saw_auto_plane,
+              "managed XFEM records automatic post-step activation metadata");
     }
 
     {

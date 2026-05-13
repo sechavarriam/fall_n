@@ -49,6 +49,47 @@ enum class ReducedRCLocalLongitudinalBiasLocation {
     both_ends
 };
 
+enum class ReducedRCManagedLocalCrackPlaneSource {
+    legacy = 0,
+    prescribed = 1,
+    automatic = 2
+};
+
+enum class ReducedRCManagedLocalMultiplaneMode {
+    single_horizontal,
+    prescribed,
+    automatic,
+    hybrid
+};
+
+struct ReducedRCManagedLocalCrackPlaneSpec {
+    // Local coordinates in the prismatic micromodel frame, in metres.
+    std::array<double, 3> point{0.0, 0.0, 0.0};
+    std::array<double, 3> normal{0.0, 0.0, 1.0};
+    int plane_id{1};
+    int sequence_id{1};
+    ReducedRCManagedLocalCrackPlaneSource source{
+        ReducedRCManagedLocalCrackPlaneSource::prescribed};
+    int activation_step{0};
+    double activation_time{0.0};
+    double criterion_value{0.0};
+    bool active{true};
+};
+
+struct ReducedRCManagedLocalCrackPlaneSequenceRecord {
+    std::size_t site_id{0};
+    int plane_id{0};
+    int sequence_id{0};
+    ReducedRCManagedLocalCrackPlaneSource source{
+        ReducedRCManagedLocalCrackPlaneSource::legacy};
+    int activation_step{0};
+    double activation_time{0.0};
+    std::array<double, 3> point{0.0, 0.0, 0.0};
+    std::array<double, 3> normal{0.0, 0.0, 1.0};
+    double criterion_value{0.0};
+    std::string_view status{"unknown"};
+};
+
 [[nodiscard]] constexpr std::string_view to_string(
     ReducedRCManagedLocalBoundaryMode mode) noexcept
 {
@@ -75,6 +116,36 @@ enum class ReducedRCLocalLongitudinalBiasLocation {
             return "both_ends";
     }
     return "unknown_reduced_rc_local_longitudinal_bias_location";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    ReducedRCManagedLocalCrackPlaneSource source) noexcept
+{
+    switch (source) {
+        case ReducedRCManagedLocalCrackPlaneSource::legacy:
+            return "legacy";
+        case ReducedRCManagedLocalCrackPlaneSource::prescribed:
+            return "prescribed";
+        case ReducedRCManagedLocalCrackPlaneSource::automatic:
+            return "automatic";
+    }
+    return "unknown_reduced_rc_managed_local_crack_plane_source";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(
+    ReducedRCManagedLocalMultiplaneMode mode) noexcept
+{
+    switch (mode) {
+        case ReducedRCManagedLocalMultiplaneMode::single_horizontal:
+            return "single_horizontal";
+        case ReducedRCManagedLocalMultiplaneMode::prescribed:
+            return "prescribed";
+        case ReducedRCManagedLocalMultiplaneMode::automatic:
+            return "auto";
+        case ReducedRCManagedLocalMultiplaneMode::hybrid:
+            return "hybrid";
+    }
+    return "unknown_reduced_rc_managed_local_multiplane_mode";
 }
 
 enum class ReducedRCManagedLocalReplayStatus {
@@ -113,6 +184,13 @@ struct ReducedRCManagedLocalPatchSpec {
     std::size_t ny{2};
     std::size_t nz{4};
     double crack_z_over_l{0.40};
+    std::vector<ReducedRCManagedLocalCrackPlaneSpec> crack_planes{};
+    ReducedRCManagedLocalMultiplaneMode xfem_multiplane_mode{
+        ReducedRCManagedLocalMultiplaneMode::single_horizontal};
+    int xfem_auto_plane_max_count{3};
+    double xfem_auto_plane_onset_multiplier{1.0};
+    double xfem_auto_plane_min_angle_deg{10.0};
+    double xfem_auto_plane_min_spacing_factor{0.25};
     double longitudinal_bias_power{1.0};
     ReducedRCLocalLongitudinalBiasLocation longitudinal_bias_location{
         ReducedRCLocalLongitudinalBiasLocation::fixed_end};

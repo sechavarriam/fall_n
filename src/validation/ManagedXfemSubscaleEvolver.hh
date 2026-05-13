@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "src/analysis/HomogenizedTangentFiniteDifference.hh"
 #include "src/analysis/MultiscaleTypes.hh"
@@ -567,7 +568,14 @@ public:
         has_committed_control_ = true;
     }
 
-    void end_of_step(double /*time*/) { ++step_count_; }
+    void end_of_step(double /*time*/)
+    {
+        if (adapter_ && has_trial_sample_) {
+            adapter_->activate_automatic_crack_plane_after_accepted_step(
+                trial_sample_);
+        }
+        ++step_count_;
+    }
 
     void set_auto_commit(bool enabled) noexcept { auto_commit_ = enabled; }
 
@@ -640,7 +648,11 @@ public:
             adapter_->set_vtk_crack_filter_mode(vtk_crack_filter_mode_);
             adapter_->set_vtk_gauss_field_profile(vtk_gauss_field_profile_);
             adapter_->set_vtk_placement_frame(vtk_placement_frame_);
+            adapter_->set_automatic_crack_plane_activation_during_solve(
+                false);
             adapter_->restore_checkpoint(*checkpoint.adapter_checkpoint);
+            adapter_->set_automatic_crack_plane_activation_during_solve(
+                false);
             initialized_ = checkpoint.adapter_checkpoint->initialized;
         } else {
             adapter_.reset();
@@ -667,6 +679,33 @@ public:
     [[nodiscard]] CrackSummary crack_summary() const noexcept
     {
         return last_crack_summary_;
+    }
+
+    [[nodiscard]] const std::vector<
+        ReducedRCManagedLocalCrackPlaneSequenceRecord>&
+    crack_plane_sequence_records() const noexcept
+    {
+        static const std::vector<
+            ReducedRCManagedLocalCrackPlaneSequenceRecord> empty{};
+        return adapter_ ? adapter_->crack_plane_sequence_records() : empty;
+    }
+
+    void write_crack_plane_sequence_csv(
+        const std::filesystem::path& path) const
+    {
+        if (adapter_) {
+            adapter_->write_crack_plane_sequence_csv(path);
+        }
+    }
+
+    [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
+    {
+        return adapter_ ? adapter_->active_crack_plane_count() : 0;
+    }
+
+    [[nodiscard]] int last_active_crack_plane_id() const noexcept
+    {
+        return adapter_ ? adapter_->last_active_crack_plane_id() : 0;
     }
 
     [[nodiscard]] const SubModelSolverResult& last_solve_result() const noexcept
@@ -827,6 +866,7 @@ private:
         adapter_->set_vtk_crack_filter_mode(vtk_crack_filter_mode_);
         adapter_->set_vtk_gauss_field_profile(vtk_gauss_field_profile_);
         adapter_->set_vtk_placement_frame(vtk_placement_frame_);
+        adapter_->set_automatic_crack_plane_activation_during_solve(false);
         initialized_ = adapter_->initialize_managed_local_model(patch_);
         return initialized_;
     }

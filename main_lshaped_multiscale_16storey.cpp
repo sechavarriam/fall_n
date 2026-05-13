@@ -57,6 +57,7 @@
 #include <numbers>
 #include <print>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -340,6 +341,28 @@ parse_two_way_failure_recovery_mode(std::string_view raw)
         "hybrid_observation_window, or one_way_only.");
 }
 
+[[nodiscard]] TwoWayTangentRegularizationMode
+parse_two_way_tangent_regularization_mode(std::string_view raw)
+{
+    std::string value{raw};
+    std::ranges::replace(value, '-', '_');
+    if (value == "none" || value == "off") {
+        return TwoWayTangentRegularizationMode::None;
+    }
+    if (value == "blend") {
+        return TwoWayTangentRegularizationMode::Blend;
+    }
+    if (value == "spectral_floor" || value == "spectral") {
+        return TwoWayTangentRegularizationMode::SpectralFloor;
+    }
+    if (value == "blend_spectral" || value == "blend_spectral_floor") {
+        return TwoWayTangentRegularizationMode::BlendSpectral;
+    }
+    throw std::invalid_argument(
+        "Unknown --fe2-two-way-tangent-regularization. Use none, blend, "
+        "spectral_floor, or blend_spectral.");
+}
+
 enum class XfemLocalSiteMode {
     WholeElement,
     IndependentProbes
@@ -371,6 +394,92 @@ enum class XfemLocalSiteMode {
     }
     throw std::invalid_argument(
         "Unknown --xfem-local-site-mode. Use whole_element or independent_probes.");
+}
+
+[[nodiscard]] ReducedRCManagedLocalMultiplaneMode
+parse_xfem_multiplane_mode(std::string_view raw)
+{
+    std::string value{raw};
+    std::ranges::replace(value, '-', '_');
+    if (value == "single_horizontal" || value == "single" ||
+        value == "legacy") {
+        return ReducedRCManagedLocalMultiplaneMode::single_horizontal;
+    }
+    if (value == "prescribed") {
+        return ReducedRCManagedLocalMultiplaneMode::prescribed;
+    }
+    if (value == "auto" || value == "automatic") {
+        return ReducedRCManagedLocalMultiplaneMode::automatic;
+    }
+    if (value == "hybrid") {
+        return ReducedRCManagedLocalMultiplaneMode::hybrid;
+    }
+    throw std::invalid_argument(
+        "Unknown --xfem-multiplane-mode. Use single-horizontal, "
+        "prescribed, auto, or hybrid.");
+}
+
+[[nodiscard]] std::vector<std::string_view>
+split_text(std::string_view text, char delimiter)
+{
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t pos = text.find(delimiter, start);
+        if (pos == std::string_view::npos) {
+            parts.push_back(text.substr(start));
+            break;
+        }
+        parts.push_back(text.substr(start, pos - start));
+        start = pos + 1;
+    }
+    return parts;
+}
+
+[[nodiscard]] std::array<double, 3> parse_vector3(std::string_view raw)
+{
+    const auto parts = split_text(raw, ',');
+    if (parts.size() != 3) {
+        throw std::invalid_argument(
+            "Expected vector format x,y,z for --xfem-crack-plane.");
+    }
+    return {std::stod(std::string(parts[0])),
+            std::stod(std::string(parts[1])),
+            std::stod(std::string(parts[2]))};
+}
+
+[[nodiscard]] ReducedRCManagedLocalCrackPlaneSpec
+parse_xfem_crack_plane_spec(std::string_view raw)
+{
+    const auto parts = split_text(raw, ':');
+    if (parts.size() != 4) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane expects plane_id:sequence_id:px,py,pz:nx,ny,nz");
+    }
+
+    ReducedRCManagedLocalCrackPlaneSpec spec{};
+    spec.plane_id = std::stoi(std::string(parts[0]));
+    spec.sequence_id = std::stoi(std::string(parts[1]));
+    spec.point = parse_vector3(parts[2]);
+    spec.normal = parse_vector3(parts[3]);
+    Eigen::Vector3d n{spec.normal[0], spec.normal[1], spec.normal[2]};
+    const double norm = n.norm();
+    if (spec.plane_id <= 0 || spec.sequence_id <= 0) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane plane_id and sequence_id must be positive.");
+    }
+    if (!std::isfinite(norm) || norm <= 1.0e-14) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane normal must be non-zero.");
+    }
+    n /= norm;
+    spec.normal = {n.x(), n.y(), n.z()};
+    spec.source = ReducedRCManagedLocalCrackPlaneSource::prescribed;
+    spec.active = true;
+    spec.activation_step = 0;
+    spec.activation_time = 0.0;
+    spec.criterion_value = std::numeric_limits<double>::quiet_NaN();
+    return spec;
 }
 
 void write_csv_diag6(std::ostream& out,
@@ -1614,6 +1723,13 @@ int main(int argc, char* argv[]) {
     bool fe2_include_column_probe_sites = false;
     bool fe2_include_center_probe_site = false;
     XfemLocalSiteMode xfem_local_site_mode = XfemLocalSiteMode::WholeElement;
+    ReducedRCManagedLocalMultiplaneMode xfem_multiplane_mode =
+        ReducedRCManagedLocalMultiplaneMode::single_horizontal;
+    std::vector<ReducedRCManagedLocalCrackPlaneSpec> xfem_crack_planes;
+    int xfem_auto_plane_max_count = 3;
+    double xfem_auto_plane_onset_multiplier = 1.0;
+    double xfem_auto_plane_min_angle_deg = 10.0;
+    double xfem_auto_plane_min_spacing_factor = 0.25;
     LocalVTKOutputProfile local_vtk_profile =
         LocalVTKOutputProfile::Debug;
     LocalVTKCrackFilterMode local_vtk_crack_filter_mode =
@@ -1692,6 +1808,8 @@ int main(int argc, char* argv[]) {
     double fe2_site_relax_growth_limit = 1.25;
     double fe2_site_relax_factor = 0.5;
     double fe2_site_relax_min_alpha = 0.05;
+    TwoWayTangentRegularizationSettings fe2_two_way_tangent_regularization{};
+    TwoWayFeedbackLimiterSettings fe2_two_way_feedback_limiter{};
     std::string postprocess_python = "python";
     std::string output_root_override;
     std::string linear_alarm_criterion_name = "first_material_nonlinearity";
@@ -2036,6 +2154,28 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--xfem-independent-probes" ||
                    arg == "--xfem-legacy-multi-site") {
             xfem_local_site_mode = XfemLocalSiteMode::IndependentProbes;
+        } else if (arg == "--xfem-multiplane-mode" && i + 1 < argc) {
+            xfem_multiplane_mode = parse_xfem_multiplane_mode(argv[++i]);
+        } else if (arg == "--xfem-crack-plane" && i + 1 < argc) {
+            xfem_crack_planes.push_back(
+                parse_xfem_crack_plane_spec(argv[++i]));
+            if (xfem_multiplane_mode ==
+                ReducedRCManagedLocalMultiplaneMode::single_horizontal) {
+                xfem_multiplane_mode =
+                    ReducedRCManagedLocalMultiplaneMode::prescribed;
+            }
+        } else if (arg == "--xfem-auto-plane-max-count" && i + 1 < argc) {
+            xfem_auto_plane_max_count =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--xfem-auto-plane-onset-multiplier" &&
+                   i + 1 < argc) {
+            xfem_auto_plane_onset_multiplier = std::stod(argv[++i]);
+        } else if (arg == "--xfem-auto-plane-min-angle-deg" &&
+                   i + 1 < argc) {
+            xfem_auto_plane_min_angle_deg = std::stod(argv[++i]);
+        } else if (arg == "--xfem-auto-plane-min-spacing-factor" &&
+                   i + 1 < argc) {
+            xfem_auto_plane_min_spacing_factor = std::stod(argv[++i]);
         } else if (arg == "--fe2-max-staggered" && i + 1 < argc) {
             fe2_max_staggered_iter =
                 std::max(2, static_cast<int>(std::stol(argv[++i])));
@@ -2108,6 +2248,32 @@ int main(int argc, char* argv[]) {
             fe2_site_relax_factor = std::stod(argv[++i]);
         } else if (arg == "--fe2-site-relax-min-alpha" && i + 1 < argc) {
             fe2_site_relax_min_alpha = std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-tangent-regularization" &&
+                   i + 1 < argc) {
+            fe2_two_way_tangent_regularization.mode =
+                parse_two_way_tangent_regularization_mode(argv[++i]);
+        } else if (arg == "--fe2-two-way-tangent-blend-alpha" &&
+                   i + 1 < argc) {
+            fe2_two_way_tangent_regularization.blend_alpha =
+                std::stod(argv[++i]);
+        } else if (arg ==
+                       "--fe2-two-way-tangent-negative-eigen-floor-ratio" &&
+                   i + 1 < argc) {
+            fe2_two_way_tangent_regularization
+                .negative_eigen_floor_ratio = std::stod(argv[++i]);
+        } else if (arg ==
+                       "--fe2-two-way-tangent-positive-eigen-floor-ratio" &&
+                   i + 1 < argc) {
+            fe2_two_way_tangent_regularization
+                .positive_eigen_floor_ratio = std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-feedback-work-gap-limit" &&
+                   i + 1 < argc) {
+            fe2_two_way_feedback_limiter.enabled = true;
+            fe2_two_way_feedback_limiter.work_gap_limit =
+                std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-feedback-min-alpha" &&
+                   i + 1 < argc) {
+            fe2_two_way_feedback_limiter.min_alpha = std::stod(argv[++i]);
         } else if (arg == "--fe2-recovery-policy" && i + 1 < argc) {
             fe2_recovery_policy.mode =
                 parse_two_way_failure_recovery_mode(argv[++i]);
@@ -2121,6 +2287,8 @@ int main(int argc, char* argv[]) {
             fe2_recovery_policy.work_gap_tolerance = std::stod(argv[++i]);
         } else if (arg == "--fe2-hybrid-force-jump-tol" && i + 1 < argc) {
             fe2_recovery_policy.force_jump_tolerance = std::stod(argv[++i]);
+        } else if (arg == "--fe2-strict-two-way-work-gap-gate") {
+            fe2_recovery_policy.strict_work_gap_gate = true;
         } else if (arg.rfind("--", 0) == 0) {
             throw std::invalid_argument("Unknown option: " + arg);
         } else {
@@ -2281,8 +2449,43 @@ int main(int argc, char* argv[]) {
     if (fe2_site_relax_min_alpha < 0.0 || fe2_site_relax_min_alpha > 1.0) {
         throw std::invalid_argument("--fe2-site-relax-min-alpha must be in [0,1].");
     }
+    if (fe2_two_way_tangent_regularization.blend_alpha < 0.0 ||
+        fe2_two_way_tangent_regularization.blend_alpha > 1.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-tangent-blend-alpha must be in [0,1].");
+    }
+    if (fe2_two_way_tangent_regularization.negative_eigen_floor_ratio < 0.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-tangent-negative-eigen-floor-ratio must be non-negative.");
+    }
+    if (fe2_two_way_tangent_regularization.positive_eigen_floor_ratio < 0.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-tangent-positive-eigen-floor-ratio must be non-negative.");
+    }
+    if (fe2_two_way_feedback_limiter.work_gap_limit < 0.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-feedback-work-gap-limit must be non-negative.");
+    }
+    if (fe2_two_way_feedback_limiter.min_alpha < 0.0 ||
+        fe2_two_way_feedback_limiter.min_alpha > 1.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-feedback-min-alpha must be in [0,1].");
+    }
     if (gravity_accel <= 0.0) {
         throw std::invalid_argument("--gravity-accel must be positive.");
+    }
+    if (xfem_auto_plane_onset_multiplier < 0.0) {
+        throw std::invalid_argument(
+            "--xfem-auto-plane-onset-multiplier must be non-negative.");
+    }
+    if (xfem_auto_plane_min_angle_deg < 0.0 ||
+        xfem_auto_plane_min_angle_deg >= 90.0) {
+        throw std::invalid_argument(
+            "--xfem-auto-plane-min-angle-deg must be in [0,90).");
+    }
+    if (xfem_auto_plane_min_spacing_factor < 0.0) {
+        throw std::invalid_argument(
+            "--xfem-auto-plane-min-spacing-factor must be non-negative.");
     }
     if (local_family != "managed-xfem" &&
         local_family != "continuum-kobathe-hex20" &&
@@ -2346,6 +2549,12 @@ int main(int argc, char* argv[]) {
              "--xfem-one-site-per-element",
              "--xfem-independent-probes",
              "--xfem-legacy-multi-site",
+             "--xfem-multiplane-mode",
+             "--xfem-crack-plane",
+             "--xfem-auto-plane-max-count",
+             "--xfem-auto-plane-onset-multiplier",
+             "--xfem-auto-plane-min-angle-deg",
+             "--xfem-auto-plane-min-spacing-factor",
              "--fe2-max-staggered",
              "--fe2-steps-after-activation",
              "--one-local-step-after-activation",
@@ -2376,11 +2585,18 @@ int main(int argc, char* argv[]) {
              "--fe2-site-relax-attempts",
              "--fe2-site-relax-factor",
              "--fe2-site-relax-min-alpha",
+             "--fe2-two-way-tangent-regularization",
+             "--fe2-two-way-tangent-blend-alpha",
+             "--fe2-two-way-tangent-negative-eigen-floor-ratio",
+             "--fe2-two-way-tangent-positive-eigen-floor-ratio",
+             "--fe2-two-way-feedback-work-gap-limit",
+             "--fe2-two-way-feedback-min-alpha",
              "--fe2-recovery-policy",
              "--fe2-hybrid-max-steps",
              "--fe2-hybrid-return-success-steps",
              "--fe2-hybrid-work-gap-tol",
              "--fe2-hybrid-force-jump-tol",
+             "--fe2-strict-two-way-work-gap-gate",
              "--restart-from-linear-alarm",
              "--restart-displacement",
              "--restart-velocity",
@@ -3732,6 +3948,8 @@ int main(int argc, char* argv[]) {
                   << "site_model_scope,probe_fixed_z_over_l,"
                   << "probe_center_z_over_l,probe_loaded_z_over_l,"
                   << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
+                  << "xfem_multiplane_mode,xfem_prescribed_planes,"
+                  << "xfem_auto_plane_max_count,"
                   << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
                   << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
                   << "completed,iterations,elapsed_seconds,nodes,elements\n";
@@ -3858,6 +4076,14 @@ int main(int argc, char* argv[]) {
         patch.mesh_refinement_location =
             ReducedRCLocalLongitudinalBiasLocation::both_ends;
         patch.mesh_refinement_location_explicit = true;
+        patch.xfem_multiplane_mode = xfem_multiplane_mode;
+        patch.crack_planes = xfem_crack_planes;
+        patch.xfem_auto_plane_max_count = xfem_auto_plane_max_count;
+        patch.xfem_auto_plane_onset_multiplier =
+            xfem_auto_plane_onset_multiplier;
+        patch.xfem_auto_plane_min_angle_deg = xfem_auto_plane_min_angle_deg;
+        patch.xfem_auto_plane_min_spacing_factor =
+            xfem_auto_plane_min_spacing_factor;
 
         const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
           return (1.0 - z) * a + z * b;
@@ -3948,7 +4174,11 @@ int main(int argc, char* argv[]) {
                       << patch.crack_z_over_l << ","
                       << to_string(patch.longitudinal_bias_location) << ","
                       << patch.longitudinal_bias_power << "," << patch.nx << ","
-                      << patch.ny << "," << patch.nz << "," << site_for_patch.xi
+                      << patch.ny << "," << patch.nz << ","
+                      << to_string(patch.xfem_multiplane_mode) << ","
+                      << patch.crack_planes.size() << ","
+                      << patch.xfem_auto_plane_max_count << ","
+                      << site_for_patch.xi
                       << "," << site_for_patch.section_gp << "," << axial_strain
                       << "," << sample.curvature_y << "," << sample.curvature_z
                       << "," << lerp(ek.kin_A.gamma_y, ek.kin_B.gamma_y) << ","
@@ -4282,6 +4512,10 @@ int main(int argc, char* argv[]) {
     if (use_managed_xfem) {
         std::println("  XFEM site mode     : {}",
                      to_string(xfem_local_site_mode));
+        std::println("  XFEM multiplane    : mode={}, prescribed={}, auto_max={}",
+                     to_string(xfem_multiplane_mode),
+                     xfem_crack_planes.size(),
+                     xfem_auto_plane_max_count);
     }
     std::println("  Local VTK profile  : {}", to_string(local_vtk_profile));
     std::println("  Local VTK cracks   : threshold={:.3e} m, mode={}, gauss={}, placement={}, global_placement={}",
@@ -4415,6 +4649,9 @@ int main(int argc, char* argv[]) {
         fe2_site_relax_factor;
     fe2_site_relax_settings.min_alpha = fe2_site_relax_min_alpha;
     analysis.set_site_adaptive_relaxation(fe2_site_relax_settings);
+    analysis.set_two_way_tangent_regularization(
+        fe2_two_way_tangent_regularization);
+    analysis.set_two_way_feedback_limiter(fe2_two_way_feedback_limiter);
     fall_n::HomogenizedTangentFiniteDifferenceSettings fe2_fd_settings{};
     fe2_fd_settings.scheme = fe2_central_fd_tangent
         ? fall_n::HomogenizedFiniteDifferenceScheme::Central
@@ -4466,12 +4703,14 @@ int main(int argc, char* argv[]) {
                      : std::string{"disabled"},
                  fe2_stop_on_local_solve_budget ? ", stop-on-budget" : "");
     std::println("  Failure recovery   : {}, max_hybrid_steps={}, "
-                 "return_success_steps={}, work_gap_tol={:.3f}, force_jump_tol={:.3f}",
+                 "return_success_steps={}, work_gap_tol={:.3f}, "
+                 "force_jump_tol={:.3f}, strict_work_gate={}",
                  to_string(fe2_recovery_policy.mode),
                  fe2_recovery_policy.max_hybrid_steps,
                  fe2_recovery_policy.return_success_steps,
                  fe2_recovery_policy.work_gap_tolerance,
-                 fe2_recovery_policy.force_jump_tolerance);
+                 fe2_recovery_policy.force_jump_tolerance,
+                 fe2_recovery_policy.strict_work_gap_gate ? "on" : "off");
     std::println("  Site relaxation    : {} (growth={:.2f}, attempts={}, "
                  "factor={:.2f}, min_alpha={:.2f})",
                  fe2_adaptive_site_relaxation ? "adaptive" : "fixed",
@@ -4479,6 +4718,14 @@ int main(int argc, char* argv[]) {
                  fe2_site_relax_attempts,
                  fe2_site_relax_factor,
                  fe2_site_relax_min_alpha);
+    std::println("  Two-way tangent reg: {} (blend_alpha={:.2f}, "
+                 "neg_floor={:.2f}, pos_floor={:.2f})",
+                 fall_n::to_string(fe2_two_way_tangent_regularization.mode),
+                 fe2_two_way_tangent_regularization.blend_alpha,
+                 fe2_two_way_tangent_regularization
+                     .negative_eigen_floor_ratio,
+                 fe2_two_way_tangent_regularization
+                     .positive_eigen_floor_ratio);
     std::println("  Section dims (hom) : {:.2f} × {:.2f} m (range {})",
                  COL_B[first_range], COL_H[first_range], first_range);
     std::println("  Local tangent      : {} ({})",
@@ -4589,6 +4836,35 @@ int main(int argc, char* argv[]) {
     }
 
     const auto local_vtk_root = std::filesystem::path(OUT) / "local_sites";
+    const auto xfem_plane_sequence_csv_path =
+        std::filesystem::path(OUT) / "recorders" /
+        "xfem_crack_plane_sequence.csv";
+    const auto write_xfem_plane_sequence_csv = [&]() -> bool {
+        if (!use_managed_xfem) {
+            return true;
+        }
+        std::ofstream out(xfem_plane_sequence_csv_path);
+        if (!out) {
+            return false;
+        }
+        out << std::setprecision(16);
+        out << "site_id,plane_id,sequence_id,source,activation_step,"
+               "activation_time,point_x,point_y,point_z,normal_x,normal_y,"
+               "normal_z,criterion_value,status\n";
+        for (const auto& ev : analysis.model().local_models()) {
+            for (const auto& record : ev.crack_plane_sequence_records()) {
+                out << record.site_id << "," << record.plane_id << ","
+                    << record.sequence_id << "," << to_string(record.source)
+                    << "," << record.activation_step << ","
+                    << record.activation_time << "," << record.point[0]
+                    << "," << record.point[1] << "," << record.point[2]
+                    << "," << record.normal[0] << "," << record.normal[1]
+                    << "," << record.normal[2] << ","
+                    << record.criterion_value << "," << record.status << "\n";
+            }
+        }
+        return true;
+    };
     std::vector<int> last_indexed_local_steps(
         analysis.model().num_local_models(), -1);
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
@@ -4636,7 +4912,7 @@ int main(int argc, char* argv[]) {
             .global_vtk_path = global_yield_vtk_rel_path(),
             .local_vtk_path = local_mesh_rel,
             .notes = std::format(
-                "{} initial local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={}",
+                "{} initial local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={} active_planes={} last_plane_id={}",
                 local_family,
                 local_vtk_snapshot.status_label,
                 local_gauss_rel,
@@ -4648,10 +4924,13 @@ int main(int argc, char* argv[]) {
                 to_string(local_vtk_placement_frame),
                 local_vtk_snapshot.crack_record_count,
                 cs.num_cracked_gps,
-                cs.total_cracks)});
+                cs.total_cracks,
+                local_vtk_snapshot.active_crack_plane_count,
+                local_vtk_snapshot.last_active_crack_plane_id)});
         last_indexed_local_steps[i] = local_step;
     }
     (void)flush_vtk_time_index();
+    (void)write_xfem_plane_sequence_csv();
 
     // ─────────────────────────────────────────────────────────────────────
     //  15. Phase 2: Resume global + evolve sub-models step-by-step
@@ -4727,6 +5006,12 @@ int main(int argc, char* argv[]) {
         << "return_gate_passed,site_index,macro_element_id,section_gp,xi,"
         << "response_status,operator,tangent_scheme,condensed_status,"
         << "regularization,tangent_regularized,force_residual_rel,"
+        << "tangent_regularization_pre_min_eig,"
+        << "tangent_regularization_pre_max_eig,"
+        << "tangent_regularization_post_min_eig,"
+        << "tangent_regularization_post_max_eig,"
+        << "tangent_regularization_rel_change,"
+        << "tangent_regularization_force_delta_norm,"
         << "force_component_residual_rel,tangent_residual_rel,"
         << "tangent_column_residual_rel,tangent_min_sym_eig,"
         << "tangent_max_sym_eig,tangent_trace,nonpositive_diag,"
@@ -4746,6 +5031,12 @@ int main(int argc, char* argv[]) {
         << "macro_element_id,section_gp,xi,response_status,operator,"
         << "tangent_scheme,condensed_status,regularization,"
         << "tangent_regularized,force_residual_rel,"
+        << "tangent_regularization_pre_min_eig,"
+        << "tangent_regularization_pre_max_eig,"
+        << "tangent_regularization_post_min_eig,"
+        << "tangent_regularization_post_max_eig,"
+        << "tangent_regularization_rel_change,"
+        << "tangent_regularization_force_delta_norm,"
         << "force_component_residual_rel,tangent_residual_rel,"
         << "tangent_column_residual_rel,tangent_min_sym_eig,"
         << "tangent_max_sym_eig,tangent_trace,nonpositive_diag,"
@@ -4895,6 +5186,16 @@ int main(int argc, char* argv[]) {
                 << "," << (response.tangent_regularized ? 1 : 0)
                 << std::scientific << std::setprecision(12)
                 << "," << residual_at(report.force_residuals_rel, i)
+                << "," << response
+                                .tangent_regularization_pre_min_symmetric_eigenvalue
+                << "," << response
+                                .tangent_regularization_pre_max_symmetric_eigenvalue
+                << "," << response
+                                .tangent_regularization_post_min_symmetric_eigenvalue
+                << "," << response
+                                .tangent_regularization_post_max_symmetric_eigenvalue
+                << "," << response.tangent_regularization_relative_change
+                << "," << response.tangent_regularization_force_delta_norm
                 << "," << residual_at(report.force_component_residuals_rel, i)
                 << "," << residual_at(report.tangent_residuals_rel, i)
                 << "," << residual_at(report.tangent_column_residuals_rel, i)
@@ -4997,6 +5298,16 @@ int main(int argc, char* argv[]) {
                 << "," << (record.tangent_regularized ? 1 : 0)
                 << std::scientific << std::setprecision(12)
                 << "," << record.force_residual_rel
+                << "," << record
+                                .tangent_regularization_pre_min_symmetric_eigenvalue
+                << "," << record
+                                .tangent_regularization_pre_max_symmetric_eigenvalue
+                << "," << record
+                                .tangent_regularization_post_min_symmetric_eigenvalue
+                << "," << record
+                                .tangent_regularization_post_max_symmetric_eigenvalue
+                << "," << record.tangent_regularization_relative_change
+                << "," << record.tangent_regularization_force_delta_norm
                 << "," << record.force_component_residual_rel
                 << "," << record.tangent_residual_rel
                 << "," << record.tangent_column_residual_rel
@@ -5278,7 +5589,7 @@ int main(int argc, char* argv[]) {
                     .global_vtk_path = last_global_vtk_rel_path,
                     .local_vtk_path = local_mesh_rel,
                     .notes = std::format(
-                        "{} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={} nearest_global_frame=throttled",
+                        "{} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={} active_planes={} last_plane_id={} nearest_global_frame=throttled",
                         local_family,
                         local_vtk_snapshot.status_label,
                         local_gauss_rel,
@@ -5290,12 +5601,15 @@ int main(int argc, char* argv[]) {
                         to_string(local_vtk_placement_frame),
                         local_vtk_snapshot.crack_record_count,
                         cs.num_cracked_gps,
-                        cs.total_cracks)});
+                        cs.total_cracks,
+                        local_vtk_snapshot.active_crack_plane_count,
+                        local_vtk_snapshot.last_active_crack_plane_id)});
                 last_indexed_local_steps[i] = local_step;
                 local_vtk_index_updated = true;
             }
             if (local_vtk_index_updated) {
                 (void)flush_vtk_time_index();
+                (void)write_xfem_plane_sequence_csv();
             }
         }
 
@@ -5493,7 +5807,7 @@ int main(int argc, char* argv[]) {
                 .global_vtk_path = last_global_vtk_rel_path,
                 .local_vtk_path = local_mesh_rel,
                 .notes = std::format(
-                    "final {} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={}",
+                    "final {} local VTK status={} gauss={} current_mesh={} current_gauss={} crack_surface={} crack_visible_surface={} site_transform=recorders/local_site_transform.csv gauss_profile={} placement_frame={} crack_records={} cracked_gps={} cracks={} active_planes={} last_plane_id={}",
                     local_family,
                     local_vtk_snapshot.status_label,
                     local_gauss_rel,
@@ -5505,12 +5819,15 @@ int main(int argc, char* argv[]) {
                     to_string(local_vtk_placement_frame),
                     local_vtk_snapshot.crack_record_count,
                     cs.num_cracked_gps,
-                    cs.total_cracks)});
+                    cs.total_cracks,
+                    local_vtk_snapshot.active_crack_plane_count,
+                    local_vtk_snapshot.last_active_crack_plane_id)});
             last_indexed_local_steps[i] = local_step;
         }
     }
 
     pvd_global.write();
+    (void)write_xfem_plane_sequence_csv();
     for (auto& ev : analysis.model().local_models())
         ev.finalize();
 

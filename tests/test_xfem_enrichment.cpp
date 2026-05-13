@@ -71,6 +71,8 @@ int main(int argc, char** argv)
 
     using fall_n::xfem::HeavisideSide;
     using fall_n::xfem::PlaneCrackLevelSet;
+    using fall_n::xfem::XFEMCrackPlane;
+    using fall_n::xfem::XFEMCrackPlaneSource;
     using fall_n::xfem::ShiftedHeavisideEnrichment;
     using fall_n::xfem::BilinearCohesiveLawParameters;
     using fall_n::xfem::CohesiveCrackState;
@@ -601,6 +603,117 @@ int main(int argc, char** argv)
               "global XFEM cohesive/volumetric residual acts on enriched DOFs");
         check(K.bottomRightCorner(24, 24).norm() > 0.0,
               "global XFEM tangent couples enriched DOFs");
+    }
+
+    {
+        Domain<3> domain;
+        make_unit_hex8_domain(domain);
+
+        ContinuumIsotropicElasticMaterial mat_site{200.0, 0.25};
+        Material<ThreeDimensionalMaterial> material{
+            mat_site,
+            ElasticUpdate{}};
+        std::vector<XFEMCrackPlane> cracks{
+            XFEMCrackPlane{
+                PlaneCrackLevelSet{
+                    Eigen::Vector3d{0.0, 0.0, 0.35},
+                    Eigen::Vector3d{0.20, 0.30, 1.0}},
+                10,
+                2,
+                XFEMCrackPlaneSource::prescribed,
+                7,
+                0.25,
+                true},
+            XFEMCrackPlane{
+                PlaneCrackLevelSet{
+                    Eigen::Vector3d{0.50, 0.50, 0.50},
+                    Eigen::Vector3d{1.0, 0.0, 1.0}},
+                25,
+                5,
+                XFEMCrackPlaneSource::prescribed,
+                9,
+                0.50,
+                true}};
+        const BilinearCohesiveLawParameters cohesive{
+            .normal_stiffness = 1000.0,
+            .shear_stiffness = 500.0,
+            .tensile_strength = 10.0,
+            .fracture_energy = 0.10,
+            .mode_mixity_weight = 1.0,
+            .compression_stiffness = 2000.0,
+            .residual_shear_fraction = 0.10};
+
+        using XFEMElement =
+            fall_n::xfem::ShiftedHeavisideSolidElement<
+                ThreeDimensionalMaterial>;
+        std::vector<XFEMElement> elements;
+        for (auto& geometry : domain.elements()) {
+            elements.emplace_back(
+                &geometry,
+                material,
+                cracks,
+                cohesive);
+        }
+
+        using XFEMModel = Model<
+            ThreeDimensionalMaterial,
+            continuum::SmallStrain,
+            3,
+            SingleElementPolicy<XFEMElement>>;
+        XFEMModel model{domain, std::move(elements)};
+        model.setup();
+
+        auto& element = model.elements().front();
+        check(element.get_dof_indices().size() == 72,
+              "multi-plane XFEM solid gathers one enriched vector block per plane");
+        check(element.crack_planes().size() == 2 &&
+                  element.crack_planes()[0].plane_id == 10 &&
+                  element.crack_planes()[1].sequence_id == 5,
+              "multi-plane XFEM solid preserves explicit descriptor ids");
+
+        Eigen::VectorXd u = Eigen::VectorXd::Zero(72);
+        for (Eigen::Index node = 0; node < 8; ++node) {
+            u[9 * node + 5] = 1.0e-4; // plane 1, z jump
+            u[9 * node + 6] = 2.0e-4; // plane 2, x jump
+        }
+        const auto f = element.compute_internal_force_vector(u);
+        const auto K = element.compute_tangent_stiffness_matrix(u);
+        check(f.size() == 72 && K.rows() == 72 && K.cols() == 72,
+              "multi-plane XFEM residual and tangent use the expanded algebraic size");
+        check(f.tail(48).norm() > 0.0,
+              "multi-plane XFEM cohesive/volumetric residual acts on both enriched blocks");
+
+        const auto records = element.collect_crack_records(model.state_vector());
+        bool saw_first_plane = false;
+        bool saw_second_plane = false;
+        bool saw_oblique_normal = false;
+        bool saw_activation_metadata = false;
+        for (const auto& record : records) {
+            saw_first_plane =
+                saw_first_plane ||
+                (record.plane_id == 10 && record.sequence_id == 2);
+            saw_second_plane =
+                saw_second_plane ||
+                (record.plane_id == 25 && record.sequence_id == 5);
+            saw_oblique_normal =
+                saw_oblique_normal ||
+                (record.plane_id == 25 &&
+                 std::abs(std::abs(record.normal_1.z()) - 1.0) > 1.0e-6);
+            saw_activation_metadata =
+                saw_activation_metadata ||
+                (record.plane_id == 10 &&
+                 record.activation_step == 7 &&
+                 std::abs(record.activation_time - 0.25) < 1.0e-14 &&
+                 record.source_id ==
+                     fall_n::xfem::source_id(
+                         XFEMCrackPlaneSource::prescribed));
+        }
+        check(saw_first_plane && saw_second_plane,
+              "multi-plane XFEM crack records preserve explicit plane ids and sequence ids");
+        check(saw_oblique_normal,
+              "multi-plane XFEM crack records preserve arbitrary plane orientation");
+        check(saw_activation_metadata,
+              "multi-plane XFEM crack records preserve activation metadata");
     }
 
     {

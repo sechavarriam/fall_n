@@ -30,6 +30,10 @@ int main() {
     bool has_crack_normal = false;
     bool has_crack_state = false;
     bool has_crack_plane_id = false;
+    bool has_crack_sequence_id = false;
+    bool has_crack_activation_step = false;
+    bool has_crack_activation_time = false;
+    bool has_crack_source_id = false;
     bool has_crack_family_id = false;
     bool has_site_id = false;
     bool has_parent_element_id = false;
@@ -67,6 +71,10 @@ int main() {
             if (f.name == std::string_view{"crack_normal"}) has_crack_normal = true;
             if (f.name == std::string_view{"crack_state"}) has_crack_state = true;
             if (f.name == std::string_view{"crack_plane_id"}) has_crack_plane_id = true;
+            if (f.name == std::string_view{"crack_sequence_id"}) has_crack_sequence_id = true;
+            if (f.name == std::string_view{"crack_activation_step"}) has_crack_activation_step = true;
+            if (f.name == std::string_view{"crack_activation_time"}) has_crack_activation_time = true;
+            if (f.name == std::string_view{"crack_source_id"}) has_crack_source_id = true;
             if (f.name == std::string_view{"crack_family_id"}) has_crack_family_id = true;
             if (f.name == std::string_view{"site_id"}) has_site_id = true;
             if (f.name == std::string_view{"parent_element_id"}) has_parent_element_id = true;
@@ -115,6 +123,10 @@ int main() {
     assert(has_crack_normal);
     assert(has_crack_state);
     assert(has_crack_plane_id);
+    assert(has_crack_sequence_id);
+    assert(has_crack_activation_step);
+    assert(has_crack_activation_time);
+    assert(has_crack_source_id);
     assert(has_crack_family_id);
     assert(has_site_id);
     assert(has_parent_element_id);
@@ -178,6 +190,14 @@ int main() {
     f << "  \"has_crack_state\": " << (has_crack_state ? "true" : "false") << ",\n";
     f << "  \"has_crack_plane_id\": "
       << (has_crack_plane_id ? "true" : "false") << ",\n";
+    f << "  \"has_crack_sequence_id\": "
+      << (has_crack_sequence_id ? "true" : "false") << ",\n";
+    f << "  \"has_crack_activation_step\": "
+      << (has_crack_activation_step ? "true" : "false") << ",\n";
+    f << "  \"has_crack_activation_time\": "
+      << (has_crack_activation_time ? "true" : "false") << ",\n";
+    f << "  \"has_crack_source_id\": "
+      << (has_crack_source_id ? "true" : "false") << ",\n";
     f << "  \"has_crack_family_id\": "
       << (has_crack_family_id ? "true" : "false") << ",\n";
     f << "  \"has_site_id\": " << (has_site_id ? "true" : "false") << ",\n";

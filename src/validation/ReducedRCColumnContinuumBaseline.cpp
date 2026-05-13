@@ -3711,6 +3711,8 @@ run_reduced_rc_column_continuum_case_result_impl(
             }
         };
 
+    write_vtk_snapshot(0, 0.0, model);
+
     nl.set_step_callback([&](
                              int runtime_step,
                              double runtime_p,
