@@ -1,0 +1,264 @@
+{
+  "scope": "guarded_oblique_xfem_multimesh_200mm",
+  "status": "completed",
+  "structural_bundle": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_external_benchmark_cyclic_200mm_publication_20260511\\fall_n",
+  "case_count": 3,
+  "plane_definition": {
+    "point_m": [
+      0,
+      0,
+      0.6
+    ],
+    "normal_unit": [
+      0.0990147542977,
+      0.0990147542977,
+      0.990147542977
+    ],
+    "source": "prescribed",
+    "plane_id": 20,
+    "sequence_id": 3
+  },
+  "interpretation": "The guarded prescribed oblique-plane path completed the 200 mm cyclic protocol on the reported Hex8 mesh sequence. The structural reference is sign-aligned because the two artifacts use opposite base-reaction conventions.",
+  "cases": [
+    {
+      "label": "Hex8 1x1x2",
+      "case_dir": "data\\output\\cyclic_validation\\xfem_oblique_promoted_mesh_1x1x2_200mm_20260513",
+      "sign_factor": -1.0,
+      "completed": true,
+      "status": "completed",
+      "mesh": {
+        "hex_order": "Hex8",
+        "nx": 1,
+        "ny": 1,
+        "nz": 2,
+        "longitudinal_bias_power": 1,
+        "longitudinal_bias_location": "fixed-end",
+        "element_count": 18,
+        "node_count": 36,
+        "enriched_node_count": 8
+      },
+      "guard": {
+        "plane_id": 20,
+        "sequence_id": 3,
+        "status": "valid",
+        "cut_element_count": 1,
+        "min_abs_node_signed_distance_m": 0.569334837212,
+        "node_tolerance_m": 2.5e-09,
+        "min_intersection_area_m2": 0.0315609529324,
+        "min_relative_intersection_area": 0.504975246918,
+        "area_tolerance_factor": 1e-08
+      },
+      "peak_abs_xfem_base_shear_MN": 0.03531311628,
+      "peak_abs_structural_base_shear_MN": 0.023404109952610882,
+      "xfem_to_structural_peak_base_shear_ratio": 1.5088425217409556,
+      "peak_normalized_rms_base_shear_error": 0.1727555080048254,
+      "peak_normalized_max_base_shear_error": 0.3959442895806442,
+      "xfem_loop_work_MN_mm": 13.505639380112125,
+      "structural_loop_work_MN_mm": 14.535009190620492,
+      "manifest_excerpt": {
+        "observables": {
+          "peak_abs_base_shear_mn": 0.0353131162764,
+          "peak_abs_steel_stress_mpa": 431.261297078,
+          "max_host_damage": 0.98,
+          "max_damaged_host_points": 16
+        },
+        "timing": {
+          "total_wall_seconds": 151.0689963
+        },
+        "solve_control": {
+          "continuation_kind": "mixed-arc-length",
+          "max_bisections": 8,
+          "solver_max_iterations": 120,
+          "solver_profile": "l2",
+          "solver_cascade": false,
+          "adaptive_increments": true,
+          "mixed_arc_length_status": "completed",
+          "mixed_arc_length_target": 0.5,
+          "mixed_arc_length_reject_factor": 1.5,
+          "mixed_arc_length_reaction_scale_mn": 0.02,
+          "mixed_arc_length_damage_weight": 0.1,
+          "bordered_hybrid_disable_streak": 3,
+          "bordered_hybrid_retry_interval": 12,
+          "mixed_control_accepted_steps": 139,
+          "mixed_control_failed_solver_attempts": 0,
+          "mixed_control_rejected_arc_attempts": 1,
+          "mixed_control_total_cutbacks": 1,
+          "bordered_hybrid_attempted_steps": 0,
+          "bordered_hybrid_successful_steps": 0,
+          "bordered_hybrid_skipped_steps": 0,
+          "mixed_control_max_arc_length": 0.674267707173,
+          "mixed_control_mean_arc_length": 0.170088509049,
+          "total_accepted_substeps": 140,
+          "total_nonlinear_iterations": 1126,
+          "total_failed_attempts": 1,
+          "total_solver_profile_attempts": 141,
+          "max_requested_step_nonlinear_iterations": 50,
+          "max_bisection_level": 1,
+          "hard_step_count": 0
+        }
+      }
+    },
+    {
+      "label": "Hex8 1x1x4",
+      "case_dir": "data\\output\\cyclic_validation\\xfem_oblique_promoted_mesh_1x1x4_200mm_20260513",
+      "sign_factor": -1.0,
+      "completed": true,
+      "status": "completed",
+      "mesh": {
+        "hex_order": "Hex8",
+        "nx": 1,
+        "ny": 1,
+        "nz": 4,
+        "longitudinal_bias_power": 1,
+        "longitudinal_bias_location": "fixed-end",
+        "element_count": 36,
+        "node_count": 60,
+        "enriched_node_count": 8
+      },
+      "guard": {
+        "plane_id": 20,
+        "sequence_id": 3,
+        "status": "valid",
+        "cut_element_count": 1,
+        "min_abs_node_signed_distance_m": 0.173275820021,
+        "node_tolerance_m": 2.5e-09,
+        "min_intersection_area_m2": 0.0315609529324,
+        "min_relative_intersection_area": 0.504975246918,
+        "area_tolerance_factor": 1e-08
+      },
+      "peak_abs_xfem_base_shear_MN": 0.0325091984,
+      "peak_abs_structural_base_shear_MN": 0.023404109952610882,
+      "xfem_to_structural_peak_base_shear_ratio": 1.3890380136576561,
+      "peak_normalized_rms_base_shear_error": 0.13607637455183297,
+      "peak_normalized_max_base_shear_error": 0.3236461452531991,
+      "xfem_loop_work_MN_mm": 14.83206820084903,
+      "structural_loop_work_MN_mm": 14.535009192153284,
+      "manifest_excerpt": {
+        "observables": {
+          "peak_abs_base_shear_mn": 0.0325091983976,
+          "peak_abs_steel_stress_mpa": 437.841280152,
+          "max_host_damage": 0.98,
+          "max_damaged_host_points": 32
+        },
+        "timing": {
+          "total_wall_seconds": 223.4105909
+        },
+        "solve_control": {
+          "continuation_kind": "mixed-arc-length",
+          "max_bisections": 8,
+          "solver_max_iterations": 120,
+          "solver_profile": "l2",
+          "solver_cascade": false,
+          "adaptive_increments": true,
+          "mixed_arc_length_status": "completed",
+          "mixed_arc_length_target": 0.5,
+          "mixed_arc_length_reject_factor": 1.5,
+          "mixed_arc_length_reaction_scale_mn": 0.02,
+          "mixed_arc_length_damage_weight": 0.1,
+          "bordered_hybrid_disable_streak": 3,
+          "bordered_hybrid_retry_interval": 12,
+          "mixed_control_accepted_steps": 150,
+          "mixed_control_failed_solver_attempts": 0,
+          "mixed_control_rejected_arc_attempts": 1,
+          "mixed_control_total_cutbacks": 1,
+          "bordered_hybrid_attempted_steps": 0,
+          "bordered_hybrid_successful_steps": 0,
+          "bordered_hybrid_skipped_steps": 0,
+          "mixed_control_max_arc_length": 0.633289615004,
+          "mixed_control_mean_arc_length": 0.155989813895,
+          "total_accepted_substeps": 150,
+          "total_nonlinear_iterations": 1505,
+          "total_failed_attempts": 0,
+          "total_solver_profile_attempts": 150,
+          "max_requested_step_nonlinear_iterations": 117,
+          "max_bisection_level": 0,
+          "hard_step_count": 0
+        }
+      }
+    },
+    {
+      "label": "Hex8 2x2x2",
+      "case_dir": "data\\output\\cyclic_validation\\xfem_oblique_promoted_mesh_2x2x2_200mm_20260513",
+      "sign_factor": -1.0,
+      "completed": true,
+      "status": "completed",
+      "mesh": {
+        "hex_order": "Hex8",
+        "nx": 2,
+        "ny": 2,
+        "nz": 2,
+        "longitudinal_bias_power": 1,
+        "longitudinal_bias_location": "fixed-end",
+        "element_count": 24,
+        "node_count": 51,
+        "enriched_node_count": 18
+      },
+      "guard": {
+        "plane_id": 20,
+        "sequence_id": 3,
+        "status": "valid",
+        "cut_element_count": 4,
+        "min_abs_node_signed_distance_m": 0.569334837212,
+        "node_tolerance_m": 1.25e-09,
+        "min_intersection_area_m2": 0.0078902382331,
+        "min_relative_intersection_area": 0.504975246918,
+        "area_tolerance_factor": 1e-08
+      },
+      "peak_abs_xfem_base_shear_MN": 0.03397225838,
+      "peak_abs_structural_base_shear_MN": 0.023404109952610882,
+      "xfem_to_structural_peak_base_shear_ratio": 1.4515509647146472,
+      "peak_normalized_rms_base_shear_error": 0.18996198527028268,
+      "peak_normalized_max_base_shear_error": 0.5459801439748966,
+      "xfem_loop_work_MN_mm": 12.608774401527521,
+      "structural_loop_work_MN_mm": 14.535009189692019,
+      "manifest_excerpt": {
+        "observables": {
+          "peak_abs_base_shear_mn": 0.0339722583823,
+          "peak_abs_steel_stress_mpa": 427.73771796,
+          "max_host_damage": 0.98,
+          "max_damaged_host_points": 64
+        },
+        "timing": {
+          "total_wall_seconds": 377.8020268
+        },
+        "solve_control": {
+          "continuation_kind": "mixed-arc-length",
+          "max_bisections": 8,
+          "solver_max_iterations": 120,
+          "solver_profile": "l2",
+          "solver_cascade": false,
+          "adaptive_increments": true,
+          "mixed_arc_length_status": "completed",
+          "mixed_arc_length_target": 0.5,
+          "mixed_arc_length_reject_factor": 1.5,
+          "mixed_arc_length_reaction_scale_mn": 0.02,
+          "mixed_arc_length_damage_weight": 0.1,
+          "bordered_hybrid_disable_streak": 3,
+          "bordered_hybrid_retry_interval": 12,
+          "mixed_control_accepted_steps": 146,
+          "mixed_control_failed_solver_attempts": 0,
+          "mixed_control_rejected_arc_attempts": 1,
+          "mixed_control_total_cutbacks": 1,
+          "bordered_hybrid_attempted_steps": 0,
+          "bordered_hybrid_successful_steps": 0,
+          "bordered_hybrid_skipped_steps": 0,
+          "mixed_control_max_arc_length": 0.726096119813,
+          "mixed_control_mean_arc_length": 0.16458542599,
+          "total_accepted_substeps": 147,
+          "total_nonlinear_iterations": 1526,
+          "total_failed_attempts": 1,
+          "total_solver_profile_attempts": 148,
+          "max_requested_step_nonlinear_iterations": 64,
+          "max_bisection_level": 1,
+          "hard_step_count": 0
+        }
+      }
+    }
+  ],
+  "artifacts": {
+    "png": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_oblique_promoted_multimesh_hysteresis_200mm.png",
+    "secondary_png": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_oblique_promoted_multimesh_hysteresis_200mm.png",
+    "pdf": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\xfem_oblique_promoted_multimesh_hysteresis_200mm.pdf",
+    "secondary_pdf": "C:\\MyLibs\\fall_n\\PhD_Thesis\\Figuras\\validation_reboot\\xfem_oblique_promoted_multimesh_hysteresis_200mm.pdf"
+  }
+}

@@ -11,7 +11,7 @@ namespace fall_n {
 
 /// Invokes a Python plotting script from C++, forwarding data/figure paths.
 class PythonPlotter {
-    std::string python_exe_  = "python";
+    std::string python_exe_  = "py -3.12";
     std::string script_path_;
 
 public:

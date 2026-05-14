@@ -28,6 +28,7 @@
 #include <petsc.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -106,6 +107,10 @@ struct Options {
     std::string global_xfem_bias_location{"fixed-end"};
     double global_xfem_crack_z_m{
         std::numeric_limits<double>::quiet_NaN()};
+    std::vector<fall_n::xfem::XFEMCrackPlane> global_xfem_crack_planes{};
+    double global_xfem_crack_plane_node_guard_factor{1.0e-8};
+    double global_xfem_crack_plane_surface_guard_factor{1.0e-8};
+    bool global_xfem_allow_degenerate_crack_planes{false};
     double global_xfem_rebar_coupling_alpha_scale_over_ec{1.0e4};
     double global_xfem_crack_crossing_rebar_area_scale{0.0};
     double global_xfem_crack_crossing_gauge_length_mm{100.0};
@@ -182,6 +187,21 @@ struct GlobalXFEMNewtonRow {
     std::string solver_profile_label{};
 };
 
+struct GlobalXFEMCrackPlaneGuardRecord {
+    int plane_id{0};
+    int sequence_id{0};
+    std::string status{"not_checked"};
+    int cut_element_count{0};
+    double min_abs_node_signed_distance_m{
+        std::numeric_limits<double>::infinity()};
+    double min_intersection_area_m2{
+        std::numeric_limits<double>::infinity()};
+    double min_relative_intersection_area{
+        std::numeric_limits<double>::infinity()};
+    double node_tolerance_m{0.0};
+    double area_tolerance_factor{0.0};
+};
+
 struct GlobalXFEMNewtonSummary {
     bool attempted{false};
     bool completed{false};
@@ -211,6 +231,9 @@ struct GlobalXFEMNewtonSummary {
     int bordered_hybrid_skipped_steps{0};
     double crack_z_m{0.0};
     std::string crack_z_source{"first_element_midpoint"};
+    int crack_plane_count{0};
+    std::vector<fall_n::xfem::XFEMCrackPlane> crack_planes{};
+    std::vector<GlobalXFEMCrackPlaneGuardRecord> crack_plane_guard_records{};
     double total_rebar_area_m2{0.0};
     double peak_abs_drift_mm{0.0};
     double peak_abs_base_shear_mn{0.0};
@@ -285,6 +308,77 @@ struct GlobalXFEMNewtonSummary {
         throw std::invalid_argument("At least one amplitude must be declared.");
     }
     return values;
+}
+
+[[nodiscard]] std::vector<std::string_view>
+split_text(std::string_view text, char delimiter)
+{
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t pos = text.find(delimiter, start);
+        if (pos == std::string_view::npos) {
+            parts.push_back(text.substr(start));
+            break;
+        }
+        parts.push_back(text.substr(start, pos - start));
+        start = pos + 1;
+    }
+    return parts;
+}
+
+[[nodiscard]] Eigen::Vector3d parse_vector3(std::string_view raw)
+{
+    const auto parts = split_text(raw, ',');
+    if (parts.size() != 3) {
+        throw std::invalid_argument(
+            "Expected vector format x,y,z for --xfem-crack-plane.");
+    }
+    Eigen::Vector3d value{
+        std::stod(std::string(parts[0])),
+        std::stod(std::string(parts[1])),
+        std::stod(std::string(parts[2]))};
+    if (!std::isfinite(value.x()) || !std::isfinite(value.y()) ||
+        !std::isfinite(value.z())) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane vector entries must be finite.");
+    }
+    return value;
+}
+
+[[nodiscard]] fall_n::xfem::XFEMCrackPlane
+parse_global_xfem_crack_plane(std::string_view raw)
+{
+    const auto parts = split_text(raw, ':');
+    if (parts.size() != 4) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane expects plane_id:sequence_id:px,py,pz:nx,ny,nz");
+    }
+
+    const int plane_id = std::stoi(std::string(parts[0]));
+    const int sequence_id = std::stoi(std::string(parts[1]));
+    if (plane_id <= 0 || sequence_id <= 0) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane plane_id and sequence_id must be positive.");
+    }
+
+    const Eigen::Vector3d point = parse_vector3(parts[2]);
+    Eigen::Vector3d normal = parse_vector3(parts[3]);
+    const double norm = normal.norm();
+    if (!std::isfinite(norm) || norm <= 1.0e-14) {
+        throw std::invalid_argument(
+            "--xfem-crack-plane normal must be non-zero.");
+    }
+    normal /= norm;
+
+    return fall_n::xfem::XFEMCrackPlane{
+        fall_n::xfem::PlaneCrackLevelSet{point, normal},
+        plane_id,
+        sequence_id,
+        fall_n::xfem::XFEMCrackPlaneSource::prescribed,
+        0,
+        0.0,
+        true};
 }
 
 [[nodiscard]] std::vector<double> cyclic_protocol_mm(
@@ -370,6 +464,10 @@ void write_usage()
         << "[--global-xfem-bias-power value] "
         << "[--global-xfem-bias-location fixed-end|loaded-end|both-ends] "
         << "[--global-xfem-crack-z-m value] "
+        << "[--xfem-crack-plane plane_id:sequence_id:px,py,pz:nx,ny,nz] "
+        << "[--global-xfem-crack-plane-node-guard-factor value] "
+        << "[--global-xfem-crack-plane-surface-guard-factor value] "
+        << "[--global-xfem-allow-degenerate-crack-planes] "
         << "[--global-xfem-rebar-coupling-alpha-scale-over-ec value] "
         << "[--global-xfem-crack-crossing-axis-frame fixed-global|corotational-host] "
         << "[--global-xfem-crack-crossing-host-axis-tangent frozen|finite-difference]\n";
@@ -492,6 +590,20 @@ void write_usage()
             options.global_xfem_bias_location = value();
         } else if (flag == "--global-xfem-crack-z-m") {
             options.global_xfem_crack_z_m = std::stod(value());
+        } else if (flag == "--xfem-crack-plane") {
+            options.global_xfem_crack_planes.push_back(
+                parse_global_xfem_crack_plane(value()));
+        } else if (flag ==
+                   "--global-xfem-crack-plane-node-guard-factor") {
+            options.global_xfem_crack_plane_node_guard_factor =
+                std::stod(value());
+        } else if (flag ==
+                   "--global-xfem-crack-plane-surface-guard-factor") {
+            options.global_xfem_crack_plane_surface_guard_factor =
+                std::stod(value());
+        } else if (flag ==
+                   "--global-xfem-allow-degenerate-crack-planes") {
+            options.global_xfem_allow_degenerate_crack_planes = true;
         } else if (flag == "--global-xfem-rebar-coupling-alpha-scale-over-ec") {
             options.global_xfem_rebar_coupling_alpha_scale_over_ec =
                 std::stod(value());
@@ -753,6 +865,287 @@ parse_longitudinal_bias_location(std::string value)
         }
     }
     return false;
+}
+
+[[nodiscard]] double global_xfem_min_grid_spacing(
+    const fall_n::PrismaticGrid& grid)
+{
+    double spacing = std::numeric_limits<double>::infinity();
+    const auto update_axis = [&](auto coordinate, int count) {
+        for (int i = 1; i < count; ++i) {
+            const double h = std::abs(coordinate(i) - coordinate(i - 1));
+            if (h > 0.0) {
+                spacing = std::min(spacing, h);
+            }
+        }
+    };
+    update_axis([&](int i) { return grid.x_coordinate(i); }, grid.nodes_x());
+    update_axis([&](int i) { return grid.y_coordinate(i); }, grid.nodes_y());
+    update_axis([&](int i) { return grid.z_coordinate(i); }, grid.nodes_z());
+    if (!std::isfinite(spacing)) {
+        return std::min({grid.width, grid.height, grid.length});
+    }
+    return spacing;
+}
+
+[[nodiscard]] std::array<Eigen::Vector3d, 8> global_xfem_cell_corners(
+    const fall_n::PrismaticGrid& grid,
+    int ex,
+    int ey,
+    int ez)
+{
+    const int s = grid.step;
+    const int x0 = ex * s;
+    const int x1 = (ex + 1) * s;
+    const int y0 = ey * s;
+    const int y1 = (ey + 1) * s;
+    const int z0 = ez * s;
+    const int z1 = (ez + 1) * s;
+    return {{
+        {grid.x_coordinate(x0), grid.y_coordinate(y0), grid.z_coordinate(z0)},
+        {grid.x_coordinate(x1), grid.y_coordinate(y0), grid.z_coordinate(z0)},
+        {grid.x_coordinate(x1), grid.y_coordinate(y1), grid.z_coordinate(z0)},
+        {grid.x_coordinate(x0), grid.y_coordinate(y1), grid.z_coordinate(z0)},
+        {grid.x_coordinate(x0), grid.y_coordinate(y0), grid.z_coordinate(z1)},
+        {grid.x_coordinate(x1), grid.y_coordinate(y0), grid.z_coordinate(z1)},
+        {grid.x_coordinate(x1), grid.y_coordinate(y1), grid.z_coordinate(z1)},
+        {grid.x_coordinate(x0), grid.y_coordinate(y1), grid.z_coordinate(z1)},
+    }};
+}
+
+[[nodiscard]] double polygon_area_on_plane(
+    std::vector<Eigen::Vector3d> polygon,
+    const Eigen::Vector3d& normal)
+{
+    if (polygon.size() < 3) {
+        return 0.0;
+    }
+
+    Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+    for (const auto& p : polygon) {
+        centroid += p;
+    }
+    centroid /= static_cast<double>(polygon.size());
+
+    Eigen::Vector3d tangent_1;
+    if (std::abs(normal.x()) < 0.9) {
+        tangent_1 = normal.cross(Eigen::Vector3d::UnitX()).normalized();
+    } else {
+        tangent_1 = normal.cross(Eigen::Vector3d::UnitY()).normalized();
+    }
+    const Eigen::Vector3d tangent_2 = normal.cross(tangent_1).normalized();
+
+    std::ranges::sort(
+        polygon,
+        [&](const Eigen::Vector3d& a, const Eigen::Vector3d& b) {
+            const Eigen::Vector3d ra = a - centroid;
+            const Eigen::Vector3d rb = b - centroid;
+            const double aa = std::atan2(ra.dot(tangent_2), ra.dot(tangent_1));
+            const double ab = std::atan2(rb.dot(tangent_2), rb.dot(tangent_1));
+            return aa < ab;
+        });
+
+    double area = 0.0;
+    for (std::size_t i = 1; i + 1 < polygon.size(); ++i) {
+        area += 0.5 *
+                (polygon[i] - centroid).cross(polygon[i + 1] - centroid).norm();
+    }
+    return area;
+}
+
+[[nodiscard]] double global_xfem_cell_plane_intersection_area(
+    const std::array<Eigen::Vector3d, 8>& corners,
+    const fall_n::xfem::PlaneCrackLevelSet& plane,
+    double tolerance)
+{
+    static constexpr std::array<std::array<int, 2>, 12> edges{{
+        {{0, 1}},
+        {{1, 2}},
+        {{2, 3}},
+        {{3, 0}},
+        {{4, 5}},
+        {{5, 6}},
+        {{6, 7}},
+        {{7, 4}},
+        {{0, 4}},
+        {{1, 5}},
+        {{2, 6}},
+        {{3, 7}},
+    }};
+
+    std::vector<Eigen::Vector3d> polygon;
+    auto add_unique = [&](const Eigen::Vector3d& x) {
+        for (const auto& p : polygon) {
+            if ((p - x).norm() <= 100.0 * tolerance) {
+                return;
+            }
+        }
+        polygon.push_back(x);
+    };
+
+    for (const auto& edge : edges) {
+        const Eigen::Vector3d& xa = corners[static_cast<std::size_t>(edge[0])];
+        const Eigen::Vector3d& xb = corners[static_cast<std::size_t>(edge[1])];
+        const double da = plane.signed_distance(xa);
+        const double db = plane.signed_distance(xb);
+        const bool a_on = std::abs(da) <= tolerance;
+        const bool b_on = std::abs(db) <= tolerance;
+        if (a_on) {
+            add_unique(xa);
+        }
+        if (b_on) {
+            add_unique(xb);
+        }
+        if ((da < -tolerance && db > tolerance) ||
+            (da > tolerance && db < -tolerance)) {
+            const double t = da / (da - db);
+            add_unique(xa + t * (xb - xa));
+        }
+    }
+
+    return polygon_area_on_plane(std::move(polygon), plane.normal);
+}
+
+[[nodiscard]] double global_xfem_cell_min_face_area(
+    const fall_n::PrismaticGrid& grid,
+    int ex,
+    int ey,
+    int ez)
+{
+    const int s = grid.step;
+    const double hx = std::abs(
+        grid.x_coordinate((ex + 1) * s) - grid.x_coordinate(ex * s));
+    const double hy = std::abs(
+        grid.y_coordinate((ey + 1) * s) - grid.y_coordinate(ey * s));
+    const double hz = std::abs(
+        grid.z_coordinate((ez + 1) * s) - grid.z_coordinate(ez * s));
+    return std::max(
+        std::min({hx * hy, hx * hz, hy * hz}),
+        std::numeric_limits<double>::epsilon());
+}
+
+[[nodiscard]] GlobalXFEMCrackPlaneGuardRecord validate_global_xfem_crack_plane(
+    const fall_n::PrismaticGrid& grid,
+    const fall_n::xfem::XFEMCrackPlane& crack_plane,
+    const Options& options)
+{
+    GlobalXFEMCrackPlaneGuardRecord record{
+        .plane_id = crack_plane.plane_id,
+        .sequence_id = crack_plane.sequence_id,
+        .status = "valid"};
+    const double min_spacing = global_xfem_min_grid_spacing(grid);
+    const double node_tolerance =
+        std::max(options.global_xfem_crack_plane_node_guard_factor, 0.0) *
+        std::max(min_spacing, 1.0e-12);
+    const double area_tolerance_factor =
+        std::max(options.global_xfem_crack_plane_surface_guard_factor, 0.0);
+    record.node_tolerance_m = node_tolerance;
+    record.area_tolerance_factor = area_tolerance_factor;
+
+    const auto& plane = crack_plane.geometry;
+    for (int iz = 0; iz < grid.nodes_z(); ++iz) {
+        for (int iy = 0; iy < grid.nodes_y(); ++iy) {
+            for (int ix = 0; ix < grid.nodes_x(); ++ix) {
+                if (!grid.active_node_for_order(ix, iy, iz)) {
+                    continue;
+                }
+                const Eigen::Vector3d x{
+                    grid.x_coordinate(ix),
+                    grid.y_coordinate(iy),
+                    grid.z_coordinate(iz)};
+                record.min_abs_node_signed_distance_m = std::min(
+                    record.min_abs_node_signed_distance_m,
+                    std::abs(plane.signed_distance(x)));
+            }
+        }
+    }
+
+    for (int ez = 0; ez < grid.nz; ++ez) {
+        for (int ey = 0; ey < grid.ny; ++ey) {
+            for (int ex = 0; ex < grid.nx; ++ex) {
+                const auto corners = global_xfem_cell_corners(grid, ex, ey, ez);
+                bool has_positive = false;
+                bool has_negative = false;
+                bool has_interface = false;
+                for (const auto& x : corners) {
+                    switch (plane.side(x, node_tolerance)) {
+                        case fall_n::xfem::HeavisideSide::positive:
+                            has_positive = true;
+                            break;
+                        case fall_n::xfem::HeavisideSide::negative:
+                            has_negative = true;
+                            break;
+                        case fall_n::xfem::HeavisideSide::on_interface:
+                            has_interface = true;
+                            break;
+                    }
+                }
+                if (!((has_positive && has_negative) ||
+                      (has_interface && (has_positive || has_negative)))) {
+                    continue;
+                }
+
+                ++record.cut_element_count;
+                const double area = global_xfem_cell_plane_intersection_area(
+                    corners,
+                    plane,
+                    std::max(node_tolerance, 1.0e-14));
+                const double rel_area =
+                    area / global_xfem_cell_min_face_area(grid, ex, ey, ez);
+                record.min_intersection_area_m2 =
+                    std::min(record.min_intersection_area_m2, area);
+                record.min_relative_intersection_area =
+                    std::min(record.min_relative_intersection_area, rel_area);
+            }
+        }
+    }
+
+    if (record.cut_element_count == 0) {
+        record.status = "inactive_not_cut";
+    } else if (
+        record.min_abs_node_signed_distance_m <= node_tolerance &&
+        node_tolerance > 0.0) {
+        record.status = "degenerate_node_on_interface";
+    } else if (
+        record.min_relative_intersection_area <= area_tolerance_factor &&
+        area_tolerance_factor > 0.0) {
+        record.status = "degenerate_sliver_cut";
+    }
+    return record;
+}
+
+void validate_global_xfem_crack_planes_or_throw(
+    const fall_n::PrismaticGrid& grid,
+    const std::vector<fall_n::xfem::XFEMCrackPlane>& crack_planes,
+    const Options& options,
+    GlobalXFEMNewtonSummary& summary)
+{
+    summary.crack_plane_guard_records.clear();
+    summary.crack_plane_guard_records.reserve(crack_planes.size());
+    for (const auto& plane : crack_planes) {
+        auto record = validate_global_xfem_crack_plane(grid, plane, options);
+        const bool valid = record.status == "valid";
+        if (!valid && !options.global_xfem_allow_degenerate_crack_planes) {
+            const auto failed_record = record;
+            summary.crack_plane_guard_records.push_back(std::move(record));
+            std::ostringstream message;
+            message
+                << "--xfem-crack-plane plane_id=" << failed_record.plane_id
+                << " sequence_id=" << failed_record.sequence_id
+                << " failed geometric guard: " << failed_record.status
+                << " (cut_elements=" << failed_record.cut_element_count
+                << ", min_abs_node_signed_distance_m="
+                << failed_record.min_abs_node_signed_distance_m
+                << ", node_tolerance_m=" << failed_record.node_tolerance_m
+                << ", min_relative_intersection_area="
+                << failed_record.min_relative_intersection_area
+                << "). Move the plane inside element interiors or pass "
+                   "--global-xfem-allow-degenerate-crack-planes for an "
+                   "explicit diagnostic run.";
+            throw std::invalid_argument(message.str());
+        }
+        summary.crack_plane_guard_records.push_back(std::move(record));
+    }
 }
 
 [[nodiscard]] double choose_global_xfem_crack_z(
@@ -1766,6 +2159,61 @@ void write_global_xfem_newton_manifest(
         << "    \"crack_z_m\": " << summary.crack_z_m << ",\n"
         << "    \"crack_z_source\": \""
         << json_escape(summary.crack_z_source) << "\",\n"
+        << "    \"crack_plane_count\": " << summary.crack_plane_count
+        << ",\n"
+        << "    \"crack_planes\": [\n";
+    for (std::size_t i = 0; i < summary.crack_planes.size(); ++i) {
+        const auto& plane = summary.crack_planes[i];
+        const auto& point = plane.geometry.point;
+        const auto& normal = plane.geometry.normal;
+        out << "      {"
+            << "\"plane_id\": " << plane.plane_id
+            << ", \"sequence_id\": " << plane.sequence_id
+            << ", \"source\": \""
+            << json_escape(std::string(fall_n::xfem::to_string(plane.source)))
+            << "\", \"activation_step\": " << plane.activation_step
+            << ", \"activation_time\": " << plane.activation_time
+            << ", \"active\": " << (plane.active ? "true" : "false")
+            << ", \"point\": [" << point.x() << ", " << point.y()
+            << ", " << point.z() << "]"
+            << ", \"normal\": [" << normal.x() << ", " << normal.y()
+            << ", " << normal.z() << "]"
+            << "}" << (i + 1 == summary.crack_planes.size() ? "\n" : ",\n");
+    }
+    out << "    ],\n"
+        << "    \"crack_plane_guard\": {\n"
+        << "      \"node_guard_factor\": "
+        << options.global_xfem_crack_plane_node_guard_factor << ",\n"
+        << "      \"surface_guard_factor\": "
+        << options.global_xfem_crack_plane_surface_guard_factor << ",\n"
+        << "      \"allow_degenerate\": "
+        << (options.global_xfem_allow_degenerate_crack_planes ? "true"
+                                                             : "false")
+        << ",\n"
+        << "      \"records\": [\n";
+    for (std::size_t i = 0; i < summary.crack_plane_guard_records.size(); ++i) {
+        const auto& record = summary.crack_plane_guard_records[i];
+        out << "        {"
+            << "\"plane_id\": " << record.plane_id
+            << ", \"sequence_id\": " << record.sequence_id
+            << ", \"status\": \"" << json_escape(record.status) << "\""
+            << ", \"cut_element_count\": " << record.cut_element_count
+            << ", \"min_abs_node_signed_distance_m\": "
+            << json_number_or_null(record.min_abs_node_signed_distance_m)
+            << ", \"node_tolerance_m\": "
+            << json_number_or_null(record.node_tolerance_m)
+            << ", \"min_intersection_area_m2\": "
+            << json_number_or_null(record.min_intersection_area_m2)
+            << ", \"min_relative_intersection_area\": "
+            << json_number_or_null(record.min_relative_intersection_area)
+            << ", \"area_tolerance_factor\": "
+            << json_number_or_null(record.area_tolerance_factor)
+            << "}" << (i + 1 == summary.crack_plane_guard_records.size()
+                           ? "\n"
+                           : ",\n");
+    }
+    out << "      ]\n"
+        << "    },\n"
         << "    \"axial_compression_mn\": "
         << options.axial_compression_mn << ",\n"
         << "    \"concrete_fpc_mpa\": " << spec.concrete_fpc_mpa << "\n"
@@ -2504,6 +2952,8 @@ template <typename GlobalXFEMKinematicPolicy>
     using fall_n::RebarLineInterpolation;
     using fall_n::make_reinforced_prismatic_domain;
     using fall_n::xfem::PlaneCrackLevelSet;
+    using fall_n::xfem::XFEMCrackPlane;
+    using fall_n::xfem::XFEMCrackPlaneSource;
 
     GlobalXFEMNewtonSummary summary{
         .attempted = options.run_global_xfem_newton,
@@ -2567,10 +3017,36 @@ template <typename GlobalXFEMKinematicPolicy>
 
         const double crack_z =
             choose_global_xfem_crack_z(options, grid, summary);
-        summary.crack_z_m = crack_z;
-        const PlaneCrackLevelSet base_crack{
+        double coupling_crack_z = crack_z;
+        const PlaneCrackLevelSet legacy_base_crack{
             Eigen::Vector3d{0.0, 0.0, crack_z},
             Eigen::Vector3d::UnitZ()};
+        std::vector<XFEMCrackPlane> crack_planes =
+            options.global_xfem_crack_planes;
+        if (crack_planes.empty()) {
+            crack_planes.emplace_back(
+                legacy_base_crack,
+                1,
+                1,
+                XFEMCrackPlaneSource::legacy,
+                0,
+                0.0,
+                true);
+        } else if (!std::isfinite(options.global_xfem_crack_z_m)) {
+            coupling_crack_z = crack_planes.front().geometry.point.z();
+            summary.crack_z_source =
+                "first_prescribed_crack_plane_reference_point_z";
+        }
+        const PlaneCrackLevelSet& base_crack = crack_planes.front().geometry;
+        summary.crack_z_m = coupling_crack_z;
+        summary.crack_plane_count =
+            static_cast<int>(crack_planes.size());
+        summary.crack_planes = crack_planes;
+        validate_global_xfem_crack_planes_or_throw(
+            grid,
+            crack_planes,
+            options,
+            summary);
 
         const double ec_mpa = 4700.0 * std::sqrt(spec.concrete_fpc_mpa);
         Material<ThreeDimensionalMaterial> material =
@@ -2599,7 +3075,7 @@ template <typename GlobalXFEMKinematicPolicy>
             make_crack_crossing_rebar_sites(
                 reinforced,
                 rebar,
-                crack_z,
+                coupling_crack_z,
                 std::max(
                     options.global_xfem_crack_crossing_rebar_area_scale,
                     0.0));
@@ -2650,7 +3126,7 @@ template <typename GlobalXFEMKinematicPolicy>
                 XFEMElement{
                     &domain.element(element_index),
                     material,
-                    base_crack,
+                    crack_planes,
                     cohesive,
                     xfem_solid_options});
         }
@@ -3677,6 +4153,8 @@ void write_manifest(
         << "    \"mesh_nodes\": " << global_xfem_newton.node_count << ",\n"
         << "    \"enriched_nodes\": "
         << global_xfem_newton.enriched_node_count << ",\n"
+        << "    \"crack_plane_count\": "
+        << global_xfem_newton.crack_plane_count << ",\n"
         << "    \"solver_global_dofs\": "
         << global_xfem_newton.solver_global_dofs << ",\n"
         << "    \"rebar_bar_count\": "
@@ -3764,6 +4242,11 @@ int main(int argc, char** argv)
     try {
         const Options options = parse_args(argc, argv);
         validate_supported_global_xfem_kinematics(options);
+        if (options.global_xfem_crack_plane_node_guard_factor < 0.0 ||
+            options.global_xfem_crack_plane_surface_guard_factor < 0.0) {
+            throw std::invalid_argument(
+                "XFEM crack-plane guard factors must be non-negative.");
+        }
         const ReducedRCColumnReferenceSpec spec =
             default_reduced_rc_column_reference_spec_v;
         if (options.global_xfem_scale_audit_only) {
