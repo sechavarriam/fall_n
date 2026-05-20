@@ -28,60 +28,21 @@
       "max_base_shear_error_kN": 0.0
     },
     {
-      "label": "OpenSees hi-fi structural",
+      "label": "OpenSees hi-fi structural 200 mm",
       "role": "external_reference",
-      "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\reboot_structural_multielement_hifi_cyclic_50mm_force2d_20260511\\opensees_hifi\\hysteresis.csv",
+      "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\opensees_hifi_timoshenko_matrix_200mm_publication_20260518\\hysteresis.csv",
       "status": "available",
       "base_shear_sign_factor_to_structural": 1.0,
-      "records": 13.0,
-      "max_abs_drift_mm": 50.0,
-      "peak_abs_base_shear_kN": 17.49311751362233,
-      "loop_work_MN_m": -4.1493955014116525e-05,
-      "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed",
-      "paired_fall_n_multielement_hifi_audit": {
-        "status": "completed",
-        "scope": "reduced_rc_structural_multielement_hifi_reference",
-        "comparison": {
-          "hysteresis": {
-            "shared_step_count": 13,
-            "active_step_count": 10,
-            "activity_floor": 0.0008954236250000001,
-            "max_abs_base_shear_error": 0.0004505491679081975,
-            "max_rel_base_shear_error": 0.05745513337183603,
-            "rms_rel_base_shear_error": 0.03360039121426309
-          },
-          "base_moment": {
-            "shared_step_count": 13,
-            "active_step_count": 10,
-            "activity_floor": 0.00281153377,
-            "max_abs_base_moment_error": 0.0014146758405097423,
-            "max_rel_base_moment_error": 0.05745513606671973,
-            "rms_rel_base_moment_error": 0.03360038214800491
-          },
-          "base_curvature": {
-            "shared_step_count": 13,
-            "active_step_count": 10,
-            "activity_floor": 0.00076708294,
-            "max_abs_base_curvature_error": 0.0005030721029033337,
-            "max_rel_base_curvature_error": 0.03279124739342604,
-            "rms_rel_base_curvature_error": 0.017641577341541256
-          },
-          "station_parity": {
-            "fall_n_station_count": 18,
-            "opensees_station_count": 18,
-            "common_station_count": 18,
-            "max_abs_xi_mismatch": 4.5975301343759156e-10,
-            "same_station_count": true
-          }
-        },
-        "timing": {
-          "fall_n_process_wall_seconds": 7.873051299946383,
-          "opensees_process_wall_seconds": 1.9880253999726847,
-          "fall_n_reported_total_wall_seconds": 5.093899,
-          "opensees_reported_total_wall_seconds": 1.045105900033377,
-          "fall_n_over_opensees_process_ratio": 3.9602367756742733
-        }
-      }
+      "records": 769.0,
+      "max_abs_drift_mm": 200.0000000000002,
+      "peak_abs_base_shear_kN": 22.151225058532884,
+      "loop_work_MN_m": -0.013262365313098892,
+      "metric_scope": "common_protocol_pseudotime",
+      "reference_loop_work_MN_m": -0.014521865956026612,
+      "loop_work_ratio_to_structural": 0.9132686772662969,
+      "rms_base_shear_error_kN": 1.3173002631016666,
+      "peak_normalized_rms_base_shear_error": 0.05598265295001989,
+      "max_base_shear_error_kN": 3.6692956672458745
     },
     {
       "label": "XFEM promoted",
@@ -113,5 +74,5 @@
       "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed"
     }
   ],
-  "notes": "The OpenSees curve is the multi-element high-fidelity structural comparator used to audit the fall_n structural reference, not the simplified bridge diagnostic. Missing OpenSees or Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."
+  "notes": "The OpenSees curve is the multi-element high-fidelity structural comparator used to audit the fall_n structural reference over the full 200 mm cyclic protocol, not the earlier incomplete bridge diagnostic or the shorter 50 mm window. Missing Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."
 }

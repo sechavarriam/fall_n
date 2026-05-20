@@ -1,0 +1,181 @@
+{
+  "schema": "fall_n_lshaped_16_fe2_two_way_final_v1",
+  "run_dir": "C:\\MyLibs\\fall_n\\data\\output\\lshaped_16storey_two_way_xfem_deep_regularized_hybrid_diag_1site_10s_20260515",
+  "reference_dir": "C:\\MyLibs\\fall_n\\data\\output\\lshaped_16storey_global_only_timegrid_10s_20260511",
+  "output_prefix": "lshaped_16_fe2_two_way_deep_regularized_final_10s",
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_summary.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_summary.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_roof_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_roof_components.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_roof_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_roof_orbit.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_monitored_hysteresis.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_monitored_hysteresis.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_coupling_gates.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_coupling_gates.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_local_xfem_evolution.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_deep_regularized_final_10s_local_xfem_evolution.png"
+  ],
+  "global": {
+    "t_final_s": 10.0002,
+    "accepted_steps": 34689,
+    "u_inf_final_m": 0.2046535,
+    "u_inf_max_m": 0.4076172,
+    "u_inf_max_time_s": 3.7237,
+    "peak_damage_final": 4.987857
+  },
+  "roof_node": {
+    "node": "node335",
+    "comparison_to_global_only": {
+      "node335_dof0": {
+        "max_abs": 0.01321854837985871,
+        "rms": 0.004002060492170538,
+        "relative_rms_to_ref_peak": 0.012544837302371107,
+        "final_difference": -0.008012162194603753
+      },
+      "node335_dof1": {
+        "max_abs": 0.007838530602803765,
+        "rms": 0.002276241254127309,
+        "relative_rms_to_ref_peak": 0.01004841267504199,
+        "final_difference": 0.0005631384165261516
+      },
+      "node335_dof2": {
+        "max_abs": 0.002055430440335055,
+        "rms": 0.0003210731283757114,
+        "relative_rms_to_ref_peak": 0.007816390667823775,
+        "final_difference": -0.0003813022599494023
+      }
+    },
+    "peak_abs_fe2_m": {
+      "ux": 0.317329419,
+      "uy": 0.22754127,
+      "uz": 0.0424846491
+    },
+    "final_fe2_m": {
+      "ux": 0.0648914576,
+      "uy": 0.0488728875,
+      "uz": -0.00380331583
+    }
+  },
+  "monitored_element": {
+    "force_comparison_to_global_only": {
+      "f0": {
+        "max_abs": 0.026409459093324185,
+        "rms": 0.007484664991443486,
+        "relative_rms_to_ref_peak": 0.03972064700490174,
+        "final_difference": -0.010408184577605405
+      },
+      "f1": {
+        "max_abs": 0.0204322465,
+        "rms": 0.002395136150257097,
+        "relative_rms_to_ref_peak": 0.019874039252836772,
+        "final_difference": 0.0005267379095277441
+      },
+      "f2": {
+        "max_abs": 0.7248287825439816,
+        "rms": 0.037696746038279355,
+        "relative_rms_to_ref_peak": 0.014625781068560405,
+        "final_difference": 0.004525520329680677
+      },
+      "f3": {
+        "max_abs": 0.05567521207160065,
+        "rms": 0.005602621674630932,
+        "relative_rms_to_ref_peak": 0.019444685079056123,
+        "final_difference": 0.0025837398136595163
+      },
+      "f4": {
+        "max_abs": 0.05297686106474177,
+        "rms": 0.0142085690168779,
+        "relative_rms_to_ref_peak": 0.03127368823297101,
+        "final_difference": -0.015968060487099686
+      },
+      "f5": {
+        "max_abs": 0.0054313578508672624,
+        "rms": 0.0016723214932627178,
+        "relative_rms_to_ref_peak": 0.04121277092734253,
+        "final_difference": -0.003159056244772345
+      }
+    },
+    "work_proxy_f2_uy_fe2": 0.009144389631740673,
+    "work_proxy_f2_uy_global_only": 0.018153538292470427,
+    "work_proxy_f4_ux_fe2": -0.2514235220725587,
+    "work_proxy_f4_ux_global_only": -0.2445402565779286
+  },
+  "coupling": {
+    "launch_tolerances_declared": {
+      "force": 0.3,
+      "force_component": 0.3,
+      "tangent": 0.07,
+      "tangent_column": 0.55
+    },
+    "rows": 34690,
+    "regime_counts": {
+      "strict_two_way": 33004,
+      "hybrid_observation_window": 1686
+    },
+    "terminal_strict_start_s": 9.76195,
+    "terminal_strict_end_s": 10.0002,
+    "terminal_strict_rows": 954,
+    "terminal_strict_duration_s": 0.23824999999999896,
+    "last_regime": "strict_two_way",
+    "last_return_gate_passed": 1,
+    "last_work_gap": 0.00311152728547,
+    "last_force_residual_rel": 0.001361795154458,
+    "last_force_component_residual_rel": 0.001210495381514,
+    "last_tangent_residual_rel": 0.0,
+    "last_tangent_column_residual_rel": 0.0,
+    "max_force_residual_rel_all": 0.9858837003312,
+    "max_force_component_residual_rel_all": 0.9858836896513,
+    "max_tangent_residual_rel_all": 0.07458835017954,
+    "max_tangent_column_residual_rel_all": 1.4628028105,
+    "max_force_residual_rel_strict": 0.2998222942519,
+    "max_force_component_residual_rel_strict": 0.2998135268717,
+    "max_tangent_residual_rel_strict": 0.06845258666975,
+    "max_tangent_column_residual_rel_strict": 0.5497902818812,
+    "max_force_residual_rel_terminal_strict": 0.0568387982251,
+    "max_force_component_residual_rel_terminal_strict": 0.05662429659583,
+    "max_tangent_residual_rel_terminal_strict": 0.001536444709543,
+    "max_tangent_column_residual_rel_terminal_strict": 0.5470684576268
+  },
+  "xfem": {
+    "final_cracks": 72,
+    "final_cracked_gps": 72,
+    "final_max_opening_m": 0.003920228,
+    "max_opening_m": 0.009153272,
+    "max_opening_time_s": 8.375,
+    "final_damage_scalar": 0.9997172,
+    "plane_sequence": [
+      {
+        "site_id": "0",
+        "plane_id": "1",
+        "sequence_id": "1",
+        "source": "macro_inferred",
+        "activation_step": "66",
+        "activation_time": "1.3002",
+        "point_x": "0",
+        "point_y": "0",
+        "point_z": "1.8",
+        "normal_x": "0.004561227199281066",
+        "normal_y": "0.1066256334932247",
+        "normal_z": "0.994288775702816",
+        "criterion_value": "4.961552234117836e-05",
+        "status": "active"
+      }
+    ],
+    "cell_audit": {
+      "rows": 32,
+      "cut_cells": 4,
+      "uncut_cells": 28,
+      "interface_area_total_m2": 0.16278551157007082,
+      "max_relative_volume_error": 2.343916901944165e-14
+    }
+  },
+  "vtk_audit": {
+    "issue_count": 0,
+    "total_vtu_files": 20,
+    "visible_crack_cells": 256,
+    "min_visible_crack_opening_m": 0.0005038252398897061,
+    "local_global_endpoint_max_gap_m": 4.533010348539481e-08
+  }
+}

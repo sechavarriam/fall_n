@@ -60,6 +60,37 @@ int main(int argc, char** argv)
               "positive beam kappa_y extends positive prism-x fibres");
     }
 
+    {
+        fall_n::ReducedRCManagedXfemLocalModelAdapter adapter;
+        const bool initialized = adapter.initialize_managed_local_model(patch);
+        fall_n::ReducedRCManagedLocalBoundarySample sample{};
+        sample.site_index = patch.site_index;
+        sample.sample_index = 1;
+        sample.pseudo_time = 0.01;
+        sample.physical_time = 0.01;
+        sample.z_over_l = patch.crack_z_over_l;
+        sample.curvature_y = 1.0e-5;
+        sample.imposed_top_translation_m =
+            Eigen::Vector3d{0.0, 0.0, 0.0};
+
+        const bool boundary_ok =
+            initialized && adapter.apply_macro_boundary_sample(sample);
+        const auto step = boundary_ok
+            ? adapter.solve_current_pseudo_time_step(sample)
+            : fall_n::ReducedRCManagedLocalStepResult{};
+        const auto response = adapter.homogenized_section_response();
+
+        check(initialized && boundary_ok && step.converged,
+              "managed XFEM local curvature sign probe converges");
+        check(response.is_well_formed() && response.f_hom.size() > 1,
+              "managed XFEM curvature sign probe exports a moment response");
+        check(response.f_hom.size() > 1 && response.f_hom(1) > 0.0,
+              "positive kappa_y produces positive homogenized M_y");
+        check(response.D_hom.rows() > 1 && response.D_hom.cols() > 1 &&
+                  response.D_hom(1, 1) > 0.0,
+              "positive kappa_y produces positive flexural secant stiffness");
+    }
+
     std::vector<fall_n::ReducedRCStructuralReplaySample> history(3);
     for (std::size_t i = 0; i < history.size(); ++i) {
         auto& sample = history[i];

@@ -1,0 +1,33 @@
+{
+  "schema": "lshaped_16_opensees_error_diagnostics_v1",
+  "falln_reference": "C:\\MyLibs\\fall_n\\data\\output\\lshaped_16storey_global_only_primary_nodal_fixeddt_10s_20260518\\recorders\\roof_displacement_global_reference.csv",
+  "opensees_roof": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey_nonlinear_convergence_materialmapped_10s_20260518\\fs_ets008_shear050_pdelta_materialmapped_deepcutback_10s_publication\\roof_displacement.csv",
+  "falln_roof_node_id": 329,
+  "comparison_samples": 502,
+  "comparison_start_s": 0.02,
+  "comparison_end_s": 10.0,
+  "stats": {
+    "ux": {
+      "rms_error_m": 0.06863964085527301,
+      "max_abs_error_m": 0.1717786946569107,
+      "falln_peak_abs_m": 0.2972153808188558,
+      "opensees_peak_abs_m": 0.267392,
+      "normalized_rms_by_falln_peak": 0.23094242520748579
+    },
+    "uy": {
+      "rms_error_m": 0.08145850848347821,
+      "max_abs_error_m": 0.21974128976529492,
+      "falln_peak_abs_m": 0.425394922419064,
+      "opensees_peak_abs_m": 0.358081,
+      "normalized_rms_by_falln_peak": 0.19148914147882565
+    },
+    "uz": {
+      "rms_error_m": 0.0060312370089123865,
+      "max_abs_error_m": 0.02142390217002344,
+      "falln_peak_abs_m": 0.04073109305317829,
+      "opensees_peak_abs_m": 0.0259225,
+      "normalized_rms_by_falln_peak": 0.14807451891944162
+    }
+  },
+  "csv": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_materialmapped_10s_nodal_publication_error_diagnostics.csv"
+}

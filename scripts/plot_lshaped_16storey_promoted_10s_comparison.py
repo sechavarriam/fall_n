@@ -16,7 +16,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-def read_roof(path: Path, label: str, *, time_limit: float) -> tuple[dict | None, str | None]:
+def read_roof(
+    path: Path,
+    label: str,
+    *,
+    time_limit: float,
+    falln_node_id: int | None = None,
+) -> tuple[dict | None, str | None]:
     if not path.exists():
         return None, f"missing: {path}"
     with path.open(newline="", encoding="utf-8", errors="ignore") as f:
@@ -27,6 +33,12 @@ def read_roof(path: Path, label: str, *, time_limit: float) -> tuple[dict | None
     columns = list(rows[0].keys())
     if {"ux", "uy", "uz"}.issubset(columns):
         comp_cols = ("ux", "uy", "uz")
+    elif falln_node_id is not None:
+        comp_cols = (
+            f"node{falln_node_id}_dof0",
+            f"node{falln_node_id}_dof1",
+            f"node{falln_node_id}_dof2",
+        )
     else:
         comp_cols = tuple(columns[-3:])
 
@@ -170,6 +182,12 @@ def main() -> int:
     parser.add_argument("--out-dir", default=str(root / "doc/figures/validation_reboot"))
     parser.add_argument("--prefix", default="lshaped_16_promoted_elastic_inelastic_10s")
     parser.add_argument(
+        "--falln-roof-node-id",
+        type=int,
+        default=329,
+        help="fall_n roof node used for point-observable comparisons; node329 matches OpenSees roof node238.",
+    )
+    parser.add_argument(
         "--falln-elastic",
         default=str(root / "data/output/stage_c_16storey/falln_n4_newmark_linear_primary_nodal_10s_roof_displacement.csv"),
     )
@@ -195,11 +213,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--falln-nonlinear-full",
-        default=str(root / "data/output/stage_c_16storey/falln_n4_full_nonlinear_primary_nodal_10s_roof_displacement.csv"),
+        default=str(root / "data/output/lshaped_16storey_global_only_primary_nodal_fixeddt_10s_20260518/recorders/roof_displacement_global_reference.csv"),
     )
     parser.add_argument(
         "--falln-nonlinear-full-manifest",
-        default=str(root / "data/output/stage_c_16storey/falln_n4_full_nonlinear_primary_nodal_10s_summary.json"),
+        default=str(root / "data/output/lshaped_16storey_global_only_primary_nodal_fixeddt_10s_20260518/recorders/global_reference_summary.json"),
     )
     parser.add_argument(
         "--opensees-nonlinear",
@@ -211,11 +229,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--opensees-force-regularized",
-        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_force_shear_proxy_ets005_axisfixed/roof_displacement.csv"),
+        default=str(root / "data/output/opensees_lshaped_16storey_nonlinear_convergence_massmatched_20260518/fs_ets005_sub1_deepcutback_10s_publication/roof_displacement.csv"),
     )
     parser.add_argument(
         "--opensees-force-regularized-manifest",
-        default=str(root / "data/output/opensees_lshaped_16storey/scale1p0_window87p65_10s_force_shear_proxy_ets005_axisfixed/opensees_lshaped_16storey_manifest.json"),
+        default=str(root / "data/output/opensees_lshaped_16storey_nonlinear_convergence_massmatched_20260518/fs_ets005_sub1_deepcutback_10s_publication/opensees_lshaped_16storey_manifest.json"),
     )
     args = parser.parse_args()
 
@@ -231,7 +249,12 @@ def main() -> int:
     missing = []
     rows = []
     for label, csv_path, manifest_path in specs:
-        case, error = read_roof(csv_path, label, time_limit=args.time_limit)
+        case, error = read_roof(
+            csv_path,
+            label,
+            time_limit=args.time_limit,
+            falln_node_id=args.falln_roof_node_id if "fall_n" in label else None,
+        )
         if case is None:
             missing.append({"label": label, "path": str(csv_path), "reason": error})
             continue
@@ -247,13 +270,19 @@ def main() -> int:
     summary = {
         "schema": "lshaped_16_promoted_elastic_inelastic_10s_v1",
         "time_limit_s": args.time_limit,
+        "observable": {
+            "kind": "roof_node_displacement",
+            "falln_node_id": args.falln_roof_node_id,
+            "opensees_node_id": 238,
+            "coords_m": [20.0, 4.0, 51.2],
+        },
         "available_case_count": len(cases),
         "missing": missing,
         "rows": rows,
         "figures": figures,
         "notes": [
             "The script can be rerun while long nonlinear OpenSees/fall_n cases finish; missing cases are reported instead of aborting.",
-            "The promoted OpenSees nonlinear comparator is dispBeamColumn with the fall_n Kent-Park Concrete02 proxy.",
+        "The promoted OpenSees nonlinear candidate is forceBeamColumn with shear aggregator, nodal masses, and the fall_n Kent-Park Concrete02 proxy with Ets/Ec=0.05.",
         ],
     }
     path = out_dir / f"{args.prefix}_summary.json"

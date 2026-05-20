@@ -72,6 +72,22 @@ struct XFEMPrincipalStrainPlaneCandidate {
     Eigen::Vector3d normal{Eigen::Vector3d::UnitZ()};
 };
 
+struct XFEMEnrichedCellIntegrationAudit {
+    int plane_id{0};
+    int sequence_id{0};
+    std::string_view status{"unknown"};
+    double total_volume{0.0};
+    double gauss_positive_volume{0.0};
+    double gauss_negative_volume{0.0};
+    double reference_positive_volume{0.0};
+    double reference_negative_volume{0.0};
+    double positive_volume_relative_error{0.0};
+    double interface_area{0.0};
+    int positive_gauss_points{0};
+    int negative_gauss_points{0};
+    int interface_gauss_points{0};
+};
+
 // Small-strain solid XFEM element with shifted-Heaviside enrichment.
 //
 // Unknown layout per enriched host node:
@@ -145,6 +161,10 @@ private:
     std::vector<DofSlot> dof_slots_{};
     std::vector<PetscInt> dof_indices_{};
     bool dofs_cached_{false};
+    mutable std::vector<std::vector<double>>
+        plane_side_volume_scales_cache_{};
+    mutable std::vector<double> bulk_weight_scales_cache_{};
+    mutable bool bulk_weight_scales_cached_{false};
 
     [[nodiscard]] bool is_cut_by_plane_(std::size_t plane) const
     {
@@ -1078,6 +1098,146 @@ private:
         return eps;
     }
 
+    [[nodiscard]] double reference_side_volume_by_sampling_(
+        std::size_t plane,
+        bool positive_side,
+        int samples_per_axis = 16) const
+    {
+        if (plane >= cracks_.size() || samples_per_axis <= 0) {
+            return 0.0;
+        }
+        const auto& crack = cracks_[plane];
+        const double h = 2.0 / static_cast<double>(samples_per_axis);
+        double volume = 0.0;
+        for (int i = 0; i < samples_per_axis; ++i) {
+            for (int j = 0; j < samples_per_axis; ++j) {
+                for (int k = 0; k < samples_per_axis; ++k) {
+                    const std::array<double, 3> xi{
+                        -1.0 + (static_cast<double>(i) + 0.5) * h,
+                        -1.0 + (static_cast<double>(j) + 0.5) * h,
+                        -1.0 + (static_cast<double>(k) + 0.5) * h};
+                    const auto x = mapped_point_(xi);
+                    const double phi = crack.signed_distance(x);
+                    if ((positive_side && phi >= 0.0) ||
+                        (!positive_side && phi < 0.0)) {
+                        volume += h * h * h *
+                                  geometry_->differential_measure(
+                                      std::span<const double>{xi.data(),
+                                                              xi.size()});
+                    }
+                }
+            }
+        }
+        return volume;
+    }
+
+    [[nodiscard]] std::vector<double> plane_side_volume_scales_(
+        std::size_t plane) const
+    {
+        if (plane_side_volume_scales_cache_.size() != cracks_.size()) {
+            plane_side_volume_scales_cache_.assign(cracks_.size(), {});
+        }
+        if (plane < plane_side_volume_scales_cache_.size() &&
+            plane_side_volume_scales_cache_[plane].size() ==
+                num_integration_points()) {
+            return plane_side_volume_scales_cache_[plane];
+        }
+
+        std::vector<double> scales(num_integration_points(), 1.0);
+        if (plane >= cracks_.size() || plane >= crack_planes_.size() ||
+            !crack_planes_[plane].active || !is_cut_by_plane_(plane)) {
+            if (plane < plane_side_volume_scales_cache_.size()) {
+                plane_side_volume_scales_cache_[plane] = scales;
+            }
+            return scales;
+        }
+
+        const auto& crack = cracks_[plane];
+        std::vector<int> side(num_integration_points(), 0);
+        double raw_positive = 0.0;
+        double raw_negative = 0.0;
+        for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+            const auto ref_pt = geometry_->reference_integration_point(gp);
+            std::array<double, 3> xi{ref_pt[0], ref_pt[1], ref_pt[2]};
+            const double weight =
+                geometry_->weight(gp) *
+                geometry_->differential_measure(ref_pt);
+            const double phi = crack.signed_distance(mapped_point_(xi));
+            if (phi > options_.cut_tolerance) {
+                side[gp] = 1;
+                raw_positive += weight;
+            } else if (phi < -options_.cut_tolerance) {
+                side[gp] = -1;
+                raw_negative += weight;
+            } else {
+                raw_positive += 0.5 * weight;
+                raw_negative += 0.5 * weight;
+            }
+        }
+
+        const double reference_positive =
+            reference_side_volume_by_sampling_(plane, true);
+        const double reference_negative =
+            reference_side_volume_by_sampling_(plane, false);
+        const double scale = std::max(
+            1.0e-14,
+            1.0e-10 * (reference_positive + reference_negative));
+        if (raw_positive <= scale || raw_negative <= scale) {
+            if (plane < plane_side_volume_scales_cache_.size()) {
+                plane_side_volume_scales_cache_[plane] = scales;
+            }
+            return scales;
+        }
+
+        const double positive_scale = reference_positive / raw_positive;
+        const double negative_scale = reference_negative / raw_negative;
+        if (!std::isfinite(positive_scale) || !std::isfinite(negative_scale) ||
+            positive_scale <= 0.0 || negative_scale <= 0.0) {
+            if (plane < plane_side_volume_scales_cache_.size()) {
+                plane_side_volume_scales_cache_[plane] = scales;
+            }
+            return scales;
+        }
+
+        for (std::size_t gp = 0; gp < scales.size(); ++gp) {
+            if (side[gp] > 0) {
+                scales[gp] = positive_scale;
+            } else if (side[gp] < 0) {
+                scales[gp] = negative_scale;
+            } else {
+                scales[gp] = 0.5 * (positive_scale + negative_scale);
+            }
+        }
+        if (plane < plane_side_volume_scales_cache_.size()) {
+            plane_side_volume_scales_cache_[plane] = scales;
+        }
+        return scales;
+    }
+
+    [[nodiscard]] std::vector<double>
+    corrected_bulk_weight_scales_() const
+    {
+        if (bulk_weight_scales_cached_ &&
+            bulk_weight_scales_cache_.size() == num_integration_points()) {
+            return bulk_weight_scales_cache_;
+        }
+        std::vector<double> scales(num_integration_points(), 1.0);
+        if (!has_enrichment_()) {
+            bulk_weight_scales_cache_ = scales;
+            bulk_weight_scales_cached_ = true;
+            return scales;
+        }
+        for (std::size_t plane = 0; plane < cracks_.size(); ++plane) {
+            const auto plane_scales = plane_side_volume_scales_(plane);
+            for (std::size_t gp = 0; gp < scales.size(); ++gp) {
+                scales[gp] *= plane_scales[gp];
+            }
+        }
+        bulk_weight_scales_cache_ = scales;
+        bulk_weight_scales_cached_ = true;
+        return scales;
+    }
+
 public:
     ShiftedHeavisideSolidElement() = delete;
 
@@ -1180,6 +1340,71 @@ public:
     [[nodiscard]] bool plane_has_surface(std::size_t plane) const
     {
         return plane < cracks_.size() && !crack_surface_points_(plane).empty();
+    }
+
+    [[nodiscard]] XFEMEnrichedCellIntegrationAudit
+    enriched_cell_integration_audit(std::size_t plane) const
+    {
+        XFEMEnrichedCellIntegrationAudit audit{};
+        if (plane >= cracks_.size()) {
+            audit.status = "missing_plane";
+            return audit;
+        }
+        const auto& descriptor = crack_planes_[plane];
+        audit.plane_id = descriptor.plane_id;
+        audit.sequence_id = descriptor.sequence_id;
+        if (!descriptor.active) {
+            audit.status = "inactive";
+            return audit;
+        }
+
+        const auto surface = crack_surface_points_(plane);
+        for (const auto& sp : surface) {
+            audit.interface_area += sp.weight_area;
+        }
+
+        const auto& crack = cracks_[plane];
+        const auto volume_scales = plane_side_volume_scales_(plane);
+        for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
+            const auto ref_pt = geometry_->reference_integration_point(gp);
+            std::array<double, 3> xi{ref_pt[0], ref_pt[1], ref_pt[2]};
+            const double raw_weight =
+                geometry_->weight(gp) *
+                geometry_->differential_measure(ref_pt);
+            const double weight = raw_weight * volume_scales[gp];
+            audit.total_volume += raw_weight;
+            const double phi = crack.signed_distance(mapped_point_(xi));
+            if (phi > options_.cut_tolerance) {
+                audit.gauss_positive_volume += weight;
+                ++audit.positive_gauss_points;
+            } else if (phi < -options_.cut_tolerance) {
+                audit.gauss_negative_volume += weight;
+                ++audit.negative_gauss_points;
+            } else {
+                audit.gauss_positive_volume += 0.5 * weight;
+                audit.gauss_negative_volume += 0.5 * weight;
+                ++audit.interface_gauss_points;
+            }
+        }
+
+        audit.reference_positive_volume =
+            reference_side_volume_by_sampling_(plane, true);
+        audit.reference_negative_volume =
+            reference_side_volume_by_sampling_(plane, false);
+        const double denom = std::max(1.0e-14, audit.total_volume);
+        audit.positive_volume_relative_error =
+            std::abs(audit.gauss_positive_volume -
+                     audit.reference_positive_volume) /
+            denom;
+
+        if (!is_cut_by_plane_(plane)) {
+            audit.status = "uncut";
+        } else if (audit.interface_area <= options_.minimum_area_measure) {
+            audit.status = "degenerated";
+        } else {
+            audit.status = "cut";
+        }
+        return audit;
     }
 
     [[nodiscard]] const std::vector<XFEMCrackPlane>& crack_planes()
@@ -1400,6 +1625,7 @@ public:
         ensure_dof_cache_();
         Eigen::VectorXd f_e = Eigen::VectorXd::Zero(
             static_cast<Eigen::Index>(dof_indices_.size()));
+        const auto bulk_weight_scales = corrected_bulk_weight_scales_();
 
         for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
             const auto ref_pt = geometry_->reference_integration_point(gp);
@@ -1415,7 +1641,7 @@ public:
                     kin);
             const double volume_factor =
                 KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
-            f_e += w * Jdet * volume_factor *
+            f_e += bulk_weight_scales[gp] * w * Jdet * volume_factor *
                    (kin.B.transpose() * sigma_assembly);
         }
 
@@ -1430,6 +1656,7 @@ public:
         Eigen::MatrixXd K_e = Eigen::MatrixXd::Zero(
             static_cast<Eigen::Index>(dof_indices_.size()),
             static_cast<Eigen::Index>(dof_indices_.size()));
+        const auto bulk_weight_scales = corrected_bulk_weight_scales_();
 
         for (std::size_t gp = 0; gp < num_integration_points(); ++gp) {
             const auto ref_pt = geometry_->reference_integration_point(gp);
@@ -1445,7 +1672,7 @@ public:
                     kin);
             const double volume_factor =
                 KinematicPolicy::needs_current_volume_factor ? kin.detF : 1.0;
-            K_e += w * Jdet * volume_factor *
+            K_e += bulk_weight_scales[gp] * w * Jdet * volume_factor *
                    (kin.B.transpose() * C_assembly * kin.B);
         }
 

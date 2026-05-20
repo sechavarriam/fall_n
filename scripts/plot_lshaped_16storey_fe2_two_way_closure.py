@@ -493,7 +493,7 @@ def main() -> int:
         args.prefix,
         force_components,
     )
-    figures += plot_coupling_residuals(window(coupling_audit, t0, t1), out_dir, args.prefix)
+    figures += plot_coupling_residuals(coupling_audit, out_dir, args.prefix)
     figures += plot_crack_evolution(window(crack_evolution, t0, t1), out_dir, args.prefix)
 
     summary = {
@@ -514,7 +514,7 @@ def main() -> int:
         "roof_metrics": metrics_at_fe2_times(structural_roof, fe2_roof, roof_keys),
         "force_metrics": metrics_at_fe2_times(structural_force, fe2_force, force_components),
         "coupling_audit_metrics": max_series(
-            window(coupling_audit, t0, t1),
+            coupling_audit,
             [
                 "max_force_residual_rel",
                 "max_tangent_residual_rel",

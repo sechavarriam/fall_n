@@ -122,14 +122,17 @@ enum class RegularizationPolicyKind {
     TwoWayTangentBlend,
     TwoWayTangentSpectralFloor,
     TwoWayTangentBlendSpectral,
-    TwoWayFeedbackWorkGapLimiter
+    TwoWayTangentSecantColumnFloor,
+    TwoWayFeedbackWorkGapLimiter,
+    TwoWayFeedbackForceGapLimiter
 };
 
 enum class TwoWayTangentRegularizationMode {
     None,
     Blend,
     SpectralFloor,
-    BlendSpectral
+    BlendSpectral,
+    SecantColumnFloor
 };
 
 struct TwoWayTangentRegularizationSettings {
@@ -144,6 +147,12 @@ struct TwoWayFeedbackLimiterSettings {
     bool enabled{false};
     double work_gap_limit{0.05};
     double min_alpha{0.01};
+};
+
+struct TwoWayForceFeedbackLimiterSettings {
+    bool enabled{false};
+    double force_gap_limit{0.05};
+    double min_alpha{0.0};
 };
 
 struct CouplingSite {
@@ -664,8 +673,12 @@ to_string(RegularizationPolicyKind kind)
             return "TwoWayTangentSpectralFloor";
         case RegularizationPolicyKind::TwoWayTangentBlendSpectral:
             return "TwoWayTangentBlendSpectral";
+        case RegularizationPolicyKind::TwoWayTangentSecantColumnFloor:
+            return "TwoWayTangentSecantColumnFloor";
         case RegularizationPolicyKind::TwoWayFeedbackWorkGapLimiter:
             return "TwoWayFeedbackWorkGapLimiter";
+        case RegularizationPolicyKind::TwoWayFeedbackForceGapLimiter:
+            return "TwoWayFeedbackForceGapLimiter";
     }
     return "UnknownRegularizationPolicy";
 }
@@ -682,6 +695,8 @@ to_string(TwoWayTangentRegularizationMode mode)
             return "spectral_floor";
         case TwoWayTangentRegularizationMode::BlendSpectral:
             return "blend_spectral";
+        case TwoWayTangentRegularizationMode::SecantColumnFloor:
+            return "secant_column_floor";
     }
     return "unknown_two_way_tangent_regularization";
 }

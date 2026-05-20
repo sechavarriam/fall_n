@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <iostream>
 #include <numbers>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -603,6 +604,18 @@ int main(int argc, char** argv)
               "global XFEM cohesive/volumetric residual acts on enriched DOFs");
         check(K.bottomRightCorner(24, 24).norm() > 0.0,
               "global XFEM tangent couples enriched DOFs");
+
+        const auto audit = element.enriched_cell_integration_audit(0);
+        check(audit.status == std::string_view{"cut"},
+              "XFEM enriched cell audit marks the horizontal plane as cut");
+        check(audit.interface_area > 0.0,
+              "XFEM enriched cell audit measures a finite crack interface");
+        check(std::abs((audit.gauss_positive_volume +
+                        audit.gauss_negative_volume) -
+                       audit.total_volume) < 1.0e-10,
+              "XFEM enriched cell audit conserves Gauss cell volume");
+        check(audit.positive_volume_relative_error < 2.0e-2,
+              "XFEM enriched cell audit recovers horizontal split volume");
     }
 
     {
@@ -682,6 +695,17 @@ int main(int argc, char** argv)
               "multi-plane XFEM residual and tangent use the expanded algebraic size");
         check(f.tail(48).norm() > 0.0,
               "multi-plane XFEM cohesive/volumetric residual acts on both enriched blocks");
+
+        const auto oblique_audit =
+            element.enriched_cell_integration_audit(1);
+        check(oblique_audit.status == std::string_view{"cut"},
+              "multi-plane XFEM enriched audit marks the oblique plane as cut");
+        check(oblique_audit.interface_area > 0.0 &&
+                  oblique_audit.positive_gauss_points > 0 &&
+                  oblique_audit.negative_gauss_points > 0,
+              "multi-plane XFEM enriched audit preserves a two-sided oblique cut");
+        check(oblique_audit.positive_volume_relative_error < 2.0e-2,
+              "multi-plane XFEM enriched audit controls oblique split volume");
 
         const auto records = element.collect_crack_records(model.state_vector());
         bool saw_first_plane = false;

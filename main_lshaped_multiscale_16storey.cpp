@@ -358,9 +358,13 @@ parse_two_way_tangent_regularization_mode(std::string_view raw)
     if (value == "blend_spectral" || value == "blend_spectral_floor") {
         return TwoWayTangentRegularizationMode::BlendSpectral;
     }
+    if (value == "secant_column_floor" || value == "secant_columns" ||
+        value == "column_floor") {
+        return TwoWayTangentRegularizationMode::SecantColumnFloor;
+    }
     throw std::invalid_argument(
         "Unknown --fe2-two-way-tangent-regularization. Use none, blend, "
-        "spectral_floor, or blend_spectral.");
+        "spectral_floor, blend_spectral, or secant_column_floor.");
 }
 
 enum class XfemLocalSiteMode {
@@ -1782,6 +1786,10 @@ int main(int argc, char* argv[]) {
     bool local_vtk_global_placement = false;
     int fe2_max_staggered_iter = MAX_STAGGERED_ITER;
     double fe2_staggered_tol = STAGGERED_TOL;
+    double fe2_force_tol = std::numeric_limits<double>::quiet_NaN();
+    double fe2_force_component_tol = std::numeric_limits<double>::quiet_NaN();
+    double fe2_tangent_tol = std::numeric_limits<double>::quiet_NaN();
+    double fe2_tangent_column_tol = std::numeric_limits<double>::quiet_NaN();
     double fe2_relaxation = STAGGERED_RELAX;
     double fe2_phase2_dt = DT;
     double global_reference_phase2_initial_dt = 0.0;
@@ -1810,6 +1818,10 @@ int main(int argc, char* argv[]) {
     double fe2_site_relax_min_alpha = 0.05;
     TwoWayTangentRegularizationSettings fe2_two_way_tangent_regularization{};
     TwoWayFeedbackLimiterSettings fe2_two_way_feedback_limiter{};
+    TwoWayForceFeedbackLimiterSettings fe2_two_way_force_feedback_limiter{};
+    double fe2_predictor_min_symmetric_eigenvalue = 0.0;
+    int fe2_predictor_backtrack_attempts = 0;
+    double fe2_predictor_backtrack_factor = 0.5;
     std::string postprocess_python = "python";
     std::string output_root_override;
     std::string linear_alarm_criterion_name = "first_material_nonlinearity";
@@ -2184,6 +2196,14 @@ int main(int argc, char* argv[]) {
                 std::max(0, static_cast<int>(std::stol(argv[++i])));
         } else if (arg == "--fe2-tol" && i + 1 < argc) {
             fe2_staggered_tol = std::stod(argv[++i]);
+        } else if (arg == "--fe2-force-tol" && i + 1 < argc) {
+            fe2_force_tol = std::stod(argv[++i]);
+        } else if (arg == "--fe2-force-component-tol" && i + 1 < argc) {
+            fe2_force_component_tol = std::stod(argv[++i]);
+        } else if (arg == "--fe2-tangent-tol" && i + 1 < argc) {
+            fe2_tangent_tol = std::stod(argv[++i]);
+        } else if (arg == "--fe2-tangent-column-tol" && i + 1 < argc) {
+            fe2_tangent_column_tol = std::stod(argv[++i]);
         } else if (arg == "--fe2-relax" && i + 1 < argc) {
             fe2_relaxation = std::stod(argv[++i]);
         } else if (arg == "--fe2-phase2-dt" && i + 1 < argc) {
@@ -2274,6 +2294,25 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fe2-two-way-feedback-min-alpha" &&
                    i + 1 < argc) {
             fe2_two_way_feedback_limiter.min_alpha = std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-force-feedback-limit" &&
+                   i + 1 < argc) {
+            fe2_two_way_force_feedback_limiter.enabled = true;
+            fe2_two_way_force_feedback_limiter.force_gap_limit =
+                std::stod(argv[++i]);
+        } else if (arg == "--fe2-two-way-force-feedback-min-alpha" &&
+                   i + 1 < argc) {
+            fe2_two_way_force_feedback_limiter.min_alpha =
+                std::stod(argv[++i]);
+        } else if (arg == "--fe2-predictor-min-symmetric-eigenvalue" &&
+                   i + 1 < argc) {
+            fe2_predictor_min_symmetric_eigenvalue = std::stod(argv[++i]);
+        } else if (arg == "--fe2-predictor-backtrack-attempts" &&
+                   i + 1 < argc) {
+            fe2_predictor_backtrack_attempts =
+                std::max(0, static_cast<int>(std::stol(argv[++i])));
+        } else if (arg == "--fe2-predictor-backtrack-factor" &&
+                   i + 1 < argc) {
+            fe2_predictor_backtrack_factor = std::stod(argv[++i]);
         } else if (arg == "--fe2-recovery-policy" && i + 1 < argc) {
             fe2_recovery_policy.mode =
                 parse_two_way_failure_recovery_mode(argv[++i]);
@@ -2383,6 +2422,24 @@ int main(int argc, char* argv[]) {
     if (fe2_staggered_tol <= 0.0) {
         throw std::invalid_argument("--fe2-tol must be positive.");
     }
+    auto resolve_fe2_tol = [fe2_staggered_tol](double value,
+                                               std::string_view name) {
+        const double resolved =
+            std::isfinite(value) ? value : fe2_staggered_tol;
+        if (!(resolved > 0.0)) {
+            throw std::invalid_argument(
+                std::string(name) + " must be positive.");
+        }
+        return resolved;
+    };
+    fe2_force_tol =
+        resolve_fe2_tol(fe2_force_tol, "--fe2-force-tol");
+    fe2_force_component_tol = resolve_fe2_tol(
+        fe2_force_component_tol, "--fe2-force-component-tol");
+    fe2_tangent_tol =
+        resolve_fe2_tol(fe2_tangent_tol, "--fe2-tangent-tol");
+    fe2_tangent_column_tol = resolve_fe2_tol(
+        fe2_tangent_column_tol, "--fe2-tangent-column-tol");
     if (fe2_relaxation < 0.0 || fe2_relaxation > 1.0) {
         throw std::invalid_argument("--fe2-relax must be in [0,1].");
     }
@@ -2470,6 +2527,20 @@ int main(int argc, char* argv[]) {
         fe2_two_way_feedback_limiter.min_alpha > 1.0) {
         throw std::invalid_argument(
             "--fe2-two-way-feedback-min-alpha must be in [0,1].");
+    }
+    if (fe2_two_way_force_feedback_limiter.force_gap_limit < 0.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-force-feedback-limit must be non-negative.");
+    }
+    if (fe2_two_way_force_feedback_limiter.min_alpha < 0.0 ||
+        fe2_two_way_force_feedback_limiter.min_alpha > 1.0) {
+        throw std::invalid_argument(
+            "--fe2-two-way-force-feedback-min-alpha must be in [0,1].");
+    }
+    if (fe2_predictor_backtrack_factor <= 0.0 ||
+        fe2_predictor_backtrack_factor >= 1.0) {
+        throw std::invalid_argument(
+            "--fe2-predictor-backtrack-factor must be in (0,1).");
     }
     if (gravity_accel <= 0.0) {
         throw std::invalid_argument("--gravity-accel must be positive.");
@@ -2559,6 +2630,10 @@ int main(int argc, char* argv[]) {
              "--fe2-steps-after-activation",
              "--one-local-step-after-activation",
              "--fe2-tol",
+             "--fe2-force-tol",
+             "--fe2-force-component-tol",
+             "--fe2-tangent-tol",
+             "--fe2-tangent-column-tol",
              "--fe2-relax",
              "--fe2-phase2-dt",
              "--global-reference-phase2-initial-dt",
@@ -2591,6 +2666,11 @@ int main(int argc, char* argv[]) {
              "--fe2-two-way-tangent-positive-eigen-floor-ratio",
              "--fe2-two-way-feedback-work-gap-limit",
              "--fe2-two-way-feedback-min-alpha",
+             "--fe2-two-way-force-feedback-limit",
+             "--fe2-two-way-force-feedback-min-alpha",
+             "--fe2-predictor-min-symmetric-eigenvalue",
+             "--fe2-predictor-backtrack-attempts",
+             "--fe2-predictor-backtrack-factor",
              "--fe2-recovery-policy",
              "--fe2-hybrid-max-steps",
              "--fe2-hybrid-return-success-steps",
@@ -3949,7 +4029,12 @@ int main(int argc, char* argv[]) {
                   << "probe_center_z_over_l,probe_loaded_z_over_l,"
                   << "crack_z_over_l,bias_location,bias_power,nx,ny,nz,"
                   << "xfem_multiplane_mode,xfem_prescribed_planes,"
-                  << "xfem_auto_plane_max_count,"
+                  << "xfem_auto_plane_max_count,macro_plane_id,"
+                  << "macro_plane_sequence,macro_plane_status,"
+                  << "macro_plane_criterion,macro_plane_point_x,"
+                  << "macro_plane_point_y,macro_plane_point_z,"
+                  << "macro_plane_normal_x,macro_plane_normal_y,"
+                  << "macro_plane_normal_z,"
                   << "xi,section_gp,eps0,kappa_y,kappa_z,gamma_y,gamma_z,twist,"
                   << "macro_N,macro_My,macro_Mz,macro_Vy,macro_Vz,macro_T,"
                   << "completed,iterations,elapsed_seconds,nodes,elements\n";
@@ -4088,15 +4173,52 @@ int main(int argc, char* argv[]) {
         const auto lerp = [z = patch.crack_z_over_l](double a, double b) {
           return (1.0 - z) * a + z * b;
         };
+        const double axial_strain = lerp(ek.kin_A.eps_0, ek.kin_B.eps_0);
+        const double macro_curvature_y =
+            lerp(ek.kin_A.kappa_y, ek.kin_B.kappa_y);
+        const double macro_curvature_z =
+            lerp(ek.kin_A.kappa_z, ek.kin_B.kappa_z);
+        if (patch.crack_planes.empty() &&
+            (patch.xfem_multiplane_mode ==
+                 ReducedRCManagedLocalMultiplaneMode::prescribed ||
+             patch.xfem_multiplane_mode ==
+                 ReducedRCManagedLocalMultiplaneMode::hybrid))
+        {
+            patch.crack_planes.push_back(
+                make_reduced_rc_macro_inferred_crack_plane(
+                    ReducedRCMacroInferredCrackPlaneDemand{
+                        .axial_strain = axial_strain,
+                        .curvature_y = macro_curvature_y,
+                        .curvature_z = macro_curvature_z,
+                        .section_width_m = patch.section_width_m,
+                        .section_depth_m = patch.section_depth_m,
+                        .characteristic_length_m =
+                            patch.characteristic_length_m,
+                        .crack_z_over_l = patch.crack_z_over_l,
+                        .nz = patch.nz,
+                        .plane_id = 1,
+                        .sequence_id = 1,
+                        .activation_step =
+                            static_cast<int>(transition_report->trigger_step),
+                        .activation_time =
+                            transition_report->trigger_time}));
+        }
+        const ReducedRCManagedLocalCrackPlaneSpec* macro_plane = nullptr;
+        for (const auto& plane : patch.crack_planes) {
+            if (plane.source ==
+                ReducedRCManagedLocalCrackPlaneSource::macro_inferred) {
+                macro_plane = &plane;
+                break;
+            }
+        }
 
         ReducedRCStructuralReplaySample sample{};
         sample.site_index = local_site_index;
         sample.pseudo_time = transition_report->trigger_time;
         sample.physical_time = transition_report->trigger_time;
         sample.z_over_l = patch.crack_z_over_l;
-        const double axial_strain = lerp(ek.kin_A.eps_0, ek.kin_B.eps_0);
-        sample.curvature_y = lerp(ek.kin_A.kappa_y, ek.kin_B.kappa_y);
-        sample.curvature_z = lerp(ek.kin_A.kappa_z, ek.kin_B.kappa_z);
+        sample.curvature_y = macro_curvature_y;
+        sample.curvature_z = macro_curvature_z;
         sample.damage_indicator =
             std::clamp(std::max(fixed_score, loaded_score), 0.0, 1.0);
         const auto site_for_patch =
@@ -4177,7 +4299,22 @@ int main(int argc, char* argv[]) {
                       << patch.ny << "," << patch.nz << ","
                       << to_string(patch.xfem_multiplane_mode) << ","
                       << patch.crack_planes.size() << ","
-                      << patch.xfem_auto_plane_max_count << ","
+                      << patch.xfem_auto_plane_max_count << ",";
+        if (macro_plane != nullptr) {
+          xfem_site_csv << macro_plane->plane_id << ","
+                        << macro_plane->sequence_id << ","
+                        << "macro_inferred" << ","
+                        << macro_plane->criterion_value << ","
+                        << macro_plane->point[0] << ","
+                        << macro_plane->point[1] << ","
+                        << macro_plane->point[2] << ","
+                        << macro_plane->normal[0] << ","
+                        << macro_plane->normal[1] << ","
+                        << macro_plane->normal[2] << ",";
+        } else {
+          xfem_site_csv << "0,0,none,0,0,0,0,0,0,1,";
+        }
+        xfem_site_csv
                       << site_for_patch.xi
                       << "," << site_for_patch.section_gp << "," << axial_strain
                       << "," << sample.curvature_y << "," << sample.curvature_z
@@ -4624,7 +4761,10 @@ int main(int argc, char* argv[]) {
                   std::make_unique<IteratedTwoWayFE2>(
                       fe2_max_staggered_iter)},
         std::make_unique<ForceAndTangentConvergence>(
-            fe2_staggered_tol, fe2_staggered_tol),
+            fe2_force_tol,
+            fe2_tangent_tol,
+            fe2_force_component_tol,
+            fe2_tangent_column_tol),
         std::make_unique<ConstantRelaxation>(fe2_relaxation),
         SerialExecutor{});
     analysis.set_coupling_start_step(
@@ -4652,6 +4792,12 @@ int main(int argc, char* argv[]) {
     analysis.set_two_way_tangent_regularization(
         fe2_two_way_tangent_regularization);
     analysis.set_two_way_feedback_limiter(fe2_two_way_feedback_limiter);
+    analysis.set_two_way_force_feedback_limiter(
+        fe2_two_way_force_feedback_limiter);
+    analysis.set_predictor_admissibility_filter(
+        fe2_predictor_min_symmetric_eigenvalue,
+        fe2_predictor_backtrack_attempts,
+        fe2_predictor_backtrack_factor);
     fall_n::HomogenizedTangentFiniteDifferenceSettings fe2_fd_settings{};
     fe2_fd_settings.scheme = fe2_central_fd_tangent
         ? fall_n::HomogenizedFiniteDifferenceScheme::Central
@@ -4671,11 +4817,16 @@ int main(int argc, char* argv[]) {
     }
 
     std::println("  MultiscaleAnalysis : {}, max_iter={}, "
-                 "force/tangent tol={:.2f}, relax={:.2f}, "
+                 "tol(F/Fc/T/Tc)={:.3g}/{:.3g}/{:.3g}/{:.3g}, relax={:.2f}, "
                  "phase2_dt={:.6f} s",
                  fe2_one_way_only ? "OneWayDownscaling" : "IteratedTwoWayFE2",
-                 fe2_max_staggered_iter, fe2_staggered_tol,
-                 fe2_relaxation, fe2_phase2_dt);
+                 fe2_max_staggered_iter,
+                 fe2_force_tol,
+                 fe2_force_component_tol,
+                 fe2_tangent_tol,
+                 fe2_tangent_column_tol,
+                 fe2_relaxation,
+                 fe2_phase2_dt);
     std::println("  Phase-2 dt growth  : {} (factor={:.2f}, easy_steps={})",
                  fe2_phase2_dt_regrowth ? "enabled" : "disabled",
                  fe2_phase2_dt_growth_factor,
@@ -4718,14 +4869,23 @@ int main(int argc, char* argv[]) {
                  fe2_site_relax_attempts,
                  fe2_site_relax_factor,
                  fe2_site_relax_min_alpha);
-    std::println("  Two-way tangent reg: {} (blend_alpha={:.2f}, "
-                 "neg_floor={:.2f}, pos_floor={:.2f})",
+    std::println("  Two-way tangent reg: {} (blend_alpha={:.3g}, "
+                 "neg_floor={:.3e}, pos_floor={:.3e})",
                  fall_n::to_string(fe2_two_way_tangent_regularization.mode),
                  fe2_two_way_tangent_regularization.blend_alpha,
                  fe2_two_way_tangent_regularization
                      .negative_eigen_floor_ratio,
                  fe2_two_way_tangent_regularization
                      .positive_eigen_floor_ratio);
+    std::println("  Two-way force limit: {} (gap={:.3g}, min_alpha={:.3g})",
+                 fe2_two_way_force_feedback_limiter.enabled ? "on" : "off",
+                 fe2_two_way_force_feedback_limiter.force_gap_limit,
+                 fe2_two_way_force_feedback_limiter.min_alpha);
+    std::println("  Predictor filter   : attempts={}, min_sym_eig={:.3e}, "
+                 "factor={:.2f}",
+                 fe2_predictor_backtrack_attempts,
+                 fe2_predictor_min_symmetric_eigenvalue,
+                 fe2_predictor_backtrack_factor);
     std::println("  Section dims (hom) : {:.2f} × {:.2f} m (range {})",
                  COL_B[first_range], COL_H[first_range], first_range);
     std::println("  Local tangent      : {} ({})",
@@ -4865,6 +5025,30 @@ int main(int argc, char* argv[]) {
         }
         return true;
     };
+    const auto write_xfem_cell_integration_audits = [&]() -> bool {
+        if (!use_managed_xfem) {
+            return true;
+        }
+        const auto audit_dir =
+            std::filesystem::path(OUT) / "recorders" /
+            "xfem_enriched_cell_integration";
+        std::filesystem::create_directories(audit_dir);
+        std::ofstream index(
+            std::filesystem::path(OUT) / "recorders" /
+            "xfem_enriched_cell_integration_index.csv");
+        if (!index) {
+            return false;
+        }
+        index << "site_index,path\n";
+        for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
+            const auto path =
+                audit_dir / std::format("site_{:04d}.csv", i);
+            analysis.model().local_models()[i]
+                .write_enriched_cell_integration_audit_csv(path);
+            index << i << "," << path.generic_string() << "\n";
+        }
+        return true;
+    };
     std::vector<int> last_indexed_local_steps(
         analysis.model().num_local_models(), -1);
     for (std::size_t i = 0; i < analysis.model().num_local_models(); ++i) {
@@ -4931,6 +5115,7 @@ int main(int argc, char* argv[]) {
     }
     (void)flush_vtk_time_index();
     (void)write_xfem_plane_sequence_csv();
+    (void)write_xfem_cell_integration_audits();
 
     // ─────────────────────────────────────────────────────────────────────
     //  15. Phase 2: Resume global + evolve sub-models step-by-step
@@ -5610,6 +5795,7 @@ int main(int argc, char* argv[]) {
             if (local_vtk_index_updated) {
                 (void)flush_vtk_time_index();
                 (void)write_xfem_plane_sequence_csv();
+                (void)write_xfem_cell_integration_audits();
             }
         }
 
@@ -5828,6 +6014,7 @@ int main(int argc, char* argv[]) {
 
     pvd_global.write();
     (void)write_xfem_plane_sequence_csv();
+    (void)write_xfem_cell_integration_audits();
     for (auto& ev : analysis.model().local_models())
         ev.finalize();
 

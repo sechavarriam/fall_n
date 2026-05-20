@@ -1,0 +1,103 @@
+{
+  "schema": "fall_n_lshaped_xfem_macro_inferred_cell_audit_analysis_v1",
+  "run_dir": "data\\output\\lshaped_16storey_xfem_macro_inferred_cell_audit_10s_20260515",
+  "completed": true,
+  "t_final_s": 10.0002,
+  "evolution_steps": 34686,
+  "accepted_steps": 34686,
+  "u_inf_final_m": 0.2041192,
+  "u_inf_max_m": 0.4088814,
+  "u_inf_max_time_s": 3.72445,
+  "peak_damage_final": 4.842515,
+  "peak_damage_max": 4.842515,
+  "cracks_final": 72,
+  "cracked_gps_final": 72,
+  "cracks_max": 72,
+  "max_opening_m": 0.003367066,
+  "max_opening_mm": 3.3670660000000003,
+  "max_opening_time_s": 7.6535,
+  "final_opening_m": 0.001313834,
+  "final_opening_mm": 1.313834,
+  "selected_site": {
+    "count": 1,
+    "macro_element_id": 1,
+    "mesh": [
+      2,
+      2,
+      8
+    ],
+    "nodes": 81,
+    "elements": 32,
+    "iterations_initialization": 12,
+    "elapsed_initialization_s": 1.75522,
+    "crack_z_over_l": 0.5,
+    "normal": [
+      0.00456123,
+      0.106626,
+      0.994289
+    ],
+    "criterion": 4.96155e-05,
+    "status": "macro_inferred"
+  },
+  "plane_sequence": [
+    {
+      "site_id": "0",
+      "plane_id": "1",
+      "sequence_id": "1",
+      "source": "macro_inferred",
+      "activation_step": "66",
+      "activation_time": "1.3002",
+      "point_x": "0",
+      "point_y": "0",
+      "point_z": "1.8",
+      "normal_x": "0.004561227199281066",
+      "normal_y": "0.1066256334932247",
+      "normal_z": "0.994288775702816",
+      "criterion_value": "4.961552234117836e-05",
+      "status": "active"
+    }
+  ],
+  "cell_audit": {
+    "rows": 32,
+    "statuses": [
+      "cut",
+      "uncut"
+    ],
+    "cut_cells": 4,
+    "uncut_cells": 28,
+    "degenerated_cells": 0,
+    "max_positive_volume_relative_error": 2.343916901944165e-14,
+    "mean_positive_volume_relative_error": 5.267506676540348e-15,
+    "interface_area_total": 0.16278551157007082,
+    "interface_area_max": 0.04160016195547624,
+    "positive_volume_total": 0.3496473264649618,
+    "negative_volume_total": 0.4503526735350409
+  },
+  "coupling": {
+    "accepted_rows": 34686,
+    "failed_rows": 0,
+    "last_termination": "OneWayStepCompleted",
+    "max_micro_solve_seconds": 960.3916233,
+    "mean_micro_solve_seconds": 0.906591393469988,
+    "total_local_solve_seconds_sum": 27758.0252894,
+    "max_one_way_micro_cutback_attempts": 0
+  },
+  "site_response_ranges": {
+    "macro_N_range": [
+      -3.402510685108,
+      0.4320216766869
+    ],
+    "response_N_range": [
+      -2.957125145052,
+      0.4831802633791
+    ],
+    "response_My_range": [
+      -1.79521294164,
+      1.636909939979
+    ],
+    "response_Mz_range": [
+      -1.845593378431,
+      3.394455639968
+    ]
+  }
+}

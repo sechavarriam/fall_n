@@ -48,7 +48,7 @@ $plotArgs = @(
 )
 
 Write-PostLog "running publication plotter"
-& py -3.11 @plotArgs *>> $PostprocessLog
+& py -3.12 @plotArgs *>> $PostprocessLog
 if ($LASTEXITCODE -ne 0) {
     throw "publication plotter failed with exit code $LASTEXITCODE"
 }

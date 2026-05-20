@@ -698,6 +698,14 @@ public:
         }
     }
 
+    void write_enriched_cell_integration_audit_csv(
+        const std::filesystem::path& path) const
+    {
+        if (adapter_) {
+            adapter_->write_enriched_cell_integration_audit_csv(path);
+        }
+    }
+
     [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
     {
         return adapter_ ? adapter_->active_crack_plane_count() : 0;

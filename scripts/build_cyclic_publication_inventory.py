@@ -117,17 +117,28 @@ def evidence_entries() -> list[Evidence]:
             not_claimed="Does not prove local crack topology; it is the structural reference curve.",
         ),
         Evidence(
-            artifact="doc/figures/validation_reboot/reduced_rc_external_structural_hysteresis.pdf",
-            label="fig:validacion-external-structural-hysteresis",
+            artifact="doc/figures/validation_reboot/opensees_reduced_rc_200mm_hifi_hysteresis.pdf",
+            label="fig:validacion-opensees-hifi-200mm",
             chapter9_slot="external comparator hysteresis",
-            state="restringido",
-            audit_level="cinematica/frontera",
+            state="promovido",
+            audit_level="cinematica/energetica/externa",
             gates="M3-M8",
-            evidence_role="External comparator check for the structural cyclic response.",
-            backing_artifact="doc/figures/validation_reboot/continuum_external_hysteresis_200mm_panel_summary.json",
+            evidence_role=(
+                "Completed OpenSeesPy hi-fi structural comparator for the full "
+                "200 mm cyclic protocol."
+            ),
+            backing_artifact=(
+                "doc/figures/validation_reboot/"
+                "opensees_reduced_rc_200mm_hifi_hysteresis_summary.json"
+            ),
             metric_summary=metric(
-                "doc/figures/validation_reboot/continuum_external_hysteresis_200mm_panel_summary.json",
-                lambda d: f"status={d.get('status', 'completed')}; cases={len(d.get('cases', []))}",
+                "doc/figures/validation_reboot/"
+                "opensees_reduced_rc_200mm_hifi_hysteresis_summary.json",
+                lambda d: (
+                    f"status={d.get('status')}; "
+                    f"drift={d['metrics']['max_abs_drift_mm']:.1f} mm; "
+                    f"peakV={d['metrics']['peak_abs_base_shear_kN']:.2f} kN"
+                ),
             ),
             not_claimed="Does not make the external solver an absolute truth model.",
         ),

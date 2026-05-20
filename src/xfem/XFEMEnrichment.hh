@@ -79,7 +79,8 @@ struct PlaneCrackLevelSet {
 enum class XFEMCrackPlaneSource {
     legacy = 0,
     prescribed = 1,
-    automatic = 2
+    automatic = 2,
+    macro_inferred = 3
 };
 
 [[nodiscard]] constexpr std::string_view to_string(
@@ -92,6 +93,8 @@ enum class XFEMCrackPlaneSource {
             return "prescribed";
         case XFEMCrackPlaneSource::automatic:
             return "automatic";
+        case XFEMCrackPlaneSource::macro_inferred:
+            return "macro_inferred";
     }
     return "unknown";
 }

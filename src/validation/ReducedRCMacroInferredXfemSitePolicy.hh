@@ -14,6 +14,7 @@
 // =============================================================================
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <string_view>
@@ -28,6 +29,21 @@ struct ReducedRCMacroEndpointDemand {
     double fixed_end_score{0.0};
     double loaded_end_score{0.0};
     double macro_section_z_over_l{std::numeric_limits<double>::quiet_NaN()};
+};
+
+struct ReducedRCMacroInferredCrackPlaneDemand {
+    double axial_strain{0.0};
+    double curvature_y{0.0};
+    double curvature_z{0.0};
+    double section_width_m{0.20};
+    double section_depth_m{0.20};
+    double characteristic_length_m{0.10};
+    double crack_z_over_l{0.40};
+    std::size_t nz{4};
+    int plane_id{1};
+    int sequence_id{1};
+    int activation_step{0};
+    double activation_time{0.0};
 };
 
 struct ReducedRCMacroInferredXfemSitePolicy {
@@ -283,6 +299,91 @@ make_reduced_rc_macro_inferred_xfem_patch(
         policy);
     base_patch.crack_position_inferred_from_macro = true;
     return base_patch;
+}
+
+[[nodiscard]] inline double
+adjust_reduced_rc_macro_inferred_crack_z_over_l(
+    double requested_ratio,
+    std::size_t nz) noexcept
+{
+    double ratio = std::clamp(requested_ratio, 0.0, 1.0);
+    if (nz == 0) {
+        return ratio;
+    }
+    const double scaled = ratio * static_cast<double>(nz);
+    const double nearest = std::round(scaled);
+    constexpr double tol = 1.0e-10;
+    if (std::abs(scaled - nearest) > tol) {
+        return ratio;
+    }
+    const double half_cell = 0.5 / static_cast<double>(nz);
+    if (ratio + half_cell < 1.0 - tol) {
+        ratio += half_cell;
+    } else if (ratio - half_cell > tol) {
+        ratio -= half_cell;
+    }
+    return std::clamp(ratio, 0.0, 1.0);
+}
+
+[[nodiscard]] inline ReducedRCManagedLocalCrackPlaneSpec
+make_reduced_rc_macro_inferred_crack_plane(
+    const ReducedRCMacroInferredCrackPlaneDemand& demand) noexcept
+{
+    const double half_w = 0.5 * std::max(0.0, demand.section_width_m);
+    const double half_h = 0.5 * std::max(0.0, demand.section_depth_m);
+    std::array<std::array<double, 2>, 4> corners{{
+        {-half_w, -half_h},
+        { half_w, -half_h},
+        {-half_w,  half_h},
+        { half_w,  half_h},
+    }};
+
+    double max_tensile_strain = -std::numeric_limits<double>::infinity();
+    for (const auto& xy : corners) {
+        const double eps = demand.axial_strain +
+                           demand.curvature_y * xy[0] +
+                           demand.curvature_z * xy[1];
+        if (std::isfinite(eps)) {
+            max_tensile_strain = std::max(max_tensile_strain, eps);
+        }
+    }
+    if (!std::isfinite(max_tensile_strain)) {
+        max_tensile_strain = 0.0;
+    }
+
+    Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
+    const Eigen::Vector2d gradient{demand.curvature_y, demand.curvature_z};
+    const double gradient_norm = gradient.norm();
+    if (max_tensile_strain > 0.0 && gradient_norm > 1.0e-14) {
+        const double strain_scale =
+            std::max({std::abs(max_tensile_strain),
+                      std::abs(demand.axial_strain),
+                      1.0e-8});
+        const double tilt = std::clamp(
+            0.20 * gradient_norm *
+                std::max(demand.section_width_m, demand.section_depth_m) /
+                strain_scale,
+            0.0,
+            0.35);
+        const Eigen::Vector2d g = gradient / gradient_norm;
+        normal = Eigen::Vector3d{tilt * g.x(), tilt * g.y(), 1.0}.normalized();
+    }
+
+    const double z_ratio = adjust_reduced_rc_macro_inferred_crack_z_over_l(
+        demand.crack_z_over_l, demand.nz);
+    ReducedRCManagedLocalCrackPlaneSpec plane{};
+    plane.point = {0.0,
+                   0.0,
+                   z_ratio * std::max(0.0, demand.characteristic_length_m)};
+    plane.normal = {normal.x(), normal.y(), normal.z()};
+    plane.plane_id = std::max(1, demand.plane_id);
+    plane.sequence_id = std::max(1, demand.sequence_id);
+    plane.source = ReducedRCManagedLocalCrackPlaneSource::macro_inferred;
+    plane.activation_step = demand.activation_step;
+    plane.activation_time = demand.activation_time;
+    plane.criterion_value = max_tensile_strain;
+    plane.active = true;
+    return plane;
 }
 
 } // namespace fall_n

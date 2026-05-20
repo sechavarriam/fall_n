@@ -43,6 +43,10 @@ NU_RC = 0.20
 STEEL_FY = 420.0
 STEEL_E = 200000.0
 STEEL_B = 0.01
+STEEL_R0 = 20.0
+STEEL_CR1 = 18.5
+STEEL_CR2 = 0.15
+STEEL_OPENSEES_CR1 = STEEL_CR1 / STEEL_R0
 TIE_FY = 420.0
 CONCRETE_TENSION_RATIO = 0.10
 
@@ -299,6 +303,21 @@ def _windowed(values: list[float], dt: float, start_time: float, duration: float
     return values[i0 : i0 + n]
 
 
+def parse_substep_sequence(text: str) -> tuple[int, ...]:
+    values: list[int] = []
+    for raw in text.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        try:
+            value = int(item)
+        except ValueError:
+            continue
+        if value > 1 and value not in values:
+            values.append(value)
+    return tuple(values) if values else (2, 4, 8, 16, 32)
+
+
 def build_and_run(args: argparse.Namespace) -> dict:
     import openseespy.opensees as ops  # type: ignore
 
@@ -334,7 +353,16 @@ def build_and_run(args: argparse.Namespace) -> dict:
     if args.elasticized_fiber_sections:
         ops.uniaxialMaterial("Elastic", steel_tag, STEEL_E)
     else:
-        ops.uniaxialMaterial("Steel02", steel_tag, STEEL_FY, STEEL_E, STEEL_B)
+        ops.uniaxialMaterial(
+            "Steel02",
+            steel_tag,
+            STEEL_FY,
+            STEEL_E,
+            STEEL_B,
+            STEEL_R0,
+            STEEL_OPENSEES_CR1,
+            STEEL_CR2,
+        )
     mat_tag += 1
     concrete_tags: list[dict[str, int | float | str]] = []
     concrete_material_audit: list[dict[str, float | int | str]] = []
@@ -455,6 +483,9 @@ def build_and_run(args: argparse.Namespace) -> dict:
         cover = 0.04
         cover_tag = int(conc_tags["cover"])
         core_tag = int(conc_tags["core"])
+        section_refinement = max(1, int(args.section_refinement))
+        def nf(base: int) -> int:
+            return max(1, section_refinement * base)
         # Match fall_n's RCSectionLayout convention: local y is the section
         # width b and local z is the section depth/height h.
         y_edge = b / 2
@@ -462,11 +493,11 @@ def build_and_run(args: argparse.Namespace) -> dict:
         y_core = y_edge - cover
         z_core = z_edge - cover
         if is_beam:
-            ops.patch("rect", cover_tag, 6, 2, -y_edge, -z_edge, y_edge, -z_core)
-            ops.patch("rect", cover_tag, 6, 2, -y_edge, z_core, y_edge, z_edge)
-            ops.patch("rect", cover_tag, 2, 6, -y_edge, -z_core, -y_core, z_core)
-            ops.patch("rect", cover_tag, 2, 6, y_core, -z_core, y_edge, z_core)
-            ops.patch("rect", core_tag, 4, 6, -y_core, -z_core, y_core, z_core)
+            ops.patch("rect", cover_tag, nf(6), nf(2), -y_edge, -z_edge, y_edge, -z_core)
+            ops.patch("rect", cover_tag, nf(6), nf(2), -y_edge, z_core, y_edge, z_edge)
+            ops.patch("rect", cover_tag, nf(2), nf(6), -y_edge, -z_core, -y_core, z_core)
+            ops.patch("rect", cover_tag, nf(2), nf(6), y_core, -z_core, y_edge, z_core)
+            ops.patch("rect", core_tag, nf(4), nf(6), -y_core, -z_core, y_core, z_core)
             area = math.pi * (BM_BAR / 2) ** 2
             bars = [
                 (-y_core, -z_core), (-y_core, 0.0), (-y_core, z_core),
@@ -475,11 +506,11 @@ def build_and_run(args: argparse.Namespace) -> dict:
         else:
             # fall_n canonical RCColumnSpec layout mapped to OpenSees section
             # axes: 4 cover patches, one core patch and 8 longitudinal bars.
-            ops.patch("rect", cover_tag, 4, 2, -y_edge, -z_edge, y_edge, -z_core)
-            ops.patch("rect", cover_tag, 4, 2, -y_edge, z_core, y_edge, z_edge)
-            ops.patch("rect", cover_tag, 2, 8, -y_edge, -z_core, -y_core, z_core)
-            ops.patch("rect", cover_tag, 2, 8, y_core, -z_core, y_edge, z_core)
-            ops.patch("rect", core_tag, 6, 6, -y_core, -z_core, y_core, z_core)
+            ops.patch("rect", cover_tag, nf(4), nf(2), -y_edge, -z_edge, y_edge, -z_core)
+            ops.patch("rect", cover_tag, nf(4), nf(2), -y_edge, z_core, y_edge, z_edge)
+            ops.patch("rect", cover_tag, nf(2), nf(8), -y_edge, -z_core, -y_core, z_core)
+            ops.patch("rect", cover_tag, nf(2), nf(8), y_core, -z_core, y_edge, z_core)
+            ops.patch("rect", core_tag, nf(6), nf(6), -y_core, -z_core, y_core, z_core)
             area = math.pi * (COL_BAR / 2) ** 2
             bars = [
                 (-y_core, -z_core), (-y_core, z_core),
@@ -496,6 +527,8 @@ def build_and_run(args: argparse.Namespace) -> dict:
             *_unused, avy, avz, _mass = transformed_rc_beam_props(b, h, fpc)
         else:
             *_unused, avy, avz, _mass = transformed_rc_column_props(b, h, fpc)
+        avy *= args.shear_scale_vy
+        avz *= args.shear_scale_vz
         vy_mat = mat_tag
         mat_tag += 1
         vz_mat = mat_tag
@@ -540,7 +573,14 @@ def build_and_run(args: argparse.Namespace) -> dict:
         h: float,
         fpc: float,
     ) -> None:
-        if args.beam_element_family in {"force", "force-shear"}:
+        family = args.beam_element_family
+        if integ == 4 and args.beam_member_element_family != "same":
+            family = args.beam_member_element_family
+        if integ == 4 and transf == 2 and args.beam_x_member_element_family != "same":
+            family = args.beam_x_member_element_family
+        if integ == 4 and transf == 3 and args.beam_y_member_element_family != "same":
+            family = args.beam_y_member_element_family
+        if family in {"force", "force-shear"}:
             cmd = ["forceBeamColumn", ele_tag, ni, nj, transf, integ]
             if args.element_iterations > 0:
                 cmd.extend(["-iter", args.element_iterations, args.element_tolerance])
@@ -548,9 +588,9 @@ def build_and_run(args: argparse.Namespace) -> dict:
                 props = transformed_rc_beam_props(b, h, fpc) if integ == 4 else transformed_rc_column_props(b, h, fpc)
                 cmd.extend(["-mass", props[-1]])
             ops.element(*cmd)
-        elif args.beam_element_family == "disp":
+        elif family == "disp":
             ops.element("dispBeamColumn", ele_tag, ni, nj, transf, integ)
-        elif args.beam_element_family == "elastic":
+        elif family == "elastic":
             A, E, G, J, Iy, Iz = rectangular_elastic_props(b, h, fpc)
             ops.element(
                 "elasticBeamColumn",
@@ -565,7 +605,7 @@ def build_and_run(args: argparse.Namespace) -> dict:
                 Iz,
                 transf,
             )
-        elif args.beam_element_family == "elastic-timoshenko":
+        elif family == "elastic-timoshenko":
             if integ == 4:
                 A, E, G, J, Iy, Iz, Avy, Avz, mass_dens = transformed_rc_beam_props(b, h, fpc)
             else:
@@ -580,7 +620,7 @@ def build_and_run(args: argparse.Namespace) -> dict:
                     cmd.append("-cMass")
             ops.element(*cmd)
         else:
-            raise ValueError(f"Unsupported beam element family: {args.beam_element_family}")
+            raise ValueError(f"Unsupported beam element family: {family}")
 
     next_aux_node = max(node_id.values()) + 1
 
@@ -671,7 +711,13 @@ def build_and_run(args: argparse.Namespace) -> dict:
                         X_GRID[ix], Y_GRID[iy + 1], z,
                         3, 4, BM_B, BM_H, BM_FPC)
 
-    roof_node = max(node_id.values())
+    roof_key = max(node_id, key=lambda key: node_id[key])
+    roof_node = node_id[roof_key]
+    roof_node_coords = [
+        X_GRID[roof_key[0]],
+        Y_GRID[roof_key[1]],
+        roof_key[2] * STORY_HEIGHT,
+    ]
 
     # Gravity.
     ops.timeSeries("Linear", 1)
@@ -705,7 +751,14 @@ def build_and_run(args: argparse.Namespace) -> dict:
             "status": "gravity_only",
             "gravity_ok": gravity_ok,
             "beam_element_family": args.beam_element_family,
+            "beam_member_element_family": args.beam_member_element_family,
+            "beam_x_member_element_family": args.beam_x_member_element_family,
+            "beam_y_member_element_family": args.beam_y_member_element_family,
             "mass_model": args.mass_model,
+            "floor_mass": args.floor_mass,
+            "section_refinement": args.section_refinement,
+            "shear_scale_vy": args.shear_scale_vy,
+            "shear_scale_vz": args.shear_scale_vz,
             "element_mass_form": args.element_mass_form if args.mass_model == "element" else "",
             "elasticized_fiber_sections": bool(args.elasticized_fiber_sections),
             "concrete_model": args.concrete_model,
@@ -770,7 +823,26 @@ def build_and_run(args: argparse.Namespace) -> dict:
     omega_3 = 2.0 * math.pi / args.rayleigh_t3
     beta_k = 2.0 * args.rayleigh_xi / (omega_1 + omega_3)
     alpha_m = beta_k * omega_1 * omega_3
-    ops.rayleigh(alpha_m, beta_k, 0.0, 0.0)
+    if args.rayleigh_stiffness == "none":
+        ops.rayleigh(alpha_m, 0.0, 0.0, 0.0)
+        rayleigh_beta_k = 0.0
+        rayleigh_beta_k_init = 0.0
+        rayleigh_beta_k_comm = 0.0
+    elif args.rayleigh_stiffness == "initial":
+        ops.rayleigh(alpha_m, 0.0, beta_k, 0.0)
+        rayleigh_beta_k = 0.0
+        rayleigh_beta_k_init = beta_k
+        rayleigh_beta_k_comm = 0.0
+    elif args.rayleigh_stiffness == "committed":
+        ops.rayleigh(alpha_m, 0.0, 0.0, beta_k)
+        rayleigh_beta_k = 0.0
+        rayleigh_beta_k_init = 0.0
+        rayleigh_beta_k_comm = beta_k
+    else:
+        ops.rayleigh(alpha_m, beta_k, 0.0, 0.0)
+        rayleigh_beta_k = beta_k
+        rayleigh_beta_k_init = 0.0
+        rayleigh_beta_k_comm = 0.0
 
     ops.wipeAnalysis()
     ops.constraints("Transformation")
@@ -812,7 +884,7 @@ def build_and_run(args: argparse.Namespace) -> dict:
     for _ in range(n):
         if not try_one_step(dt):
             recovered = False
-            for sub in (2, 4, 8, 16, 32):
+            for sub in parse_substep_sequence(args.recovery_substeps):
                 sub_ok = True
                 for _substep in range(sub):
                     if not try_one_step(dt / sub):
@@ -833,11 +905,19 @@ def build_and_run(args: argparse.Namespace) -> dict:
         "accepted_steps": ok_steps,
         "requested_steps": n,
         "dt": dt,
+        "recovery_substeps": args.recovery_substeps,
         "start_time": args.start_time,
         "duration": args.duration,
         "scale": args.scale,
         "beam_element_family": args.beam_element_family,
+        "beam_member_element_family": args.beam_member_element_family,
+        "beam_x_member_element_family": args.beam_x_member_element_family,
+        "beam_y_member_element_family": args.beam_y_member_element_family,
         "mass_model": args.mass_model,
+        "floor_mass": args.floor_mass,
+        "section_refinement": args.section_refinement,
+        "shear_scale_vy": args.shear_scale_vy,
+        "shear_scale_vz": args.shear_scale_vz,
         "element_mass_form": args.element_mass_form if args.mass_model == "element" else "",
         "elasticized_fiber_sections": bool(args.elasticized_fiber_sections),
         "concrete_model": args.concrete_model,
@@ -849,9 +929,12 @@ def build_and_run(args: argparse.Namespace) -> dict:
             "fy_mpa": STEEL_FY,
             "E_mpa": STEEL_E,
             "b": STEEL_B,
-            "R0": 20.0,
-            "cR1": 18.5,
-            "cR2": 0.15,
+            "R0": STEEL_R0,
+            "cR1": STEEL_CR1,
+            "cR2": STEEL_CR2,
+            "opensees_cR1": STEEL_OPENSEES_CR1,
+            "opensees_call": "Steel02 fy E b R0 cR1 cR2",
+            "mapping_note": "fall_n uses R=R0-cR1*xi/(cR2+xi); Steel02 receives cR1/R0.",
         },
         "section_layout": {
             "column_bar_diameter_m": COL_BAR,
@@ -866,14 +949,20 @@ def build_and_run(args: argparse.Namespace) -> dict:
         "member_subdivisions": args.member_subdivisions,
         "geom_transf": args.geom_transf,
         "include_vertical": args.include_vertical,
+        "rayleigh_stiffness": args.rayleigh_stiffness,
         "rayleigh_alpha_m": alpha_m,
-        "rayleigh_beta_k": beta_k,
+        "rayleigh_beta_k": rayleigh_beta_k,
+        "rayleigh_beta_k_init": rayleigh_beta_k_init,
+        "rayleigh_beta_k_comm": rayleigh_beta_k_comm,
+        "rayleigh_target_beta": beta_k,
         "node_count": len(node_id),
         "node_count_with_auxiliary": next_aux_node - 1,
         "element_count": ele - 1,
         "nodal_mass_total_per_direction": nodal_mass_total,
         "element_mass_total_per_direction": element_mass_total,
         "roof_node": roof_node,
+        "roof_node_grid_index": list(roof_key),
+        "roof_node_coords_m": roof_node_coords,
         "critical_elements_recorded": critical_elements[:10],
         "eigen_periods_s": eigen_periods,
         "total_wall_seconds": time.perf_counter() - t0_wall,
@@ -925,9 +1014,43 @@ def main() -> int:
     p.add_argument("--rayleigh-t1", type=float, default=1.60)
     p.add_argument("--rayleigh-t3", type=float, default=0.40)
     p.add_argument(
+        "--rayleigh-stiffness",
+        choices=("current", "initial", "committed", "none"),
+        default="current",
+        help=(
+            "Select which OpenSees Rayleigh stiffness slot receives betaK. "
+            "current reproduces the previous behavior; initial/committed test "
+            "whether fall_n's effective damping is closer to a frozen or "
+            "committed tangent convention."
+        ),
+    )
+    p.add_argument(
         "--beam-element-family",
         choices=("force", "force-shear", "disp", "elastic", "elastic-timoshenko"),
         default="disp",
+    )
+    p.add_argument(
+        "--beam-member-element-family",
+        choices=("same", "force", "force-shear", "disp", "elastic", "elastic-timoshenko"),
+        default="same",
+        help=(
+            "Optional override for horizontal beam members only. This keeps "
+            "the topology and nodal-mass model fixed while testing robust "
+            "global comparators, e.g. force-based nonlinear columns with "
+            "displacement-based or elastic Timoshenko beams."
+        ),
+    )
+    p.add_argument(
+        "--beam-x-member-element-family",
+        choices=("same", "force", "force-shear", "disp", "elastic", "elastic-timoshenko"),
+        default="same",
+        help="Optional override for horizontal beams whose chord is parallel to global X.",
+    )
+    p.add_argument(
+        "--beam-y-member-element-family",
+        choices=("same", "force", "force-shear", "disp", "elastic", "elastic-timoshenko"),
+        default="same",
+        help="Optional override for horizontal beams whose chord is parallel to global Y.",
     )
     p.add_argument("--elasticized-fiber-sections", action="store_true")
     p.add_argument(
@@ -968,10 +1091,50 @@ def main() -> int:
     p.add_argument("--unbalance-tolerance", type=float, default=1.0e-4)
     p.add_argument("--energy-tolerance", type=float, default=1.0e-7)
     p.add_argument("--test-iterations", type=int, default=80)
+    p.add_argument(
+        "--recovery-substeps",
+        default="2,4,8,16,32",
+        help=(
+            "Comma-separated substep counts tried after a failed Newmark "
+            "increment. Larger tails such as 64,128 diagnose forceBeamColumn "
+            "compatibility baches without changing topology or nodal masses."
+        ),
+    )
     p.add_argument("--floor-mass", type=float, default=0.12)
     p.add_argument("--mass-model", choices=("nodal", "element"), default="nodal")
     p.add_argument("--element-mass-form", choices=("lumped", "consistent"), default="consistent")
     p.add_argument("--member-subdivisions", type=int, default=1)
+    p.add_argument(
+        "--shear-scale-vy",
+        type=float,
+        default=1.0,
+        help=(
+            "Scale factor applied to the OpenSees section Aggregator Vy "
+            "stiffness. Values different from 1.0 are diagnostic attempts to "
+            "match fall_n's Timoshenko shear flexibility without changing "
+            "axial/flexural fibers or mass."
+        ),
+    )
+    p.add_argument(
+        "--shear-scale-vz",
+        type=float,
+        default=1.0,
+        help=(
+            "Scale factor applied to the OpenSees section Aggregator Vz "
+            "stiffness. Values different from 1.0 are diagnostic attempts to "
+            "match fall_n's Timoshenko shear flexibility without changing "
+            "axial/flexural fibers or mass."
+        ),
+    )
+    p.add_argument(
+        "--section-refinement",
+        type=int,
+        default=1,
+        help=(
+            "Integer multiplier for the fiber patch discretization in both "
+            "section directions. Use 2 for a local section-refinement audit."
+        ),
+    )
     p.add_argument("--gravity-load", type=float, default=0.005)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--dry-gravity-only", action="store_true")

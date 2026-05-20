@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
         default=repo_root / "build" / "fall_n_reduced_rc_column_reference_benchmark.exe",
     )
     parser.add_argument("--python-launcher", default="py -3.12")
-    parser.add_argument("--runner-launcher", default="py -3.11")
+    parser.add_argument("--runner-launcher", default="py -3.12")
     parser.add_argument("--beam-nodes", default="2,3,4,5,6,7,8,9,10")
     parser.add_argument(
         "--quadratures",
