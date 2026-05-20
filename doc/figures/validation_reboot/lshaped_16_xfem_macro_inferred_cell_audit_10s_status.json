@@ -1,0 +1,49 @@
+{
+  "schema": "fall_n_lshaped_fe2_run_status_v2",
+  "run_dir": "data\\output\\lshaped_16storey_xfem_macro_inferred_cell_audit_10s_20260515",
+  "has_global_history": true,
+  "has_crack_evolution": true,
+  "log": {
+    "exists": false,
+    "failure_detected": false,
+    "completed": false,
+    "failure_time_s": null,
+    "failure_reason": "",
+    "failed_submodels": null
+  },
+  "fe2": {
+    "eq_scale": 1,
+    "selected_site_count": 1,
+    "completed_site_count": 1
+  },
+  "global": {
+    "last_time_s": 10.0002,
+    "last_step": 34686,
+    "last_phase": 2,
+    "last_u_inf_m": 0.2041192,
+    "max_u_inf_m": 0.4088814,
+    "last_peak_damage": 4.842515,
+    "max_peak_damage": 4.842515,
+    "last_dt_s": 0.00024999999999941735,
+    "samples": 34687
+  },
+  "cracks": {
+    "last_time_s": 10.0002,
+    "last_total_cracks": 72,
+    "max_total_cracks": 72,
+    "last_cracked_gps": 72,
+    "max_cracked_gps": 72,
+    "last_max_opening_m": 0.001313834,
+    "max_opening_m": 0.003367066,
+    "samples": 34686
+  },
+  "coupling": {
+    "accepted_rows": 34686,
+    "failed_rows": 0,
+    "cost_budget_stop_rows": 0,
+    "max_one_way_micro_cutback_attempts": 0,
+    "one_way_micro_cutback_recovered_steps": 0,
+    "last_termination": "OneWayStepCompleted",
+    "last_one_way_replay_status": "active"
+  }
+}

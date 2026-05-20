@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--runner-launcher", default="py -3.11")
+    parser.add_argument("--runner-launcher", default="py -3.12")
     parser.add_argument("--beam-nodes", default="2,4,10")
     parser.add_argument("--quadratures", default="legendre,lobatto")
     parser.add_argument("--solver-policies", default=",".join(POLICY_ORDER))

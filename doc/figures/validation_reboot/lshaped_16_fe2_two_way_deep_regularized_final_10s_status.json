@@ -1,0 +1,54 @@
+{
+  "schema": "fall_n_lshaped_fe2_run_status_v2",
+  "run_dir": "data\\output\\lshaped_16storey_two_way_xfem_deep_regularized_hybrid_diag_1site_10s_20260515",
+  "has_global_history": true,
+  "has_crack_evolution": true,
+  "log": {
+    "exists": false,
+    "failure_detected": false,
+    "completed": false,
+    "failure_time_s": null,
+    "failure_reason": "",
+    "failed_submodels": null
+  },
+  "fe2": {
+    "eq_scale": null,
+    "selected_site_count": null,
+    "completed_site_count": null
+  },
+  "global": {
+    "last_time_s": 10.0002,
+    "last_step": 34689,
+    "last_phase": 2,
+    "last_u_inf_m": 0.2046535,
+    "max_u_inf_m": 0.4076172,
+    "last_peak_damage": 4.987857,
+    "max_peak_damage": 4.987857,
+    "last_dt_s": 0.00024999999999941735,
+    "samples": 34690
+  },
+  "cracks": {
+    "last_time_s": 10.0002,
+    "last_total_cracks": 72,
+    "max_total_cracks": 72,
+    "last_cracked_gps": 72,
+    "max_cracked_gps": 72,
+    "last_max_opening_m": 0.003920228,
+    "max_opening_m": 0.009153272,
+    "samples": 34689
+  },
+  "coupling": {
+    "accepted_rows": 34689,
+    "failed_rows": 0,
+    "cost_budget_stop_rows": 0,
+    "max_one_way_micro_cutback_attempts": 0,
+    "one_way_micro_cutback_recovered_steps": 0,
+    "last_termination": "Converged",
+    "last_one_way_replay_status": "not_needed"
+  },
+  "vtk_audit": {
+    "issue_count": 0,
+    "endpoint_max_gap_m": 4.533010348539481e-08,
+    "promotable": true
+  }
+}

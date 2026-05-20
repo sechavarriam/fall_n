@@ -39,10 +39,11 @@ def parse_args() -> argparse.Namespace:
         "--opensees",
         type=Path,
         default=repo
-        / "data/output/cyclic_validation/reboot_structural_multielement_hifi_cyclic_50mm_force2d_20260511/opensees_hifi",
+        / "data/output/cyclic_validation/opensees_hifi_timoshenko_matrix_200mm_publication_20260518",
         help=(
             "Directory or CSV for the high-fidelity structural OpenSeesPy "
-            "comparator. Missing is recorded."
+            "comparator. The publication default is the completed 200 mm "
+            "Timoshenko-matrix reference."
         ),
     )
     parser.add_argument(
@@ -330,7 +331,7 @@ def main() -> int:
     )
     add_curve(
         curves,
-        label="OpenSees hi-fi structural",
+        label="OpenSees hi-fi structural 200 mm",
         role="external_reference",
         path=args.opensees,
         preferred=("hysteresis.csv",),
@@ -424,9 +425,10 @@ def main() -> int:
         "curves": summary_curves,
         "notes": (
             "The OpenSees curve is the multi-element high-fidelity structural "
-            "comparator used to audit the fall_n structural reference, not the "
-            "simplified bridge diagnostic. Missing OpenSees or Ko-Bathe curves "
-            "are recorded explicitly so the Chapter 9 claim-support audit can "
+            "comparator used to audit the fall_n structural reference over the "
+            "full 200 mm cyclic protocol, not the earlier incomplete bridge "
+            "diagnostic or the shorter 50 mm window. Missing Ko-Bathe curves are "
+            "recorded explicitly so the Chapter 9 claim-support audit can "
             "distinguish absent data from a failed physics result. Rerun this "
             "script after each long cyclic candidate finishes."
         ),

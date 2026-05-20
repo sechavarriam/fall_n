@@ -52,7 +52,8 @@ enum class ReducedRCLocalLongitudinalBiasLocation {
 enum class ReducedRCManagedLocalCrackPlaneSource {
     legacy = 0,
     prescribed = 1,
-    automatic = 2
+    automatic = 2,
+    macro_inferred = 3
 };
 
 enum class ReducedRCManagedLocalMultiplaneMode {
@@ -128,6 +129,8 @@ struct ReducedRCManagedLocalCrackPlaneSequenceRecord {
             return "prescribed";
         case ReducedRCManagedLocalCrackPlaneSource::automatic:
             return "automatic";
+        case ReducedRCManagedLocalCrackPlaneSource::macro_inferred:
+            return "macro_inferred";
     }
     return "unknown_reduced_rc_managed_local_crack_plane_source";
 }

@@ -132,7 +132,7 @@ def parse_args() -> argparse.Namespace:
         default=repo_root / "data" / "output" / "cyclic_validation",
         help="Search existing worker bundles here and reuse equivalent cases when available.",
     )
-    parser.add_argument("--python-launcher", default="py -3.11")
+    parser.add_argument("--python-launcher", default="py -3.12")
     parser.add_argument("--beam-nodes", type=int, default=10)
     parser.add_argument("--beam-integration", default="lobatto")
     parser.add_argument("--axial-compression-mn", type=float, default=0.02)

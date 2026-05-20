@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--python-launcher", default="py -3.12")
-    parser.add_argument("--runner-launcher", default="py -3.11")
+    parser.add_argument("--runner-launcher", default="py -3.12")
     parser.add_argument(
         "--beam-element-families",
         default="disp,force",

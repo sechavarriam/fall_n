@@ -1,0 +1,144 @@
+{
+  "schema": "lshaped_16_fe2_two_way_closure_v1",
+  "window_s": [
+    1.3002,
+    1.3042
+  ],
+  "roof_node": "node335",
+  "structural_roof_csv": "data\\output\\lshaped_16storey_global_only_timegrid_10s_20260511\\recorders\\roof_displacement.csv",
+  "fe2_roof_csv": "data\\output\\lshaped_16storey_two_way_xfem_cutback_retry_1site_10s_20260514\\recorders\\roof_displacement.csv",
+  "structural_force_csv": "data\\output\\lshaped_16storey_global_only_timegrid_10s_20260511\\recorders\\selected_element_0_global_force.csv",
+  "fe2_force_csv": "data\\output\\lshaped_16storey_two_way_xfem_cutback_retry_1site_10s_20260514\\recorders\\selected_element_0_global_force.csv",
+  "coupling_audit_csv": "data\\output\\lshaped_16storey_two_way_xfem_cutback_retry_1site_10s_20260514\\recorders\\fe2_two_way_coupling_audit.csv",
+  "crack_evolution_csv": "data\\output\\lshaped_16storey_two_way_xfem_cutback_retry_1site_10s_20260514\\recorders\\crack_evolution.csv",
+  "time_index_csv": "data\\output\\lshaped_16storey_two_way_xfem_cutback_retry_1site_10s_20260514\\recorders\\multiscale_time_index.csv",
+  "structural_roof_samples_in_window": 1,
+  "fe2_roof_samples": 5,
+  "structural_force_samples_in_window": 1,
+  "fe2_force_samples": 5,
+  "roof_metrics": {
+    "node335_dof0": {
+      "rms_abs": 0.00039844008527977794,
+      "max_abs": 0.000642102700000001,
+      "relative_to_reference_peak": 0.021851541124237747,
+      "final_difference": -0.000642102700000001
+    },
+    "node335_dof1": {
+      "rms_abs": 0.00026992707058204926,
+      "max_abs": 0.0004378430000000211,
+      "relative_to_reference_peak": 0.0020840857191068173,
+      "final_difference": 0.0004378430000000211
+    },
+    "node335_dof2": {
+      "rms_abs": 4.459560772885774e-05,
+      "max_abs": 6.648551000000037e-05,
+      "relative_to_reference_peak": 0.008084573293435867,
+      "final_difference": 6.648551000000037e-05
+    }
+  },
+  "force_metrics": {
+    "f0": {
+      "rms_abs": 0.010103952965889984,
+      "max_abs": 0.013818717900000003,
+      "relative_to_reference_peak": 0.384290416324428,
+      "final_difference": -0.013818717900000003
+    },
+    "f1": {
+      "rms_abs": 0.0030379360110366544,
+      "max_abs": 0.005958796200000005,
+      "relative_to_reference_peak": 0.05838865735496191,
+      "final_difference": 0.002656455299999999
+    },
+    "f2": {
+      "rms_abs": 0.4083470022840159,
+      "max_abs": 0.522385279,
+      "relative_to_reference_peak": 1.3540178588425202,
+      "final_difference": -0.522385279
+    },
+    "f3": {
+      "rms_abs": 0.06313852542641739,
+      "max_abs": 0.08247717429999998,
+      "relative_to_reference_peak": 0.3551301558874848,
+      "final_difference": -0.08247717429999998
+    },
+    "f4": {
+      "rms_abs": 0.018321731711970903,
+      "max_abs": 0.023412384600000002,
+      "relative_to_reference_peak": 0.2029265198477841,
+      "final_difference": 0.022685361
+    },
+    "f5": {
+      "rms_abs": 0.003656423141901806,
+      "max_abs": 0.0051567478800000005,
+      "relative_to_reference_peak": 1.7092307294076368,
+      "final_difference": -0.0051567478800000005
+    }
+  },
+  "coupling_audit_metrics": {
+    "max_force_residual_rel": 0.04828333811964,
+    "max_tangent_residual_rel": 0.04541948530163,
+    "max_tangent_column_residual_rel": 0.3772740089593,
+    "local_failed_solve_attempts": 0.0
+  },
+  "vtk_index_summary": {
+    "rows": 3,
+    "role_counts": {
+      "global_frame": 2,
+      "local_xfem_site": 1
+    },
+    "local_sites": [
+      "0"
+    ],
+    "global_frames": 2,
+    "global_vtk_entries": 3,
+    "local_vtk_entries": 1,
+    "time_window_s": [
+      1.3002,
+      1.3042
+    ]
+  },
+  "peaks": {
+    "structural_roof": {
+      "ux": 0.0182339581,
+      "uy": 0.129518219,
+      "uz": 0.00551613624
+    },
+    "fe2_roof": {
+      "ux": 0.0188760608,
+      "uy": 0.129956062,
+      "uz": 0.00551613624
+    },
+    "structural_force": {
+      "f0": 0.0262924927,
+      "f1": 0.0520295576,
+      "f2": 0.301581696,
+      "f3": 0.177789817,
+      "f4": 0.0902875175,
+      "f5": 0.00213922151
+    },
+    "fe2_force": {
+      "f0": 0.0401112106,
+      "f1": 0.0579883538,
+      "f2": 0.301581696,
+      "f3": 0.177789817,
+      "f4": 0.0902875175,
+      "f5": 0.00729596939
+    }
+  },
+  "figures": [
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_roof_components.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_roof_components.png",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_roof_plan_orbit.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_roof_plan_orbit.png",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_selected_element_forces.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_selected_element_forces.png",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_coupling_residuals.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_coupling_residuals.png",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_local_crack_evolution.pdf",
+    "doc\\figures\\validation_reboot\\lshaped_16_fe2_two_way_cutback_retry_1site_10s_local_crack_evolution.png"
+  ],
+  "notes": [
+    "Comparison is restricted to the current stabilized FE2 two-way window.",
+    "Element force components are raw internal-force vector entries for monitored macro element 0; they are a parity diagnostic, not a final physical-resultant convention."
+  ]
+}

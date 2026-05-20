@@ -1,0 +1,81 @@
+{
+  "schema": "lshaped_16_opensees_nonlinear_convergence_v1",
+  "preset": "publication",
+  "falln_reference": "data\\output\\lshaped_16storey_global_only_primary_nodal_fixeddt_10s_20260518\\recorders\\roof_displacement_global_reference.csv",
+  "observable": {
+    "kind": "roof_node_displacement",
+    "falln_node_id": 329,
+    "opensees_node_id": 238,
+    "coords_m": [
+      20.0,
+      4.0,
+      51.2
+    ],
+    "components": [
+      "ux",
+      "uy",
+      "uz"
+    ],
+    "note": "The comparison uses one physical roof point. In fall_n this is node329_dof0/1/2 by default; in OpenSees it is node238."
+  },
+  "falln_reference_start_s": 0.02,
+  "falln_reference_end_s": 10.0,
+  "output_root": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey_nonlinear_convergence_massmatched_20260518",
+  "rows": [
+    {
+      "label": "force-shear Ets/Ec=0.05 sub1 10s deep cutback",
+      "output_dir": "C:\\MyLibs\\fall_n\\data\\output\\opensees_lshaped_16storey_nonlinear_convergence_massmatched_20260518\\fs_ets005_sub1_deepcutback_10s_publication",
+      "skipped_existing": true,
+      "return_code": "",
+      "timed_out": false,
+      "wall_seconds_driver": "",
+      "status": "completed",
+      "accepted_steps": 500,
+      "requested_steps": 500,
+      "duration_s": 10.0,
+      "beam_element_family": "force-shear",
+      "beam_member_element_family": "same",
+      "beam_x_member_element_family": "same",
+      "beam_y_member_element_family": "same",
+      "member_subdivisions": 1,
+      "mass_model": "nodal",
+      "floor_mass": 0.07915633409999963,
+      "nodal_mass_total_per_direction": 0.8865509419199942,
+      "concrete_ets_ratio": 0.05,
+      "element_iterations": 80,
+      "element_tolerance": 1e-06,
+      "recovery_substeps": "2,4,8,16,32,64,128",
+      "total_wall_seconds": 7064.3660856999995,
+      "roof_samples": 508.0,
+      "last_recorded_time_s": 10.0,
+      "comparison_samples": 508.0,
+      "comparison_start_s": 0.02,
+      "comparison_end_s": 10.0,
+      "peak_abs_ux_m": 0.305582,
+      "final_ux_m": 0.1864,
+      "rms_vs_falln_ux_m": 0.08532072233468661,
+      "peak_normalized_rms_vs_falln_ux": 0.2870669818621774,
+      "peak_abs_uy_m": 0.302986,
+      "final_uy_m": 0.230263,
+      "rms_vs_falln_uy_m": 0.07799122063098991,
+      "peak_normalized_rms_vs_falln_uy": 0.18333839103551733,
+      "peak_abs_uz_m": 0.0237264,
+      "final_uz_m": 0.00563001,
+      "rms_vs_falln_uz_m": 0.006988536721933571,
+      "peak_normalized_rms_vs_falln_uz": 0.17157744116538626
+    }
+  ],
+  "figures": [
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_summary.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_summary.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_roof_components.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_roof_components.png",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_plan_orbit.pdf",
+    "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_plan_orbit.png"
+  ],
+  "csv": "C:\\MyLibs\\fall_n\\doc\\figures\\validation_reboot\\lshaped_16_opensees_nonlinear_convergence_massmatched_nodal_publication_summary.csv",
+  "notes": [
+    "All cases use primary-grid mass-matched nodal mass, scale=1.0, MYG004 window [87.65, 97.65] s, dt=0.02 s, and vertical excitation.",
+    "The current publication candidate is force-shear with Concrete02 fall_n proxy and Ets/Ec=0.05."
+  ]
+}

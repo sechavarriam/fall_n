@@ -75,6 +75,7 @@ private:
     SiteAdaptiveRelaxationSettings site_adaptive_relaxation_{};
     TwoWayTangentRegularizationSettings two_way_tangent_regularization_{};
     TwoWayFeedbackLimiterSettings two_way_feedback_limiter_{};
+    TwoWayForceFeedbackLimiterSettings two_way_force_feedback_limiter_{};
     TwoWayFailureRecoveryPolicy two_way_failure_recovery_policy_{};
     int hybrid_window_steps_{0};
     int hybrid_success_steps_{0};
@@ -169,6 +170,58 @@ private:
             }
         }
 
+        if (mode == TwoWayTangentRegularizationMode::SecantColumnFloor) {
+            double scale = std::max({tangent.norm() / 6.0,
+                                     tangent_before.norm() / 6.0,
+                                     1.0});
+            if (reference != nullptr) {
+                scale = std::max(scale, reference->tangent.norm() / 6.0);
+            }
+            const double positive_floor =
+                std::max(0.0,
+                         two_way_tangent_regularization_
+                             .positive_eigen_floor_ratio) *
+                scale;
+            for (int j = 0; j < 6; ++j) {
+                const bool valid_column =
+                    response.tangent_column_valid[static_cast<std::size_t>(j)];
+                const bool finite_column = tangent.col(j).allFinite();
+                const double current_diag = tangent(j, j);
+                const bool weak_diag =
+                    !std::isfinite(current_diag) ||
+                    std::abs(current_diag) <
+                        std::max(positive_floor, 1.0e-12);
+                if (valid_column && finite_column && !weak_diag) {
+                    continue;
+                }
+
+                double floor_value = std::max(positive_floor, 1.0e-12);
+                if (std::isfinite(tangent_before(j, j))) {
+                    floor_value =
+                        std::max(floor_value, std::abs(tangent_before(j, j)));
+                }
+                if (reference != nullptr &&
+                    std::isfinite(reference->tangent(j, j))) {
+                    floor_value = std::max(
+                        floor_value, std::abs(reference->tangent(j, j)));
+                }
+                if (std::isfinite(response.strain_ref[j]) &&
+                    std::abs(response.strain_ref[j]) > 1.0e-14 &&
+                    std::isfinite(response.forces[j])) {
+                    floor_value = std::max(
+                        floor_value,
+                        std::abs(response.forces[j] / response.strain_ref[j]));
+                }
+
+                tangent.col(j).setZero();
+                tangent(j, j) = floor_value;
+                response.tangent_column_valid[static_cast<std::size_t>(j)] =
+                    true;
+                response.tangent_column_central[static_cast<std::size_t>(j)] =
+                    false;
+            }
+        }
+
         const double delta = (tangent - tangent_before).norm();
         if (delta <= 0.0) {
             return;
@@ -192,6 +245,10 @@ private:
             case TwoWayTangentRegularizationMode::BlendSpectral:
                 response.regularization =
                     RegularizationPolicyKind::TwoWayTangentBlendSpectral;
+                break;
+            case TwoWayTangentRegularizationMode::SecantColumnFloor:
+                response.regularization =
+                    RegularizationPolicyKind::TwoWayTangentSecantColumnFloor;
                 break;
             case TwoWayTangentRegularizationMode::None:
                 break;
@@ -242,6 +299,66 @@ private:
         response.regularization =
             RegularizationPolicyKind::TwoWayFeedbackWorkGapLimiter;
         response.forces_consistent_with_tangent = false;
+        refresh_section_operator_diagnostics(response);
+    }
+
+    void limit_two_way_force_gap_to_macro_(
+        SectionHomogenizedResponse& response,
+        const MacroSectionState& macro_state) const
+    {
+        if (!two_way_force_feedback_limiter_.enabled) {
+            return;
+        }
+
+        const double limit =
+            std::max(0.0, two_way_force_feedback_limiter_.force_gap_limit);
+        if (limit <= 0.0) {
+            return;
+        }
+
+        const auto scales = residual_scales_(force_residual_norm_, macro_state);
+        const auto metrics = compute_section_vector_validation_metrics(
+            macro_state.forces, response.forces, scales);
+        const double gap =
+            std::max(metrics.relative_gap, metrics.max_component_gap);
+        if (!std::isfinite(gap) || gap <= limit) {
+            return;
+        }
+
+        double alpha = limit / gap;
+        alpha = std::clamp(
+            alpha, two_way_force_feedback_limiter_.min_alpha, 1.0);
+        if (alpha >= 1.0) {
+            return;
+        }
+
+        const auto forces_before = response.forces;
+        response.forces =
+            macro_state.forces + alpha * (response.forces - macro_state.forces);
+        for (int i = 0; i < 6; ++i) {
+            const auto index = static_cast<std::size_t>(i);
+            const double scale = scales.vector[index];
+            if (!(std::isfinite(scale) && std::abs(scale) > 1.0e-30)) {
+                continue;
+            }
+            const double lhs = macro_state.forces[i] * scale;
+            const double rhs = response.forces[i] * scale;
+            const double denom = std::max(1.0, std::abs(lhs));
+            const double max_delta = limit * denom;
+            const double delta = rhs - lhs;
+            if (std::abs(delta) <= max_delta) {
+                continue;
+            }
+            const double clipped =
+                lhs + std::copysign(max_delta, delta);
+            response.forces[i] = clipped / scale;
+        }
+        response.regularization =
+            RegularizationPolicyKind::TwoWayFeedbackForceGapLimiter;
+        response.tangent_regularized = true;
+        response.forces_consistent_with_tangent = false;
+        response.tangent_regularization_force_delta_norm =
+            (response.forces - forces_before).norm();
         refresh_section_operator_diagnostics(response);
     }
 
@@ -1520,6 +1637,7 @@ private:
                 }
                 limit_two_way_feedback_gap_(
                     current[i], accepted_feedback_reference);
+                limit_two_way_force_gap_to_macro_(current[i], macro_state);
                 update_tangent_metrics();
                 update_force_metrics();
 
@@ -1570,15 +1688,15 @@ private:
 
             predictor = current;
 
-            if (iter == 0) {
-                continue;
-            }
-
             if (last_report_.failed_submodels == 0
                 && convergence_->converged(last_report_))
             {
                 accepted = true;
                 break;
+            }
+
+            if (iter == 0) {
+                continue;
             }
         }
 
@@ -1864,6 +1982,14 @@ public:
         settings.work_gap_limit = std::max(0.0, settings.work_gap_limit);
         settings.min_alpha = std::clamp(settings.min_alpha, 0.0, 1.0);
         two_way_feedback_limiter_ = settings;
+    }
+    void set_two_way_force_feedback_limiter(
+        TwoWayForceFeedbackLimiterSettings settings)
+    {
+        settings.force_gap_limit = std::max(0.0, settings.force_gap_limit);
+        settings.min_alpha = std::clamp(settings.min_alpha, 0.0, 1.0);
+        settings.enabled = settings.enabled && settings.force_gap_limit > 0.0;
+        two_way_force_feedback_limiter_ = settings;
     }
     void set_two_way_failure_recovery_policy(
         TwoWayFailureRecoveryPolicy policy) noexcept

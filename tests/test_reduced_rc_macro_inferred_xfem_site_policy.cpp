@@ -63,6 +63,33 @@ int main()
                     fallback_policy.fallback_loaded_end_crack_z_over_l) <
            1.0e-14);
 
+    const auto macro_plane = make_reduced_rc_macro_inferred_crack_plane(
+        ReducedRCMacroInferredCrackPlaneDemand{
+            .axial_strain = 1.0e-4,
+            .curvature_y = 2.0e-3,
+            .curvature_z = -1.0e-3,
+            .section_width_m = 0.30,
+            .section_depth_m = 0.40,
+            .characteristic_length_m = 0.60,
+            .crack_z_over_l = 0.50,
+            .nz = 6,
+            .plane_id = 4,
+            .sequence_id = 3,
+            .activation_step = 65,
+            .activation_time = 1.30});
+    assert(macro_plane.source ==
+           ReducedRCManagedLocalCrackPlaneSource::macro_inferred);
+    assert(macro_plane.plane_id == 4 && macro_plane.sequence_id == 3);
+    assert(macro_plane.activation_step == 65);
+    assert(std::abs(macro_plane.activation_time - 1.30) < 1.0e-14);
+    assert(std::abs(macro_plane.point[2] - 0.35) < 1.0e-14);
+    const double normal_norm =
+        std::sqrt(macro_plane.normal[0] * macro_plane.normal[0] +
+                  macro_plane.normal[1] * macro_plane.normal[1] +
+                  macro_plane.normal[2] * macro_plane.normal[2]);
+    assert(std::abs(normal_norm - 1.0) < 1.0e-12);
+    assert(macro_plane.criterion_value > 0.0);
+
     const auto contains_z = [](const auto& candidates, double z_over_l) {
         for (const auto& candidate : candidates) {
             if (std::abs(candidate.z_over_l - z_over_l) < 1.0e-14) {

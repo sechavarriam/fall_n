@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -740,6 +741,44 @@ public:
         return plane_sequence_records_;
     }
 
+    void write_enriched_cell_integration_audit_csv(
+        const std::filesystem::path& path) const
+    {
+        if (!path.parent_path().empty()) {
+            std::filesystem::create_directories(path.parent_path());
+        }
+        std::ofstream out(path);
+        out << "site_id,element_id,plane_id,sequence_id,status,"
+               "total_volume,gauss_positive_volume,gauss_negative_volume,"
+               "reference_positive_volume,reference_negative_volume,"
+               "positive_volume_relative_error,interface_area,"
+               "positive_gauss_points,negative_gauss_points,"
+               "interface_gauss_points\n";
+        if (!model_) {
+            return;
+        }
+        out << std::setprecision(16);
+        for (const auto& element : model_->elements()) {
+            const auto& planes = element.crack_planes();
+            for (std::size_t plane = 0; plane < planes.size(); ++plane) {
+                const auto audit =
+                    element.enriched_cell_integration_audit(plane);
+                out << patch_.site_index << "," << element.sieve_id() << ","
+                    << audit.plane_id << "," << audit.sequence_id << ","
+                    << audit.status << "," << audit.total_volume << ","
+                    << audit.gauss_positive_volume << ","
+                    << audit.gauss_negative_volume << ","
+                    << audit.reference_positive_volume << ","
+                    << audit.reference_negative_volume << ","
+                    << audit.positive_volume_relative_error << ","
+                    << audit.interface_area << ","
+                    << audit.positive_gauss_points << ","
+                    << audit.negative_gauss_points << ","
+                    << audit.interface_gauss_points << "\n";
+            }
+        }
+    }
+
     void write_crack_plane_sequence_csv(
         const std::filesystem::path& path) const
     {
@@ -1001,6 +1040,8 @@ private:
                 return fall_n::xfem::XFEMCrackPlaneSource::prescribed;
             case ReducedRCManagedLocalCrackPlaneSource::automatic:
                 return fall_n::xfem::XFEMCrackPlaneSource::automatic;
+            case ReducedRCManagedLocalCrackPlaneSource::macro_inferred:
+                return fall_n::xfem::XFEMCrackPlaneSource::macro_inferred;
         }
         return fall_n::xfem::XFEMCrackPlaneSource::legacy;
     }
@@ -2327,10 +2368,11 @@ private:
             const double x = node.coord(0);
             const double y = node.coord(1);
             axial_force_mn += static_cast<double>(value_z);
-            // The imposed affine map is u_z = eps_z L - theta_y x.
-            // Virtual work gives M_y dtheta_y = sum(f_z du_z), hence
-            // M_y = -sum(x f_z) for the section generalized force.
-            moment_y_mn_m -= x * static_cast<double>(value_z);
+            // The imposed affine map is
+            // u_z = L * (eps_0 + kappa_y x + kappa_z y).  Since prism
+            // x maps to -beam z, this is conjugate to the FiberSection
+            // convention M_y = int sigma*(-z_beam)dA = int sigma*x_prism dA.
+            moment_y_mn_m += x * static_cast<double>(value_z);
             moment_z_mn_m += y * static_cast<double>(value_z);
         }
 

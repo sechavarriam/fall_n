@@ -425,6 +425,19 @@ public:
         }, model_);
     }
 
+    void write_enriched_cell_integration_audit_csv(
+        const std::filesystem::path& path) const
+    {
+        std::visit([&](const auto& model) {
+            if constexpr (requires {
+                              model.write_enriched_cell_integration_audit_csv(
+                                  path);
+                          }) {
+                model.write_enriched_cell_integration_audit_csv(path);
+            }
+        }, model_);
+    }
+
     [[nodiscard]] std::size_t active_crack_plane_count() const noexcept
     {
         return std::visit([](const auto& model) -> std::size_t {

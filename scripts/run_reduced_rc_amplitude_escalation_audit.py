@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-launcher", default="py -3.12")
     parser.add_argument(
         "--runner-launcher",
-        default="py -3.11",
+        default="py -3.12",
         help=(
             "Python launcher used to invoke the benchmark runners themselves. "
             "Kept separate from --python-launcher because the nested OpenSees "
