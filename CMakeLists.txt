@@ -731,6 +731,11 @@ fall_n_add_test(TARGET fall_n_componentwise_kent_park_concrete_3d_test
     SOURCE tests/test_componentwise_kent_park_concrete_3d.cpp
     LIBS FULL LABEL unit)
 
+fall_n_add_test(TARGET fall_n_orthotropic_bilinear_concrete_proxy_test
+    NAME orthotropic_bilinear_concrete_proxy
+    SOURCE tests/test_orthotropic_bilinear_concrete_proxy.cpp
+    LIBS FULL LABEL unit)
+
 fall_n_add_test(TARGET fall_n_state_injection_test
     NAME state_injection  SOURCE tests/test_state_injection.cpp
     LIBS FULL  LABEL unit)

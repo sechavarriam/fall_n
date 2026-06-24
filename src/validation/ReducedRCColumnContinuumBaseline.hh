@@ -417,6 +417,7 @@ struct ReducedRCColumnContinuumRunSpec {
     bool write_vtk{false};
     int vtk_stride{1};
     double vtk_visible_crack_opening_threshold_m{5.0e-4};
+    double abort_base_shear_threshold_mn{0.0};
     bool print_progress{true};
     ReducedRCColumnReferenceSpec reference_spec{};
     struct HostProbeSpec {
@@ -875,6 +876,10 @@ struct ReducedRCColumnContinuumSolveSummary {
     bool last_solver_ksp_reuse_preconditioner{false};
     int last_solver_snes_lag_preconditioner{0};
     int last_solver_snes_lag_jacobian{0};
+    bool base_shear_threshold_exceeded{false};
+    double abort_base_shear_threshold_mn{0.0};
+    double abort_base_shear_mn{0.0};
+    int abort_runtime_step{0};
 };
 
 struct ReducedRCColumnContinuumDiscretizationSummary {

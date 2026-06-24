@@ -39,6 +39,7 @@ from opensees_reduced_rc_column_reference import (
     safe_test_iterations,
     safe_test_norm,
     selected_mapping_policy,
+    section_fiber_response_at_station,
     structural_convergence_profile_families,
     structural_increment_convergence_profiles,
     try_import_opensees,
@@ -444,6 +445,138 @@ def sample_base_section_response(
     return rows
 
 
+def sample_base_section_fiber_response(
+    ops: object,
+    station_rows: list[dict[str, object]],
+    section_layout_rows: list[dict[str, object]],
+    step: int,
+    p: float,
+    drift_m: float,
+    model_dimension: str,
+) -> list[dict[str, object]]:
+    if not station_rows:
+        return []
+    base_station = min(station_rows, key=lambda row: float(row.get("z_m", 0.0)))
+    element_tag = int(base_station["element_tag"])
+    section_index = int(base_station["local_section_index"])
+    section_gp = int(base_station["section_gp"])
+    xi = float(base_station["xi"])
+    z_m = float(base_station["z_m"])
+    deformation = list(
+        ops.eleResponse(element_tag, "section", section_index, "deformation")
+        or []
+    )
+    is_2d = model_dimension == "2d"
+    axial_strain = float(deformation[0]) if len(deformation) > 0 else math.nan
+    curvature_y = (
+        float(deformation[1]) if is_2d and len(deformation) > 1
+        else float(deformation[2]) if len(deformation) > 2
+        else math.nan
+    )
+
+    rows: list[dict[str, object]] = []
+    for layout in section_layout_rows:
+        y = float(layout["y"])
+        z = float(layout["z"])
+        area = float(layout["area"])
+        material_tag = int(layout["material_tag"])
+        stress_strain = section_fiber_response_at_station(
+            ops,
+            element_tag,
+            section_index,
+            y,
+            z,
+            material_tag,
+            "stressStrain",
+        )
+        if len(stress_strain) >= 2:
+            stress_xx_mpa = float(stress_strain[0]) / 1.0e6
+            strain_xx = float(stress_strain[1])
+        else:
+            stress_values = section_fiber_response_at_station(
+                ops,
+                element_tag,
+                section_index,
+                y,
+                z,
+                material_tag,
+                "stress",
+            )
+            strain_values = section_fiber_response_at_station(
+                ops,
+                element_tag,
+                section_index,
+                y,
+                z,
+                material_tag,
+                "strain",
+            )
+            stress_xx_mpa = (
+                float(stress_values[0]) / 1.0e6
+                if len(stress_values) >= 1
+                else math.nan
+            )
+            strain_xx = float(strain_values[0]) if len(strain_values) >= 1 else math.nan
+
+        tangent_values = section_fiber_response_at_station(
+            ops,
+            element_tag,
+            section_index,
+            y,
+            z,
+            material_tag,
+            "tangent",
+        )
+        tangent_xx_mpa = (
+            float(tangent_values[0]) / 1.0e6
+            if len(tangent_values) >= 1
+            else math.nan
+        )
+        rows.append(
+            {
+                "step": step,
+                "p": p,
+                "drift_m": drift_m,
+                "section_gp": section_gp,
+                "xi": xi,
+                "z_m": z_m,
+                "axial_strain": axial_strain,
+                "curvature_y": curvature_y,
+                "zero_curvature_anchor": int(abs(curvature_y) <= 1.0e-12)
+                if math.isfinite(curvature_y)
+                else 0,
+                "fiber_index": int(layout["fiber_index"]),
+                "y": y,
+                "z": z,
+                "area": area,
+                "zone": str(layout["zone"]),
+                "material_role": str(layout["material_role"]),
+                "material_tag": material_tag,
+                "strain_xx": strain_xx,
+                "stress_xx_MPa": stress_xx_mpa,
+                "tangent_xx_MPa": tangent_xx_mpa,
+                "axial_force_contribution_MN": (
+                    stress_xx_mpa * area if math.isfinite(stress_xx_mpa) else math.nan
+                ),
+                "moment_y_contribution_MNm": (
+                    -stress_xx_mpa * z * area if math.isfinite(stress_xx_mpa) else math.nan
+                ),
+                "raw_k00_contribution": (
+                    tangent_xx_mpa * area if math.isfinite(tangent_xx_mpa) else math.nan
+                ),
+                "raw_k0y_contribution": (
+                    -tangent_xx_mpa * z * area if math.isfinite(tangent_xx_mpa) else math.nan
+                ),
+                "raw_kyy_contribution": (
+                    tangent_xx_mpa * z * z * area
+                    if math.isfinite(tangent_xx_mpa)
+                    else math.nan
+                ),
+            }
+        )
+    return rows
+
+
 def main() -> int:
     args = parse_args()
     out_dir = args.output_dir.resolve()
@@ -483,7 +616,9 @@ def main() -> int:
     hysteresis_rows: list[dict[str, object]] = []
     control_rows: list[dict[str, object]] = []
     section_rows: list[dict[str, object]] = []
+    section_fiber_rows: list[dict[str, object]] = []
     station_rows: list[dict[str, object]] = []
+    section_layout_rows = build_section_layout_rows(spec)
     preload_summary: dict[str, object] | None = None
 
     try:
@@ -580,6 +715,17 @@ def main() -> int:
                     model_dimension,
                 )
             )
+            section_fiber_rows.extend(
+                sample_base_section_fiber_response(
+                    ops,
+                    station_rows,
+                    section_layout_rows,
+                    point.step,
+                    point.p,
+                    drift,
+                    model_dimension,
+                )
+            )
 
         sample(
             protocol[0],
@@ -659,10 +805,16 @@ def main() -> int:
             tuple(section_rows[0].keys()),
             section_rows,
         )
+    if section_fiber_rows:
+        write_csv(
+            out_dir / "section_fiber_state_history.csv",
+            tuple(section_fiber_rows[0].keys()),
+            section_fiber_rows,
+        )
     write_csv(
         out_dir / "section_layout.csv",
         ("fiber_index", "y", "z", "area", "zone", "material_role", "material_tag"),
-        build_section_layout_rows(spec),
+        section_layout_rows,
     )
     output_elapsed = time.perf_counter() - output_start
 
@@ -671,6 +823,7 @@ def main() -> int:
     manifest["hysteresis_point_count"] = len(hysteresis_rows)
     manifest["control_state_record_count"] = len(control_rows)
     manifest["section_record_count"] = len(section_rows)
+    manifest["section_fiber_record_count"] = len(section_fiber_rows)
     manifest["station_count"] = len(station_rows)
     manifest["timing"] = {
         "total_wall_seconds": time.perf_counter() - total_start,

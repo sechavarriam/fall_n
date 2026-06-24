@@ -106,6 +106,7 @@ struct CliOptions {
     bool write_vtk{false};
     int vtk_stride{1};
     double vtk_visible_crack_opening_threshold_m{5.0e-4};
+    double abort_base_shear_threshold_mn{0.0};
     bool print_progress{false};
     std::vector<
         fall_n::validation_reboot::ReducedRCColumnContinuumRunSpec::HostProbeSpec>
@@ -831,6 +832,7 @@ parse_predictor_policy_kind(std::string value)
             "[--amplitudes-mm comma,separated] [--steps-per-segment N] "
             "[--max-bisections N] [--disable-equilibrated-axial-preload-stage] "
             "[--disable-crack-summary-csv] [--write-vtk] [--vtk-stride N] "
+            "[--abort-base-shear-threshold-kn value] "
             "[--print-progress]");
         std::exit(0);
     }
@@ -941,6 +943,14 @@ parse_predictor_policy_kind(std::string value)
     if (const auto value = value_of("--longitudinal-bias-location");
         !value.empty()) {
         options.longitudinal_bias_location = value;
+    }
+    if (const auto value = value_of("--abort-base-shear-threshold-kn");
+        !value.empty()) {
+        options.abort_base_shear_threshold_mn = std::stod(value) * 1.0e-3;
+    }
+    if (const auto value = value_of("--abort-base-shear-threshold-mn");
+        !value.empty()) {
+        options.abort_base_shear_threshold_mn = std::stod(value);
     }
     if (const auto value = value_of("--concrete-fracture-energy-nmm");
         !value.empty()) {
@@ -1449,6 +1459,8 @@ void write_runtime_manifest(
         << (result.completed_successfully ? "true" : "false") << ",\n"
         << "  \"termination_reason\": \""
         << result.solve_summary.termination_reason << "\",\n"
+        << "  \"abort_base_shear_threshold_mn\": "
+        << spec.abort_base_shear_threshold_mn << ",\n"
         << "  \"continuum_kinematics\": \""
         << fall_n::validation_reboot::to_string(spec.kinematic_policy_kind)
         << "\",\n"
@@ -1792,7 +1804,18 @@ void write_runtime_manifest(
         << "    \"last_solver_snes_lag_preconditioner\": "
         << result.solve_summary.last_solver_snes_lag_preconditioner << ",\n"
         << "    \"last_solver_snes_lag_jacobian\": "
-        << result.solve_summary.last_solver_snes_lag_jacobian << "\n"
+        << result.solve_summary.last_solver_snes_lag_jacobian << ",\n"
+        << "    \"base_shear_threshold_exceeded\": "
+        << (result.solve_summary.base_shear_threshold_exceeded
+                ? "true"
+                : "false")
+        << ",\n"
+        << "    \"abort_base_shear_threshold_mn\": "
+        << result.solve_summary.abort_base_shear_threshold_mn << ",\n"
+        << "    \"abort_base_shear_mn\": "
+        << result.solve_summary.abort_base_shear_mn << ",\n"
+        << "    \"abort_runtime_step\": "
+        << result.solve_summary.abort_runtime_step << "\n"
         << "  },\n"
         << "  \"observables\": {\n"
         << "    \"max_abs_base_shear_mn\": " << max_abs_base_shear(result) << ",\n"
@@ -1978,6 +2001,8 @@ int main(int argc, char** argv)
             .vtk_stride = std::max(options.vtk_stride, 1),
             .vtk_visible_crack_opening_threshold_m =
                 options.vtk_visible_crack_opening_threshold_m,
+            .abort_base_shear_threshold_mn =
+                options.abort_base_shear_threshold_mn,
             .print_progress = options.print_progress,
             .host_probe_specs = options.host_probe_specs,
         };

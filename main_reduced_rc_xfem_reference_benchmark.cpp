@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -100,6 +101,7 @@ struct Options {
     bool run_global_xfem_newton{true};
     bool global_xfem_scale_audit_only{false};
     bool global_xfem_incremental_logging{false};
+    fall_n::HexOrder global_xfem_hex_order{fall_n::HexOrder::Linear};
     int global_xfem_nx{2};
     int global_xfem_ny{2};
     int global_xfem_nz{4};
@@ -422,6 +424,39 @@ parse_shear_law(std::string value)
     throw std::invalid_argument("Unsupported XFEM shear transfer law.");
 }
 
+[[nodiscard]] fall_n::HexOrder parse_hex_order(std::string value)
+{
+    std::ranges::replace(value, '_', '-');
+    std::ranges::transform(value, value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (value == "hex8" || value == "linear") {
+        return fall_n::HexOrder::Linear;
+    }
+    if (value == "hex20" || value == "serendipity") {
+        return fall_n::HexOrder::Serendipity;
+    }
+    if (value == "hex27" || value == "quadratic") {
+        return fall_n::HexOrder::Quadratic;
+    }
+    throw std::invalid_argument(
+        "Unsupported XFEM hex order. Use hex8, hex20 or hex27.");
+}
+
+[[nodiscard]] constexpr const char* hex_order_token(
+    fall_n::HexOrder order) noexcept
+{
+    switch (order) {
+        case fall_n::HexOrder::Linear:
+            return "hex8";
+        case fall_n::HexOrder::Serendipity:
+            return "hex20";
+        case fall_n::HexOrder::Quadratic:
+            return "hex27";
+    }
+    return "unknown";
+}
+
 void write_usage()
 {
     std::cerr
@@ -459,6 +494,7 @@ void write_usage()
         << "[--global-xfem-mixed-arc-reaction-scale-mn value] "
         << "[--skip-global-xfem-newton] [--global-xfem-scale-audit-only] "
         << "[--global-xfem-log-incremental] "
+        << "[--global-xfem-hex-order hex8|hex20|hex27] "
         << "[--global-xfem-nx N] "
         << "[--global-xfem-ny N] [--global-xfem-nz N] "
         << "[--global-xfem-bias-power value] "
@@ -578,6 +614,8 @@ void write_usage()
             options.global_xfem_scale_audit_only = true;
         } else if (flag == "--global-xfem-log-incremental") {
             options.global_xfem_incremental_logging = true;
+        } else if (flag == "--global-xfem-hex-order") {
+            options.global_xfem_hex_order = parse_hex_order(value());
         } else if (flag == "--global-xfem-nx") {
             options.global_xfem_nx = std::stoi(value());
         } else if (flag == "--global-xfem-ny") {
@@ -1359,8 +1397,13 @@ make_global_xfem_local_mesh_scale_input(
     return fall_n::ReducedRCLocalMeshScaleInput{
         .nx = static_cast<std::size_t>(std::max(options.global_xfem_nx, 1)),
         .ny = static_cast<std::size_t>(std::max(options.global_xfem_ny, 1)),
-        .nz = static_cast<std::size_t>(std::max(options.global_xfem_nz, 2)),
-        .topology = fall_n::ReducedRCLocalCellTopologyKind::hex8_lagrange,
+        .nz = static_cast<std::size_t>(std::max(options.global_xfem_nz, 1)),
+        .topology =
+            options.global_xfem_hex_order == fall_n::HexOrder::Linear
+                ? fall_n::ReducedRCLocalCellTopologyKind::hex8_lagrange
+            : options.global_xfem_hex_order == fall_n::HexOrder::Serendipity
+                ? fall_n::ReducedRCLocalCellTopologyKind::hex20_serendipity
+                : fall_n::ReducedRCLocalCellTopologyKind::hex27_lagrange,
         .constitutive_cost = global_xfem_constitutive_cost_kind(options),
         .shifted_heaviside_xfem = true,
         .planar_crack_count = 1,
@@ -1393,13 +1436,11 @@ void write_global_xfem_scale_audit_json(
         << "  \"driver_kind\": \"global_shifted_heaviside_xfem_scale_audit\",\n"
         << "  \"dry_run\": true,\n"
         << "  \"mesh\": {\n"
-        << "    \"topology\": \""
-        << fall_n::to_string(fall_n::ReducedRCLocalCellTopologyKind::
-                                 hex8_lagrange)
+        << "    \"hex_order\": \"" << hex_order_token(options.global_xfem_hex_order)
         << "\",\n"
         << "    \"nx\": " << std::max(options.global_xfem_nx, 1) << ",\n"
         << "    \"ny\": " << std::max(options.global_xfem_ny, 1) << ",\n"
-        << "    \"nz\": " << std::max(options.global_xfem_nz, 2) << ",\n"
+        << "    \"nz\": " << std::max(options.global_xfem_nz, 1) << ",\n"
         << "    \"longitudinal_bias_power\": "
         << options.global_xfem_bias_power << ",\n"
         << "    \"longitudinal_bias_location\": \""
@@ -1997,7 +2038,8 @@ void write_global_xfem_newton_manifest(
         << "  \"failure_reason\": \""
         << json_escape(summary.failure_reason) << "\",\n"
         << "  \"mesh\": {\n"
-        << "    \"hex_order\": \"Hex8\",\n"
+        << "    \"hex_order\": \"" << hex_order_token(options.global_xfem_hex_order)
+        << "\",\n"
         << "    \"nx\": " << options.global_xfem_nx << ",\n"
         << "    \"ny\": " << options.global_xfem_ny << ",\n"
         << "    \"nz\": " << options.global_xfem_nz << ",\n"
@@ -3002,8 +3044,8 @@ template <typename GlobalXFEMKinematicPolicy>
             .length = spec.column_height_m,
             .nx = std::max(options.global_xfem_nx, 1),
             .ny = std::max(options.global_xfem_ny, 1),
-            .nz = std::max(options.global_xfem_nz, 2),
-            .hex_order = HexOrder::Linear,
+            .nz = std::max(options.global_xfem_nz, 1),
+            .hex_order = options.global_xfem_hex_order,
             .longitudinal_bias_power =
                 std::max(options.global_xfem_bias_power, 1.0e-6),
             .longitudinal_bias_location =
@@ -3500,12 +3542,12 @@ template <typename GlobalXFEMKinematicPolicy>
             [&](int step, double p, const XFEMModel& solved_model) {
                 const double drift_mm = interpolate_protocol(protocol, p);
                 const double base_shear =
-                    -sum_support_internal_force_component(
+                    sum_support_internal_force_component(
                         solved_model,
                         support_nodes,
                         0);
                 const double axial_reaction =
-                    -sum_support_internal_force_component(
+                    sum_support_internal_force_component(
                         solved_model,
                         support_nodes,
                         2);
@@ -4261,7 +4303,7 @@ int main(int argc, char** argv)
                 << "Global XFEM scale audit completed | mesh="
                 << std::max(options.global_xfem_nx, 1) << "x"
                 << std::max(options.global_xfem_ny, 1) << "x"
-                << std::max(options.global_xfem_nz, 2)
+                << std::max(options.global_xfem_nz, 1)
                 << " | dofs=" << audit.estimated_total_state_dofs
                 << " | material points="
                 << audit.host_material_point_count

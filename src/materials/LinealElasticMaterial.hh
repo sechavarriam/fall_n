@@ -10,6 +10,7 @@
 // Specific relations — needed by convenience aliases at the bottom
 #include "constitutive_models/lineal/IsotropicRelation.hh"
 #include "constitutive_models/lineal/OrthotropicBimodularConcreteProxy.hh"
+#include "constitutive_models/lineal/OrthotropicBilinearConcreteProxy.hh"
 #include "constitutive_models/lineal/TimoshenkoBeamSection.hh"
 #include "constitutive_models/lineal/MindlinShellSection.hh"
 #include "constitutive_models/non_lineal/InelasticRelation.hh"
@@ -396,6 +397,8 @@ using CircularHistoryInelasticMaterial = CircularHistoryConstitutiveSite<R, Capa
 using ContinuumIsotropicElasticMaterial = ElasticMaterial<ContinuumIsotropicRelation>;
 using ContinuumOrthotropicBimodularConcreteProxyMaterial =
     ConstitutiveSite<OrthotropicBimodularConcreteProxy, CommittedState>;
+using ContinuumOrthotropicBilinearConcreteProxyMaterial =
+    ConstitutiveSite<OrthotropicBilinearConcreteProxy, CommittedState>;
 using ContinuumTensileCrackBandDamageConcreteProxyMaterial =
     InelasticMaterial<TensileCrackBandDamageConcreteProxy3D>;
 using ContinuumCyclicCrackBandConcreteMaterial =
