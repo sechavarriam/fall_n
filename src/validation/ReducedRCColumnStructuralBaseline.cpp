@@ -1362,8 +1362,12 @@ run_reduced_rc_column_small_strain_beam_case_impl(
 
     AnalysisT nl{&model};
     nl.set_incremental_logging(spec.print_progress);
-    nl.set_solve_profiles(
-        make_reduced_rc_validation_solve_profiles(spec.solver_policy_kind));
+    auto solve_profiles =
+        make_reduced_rc_validation_solve_profiles(spec.solver_policy_kind);
+    solve_profiles = override_reduced_rc_small_residual_atol_multiplier(
+        std::move(solve_profiles),
+        spec.small_residual_atol_multiplier_override);
+    nl.set_solve_profiles(std::move(solve_profiles));
 
     const int runtime_lateral_steps = runtime_lateral_step_count(spec, cfg);
 

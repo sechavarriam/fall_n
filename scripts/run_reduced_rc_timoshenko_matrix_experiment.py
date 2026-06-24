@@ -98,8 +98,27 @@ def parse_args() -> argparse.Namespace:
         default="reversal-guarded",
     )
     parser.add_argument("--continuation-segment-substep-factor", type=int, default=2)
-    parser.add_argument("--steps-per-segment", type=int, default=2)
+    parser.add_argument(
+        "--steps-per-segment",
+        type=int,
+        default=2,
+        help=(
+            "Accepted Newton points per cyclic segment for the fall_n "
+            "Timoshenko matrix. The default reproduces the historical closure "
+            "campaign that reached N=10; use denser values only as a separate "
+            "visualization/continuation study."
+        ),
+    )
     parser.add_argument("--max-bisections", type=int, default=8)
+    parser.add_argument(
+        "--falln-small-residual-atol-multiplier",
+        type=float,
+        default=None,
+        help=(
+            "Optional typed small-residual acceptance multiplier passed to "
+            "fall_n. Leave unset for the strict reproduced publication run."
+        ),
+    )
     parser.add_argument("--axial-compression-mn", type=float, default=0.02)
     parser.add_argument("--axial-preload-steps", type=int, default=4)
     parser.add_argument("--amplitudes-mm", default="50,100,150,200")
@@ -111,45 +130,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--opensees-model-dimension",
         choices=("2d", "3d"),
-        default="3d",
+        default="2d",
     )
     parser.add_argument(
         "--opensees-beam-integration",
         choices=("legendre", "lobatto"),
-        default="lobatto",
+        default="legendre",
     )
     parser.add_argument("--opensees-integration-points", type=int, default=5)
-    parser.add_argument("--opensees-structural-element-count", type=int, default=12)
-    parser.add_argument("--opensees-geom-transf", choices=("linear", "pdelta"), default="linear")
+    parser.add_argument("--opensees-structural-element-count", type=int, default=20)
+    parser.add_argument("--opensees-geom-transf", choices=("linear", "pdelta"), default="pdelta")
     parser.add_argument(
         "--opensees-mapping-policy",
         choices=tuple(external_mapping_policy_catalog().keys()),
-        default=None,
+        default="cyclic-diagnostic",
     )
     parser.add_argument(
         "--opensees-solver-profile-family",
         choices=structural_convergence_profile_families(),
-        default=None,
+        default="pure-secant-disp",
     )
-    parser.add_argument("--opensees-concrete-model", choices=("Elastic", "Concrete01", "Concrete02"), default=None)
-    parser.add_argument("--opensees-concrete-lambda", type=float, default=None)
-    parser.add_argument("--opensees-concrete-ft-ratio", type=float, default=None)
-    parser.add_argument("--opensees-concrete-softening-multiplier", type=float, default=None)
-    parser.add_argument("--opensees-concrete-unconfined-residual-ratio", type=float, default=None)
-    parser.add_argument("--opensees-concrete-confined-residual-ratio", type=float, default=None)
-    parser.add_argument("--opensees-concrete-ultimate-strain", type=float, default=None)
-    parser.add_argument("--opensees-steel-r0", type=float, default=None)
-    parser.add_argument("--opensees-steel-cr1", type=float, default=None)
-    parser.add_argument("--opensees-steel-cr2", type=float, default=None)
-    parser.add_argument("--opensees-steel-a1", type=float, default=None)
-    parser.add_argument("--opensees-steel-a2", type=float, default=None)
-    parser.add_argument("--opensees-steel-a3", type=float, default=None)
-    parser.add_argument("--opensees-steel-a4", type=float, default=None)
+    parser.add_argument("--opensees-concrete-model", choices=("Elastic", "Concrete01", "Concrete02"), default="Concrete02")
+    parser.add_argument("--opensees-concrete-lambda", type=float, default=0.10)
+    parser.add_argument("--opensees-concrete-ft-ratio", type=float, default=0.02)
+    parser.add_argument("--opensees-concrete-softening-multiplier", type=float, default=0.50)
+    parser.add_argument("--opensees-concrete-unconfined-residual-ratio", type=float, default=0.20)
+    parser.add_argument("--opensees-concrete-confined-residual-ratio", type=float, default=0.20)
+    parser.add_argument("--opensees-concrete-ultimate-strain", type=float, default=-0.006)
+    parser.add_argument("--opensees-steel-r0", type=float, default=20.0)
+    parser.add_argument("--opensees-steel-cr1", type=float, default=0.925)
+    parser.add_argument("--opensees-steel-cr2", type=float, default=0.15)
+    parser.add_argument("--opensees-steel-a1", type=float, default=0.0)
+    parser.add_argument("--opensees-steel-a2", type=float, default=1.0)
+    parser.add_argument("--opensees-steel-a3", type=float, default=0.0)
+    parser.add_argument("--opensees-steel-a4", type=float, default=1.0)
     parser.add_argument("--opensees-element-local-iterations", type=int, default=0)
     parser.add_argument("--opensees-element-local-tolerance", type=float, default=1.0e-12)
-    parser.add_argument("--opensees-steps-per-segment", type=int, default=None)
-    parser.add_argument("--opensees-reversal-substep-factor", type=int, default=None)
-    parser.add_argument("--opensees-max-bisections", type=int, default=None)
+    parser.add_argument("--opensees-steps-per-segment", type=int, default=32)
+    parser.add_argument("--opensees-reversal-substep-factor", type=int, default=2)
+    parser.add_argument("--opensees-max-bisections", type=int, default=10)
     parser.add_argument(
         "--opensees-amplitudes-mm",
         default="",
@@ -366,7 +385,7 @@ def envelope_error(
 
 
 def build_falln_command(args: argparse.Namespace, out_dir: Path, beam_nodes: int, quadrature: str) -> list[str]:
-    return [
+    command = [
         str(args.falln_exe),
         "--analysis",
         "cyclic",
@@ -396,6 +415,14 @@ def build_falln_command(args: argparse.Namespace, out_dir: Path, beam_nodes: int
         str(args.max_bisections),
         *(["--print-progress"] if args.print_progress else []),
     ]
+    if args.falln_small_residual_atol_multiplier is not None:
+        command.extend(
+            (
+                "--small-residual-atol-multiplier",
+                str(args.falln_small_residual_atol_multiplier),
+            )
+        )
+    return command
 
 
 def build_hifi_command(args: argparse.Namespace, repo_root: Path, out_dir: Path) -> list[str]:

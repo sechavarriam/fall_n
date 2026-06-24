@@ -3446,6 +3446,13 @@ run_reduced_rc_column_continuum_case_result_impl(
     result.host_probe_records.reserve(
         static_cast<std::size_t>(runtime_steps + 1) *
         std::max<std::size_t>(spec.host_probe_specs.size(), 1u));
+
+    const double abort_base_shear_threshold_mn =
+        std::max(spec.abort_base_shear_threshold_mn, 0.0);
+    bool base_shear_threshold_exceeded = false;
+    double abort_base_shear_mn = 0.0;
+    int abort_runtime_step = 0;
+
     if (!control_path.has_preload_stage()) {
         result.hysteresis_records.push_back(StepRecord{0, 0.0, 0.0, 0.0});
         result.control_state_records.push_back({});
@@ -3781,6 +3788,22 @@ run_reduced_rc_column_continuum_case_result_impl(
         write_vtk_snapshot(
             runtime_step, runtime_p, const_cast<ModelT&>(active_model));
 
+        if (abort_base_shear_threshold_mn > 0.0 &&
+            !base_shear_threshold_exceeded &&
+            std::abs(record.base_shear) > abort_base_shear_threshold_mn) {
+            base_shear_threshold_exceeded = true;
+            abort_base_shear_mn = record.base_shear;
+            abort_runtime_step = runtime_step;
+            if (spec.print_progress) {
+                std::println(
+                    "    aborting case after accepted step {}: |V_base|={:.4e} MN "
+                    "exceeds threshold {:.4e} MN",
+                    runtime_step,
+                    std::abs(record.base_shear),
+                    abort_base_shear_threshold_mn);
+            }
+        }
+
         if (spec.print_progress &&
             (runtime_step % 10 == 0 || runtime_step == runtime_steps)) {
             std::println(
@@ -3870,6 +3893,9 @@ run_reduced_rc_column_continuum_case_result_impl(
             if (nl.step_to(target) != fall_n::StepVerdict::Continue) {
                 return false;
             }
+            if (base_shear_threshold_exceeded) {
+                return false;
+            }
         }
         return true;
     }();
@@ -3886,9 +3912,11 @@ run_reduced_rc_column_continuum_case_result_impl(
             .termination_reason =
                 solve_outcome
                     ? "completed"
-                    : (result.control_state_records.empty()
+                    : (base_shear_threshold_exceeded
+                           ? "base_shear_threshold_exceeded"
+                           : (result.control_state_records.empty()
                            ? "incremental_solve_failed_before_first_accepted_step"
-                           : "incremental_solve_failed_after_accepted_steps"),
+                           : "incremental_solve_failed_after_accepted_steps")),
             .accepted_runtime_steps =
                 static_cast<int>(result.control_state_records.size()),
             .last_completed_runtime_step =
@@ -3934,6 +3962,10 @@ run_reduced_rc_column_continuum_case_result_impl(
                 diagnostics.last_solver_snes_lag_preconditioner,
             .last_solver_snes_lag_jacobian =
                 diagnostics.last_solver_snes_lag_jacobian,
+            .base_shear_threshold_exceeded = base_shear_threshold_exceeded,
+            .abort_base_shear_threshold_mn = abort_base_shear_threshold_mn,
+            .abort_base_shear_mn = abort_base_shear_mn,
+            .abort_runtime_step = abort_runtime_step,
         };
     }
     result.timing.solve_wall_seconds = analysis_timer.stop();
@@ -3976,6 +4008,12 @@ run_reduced_rc_column_continuum_case_result_impl(
     }
     if (pvd_cracks) {
         pvd_cracks->write();
+    }
+    if (pvd_cracks_visible) {
+        pvd_cracks_visible->write();
+    }
+    if (pvd_rebar_tubes) {
+        pvd_rebar_tubes->write();
     }
     result.timing.output_write_wall_seconds = output_timer.stop();
     result.timing.total_wall_seconds = total_timer.stop();

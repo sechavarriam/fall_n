@@ -53,6 +53,7 @@ struct CliOptions {
     int steps_per_segment{2};
     int max_bisections{8};
     std::string section_fiber_profile{"canonical"};
+    double small_residual_atol_multiplier{-1.0};
     bool write_element_tangent_audit_csv{false};
     bool print_progress{false};
 };
@@ -308,6 +309,7 @@ parse_solver_policy_kind(std::string value)
             "[--monotonic-tip-mm value] [--monotonic-steps N] "
             "[--amplitudes-mm comma,separated] [--steps-per-segment N] "
             "[--max-bisections N] "
+            "[--small-residual-atol-multiplier value] "
             "[--section-fiber-profile coarse|canonical|fine|ultra] "
             "[--write-element-tangent-audit-csv] "
             "[--print-progress]");
@@ -387,6 +389,10 @@ parse_solver_policy_kind(std::string value)
     }
     if (const auto value = value_of("--max-bisections"); !value.empty()) {
         opts.max_bisections = std::stoi(value);
+    }
+    if (const auto value = value_of("--small-residual-atol-multiplier");
+        !value.empty()) {
+        opts.small_residual_atol_multiplier = std::stod(value);
     }
     if (const auto value = value_of("--section-fiber-profile"); !value.empty()) {
         (void)parse_section_fiber_profile(value);
@@ -997,6 +1003,8 @@ void write_runtime_manifest(
         << json_escape(
                fall_n::validation_reboot::to_string(spec.solver_policy_kind))
         << "\",\n"
+        << "  \"small_residual_atol_multiplier_override\": "
+        << spec.small_residual_atol_multiplier_override << ",\n"
         << "  \"solver_policy\": {\n"
         << "    \"increment_control\": \"adaptive requested-step cutback over monotone pseudo-time with PETSc SNES profile cascade\",\n"
         << "    \"profiles\": [\n"
@@ -1209,6 +1217,8 @@ int main(int argc, char** argv)
             .axial_preload_steps = options.axial_preload_steps,
             .continuation_kind = options.continuation_kind,
             .solver_policy_kind = parse_solver_policy_kind(options.solver_policy),
+            .small_residual_atol_multiplier_override =
+                options.small_residual_atol_multiplier,
             .continuation_segment_substep_factor =
                 options.continuation_segment_substep_factor,
             .write_hysteresis_csv = true,

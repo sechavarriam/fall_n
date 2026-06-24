@@ -377,6 +377,20 @@ override_reduced_rc_divergence_tolerance(
     return profiles;
 }
 
+[[nodiscard]] inline std::vector<fall_n::NonlinearSolveProfile>
+override_reduced_rc_small_residual_atol_multiplier(
+    std::vector<fall_n::NonlinearSolveProfile> profiles,
+    double multiplier)
+{
+    if (multiplier < 0.0) {
+        return profiles;
+    }
+    for (auto& profile : profiles) {
+        profile.small_residual_acceptance.profile_atol_multiplier = multiplier;
+    }
+    return profiles;
+}
+
 [[nodiscard]] inline fall_n::IncrementPredictorSettings
 make_reduced_rc_increment_predictor_settings(
     ReducedRCColumnPredictorPolicyKind policy_kind)

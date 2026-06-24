@@ -70,6 +70,7 @@ struct ReducedRCColumnStructuralRunSpec {
             monolithic_incremental_displacement_control};
     ReducedRCColumnSolverPolicyKind solver_policy_kind{
         ReducedRCColumnSolverPolicyKind::canonical_newton_profile_cascade};
+    double small_residual_atol_multiplier_override{-1.0};
     int continuation_segment_substep_factor{1};
     bool write_hysteresis_csv{true};
     bool write_section_response_csv{true};
