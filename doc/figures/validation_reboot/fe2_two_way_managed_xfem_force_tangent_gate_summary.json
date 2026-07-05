@@ -1,0 +1,27 @@
+{
+  "schema": "fe2_two_way_managed_xfem_force_tangent_gate_v1",
+  "cases": [
+    {
+      "label": "tol=0.03",
+      "path": "data\\output\\fe2_validation\\two_way_real_xfem_n10_lobatto_200mm_dual_resultant_3x3x6_force_gate",
+      "iterations": 4,
+      "final_residual": 0.0101289,
+      "relative_moment_feedback_error": 0.0949571,
+      "moment_y_mn_m": -0.0824477,
+      "D_flexural_mn_m2": 2.54657,
+      "local_total_nonlinear_iterations": 145,
+      "local_elapsed_seconds": 31.0173
+    },
+    {
+      "label": "tol=0.005",
+      "path": "data\\output\\fe2_validation\\two_way_real_xfem_n10_lobatto_200mm_dual_resultant_3x3x6_tight",
+      "iterations": 5,
+      "final_residual": 0.00303867,
+      "relative_moment_feedback_error": 0.0274805,
+      "moment_y_mn_m": -0.0773668,
+      "D_flexural_mn_m2": 2.38964,
+      "local_total_nonlinear_iterations": 145,
+      "local_elapsed_seconds": 34.1268
+    }
+  ]
+}

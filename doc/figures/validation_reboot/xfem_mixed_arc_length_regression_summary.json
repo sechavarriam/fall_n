@@ -1,0 +1,57 @@
+{
+  "schema": "xfem_mixed_arc_length_regression_v1",
+  "scope": "dedicated_runtime_regression_mixed_arc_length_promoted_xfem_column",
+  "continuation": "mixed-arc-length",
+  "overall_pass": true,
+  "checks": {
+    "peak_abs_xfem_base_shear_MN": {
+      "frozen": 0.02572949,
+      "regression": 0.02594528448,
+      "relative_deviation": 0.008387048480168082,
+      "tolerance": 0.01,
+      "passed": true
+    },
+    "xfem_loop_work_MN_mm": {
+      "frozen": 15.29158397774775,
+      "regression": 15.186394754012252,
+      "relative_deviation": 0.006878896515139942,
+      "tolerance": 0.01,
+      "passed": true
+    },
+    "peak_abs_steel_stress_MPa": {
+      "frozen": 434.821686052,
+      "regression": 434.7114427,
+      "relative_deviation": 0.00025353692222888295,
+      "tolerance": 0.01,
+      "passed": true
+    },
+    "plan_gate_peak_ratio_vs_structural": {
+      "frozen": 1.0934523861871646,
+      "regression": 1.1026232191842182,
+      "absolute_deviation": 0.00917083299705368,
+      "tolerance": 0.01,
+      "passed": true
+    },
+    "plan_gate_rms_vs_structural_method_consistent": {
+      "frozen_same_method": 0.10168580012811104,
+      "regression": 0.1056150792260379,
+      "absolute_deviation": 0.003929279097926855,
+      "tolerance": 0.005,
+      "passed": true
+    }
+  },
+  "informational_trace_vs_frozen": {
+    "frozen_points": 156,
+    "regression_points": 133,
+    "base_shear_sign_factor_applied": -1.0,
+    "peak_normalized_rms": 0.031207349185748662
+  },
+  "derived": {
+    "structural_peak_MN_frozen_reference": 0.023530507889527732,
+    "xfem_to_structural_peak_ratio_regression": 1.1026232243608718,
+    "xfem_to_structural_peak_ratio_frozen": 1.0934523861871646,
+    "peak_normalized_rms_error_frozen": 0.08936797871849893,
+    "method_control_rms_frozen_vs_structural": 0.10168580012811104,
+    "frozen_artifact_rms_note": "El RMS 0.0894 del artefacto congelado se calculo con la malla de comparacion del guion original. Las compuertas de esta regresion comparan congelada y regresion con metodologia identica sobre los 49 estados de protocolo de la referencia estructural."
+  }
+}
