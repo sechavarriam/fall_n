@@ -135,7 +135,7 @@ def main() -> int:
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.1))
     ax0, ax1 = axes
-    ax0.plot(strain, material_stress, color=BLUE, linewidth=2.0, label="direct Menegotto")
+    ax0.plot(strain, material_stress, color=BLUE, linewidth=2.0, label="Menegotto directo")
     ax0.plot(
         truss_strain,
         truss_stress,
@@ -145,21 +145,21 @@ def main() -> int:
         label="Truss<3>",
     )
     ax0.set_title(
-        "Quadratic truss cyclic steel equivalence\n"
+        "Equivalencia cíclica del acero con truss cuadrático\n"
         f"max|Δσ|={max_stress_error:.2e} MPa"
     )
-    ax0.set_xlabel("Axial strain")
-    ax0.set_ylabel("Axial stress [MPa]")
+    ax0.set_xlabel("Deformación axial")
+    ax0.set_ylabel("Tensión axial [MPa]")
     ax0.legend(loc="best")
 
-    ax1.plot(strain, material_tangent, color=BLUE, linewidth=2.0, label="direct Menegotto")
+    ax1.plot(strain, material_tangent, color=BLUE, linewidth=2.0, label="Menegotto directo")
     ax1.plot(
         truss_strain,
         truss_tangent,
         color=GREEN,
         linestyle="--",
         linewidth=1.6,
-        label="Truss<3> GP tangent",
+        label="Tangente en GP del Truss<3>",
     )
     ax1.plot(
         truss_strain,
@@ -167,14 +167,14 @@ def main() -> int:
         color=RED,
         linestyle=":",
         linewidth=1.8,
-        label="Truss<3> projected tangent",
+        label="Tangente proyectada del Truss<3>",
     )
     ax1.set_title(
-        "Tangent comparison on the same protocol\n"
+        "Comparación de tangentes bajo el mismo protocolo\n"
         f"max|ΔE_t|={max_tangent_error:.2e} MPa"
     )
-    ax1.set_xlabel("Axial strain")
-    ax1.set_ylabel("Axial tangent [MPa]")
+    ax1.set_xlabel("Deformación axial")
+    ax1.set_ylabel("Tangente axial [MPa]")
     ax1.legend(loc="best")
     save(
         fig,
@@ -188,17 +188,17 @@ def main() -> int:
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.1))
     ax0, ax1 = axes
     ax0.plot(end_disp_mm, axial_force_kn, color=ORANGE, linewidth=2.0)
-    ax0.set_title("Quadratic truss force-displacement loop")
-    ax0.set_xlabel("End displacement [mm]")
-    ax0.set_ylabel("Axial force [kN]")
+    ax0.set_title("Lazo fuerza–desplazamiento del truss cuadrático")
+    ax0.set_xlabel("Desplazamiento en el extremo [mm]")
+    ax0.set_ylabel("Fuerza axial [kN]")
 
     ax1.plot([row["step"] for row in truss_rows], gp_stress_spread, color=GREEN, linewidth=1.8)
     ax1.set_title(
-        "Gauss-point stress spread under affine control\n"
+        "Dispersión de tensión en puntos de Gauss bajo control afín\n"
         f"σ(ε=0 final)={final_zero_return_stress:.2f} MPa"
     )
-    ax1.set_xlabel("Step")
-    ax1.set_ylabel("GP stress spread [MPa]")
+    ax1.set_xlabel("Paso")
+    ax1.set_ylabel("Dispersión de tensión en GP [MPa]")
     save(
         fig,
         figure_paths(

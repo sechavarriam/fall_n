@@ -187,12 +187,20 @@ def plot_regime_background(ax, spans: list[tuple[float, float, str]]) -> None:
         "strict_two_way": "#2f855a",
         "hybrid_observation_window": "#f2c94c",
     }
+    display_names = {
+        "strict_two_way": "bidireccional estricto",
+        "hybrid_observation_window": "ventana de observación híbrida",
+    }
     labels_seen: set[str] = set()
     for start, end, regime in spans:
         color = colors.get(regime)
         if not color:
             continue
-        label = regime.replace("_", " ") if regime not in labels_seen else None
+        label = (
+            display_names.get(regime, regime.replace("_", " "))
+            if regime not in labels_seen
+            else None
+        )
         ax.axvspan(start, end, color=color, alpha=0.13, lw=0, label=label)
         labels_seen.add(regime)
 
@@ -311,25 +319,25 @@ def main() -> int:
 
     fig, axes = plt.subplots(2, 3, figsize=(13.2, 7.8))
     ax = axes[0, 0]
-    ax.plot(tr_env_d, ur_env_d, color="#747474", lw=0.95, label="global-only")
-    ax.plot(t_env_d, u_env_d, color="#1f5a99", lw=0.9, label="FE2 two-way XFEM")
+    ax.plot(tr_env_d, ur_env_d, color="#747474", lw=0.95, label="solo global")
+    ax.plot(t_env_d, u_env_d, color="#1f5a99", lw=0.9, label="FE2 bidireccional XFEM")
     ax.set_title("Envolvente de techo")
     ax.set_xlabel("tiempo [s]")
     ax.set_ylabel(r"$\max |u_{techo}|$ [m]")
     ax.legend(frameon=False, fontsize=8)
 
     ax = axes[0, 1]
-    ax.plot(rux_d, ruy_d, color="#747474", lw=0.9, label="global-only")
-    ax.plot(ux_d, uy_d, color="#b84a39", lw=0.9, label="FE2 two-way")
-    ax.set_title("Orbita de techo")
+    ax.plot(rux_d, ruy_d, color="#747474", lw=0.9, label="solo global")
+    ax.plot(ux_d, uy_d, color="#b84a39", lw=0.9, label="FE2 bidireccional")
+    ax.set_title("Órbita de techo")
     ax.set_xlabel(r"$u_x$ [m]")
     ax.set_ylabel(r"$u_y$ [m]")
     ax.axis("equal")
 
     ax = axes[0, 2]
-    ax.plot(ruy_dh, rf2_d, color="#747474", lw=0.9, label="global-only")
-    ax.plot(uy_dh, f2_d, color="#7a3b86", lw=0.9, label="FE2 two-way")
-    ax.set_title("Lazo monitorizado")
+    ax.plot(ruy_dh, rf2_d, color="#747474", lw=0.9, label="solo global")
+    ax.plot(uy_dh, f2_d, color="#7a3b86", lw=0.9, label="FE2 bidireccional")
+    ax.set_title("Lazo monitoreado")
     ax.set_xlabel(r"$u_y$ techo [m]")
     ax.set_ylabel(r"$f_2$ elemento 0")
     ax.legend(frameon=False, fontsize=8)
@@ -342,13 +350,13 @@ def main() -> int:
     ax.semilogy(t_c_d, [max(v, 1e-12) for v in rtc_d], color="#2e7d59", lw=0.8, label=r"$r_{D,c}$")
     ax.axhline(5e-2, color="#333333", ls="--", lw=0.8, label="0.05 ref.")
     ax.axhline(5.5e-1, color="#777777", ls=":", lw=0.7, label="0.55 col.")
-    ax.set_title("Compuertas de acople")
+    ax.set_title("Compuertas de acoplamiento")
     ax.set_xlabel("tiempo [s]")
-    ax.set_ylabel("residuo relativo")
+    ax.set_ylabel("residual relativo")
     ax.legend(frameon=False, fontsize=7, ncol=2)
 
     ax = axes[1, 1]
-    ax.plot(t_cr_d, opening_mm_d, color="#b84a39", lw=0.9, label="apertura max.")
+    ax.plot(t_cr_d, opening_mm_d, color="#b84a39", lw=0.9, label="apertura máx.")
     ax2 = ax.twinx()
     ax2.plot(t_cr_d, crack_count_d, color="#1f5a99", lw=0.8, label="fisuras")
     ax.set_title("Respuesta local XFEM")
@@ -358,15 +366,15 @@ def main() -> int:
 
     ax = axes[1, 2]
     plot_regime_background(ax, spans)
-    ax.plot(t_c_d, wg_d, color="#5b4b8a", lw=0.9, label="work gap")
+    ax.plot(t_c_d, wg_d, color="#5b4b8a", lw=0.9, label="brecha de trabajo")
     ax.axhline(5e-2, color="#333333", ls="--", lw=0.8, label="0.05 ref.")
     ax.axhline(3e-1, color="#777777", ls=":", lw=0.7, label="0.30 fuerza")
-    ax.set_title("Regimen y brecha de trabajo")
+    ax.set_title("Régimen y brecha de trabajo")
     ax.set_xlabel("tiempo [s]")
     ax.set_ylabel("brecha [-]")
     ax.legend(frameon=False, fontsize=7)
 
-    fig.suptitle("FE2 two-way XFEM final, 10 s, edificio L de 16 pisos", fontsize=12)
+    fig.suptitle("FE2 bidireccional XFEM final, 10 s, edificio en L de 16 pisos", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     figures += save(fig, out_dir, f"{args.prefix}_summary")
 
@@ -375,8 +383,8 @@ def main() -> int:
     ref_dec = {"ux": rux_d, "uy": ruy_d, "uz": ruz_d}
     fe2_dec = {"ux": ux_d, "uy": uy_d, "uz": uz_d}
     for ax, (comp, label) in zip(axes, comps):
-        ax.plot(tr_node_d, ref_dec[comp], color="#747474", lw=0.9, label="global-only")
-        ax.plot(t_node_d, fe2_dec[comp], color="#1f5a99", lw=0.9, label="FE2 two-way")
+        ax.plot(tr_node_d, ref_dec[comp], color="#747474", lw=0.9, label="solo global")
+        ax.plot(t_node_d, fe2_dec[comp], color="#1f5a99", lw=0.9, label="FE2 bidireccional")
         ax.set_ylabel(label)
     axes[0].legend(frameon=False, fontsize=8)
     axes[-1].set_xlabel("tiempo [s]")
@@ -385,30 +393,30 @@ def main() -> int:
     figures += save(fig, out_dir, f"{args.prefix}_roof_components")
 
     fig, ax = plt.subplots(figsize=(6.6, 6.0))
-    ax.plot(rux_d, ruy_d, color="#747474", lw=0.9, label="global-only")
-    ax.plot(ux_d, uy_d, color="#b84a39", lw=0.9, label="FE2 two-way")
+    ax.plot(rux_d, ruy_d, color="#747474", lw=0.9, label="solo global")
+    ax.plot(ux_d, uy_d, color="#b84a39", lw=0.9, label="FE2 bidireccional")
     ax.scatter([ux_d[0], ux_d[-1]], [uy_d[0], uy_d[-1]], color="#b84a39", s=24)
     ax.set_xlabel(r"$u_x$ [m]")
     ax.set_ylabel(r"$u_y$ [m]")
-    ax.set_title(f"Orbita de techo, {args.roof_node}")
+    ax.set_title(f"Órbita de techo, {args.roof_node}")
     ax.axis("equal")
     ax.legend(frameon=False, fontsize=8)
     fig.tight_layout()
     figures += save(fig, out_dir, f"{args.prefix}_roof_orbit")
 
     fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.2))
-    axes[0].plot(ruy_dh, rf2_d, color="#747474", lw=0.9, label="global-only")
-    axes[0].plot(uy_dh, f2_d, color="#7a3b86", lw=0.9, label="FE2 two-way")
+    axes[0].plot(ruy_dh, rf2_d, color="#747474", lw=0.9, label="solo global")
+    axes[0].plot(uy_dh, f2_d, color="#7a3b86", lw=0.9, label="FE2 bidireccional")
     axes[0].set_xlabel(r"$u_y$ techo [m]")
     axes[0].set_ylabel(r"$f_2$ elemento 0")
-    axes[0].set_title(r"Lazo \(f_2-u_y\)")
+    axes[0].set_title(r"Lazo $f_2$–$u_y$")
     axes[0].legend(frameon=False, fontsize=8)
-    axes[1].plot(rux_dh, rf4_d, color="#747474", lw=0.9, label="global-only")
-    axes[1].plot(ux_dh, f4_d, color="#2e7d59", lw=0.9, label="FE2 two-way")
+    axes[1].plot(rux_dh, rf4_d, color="#747474", lw=0.9, label="solo global")
+    axes[1].plot(ux_dh, f4_d, color="#2e7d59", lw=0.9, label="FE2 bidireccional")
     axes[1].set_xlabel(r"$u_x$ techo [m]")
     axes[1].set_ylabel(r"$f_4$ elemento 0")
-    axes[1].set_title(r"Lazo \(f_4-u_x\)")
-    fig.suptitle("Histeresis monitorizada con fuerzas internas crudas")
+    axes[1].set_title(r"Lazo $f_4$–$u_x$")
+    fig.suptitle("Histéresis monitoreada con fuerzas internas crudas")
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     figures += save(fig, out_dir, f"{args.prefix}_monitored_hysteresis")
 
@@ -418,29 +426,29 @@ def main() -> int:
     ax.semilogy(t_c_d, [max(v, 1e-12) for v in rfc_d], color="#1f5a99", lw=0.85, label=r"$r_{F,c}$")
     ax.semilogy(t_c_d, [max(v, 1e-12) for v in rt_d], color="#c1762d", lw=0.85, label=r"$r_D$")
     ax.semilogy(t_c_d, [max(v, 1e-12) for v in rtc_d], color="#2e7d59", lw=0.85, label=r"$r_{D,c}$")
-    ax.semilogy(t_c_d, [max(v, 1e-12) for v in wg_d], color="#5b4b8a", lw=0.75, label="work gap")
+    ax.semilogy(t_c_d, [max(v, 1e-12) for v in wg_d], color="#5b4b8a", lw=0.75, label="brecha de trabajo")
     ax.axhline(5e-2, color="#333333", ls="--", lw=0.8, label="0.05 ref.")
     ax.axhline(5.5e-1, color="#777777", ls=":", lw=0.7, label="0.55 col.")
     ax.set_xlabel("tiempo [s]")
-    ax.set_ylabel("residuo relativo")
-    ax.set_title("Auditoria de acople y retorno a strict two-way")
+    ax.set_ylabel("residual relativo")
+    ax.set_title("Auditoría de acoplamiento y retorno a bidireccional estricto")
     ax.legend(frameon=False, fontsize=7, ncol=3)
     fig.tight_layout()
     figures += save(fig, out_dir, f"{args.prefix}_coupling_gates")
 
     fig, axes = plt.subplots(1, 2, figsize=(10.2, 4.2))
-    axes[0].plot(t_cr_d, opening_mm_d, color="#b84a39", lw=0.9, label="apertura max.")
+    axes[0].plot(t_cr_d, opening_mm_d, color="#b84a39", lw=0.9, label="apertura máx.")
     axes[0].set_xlabel("tiempo [s]")
     axes[0].set_ylabel("apertura [mm]")
     axes[0].set_title("Apertura XFEM")
     axes[0].legend(frameon=False, fontsize=8)
     axes[1].plot(t_cr_d, crack_count_d, color="#1f5a99", lw=0.8, label="fisuras")
-    axes[1].plot(t_cr_d, damage_d, color="#b84a39", lw=0.8, label="dano max.")
+    axes[1].plot(t_cr_d, damage_d, color="#b84a39", lw=0.8, label="daño máx.")
     axes[1].set_xlabel("tiempo [s]")
-    axes[1].set_ylabel("conteo / dano [-]")
-    axes[1].set_title("Fisuracion y dano")
+    axes[1].set_ylabel("conteo / daño [-]")
+    axes[1].set_title("Fisuración y daño")
     axes[1].legend(frameon=False, fontsize=8)
-    fig.suptitle("Evolucion local XFEM del sitio promovido")
+    fig.suptitle("Evolución local XFEM del sitio promovido")
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     figures += save(fig, out_dir, f"{args.prefix}_local_xfem_evolution")
 

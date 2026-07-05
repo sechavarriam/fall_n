@@ -181,14 +181,14 @@ def main() -> None:
         ax.plot(time, err_mm, color=colors[comp], linewidth=1.2)
         ax.axhline(0.0, color="0.25", linewidth=0.7)
         ax.set_title(f"Residual OpenSees - fall_n, {labels[comp]}")
-        ax.set_xlabel("time in observation window [s]")
+        ax.set_xlabel("tiempo en la ventana de observación [s]")
         ax.set_ylabel("residual [mm]")
         ax.text(
             0.02,
             0.94,
             (
                 f"RMS = {1000.0 * stats[comp]['rms_error_m']:.1f} mm\n"
-                f"max |e| = {1000.0 * stats[comp]['max_abs_error_m']:.1f} mm"
+                f"máx |e| = {1000.0 * stats[comp]['max_abs_error_m']:.1f} mm"
             ),
             transform=ax.transAxes,
             va="top",
@@ -204,7 +204,7 @@ def main() -> None:
         width=0.36,
         color=[colors[c] for c in components],
         alpha=0.82,
-        label="RMS / fall_n peak",
+        label="RMS / pico fall_n",
     )
     ax.bar(
         [i + 0.18 for i in x],
@@ -215,13 +215,13 @@ def main() -> None:
         width=0.36,
         color="0.55",
         alpha=0.55,
-        label="OpenSees peak / fall_n peak",
+        label="pico OpenSees / pico fall_n",
     )
     ax.set_xticks(list(x), [labels[c] for c in components])
-    ax.set_ylabel("dimensionless ratio")
-    ax.set_title("Component metrics")
+    ax.set_ylabel("razón adimensional")
+    ax.set_title("Métricas por componente")
     ax.legend(frameon=False, loc="upper left")
-    fig.suptitle("Roof-node dynamic comparator diagnostics")
+    fig.suptitle("Diagnóstico del comparador dinámico en el nodo de techo")
 
     for suffix in (".pdf", ".png"):
         fig.savefig(args.output_prefix.with_suffix(suffix), dpi=220)

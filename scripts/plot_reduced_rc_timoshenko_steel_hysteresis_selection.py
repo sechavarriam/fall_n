@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 QUAD_LABEL = {
     "legendre": "Gauss-Legendre",
     "lobatto": "Gauss-Lobatto",
-    "radau-left": "Gauss-Radau left",
-    "radau-right": "Gauss-Radau right",
+    "radau-left": "Gauss-Radau izquierda",
+    "radau-right": "Gauss-Radau derecha",
 }
 
 QUAD_COLOR = {
@@ -462,14 +462,14 @@ def plot_metrics(
         axes[0].plot(x, [m.steel_stress_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[1].plot(x, [m.steel_strain_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[2].plot(x, [m.production_score for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
-    axes[0].set_ylabel("RMS relative error")
-    axes[0].set_title("Steel stress")
-    axes[1].set_ylabel("RMS relative error")
-    axes[1].set_title("Steel strain")
-    axes[2].set_ylabel("Weighted score")
-    axes[2].set_title("Production score")
+    axes[0].set_ylabel("Error relativo RMS")
+    axes[0].set_title("Tensión del acero")
+    axes[1].set_ylabel("Error relativo RMS")
+    axes[1].set_title("Deformación del acero")
+    axes[2].set_ylabel("Puntaje ponderado")
+    axes[2].set_title("Puntaje de producción")
     for ax in axes:
-        ax.set_xlabel("Beam nodes N")
+        ax.set_xlabel("Nodos de viga N")
         ax.grid(True, alpha=0.25)
     axes[0].legend(fontsize=8)
     return save_figure(
@@ -497,7 +497,7 @@ def plot_steel_overlays(
             [row["stress"] for row in ref_curve],
             color="black",
             lw=1.7,
-            label="OpenSees hi-fi",
+            label="OpenSees de alta fidelidad",
         )
         scoped = sorted([m for m in completed if m.beam_integration == q], key=lambda m: m.beam_nodes)
         for m in scoped:
@@ -515,8 +515,8 @@ def plot_steel_overlays(
                 label=label,
             )
         ax.set_title(QUAD_LABEL[q])
-        ax.set_xlabel("Extreme steel strain")
-        ax.set_ylabel("Extreme steel stress [MPa]")
+        ax.set_xlabel("Deformación de la fibra extrema de acero")
+        ax.set_ylabel("Tensión de la fibra extrema de acero [MPa]")
         ax.grid(True, alpha=0.25)
         ax.legend(fontsize=7)
     return save_figure(

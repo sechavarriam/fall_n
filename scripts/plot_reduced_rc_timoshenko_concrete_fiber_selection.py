@@ -39,12 +39,12 @@ from plot_reduced_rc_timoshenko_steel_hysteresis_selection import (
 ROLE_SPECS = {
     "unconfined_concrete": {
         "label": "extreme unconfined concrete",
-        "short_label": "Unconfined concrete",
+        "short_label": "concreto no confinado",
         "stem": "extreme_unconfined_concrete",
     },
     "confined_concrete": {
         "label": "extreme confined concrete",
-        "short_label": "Confined concrete",
+        "short_label": "concreto confinado",
         "stem": "extreme_confined_concrete",
     },
 }
@@ -301,14 +301,14 @@ def plot_role_metrics(
         axes[0].plot(x, [m.fiber_stress_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[1].plot(x, [m.fiber_strain_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[2].plot(x, [m.production_score for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
-    axes[0].set_ylabel("RMS relative error")
-    axes[0].set_title(f"{spec['short_label']} stress")
-    axes[1].set_ylabel("RMS relative error")
-    axes[1].set_title(f"{spec['short_label']} strain")
-    axes[2].set_ylabel("Weighted score")
-    axes[2].set_title("Production score")
+    axes[0].set_ylabel("Error relativo RMS")
+    axes[0].set_title(f"Tensión del {spec['short_label']}")
+    axes[1].set_ylabel("Error relativo RMS")
+    axes[1].set_title(f"Deformación del {spec['short_label']}")
+    axes[2].set_ylabel("Puntaje ponderado")
+    axes[2].set_title("Puntaje de producción")
     for ax in axes:
-        ax.set_xlabel("Beam nodes N")
+        ax.set_xlabel("Nodos de viga N")
         ax.grid(True, alpha=0.25)
     axes[0].legend(fontsize=8)
     return save_figure(
@@ -338,7 +338,7 @@ def plot_role_overlays(
             [row["stress"] for row in ref_curve],
             color="black",
             lw=1.7,
-            label="OpenSees hi-fi",
+            label="OpenSees de alta fidelidad",
         )
         scoped = sorted([m for m in completed if m.beam_integration == q], key=lambda m: m.beam_nodes)
         for m in scoped:
@@ -357,8 +357,8 @@ def plot_role_overlays(
             )
         ax.set_xlim(right=0.01)
         ax.set_title(QUAD_LABEL[q])
-        ax.set_xlabel(f"{spec['short_label']} strain")
-        ax.set_ylabel(f"{spec['short_label']} stress [MPa]")
+        ax.set_xlabel(f"Deformación del {spec['short_label']}")
+        ax.set_ylabel(f"Tensión del {spec['short_label']} [MPa]")
         ax.grid(True, alpha=0.25)
         ax.legend(fontsize=7)
     return save_figure(

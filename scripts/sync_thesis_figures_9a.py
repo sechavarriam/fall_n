@@ -55,7 +55,6 @@ MANIFEST: list[tuple[str, str]] = [
     ("fe2_one_way_managed_xfem_downscaling_audit.pdf", "fe2_one_way_managed_xfem_downscaling_audit.pdf"),
     ("fe2_one_way_managed_xfem_incremental_closure.pdf", "fe2_one_way_managed_xfem_incremental_closure.pdf"),
     ("fe2_one_way_xfem_downscaling_mode_audit.pdf", "fe2_one_way_xfem_downscaling_mode_audit.pdf"),
-    ("fe2_two_way_managed_xfem_force_tangent_gate.pdf", "fe2_two_way_managed_xfem_force_tangent_gate.pdf"),
     ("fe2_two_way_force_tangent_gate_panel.pdf", "fe2_two_way_force_tangent_gate_panel.pdf"),
     ("reduced_rc_cyclic_hysteresis_vs_structural_opensees.pdf", "reduced_rc_cyclic_hysteresis_vs_structural_opensees.pdf"),
     ("kobathe_production_hex8_1x1x2_rebar_cyclic_50mm_fixedend_bias2.pdf", "kobathe_production_hex8_1x1x2_rebar_cyclic_50mm_fixedend_bias2.pdf"),

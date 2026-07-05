@@ -11,7 +11,7 @@
   },
   "curves": [
     {
-      "label": "fall_n Timoshenko N=10 Lobatto",
+      "label": "Referencia fall_n Timoshenko $N{=}10$ Lobatto",
       "role": "structural_reference",
       "path": "C:\\MyLibs\\fall_n\\data\\output\\fe2_validation\\structural_n10_lobatto_200mm_preflight\\comparison_hysteresis.csv",
       "status": "available",
@@ -28,7 +28,7 @@
       "max_base_shear_error_kN": 0.0
     },
     {
-      "label": "OpenSees hi-fi structural 200 mm",
+      "label": "OpenSees estructural de alta fidelidad 200 mm",
       "role": "external_reference",
       "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\opensees_hifi_timoshenko_matrix_200mm_publication_20260518\\hysteresis.csv",
       "status": "available",
@@ -45,7 +45,7 @@
       "max_base_shear_error_kN": 3.6692956672458745
     },
     {
-      "label": "XFEM promoted",
+      "label": "XFEM promovido",
       "role": "xfem_reference",
       "path": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation_200mm_rerun_20260509\\xfem_corrected\\newton_l2\\global_xfem_newton_hysteresis.csv",
       "status": "available",
@@ -62,15 +62,15 @@
       "max_base_shear_error_kN": 6.7328048485858405
     },
     {
-      "label": "Ko-Bathe Hex27 3x3x12 corot. base-bias 50mm",
+      "label": "Ko-Bathe Hex27 3x3x12 corrot. sesgo basal 50 mm",
       "role": "kobathe_candidate",
       "path": "data\\output\\cyclic_validation_kobathe_hex27_truss3_3x3x12_20260511\\probe_corot_basebias_penalty10_50mm\\hysteresis.csv",
       "status": "available",
-      "base_shear_sign_factor_to_structural": 1.0,
+      "base_shear_sign_factor_to_structural": -1.0,
       "records": 7.0,
       "max_abs_drift_mm": 50.0,
       "peak_abs_base_shear_kN": 44.880037200000004,
-      "loop_work_MN_m": -1.0862106570100338e-12,
+      "loop_work_MN_m": 1.0862106570100338e-12,
       "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed"
     }
   ],

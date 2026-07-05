@@ -116,10 +116,10 @@ def main() -> int:
         }
 
     axes[0, 0].set_title("Registro completo MYG004")
-    axes[0, 1].set_title("Ventana fisica de observacion")
+    axes[0, 1].set_title("Ventana física de observación")
     axes[-1, 0].set_xlabel("Tiempo desde inicio del registro (s)")
     axes[-1, 1].set_xlabel("Tiempo desde inicio del registro (s)")
-    fig.suptitle("Tohoku 2011, estacion MYG004: componentes fisicas sin amplificacion artificial", fontsize=12)
+    fig.suptitle("Tohoku 2011, estación MYG004: componentes físicas sin amplificación artificial", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.965))
 
     pdf = args.output_dir / f"{args.prefix}.pdf"

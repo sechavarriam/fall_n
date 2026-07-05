@@ -122,38 +122,38 @@ def main() -> int:
     if common:
         t = [row["time"] for row in common]
         fig, axs = plt.subplots(3, 1, figsize=(7.2, 8.0), sharex=True)
-        axs[0].plot(t, [row["fixed_local_seconds"] for row in common], label="fixed")
+        axs[0].plot(t, [row["fixed_local_seconds"] for row in common], label="política fija")
         axs[0].plot(
             t,
             [row["adaptive_local_seconds"] for row in common],
-            label="adaptive",
+            label="política adaptativa",
         )
-        axs[0].set_ylabel("local solve seconds")
+        axs[0].set_ylabel("tiempo de resolución local [s]")
         axs[0].legend()
         axs[0].grid(True, alpha=0.25)
 
-        axs[1].plot(t, [row["fixed_force_residual"] for row in common], label="fixed")
+        axs[1].plot(t, [row["fixed_force_residual"] for row in common], label="política fija")
         axs[1].plot(
             t,
             [row["adaptive_force_residual"] for row in common],
-            label="adaptive",
+            label="política adaptativa",
         )
-        axs[1].set_ylabel("max force residual")
+        axs[1].set_ylabel("residual máximo de fuerza")
         axs[1].set_yscale("symlog", linthresh=1.0e-6)
         axs[1].grid(True, alpha=0.25)
 
         axs[2].plot(
             t,
             [row["fixed_tangent_column_residual"] for row in common],
-            label="fixed",
+            label="política fija",
         )
         axs[2].plot(
             t,
             [row["adaptive_tangent_column_residual"] for row in common],
-            label="adaptive",
+            label="política adaptativa",
         )
-        axs[2].set_ylabel("max tangent-column residual")
-        axs[2].set_xlabel("time [s]")
+        axs[2].set_ylabel("residual máximo de columna tangente")
+        axs[2].set_xlabel("tiempo [s]")
         axs[2].grid(True, alpha=0.25)
         fig.tight_layout()
         fig.savefig(args.output_prefix.with_suffix(".pdf"))

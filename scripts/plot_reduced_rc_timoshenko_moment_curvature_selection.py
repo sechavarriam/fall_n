@@ -25,8 +25,8 @@ import matplotlib.pyplot as plt
 QUAD_LABEL = {
     "legendre": "Gauss-Legendre",
     "lobatto": "Gauss-Lobatto",
-    "radau-left": "Gauss-Radau left",
-    "radau-right": "Gauss-Radau right",
+    "radau-left": "Gauss-Radau izquierda",
+    "radau-right": "Gauss-Radau derecha",
 }
 
 QUAD_COLOR = {
@@ -404,14 +404,14 @@ def plot_metrics(
         axes[0].plot(x, [m.mc_moment_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[1].plot(x, [m.mc_curvature_rms_rel for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
         axes[2].plot(x, [m.production_score for m in scoped], marker="o", color=color, label=QUAD_LABEL[q])
-    axes[0].set_ylabel("RMS relative error")
-    axes[0].set_title("Base moment")
-    axes[1].set_ylabel("RMS relative error")
-    axes[1].set_title("Base curvature")
-    axes[2].set_ylabel("Weighted score")
-    axes[2].set_title("Production score")
+    axes[0].set_ylabel("Error relativo RMS")
+    axes[0].set_title("Momento en la base")
+    axes[1].set_ylabel("Error relativo RMS")
+    axes[1].set_title("Curvatura en la base")
+    axes[2].set_ylabel("Puntaje ponderado")
+    axes[2].set_title("Puntaje de producción")
     for ax in axes:
-        ax.set_xlabel("Beam nodes N")
+        ax.set_xlabel("Nodos de viga N")
         ax.grid(True, alpha=0.25)
     axes[0].legend(fontsize=8)
     outputs += save_figure(
@@ -441,7 +441,7 @@ def plot_moment_curvature_overlays(
             [row["moment"] for row in ref_series],
             color="black",
             lw=1.7,
-            label="OpenSees hi-fi",
+            label="OpenSees de alta fidelidad",
         )
         scoped = sorted([m for m in completed if m.beam_integration == q], key=lambda m: m.beam_nodes)
         for m in scoped:
@@ -459,8 +459,8 @@ def plot_moment_curvature_overlays(
                 label=label,
             )
         ax.set_title(QUAD_LABEL[q])
-        ax.set_xlabel(r"Base curvature $\kappa$ [1/m]")
-        ax.set_ylabel(r"Base moment $M$ [kN m]")
+        ax.set_xlabel(r"Curvatura en la base $\kappa$ [1/m]")
+        ax.set_ylabel(r"Momento en la base $M$ [kN m]")
         ax.grid(True, alpha=0.25)
         ax.legend(fontsize=7)
     return save_figure(

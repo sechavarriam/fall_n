@@ -1,0 +1,4 @@
+case,label,E_c_MPa,E_t_MPa,f_c_MPa,f_t_MPa,h_c,h_t,peak_compressive_stress_MPa,peak_tensile_stress_MPa,tangent_origin_tension_MPa,tangent_origin_compression_MPa,tangent_at_+2pct_strain_MPa,tangent_at_-2pct_strain_MPa,energy_compression_to_-0.3pct_kJ_per_m3,energy_tension_to_+0.3pct_kJ_per_m3
+isotropic,Isotrópico elástico,30000.0,30000.0,0.0,0.0,1.0,1.0,-180.0,180.0,30000.0,30000.0,30000.0,30000.0,135.0,135.0
+bimodular,Bimodular elástico,30000.0,3000.0,0.0,0.0,1.0,1.0,-180.0,18.0,3000.0,30000.0,3000.0,30000.0,135.0,13.500000000000002
+bilinear,Bilineal bimodular,30000.0,30000.0,25.0,2.5,0.05,0.01,-32.75,4.275,30000.0,30000.0,300.0,1500.0,68.104165875,8.671874175000001
