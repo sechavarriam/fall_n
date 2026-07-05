@@ -90,7 +90,7 @@ def main() -> int:
     ])
     log_summary = parse_log(log_path)
 
-    site_labels = [f"site {row['local_site_index']}\nz/L={float(row['crack_z_over_l']):.2f}" for row in sites]
+    site_labels = [f"sitio {row['local_site_index']}\nz/L={float(row['crack_z_over_l']):.2f}" for row in sites]
     site_scores = [float(row["candidate_score"]) for row in sites]
     crack_row = cracks[-1]
     crack_count = int(float(crack_row["total_cracks"]))
@@ -100,38 +100,38 @@ def main() -> int:
 
     ax = axes[0, 0]
     ax.bar(site_labels, site_scores, color="#4c78a8")
-    ax.set_ylabel("Macro-inferred score")
-    ax.set_title("Selected physical sites")
+    ax.set_ylabel("Puntaje macro-inferido")
+    ax.set_title("Sitios físicos seleccionados")
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
     ax = axes[0, 1]
-    ax.bar(["cracks", "visible cells", "Gauss / 10"], [crack_count, audit["visible_crack_cells"], audit["gauss_points"] / 10.0],
+    ax.bar(["fisuras", "celdas visibles", "Gauss / 10"], [crack_count, audit["visible_crack_cells"], audit["gauss_points"] / 10.0],
            color=["#8c2d04", "#d62728", "#54a24b"])
-    ax.set_title("Local observables")
-    ax.set_ylabel("Count")
+    ax.set_title("Observables locales")
+    ax.set_ylabel("Conteo")
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
     ax = axes[1, 0]
     file_counts = audit["files"]
     ax.bar(file_counts.keys(), file_counts.values(), color="#7f7f7f")
     ax.tick_params(axis="x", rotation=30)
-    ax.set_ylabel("VTU files")
-    ax.set_title("Publication VTK bundle")
+    ax.set_ylabel("Archivos VTU")
+    ax.set_title("Paquete VTK de publicación")
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
     ax = axes[1, 1]
     gap = audit.get("local_global_endpoint_max_gap_m")
     warp_gap = audit.get("local_global_reference_warp_endpoint_max_gap_m")
     slip = audit.get("max_bond_slip_m")
-    ax.bar(["endpoint gap", "warp gap", "bond slip"],
+    ax.bar(["brecha de\nextremos", "brecha\ncon warp", "deslizamiento\nde adherencia"],
            [plot_log_value(gap), plot_log_value(warp_gap), plot_log_value(slip)],
            color=["#1f77b4", "#2ca02c", "#ff7f0e"])
     ax.set_yscale("log")
     ax.set_ylabel("m")
-    ax.set_title(f"Placement/slip checks; max opening={max_opening_mm:.3f} mm")
+    ax.set_title(f"Verificación de posición/deslizamiento\napertura máx.={max_opening_mm:.3f} mm")
     ax.grid(True, axis="y", alpha=0.35, lw=0.3)
 
-    fig.suptitle("Physical scale=1 FE2/Ko-Bathe Hex27 smoke", fontsize=12)
+    fig.suptitle("Prueba de humo FE2/Ko-Bathe Hex27, escala física=1", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.965))
     output_dir.mkdir(parents=True, exist_ok=True)
     pdf = output_dir / f"{args.prefix}.pdf"

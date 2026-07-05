@@ -333,7 +333,7 @@ def main() -> int:
         [1000.0 * row["base_shear_MN"] for row in reference_rows],
         color="#111827",
         lw=1.8,
-        label="Structural reference",
+        label="Referencia estructural",
     )
     for color, case in zip(colors, metrics):
         rows = case["rows"]
@@ -344,9 +344,9 @@ def main() -> int:
             lw=1.2,
             label=case["label"],
         )
-    ax.set_title("Cyclic hysteresis, guarded oblique plane")
-    ax.set_xlabel("Tip drift [mm]")
-    ax.set_ylabel("Base shear [kN]")
+    ax.set_title("Histéresis cíclica, plano oblicuo con guarda")
+    ax.set_xlabel("Desplazamiento en el extremo [mm]")
+    ax.set_ylabel("Cortante basal [kN]")
     ax.legend(fontsize=7.6)
 
     ax = axes[1]
@@ -355,18 +355,18 @@ def main() -> int:
     rms_errors = [case["peak_normalized_rms_base_shear_error"] for case in metrics]
     x = list(range(len(metrics)))
     width = 0.36
-    ax.bar([i - width / 2 for i in x], ratios, width, color="#2563eb", label="Peak ratio")
-    ax.bar([i + width / 2 for i in x], rms_errors, width, color="#dc2626", label="RMS error")
+    ax.bar([i - width / 2 for i in x], ratios, width, color="#2563eb", label="Cociente de picos")
+    ax.bar([i + width / 2 for i in x], rms_errors, width, color="#dc2626", label="Error RMS")
     ax.axhline(1.0, color="#111827", lw=0.9, ls=":")
-    ax.set_title("Mesh comparison metrics")
+    ax.set_title("Métricas de comparación de mallas")
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylim(0.0, max(1.2, 1.12 * max(ratios + rms_errors)))
-    ax.set_ylabel("Dimensionless")
+    ax.set_ylabel("Adimensional")
     ax.legend(fontsize=8)
 
     fig.suptitle(
-        "Guarded arbitrary-plane XFEM against the 200 mm structural protocol",
+        "XFEM de plano arbitrario con guarda frente al protocolo estructural de 200 mm",
         y=1.03,
         fontsize=12,
     )

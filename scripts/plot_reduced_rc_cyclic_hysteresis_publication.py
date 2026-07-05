@@ -128,12 +128,24 @@ def normalize_rows(path: Path) -> list[dict[str, float]]:
     return out
 
 
-def label_path(text: str) -> tuple[str, Path]:
+def label_path(text: str) -> tuple[str, Path, float | None]:
+    """Parse LABEL=PATH[=SIGN]; SIGN in {1,-1} forces the shear sign factor."""
+    forced_sign: float | None = None
     if "=" in text:
         label, raw = text.split("=", 1)
-        return label.strip(), Path(raw.strip())
+        if "=" in raw:
+            raw, sign_text = raw.rsplit("=", 1)
+            try:
+                candidate = float(sign_text.strip())
+                if candidate in (1.0, -1.0):
+                    forced_sign = candidate
+                else:
+                    raw = raw + "=" + sign_text
+            except ValueError:
+                raw = raw + "=" + sign_text
+        return label.strip(), Path(raw.strip()), forced_sign
     path = Path(text)
-    return path.name.replace("_", " "), path
+    return path.name.replace("_", " "), path, None
 
 
 def interpolate_by_p(rows: list[dict[str, float]], p: float) -> float:
@@ -324,14 +336,14 @@ def main() -> int:
     curves: list[dict[str, Any]] = []
     add_curve(
         curves,
-        label="fall_n Timoshenko N=10 Lobatto",
+        label="Referencia fall_n Timoshenko $N{=}10$ Lobatto",
         role="structural_reference",
         path=args.structural,
         preferred=("comparison_hysteresis.csv",),
     )
     add_curve(
         curves,
-        label="OpenSees hi-fi structural 200 mm",
+        label="OpenSees estructural de alta fidelidad 200 mm",
         role="external_reference",
         path=args.opensees,
         preferred=("hysteresis.csv",),
@@ -339,14 +351,17 @@ def main() -> int:
     if args.xfem:
         add_curve(
             curves,
-            label="XFEM promoted",
+            label="XFEM promovido",
             role="xfem_reference",
             path=args.xfem,
             preferred=("global_xfem_newton_hysteresis.csv", "hysteresis.csv"),
         )
+    forced_signs: dict[str, float] = {}
     for item in args.kobathe:
-        label, path = label_path(item)
+        label, path, forced_sign = label_path(item)
         add_curve(curves, label=label, role="kobathe_candidate", path=path)
+        if forced_sign is not None:
+            forced_signs[label] = forced_sign
 
     structural = next((c for c in curves if c["role"] == "structural_reference"), None)
     if not structural or structural.get("status") != "available":
@@ -380,11 +395,12 @@ def main() -> int:
         if curve.get("status") != "available":
             summary_curves.append(row)
             continue
-        factor = (
-            1.0
-            if curve["role"] == "structural_reference"
-            else sign_factor_to_reference(curve["rows"], reference_rows)
-        )
+        if curve["role"] == "structural_reference":
+            factor = 1.0
+        elif curve["label"] in forced_signs:
+            factor = forced_signs[curve["label"]]
+        else:
+            factor = sign_factor_to_reference(curve["rows"], reference_rows)
         rows = scaled_shear(curve["rows"], factor)
         color, linestyle, linewidth = styles.get(curve["role"], ("#4b5563", "-", 1.2))
         ax.plot(
@@ -405,9 +421,12 @@ def main() -> int:
 
     ax.axhline(0.0, color="#9ca3af", linewidth=0.8)
     ax.axvline(0.0, color="#9ca3af", linewidth=0.8)
-    ax.set_xlabel("Tip displacement [mm]")
-    ax.set_ylabel("Base shear [kN]")
-    ax.set_title("Cyclic RC-column hysteresis: structural, OpenSees hi-fi, and local models")
+    ax.set_xlabel("Desplazamiento en el extremo [mm]")
+    ax.set_ylabel("Cortante basal [kN]")
+    ax.set_title(
+        "Histéresis cíclica de la columna: referencia estructural, OpenSees "
+        "y modelos locales"
+    )
     ax.legend(loc="best", fontsize=8)
     fig.tight_layout()
 

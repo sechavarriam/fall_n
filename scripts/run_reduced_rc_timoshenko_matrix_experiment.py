@@ -49,8 +49,8 @@ plt.rcParams.update(
 QUAD_STYLE = {
     "legendre": {"label": "Gauss-Legendre", "color": "#0b5fa5"},
     "lobatto": {"label": "Gauss-Lobatto", "color": "#d97706"},
-    "radau-left": {"label": "Gauss-Radau left", "color": "#2f855a"},
-    "radau-right": {"label": "Gauss-Radau right", "color": "#7c3aed"},
+    "radau-left": {"label": "Gauss-Radau izquierda", "color": "#2f855a"},
+    "radau-right": {"label": "Gauss-Radau derecha", "color": "#7c3aed"},
 }
 REP_NODE_STYLES = {2: ":", 4: "-", 10: "--"}
 
@@ -580,13 +580,13 @@ def plot_matrix(
         xs = [r.beam_nodes for r in scoped]
         axes[0].plot(xs, [r.process_wall_seconds for r in scoped], marker="o", color=style["color"], label=style["label"])
         axes[1].plot(xs, [r.max_newton_iterations for r in scoped], marker="o", color=style["color"], label=style["label"])
-    axes[0].set_xlabel("Beam nodes N")
-    axes[0].set_ylabel("Process wall time [s]")
-    axes[0].set_title("TimoshenkoBeamN matrix timing")
+    axes[0].set_xlabel("Nodos de viga N")
+    axes[0].set_ylabel("Tiempo de pared [s]")
+    axes[0].set_title("Tiempos de la matriz TimoshenkoBeamN")
     axes[0].legend()
-    axes[1].set_xlabel("Beam nodes N")
-    axes[1].set_ylabel("Max Newton iterations")
-    axes[1].set_title("TimoshenkoBeamN matrix convergence")
+    axes[1].set_xlabel("Nodos de viga N")
+    axes[1].set_ylabel("Máximo de iteraciones de Newton")
+    axes[1].set_title("Convergencia de la matriz TimoshenkoBeamN")
     axes[1].legend()
     outputs += save(fig, "reduced_rc_timoshenko_matrix_timing_convergence", figures_dir, secondary_dir)
 
@@ -599,13 +599,13 @@ def plot_matrix(
         xs = [r.beam_nodes for r in scoped]
         axes[0].plot(xs, [r.hifi_hysteresis_max_rel_error for r in scoped], marker="o", color=style["color"], label=style["label"])
         axes[1].plot(xs, [r.hifi_total_work_rel_error for r in scoped], marker="o", color=style["color"], label=style["label"])
-    axes[0].set_xlabel("Beam nodes N")
-    axes[0].set_ylabel("Max relative error")
-    axes[0].set_title("Physical coherence vs OpenSees hi-fi\nbase-shear hysteresis")
+    axes[0].set_xlabel("Nodos de viga N")
+    axes[0].set_ylabel("Error relativo máximo")
+    axes[0].set_title("Coherencia física frente a OpenSees de alta fidelidad\nhistéresis de cortante basal")
     axes[0].legend()
-    axes[1].set_xlabel("Beam nodes N")
-    axes[1].set_ylabel("Relative error")
-    axes[1].set_title("Physical coherence vs OpenSees hi-fi\ntotal hysteretic work")
+    axes[1].set_xlabel("Nodos de viga N")
+    axes[1].set_ylabel("Error relativo")
+    axes[1].set_title("Coherencia física frente a OpenSees de alta fidelidad\ntrabajo histerético total")
     axes[1].legend()
     outputs += save(fig, "reduced_rc_timoshenko_matrix_physical_coherence", figures_dir, secondary_dir)
 
@@ -620,7 +620,7 @@ def plot_matrix(
             [1.0e3 * float(r["base_shear_MN"]) for r in ref_hysteresis],
             color="black",
             lw=1.6,
-            label="OpenSees hi-fi",
+            label="OpenSees de alta fidelidad",
         )
         for node in representative_nodes:
             row = next((r for r in rows if r.beam_integration == quadrature and r.beam_nodes == node and r.status == "completed"), None)
@@ -636,8 +636,8 @@ def plot_matrix(
                 label=f"fall_n N={node}",
             )
         ax.set_title(style["label"])
-        ax.set_xlabel("Tip drift [mm]")
-        ax.set_ylabel("Base shear [kN]")
+        ax.set_xlabel("Deriva en el extremo [mm]")
+        ax.set_ylabel("Cortante basal [kN]")
         ax.legend(fontsize=7)
     outputs += save(fig, "reduced_rc_timoshenko_matrix_hysteresis_overlays", figures_dir, secondary_dir)
 

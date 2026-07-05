@@ -708,12 +708,12 @@ def plot_summary(rows: list[dict[str, Any]], args: argparse.Namespace) -> list[s
     fig, axes = plt.subplots(1, 2, figsize=(10.0, 4.5))
     x = list(range(len(labels)))
     axes[0].bar(x, progress, color="#2563eb")
-    axes[0].set_ylabel("accepted dynamic window [s]")
+    axes[0].set_ylabel("ventana dinámica aceptada [s]")
     axes[0].set_xticks(x)
     axes[0].set_xticklabels(labels, rotation=25, ha="right", fontsize=7)
     axes[1].plot(x, rms_ux, marker="o", label="ux")
     axes[1].plot(x, rms_uy, marker="s", label="uy")
-    axes[1].set_ylabel("RMS vs fall_n [m]")
+    axes[1].set_ylabel("RMS frente a fall_n [m]")
     axes[1].set_xticks(x)
     axes[1].set_xticklabels(labels, rotation=25, ha="right", fontsize=7)
     axes[1].legend()
@@ -752,7 +752,7 @@ def plot_roof_overlays(rows: list[dict[str, Any]], ref_rows: list[dict[str, floa
             [r[comp] for r in ref_rows],
             color="black",
             linewidth=1.6,
-            label=f"fall_n node{args.falln_roof_node_id}",
+            label=f"fall_n nodo {args.falln_roof_node_id}",
         )
         for row, roof in available:
             ax.plot(
@@ -777,7 +777,7 @@ def plot_roof_overlays(rows: list[dict[str, Any]], ref_rows: list[dict[str, floa
         [r["uy"] for r in ref_rows],
         color="black",
         linewidth=1.6,
-        label=f"fall_n node{args.falln_roof_node_id}",
+        label=f"fall_n nodo {args.falln_roof_node_id}",
     )
     for row, roof in available:
         ax.plot(
@@ -788,7 +788,7 @@ def plot_roof_overlays(rows: list[dict[str, Any]], ref_rows: list[dict[str, floa
         )
     ax.set_xlabel(r"$u_x$ [m]")
     ax.set_ylabel(r"$u_y$ [m]")
-    ax.set_title("Orbita de cubierta en planta")
+    ax.set_title("Órbita del techo en planta")
     ax.axis("equal")
     ax.legend(loc="best", fontsize=7)
     fig.tight_layout()

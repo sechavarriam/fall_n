@@ -1,6 +1,8 @@
 {
   "schema": "fall_n_lshaped_physical_scale1_kobathe_hex27_smoke_plot_v1",
   "run_dir": "data\\output\\lshaped_16storey_physical_scale1_kobathe_linear_steel_alarm_onestep_20260509",
+  "audit": "data\\output\\lshaped_16storey_physical_scale1_kobathe_linear_steel_alarm_onestep_20260509\\recorders\\publication_vtk_audit.json",
+  "log": "data\\output\\lshaped_16storey_physical_scale1_kobathe_linear_steel_alarm_onestep_20260509\\run_stdout.log",
   "eq_scale": 1.0,
   "first_yield_time_s": 1.3002,
   "first_yield_element": 1,

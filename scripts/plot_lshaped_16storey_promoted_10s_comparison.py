@@ -129,7 +129,7 @@ def plot_cases(cases: list[dict], out_dir: Path, prefix: str) -> list[str]:
         ax.set_ylabel(ylabel)
     axes[-1].set_xlabel("tiempo relativo en la ventana [s]")
     axes[0].legend(loc="best", fontsize=7)
-    fig.suptitle("Casos promovidos elastico/inelastico: respuesta de cubierta")
+    fig.suptitle("Casos promovidos elástico/inelástico: respuesta del techo")
     fig.tight_layout()
     for ext in ("pdf", "png"):
         path = out_dir / f"{prefix}_time_components.{ext}"
@@ -144,7 +144,7 @@ def plot_cases(cases: list[dict], out_dir: Path, prefix: str) -> list[str]:
         ax.scatter(case["ux"][-1], case["uy"][-1], s=22, marker="x")
     ax.set_xlabel(r"$u_x$ [m]")
     ax.set_ylabel(r"$u_y$ [m]")
-    ax.set_title("Orbita de cubierta en planta")
+    ax.set_title("Órbita en planta del techo")
     ax.axis("equal")
     ax.legend(loc="best", fontsize=7)
     fig.tight_layout()
@@ -164,7 +164,7 @@ def plot_cases(cases: list[dict], out_dir: Path, prefix: str) -> list[str]:
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, rotation=20, ha="right")
     ax.set_ylabel("pico absoluto [m]")
-    ax.set_title("Picos de desplazamiento de cubierta")
+    ax.set_title("Picos de desplazamiento del techo")
     ax.legend(loc="best")
     fig.tight_layout()
     for ext in ("pdf", "png"):
@@ -238,10 +238,10 @@ def main() -> int:
     args = parser.parse_args()
 
     specs = [
-        ("fall_n elastico promovido", Path(args.falln_elastic), Path(args.falln_elastic_manifest)),
+        ("fall_n elástico promovido", Path(args.falln_elastic), Path(args.falln_elastic_manifest)),
         ("OpenSees ElasticTimoshenko", Path(args.opensees_elastic), Path(args.opensees_elastic_manifest)),
-        ("fall_n inelastico con atajo", Path(args.falln_nonlinear_stepped), Path(args.falln_nonlinear_stepped_manifest)),
-        ("fall_n inelastico completo", Path(args.falln_nonlinear_full), Path(args.falln_nonlinear_full_manifest)),
+        ("fall_n inelástico con atajo", Path(args.falln_nonlinear_stepped), Path(args.falln_nonlinear_stepped_manifest)),
+        ("fall_n inelástico completo", Path(args.falln_nonlinear_full), Path(args.falln_nonlinear_full_manifest)),
         ("OpenSees dispBeam Concrete02 proxy", Path(args.opensees_nonlinear), Path(args.opensees_nonlinear_manifest)),
         ("OpenSees forceBeam Concrete02 Ets=0.05", Path(args.opensees_force_regularized), Path(args.opensees_force_regularized_manifest)),
     ]

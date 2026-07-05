@@ -106,9 +106,6 @@
       "--solver-profile-family",
       "pure-secant-disp"
     ],
-    "skipped_existing": false,
-    "return_code": 0,
-    "stdout_log": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\opensees_hifi_timoshenko_matrix_200mm_publication_20260518\\publication_stdout.log",
-    "stderr_log": "C:\\MyLibs\\fall_n\\data\\output\\cyclic_validation\\opensees_hifi_timoshenko_matrix_200mm_publication_20260518\\publication_stderr.log"
+    "skipped_existing": true
   }
 }

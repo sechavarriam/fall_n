@@ -211,13 +211,13 @@ def plot_reference(
         [1000.0 * row["base_shear_MN"] for row in rows],
         color="#d97706",
         linewidth=1.45,
-        label="OpenSeesPy hi-fi structural",
+        label="OpenSeesPy estructural de alta fidelidad",
     )
     ax.axhline(0.0, color="#9ca3af", linewidth=0.8)
     ax.axvline(0.0, color="#9ca3af", linewidth=0.8)
-    ax.set_xlabel("Tip displacement [mm]")
-    ax.set_ylabel("Base shear [kN]")
-    ax.set_title("OpenSeesPy hi-fi cyclic RC-column reference to 200 mm")
+    ax.set_xlabel("Desplazamiento en el extremo [mm]")
+    ax.set_ylabel("Cortante basal [kN]")
+    ax.set_title("Referencia cíclica OpenSeesPy de alta fidelidad de la columna de concreto reforzado hasta 200 mm")
     ax.legend(loc="best")
     fig.tight_layout()
 
