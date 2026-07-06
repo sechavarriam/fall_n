@@ -1,0 +1,3 @@
+case,step,p,section_gp,xi,curvature_y,moment_y_MNm,axial_force_MN,expected_abs_axial_MN,axial_tolerance_MN,reason,material_role
+n10_legendre,48,1.0,0.0,-0.96816024,3.22271655,0.130626602,-0.443318107,0.02,0.08,axial_force_out_of_contract,unconfined_concrete
+n10_legendre,48,1.0,0.0,-0.96816024,3.22271655,0.130626602,-0.443318107,0.02,0.08,axial_force_out_of_contract,confined_concrete
