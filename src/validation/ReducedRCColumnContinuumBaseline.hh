@@ -376,6 +376,10 @@ struct ReducedRCColumnContinuumRunSpec {
     double kobathe_crack_eta_s_override{-1.0};
     double kobathe_crack_closure_transition_strain_override{-1.0};
     int kobathe_crack_smooth_closure_override{-1};
+    // -1 = sin override (default del material: damage_secant);
+    //  0 = legacy_constant_slope (reproduce artefactos pre-2026-07);
+    //  1 = damage_secant.
+    int kobathe_crack_softening_law_override{-1};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     double penalty_alpha_scale_over_ec{1.0e4};
@@ -656,6 +660,8 @@ struct ReducedRCColumnContinuumConcreteProfileDetails {
     double eta_s{0.0};
     double closure_transition_strain{0.0};
     bool smooth_closure{false};
+    // true = damage_secant (ley física); false = legacy_constant_slope.
+    bool damage_secant_softening{true};
     ReducedRCColumnContinuumConcreteTangentMode tangent_mode{
         ReducedRCColumnContinuumConcreteTangentMode::fracture_secant};
     ReducedRCColumnContinuumCharacteristicLengthMode

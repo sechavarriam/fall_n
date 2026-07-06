@@ -53,11 +53,39 @@
 //  lets validation drivers choose between a paper-reference mode and the
 //  stabilized FE²-production mode without touching the constitutive algorithm.
 
+// Crack-normal softening law.
+//
+//  legacy_constant_slope reproduces the historical behaviour used by the
+//  pre-2026-07 validation artifacts: inside the softening band the crack
+//  normal keeps the CONSTANT modulus |Cts| = ft/(eps_tu - eps_tp) applied as
+//  a growing secant, and beyond eps_tu the retention factor eta_N acts as a
+//  permanent normal stiffness. That law never sheds the tension chord
+//  (sigma_nn grows with strain across an open crack) and produces no
+//  hysteresis on unload/reload; it is kept only so archived runs remain
+//  reproducible.
+//
+//  damage_secant is the physical law: the ratcheted maximum crack opening
+//  strain drives a linear softening envelope from ft at eps_tp to zero at
+//  eps_tu (crack band, energy G_f over the characteristic length), the
+//  normal stiffness is the SECANT to the origin of that envelope, and
+//  unload/reload follows the same secant (damage-style dissipation through
+//  the ratchet). Beyond eps_tu only the numerical residual eta_N*E remains.
+//  When the band would be empty (eps_tu <= eps_tp, i.e. the characteristic
+//  length is too large for G_f at full ft), the effective tensile strength
+//  is reduced so the dissipated energy per band stays G_f (Bazant crack-band
+//  snapback guard) instead of silently disabling softening.
+enum class KoBathe3DCrackSofteningLaw {
+    damage_secant,
+    legacy_constant_slope
+};
+
 struct KoBathe3DCrackStabilization {
     double eta_N{0.20};
     double eta_S{0.50};
     double closure_transition_strain{1.0e-5};
     bool smooth_closure{true};
+    KoBathe3DCrackSofteningLaw softening_law{
+        KoBathe3DCrackSofteningLaw::damage_secant};
 
     [[nodiscard]] static constexpr KoBathe3DCrackStabilization
     stabilized_default() noexcept
@@ -72,7 +100,19 @@ struct KoBathe3DCrackStabilization {
             KoBatheParameters::eta_N,
             KoBatheParameters::eta_S,
             0.0,
-            false};
+            false,
+            KoBathe3DCrackSofteningLaw::damage_secant};
+    }
+
+    [[nodiscard]] static constexpr KoBathe3DCrackStabilization
+    legacy_stabilized() noexcept
+    {
+        return {
+            0.20,
+            0.50,
+            1.0e-5,
+            true,
+            KoBathe3DCrackSofteningLaw::legacy_constant_slope};
     }
 };
 
@@ -634,12 +674,47 @@ private:
             // Determine normal stiffness with smooth open/close transition
             double Enn_open = 0.0;
             const auto ts = tension_softening();
-            if (st.crack_strain[ic] >= ts.eps_tp
-                && st.crack_strain[ic] <= ts.eps_tu
-                && std::abs(ts.Cts) > TOL) {
-                Enn_open = ts.Cts;
+            if (crack_stabilization_.softening_law
+                == KoBathe3DCrackSofteningLaw::legacy_constant_slope) {
+                // Historical behaviour (see enum docs): constant |Cts| as a
+                // growing secant inside the band, eta_N*E beyond it.
+                if (st.crack_strain[ic] >= ts.eps_tp
+                    && st.crack_strain[ic] <= ts.eps_tu
+                    && std::abs(ts.Cts) > TOL) {
+                    Enn_open = ts.Cts;
+                } else {
+                    Enn_open = crack_stabilization_.eta_N * C_local(0, 0);
+                }
             } else {
-                Enn_open = crack_stabilization_.eta_N * C_local(0, 0);
+                // Damage-secant law driven by the ratcheted maximum opening.
+                const double Enn_residual =
+                    crack_stabilization_.eta_N * C_local(0, 0);
+                double eps_tp = ts.eps_tp;
+                double eps_tu = ts.eps_tu;
+                double ft = ts.ft;
+                if (!(eps_tu > eps_tp + TOL)) {
+                    // Band would snap back: reduce the effective tensile
+                    // strength so the band still dissipates G_f
+                    //   (1/2)*ft_eff*eps_tu_eff = Gf/lb  with
+                    //   eps_tu_eff = ft_eff/E  =>  ft_eff = sqrt(2*Gf*E/lb).
+                    const double E0 = C_local(0, 0);
+                    const double ft_eff = std::sqrt(std::max(
+                        2.0 * params_.Gf * E0 / std::max(params_.lb, TOL),
+                        0.0));
+                    ft = std::min(ft, ft_eff);
+                    eps_tp = ft / std::max(E0, TOL);
+                    eps_tu = 2.0 * params_.Gf
+                           / std::max(ft * params_.lb, TOL);
+                }
+                const double e_hat = std::max(
+                    {st.crack_strain_max[ic], st.crack_strain[ic], eps_tp});
+                if (e_hat >= eps_tu) {
+                    Enn_open = Enn_residual;
+                } else {
+                    const double sigma_env =
+                        ft * (eps_tu - e_hat) / std::max(eps_tu - eps_tp, TOL);
+                    Enn_open = std::max(sigma_env / e_hat, Enn_residual);
+                }
             }
 
             double alpha = st.crack_strain[ic] >= 0.0 ? 1.0 : 0.0;

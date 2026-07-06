@@ -85,6 +85,7 @@ struct CliOptions {
     double kobathe_crack_eta_s_override{-1.0};
     double kobathe_crack_closure_transition_strain_override{-1.0};
     int kobathe_crack_smooth_closure_override{-1};
+    int kobathe_crack_softening_law_override{-1};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     std::string continuation{"reversal-guarded"};
@@ -812,6 +813,7 @@ parse_predictor_policy_kind(std::string value)
             "[--kobathe-crack-eta-n value] [--kobathe-crack-eta-s value] "
             "[--kobathe-crack-closure-transition-strain value] "
             "[--kobathe-crack-smooth-closure|--kobathe-crack-abrupt-closure] "
+            "[--kobathe-crack-softening-law damage-secant|legacy-constant-slope] "
             "[--transverse-reinforcement-penalty-alpha-scale-over-ec value] "
             "[--transverse-reinforcement-area-scale value] "
             "[--host-probe label:x:y:z] "
@@ -1024,6 +1026,18 @@ parse_predictor_policy_kind(std::string value)
     }
     if (has_flag("--kobathe-crack-abrupt-closure")) {
         options.kobathe_crack_smooth_closure_override = 0;
+    }
+    if (const auto value = value_of("--kobathe-crack-softening-law");
+        !value.empty()) {
+        if (value == "damage-secant") {
+            options.kobathe_crack_softening_law_override = 1;
+        } else if (value == "legacy-constant-slope") {
+            options.kobathe_crack_softening_law_override = 0;
+        } else {
+            throw std::invalid_argument(
+                "Unsupported --kobathe-crack-softening-law value (expected "
+                "damage-secant or legacy-constant-slope).");
+        }
     }
     if (const auto value = value_of(
             "--transverse-reinforcement-penalty-alpha-scale-over-ec");
@@ -1609,6 +1623,8 @@ void write_runtime_manifest(
         << spec.kobathe_crack_closure_transition_strain_override << ",\n"
         << "  \"kobathe_crack_smooth_closure_override\": "
         << spec.kobathe_crack_smooth_closure_override << ",\n"
+        << "  \"kobathe_crack_softening_law_override\": "
+        << spec.kobathe_crack_softening_law_override << ",\n"
         << "  \"penalty_alpha_scale_over_ec\": "
         << spec.penalty_alpha_scale_over_ec << ",\n"
         << "  \"bond_slip_regularization\": "
@@ -1730,7 +1746,12 @@ void write_runtime_manifest(
         << result.concrete_profile_details.closure_transition_strain << ",\n"
         << "    \"smooth_closure\": "
         << (result.concrete_profile_details.smooth_closure ? "true" : "false")
-        << "\n"
+        << ",\n"
+        << "    \"softening_law\": \""
+        << (result.concrete_profile_details.damage_secant_softening
+                ? "damage-secant"
+                : "legacy-constant-slope")
+        << "\"\n"
         << "  },\n"
         << "  \"timing\": {\n"
         << "    \"total_wall_seconds\": " << result.timing.total_wall_seconds << ",\n"
@@ -1956,6 +1977,8 @@ int main(int argc, char** argv)
                 options.kobathe_crack_closure_transition_strain_override,
             .kobathe_crack_smooth_closure_override =
                 options.kobathe_crack_smooth_closure_override,
+            .kobathe_crack_softening_law_override =
+                options.kobathe_crack_softening_law_override,
             .transverse_reinforcement_penalty_alpha_scale_over_ec =
                 options
                     .transverse_reinforcement_penalty_alpha_scale_over_ec,
