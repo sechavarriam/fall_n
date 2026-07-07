@@ -4,7 +4,7 @@
 //    (a) ¿σ_nn a través de una fisura abierta obedece a η_N?
 //    (b) ¿la banda de ablandamiento descarga de f_t a 0?
 //    (c) ¿hay histéresis (descarga/recarga) en tracción?
-//  Uso: kobathe_single_gp_probe [lb_mm] [eta_n] [eta_s]
+//  Uso: kobathe_single_gp_probe [lb_mm] [eta_n] [eta_s] [emax] [n] [Gf]
 // =============================================================================
 
 #include "../src/materials/constitutive_models/non_lineal/KoBatheConcrete3D.hh"
@@ -17,8 +17,11 @@ int main(int argc, char** argv)
     const double lb_mm  = (argc > 1) ? std::atof(argv[1]) : 800.0;
     const double eta_n  = (argc > 2) ? std::atof(argv[2]) : 0.20;
     const double eta_s  = (argc > 3) ? std::atof(argv[3]) : 0.50;
+    const double emax_a = (argc > 4) ? std::atof(argv[4]) : 3.0e-3;
+    const int    n_arg  = (argc > 5) ? std::atoi(argv[5]) : 30;
+    const double gf_arg = (argc > 6) ? std::atof(argv[6]) : 0.06;
 
-    const KoBatheParameters params{30.0, 0.0, 0.06, lb_mm};
+    const KoBatheParameters params{30.0, 0.0, gf_arg, lb_mm};
     const KoBathe3DCrackStabilization stab{
         .eta_N = eta_n,
         .eta_S = eta_s,
@@ -45,8 +48,8 @@ int main(int argc, char** argv)
 
     // Protocolo: carga uniaxial (deformación impuesta solo en xx) hasta 3e-3,
     // descarga a 0, recarga a 3e-3. 30 pasos por tramo.
-    const double emax = 3.0e-3;
-    const int n = 30;
+    const double emax = emax_a;
+    const int n = n_arg;
     std::printf("phase,step,eps_xx,sigma_xx_MPa,num_cracks,crack_strain,crack_max,mode\n");
 
     auto run_leg = [&](const char* phase, double e0, double e1) {

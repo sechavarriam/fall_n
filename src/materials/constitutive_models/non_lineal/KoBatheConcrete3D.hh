@@ -684,6 +684,13 @@ private:
 
             // Determine normal stiffness with smooth open/close transition
             double Enn_open = 0.0;
+            // Índice de daño normal de la fisura: 0 recién formada (secante
+            // ~E, respuesta continua), 1 a apertura completa.  Gradúa la
+            // retención de cortante y el desacople de Poisson para que la
+            // formación no introduzca saltos de tensión tangencial ni
+            // lateral (la ley legacy conserva su comportamiento histórico
+            // con dmg = 1).
+            double dmg = 1.0;
             const auto ts = tension_softening();
             if (crack_stabilization_.softening_law
                 == KoBathe3DCrackSofteningLaw::legacy_constant_slope) {
@@ -703,21 +710,7 @@ private:
                 double eps_tp = ts.eps_tp;
                 double eps_tu = ts.eps_tu;
                 double ft = ts.ft;
-                if (st.crack_ft_form[ic] > TOL) {
-                    // Envolvente ANCLADA al estado de formación: parte de
-                    // (eps_form, ft_form) y desciende preservando la
-                    // energía de fractura,
-                    //   (1/2)*ft_form*(eps_tu - eps_tp) = Gf/lb.
-                    // Garantiza sigma_n(eps) continua a través de la
-                    // formación (el criterio octaédrico dispara por encima
-                    // de ft; ver comentario en KoBatheState3D).
-                    const double E0 = C_local(0, 0);
-                    ft = st.crack_ft_form[ic];
-                    eps_tp = std::max(st.crack_eps_form[ic],
-                                      ft / std::max(E0, TOL));
-                    eps_tu = eps_tp + 2.0 * params_.Gf
-                                    / std::max(ft * params_.lb, TOL);
-                } else if (!(eps_tu > eps_tp + TOL)) {
+                if (!(eps_tu > eps_tp + TOL)) {
                     // Band would snap back: reduce the effective tensile
                     // strength so the band still dissipates G_f
                     //   (1/2)*ft_eff*eps_tu_eff = Gf/lb  with
@@ -733,13 +726,54 @@ private:
                 }
                 const double e_hat = std::max(
                     {st.crack_strain_max[ic], st.crack_strain[ic], eps_tp});
-                if (e_hat >= eps_tu) {
-                    Enn_open = Enn_residual;
-                } else {
-                    const double sigma_env =
-                        ft * (eps_tu - e_hat) / std::max(eps_tu - eps_tp, TOL);
-                    Enn_open = std::max(sigma_env / e_hat, Enn_residual);
+                const double band = std::max(eps_tu - eps_tp, TOL);
+                // Envolvente NOMINAL (desde ft) con PUENTE de continuidad.
+                // El criterio octaédrico dispara por encima de ft (~1.32·ft
+                // uniaxial); anclar la envolvente completa a ese
+                // sobredisparo (versión previa) sostiene ~4 MPa en toda la
+                // cuerda de tensión de media altura y duplica la rigidez
+                // lateral global.  Aquí la envolvente nominal se corrige
+                // con (sigma_form - sigma_nom(e_form)) decayendo a cero en
+                // una ventana corta w_drop: continuidad C0 exacta en la
+                // formación, sin sobre-resistencia sostenida, y también
+                // continua para formaciones multiaxiales por debajo de ft.
+                // w_drop calibra la pendiente del puente: 0.15·banda da
+                // ~-0.7·E local (snap-back global intraversable, pared de
+                // v10 = v6); 0.5·banda da ~-0.3·E, comparable a lo que la
+                // cascada atraviesa, con el sobredisparo muerto en ~2.7e-4.
+                const double w_drop = std::max(0.50 * band, TOL);
+                double sigma_env =
+                    e_hat < eps_tu ? ft * (eps_tu - e_hat) / band : 0.0;
+                if (st.crack_ft_form[ic] > TOL) {
+                    const double e_form =
+                        std::max(st.crack_eps_form[ic], eps_tp);
+                    const double sigma_nom_form =
+                        e_form < eps_tu ? ft * (eps_tu - e_form) / band : 0.0;
+                    const double bridge_gain = std::clamp(
+                        1.0 - (e_hat - e_form) / w_drop, 0.0, 1.0);
+                    sigma_env += (st.crack_ft_form[ic] - sigma_nom_form)
+                               * bridge_gain;
                 }
+                sigma_env = std::max(sigma_env, 0.0);
+                // Cota superior E0: si la cinemática no-flow deja ê < e_form
+                // (la redefinición plástica encoge la apertura medida), el
+                // puente evaluado sobre sigma_nom(ê) alto daría una secante
+                // mayor que el módulo intacto — pico de rigidez no físico
+                // (pared de v10/v11, idéntica e independiente de w_drop).
+                Enn_open = std::min(
+                    std::max(sigma_env / std::max(e_hat, TOL), Enn_residual),
+                    C_local(0, 0));
+                // Fade de retención/acople en una ventana CORTA tras la
+                // formación (15% de la banda ~ decenas de micras de
+                // apertura): la fisura capilar recién formada retiene
+                // cortante y acople casi completos (continuidad C0), pero
+                // el engranaje de áridos muere mucho antes que la
+                // capacidad normal.  Conducirlo por toda la banda (v7/v8)
+                // sobre-rigidiza la respuesta global (~2x) y embudiza
+                // tau_oct en el frente de fisuración.
+                const double w_ret =
+                    std::max(0.15 * (eps_tu - eps_tp), TOL);
+                dmg = std::clamp((e_hat - eps_tp) / w_ret, 0.0, 1.0);
             }
 
             double alpha = st.crack_strain[ic] >= 0.0 ? 1.0 : 0.0;
@@ -754,16 +788,25 @@ private:
             }
             double Enn = (1.0 - alpha) * C_local(0, 0) + alpha * Enn_open;
 
-            // Smooth shear retention factor
-            double beta_s =
-                (1.0 - alpha) + alpha * crack_stabilization_.eta_S;
+            // Retención de cortante graduada por el daño normal: sin salto
+            // en la formación (dmg=0 -> beta_s=1), eta_S a apertura
+            // completa.  Con dmg=1 (legacy) reproduce el factor histórico
+            // (1-alpha) + alpha*eta_S.
+            const double beta_s =
+                1.0 - alpha * dmg * (1.0 - crack_stabilization_.eta_S);
+            // Desacople de Poisson igualmente graduado (legacy: anulación
+            // total histórica).
+            const double couple =
+                crack_stabilization_.softening_law
+                        == KoBathe3DCrackSofteningLaw::legacy_constant_slope
+                    ? 0.0
+                    : 1.0 - alpha * dmg;
 
             // Modify crack-local Mandel stiffness
             C_local(0, 0) = Enn;
-            // Decouple normal from all other components
             for (int j = 1; j < 6; ++j) {
-                C_local(0, j) = 0.0;
-                C_local(j, 0) = 0.0;
+                C_local(0, j) *= couple;
+                C_local(j, 0) *= couple;
             }
 
             // Shear retention: indices 4 (n-t₂) and 5 (n-t₁) in Voigt {11,22,33,23,13,12}
@@ -1389,7 +1432,20 @@ struct EvalResult3D {
                        == KoBathe3DCrackSofteningLaw::damage_secant;
             if (allow_formation && st.num_cracks < 3 && s1_max > TOL) {
                 double g = crack_function_3d(oct2.sigma_o, oct2.tau_o, oct2.cos3theta);
-                if (g > 0.0) {
+                // Compuerta de Rankine para la ley damage-secant: el
+                // criterio octaédrico dispara a sigma_1 ~ 1.32·ft en
+                // tracción uniaxial, un sobredisparo que la envolvente no
+                // puede sostener — descargarlo dentro del paso provoca
+                // formaciones en cadena que ningún perfil del solver cruza
+                // (pared p=0.5958 de v10-v12), y anclarlo la sobre-carga
+                // (~2x rigidez lateral, v8/v9).  Formar la fisura al tocar
+                // ft alinea el ancla con la envolvente nominal: nada que
+                // descargar en la formación y sin sobre-resistencia.
+                const bool rankine_fire =
+                    crack_stabilization_.softening_law
+                            == KoBathe3DCrackSofteningLaw::damage_secant
+                        && s1_max >= tension_softening().ft;
+                if (g > 0.0 || rankine_fire) {
                     Vec3 normal = n1_dir.normalized();
 
                     // Force orthogonality with existing cracks
