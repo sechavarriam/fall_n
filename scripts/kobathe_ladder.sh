@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 OUT="${1:?outdir}"; TAG="${2:?tag}"; shift 2
 EXTRA=("$@")
-EXE=./build/fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+EXE=${FALLN_EXE:-./build/fall_n_reduced_rc_column_continuum_reference_benchmark.exe}
 GATES="python scripts/kobathe_probe_gates.py"
 
 mkdir -p "$OUT/logs"
@@ -26,8 +26,14 @@ base=(--continuum-kinematics corotational --hex-order hex27 --nx 2 --ny 2 --nz 4
   --embedded-boundary-mode dirichlet-rebar-endcap
   --axial-preload-transfer-mode composite-section-force-split
   --axial-compression-mn 0.02 --axial-preload-steps 4
+  --penalty-alpha-scale-over-ec 10 --solver-policy newton_l2_only
+  --predictor-policy secant --continuation monolithic
   --concrete-profile production-stabilized
   --kobathe-crack-softening-law damage-secant
+  --concrete-characteristic-length-mode fixed-end-longitudinal-host-edge-mm
+  --concrete-fracture-energy-nmm 0.14
+  --kobathe-crack-eta-n 0.01 --kobathe-crack-eta-s 0.25
+  --kobathe-crack-closure-transition-strain 1e-4
   --max-bisections 8 --print-progress)
 
 run() { # nombre args...

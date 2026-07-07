@@ -151,6 +151,17 @@ struct KoBatheState3D {
     std::array<double, 3> crack_strain_max{0.0, 0.0, 0.0};
     std::array<bool, 3>   crack_closed{false, false, false};
 
+    // Anclas de formación para la envolvente damage-secant: tensión y
+    // deformación normales sobre el plano de fisura en el instante de
+    // formación.  El criterio octaédrico dispara por encima de ft
+    // (~1.32·ft uniaxial): una envolvente que arranque en ft descarga
+    // ~30% de la tensión transmitida en una iteración — discontinuidad
+    // material que ninguna bisección de paso puede atravesar.  Con el
+    // ancla, la envolvente parte exactamente del estado intacto
+    // (0 = sin ancla; se usa la banda nominal ft/eps_tp).
+    std::array<double, 3> crack_ft_form{0.0, 0.0, 0.0};
+    std::array<double, 3> crack_eps_form{0.0, 0.0, 0.0};
+
     // ── Committed total strain ───────────────────────────────────────
     Eigen::Matrix<double, 6, 1> eps_committed =
         Eigen::Matrix<double, 6, 1>::Zero();
@@ -692,7 +703,21 @@ private:
                 double eps_tp = ts.eps_tp;
                 double eps_tu = ts.eps_tu;
                 double ft = ts.ft;
-                if (!(eps_tu > eps_tp + TOL)) {
+                if (st.crack_ft_form[ic] > TOL) {
+                    // Envolvente ANCLADA al estado de formación: parte de
+                    // (eps_form, ft_form) y desciende preservando la
+                    // energía de fractura,
+                    //   (1/2)*ft_form*(eps_tu - eps_tp) = Gf/lb.
+                    // Garantiza sigma_n(eps) continua a través de la
+                    // formación (el criterio octaédrico dispara por encima
+                    // de ft; ver comentario en KoBatheState3D).
+                    const double E0 = C_local(0, 0);
+                    ft = st.crack_ft_form[ic];
+                    eps_tp = std::max(st.crack_eps_form[ic],
+                                      ft / std::max(E0, TOL));
+                    eps_tu = eps_tp + 2.0 * params_.Gf
+                                    / std::max(ft * params_.lb, TOL);
+                } else if (!(eps_tu > eps_tp + TOL)) {
                     // Band would snap back: reduce the effective tensile
                     // strength so the band still dissipates G_f
                     //   (1/2)*ft_eff*eps_tu_eff = Gf/lb  with
@@ -1345,12 +1370,24 @@ struct EvalResult3D {
             const double s1_max = evals[2];        // largest principal stress
             const Vec3 n1_dir  = evecs.col(2);     // corresponding direction
 
-            // New crack formation is only performed when check_new_cracks
-            // is true (i.e. during commit).  Skipping this during Newton
-            // iterations prevents oscillation between cracked/uncracked
-            // states at Gauss points near the threshold, which otherwise
-            // causes a non-convergent 2-cycle.
-            if (check_new_cracks && st.num_cracks < 3 && s1_max > TOL) {
+            // Crack formation gating depends on the softening law:
+            //  - legacy_constant_slope: only at commit (check_new_cracks).
+            //    The legacy law jumps the normal stiffness discontinuously
+            //    at formation (full -> Cts/eta), so forming cracks during
+            //    Newton iterations produced a non-convergent 2-cycle.
+            //  - damage_secant: ALSO during iterations (trial cracks).  The
+            //    damage secant starts at ~the elastic modulus for
+            //    e_hat ~ eps_tp and decays smoothly, so the response is a
+            //    continuous function of strain and trial formation removes
+            //    the commit shock (dozens of points cracking between steps
+            //    used to leave the next step's initial residual enormous).
+            //    Trial cracks live only in the returned state and persist
+            //    exclusively through commit/update.
+            const bool allow_formation =
+                check_new_cracks
+                || crack_stabilization_.softening_law
+                       == KoBathe3DCrackSofteningLaw::damage_secant;
+            if (allow_formation && st.num_cracks < 3 && s1_max > TOL) {
                 double g = crack_function_3d(oct2.sigma_o, oct2.tau_o, oct2.cos3theta);
                 if (g > 0.0) {
                     Vec3 normal = n1_dir.normalized();
@@ -1366,7 +1403,24 @@ struct EvalResult3D {
                     }
 
                     if (normal.norm() > 0.5) {  // guard against degenerate cases
-                        st.crack_normals[st.num_cracks] = normal;
+                        const int ic_new = st.num_cracks;
+                        st.crack_normals[ic_new] = normal;
+                        // Ancla de formación sobre el plano definitivo
+                        // (posiblemente re-ortogonalizado): tensión y
+                        // deformación normales actuales, para que la
+                        // envolvente damage-secant arranque exactamente
+                        // donde quedó la respuesta intacta.
+                        const double sig_n = normal.dot(S * normal);
+                        Mat3 Em;
+                        Em(0, 0) = eps_elastic[0];
+                        Em(1, 1) = eps_elastic[1];
+                        Em(2, 2) = eps_elastic[2];
+                        Em(1, 2) = Em(2, 1) = 0.5 * eps_elastic[3];
+                        Em(0, 2) = Em(2, 0) = 0.5 * eps_elastic[4];
+                        Em(0, 1) = Em(1, 0) = 0.5 * eps_elastic[5];
+                        const double eps_n = normal.dot(Em * normal);
+                        st.crack_ft_form[ic_new] = std::max(sig_n, 0.0);
+                        st.crack_eps_form[ic_new] = std::max(eps_n, 0.0);
                         st.num_cracks++;
                     }
                 }

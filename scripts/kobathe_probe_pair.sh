@@ -10,7 +10,7 @@ OUT="${1:?outdir}"
 LAW="${2:?softening-law}"
 TIP="${3:-20}"
 STEPS="${4:-10}"
-EXE=./build/fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+EXE=${FALLN_EXE:-./build/fall_n_reduced_rc_column_continuum_reference_benchmark.exe}
 
 mkdir -p "$OUT/logs"
 
@@ -22,16 +22,21 @@ common=(--analysis monotonic --monotonic-tip-mm "$TIP" --monotonic-steps "$STEPS
   --embedded-boundary-mode dirichlet-rebar-endcap
   --axial-preload-transfer-mode composite-section-force-split
   --axial-compression-mn 0.02 --axial-preload-steps 4
+  --penalty-alpha-scale-over-ec 10 --solver-policy newton_l2_only
+  --predictor-policy secant --continuation monolithic
   --concrete-profile production-stabilized
   --kobathe-crack-softening-law "$LAW"
+  --concrete-characteristic-length-mode fixed-end-longitudinal-host-edge-mm
+  --concrete-fracture-energy-nmm 0.14
+  --kobathe-crack-closure-transition-strain 1e-4
   --max-bisections 8 --print-progress)
 
-"$EXE" --output-dir "$OUT/eta_lo" "${common[@]}" \
+OMP_NUM_THREADS=5 "$EXE" --output-dir "$OUT/eta_lo" "${common[@]}" \
   --kobathe-crack-eta-n 0.0001 --kobathe-crack-eta-s 0.10 \
   > "$OUT/logs/eta_lo.log" 2>&1 &
 PID_LO=$!
 
-"$EXE" --output-dir "$OUT/eta_hi" "${common[@]}" \
+OMP_NUM_THREADS=5 "$EXE" --output-dir "$OUT/eta_hi" "${common[@]}" \
   --kobathe-crack-eta-n 0.90 --kobathe-crack-eta-s 0.90 \
   > "$OUT/logs/eta_hi.log" 2>&1 &
 PID_HI=$!
