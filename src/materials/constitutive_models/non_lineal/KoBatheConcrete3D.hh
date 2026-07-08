@@ -86,6 +86,16 @@ struct KoBathe3DCrackStabilization {
     bool smooth_closure{true};
     KoBathe3DCrackSofteningLaw softening_law{
         KoBathe3DCrackSofteningLaw::damage_secant};
+    // Regularización delay-damage (viscosa Δt-free): cota superior al
+    // crecimiento de la apertura máxima de fisura (el trinquete de daño)
+    // por paso de continuación comprometido.  Si el descenso de la
+    // envolvente de ablandamiento intenta avanzar más que esto en un
+    // paso, el exceso queda como sobre-tensión tipo Perzyna sobre la
+    // envolvente inviscida, manteniendo el tangente positivo-definido a
+    // través de la localización (permite mallas finas de altura sin
+    // muro).  Negativo = desactivada; converge a la solución
+    // rate-independent al refinar el paso.
+    double damage_strain_rate_cap{-1.0};
 
     [[nodiscard]] static constexpr KoBathe3DCrackStabilization
     stabilized_default() noexcept
@@ -1012,8 +1022,21 @@ private:
                 + eps_elastic[5] * n[0] * n[1];
 
             st.crack_strain[ic] = e_nn;
-            st.crack_strain_max[ic] =
-                std::max(committed_crack_strain_max[ic], e_nn);
+            double e_hat_new = std::max(committed_crack_strain_max[ic], e_nn);
+            // Delay-damage: acota el avance del trinquete por paso.  El
+            // exceso (e_nn - cap) NO se pierde del estado (crack_strain
+            // guarda la apertura real), solo se retiene su efecto en la
+            // envolvente, dando la sobre-tensión viscosa que estabiliza el
+            // tangente.  El siguiente paso arranca desde el nuevo
+            // committed y sigue avanzando, así que la energía disipada se
+            // conserva al converger el paso.
+            if (crack_stabilization_.damage_strain_rate_cap > 0.0) {
+                e_hat_new = std::min(
+                    e_hat_new,
+                    committed_crack_strain_max[ic]
+                        + crack_stabilization_.damage_strain_rate_cap);
+            }
+            st.crack_strain_max[ic] = e_hat_new;
             st.crack_closed[ic] = (e_nn < 0.0);
         }
     }

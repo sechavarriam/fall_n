@@ -86,6 +86,7 @@ struct CliOptions {
     double kobathe_crack_closure_transition_strain_override{-1.0};
     int kobathe_crack_smooth_closure_override{-1};
     int kobathe_crack_softening_law_override{-1};
+    double kobathe_crack_damage_strain_rate_cap{-1.0};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     std::string continuation{"reversal-guarded"};
@@ -814,6 +815,7 @@ parse_predictor_policy_kind(std::string value)
             "[--kobathe-crack-closure-transition-strain value] "
             "[--kobathe-crack-smooth-closure|--kobathe-crack-abrupt-closure] "
             "[--kobathe-crack-softening-law damage-secant|legacy-constant-slope] "
+            "[--kobathe-crack-damage-strain-rate-cap value] "
             "[--transverse-reinforcement-penalty-alpha-scale-over-ec value] "
             "[--transverse-reinforcement-area-scale value] "
             "[--host-probe label:x:y:z] "
@@ -1038,6 +1040,11 @@ parse_predictor_policy_kind(std::string value)
                 "Unsupported --kobathe-crack-softening-law value (expected "
                 "damage-secant or legacy-constant-slope).");
         }
+    }
+    if (const auto value =
+            value_of("--kobathe-crack-damage-strain-rate-cap");
+        !value.empty()) {
+        options.kobathe_crack_damage_strain_rate_cap = std::stod(value);
     }
     if (const auto value = value_of(
             "--transverse-reinforcement-penalty-alpha-scale-over-ec");
@@ -1979,6 +1986,8 @@ int main(int argc, char** argv)
                 options.kobathe_crack_smooth_closure_override,
             .kobathe_crack_softening_law_override =
                 options.kobathe_crack_softening_law_override,
+            .kobathe_crack_damage_strain_rate_cap =
+                options.kobathe_crack_damage_strain_rate_cap,
             .transverse_reinforcement_penalty_alpha_scale_over_ec =
                 options
                     .transverse_reinforcement_penalty_alpha_scale_over_ec,

@@ -150,9 +150,15 @@ struct KoBatheParameters {
         l_coeff = 0.222 + 0.01086 * fc - 0.000122 * fc * fc;
 
         // ── Tensile strength ratio ───────────────────────────────────
-        // Paper: tp ∈ [0.05, 0.10], user-settable
+        // Paper: tp ∈ [0.05, 0.10].  Cuando el usuario fija tp
+        // explícitamente permitimos bajar hasta 0.01 para estudios de
+        // EQUIVALENCIA entre modelos (igualar el umbral de fisuración de
+        // una sección de fibras con ft muy bajo).  Por debajo de 0.05 se
+        // sale del rango validado del artículo (respuesta más frágil):
+        // usar con la regularización delay-damage.  El valor automático
+        // (tp_ratio<=0) conserva el rango del artículo.
         if (tp_ratio > 0.0) {
-            tp = std::clamp(tp_ratio, 0.05, 0.10);
+            tp = std::clamp(tp_ratio, 0.01, 0.10);
         } else {
             // Default: 0.3 * fc^(-1/3) clamped to paper range
             tp = std::clamp(0.3 * std::pow(fc, -1.0 / 3.0), 0.05, 0.10);

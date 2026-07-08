@@ -380,6 +380,10 @@ struct ReducedRCColumnContinuumRunSpec {
     //  0 = legacy_constant_slope (reproduce artefactos pre-2026-07);
     //  1 = damage_secant.
     int kobathe_crack_softening_law_override{-1};
+    // Regularización delay-damage: cap de crecimiento de la apertura de
+    // fisura por paso (negativo = desactivada). Ver
+    // KoBathe3DCrackStabilization::damage_strain_rate_cap.
+    double kobathe_crack_damage_strain_rate_cap{-1.0};
     double transverse_reinforcement_penalty_alpha_scale_over_ec{1.0e4};
     double transverse_reinforcement_area_scale{1.0};
     double penalty_alpha_scale_over_ec{1.0e4};
@@ -662,6 +666,8 @@ struct ReducedRCColumnContinuumConcreteProfileDetails {
     bool smooth_closure{false};
     // true = damage_secant (ley física); false = legacy_constant_slope.
     bool damage_secant_softening{true};
+    // Cap delay-damage propagado al material (negativo = desactivado).
+    double damage_strain_rate_cap{-1.0};
     ReducedRCColumnContinuumConcreteTangentMode tangent_mode{
         ReducedRCColumnContinuumConcreteTangentMode::fracture_secant};
     ReducedRCColumnContinuumCharacteristicLengthMode

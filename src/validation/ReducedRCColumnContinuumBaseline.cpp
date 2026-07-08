@@ -2309,6 +2309,10 @@ make_concrete_profile_details(
                 ? KoBathe3DCrackSofteningLaw::damage_secant
                 : KoBathe3DCrackSofteningLaw::legacy_constant_slope;
     }
+    if (spec.kobathe_crack_damage_strain_rate_cap > 0.0) {
+        crack_stabilization.damage_strain_rate_cap =
+            spec.kobathe_crack_damage_strain_rate_cap;
+    }
 
     const KoBatheParameters params{
         spec.reference_spec.concrete_fpc_mpa,
@@ -2330,6 +2334,8 @@ make_concrete_profile_details(
         .damage_secant_softening =
             crack_stabilization.softening_law
                 == KoBathe3DCrackSofteningLaw::damage_secant,
+        .damage_strain_rate_cap =
+            crack_stabilization.damage_strain_rate_cap,
         .tangent_mode = spec.concrete_tangent_mode,
         .characteristic_length_mode =
             spec.concrete_characteristic_length_mode,
@@ -2372,6 +2378,7 @@ make_kobathe_concrete_impl(const ReducedRCColumnContinuumRunSpec& spec,
         .softening_law = profile.damage_secant_softening
             ? KoBathe3DCrackSofteningLaw::damage_secant
             : KoBathe3DCrackSofteningLaw::legacy_constant_slope,
+        .damage_strain_rate_cap = profile.damage_strain_rate_cap,
     };
 
     auto concrete = KoBatheConcrete3D{params, crack_stabilization};
