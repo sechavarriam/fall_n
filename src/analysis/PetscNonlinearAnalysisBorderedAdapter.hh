@@ -125,6 +125,60 @@ make_fixed_control_petsc_bordered_evaluation(
     return eval;
 }
 
+// Spherical (Crisfield) ARC-LENGTH continuation evaluation.
+//
+//  Unlike fixed-control (which degenerates to standard Newton and stalls at
+//  limit points), the arc-length constraint lets the control parameter lambda
+//  ADJUST along the equilibrium path, so the continuation traverses limit points
+//  and snapbacks while staying on the physical branch.  About the last converged
+//  point (u0, lambda0):
+//     c      = ||u - u0||^2 + psi^2 (lambda - lambda0)^2 - delta_s^2
+//     dc/du  = 2 (u - u0)
+//     dc/dl  = 2 psi^2 (lambda - lambda0)
+//  psi (load_scaling) weights the load term; psi=0 gives cylindrical arc-length.
+template <typename AnalysisT>
+[[nodiscard]] PetscBorderedMixedControlEvaluation
+make_arc_length_petsc_bordered_evaluation(
+    AnalysisT& analysis,
+    const PetscBorderedMixedControlState& state,
+    Vec reference_unknowns,
+    double reference_load,
+    double arc_length,
+    double load_scaling,
+    PetscNonlinearAnalysisBorderedAdapterSettings settings = {})
+{
+    PetscBorderedMixedControlEvaluation eval;
+    eval.residual = analysis.create_global_vector();
+    eval.tangent = analysis.create_tangent_matrix();
+    eval.constraint_gradient = analysis.create_global_vector();
+
+    analysis.revert_trial_state();
+    analysis.apply_incremental_control_parameter(state.load_parameter);
+    analysis.evaluate_residual_at(state.unknowns, eval.residual.get());
+    analysis.evaluate_tangent_at(state.unknowns, eval.tangent.get());
+    eval.load_column = detail::finite_difference_control_column(
+        analysis,
+        state.unknowns,
+        eval.residual.get(),
+        state.load_parameter,
+        settings);
+
+    // du = u - u0  (stored in constraint_gradient, then scaled by 2)
+    FALL_N_PETSC_CHECK(
+        VecWAXPY(eval.constraint_gradient.get(), -1.0,
+                 reference_unknowns, state.unknowns));
+    PetscReal du_norm = 0.0;
+    FALL_N_PETSC_CHECK(
+        VecNorm(eval.constraint_gradient.get(), NORM_2, &du_norm));
+    const double dl = state.load_parameter - reference_load;
+    eval.constraint = static_cast<double>(du_norm) * static_cast<double>(du_norm)
+                      + load_scaling * load_scaling * dl * dl
+                      - arc_length * arc_length;
+    FALL_N_PETSC_CHECK(VecScale(eval.constraint_gradient.get(), 2.0));
+    eval.constraint_load_derivative = 2.0 * load_scaling * load_scaling * dl;
+    return eval;
+}
+
 } // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_PETSC_NONLINEAR_ANALYSIS_BORDERED_ADAPTER_HH

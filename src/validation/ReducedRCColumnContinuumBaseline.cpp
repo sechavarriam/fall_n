@@ -1,7 +1,11 @@
 #include "src/validation/ReducedRCColumnContinuumBaseline.hh"
 
+#include "src/analysis/DynamicAnalysis.hh"
 #include "src/analysis/IncrementalControl.hh"
 #include "src/analysis/NLAnalysis.hh"
+#include "src/analysis/PetscBorderedMixedControlNewton.hh"
+#include "src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh"
+#include "src/analysis/RegularizedNewtonContinuation.hh"
 #include "src/analysis/PenaltyCoupling.hh"
 #include "src/domain/Domain.hh"
 #include "src/elements/ContinuumElement.hh"
@@ -31,6 +35,8 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -3896,6 +3902,456 @@ run_reduced_rc_column_continuum_case_result_impl(
             }
         });
 
+    // ── Rama experimental: relajación dinámica (Newmark + Rayleigh) ──────
+    // Gateada por entorno (KOBATHE_DYNAMIC=1) para no requerir plumbing de
+    // CLI/spec. Objetivo: cruzar el punto límite de fluencia (~88 mm) que el
+    // cuasi-estático no pasa, usando inercia + amortiguamiento para regularizar.
+    // Reutiliza EXACTAMENTE la prescripción de drift del scheme cuasi-estático
+    // (update_imposed_value sobre top_face_nodes / top_rebar_nodes).
+    if (const char* dyn_env = std::getenv("KOBATHE_DYNAMIC");
+        dyn_env != nullptr && std::atoi(dyn_env) == 1) {
+        auto env_d = [](const char* k, double def) {
+            const char* v = std::getenv(k);
+            return (v != nullptr && v[0] != '\0') ? std::atof(v) : def;
+        };
+        using DynA =
+            DynamicAnalysis<ThreeDimensionalMaterial, KinematicPolicy, 3,
+                            MultiElementPolicy>;
+
+        const double rho     = env_d("KOBATHE_DYN_RHO", 2.4e-3);
+        const double T       = env_d("KOBATHE_DYN_TOTAL_TIME", 1.0);
+        const double dt      = env_d("KOBATHE_DYN_DT", 5.0e-5);
+        const double alpha_M = env_d("KOBATHE_DYN_ALPHA_M", 60.0);
+        const double beta_K  = env_d("KOBATHE_DYN_BETA_K", 1.0e-3);
+        // Fracción de T dedicada a rampar la precarga axial con drift=0 (secuencia
+        // precarga->lateral, como el cuasi-estático). Solo si hay compresión axial.
+        const double preload_frac =
+            spec.has_axial_compression()
+                ? std::clamp(env_d("KOBATHE_DYN_PRELOAD_FRAC", 0.15), 0.0, 0.9)
+                : 0.0;
+        const double t_pre = preload_frac * T;
+        // Mapea el tiempo físico -> progreso lateral p in [0,1] respetando la fase
+        // de precarga inicial (drift=0 mientras t<t_pre).
+        auto lateral_progress = [T, t_pre](double t) {
+            if (t <= t_pre || T <= t_pre) return 0.0;
+            return std::clamp((t - t_pre) / (T - t_pre), 0.0, 1.0);
+        };
+
+        DynA dyn{&model};
+        dyn.set_density(rho);
+        dyn.set_rayleigh_damping(alpha_M, beta_K);
+
+        // ── Acoplamiento penalty barra-host + tapas ─────────────────────────
+        //  IMPRESCINDIBLE: el cuasi-estatico lo aplica via nl.set_*_hook.  Sin
+        //  esto la barra embebida queda DECOPLADA en el path dinamico (flota,
+        //  no desarrolla fuerza) y solo el concreto carga -> sub-prediccion.
+        dyn.set_internal_residual_hook(
+            [&coupling, &transverse_coupling, &top_cap_tie, &affine_top_cap_tie,
+             has_embedded_rebars, has_embedded_transverse_rebars,
+             has_uniform_axial_top_cap, has_affine_bending_top_cap](
+                Vec u_local, Vec residual_global, DM dm) {
+                if (has_embedded_rebars)
+                    coupling.add_to_global_residual(u_local, residual_global, dm);
+                if (has_embedded_transverse_rebars)
+                    transverse_coupling.add_to_global_residual(
+                        u_local, residual_global, dm);
+                if (has_uniform_axial_top_cap)
+                    top_cap_tie.add_to_global_residual(
+                        u_local, residual_global, dm);
+                if (has_affine_bending_top_cap)
+                    affine_top_cap_tie.add_to_global_residual(
+                        u_local, residual_global, dm);
+            });
+        dyn.set_internal_jacobian_hook(
+            [&coupling, &transverse_coupling, &top_cap_tie, &affine_top_cap_tie,
+             has_embedded_rebars, has_embedded_transverse_rebars,
+             has_uniform_axial_top_cap, has_affine_bending_top_cap](
+                Vec u_local, Mat jacobian, DM dm) {
+                if (has_embedded_rebars)
+                    coupling.add_to_jacobian(u_local, jacobian, dm);
+                if (has_embedded_transverse_rebars)
+                    transverse_coupling.add_to_jacobian(u_local, jacobian, dm);
+                if (has_uniform_axial_top_cap)
+                    top_cap_tie.add_to_jacobian(u_local, jacobian, dm);
+                if (has_affine_bending_top_cap)
+                    affine_top_cap_tie.add_to_jacobian(u_local, jacobian, dm);
+            });
+
+        DM dyn_dm = model.get_plex();
+
+        // ── MODO RELAJACIÓN DINÁMICA A ESTÁTICO POR PASO ───────────────────
+        //  KOBATHE_DYN_RELAX=1.  En vez de recorrer el protocolo en tiempo
+        //  continuo —donde la INERCIA sobrepasa en las reversas y el
+        //  AMORTIGUAMIENTO sobre-resiste la rama de carga, contaminando el
+        //  lazo— este driver discretiza el protocolo en incrementos y en cada
+        //  uno MANTIENE fija la prescripción (drift/axial) mientras relaja el
+        //  transitorio dinámico hasta el equilibrio estático (velocidad -> 0,
+        //  vía kinetic damping: se drena el momento en cada pico de velocidad).
+        //  El estado registrado es estático (v~0): sin sobrepaso inercial ni
+        //  contaminación por velocidad -> curva V-Δ LIMPIA, y la inercia sigue
+        //  regularizando el cruce de la frontera de fluencia (~88 mm) que el
+        //  cuasi-estático puro no pasa.
+        if (const char* relax_env = std::getenv("KOBATHE_DYN_RELAX");
+            relax_env != nullptr && std::atoi(relax_env) == 1) {
+            const int n_lat = static_cast<int>(
+                env_d("KOBATHE_DYN_RELAX_INCREMENTS", 500.0));
+            const int n_pre =
+                spec.has_axial_compression()
+                    ? static_cast<int>(env_d("KOBATHE_DYN_RELAX_PRELOAD_STEPS", 12.0))
+                    : 0;
+            const double vtol = env_d("KOBATHE_DYN_RELAX_VTOL", 1.0e-3);
+            // Piso de cortante (MN) para el criterio relativo |ΔV|<=vtol·max(|V|,
+            //  floor): durante la precarga V~0 y sin piso nunca convergería.
+            const double force_floor = env_d("KOBATHE_DYN_RELAX_FLOOR", 1.0e-6);
+            const int max_relax =
+                static_cast<int>(env_d("KOBATHE_DYN_RELAX_MAXSTEPS", 3000.0));
+            const int min_relax =
+                static_cast<int>(env_d("KOBATHE_DYN_RELAX_MINSTEPS", 8.0));
+            // Nº de pasos consecutivos con |ΔV| bajo tolerancia antes de aceptar el
+            //  estado como estático (más -> lazo más liso, menos ondulación).
+            const int stable_need =
+                static_cast<int>(env_d("KOBATHE_DYN_RELAX_STABLE", 3.0));
+            const bool kinetic = [] {
+                const char* v = std::getenv("KOBATHE_DYN_RELAX_KINETIC");
+                return v == nullptr || std::atoi(v) == 1;  // default ON
+            }();
+            // Traza por-paso de la 1a relajacion para calibrar dt/damping.
+            const int trace = static_cast<int>(env_d("KOBATHE_DYN_RELAX_TRACE", 0.0));
+
+            double dr_drift = 0.0;
+            double dr_axial = spec.has_axial_compression() ? 0.0 : 1.0;
+
+            dyn.set_force_function([&, dyn_dm](double, Vec f_ext_global) {
+                VecSet(f_ext_global, 0.0);
+                if (!spec.has_axial_compression()) return;
+                DMLocalToGlobal(dyn_dm, model.force_vector(), ADD_VALUES,
+                                f_ext_global);
+                VecScale(f_ext_global, dr_axial);
+            });
+            dyn.set_prescribed_function([&](double) {
+                for (const auto node_id : top_face_nodes)
+                    model.update_imposed_value(node_id, 0, dr_drift);
+                if (spec.embedded_boundary_mode ==
+                    ReducedRCColumnEmbeddedBoundaryMode::dirichlet_rebar_endcap) {
+                    for (const auto node_id : top_rebar_nodes)
+                        model.update_imposed_value(node_id, 0, dr_drift);
+                }
+            });
+
+            std::filesystem::create_directories(out_dir);
+            std::ofstream hys(out_dir + "/dynamic_hysteresis.csv");
+            hys << "step,t,drift_m,base_shear_MN,base_shear_coupled_MN,phase,"
+                   "n_cracked,n_open,n_closed,max_crack_opening\n"
+                << std::scientific << std::setprecision(8);
+            double max_drift_reached = 0.0;
+            const double vtk_drift_step =
+                env_d("KOBATHE_DYN_VTK_DRIFT_MM", 1.0) * 1.0e-3;
+            double last_vtk_drift = -1.0e30;
+            int dyn_vtk_frame = 0;
+
+            dyn.setup();
+            dyn.set_time_step(dt);
+
+            // Relaja (drift/axial fijos) hasta que el CORTANTE BASAL se estabiliza
+            //  -> estado estático.  Se converge sobre el propio observable (V), no
+            //  sobre ||v||: ésta = ||Δu||/dt y el adaptor cambia dt (tras un
+            //  DIVERGED_LINE_SEARCH lo encoge), inflando ||v|| aunque Δu sea ínfimo
+            //  -> criterio de velocidad engañado.  |ΔV| entre pasos es
+            //  independiente de dt y mide directamente lo que se registra.
+            //  El amortiguamiento (Rayleigh + rho_inf) solo acelera el asentado;
+            //  como se lee en el estado asentado, NO contamina.  kinetic=true:
+            //  además resetea V en picos de ||v|| para drenar momento (acelera
+            //  regímenes sub-amortiguados).
+            // Predictor de continuacion (arc-length-lite): siembra cada
+            //  incremento con la extrapolacion TANGENTE de la trayectoria de los
+            //  DOF a lo largo del drift: u_guess = u_prev + r*(u_prev - u_pp) con
+            //  r = Δdrift_nuevo/Δdrift_prev.  En la reversa r<0 -> extrapola
+            //  DESCARGANDO, sesgando el relajador a la rama continua (baja) en vez
+            //  del equilibrio espurio de mayor fuerza (multi-equilibrio de
+            //  ablandamiento).  KOBATHE_DYN_PREDICT=1 activa; GAIN escala r.
+            const bool predict = [] {
+                const char* v = std::getenv("KOBATHE_DYN_PREDICT");
+                return v != nullptr && std::atoi(v) == 1;
+            }();
+            const double predict_gain = env_d("KOBATHE_DYN_PREDICT_GAIN", 1.0);
+            // dt para la DESCARGA: grande => el paso implícito -> Newton estático
+            //  puro (a·M, v·C -> 0), que converge al equilibrio MÁS CERCANO (rama
+            //  baja, sembrada por el predictor) sin explorar dinámicamente y
+            //  saltar a la rama alta.  0 = usar el dt normal (desactiva).
+            const double unload_dt = env_d("KOBATHE_DYN_UNLOAD_DT", 0.0);
+            Vec pred_prev = nullptr, pred_pp = nullptr;
+            double pd_prev = 0.0, pd_pp = 0.0;
+            auto relax_to_static = [&]() -> std::pair<int, double> {
+                const double d_prev_step = pd_prev - pd_pp;
+                const double d_new_step = dr_drift - pd_prev;
+                // Predictor SOLO en el INCREMENTO DE REVERSA (la dirección del
+                //  drift se invierte: Δdrift_prev·Δdrift_nuevo<0, i.e. en los
+                //  picos ±).  El bump vive en la TRANSICIÓN carga->descarga, no en
+                //  la cola: sembrar ahí la rama baja (u_guess≈u_pp) y dejar que
+                //  reset_velocity siga la rama limpia en el resto evita tanto la
+                //  desestabilización de la carga como el sobredisparo de la cola.
+                //  r se acota a [-1,1.5] (r=-1 = sembrar u_pp, tope seguro atrás).
+                const bool unloading = (dr_drift * d_new_step < 0.0);
+                if (predict && pred_prev && pred_pp && unloading &&
+                    std::abs(d_prev_step) > 1.0e-12) {
+                    double r = predict_gain * (d_new_step / d_prev_step);
+                    r = std::clamp(r, -1.0, 1.5);
+                    Vec u_guess = nullptr;
+                    VecDuplicate(pred_prev, &u_guess);
+                    VecWAXPY(u_guess, -1.0, pred_pp, pred_prev);  // u_prev - u_pp
+                    VecAYPX(u_guess, r, pred_prev);               // u_prev + r*(.)
+                    dyn.set_displacement(u_guess);
+                    VecDestroy(&u_guess);
+                } else {
+                    dyn.reset_velocity();  // arranca desde reposo (sin predictor)
+                }
+                // dt grande en descarga -> corrector Newton estático (rama baja).
+                const double inc_dt =
+                    (unload_dt > 0.0 && unloading) ? unload_dt : dt;
+                dyn.set_time_step(inc_dt);  // (el adaptor puede encogerlo)
+                double bs_prev = extract_support_resultant_component(
+                    model, support_reaction_nodes, 0);
+                double vn_prev = 0.0;
+                bool rising = false;
+                int steps = 0, stable = 0;
+                double dbs = 0.0;
+                for (; steps < max_relax; ++steps) {
+                    if (dyn.step_n(1) != fall_n::StepVerdict::Continue) break;
+                    const double bs = extract_support_resultant_component(
+                        model, support_reaction_nodes, 0);
+                    dbs = std::abs(bs - bs_prev);
+                    if (trace > 0 && (steps % trace) == 0) {
+                        std::fprintf(stderr,
+                                     "[trace] step=%d V=%.4f kN dV=%.3e vnorm=%.3e "
+                                     "dt=%.2e drift=%.3fmm\n",
+                                     steps, bs * 1.0e3, dbs, dyn.velocity_norm(),
+                                     dyn.get_time_step(), dr_drift * 1.0e3);
+                    }
+                    // Kinetic damping opcional: resetea V en cada pico de ||v||
+                    //  para drenar el momento (acelera el asentado si oscila).
+                    if (kinetic) {
+                        const double vn = dyn.velocity_norm();
+                        const bool falling = (vn < vn_prev);
+                        if (rising && falling) dyn.reset_velocity();
+                        rising = !falling;
+                        vn_prev = dyn.velocity_norm();
+                    }
+                    // Convergencia (dt-independiente): |ΔV| cayó bajo vtol·|V| (con
+                    //  piso force_floor para el cortante ~0 de la precarga), y se
+                    //  mantiene estable 2 pasos seguidos.
+                    const double scale = std::max(std::abs(bs), force_floor);
+                    if (steps + 1 >= min_relax && dbs <= vtol * scale) {
+                        if (++stable >= stable_need) return {steps + 1, dbs};
+                    } else {
+                        stable = 0;
+                    }
+                    bs_prev = bs;
+                }
+                return {steps, dbs};
+            };
+
+            auto record_static = [&](int inc, double drift, int phase, int nrelax,
+                                     double vres) {
+                const double bs = extract_support_resultant_component(
+                    model, support_reaction_nodes, 0);
+                const double bs_c = extract_support_resultant_component(
+                    model, support_reaction_nodes, 0,
+                    has_embedded_rebars ? &coupling : nullptr,
+                    has_embedded_transverse_rebars ? &transverse_coupling
+                                                   : nullptr);
+                // DIAG estado de fisura: cuenta GPs con fisura abierta/cerrada y
+                //  la apertura máxima, para ver el evento de cierre en la reversa
+                //  (¿coincide un open->closed con el salto de fuerza?).
+                int n_cracked = 0, n_open = 0, n_closed = 0;
+                double max_open = 0.0;
+                for (const auto& element : model.elements()) {
+                    for (const auto& gp :
+                         element.gauss_point_snapshots(model.state_vector())) {
+                        if (gp.num_cracks <= 0) continue;
+                        ++n_cracked;
+                        bool any_open = false;
+                        for (int c = 0; c < std::min(gp.num_cracks, 3); ++c) {
+                            max_open = std::max(max_open,
+                                                std::abs(gp.crack_openings[c]));
+                            if (!gp.crack_closed[c] &&
+                                std::abs(gp.crack_openings[c]) > 0.0)
+                                any_open = true;
+                        }
+                        (any_open ? n_open : n_closed) += 1;
+                    }
+                }
+                hys << inc << "," << dyn.current_time() << "," << drift << ","
+                    << bs << "," << bs_c << "," << phase << "," << n_cracked
+                    << "," << n_open << "," << n_closed << "," << max_open << "\n";
+                hys.flush();
+                max_drift_reached = std::max(max_drift_reached, std::abs(drift));
+                // DIAG: desplazamiento x del nodo superior (debe ~= drift) y de un
+                //  nodo de apoyo (debe ~=0) para detectar mecanismo/estado rancio.
+                double u_top = 0.0, u_base = 0.0;
+                if (trace > 0 && !top_face_nodes.empty()) {
+                    const auto ut = dyn.get_nodal_displacement(top_face_nodes.front());
+                    if (!ut.empty()) u_top = ut[0];
+                    if (!support_reaction_nodes.empty()) {
+                        const auto ub = dyn.get_nodal_displacement(
+                            support_reaction_nodes.front());
+                        if (!ub.empty()) u_base = ub[0];
+                    }
+                }
+                std::fprintf(stderr,
+                             "[relax] inc=%d ph=%d drift=%8.3f mm  V=%8.3f kN  "
+                             "Vc=%8.3f kN  nrelax=%d dVres=%.2eMN  u_top=%.3fmm "
+                             "u_base=%.3fmm\n",
+                             inc, phase, drift * 1.0e3, bs * 1.0e3, bs_c * 1.0e3,
+                             nrelax, vres, u_top * 1.0e3, u_base * 1.0e3);
+                if (spec.write_vtk &&
+                    std::abs(drift - last_vtk_drift) >= vtk_drift_step) {
+                    write_vtk_snapshot(dyn_vtk_frame++, drift * 1.0e3, model);
+                    last_vtk_drift = drift;
+                }
+                // Rota la historia (u_pp<-u_prev<-u_now, drifts) para el predictor
+                //  tangente del siguiente incremento.
+                if (predict) {
+                    Vec u_now = dyn.displacement();
+                    if (pred_prev) {
+                        if (!pred_pp) VecDuplicate(pred_prev, &pred_pp);
+                        VecCopy(pred_prev, pred_pp);
+                        pd_pp = pd_prev;
+                    } else {
+                        VecDuplicate(u_now, &pred_prev);
+                    }
+                    VecCopy(u_now, pred_prev);
+                    pd_prev = drift;
+                }
+            };
+
+            int inc = 0;
+            bool relax_ok = true;
+            for (int k = 1; k <= n_pre; ++k) {  // Fase precarga axial (drift=0)
+                dr_axial = static_cast<double>(k) / static_cast<double>(n_pre);
+                dr_drift = 0.0;
+                const auto [nr, vres] = relax_to_static();
+                record_static(inc++, 0.0, 0, nr, vres);
+                if (nr >= max_relax) relax_ok = false;
+            }
+            dr_axial = 1.0;  // precarga sostenida durante todo el lateral
+            for (int k = 1; k <= n_lat; ++k) {  // Fase lateral: protocolo drift(p)
+                const double p =
+                    static_cast<double>(k) / static_cast<double>(n_lat);
+                dr_drift = target_drift_at(cfg, p);
+                const auto [nr, vres] = relax_to_static();
+                record_static(inc++, dr_drift, 1, nr, vres);
+                if (nr >= max_relax) relax_ok = false;
+            }
+
+            result.completed_successfully = relax_ok;
+            result.solve_summary.termination_reason =
+                relax_ok ? "dynamic_relax_completed" : "dynamic_relax_partial";
+            std::fprintf(stderr,
+                         "[relax] DONE incs=%d max_drift=%.4f m (n_lat=%d "
+                         "n_pre=%d dt=%.2e alphaM=%.3g betaK=%.3g rho=%.3g "
+                         "vtol=%.1e kinetic=%d)\n",
+                         inc, max_drift_reached, n_lat, n_pre, dt, alpha_M,
+                         beta_K, rho, vtol, kinetic ? 1 : 0);
+            if (pvd_mesh) pvd_mesh->write();
+            if (pvd_gauss) pvd_gauss->write();
+            if (pvd_cracks) pvd_cracks->write();
+            if (pvd_cracks_visible) pvd_cracks_visible->write();
+            if (pvd_rebar_tubes) pvd_rebar_tubes->write();
+            if (pred_prev) VecDestroy(&pred_prev);
+            if (pred_pp) VecDestroy(&pred_pp);
+            return result;
+        }
+
+        // Fuerza externa axial: replica f_full del cuasi-estático (scatter de
+        // model.force_vector(), que ya contiene la tracción de tapa + fuerzas
+        // nodales de barra por el split de sección), rampada en [0, t_pre] y
+        // sostenida despues. Si no hay axial, no-op.
+        dyn.set_force_function([&, dyn_dm, t_pre](double t, Vec f_ext_global) {
+            if (!spec.has_axial_compression()) {
+                VecSet(f_ext_global, 0.0);
+                return;
+            }
+            const double axial_scale =
+                (t_pre > 0.0) ? std::clamp(t / t_pre, 0.0, 1.0) : 1.0;
+            VecSet(f_ext_global, 0.0);
+            DMLocalToGlobal(dyn_dm, model.force_vector(), ADD_VALUES,
+                            f_ext_global);
+            VecScale(f_ext_global, axial_scale);
+        });
+
+        // Prescripción: drift(t) recorre el protocolo tras la fase de precarga.
+        dyn.set_prescribed_function([&](double t) {
+            const double drift = target_drift_at(cfg, lateral_progress(t));
+            for (const auto node_id : top_face_nodes) {
+                model.update_imposed_value(node_id, 0, drift);
+            }
+            if (spec.embedded_boundary_mode ==
+                ReducedRCColumnEmbeddedBoundaryMode::dirichlet_rebar_endcap) {
+                for (const auto node_id : top_rebar_nodes) {
+                    model.update_imposed_value(node_id, 0, drift);
+                }
+            }
+        });
+
+        std::filesystem::create_directories(out_dir);
+        std::ofstream hys(out_dir + "/dynamic_hysteresis.csv");
+        hys << "step,t,drift_m,base_shear_MN,base_shear_coupled_MN,phase\n"
+            << std::scientific << std::setprecision(8);
+        double max_drift_reached = 0.0;
+        // Animacion VTK del estado ACEPTADO paso a paso: un frame cada vez que la
+        // deriva avanza KOBATHE_DYN_VTK_DRIFT_MM (fisuras, campos de Gauss, tubos
+        // de barra, todo tiempo a tiempo). Requiere --write-vtk.
+        const double vtk_drift_step =
+            env_d("KOBATHE_DYN_VTK_DRIFT_MM", 1.0) * 1.0e-3;
+        double last_vtk_drift = -1.0e30;
+        int dyn_vtk_frame = 0;
+        dyn.set_monitor([&, vtk_drift_step](PetscInt step, double t, Vec /*U*/,
+                                            Vec /*V*/) mutable {
+            const double drift = target_drift_at(cfg, lateral_progress(t));
+            const double bs =
+                extract_support_resultant_component(model,
+                                                    support_reaction_nodes, 0);
+            const double bs_c = extract_support_resultant_component(
+                model, support_reaction_nodes, 0,
+                has_embedded_rebars ? &coupling : nullptr,
+                has_embedded_transverse_rebars ? &transverse_coupling : nullptr);
+            hys << step << "," << t << "," << drift << "," << bs << "," << bs_c
+                << "," << (t <= t_pre ? 0 : 1) << "\n";
+            hys.flush();
+            max_drift_reached = std::max(max_drift_reached, std::abs(drift));
+            if (spec.write_vtk &&
+                std::abs(drift - last_vtk_drift) >= vtk_drift_step) {
+                // runtime_p := deriva en mm, para que el eje temporal del PVD sea
+                // la deriva y la animacion se escrube por amplitud.
+                write_vtk_snapshot(dyn_vtk_frame++, drift * 1.0e3, model);
+                last_vtk_drift = drift;
+            }
+        });
+
+        dyn.setup();
+        dyn.set_time_step(dt);
+        const auto verdict = dyn.step_to(T);
+        const bool ok = (verdict == fall_n::StepVerdict::Continue);
+
+        result.completed_successfully = ok;
+        result.solve_summary.termination_reason =
+            ok ? "dynamic_completed" : "dynamic_stalled";
+        std::fprintf(stderr,
+                     "[dyn] verdict=%s max_drift=%.4f m (T=%.3f dt=%.2e "
+                     "alphaM=%.3g betaK=%.3g rho=%.3g)\n",
+                     ok ? "Continue" : "Stop", max_drift_reached, T, dt,
+                     alpha_M, beta_K, rho);
+        // Finalizar las colecciones PVD (la rama cuasi-estatica lo hace al final
+        // de la funcion, tras nuestro early-return, asi que aqui es obligatorio).
+        if (pvd_mesh) pvd_mesh->write();
+        if (pvd_gauss) pvd_gauss->write();
+        if (pvd_cracks) pvd_cracks->write();
+        if (pvd_cracks_visible) pvd_cracks_visible->write();
+        if (pvd_rebar_tubes) pvd_rebar_tubes->write();
+        std::filesystem::create_directories(out_dir);
+        return result;
+    }
+
     const auto solve_outcome = [&]() {
         const auto targets = build_runtime_targets(spec, cfg, control_path);
         if (targets.empty()) {
@@ -3903,6 +4359,217 @@ run_reduced_rc_column_continuum_case_result_impl(
         }
 
         nl.begin_incremental(1, cfg.max_bisections, scheme);
+
+        // ── Continuación ARC-LENGTH (bordered mixed-control Newton) ────────
+        //  Gateada por KOBATHE_ARCLEN=1.  Traza (u, p) con la restricción
+        //  esférica/cilíndrica de Crisfield para CRUZAR el punto límite de carga
+        //  (donde nl.step_to se atasca) Y seguir la rama física en la descarga,
+        //  eliminando el salto a la rama alta de la relajación dinámica.  Usa el
+        //  kernel bordered del autor + la restricción arc-length de este trabajo.
+        if (const char* av = std::getenv("KOBATHE_ARCLEN");
+            av != nullptr && std::atoi(av) == 1) {
+            auto envd = [](const char* k, double d) {
+                const char* v = std::getenv(k);
+                return (v != nullptr && v[0] != '\0') ? std::atof(v) : d;
+            };
+            const double p_end = targets.back();
+            const double psi = envd("KOBATHE_ARCLEN_PSI", 0.0);  // 0=cilíndrico
+            const double ds_min = envd("KOBATHE_ARCLEN_DS_MIN", 1.0e-5);
+            const double ds_max = envd("KOBATHE_ARCLEN_DS_MAX", 5.0e-2);
+            double ds = envd("KOBATHE_ARCLEN_DS", 5.0e-3);
+            const int max_steps =
+                static_cast<int>(envd("KOBATHE_ARCLEN_MAXSTEPS", 5.0e4));
+            fall_n::PetscBorderedMixedControlNewtonSettings bset{};
+            fall_n::PetscNonlinearAnalysisBorderedAdapterSettings aset{};
+
+            petsc::OwnedVec u0 = nl.create_global_vector();
+            petsc::OwnedVec u_prev = nl.create_global_vector();
+            petsc::OwnedVec u_pred = nl.create_global_vector();
+            petsc::OwnedVec dir_u = nl.create_global_vector();
+            VecSet(u0.get(), 0.0);
+            double p0 = nl.current_time();
+            double p_prev = p0;
+            bool have_prev = false;
+
+            std::filesystem::create_directories(out_dir);
+            std::ofstream al(out_dir + "/arclen_hysteresis.csv");
+            al << "step,p,drift_m,base_shear_MN,base_shear_coupled_MN,ds\n"
+               << std::scientific << std::setprecision(8);
+
+            int step = 0, hardfail = 0;
+            while (p0 < p_end - 1.0e-9 && step < max_steps) {
+                // Predictor: secante (u_prev,p_prev)->(u0,p0) escalado a ds en la
+                //  métrica del arco.  1er paso -> control fijo p0+ds para arrancar.
+                double p_pred = 0.0;
+                const bool use_arc = have_prev;
+                if (have_prev) {
+                    VecWAXPY(dir_u.get(), -1.0, u_prev.get(), u0.get());  // u0-u_prev
+                    double dn = 0.0;
+                    VecNorm(dir_u.get(), NORM_2, &dn);
+                    const double dp = p0 - p_prev;
+                    const double arcn = std::sqrt(dn * dn + psi * psi * dp * dp);
+                    const double sc = (arcn > 1.0e-14) ? ds / arcn : 0.0;
+                    VecWAXPY(u_pred.get(), sc, dir_u.get(), u0.get());
+                    p_pred = p0 + sc * dp;
+                } else {
+                    VecCopy(u0.get(), u_pred.get());
+                    p_pred = std::min(p0 + ds, p_end);
+                }
+                const double p_ref = p0;  // referencia del arco = último aceptado
+                auto res = fall_n::solve_petsc_bordered_mixed_control_newton(
+                    fall_n::PetscBorderedMixedControlState{u_pred.get(), p_pred},
+                    [&](const fall_n::PetscBorderedMixedControlState& st) {
+                        return use_arc
+                            ? fall_n::make_arc_length_petsc_bordered_evaluation(
+                                  nl, st, u0.get(), p_ref, ds, psi, aset)
+                            : fall_n::make_fixed_control_petsc_bordered_evaluation(
+                                  nl, st, p_pred, aset);
+                    },
+                    bset);
+                if (res.converged() && res.load_parameter > p_ref + 1.0e-12) {
+                    nl.accept_external_solution_step(res.unknowns.get(),
+                                                     res.load_parameter);
+                    VecCopy(u0.get(), u_prev.get());  // historia (solo en éxito)
+                    p_prev = p_ref;
+                    VecCopy(res.unknowns.get(), u0.get());
+                    p0 = res.load_parameter;
+                    have_prev = true;
+                    const double bs = extract_support_resultant_component(
+                        model, support_reaction_nodes, 0);
+                    const double drift = target_drift_at(
+                        cfg, control_path.lateral_progress(p0));
+                    al << step << "," << p0 << "," << drift << "," << bs << ","
+                       << bs << "," << ds << "\n";
+                    al.flush();
+                    ds = std::min(ds * 1.3, ds_max);
+                    ++step;
+                } else {
+                    nl.revert_trial_state();
+                    ds *= 0.5;
+                    if (ds < ds_min) {
+                        ds = ds_min;
+                        if (++hardfail > 20) break;
+                    }
+                }
+            }
+            std::fprintf(stderr,
+                         "[arclen] DONE steps=%d p0=%.5f (target %.5f) "
+                         "hardfail=%d\n",
+                         step, p0, p_end, hardfail);
+            return p0 >= p_end - 1.0e-9;
+        }
+
+        // ── Continuación NEWTON REGULARIZADO (Levenberg-Marquardt) ─────────
+        //  Gateada por KOBATHE_LMNEWTON=1.  (K + mu*I) du = -R con mu adaptativo:
+        //  mu>0 vuelve la tangente casi-singular RESOLUBLE para cruzar el punto
+        //  límite de carga (~88mm, donde Newton puro se atasca), y mu->0 en la
+        //  descarga bien-condicionada da Newton LOCAL (warm-start desde el estado
+        //  previo) que se queda en la rama continua -> sin el bump de reversa.
+        //  Reusa las costuras de NLAnalysis (evaluate_residual_at/tangent).
+        if (const char* lv = std::getenv("KOBATHE_LMNEWTON");
+            lv != nullptr && std::atoi(lv) == 1) {
+            auto envd = [](const char* k, double d) {
+                const char* v = std::getenv(k);
+                return (v != nullptr && v[0] != '\0') ? std::atof(v) : d;
+            };
+            // Política de regularización (schedule de mu) y configuración del
+            //  solver, ambas inyectadas en tiempo de compilación.  El tope de mu
+            //  relativo a ||diag(K)|| (mu_max_frac) evita que mu explote (1e28)
+            //  en el punto límite y congele el paso; sin tope el estado se queda
+            //  en el warm-start y el cortante sale errático.
+            fall_n::LevenbergMarquardt lmreg{
+                .mu0    = envd("KOBATHE_LM_MU0", 1.0e-2),
+                .grow   = envd("KOBATHE_LM_GROW", 4.0),
+                .drop   = envd("KOBATHE_LM_DROP", 0.3),
+                .mu_min = envd("KOBATHE_LM_MUMIN", 0.0),
+            };
+            fall_n::RegularizedNewtonConfig lmcfg{
+                .max_newton  = static_cast<int>(envd("KOBATHE_LM_MAXIT", 80.0)),
+                .tol_abs     = envd("KOBATHE_LM_ATOL", 1.0e-8),
+                .tol_rel     = envd("KOBATHE_LM_RTOL", 1.0e-8),
+                .mu_max_frac = envd("KOBATHE_LM_MUMAXFRAC", 1.0e-1),
+                .stag_max    = static_cast<int>(envd("KOBATHE_LM_STAG", 12.0)),
+                .accept_floor = 1.0e-5,
+                // Predictor secante ON por defecto: mata el spike de reversa
+                //  (KOBATHE_LM_PREDICT=0 lo desactiva -> warm-start puro).
+                .secant_predictor = (envd("KOBATHE_LM_PREDICT", 1.0) != 0.0),
+                .secant_max_scale = envd("KOBATHE_LM_PREDICT_MAXSCALE", 4.0),
+            };
+
+            fall_n::NLAnalysisContinuationBackend backend{nl};
+            fall_n::RegularizedNewtonContinuation solver{std::move(backend),
+                                                         lmcfg, lmreg};
+
+            std::filesystem::create_directories(out_dir);
+            std::ofstream lm(out_dir + "/lmnewton_hysteresis.csv");
+            lm << "step,p,drift_m,base_shear_MN,base_shear_coupled_MN,iters,mu,"
+                  "resid,conv\n"
+               << std::scientific << std::setprecision(8);
+
+            // Sub-incrementación de REVERSA: en la inversión de deriva la
+            //  tangente cambia de carácter (rama de ablandamiento -> descarga
+            //  elástica) y un paso completo hace que mu se dispare a mu_max y
+            //  CONGELE el paso -> queda una "wiggle" (la fuerza sube en la
+            //  descarga).  Partiendo el/los primeros incrementos post-reversa en
+            //  sub-pasos, la tangente evoluciona suave y LM converge en la rama
+            //  elástica.  Solo se REGISTRA en los targets originales.
+            const int rev_subdiv =
+                std::max(1, static_cast<int>(envd("KOBATHE_LM_REVSUBDIV", 1.0)));
+            const int rev_subn =
+                static_cast<int>(envd("KOBATHE_LM_REVSUBN", 3.0));
+
+            int istep = 0, n_noconv = 0;
+            double prev_p = nl.current_time();
+            double prev_drift =
+                target_drift_at(cfg, control_path.lateral_progress(prev_p));
+            int last_dir = 0, since_rev = 1 << 20;
+            for (const auto p : targets) {
+                const double drift_p =
+                    target_drift_at(cfg, control_path.lateral_progress(p));
+                const int dir = (drift_p > prev_drift) - (drift_p < prev_drift);
+                if (last_dir != 0 && dir != 0 && dir != last_dir)
+                    since_rev = 0;
+                else if (dir != 0)
+                    ++since_rev;
+                const int nsub =
+                    (rev_subdiv > 1 && since_rev < rev_subn) ? rev_subdiv : 1;
+
+                RegularizedNewtonStepResult res{};
+                for (int j = 1; j <= nsub; ++j) {  // solo el último cae en p
+                    const double pj =
+                        prev_p + (p - prev_p) * static_cast<double>(j) / nsub;
+                    res = solver.advance_to(pj);
+                }
+                prev_p = p;
+                prev_drift = drift_p;
+                if (dir != 0) last_dir = dir;
+
+                const double bs = extract_support_resultant_component(
+                    model, support_reaction_nodes, 0);
+                const double bs_c = extract_support_resultant_component(
+                    model, support_reaction_nodes, 0,
+                    has_embedded_rebars ? &coupling : nullptr,
+                    has_embedded_transverse_rebars ? &transverse_coupling
+                                                   : nullptr);
+                lm << istep << "," << p << "," << drift_p << "," << bs << ","
+                   << bs_c << "," << res.iterations << "," << res.mu_final << ","
+                   << res.residual << "," << (res.converged ? 1 : 0) << "\n";
+                lm.flush();
+                if (!res.converged) {
+                    ++n_noconv;
+                    std::fprintf(stderr,
+                                 "[lm] step=%d p=%.4f drift=%.2fmm NO-CONV "
+                                 "(it=%d mu=%.2e |R|=%.2e)\n",
+                                 istep, p, drift_p * 1.0e3, res.iterations,
+                                 res.mu_final, res.residual);
+                }
+                ++istep;
+            }
+            std::fprintf(stderr, "[lm] DONE steps=%d noconv=%d\n", istep,
+                         n_noconv);
+            return true;
+        }
+
         for (const auto target : targets) {
             const double delta = target - nl.current_time();
             if (delta <= 1.0e-14) {

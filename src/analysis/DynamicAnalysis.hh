@@ -156,6 +156,16 @@ private:
     using MonitorCallback = std::function<void(PetscInt step, double t, Vec u, Vec v)>;
     MonitorCallback monitor_callback_;
 
+    // Hooks internos (dependientes de u) para acoplamientos penalty barra-host y
+    // tapas, que en el cuasi-estatico se anaden via NLAnalysis::set_*_hook.  Sin
+    // esto la barra embebida queda DECOPLADA en el path dinamico.
+    using InternalResidualHook =
+        std::function<void(Vec u_local, Vec residual_global, DM dm)>;
+    using InternalJacobianHook =
+        std::function<void(Vec u_local, Mat jacobian, DM dm)>;
+    InternalResidualHook internal_residual_hook_;
+    InternalJacobianHook internal_jacobian_hook_;
+
     // Observer pipeline (new interface — replaces monitor_callback_ when set)
     fall_n::ObserverCallback<ModelT> observer_callback_;
 
@@ -301,6 +311,14 @@ private:
         VecSet(F, 0.0);
         DMLocalToGlobal(dm, f_int_local, ADD_VALUES, F);
 
+        // ── 1b. F += fuerzas de acoplamiento penalty (barra-host, tapas) ──
+        //  Imprescindible: sin esto la barra embebida queda decoplada.
+        if (self->internal_residual_hook_) {
+            self->internal_residual_hook_(u_local, F, dm);
+            VecAssemblyBegin(F);
+            VecAssemblyEnd(F);
+        }
+
         DMRestoreLocalVector(dm, &u_local);
         DMRestoreLocalVector(dm, &f_int_local);
 
@@ -396,15 +414,25 @@ private:
         MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);
         MatAssemblyEnd(J_mat, MAT_FINAL_ASSEMBLY);
 
-        DMRestoreLocalVector(dm, &u_local);
-
-        // ── 2. J += a·M ─────────────────────────────────────────────
-        MatAXPY(J_mat, a, self->M_, SAME_NONZERO_PATTERN);
-
-        // ── 3. J += v·C ─────────────────────────────────────────────
+        // ── 2. J += a·M  y  J += v·C  (patron base, ANTES del acoplamiento) ──
+        //  SUBSET_NONZERO_PATTERN: tras la 1a iteracion el patron de J persiste
+        //  con los no-ceros barra-host del acoplamiento, de los que M/C son
+        //  subconjunto; SAME_NONZERO_PATTERN fallaria.
+        MatAXPY(J_mat, a, self->M_, SUBSET_NONZERO_PATTERN);
         if (self->C_) {
-            MatAXPY(J_mat, v, self->C_, SAME_NONZERO_PATTERN);
+            MatAXPY(J_mat, v, self->C_, SUBSET_NONZERO_PATTERN);
         }
+
+        // ── 3. J += tangente del acoplamiento penalty (barra-host, tapas) ──
+        //  Se anade AL FINAL: introduce no-ceros barra-host fuera del patron de
+        //  M/C, de modo que hacerlo antes rompe los MatAXPY(SAME_NONZERO_PATTERN).
+        if (self->internal_jacobian_hook_) {
+            self->internal_jacobian_hook_(u_local, J_mat, dm);
+            MatAssemblyBegin(J_mat, MAT_FINAL_ASSEMBLY);
+            MatAssemblyEnd(J_mat, MAT_FINAL_ASSEMBLY);
+        }
+
+        DMRestoreLocalVector(dm, &u_local);
 
         PetscFunctionReturn(PETSC_SUCCESS);
     }
@@ -745,6 +773,16 @@ public:
     /// Prefer set_observer() for the composable observer pipeline.
     void set_monitor(MonitorCallback mc) {
         monitor_callback_ = std::move(mc);
+    }
+
+    /// Hook de residuo interno (u-dependiente): se suma al residuo global tras
+    /// f_int, para acoplamientos penalty barra-host / tapas.
+    void set_internal_residual_hook(InternalResidualHook h) {
+        internal_residual_hook_ = std::move(h);
+    }
+    /// Hook de jacobiano interno (u-dependiente): se suma a K_t antes de a*M+v*C.
+    void set_internal_jacobian_hook(InternalJacobianHook h) {
+        internal_jacobian_hook_ = std::move(h);
     }
 
     /// Register an observer pipeline.
@@ -1194,6 +1232,60 @@ public:
     Vec velocity()      const { return V_; }
     Mat mass_matrix()   const { return M_; }
     Mat damping_matrix() const { return C_; }
+
+    // =================================================================
+    //  Dynamic-relaxation helpers (relax-to-static per load increment)
+    // =================================================================
+
+    /// Kinetic energy ½·vᵀM·v of the current global velocity — the standard
+    /// convergence indicator when relaxing a held prescription to a static
+    /// equilibrium. Returns 0 if there is no mass/velocity yet.
+    [[nodiscard]] double kinetic_energy() const {
+        if (!V_ || !M_) return 0.0;
+        Vec tmp = nullptr;
+        FALL_N_PETSC_CHECK(VecDuplicate(V_.get(), &tmp));
+        FALL_N_PETSC_CHECK(MatMult(M_, V_.get(), tmp));
+        PetscScalar ke = 0.0;
+        FALL_N_PETSC_CHECK(VecDot(V_.get(), tmp, &ke));
+        FALL_N_PETSC_CHECK(VecDestroy(&tmp));
+        return 0.5 * PetscRealPart(ke);
+    }
+
+    /// L2 norm of the current global velocity.
+    [[nodiscard]] double velocity_norm() const {
+        if (!V_) return 0.0;
+        PetscReal n = 0.0;
+        FALL_N_PETSC_CHECK(VecNorm(V_.get(), NORM_2, &n));
+        return static_cast<double>(n);
+    }
+
+    /// Zero the velocity while keeping the current displacement, then restart the
+    /// integrator so the next step recomputes acceleration from rest. This is the
+    /// kinetic-damping move of dynamic relaxation: it drains the accumulated
+    /// momentum that would otherwise overshoot the static equilibrium at reversals.
+    void reset_velocity() {
+        setup();
+        Vec U_cur = nullptr, V_cur = nullptr;
+        FALL_N_PETSC_CHECK(TS2GetSolution(ts_, &U_cur, &V_cur));
+        if (U_cur != U_.get())
+            FALL_N_PETSC_CHECK(VecCopy(U_cur, U_.get()));
+        FALL_N_PETSC_CHECK(VecZeroEntries(V_.get()));
+        FALL_N_PETSC_CHECK(TS2SetSolution(ts_, U_.get(), V_.get()));
+        FALL_N_PETSC_CHECK(TSRestartStep(ts_));
+    }
+
+    /// Overwrite the global displacement with U_ext (a continuation predictor
+    /// guess), zero the velocity, and restart the integrator.  Used by the
+    /// dynamic-relaxation driver to seed each increment on the CONTINUOUS branch
+    /// (extrapolated DOF trajectory) so the relaxation does not fall onto a
+    /// spurious higher-force equilibrium at load reversals.
+    void set_displacement(Vec U_ext) {
+        setup();
+        FALL_N_PETSC_CHECK(VecCopy(U_ext, U_.get()));
+        FALL_N_PETSC_CHECK(VecZeroEntries(V_.get()));
+        FALL_N_PETSC_CHECK(TS2SetSolution(ts_, U_.get(), V_.get()));
+        FALL_N_PETSC_CHECK(TSRestartStep(ts_));
+    }
 
     const AnalysisTimer& timer() const { return timer_; }
           AnalysisTimer& timer()       { return timer_; }
