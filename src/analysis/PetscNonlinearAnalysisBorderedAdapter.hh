@@ -35,6 +35,11 @@ struct PetscNonlinearAnalysisBorderedAdapterSettings {
     double control_column_step{1.0e-6};
     double minimum_control_column_step{1.0e-10};
     bool use_central_difference{true};
+    // Orden de la diferencia finita de la columna de carga dR/dλ:
+    //  1 = adelantada O(h); 2 = central O(h^2); 4 = central de 5 puntos O(h^4).
+    //  Un orden mayor da un dR/dλ más fiel -> mejor sistema bordered y mejor
+    //  predictor tangente, a costa de más evaluaciones de residuo por columna.
+    int control_column_order{2};
 };
 
 namespace detail {
@@ -64,23 +69,47 @@ template <typename AnalysisT>
 {
     const double h = bounded_control_perturbation(p, settings);
     auto column = analysis.create_global_vector();
-    auto r_plus = analysis.create_global_vector();
 
-    if (settings.use_central_difference) {
+    // Orden efectivo: control_column_order manda; si quedó en el legado (2) se
+    //  respeta use_central_difference (false -> orden 1 adelantada).
+    int order = settings.control_column_order;
+    if (order != 1 && order != 2 && order != 4) order = 2;
+    if (order == 2 && !settings.use_central_difference) order = 1;
+
+    auto eval_at = [&](double pp, Vec out) {
+        analysis.revert_trial_state();
+        analysis.apply_incremental_control_parameter(pp);
+        analysis.evaluate_residual_at(unknowns, out);
+    };
+
+    if (order == 4) {
+        // Central de 5 puntos O(h^4):
+        //  (-R(p+2h) + 8R(p+h) - 8R(p-h) + R(p-2h)) / (12h)
+        auto rpp = analysis.create_global_vector();
+        auto rp = analysis.create_global_vector();
+        auto rm = analysis.create_global_vector();
+        auto rmm = analysis.create_global_vector();
+        eval_at(p + 2.0 * h, rpp.get());
+        eval_at(p + h, rp.get());
+        eval_at(p - h, rm.get());
+        eval_at(p - 2.0 * h, rmm.get());
+        FALL_N_PETSC_CHECK(VecSet(column.get(), 0.0));
+        FALL_N_PETSC_CHECK(VecAXPY(column.get(), -1.0, rpp.get()));
+        FALL_N_PETSC_CHECK(VecAXPY(column.get(), 8.0, rp.get()));
+        FALL_N_PETSC_CHECK(VecAXPY(column.get(), -8.0, rm.get()));
+        FALL_N_PETSC_CHECK(VecAXPY(column.get(), 1.0, rmm.get()));
+        FALL_N_PETSC_CHECK(VecScale(column.get(), 1.0 / (12.0 * h)));
+    } else if (order == 2) {
+        auto r_plus = analysis.create_global_vector();
         auto r_minus = analysis.create_global_vector();
-        analysis.revert_trial_state();
-        analysis.apply_incremental_control_parameter(p + h);
-        analysis.evaluate_residual_at(unknowns, r_plus.get());
-        analysis.revert_trial_state();
-        analysis.apply_incremental_control_parameter(p - h);
-        analysis.evaluate_residual_at(unknowns, r_minus.get());
+        eval_at(p + h, r_plus.get());
+        eval_at(p - h, r_minus.get());
         FALL_N_PETSC_CHECK(VecCopy(r_plus.get(), column.get()));
         FALL_N_PETSC_CHECK(VecAXPY(column.get(), -1.0, r_minus.get()));
         FALL_N_PETSC_CHECK(VecScale(column.get(), 0.5 / h));
-    } else {
-        analysis.revert_trial_state();
-        analysis.apply_incremental_control_parameter(p + h);
-        analysis.evaluate_residual_at(unknowns, r_plus.get());
+    } else {  // order == 1, adelantada
+        auto r_plus = analysis.create_global_vector();
+        eval_at(p + h, r_plus.get());
         FALL_N_PETSC_CHECK(VecCopy(r_plus.get(), column.get()));
         FALL_N_PETSC_CHECK(VecAXPY(column.get(), -1.0, residual_at_p));
         FALL_N_PETSC_CHECK(VecScale(column.get(), 1.0 / h));
@@ -145,7 +174,8 @@ make_arc_length_petsc_bordered_evaluation(
     double reference_load,
     double arc_length,
     double load_scaling,
-    PetscNonlinearAnalysisBorderedAdapterSettings settings = {})
+    PetscNonlinearAnalysisBorderedAdapterSettings settings = {},
+    double regularization_mu_frac = 0.0)
 {
     PetscBorderedMixedControlEvaluation eval;
     eval.residual = analysis.create_global_vector();
@@ -156,6 +186,21 @@ make_arc_length_petsc_bordered_evaluation(
     analysis.apply_incremental_control_parameter(state.load_parameter);
     analysis.evaluate_residual_at(state.unknowns, eval.residual.get());
     analysis.evaluate_tangent_at(state.unknowns, eval.tangent.get());
+    // Regularización Levenberg-Marquardt del bloque K del sistema bordered:
+    //  K <- K + mu*I con mu = mu_frac*||diag(K)||.  Vuelve resoluble el corrector
+    //  bordered en el punto límite (donde K es casi-singular y el arc-length
+    //  puro se atasca), combinando el trazado paramétrico del arc-length con la
+    //  regularización que cruza el punto límite.
+    if (regularization_mu_frac > 0.0) {
+        petsc::OwnedVec diag = analysis.create_global_vector();
+        FALL_N_PETSC_CHECK(MatGetDiagonal(eval.tangent.get(), diag.get()));
+        PetscReal dn = 0.0;
+        FALL_N_PETSC_CHECK(VecNorm(diag.get(), NORM_2, &dn));
+        const double mu =
+            regularization_mu_frac * std::max<double>(static_cast<double>(dn),
+                                                      1.0e-30);
+        FALL_N_PETSC_CHECK(MatShift(eval.tangent.get(), mu));
+    }
     eval.load_column = detail::finite_difference_control_column(
         analysis,
         state.unknowns,

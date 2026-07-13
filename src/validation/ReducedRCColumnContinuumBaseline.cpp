@@ -4374,28 +4374,73 @@ run_reduced_rc_column_continuum_case_result_impl(
             };
             const double p_end = targets.back();
             const double psi = envd("KOBATHE_ARCLEN_PSI", 0.0);  // 0=cilíndrico
+            // Regularización LM del corrector bordered (experimento arc-length +
+            //  regularización simultáneos). >0 activa K<-K+mu_frac*||diag(K)||*I.
+            const double arclen_mu = envd("KOBATHE_ARCLEN_MU", 0.0);
+            // Piso de aceptación: en el ablandamiento (>88mm) el residuo se
+            //  estanca ~1e-3 por la penalización α y el corrector no "converge"
+            //  a la tolerancia estricta; se acepta el paso si el residuo está en
+            //  el piso Y el parámetro avanzó (como el accept_floor del LM).
+            const double arclen_accept_floor =
+                envd("KOBATHE_ARCLEN_ACCEPT_FLOOR", 0.0);
             const double ds_min = envd("KOBATHE_ARCLEN_DS_MIN", 1.0e-5);
             const double ds_max = envd("KOBATHE_ARCLEN_DS_MAX", 5.0e-2);
             double ds = envd("KOBATHE_ARCLEN_DS", 5.0e-3);
             const int max_steps =
                 static_cast<int>(envd("KOBATHE_ARCLEN_MAXSTEPS", 5.0e4));
             fall_n::PetscBorderedMixedControlNewtonSettings bset{};
+            // El piso de residuo del problema (por la penalización α) es ~1e-4;
+            //  la tolerancia por defecto del kernel bordered (1e-10) es
+            //  inalcanzable -> el corrector falla SIEMPRE (como el LM, que por
+            //  eso usa accept_floor). Relajarla al piso da una chance real al
+            //  experimento arc-length (+ opcional regularización μ).
+            bset.residual_tolerance = envd("KOBATHE_ARCLEN_RTOL", 1.0e-4);
+            bset.constraint_tolerance = envd("KOBATHE_ARCLEN_CTOL", 1.0e-8);
+            bset.max_iterations =
+                static_cast<int>(envd("KOBATHE_ARCLEN_MAXIT", 60.0));
+            bset.accept_best_line_search_trial = true;
+            // arc-length + LM COMBINADO: regularización de la tangente POR
+            //  ITERACIÓN dentro del corrector bordered (KOBATHE_ARCLEN_MU>0 la
+            //  activa como semilla). El kernel adapta mu: sube en la tangente
+            //  casi-singular del ablandamiento, baja en las zonas bien
+            //  condicionadas -> cruza el punto límite sin sobre-amortiguar.
+            bset.regularization_mu_frac = arclen_mu;  // >0 activa el LM del kernel
+            bset.regularization_mu_max_frac =
+                envd("KOBATHE_ARCLEN_MU_MAX", 1.0e-1);
+            bset.regularization_mu_grow = envd("KOBATHE_ARCLEN_MU_GROW", 4.0);
+            bset.regularization_mu_drop = envd("KOBATHE_ARCLEN_MU_DROP", 0.25);
+            // Orden de la diferencia finita de la columna de carga dR/dλ.
             fall_n::PetscNonlinearAnalysisBorderedAdapterSettings aset{};
+            aset.control_column_order =
+                static_cast<int>(envd("KOBATHE_ARCLEN_FD_ORDER", 2.0));
 
             petsc::OwnedVec u0 = nl.create_global_vector();
             petsc::OwnedVec u_prev = nl.create_global_vector();
+            petsc::OwnedVec u_prev2 = nl.create_global_vector();  // predictor 2º orden
             petsc::OwnedVec u_pred = nl.create_global_vector();
             petsc::OwnedVec dir_u = nl.create_global_vector();
+            petsc::OwnedVec curv_u = nl.create_global_vector();   // curvatura
             VecSet(u0.get(), 0.0);
             double p0 = nl.current_time();
-            double p_prev = p0;
+            double p_prev = p0, p_prev2 = p0;
             bool have_prev = false;
+            int n_accept = 0;  // >=2 habilita el predictor cuadrático
+            // Predictor de orden superior (Taylor 2º): u_pred = u0 + sc*t +
+            //  (sc^2/2)*c, con t=u0-u_prev (secante) y c=u0-2u_prev+u_prev2
+            //  (curvatura). Reduce a la secante en tramos rectos; corrige al
+            //  entrar en la curva del ablandamiento. KOBATHE_ARCLEN_PRED_ORDER.
+            const int pred_order =
+                static_cast<int>(envd("KOBATHE_ARCLEN_PRED_ORDER", 2.0));
 
             std::filesystem::create_directories(out_dir);
             std::ofstream al(out_dir + "/arclen_hysteresis.csv");
             al << "step,p,drift_m,base_shear_MN,base_shear_coupled_MN,ds\n"
                << std::scientific << std::setprecision(8);
 
+            // Regularización LM ADAPTATIVA a nivel de paso: mu pequeño en el
+            //  la regularización LM ahora vive DENTRO del corrector bordered
+            //  (bset.regularization_*, adaptada por iteración). El driver solo
+            //  ajusta el tamaño de arco ds en el fallo.
             int step = 0, hardfail = 0;
             while (p0 < p_end - 1.0e-9 && step < max_steps) {
                 // Predictor: secante (u_prev,p_prev)->(u0,p0) escalado a ds en la
@@ -4409,8 +4454,15 @@ run_reduced_rc_column_continuum_case_result_impl(
                     const double dp = p0 - p_prev;
                     const double arcn = std::sqrt(dn * dn + psi * psi * dp * dp);
                     const double sc = (arcn > 1.0e-14) ? ds / arcn : 0.0;
-                    VecWAXPY(u_pred.get(), sc, dir_u.get(), u0.get());
+                    VecWAXPY(u_pred.get(), sc, dir_u.get(), u0.get());  // 1er orden
                     p_pred = p0 + sc * dp;
+                    if (pred_order >= 2 && n_accept >= 2) {  // + curvatura 2º orden
+                        VecCopy(u0.get(), curv_u.get());
+                        VecAXPY(curv_u.get(), -2.0, u_prev.get());
+                        VecAXPY(curv_u.get(), 1.0, u_prev2.get());
+                        VecAXPY(u_pred.get(), 0.5 * sc * sc, curv_u.get());
+                        p_pred += 0.5 * sc * sc * (p0 - 2.0 * p_prev + p_prev2);
+                    }
                 } else {
                     VecCopy(u0.get(), u_pred.get());
                     p_pred = std::min(p0 + ds, p_end);
@@ -4419,21 +4471,32 @@ run_reduced_rc_column_continuum_case_result_impl(
                 auto res = fall_n::solve_petsc_bordered_mixed_control_newton(
                     fall_n::PetscBorderedMixedControlState{u_pred.get(), p_pred},
                     [&](const fall_n::PetscBorderedMixedControlState& st) {
+                        // mu=0 en la evaluación: la regularización LM la maneja
+                        //  el KERNEL por iteración (bset.regularization_*).
                         return use_arc
                             ? fall_n::make_arc_length_petsc_bordered_evaluation(
-                                  nl, st, u0.get(), p_ref, ds, psi, aset)
+                                  nl, st, u0.get(), p_ref, ds, psi, aset, 0.0)
                             : fall_n::make_fixed_control_petsc_bordered_evaluation(
                                   nl, st, p_pred, aset);
                     },
                     bset);
-                if (res.converged() && res.load_parameter > p_ref + 1.0e-12) {
+                const bool advanced = res.load_parameter > p_ref + 1.0e-12;
+                const bool at_floor =
+                    arclen_accept_floor > 0.0 &&
+                    res.residual_norm <= arclen_accept_floor &&
+                    res.constraint_abs <= 1.0e-6;
+                if (advanced && (res.converged() || at_floor)) {
                     nl.accept_external_solution_step(res.unknowns.get(),
                                                      res.load_parameter);
-                    VecCopy(u0.get(), u_prev.get());  // historia (solo en éxito)
+                    // Corre la historia de 3 puntos (predictor 2º orden).
+                    VecCopy(u_prev.get(), u_prev2.get());
+                    p_prev2 = p_prev;
+                    VecCopy(u0.get(), u_prev.get());
                     p_prev = p_ref;
                     VecCopy(res.unknowns.get(), u0.get());
                     p0 = res.load_parameter;
                     have_prev = true;
+                    ++n_accept;
                     const double bs = extract_support_resultant_component(
                         model, support_reaction_nodes, 0);
                     const double drift = target_drift_at(
@@ -4444,8 +4507,20 @@ run_reduced_rc_column_continuum_case_result_impl(
                     ds = std::min(ds * 1.3, ds_max);
                     ++step;
                 } else {
+                    if (std::getenv("KOBATHE_ARCLEN_DIAG") != nullptr) {
+                        std::fprintf(
+                            stderr,
+                            "[arclen] REJECT step=%d p_ref=%.5f ds=%.2e "
+                            "status=%d conv=%d p_new=%.5f it=%d |R|=%.3e "
+                            "|c|=%.3e ksp=%d\n",
+                            step, p_ref, ds, static_cast<int>(res.status),
+                            res.converged() ? 1 : 0, res.load_parameter,
+                            res.iterations, res.residual_norm,
+                            res.constraint_abs,
+                            static_cast<int>(res.last_ksp_reason));
+                    }
                     nl.revert_trial_state();
-                    ds *= 0.5;
+                    ds *= 0.5;  // el kernel ya regularizó mu por iteración
                     if (ds < ds_min) {
                         ds = ds_min;
                         if (++hardfail > 20) break;

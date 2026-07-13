@@ -88,6 +88,21 @@ struct PetscBorderedMixedControlNewtonSettings {
     double ksp_atol{1.0e-14};
     int ksp_max_iterations{1000};
     bool reuse_preconditioner{false};
+
+    // ── Levenberg-Marquardt regularization of the K block (iteration-level) ──
+    //  When enabled (>0), each Newton iteration shifts the tangent block of the
+    //  augmented system by mu*I with mu ADAPTED per iteration: it seeds at
+    //  regularization_mu_frac*||diag(K)||, escalates (x grow, capped at
+    //  regularization_mu_max_frac*||diag(K)||) whenever the linear solve is
+    //  singular or the line search cannot decrease the merit, and relaxes
+    //  (x drop) after a clean full step.  This makes the bordered corrector cross
+    //  a near-singular tangent (softening limit point) without over-damping the
+    //  well-conditioned regions.  0 disables it (default) -> plain bordered Newton.
+    double regularization_mu_frac{0.0};
+    double regularization_mu_max_frac{1.0e-1};
+    double regularization_mu_grow{4.0};
+    double regularization_mu_drop{0.25};
+    int    regularization_max_escalations{12};
 };
 
 struct PetscBorderedMixedControlNewtonResult {
@@ -473,7 +488,16 @@ solve_petsc_bordered_mixed_control_newton(
     auto rhs = detail::create_augmented_vec(solve_comm, n);
     auto step = detail::create_augmented_vec(solve_comm, n);
     auto trial_unknowns = detail::duplicate_vec(result.unknowns.get());
+    auto diag_vec = detail::duplicate_vec(result.unknowns.get());
     result.augmented_system_allocations = 4;
+
+    // Levenberg-Marquardt regularization state (iteration-level).  mu is the
+    //  CURRENT shift applied to the K block; it escalates on singular/failed
+    //  steps and relaxes after clean ones.  escalations counts consecutive
+    //  growths (a backstop against an unbounded escalation loop).
+    const bool reg_on = settings.regularization_mu_frac > 0.0;
+    double mu = 0.0;
+    int escalations = 0;
 
     for (int iter = 0; iter < settings.max_iterations; ++iter) {
         auto eval = evaluator(PetscBorderedMixedControlState{
@@ -500,6 +524,25 @@ solve_petsc_bordered_mixed_control_newton(
             return result;
         }
 
+        // LM regularization: shift the K block by mu (capped at a fraction of
+        //  ||diag(K)||) before building the augmented system.  mu carries over
+        //  from the previous iteration's adaptation.
+        double mu_max = 0.0;
+        if (reg_on) {
+            FALL_N_PETSC_CHECK(MatGetDiagonal(eval.tangent.get(), diag_vec.get()));
+            const double diagn = detail::petsc_vec_norm(diag_vec.get());
+            mu_max = settings.regularization_mu_max_frac *
+                     std::max(diagn, 1.0e-30);
+            if (mu <= 0.0) {
+                mu = settings.regularization_mu_frac * std::max(diagn, 1.0e-30);
+            }
+            mu = std::min(mu, mu_max);
+            if (mu > 0.0) {
+                FALL_N_PETSC_CHECK(MatShift(eval.tangent.get(),
+                                            static_cast<PetscScalar>(mu)));
+            }
+        }
+
         FALL_N_PETSC_CHECK(MatZeroEntries(augmented.get()));
         FALL_N_PETSC_CHECK(VecSet(rhs.get(), 0.0));
         FALL_N_PETSC_CHECK(VecSet(step.get(), 0.0));
@@ -516,6 +559,14 @@ solve_petsc_bordered_mixed_control_newton(
         result.last_ksp_iterations = static_cast<int>(ksp_iterations);
         result.total_ksp_iterations += static_cast<int>(ksp_iterations);
         if (ksp_reason < 0) {
+            // Augmented system singular: if regularizing and mu can still grow,
+            //  escalate mu and retry (re-evaluates at the same state next iter).
+            if (reg_on && mu < mu_max &&
+                escalations < settings.regularization_max_escalations) {
+                mu = std::min(mu * settings.regularization_mu_grow, mu_max);
+                ++escalations;
+                continue;
+            }
             result.status =
                 BorderedMixedControlNewtonStatus::singular_augmented_system;
             result.iterations = iter;
@@ -617,6 +668,14 @@ solve_petsc_bordered_mixed_control_newton(
                 }
             }
             if (!accepted) {
+                // Line search could not decrease the merit: if regularizing and
+                //  mu can still grow, escalate mu and retry (no step applied).
+                if (reg_on && mu < mu_max &&
+                    escalations < settings.regularization_max_escalations) {
+                    mu = std::min(mu * settings.regularization_mu_grow, mu_max);
+                    ++escalations;
+                    continue;
+                }
                 result.status =
                     BorderedMixedControlNewtonStatus::line_search_failed;
                 result.iterations = iter;
@@ -632,6 +691,16 @@ solve_petsc_bordered_mixed_control_newton(
             step.get(),
             alpha);
         result.load_parameter += alpha * dlambda;
+        // Adapt mu after a successful step: relax on a clean full step, tighten
+        //  on a damped one.  Reset the escalation backstop.
+        if (reg_on) {
+            if (alpha >= 0.999) {
+                mu = std::max(0.0, mu * settings.regularization_mu_drop);
+            } else {
+                mu = std::min(mu * settings.regularization_mu_grow, mu_max);
+            }
+            escalations = 0;
+        }
         result.records.push_back(
             BorderedMixedControlNewtonIterationRecord{
                 .iteration = iter + 1,
