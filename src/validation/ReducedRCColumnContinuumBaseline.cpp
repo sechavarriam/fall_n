@@ -4431,6 +4431,15 @@ run_reduced_rc_column_continuum_case_result_impl(
             //  entrar en la curva del ablandamiento. KOBATHE_ARCLEN_PRED_ORDER.
             const int pred_order =
                 static_cast<int>(envd("KOBATHE_ARCLEN_PRED_ORDER", 2.0));
+            // Predictor CONSCIENTE DE LA REVERSA: en un protocolo de deriva
+            //  prescrita triangular, u(p) tiene un kink de velocidad en cada
+            //  giro y el predictor secante apunta al lado equivocado -> el
+            //  arc-length se atasca en el giro. Al detectar el giro (la deriva
+            //  prescrita del control_path va a invertirse dentro del alcance) se
+            //  da un paso de CONTROL FIJO a través del giro (se lo entrega al
+            //  corrector, como al LM por desplazamiento) y se reanuda arc-length.
+            const bool turn_aware =
+                static_cast<int>(envd("KOBATHE_ARCLEN_TURN_AWARE", 1.0)) != 0;
 
             std::filesystem::create_directories(out_dir);
             std::ofstream al(out_dir + "/arclen_hysteresis.csv");
@@ -4442,12 +4451,51 @@ run_reduced_rc_column_continuum_case_result_impl(
             //  (bset.regularization_*, adaptada por iteración). El driver solo
             //  ajusta el tamaño de arco ds en el fallo.
             int step = 0, hardfail = 0;
+            // Ventana de CONTROL FIJO a través de la reversa: al detectar el
+            //  giro se mantiene control fijo durante turn_hold_steps pasos (con
+            //  incrementos pequeños de deriva desde un warm-start bueno), para
+            //  quedarse en la rama de descarga ELÁSTICA y no caer en la rama
+            //  espuria de fuerza alta del multi-equilibrio; luego reanuda arc-len.
+            const int turn_hold_steps =
+                static_cast<int>(envd("KOBATHE_ARCLEN_TURN_HOLD", 6.0));
+            int turn_hold = 0;
             while (p0 < p_end - 1.0e-9 && step < max_steps) {
                 // Predictor: secante (u_prev,p_prev)->(u0,p0) escalado a ds en la
                 //  métrica del arco.  1er paso -> control fijo p0+ds para arrancar.
                 double p_pred = 0.0;
-                const bool use_arc = have_prev;
-                if (have_prev) {
+                bool use_arc = have_prev;
+                bool turn_step = false;
+
+                // Detección del giro del protocolo: ¿la deriva prescrita se
+                //  invierte dentro del alcance de un paso? -> abre la ventana de
+                //  control fijo (turn_hold pasos) para atravesar la reversa.
+                if (turn_aware && have_prev) {
+                    const double dp_look =
+                        std::clamp(std::abs(p0 - p_prev), 1.0e-3, 6.0e-3);
+                    const double d_now = target_drift_at(
+                        cfg, control_path.lateral_progress(p0));
+                    const double d_prv = target_drift_at(
+                        cfg, control_path.lateral_progress(p_prev));
+                    const double p_ahd = std::min(p0 + dp_look, p_end);
+                    const double d_ahd = target_drift_at(
+                        cfg, control_path.lateral_progress(p_ahd));
+                    const int dir = (d_now > d_prv) - (d_now < d_prv);
+                    const int dir_ahd = (d_ahd > d_now) - (d_ahd < d_now);
+                    if (turn_hold == 0 && dir != 0 && dir_ahd != 0 &&
+                        dir_ahd != dir) {
+                        turn_hold = turn_hold_steps;  // abre la ventana
+                    }
+                    if (turn_hold > 0) {  // paso de control fijo (incremento fino)
+                        turn_step = true;
+                        use_arc = false;
+                        p_pred = std::min(p0 + dp_look, p_end);
+                        VecCopy(u0.get(), u_pred.get());  // warm-start del anterior
+                    }
+                }
+
+                if (turn_step) {
+                    // p_pred / u_pred ya seteados (paso de control fijo).
+                } else if (have_prev) {
                     VecWAXPY(dir_u.get(), -1.0, u_prev.get(), u0.get());  // u0-u_prev
                     double dn = 0.0;
                     VecNorm(dir_u.get(), NORM_2, &dn);
@@ -4505,6 +4553,7 @@ run_reduced_rc_column_continuum_case_result_impl(
                        << bs << "," << ds << "\n";
                     al.flush();
                     ds = std::min(ds * 1.3, ds_max);
+                    if (turn_step && turn_hold > 0) --turn_hold;  // cierra ventana
                     ++step;
                 } else {
                     if (std::getenv("KOBATHE_ARCLEN_DIAG") != nullptr) {

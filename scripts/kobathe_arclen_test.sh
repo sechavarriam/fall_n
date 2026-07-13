@@ -37,6 +37,9 @@ export KOBATHE_ARCLEN_MU_DROP="${MU_DROP:-0.25}"
 # Orden de la columna de carga dR/dλ (1/2/4) y del predictor (1=secante,2=curvatura).
 export KOBATHE_ARCLEN_FD_ORDER="${FD_ORDER:-2}"
 export KOBATHE_ARCLEN_PRED_ORDER="${PRED_ORDER:-2}"
+# Predictor consciente de la reversa: paso de control fijo a traves del giro del
+#  protocolo (deriva prescrita triangular). 1=ON (cierra el lazo), 0=OFF.
+export KOBATHE_ARCLEN_TURN_AWARE="${TURN_AWARE:-1}"
 
 base=(--analysis "${ANALYSIS:-monotonic}" --amplitudes-mm "${AMPS:-120}" --steps-per-segment 8
   --hex-order hex27 --nx "${NX:-2}" --ny "${NY:-2}" --nz "${NZ:-4}"
