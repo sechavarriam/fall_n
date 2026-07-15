@@ -1,0 +1,118 @@
+% ==========================================================================
+%  Chapter 103 -- CA Meta-Tuning of the Continuation Solver (Extension, §P3)
+% ==========================================================================
+
+\chapter{Cultural-Algorithm Meta-Tuning of the Continuation Solver}
+\label{ch:ca-tuner-solver}
+
+\paragraph{Normative status.}
+Phase~P3 of the branch-selection extension
+(Cap.~\ref{ch:branch-selection-reversals}). The meta-tuning \emph{mechanism}
+--- the Cultural-Algorithm module (Cap.~\ref{ch:cultural-algorithm-module})
+driving the continuation solver's configuration
+(Cap.~\ref{ch:deflated-continuation}) --- is implemented and verified in
+isolation by ctest \texttt{regularized\_newton\_ca\_tuner}
+(\path{tests/test_regularized_newton_ca_tuner.cpp}). Status:
+\texttt{mechanism\_verified\_in\_isolation}. Coupling the tuner to a
+window replay of the real cyclic driver, and the full Gate~G4 evidence,
+belong to the driver integration (Phase~I).
+
+\section{Solver configuration as a decision vector}
+
+The three remedies of Caps.~\ref{ch:deflated-continuation}
+and~\ref{ch:energy-tao-continuation} change \emph{how} a step is taken.
+Phase~P3 is orthogonal: it tunes the numbers the continuation already
+exposes so that the plain LM step succeeds where a default choice fails.
+Those numbers form a decision vector
+\(\mathbf{g}=(\log_{10}\mu_0,\ \text{grow},\ \text{drop},\
+f_{\mu_{\max}},\ n_{\text{stag}},\dots)\)
+over a box of admissible values. The map from \(\mathbf{g}\) to an
+outcome is cheap to evaluate (replay one reversal) but has no usable
+derivative --- it threads through a nonsmooth accept/reject loop --- which
+is exactly the setting the Cultural Algorithm was built for
+(Cap.~\ref{ch:cultural-algorithm-module}, \cite{Reynolds1994Cultural}).
+
+\section{Objective: a replay of the continuation}
+
+The objective evaluates a genome by \emph{replaying} the solver with the
+decoded configuration and scoring the result:
+\[
+  \text{fitness}(\mathbf{g})
+  = -\bigl\lVert\mathbf{R}\bigl(\mathbf{u}^{\text{end}}(\mathbf{g})\bigr)\bigr\rVert,
+\]
+maximised, so the search drives the end-of-step residual to zero. In the
+real driver the replay runs a short window \(k_0,\dots,k_0{+}m{-}1\) across
+a reversal from a captured checkpoint, and the fitness combines the
+converged fraction with a spike penalty
+\(\max\!\bigl(0,\ |V|_{\text{peak}}/|V|_{\text{env}}-1\bigr)\); the
+checkpoint/restore that brackets each candidate is the
+\texttt{capture\_state}/\texttt{restore\_state} pair added in Phase~P1
+(Cap.~\ref{ch:deflated-continuation}). The isolated test uses the same
+shape on a 1-DOF surrogate so the tuner is validated independently of the
+column's cost.
+
+\section{An isolated proof that tuning matters}
+
+The surrogate is the cubic \(R(u)=(u-1)(u-2)(u-4)\) started at
+\(u_0=3.5\). The default LM configuration \emph{stalls} there: the Newton
+step overshoots root~\(4\) to \(u\approx4.5\), where \(|R|\) is larger,
+and the monotone-residual acceptance rejects it
+(Cap.~\ref{ch:deflated-continuation} discusses this same overshoot). More
+regularisation shrinks the step: with \(\mu_{\max}=f_{\mu_{\max}}\lVert
+\operatorname{diag}\mathbf{K}\rVert\) large enough the trial lands below
+\(4.5\), the residual decreases and the iteration accepts and converges.
+The Cultural Algorithm searches the five-parameter box and \emph{finds}
+such a configuration:
+%
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Configuration        & end-of-step \(|R|\)          & outcome \\
+\midrule
+Default              & \(1.875\)                    & stalls \\
+CA-tuned             & \(8.9\times10^{-12}\)        & converges \\
+\bottomrule
+\end{tabular}
+\end{center}
+%
+The winning genome raises \(f_{\mu_{\max}}\) from the default \(0.1\) to
+\(\approx0.69\) --- precisely the ``more regularisation'' the physics
+predicts --- and the search reaches it within a single generation. The
+run is bit-for-bit deterministic under a fixed seed. This closes the
+mechanism: the tuner is not a black box hoping for luck, it recovers the
+qualitatively-correct knob.
+
+\section{Genome v1 for the real driver}
+
+The production genome is eight-dimensional and \emph{solver-only}, since
+the material-latched genes (closure stiffness fraction, anchor cap) are
+read once into \texttt{static const} and cannot be retuned in-process:
+\[
+  \bigl(\log_{10}\mu_0,\ \text{grow},\ \text{drop},\ n_{\text{stag}},\
+   s_{\text{pred}}^{\max},\ \log_{10}\varepsilon_{\text{accept}},\
+   n_{\text{rev-subdiv}},\ n_{\text{rev-sub}}\bigr).
+\]
+Each candidate is applied through \texttt{set\_config}/%
+\texttt{set\_regularization} (Cap.~\ref{ch:deflated-continuation}) without
+rebuilding the analysis. The reversal-subdivision genes are included even
+though prior evidence suggests subdivision \emph{worsens} the spurious
+branch: leaving them in the search is how the tuner is asked to
+\emph{confirm} that, rather than assuming it.
+
+\section{Honest budget and scope}
+
+A replay campaign is not free: a population of \(\sim\!8\) over
+\(\sim\!10\) generations replaying a \(\sim\!6\)-step window is
+\(\mathcal{O}(500)\) continuation steps, minutes on the
+\(2\times2\times4\) mesh, and it must never run inside the
+\(5\times5\times20\) mesh. The tuner therefore runs once, offline, on the
+reduced mesh, and its winning genome is promoted to a full run and
+compared against \texttt{g0\_baseline}. The material-latched genes are
+swept by an outer per-process loop, not by the CA. These constraints, and
+the Gate~G4 criterion (regularized reversal steps cut by half, or peak
+\(\le1.5\times\) envelope, with a reproducible non-decreasing fitness
+history), are the subject of the Phase~I campaign. The same
+\texttt{maximize} will later tune control devices rather than solver knobs
+(Cap.~\ref{ch:cultural-algorithm-module},
+\cite{LaraValenciaEchavarriaValencia2024}); nothing in the tuner is
+specific to the continuation problem beyond the objective it is handed.
