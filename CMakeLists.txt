@@ -625,6 +625,10 @@ fall_n_add_test(TARGET fall_n_test_tao_energy_continuation
     NAME tao_energy_continuation  SOURCE tests/test_tao_energy_continuation.cpp
     LIBS CORE  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_test_regularized_newton_ca_tuner
+    NAME regularized_newton_ca_tuner  SOURCE tests/test_regularized_newton_ca_tuner.cpp
+    LIBS CORE  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_vtk_gauss_cloud_test
     NAME vtk_gauss_cloud_contract  SOURCE tests/test_vtk_gauss_cloud_contract.cpp
     LIBS VTK  LABEL unit)
