@@ -244,6 +244,10 @@ fall_n_enable_common_pch(fall_n_rc_beam_validation)
 add_executable(fall_n_table_multiscale main_table_multiscale.cpp)
 fall_n_use_multiscale_api(fall_n_table_multiscale)
 
+# ── Single RC cantilever column, quasi-static cyclic FE² (hinge RVE) ─────────
+add_executable(fall_n_rc_column_multiscale main_rc_column_multiscale.cpp)
+fall_n_use_multiscale_api(fall_n_rc_column_multiscale)
+
 # ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
@@ -619,6 +623,11 @@ fall_n_add_test(TARGET fall_n_test_algorithms_cultural_algorithm
 
 fall_n_add_test(TARGET fall_n_test_regularized_newton_deflation
     NAME regularized_newton_deflation  SOURCE tests/test_regularized_newton_deflation.cpp
+    LIBS CORE  LABEL unit)
+
+fall_n_add_test(TARGET fall_n_test_regularized_newton_energy_linesearch
+    NAME regularized_newton_energy_linesearch
+    SOURCE tests/test_regularized_newton_energy_linesearch.cpp
     LIBS CORE  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_test_tao_energy_continuation
