@@ -1,0 +1,242 @@
+% ==========================================================================
+%  Chapter 104 -- Architecture of the Branch-Selection Extension (diagrams)
+% ==========================================================================
+
+\chapter{Architecture of the Branch-Selection Extension}
+\label{ch:extension-architecture}
+
+\paragraph{Normative status.}
+Design record for the extension of
+Caps.~\ref{ch:branch-selection-reversals}--\ref{ch:ca-tuner-solver}. It
+fixes the type architecture (concepts, policies, mixins) and the control
+flow (the detect--restore--retry loop) so the driver integration of
+Phase~I is a wiring exercise, not a design one. No new runtime behaviour
+is introduced here.
+
+\section{Design rule: concepts first, CRTP only as a static mixin}
+\label{sec:ext-design-rule}
+
+The extension obeys one architectural rule, applied without exception:
+
+\begin{quote}
+\emph{Contracts are expressed as C++20 \texttt{concept}s. CRTP is used
+\textbf{only} as a ``static mixin'': to \textbf{inject} operations into a
+strong type, never to express an interface or to dispatch statically.}
+\end{quote}
+
+The distinction is between two jobs that inheritance is often
+(mis)used for:
+%
+\begin{description}
+  \item[Contract / static duck-typing.] ``This template argument must
+        provide \texttt{residual}, \texttt{tangent}, \texttt{accept}.''
+        This is a \texttt{concept}. It constrains without a base class, it
+        composes (a type can model several concepts), it gives readable
+        errors, and it never forces an inheritance edge. Every seam in the
+        extension --- \texttt{ContinuationBackend},
+        \texttt{RegularizationPolicy}, \texttt{DeflationPolicy},
+        \texttt{EnergyContinuationBackend}, \texttt{SearchSpace},
+        \texttt{ObjectiveFunction}, \texttt{KnowledgeSource} --- is a
+        concept, and each model carries a \texttt{static\_assert} that it
+        satisfies its concept.
+  \item[Operation injection into a strong type.] ``This strong type
+        carries data and identity; graft a family of operations onto it
+        that are written once and reused across many such types.'' Here a
+        \emph{static mixin} via CRTP is the right tool: the mixin is a
+        \texttt{template<class Derived> struct Mixin} whose methods
+        \texttt{static\_cast} to \texttt{Derived} to reach the type's
+        data, and the strong type derives \texttt{: Mixin<Strong>}. The
+        operations live in the mixin (reusable, extensible), the state
+        lives in the strong type. The extension does not \emph{need} a
+        mixin yet --- its policies are small structs of traits --- but the
+        seam is reserved: e.g. a future strong \texttt{Genome} type would
+        receive its arithmetic (clamp, blend, distance) from a
+        \texttt{GenomeOps<Genome>} mixin rather than re-implementing them.
+\end{description}
+
+The rule is why the whole extension has \emph{zero} CRTP today: nothing
+yet injects operations into a strong type; everything is a contract, and
+contracts are concepts.
+
+\section{Type architecture --- solver side (P1, P2)}
+
+Figure~\ref{fig:ext-solver-types} is the concept/class graph of the two
+continuation solvers. Dashed boxes are concepts; solid boxes are class
+templates or their policy arguments. A dashed edge reads ``models''; a
+solid edge reads ``is a template parameter of''.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    concept/.style={draw, dashed, rounded corners=2pt, fill=blue!6,
+                    font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    klass/.style={draw, rounded corners=2pt, fill=green!8,
+                  font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    policy/.style={draw, rounded corners=2pt, fill=orange!10,
+                   font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    models/.style={-{Stealth[length=4pt]}, dashed, gray},
+    tmpl/.style={-{Stealth[length=5pt]}, thick}
+  ]
+  % concept row
+  \node[concept] (cb)  at (0,5)    {ContinuationBackend};
+  \node[concept] (rp)  at (4.6,5)  {RegularizationPolicy};
+  \node[concept] (dp)  at (9.2,5)  {DeflationPolicy};
+  \node[concept] (ecb) at (0,3.4)  {EnergyContinuationBackend};
+  % classes
+  \node[klass] (rnc) at (5.0,3.0)
+     {RegularizedNewtonContinuation\\<Backend, Reg, Defl>};
+  \node[klass] (tao) at (0.2,1.6) {TaoEnergyContinuation<Backend>};
+  % policies
+  \node[policy] (lm)  at (3.4,0.4) {LevenbergMarquardt};
+  \node[policy] (pn)  at (6.0,0.4) {PureNewton};
+  \node[policy] (nd)  at (8.4,1.3) {NoDeflation};
+  \node[policy] (smd) at (9.6,0.2) {ShermanMorrison\\Deflation};
+
+  % models edges
+  \draw[models] (ecb) -- (cb) node[midway,left,font=\tiny\rmfamily]{refines};
+  \draw[models] (lm)  -- (rp);
+  \draw[models] (pn)  -- (rp);
+  \draw[models] (nd)  -- (dp);
+  \draw[models] (smd) -- (dp);
+  % template-parameter edges into the solver
+  \draw[tmpl] (cb)  -- (rnc);
+  \draw[tmpl] (rp)  -- (rnc);
+  \draw[tmpl] (dp)  -- (rnc);
+  \draw[tmpl] (ecb) -- (tao);
+\end{tikzpicture}
+\caption[Concept/class graph of the continuation solvers.]{Concept/class
+graph of the branch-selection solvers. Every seam is a concept (dashed);
+policies are swapped as template arguments. \texttt{NoDeflation} is the
+default third argument, so the un-deflated solver is one instantiation of
+the same template. \texttt{EnergyContinuationBackend} \emph{refines}
+\texttt{ContinuationBackend} by adding \texttt{incremental\_energy}.}
+\label{fig:ext-solver-types}
+\end{figure}
+
+The reading of Figure~\ref{fig:ext-solver-types}: the solver
+\texttt{RegularizedNewtonContinuation<Backend,Reg,Defl>} is parameterised
+by three \emph{independent} concepts. Swapping \texttt{Defl} from
+\texttt{NoDeflation} to \texttt{ShermanMorrisonDeflation} turns deflation
+on with no other change; because the default is \texttt{NoDeflation} and
+all deflation code sits behind \texttt{if constexpr (Defl::enabled)}, the
+default instantiation is byte-identical to the pre-extension solver
+(Cap.~\ref{ch:deflated-continuation}). \texttt{TaoEnergyContinuation}
+reuses the same backend contract, refined with one method.
+
+\section{Type architecture --- metaheuristics side (M, P3)}
+
+Figure~\ref{fig:ext-algo-types} is the graph of the optimisation module.
+The same rule holds: \texttt{SearchSpace}, \texttt{ObjectiveFunction} and
+\texttt{KnowledgeSource} are concepts; \texttt{CulturalAlgorithm} and
+\texttt{BeliefSpace} are class templates parameterised by them.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    concept/.style={draw, dashed, rounded corners=2pt, fill=blue!6,
+                    font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    klass/.style={draw, rounded corners=2pt, fill=green!8,
+                  font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    policy/.style={draw, rounded corners=2pt, fill=orange!10,
+                   font=\scriptsize\ttfamily, align=center, inner sep=3.5pt},
+    models/.style={-{Stealth[length=4pt]}, dashed, gray},
+    tmpl/.style={-{Stealth[length=5pt]}, thick},
+    comp/.style={-{Diamond[open,length=6pt]}, thick}
+  ]
+  \node[concept] (ss)  at (0,4.6)   {SearchSpace};
+  \node[concept] (of)  at (4.4,4.6) {ObjectiveFunction};
+  \node[concept] (ks)  at (9.0,4.6) {KnowledgeSource};
+  \node[klass]   (ca)  at (2.4,2.7) {CulturalAlgorithm\\<Space, KS...>};
+  \node[klass]   (bs)  at (7.4,2.7) {BeliefSpace<KS...>};
+  \node[policy]  (bss) at (0,1.2)   {BoundedSearchSpace};
+  \node[policy]  (nk)  at (7.0,1.1) {NormativeKnowledge};
+  \node[policy]  (sk)  at (10.2,1.1){SituationalKnowledge};
+
+  \draw[models] (bss) -- (ss);
+  \draw[models] (nk)  -- (ks);
+  \draw[models] (sk)  -- (ks);
+  \draw[tmpl] (ss) -- (ca);
+  \draw[tmpl] (ks) -- (ca);
+  \draw[tmpl] (ks) -- (bs);
+  \draw[comp] (ca) -- (bs) node[midway,above,font=\tiny\rmfamily]{owns};
+  \draw[tmpl] (of.south) .. controls (4.4,3.4) .. (ca.north east)
+        node[near start,right,font=\tiny\rmfamily]{maximize(\,)};
+\end{tikzpicture}
+\caption[Concept/class graph of the metaheuristics module.]{Concept/class
+graph of \texttt{src/algorithms/}. \texttt{CulturalAlgorithm} is
+constrained by \texttt{SearchSpace} and a pack of \texttt{KnowledgeSource}s
+and owns a \texttt{BeliefSpace} over the same pack; the objective enters
+through the \texttt{maximize} method (an \texttt{ObjectiveFunction}).
+Adding a knowledge source is a template-argument change, not an
+inheritance edit --- the belief space fans over the pack with a fold
+expression.}
+\label{fig:ext-algo-types}
+\end{figure}
+
+\section{Control flow --- the detect--restore--retry loop (Phase I)}
+
+The reversal remedy is reactive: a spurious step is only recognisable
+\emph{after} it commits, because the crack ratchet has advanced by then.
+The driver therefore brackets each reversal step with a checkpoint and
+retries on detection, using the Phase-P1 API
+(\texttt{capture\_state}, \texttt{register\_spurious\_root},
+\texttt{restore\_state}). Figure~\ref{fig:ext-retry-flow} is the process.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=6mm,
+    pnode/.style={draw, rounded corners=2pt, fill=green!7, font=\scriptsize,
+                 align=center, inner sep=4pt, minimum width=4.4cm},
+    dec/.style={draw, rounded corners=8pt, fill=orange!12, font=\scriptsize,
+                align=center, inner sep=4pt, minimum width=2.4cm},
+    arr/.style={-{Stealth[length=5pt]}, thick},
+    lbl/.style={font=\tiny, fill=white, inner sep=1pt}
+  ]
+  \node[pnode] (chk)  {checkpoint: \texttt{capture\_state()}};
+  \node[pnode, below=of chk] (adv) {\texttt{advance\_to(p)} (LM step)};
+  \node[dec, below=8mm of adv] (conv) {converged\\\&\ no spike?};
+  \node[pnode, right=22mm of conv, fill=blue!7] (commit) {commit step,\\advance to next \(p\)};
+  \node[dec, below=10mm of conv] (retry) {retries\\left?};
+  \node[pnode, below=9mm of retry] (reg)
+       {\texttt{register\_spurious\_root(u)}\\\texttt{restore\_state()}, tighten \(\mu\)};
+  \node[pnode, left=20mm of retry, fill=red!7] (accept)
+       {accept regularized\\(as baseline)};
+
+  \draw[arr] (chk) -- (adv);
+  \draw[arr] (adv) -- (conv);
+  \draw[arr] (conv) -- node[lbl]{yes} (commit);
+  \draw[arr] (conv) -- node[lbl]{no} (retry);
+  \draw[arr] (retry) -- node[lbl]{no} (accept);
+  \draw[arr] (retry) -- node[lbl]{yes} (reg);
+  \draw[arr] (reg.west) -- ++(-1.2,0) |- (adv.west)
+        node[lbl, pos=0.25]{re-solve, deflated};
+\end{tikzpicture}
+\caption[Detect--restore--retry loop at a reversal.]{The Phase-I
+detect--restore--retry loop. A reversal step is checkpointed, advanced,
+and audited; a converged spurious step (high force spike) is rolled back,
+its state registered as a deflation root, and re-solved so the deflated
+continuation escapes the spurious basin. On exhausting the retry budget
+the step is accepted \emph{as the baseline would have}, so the gate-off
+behaviour is preserved. The rounded amber nodes are decisions.}
+\label{fig:ext-retry-flow}
+\end{figure}
+
+Two invariants make the loop safe. First, the retry budget defaults to
+zero, so with the gate off the loop degenerates to a single
+\texttt{advance\_to} and the baseline path (Cap.~\ref{ch:branch-selection-reversals}).
+Second, the roots registered during a step are cleared when the step is
+committed, because the multi-equilibrium is local to a fixed control value
+--- a root that repelled the iteration at one reversal must not repel the
+physical branch at the next.
+
+\section{Where the CA-tuner attaches}
+
+The Phase-P3 meta-tuner (Cap.~\ref{ch:ca-tuner-solver}) wraps the same
+checkpoint: it captures the state before the first reversal, and its
+objective decodes a genome into a config, restores, replays the window,
+scores, and restores again. The tuner is thus a \emph{second} consumer of
+the Phase-P1 checkpoint API, orthogonal to the retry loop --- the retry
+loop selects a branch \emph{within} a fixed config; the tuner selects a
+\emph{config}. Both leave the default build byte-identical because both
+are entered only under their environment gates.
