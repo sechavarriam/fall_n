@@ -89,6 +89,11 @@ public:
     [[nodiscard]] Vec solution() const noexcept { return u_.get(); }
     [[nodiscard]] Backend& backend() noexcept { return backend_; }
 
+    // Incremental energy Pi(u)-Pi(u_ref) of the LAST advance_to, measured
+    //  before the commit (material state still frozen), so it is comparable
+    //  across candidate branches of the SAME step.
+    [[nodiscard]] double last_energy() const noexcept { return last_energy_; }
+
     RegularizedNewtonStepResult advance_to(double p)
     {
         backend_.apply_control(p);
@@ -118,6 +123,8 @@ public:
         FALL_N_PETSC_CHECK(VecNorm(R_.get(), NORM_2, &rn));
         const bool converged = static_cast<double>(rn) <= cfg_.accept_floor;
 
+        last_energy_ = backend_.incremental_energy(u_.get(), uref_.get());
+
         backend_.accept(u_.get(), p);
         return {converged, static_cast<int>(it), static_cast<double>(rn), 0.0};
     }
@@ -127,6 +134,48 @@ private:
     TaoEnergyConfig cfg_;
     petsc::OwnedVec u_{}, uref_{}, R_{};
     petsc::OwnedMat H_{};
+    double          last_energy_{0.0};
+};
+
+// ── Adapter: NonlinearAnalysis -> EnergyContinuationBackend ──────────────────
+//  Extends the residual/tangent adapter with the incremental potential through
+//  a LINE QUADRATURE of the existing residual,
+//    Pi(u) - Pi(u_ref) = \int_0^1 R(u_ref + s (u - u_ref))^T (u - u_ref) ds,
+//  with a 3-point Gauss-Legendre rule on [0,1].  The integral is honest
+//  because within a step the material state is FROZEN (evaluate_residual_at
+//  does not advance the crack ratchet), so R = grad Pi and the line integral
+//  is path-independent.  No material/element/Model change is needed.
+template <typename AnalysisT>
+class NLAnalysisEnergyBackend : public NLAnalysisContinuationBackend<AnalysisT> {
+public:
+    explicit NLAnalysisEnergyBackend(AnalysisT& analysis)
+        : NLAnalysisContinuationBackend<AnalysisT>(analysis)
+    {
+        du_ = this->create_vector();
+        us_ = this->create_vector();
+        r_  = this->create_vector();
+    }
+
+    [[nodiscard]] double incremental_energy(Vec u, Vec u_ref)
+    {
+        FALL_N_PETSC_CHECK(VecWAXPY(du_.get(), -1.0, u_ref, u));  // u - u_ref
+        static constexpr double half = 0.3872983346207417;        // sqrt(3/5)/2
+        static constexpr double xs[3] = {0.5 - half, 0.5, 0.5 + half};
+        static constexpr double ws[3] = {5.0 / 18.0, 8.0 / 18.0, 5.0 / 18.0};
+        double e = 0.0;
+        for (int q = 0; q < 3; ++q) {
+            FALL_N_PETSC_CHECK(
+                VecWAXPY(us_.get(), xs[q], du_.get(), u_ref));  // u_ref + s du
+            this->residual(us_.get(), r_.get());
+            PetscScalar dot = 0.0;
+            FALL_N_PETSC_CHECK(VecDot(r_.get(), du_.get(), &dot));
+            e += ws[q] * static_cast<double>(PetscRealPart(dot));
+        }
+        return e;
+    }
+
+private:
+    petsc::OwnedVec du_{}, us_{}, r_{};
 };
 
 }  // namespace fall_n
