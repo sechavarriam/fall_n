@@ -1771,6 +1771,53 @@ private:
             macro_solver_->commit_trial_state();
             set_macro_trial_mode_(false);
 
+            if (two_way_failure_recovery_policy_.evolve_locals_in_hybrid) {
+                //  Evoluciona los locales bajo el estado macro COMITEADO y
+                //  refresca el feedback: rompe la espiral de estado rancio
+                //  (ver TwoWayFailureRecoveryPolicy::evolve_locals_in_hybrid).
+                std::vector<SectionHomogenizedResponse> hybrid_responses;
+                int hybrid_failed = 0;
+                const auto micro_h0 = std::chrono::steady_clock::now();
+                solve_locals_once_(macro_solver_->current_time(),
+                                   hybrid_responses,
+                                   hybrid_failed);
+                const auto micro_h1 = std::chrono::steady_clock::now();
+                last_report_.micro_solve_seconds +=
+                    std::chrono::duration<double>(
+                        micro_h1 - micro_h0).count();
+                last_responses_ = hybrid_responses;
+                if (hybrid_failed == 0) {
+                    finalize_local_models_(
+                        macro_solver_->current_time(), &hybrid_responses);
+                    for (std::size_t i = 0;
+                         i < model_.num_local_models(); ++i)
+                    {
+                        const auto macro_state =
+                            model_.macro_bridge().extract_section_state(
+                                model_.site(i));
+                        hybrid_responses[i].strain_ref = macro_state.strain;
+                        hybrid_responses[i].site.local_frame =
+                            macro_state.site.local_frame;
+                        regularize_two_way_tangent_(
+                            hybrid_responses[i], nullptr);
+                    }
+                    last_converged_responses_ = hybrid_responses;
+                    last_report_.feedback_source =
+                        CouplingFeedbackSource::CurrentHomogenized;
+                } else {
+                    //  Un local falló: su historia no se comitea; se
+                    //  restaura el inicio de paso para no dejar estado
+                    //  parcial (el feedback conserva el último refresco).
+                    for (std::size_t i = 0;
+                         i < model_.num_local_models(); ++i)
+                    {
+                        model_.local_models()[i].restore_checkpoint(
+                            local_checkpoints[i]);
+                        model_.local_models()[i].set_auto_commit(true);
+                    }
+                }
+            }
+
             last_report_.converged = true;
             last_report_.rollback_performed = true;
             last_report_.hybrid_active = true;

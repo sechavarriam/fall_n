@@ -113,6 +113,17 @@ struct TwoWayFailureRecoveryPolicy {
     double work_gap_tolerance{0.05};
     double force_jump_tolerance{0.05};
     bool strict_work_gap_gate{false};
+    // Evolve the local models inside the hybrid observation window as well:
+    //  after the macro commit the locals are re-solved under the FINAL macro
+    //  state, their material history is committed, and (when every local
+    //  converges) the last-converged feedback is refreshed from that fresh
+    //  response. Without this a run that lives in the hybrid window keeps the
+    //  RVE frozen at the last strict step, every subsequent step imposes a
+    //  growing total-kinematics jump on a stale state, and the injected
+    //  affine anchor (f_hom, strain_ref) extrapolates from an ancient
+    //  reference — a self-reinforcing staggered-divergence spiral. Opt-in to
+    //  preserve the original observational semantics of the building drivers.
+    bool evolve_locals_in_hybrid{false};
 };
 
 enum class RegularizationPolicyKind {
