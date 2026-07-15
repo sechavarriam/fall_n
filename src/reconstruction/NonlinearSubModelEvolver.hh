@@ -214,6 +214,13 @@ class BasicNonlinearSubModelEvolver {
     double tangent_validation_max_column_tolerance_{5.0e-1};
     TangentValidationNormKind tangent_validation_norm_{
         TangentValidationNormKind::StateWeightedFrobenius};
+    //  Section-force upscaling operator used by section_response().
+    //  BoundaryReaction (default): Face-B internal-force reactions, consistent
+    //  with the perturbation tangent.  VolumeAverage: sigma-weighted volume
+    //  integral (comparison path, see HomogenisationStrategy.hh) — only the
+    //  force vector is switched, the tangent stays boundary-reaction based.
+    HomogenizationOperator homogenization_operator_{
+        HomogenizationOperator::BoundaryReaction};
     std::vector<PenaltyCouplingEntry> penalty_couplings_;
     std::unique_ptr<CondensationWorkspace> condensed_workspace_{
         std::make_unique<CondensationWorkspace>()};
@@ -959,6 +966,7 @@ public:
         , tangent_validation_max_column_tolerance_{
               o.tangent_validation_max_column_tolerance_}
         , tangent_validation_norm_{o.tangent_validation_norm_}
+        , homogenization_operator_{o.homogenization_operator_}
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
         , state_transfer_callback_{std::move(o.state_transfer_callback_)}
@@ -1036,6 +1044,7 @@ public:
             tangent_validation_max_column_tolerance_ =
                 o.tangent_validation_max_column_tolerance_;
             tangent_validation_norm_ = o.tangent_validation_norm_;
+            homogenization_operator_ = o.homogenization_operator_;
             penalty_couplings_       = std::move(o.penalty_couplings_);
             condensed_workspace_     = std::move(o.condensed_workspace_);
             if (!condensed_workspace_) {
@@ -1206,6 +1215,23 @@ public:
         TangentValidationNormKind norm) noexcept
     {
         tangent_validation_norm_ = norm;
+    }
+
+    /// Select the section-force upscaling operator used by section_response():
+    /// BoundaryReaction (default, Face-B internal-force reactions) or
+    /// VolumeAverage (sigma-weighted volume integral, comparison path — see
+    /// HomogenisationStrategy.hh).  Only the force vector is switched; the
+    /// homogenised tangent always comes from the boundary-reaction operator,
+    /// so VolumeAverage responses are flagged as force/tangent inconsistent.
+    void set_homogenization_operator(HomogenizationOperator op) noexcept
+    {
+        homogenization_operator_ = op;
+    }
+
+    [[nodiscard]] HomogenizationOperator homogenization_operator()
+        const noexcept
+    {
+        return homogenization_operator_;
     }
 
     [[nodiscard]] TangentComputationMode tangent_computation_mode()
@@ -1523,7 +1549,21 @@ public:
 
     [[nodiscard]] SectionHomogenizedResponse
     section_response(double width, double height, double h_pert = 1.0e-6) {
-        return make_local_homogenizer_(width, height).section_response(h_pert);
+        auto response =
+            make_local_homogenizer_(width, height).section_response(h_pert);
+        //  Optional comparison operator: replace the Face-B reaction forces
+        //  with the sigma-weighted volume average.  The tangent remains the
+        //  boundary-reaction perturbation operator.
+        if (homogenization_operator_ == HomogenizationOperator::VolumeAverage
+            && model_ready_
+            && response.status != ResponseStatus::NotReady
+            && response.status != ResponseStatus::SolveFailed)
+        {
+            response.forces = compute_volume_average_forces(width, height);
+            response.operator_used = HomogenizationOperator::VolumeAverage;
+            response.forces_consistent_with_tangent = false;
+        }
+        return response;
     }
 
     void sync_state_vector_() {
