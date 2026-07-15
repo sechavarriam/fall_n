@@ -4624,6 +4624,12 @@ run_reduced_rc_column_continuum_case_result_impl(
                 //  (KOBATHE_LM_PREDICT=0 lo desactiva -> warm-start puro).
                 .secant_predictor = (envd("KOBATHE_LM_PREDICT", 1.0) != 0.0),
                 .secant_max_scale = envd("KOBATHE_LM_PREDICT_MAXSCALE", 4.0),
+                //  Line search de energía (P1.3): rechaza pasos LM que SUBEN
+                //  la energía incremental (salto de cuenca). OFF por defecto.
+                .energy_linesearch =
+                    (envd("KOBATHE_LM_LINESEARCH", 0.0) != 0.0),
+                .linesearch_max_backtracks =
+                    static_cast<int>(envd("KOBATHE_LM_LS_BACKTRACKS", 4.0)),
             };
 
             // ── Extensión de SELECCIÓN DE RAMA (env-gated; OFF por defecto) ─
@@ -4656,7 +4662,10 @@ run_reduced_rc_column_continuum_case_result_impl(
                 .shift   = envd("KOBATHE_LM_DEFLATE_SHIFT", 1.0),
                 .tau_max = envd("KOBATHE_LM_DEFLATE_TAUMAX", 50.0)};
 
-            fall_n::NLAnalysisContinuationBackend backend{nl};
+            //  Backend con energía incremental: aritmética idéntica al
+            //  adaptador base (los vectores extra solo se usan en
+            //  incremental_energy), y habilita el line search de energía.
+            fall_n::NLAnalysisEnergyBackend backend{nl};
             fall_n::RegularizedNewtonContinuation solver{std::move(backend),
                                                          lmcfg, lmreg, defl};
 
@@ -4677,6 +4686,12 @@ run_reduced_rc_column_continuum_case_result_impl(
                 tao_all = false;
             }
             const bool tao_on = tao_rev || tao_all;
+            //  P2.4 — pulido TAO->LM: si TAO deja el iterado en la cuenca
+            //  correcta pero sin cerrar el residuo (Pi pierde suavidad con
+            //  fisuración fuerte), un LM local desde ese iterado converge lo
+            //  que el trust-region no cierra. Opt-in para no cambiar la
+            //  semántica de las campañas TAO previas.
+            const bool tao_polish = envd("KOBATHE_TAO_POLISH", 0.0) != 0.0;
             std::optional<fall_n::TaoEnergyContinuation<
                 fall_n::NLAnalysisEnergyBackend<AnalysisT>>>
                 tao;
@@ -5045,9 +5060,35 @@ run_reduced_rc_column_continuum_case_result_impl(
                     truncate_records(rec0);
                     tao->set_initial_guess(u_lm.get());
                     res = tao->advance_to(p);
-                    solver.set_solution(tao->solution());
                     engine = "tao";
                     step_energy = tao->last_energy();
+                    if (tao_polish && !res.converged) {
+                        //  Pulido: Newton/LM local desde el iterado TAO sobre
+                        //  el estado pre-paso restaurado (un solo commit
+                        //  final). La aceptación monótona del LM no puede
+                        //  cruzar de vuelta la cresta de ||R|| hacia la
+                        //  cuenca espuria; si aun así no mejora el residuo,
+                        //  se reproduce el paso TAO original.
+                        VecCopy(tao->solution(), u_lm.get());
+                        nl.restore_checkpoint(nlchk);
+                        solver.restore_state(schk);
+                        truncate_records(rec0);
+                        solver.set_solution(u_lm.get());
+                        const auto res_pol = solver.advance_to(p);
+                        if (res_pol.residual <= res.residual) {
+                            res = res_pol;
+                            engine = "tao+lm";
+                        } else {
+                            nl.restore_checkpoint(nlchk);
+                            solver.restore_state(schk);
+                            truncate_records(rec0);
+                            tao->set_initial_guess(u_lm.get());
+                            res = tao->advance_to(p);
+                            solver.set_solution(tao->solution());
+                        }
+                    } else {
+                        solver.set_solution(tao->solution());
+                    }
                 } else if (defl_on && rev_window && env_ref > 0.0) {
                     //  P1.2 — detect-restore-retry: si el paso convergió en la
                     //  rama alta (|V| > SPIKE * envolvente pre-reversa), la
