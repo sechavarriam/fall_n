@@ -55,6 +55,11 @@ struct CulturalResult {
     Individual          best{};
     std::size_t         generations = 0;
     std::vector<double> best_fitness_history{};
+    // Per-generation trace for offline tuning reports (ca_history.csv): the
+    //  population mean and the best-so-far genome, aligned index-by-index with
+    //  best_fitness_history.
+    std::vector<double>              mean_fitness_history{};
+    std::vector<std::vector<double>> best_genome_history{};
 };
 
 template <fall_n::algorithms::SearchSpace Space, class... KnowledgeSources>
@@ -130,6 +135,11 @@ public:
             else                              { ++stall; }
 
             result.best_fitness_history.push_back(best.fitness);
+            double fitness_sum = 0.0;
+            for (const auto& ind : pop) { fitness_sum += ind.fitness; }
+            result.mean_fitness_history.push_back(
+                fitness_sum / static_cast<double>(pop.size()));
+            result.best_genome_history.push_back(best.genome);
 
             if (best.fitness >= cfg_.target_fitness) { ++gen; break; }
             if (cfg_.stall_generations > 0 && stall >= cfg_.stall_generations) {

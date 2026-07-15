@@ -83,12 +83,23 @@ int main() {
         check(r.best.fitness > -1e-2, "sphere5D converges near optimum");
         check(within(r.best.genome, -5.0, 5.0), "sphere5D best inside box");
         check(!r.best_fitness_history.empty(), "history recorded");
+        check(r.mean_fitness_history.size() == r.best_fitness_history.size(),
+              "mean history aligned with best history");
+        check(r.best_genome_history.size() == r.best_fitness_history.size(),
+              "genome history aligned with best history");
         // elitism => monotonically non-decreasing best history
         bool monotone = true;
         for (std::size_t i = 1; i < r.best_fitness_history.size(); ++i)
             monotone = monotone &&
                        (r.best_fitness_history[i] >= r.best_fitness_history[i - 1]);
         check(monotone, "best-fitness history non-decreasing (elitism)");
+        // the population mean can never exceed the best-so-far it feeds
+        bool mean_bounded = true;
+        for (std::size_t i = 0; i < r.mean_fitness_history.size(); ++i)
+            mean_bounded = mean_bounded &&
+                           (r.mean_fitness_history[i] <=
+                            r.best_fitness_history[i] + 1e-12);
+        check(mean_bounded, "mean history bounded by best history");
     }
 
     // --- Rosenbrock 2D: narrow curved valley --------------------------------
