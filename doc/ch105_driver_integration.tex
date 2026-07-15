@@ -1,0 +1,466 @@
+% ==========================================================================
+%  Chapter 105 -- Driver Integration of the Branch-Selection Extension (Phase I)
+% ==========================================================================
+
+\chapter{Driver Integration of the Branch-Selection Extension}
+\label{ch:driver-integration}
+
+\paragraph{Normative status.}
+Phase~I of the branch-selection extension
+(Caps.~\ref{ch:branch-selection-reversals}--\ref{ch:extension-architecture}).
+The three remedies --- deflation
+(Cap.~\ref{ch:deflated-continuation}), energy descent by TAO
+(Cap.~\ref{ch:energy-tao-continuation}) and the Cultural-Algorithm tuner
+(Cap.~\ref{ch:ca-tuner-solver}) --- are wired into the validated cyclic
+driver \path{src/validation/ReducedRCColumnContinuumBaseline.cpp},
+following the control flow fixed in Cap.~\ref{ch:extension-architecture}
+(Fig.~\ref{fig:ext-retry-flow}). Every remedy is environment-gated and
+\textbf{OFF by default}. The non-regression contract is byte-level
+equality of the LM hysteresis CSV against the archived baseline
+\path{data/output/g0_baseline} when all gates are off, and it is verified
+by a fresh campaign in Section~\ref{sec:drv-evidence}.
+
+\section{Bit-identity by construction}
+\label{sec:drv-bitident}
+
+The driver instantiates the continuation solver with the deflation policy
+compiled in,
+\begin{center}
+\ttfamily RegularizedNewtonContinuation<Backend, LevenbergMarquardt,
+ShermanMorrisonDeflation>,
+\end{center}
+even when the gate is off. This is safe for a reason established in
+Cap.~\ref{ch:deflated-continuation} and worth restating. Every deflated
+branch inside \texttt{advance\_to} is guarded twice, first by
+\texttt{if constexpr (Defl::enabled)} and then by the runtime check
+\texttt{!roots\_.empty()}. A solver that never receives a registered root
+therefore executes \emph{exactly} the floating-point operations of the
+\texttt{NoDeflation} instantiation. The gated logic of this chapter only
+ever registers roots inside the retry loop, which itself sits behind the
+\texttt{KOBATHE\_LM\_DEFLATE} gate. The same discipline applies to the
+CSV writer. The historical nine columns are streamed by the same code
+path and the new columns (\texttt{defl\_roots}, \texttt{defl\_retries}
+for deflation and \texttt{engine}, \texttt{energy} for TAO) are appended
+\emph{at the end of the row and only while their gate is on}, so a
+gates-off run reproduces the baseline file byte by byte. The previously
+hardcoded acceptance floor ($10^{-5}$) is now the environment knob
+\texttt{KOBATHE\_LM\_ACCEPT\_FLOOR} with the same default, which
+preserves the constant bit-exactly when unset and exposes it as the
+tuner's sixth gene.
+
+\section{The shear envelope as a spike detector}
+\label{sec:drv-envelope}
+
+The driver observes reversals through the sign of the prescribed drift
+increment (the \texttt{since\_rev} counter of the original loop) and it
+now maintains three scalars alongside.
+%
+\begin{description}
+  \item[\(V_{\mathrm{exc}}\)] the running maximum of $|V|$ over the
+        converged steps of the excursion in progress.
+  \item[\(V_{\mathrm{env}}\)] the value of \(V_{\mathrm{exc}}\) frozen at
+        the step where a reversal is detected. It is the force scale the
+        column actually reached before unloading began.
+  \item[\(V_{\mathrm{all}}\)] the historical maximum of $|V|$, used as
+        the reference of the tuner's spike penalty.
+\end{description}
+%
+A physical unloading branch keeps $|V|$ \emph{below} the pre-reversal
+envelope. The spurious equilibria documented in
+Cap.~\ref{ch:branch-selection-reversals} exceed it by factors of 3--5.
+The detector therefore flags a step as spurious when it converged
+\emph{and} $|V| > s\,V_{\mathrm{env}}$, with
+$s=\texttt{KOBATHE\_LM\_DEFLATE\_SPIKE}=1.5$ by default. Requiring
+convergence is deliberate. A non-converged step already reports its
+failure in the \texttt{conv} column, and deflating it would conflate two
+different pathologies (non-convergence and wrong-basin convergence) under
+one remedy.
+
+An offline sweep of the archived baseline shows where each pathology
+lives on the $2{\times}2{\times}4$ mesh. Every reversal-window step with
+$|V|/V_{\mathrm{env}} > 1.5$ (up to $2.5$ at the $\pm 200$\,mm reversal)
+is a \emph{non-converged} step, and every converged window step sits at
+or below the envelope ($0.6$--$0.96$), which is physical unloading. The
+default detector consequently never fires on this baseline, a
+conservative property worth having. The opt-in knob
+\texttt{KOBATHE\_LM\_DEFLATE\_ON\_NOCONV} extends the detector to
+non-converged spikes, where the multi-equilibrium manifests here as a
+stagnated high-force acceptance, so the retry mechanism can engage the
+real pathology of this mesh.
+
+\section{Detect--restore--retry in the real driver}
+\label{sec:drv-retry}
+
+The retry loop follows Fig.~\ref{fig:ext-retry-flow} exactly, and the
+driver adds the piece the solver alone cannot provide. The backend commit
+is unconditional (\texttt{backend\_.accept()} runs even for a spurious
+step), so by the time the spike is measurable the crack ratchet has
+already advanced along the wrong branch. The driver therefore brackets
+each reversal-window step with a \emph{pair} of checkpoints, the
+analysis-side \texttt{nl.capture\_checkpoint()} (which copies the element
+container with its full material history, Cap.~\ref{ch:extension-architecture})
+and the solver-side \texttt{solver.capture\_state()} (solution plus
+secant history). On detection the driver registers the spurious solution
+as a deflation root, restores both checkpoints and re-solves the same
+window, now repelled from the registered root. At most
+\texttt{KOBATHE\_LM\_DEFLATE\_MAXRETRY} (default 2) retries run per step,
+and the root list is cleared when the loop moves to the next target,
+because the registered equilibria belong to the multi-equilibrium
+manifold at that particular load level.
+
+One integration detail matters for the auxiliary outputs. The commit path
+fires the driver's step callback, which appends rows to the seven record
+vectors behind \path{hysteresis.csv}, \path{control_state.csv} and their
+siblings. A retry would therefore leave the rows of the discarded attempt
+in those files. The checkpoint consequently also captures the seven
+record-vector sizes and the restore truncates them back, so the auxiliary
+CSVs only ever contain the accepted attempt of each step.
+
+\section{The hybrid TAO step}
+\label{sec:drv-tao}
+
+Under \texttt{KOBATHE\_TAO\_REVERSAL} (reversal windows only) or
+\texttt{KOBATHE\_TAO} (every step, diagnostic) the step becomes the
+hybrid of Cap.~\ref{ch:energy-tao-continuation}. The LM pass proposes an
+iterate, the driver snapshots it, restores the pre-step state (the LM
+commit would otherwise contaminate the frozen material state that makes
+the incremental energy honest), hands the iterate to
+\texttt{TaoEnergyContinuation::set\_initial\_guess} and lets the
+trust-region solve consolidate \emph{its} minimiser through the single
+surviving commit. The accepted solution is copied back with
+\texttt{solver.set\_solution()}, which also resets the LM secant history.
+The energy backend added in this phase,
+\texttt{NLAnalysisEnergyBackend}, evaluates
+\[
+  \Pi(\mathbf u)-\Pi(\mathbf u_{\mathrm{ref}})
+  = \int_0^1 \mathbf R\bigl(\mathbf u_{\mathrm{ref}} + s\,\Delta\mathbf u\bigr)^{\!\top}
+    \Delta\mathbf u \, ds ,
+  \qquad \Delta\mathbf u = \mathbf u - \mathbf u_{\mathrm{ref}},
+\]
+with a three-point Gauss--Legendre rule over the existing residual seam,
+so no material, element or model code changes. The value logged in the
+\texttt{energy} column is computed \emph{before} the commit, while the
+state is still frozen, and is therefore comparable across candidate
+branches of the same step. Two guards from the risk analysis are
+enforced. The gate is ignored with a warning unless the concrete profile
+is \texttt{production\_stabilized}, since the hard crack closure of the
+reference profile breaks the $C^1$ smoothness the trust-region model
+assumes. And \texttt{KOBATHE\_TAO\_SYMCHECK} measures
+$\lVert\mathbf K-\mathbf K^{\top}\rVert_F/\lVert\mathbf K\rVert_F$ once at
+startup, falling back to the gradient-only \texttt{bqnls} type when the
+penalty coupling asymmetrises the Hessian beyond $10^{-8}$ and the user
+did not pin \texttt{KOBATHE\_TAO\_TYPE} explicitly
+\cite{BalayPETScManual}.
+
+\section{Window replay for the CA tuner}
+\label{sec:drv-replay}
+
+\texttt{KOBATHE\_CA=1} with
+\texttt{KOBATHE\_LM\_REPLAY\_WINDOW="$k_0$:$m$"} switches the driver into
+replay mode (Fig.~\ref{fig:drv-replay-flow}). The protocol runs normally
+up to target $k_0-1$, a checkpoint captures the analysis, the solver, the
+loop bookkeeping (direction, reversal counter, envelopes) and the record
+sizes, and the Cultural Algorithm of
+Cap.~\ref{ch:cultural-algorithm-module} maximises the window fitness
+%
+\[
+  f(\mathbf g) = w_1\,\frac{n_{\mathrm{conv}}}{m}
+   - w_2\,\max\!\Bigl(0,\ \frac{|V|_{\mathrm{peak}}}{V_{\mathrm{all}}}-1\Bigr)
+   - w_3\,\overline{\imath},
+  \qquad (w_1,w_2,w_3) = (1,\,1,\,0.2),
+\]
+%
+where $\overline{\imath}$ is the mean iteration count normalised by
+\texttt{max\_newton} and only the \emph{original} protocol targets are
+scored, so a genome that subdivides reversals gains nothing from its
+intermediate sub-steps. Each candidate evaluation decodes the genome into
+the solver's mutators (\texttt{set\_config}, \texttt{set\_regularization}
+from Phase~P1), restores the checkpoint, replays targets
+$k_0,\dots,k_0{+}m{-}1$ and restores again. The eight genes and their
+boxes are
+%
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+gene & meaning & box & decoding \\
+\midrule
+$g_0$ & $\log_{10}\mu_0$              & $[-4,\ 0]$    & $\mu_0 = 10^{g_0}$ \\
+$g_1$ & LM grow factor                & $[1.5,\ 10]$  & direct \\
+$g_2$ & LM drop factor                & $[0.05,\ 0.9]$& direct \\
+$g_3$ & stagnation cutoff             & $[4,\ 30]$    & rounded \\
+$g_4$ & secant predictor max scale    & $[1,\ 8]$     & direct \\
+$g_5$ & $\log_{10}$ acceptance floor  & $[-7,\ -3]$   & $10^{g_5}$ \\
+$g_6$ & reversal subdivision          & $[1,\ 6]$     & rounded \\
+$g_7$ & subdivision window            & $[1,\ 5]$     & rounded \\
+\bottomrule
+\end{tabular}
+\end{center}
+%
+The latched material genes (\texttt{KOBATHE\_CLOSURE\_STIFF\_FRAC},
+\texttt{KOBATHE\_ANCHOR\_CAP\_RATIO}) are read once into
+\texttt{static const} storage and stay outside the genome. The campaign
+script \path{scripts/kobathe_ca_tuner.sh} sweeps them by process instead
+(phase~A), runs one seeded CA per value (phase~B) and launches a full
+protocol with the winning genome (phase~C). The replay persists
+\path{ca_history.csv} (generation, best, population mean, best genome)
+and \path{ca_best_genome.json}, whose keys are literally the environment
+variables that reproduce the winner, prints the same line to stderr and
+stops without continuing the protocol. Determinism per seed is inherited
+from the module's single-RNG design \cite{Reynolds1994Cultural}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    stage/.style={draw, rounded corners=2pt, fill=green!8,
+                  font=\scriptsize\ttfamily, align=center, inner sep=4pt},
+    art/.style={draw, rounded corners=2pt, fill=orange!10,
+                font=\scriptsize\ttfamily, align=center, inner sep=4pt},
+    flow/.style={-{Stealth[length=5pt]}, thick},
+    back/.style={-{Stealth[length=4pt]}, dashed, gray}
+  ]
+  \node[stage] (prefix) at (0,0)
+    {protocol targets $0 \dots k_0{-}1$\\(plain LM continuation)};
+  \node[stage] (chk) at (5.2,0)
+    {checkpoint\\nl + solver + loop vars\\+ record sizes};
+  \node[stage] (decode) at (10.2,0)
+    {decode genome\\set\_config / set\_regularization};
+  \node[stage] (window) at (10.2,-2.1)
+    {replay targets\\$k_0 \dots k_0{+}m{-}1$};
+  \node[stage] (fit) at (5.2,-2.1)
+    {fitness\\$w_1 \tfrac{n_{conv}}{m} - w_2\,\text{spike} - w_3\,\bar\imath$};
+  \node[art] (persist) at (0,-2.1)
+    {ca\_history.csv\\ca\_best\_genome.json\\stop (no continuation)};
+
+  \draw[flow] (prefix) -- (chk);
+  \draw[flow] (chk) -- (decode);
+  \draw[flow] (decode) -- (window);
+  \draw[flow] (window) -- (fit);
+  \draw[back] (fit) -- node[above,font=\tiny\rmfamily]
+    {restore, next candidate} (chk);
+  \draw[flow] (fit) -- node[above,font=\tiny\rmfamily]
+    {CA done} (persist);
+
+  \draw[dashed, gray!70, rounded corners=3pt]
+    ($(fit.west |- decode.north)+(-0.3,0.3)$)
+      rectangle ($(decode.east |- window.south)+(0.3,-0.45)$);
+  \node[font=\tiny\rmfamily, gray, anchor=north west]
+    at ($(fit.west |- window.south)+(-0.25,-0.55)$)
+    {CA objective, one call per candidate};
+\end{tikzpicture}
+\caption[Replay flow of the CA tuner in the driver.]{Replay flow of the
+CA tuner inside the driver. The checkpoint captures the analysis (element
+container with material history), the continuation solver (solution and
+secant history), the loop bookkeeping and the sizes of the record
+vectors, so every candidate evaluation starts from the identical state
+and the auxiliary CSVs stay clean.}
+\label{fig:drv-replay-flow}
+\end{figure}
+
+\section{Gate reference}
+\label{sec:drv-gates}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+variable & default & effect \\
+\midrule
+\texttt{KOBATHE\_LM\_ACCEPT\_FLOOR}      & $10^{-5}$ & exposes the acceptance floor \\
+\texttt{KOBATHE\_LM\_DEFLATE}            & off       & detect--restore--retry loop \\
+\texttt{KOBATHE\_LM\_DEFLATE\_SPIKE}     & 1.5       & spike threshold over $V_{\mathrm{env}}$ \\
+\texttt{KOBATHE\_LM\_DEFLATE\_MAXRETRY}  & 2         & retries per step \\
+\texttt{KOBATHE\_LM\_DEFLATE\_ON\_NOCONV} & off      & also retry non-converged spikes \\
+\texttt{KOBATHE\_LM\_DEFLATE\_RESID\_FACTOR} & 10    & residual guard of the kept deflated attempt \\
+\texttt{KOBATHE\_LM\_DEFLATE\_POWER}     & 2         & deflation exponent $p$ \\
+\texttt{KOBATHE\_LM\_DEFLATE\_SHIFT}     & 1         & deflation shift $\alpha$ \\
+\texttt{KOBATHE\_LM\_DEFLATE\_TAUMAX}    & 50        & clamp of the deflation factor \\
+\texttt{KOBATHE\_TAO\_REVERSAL}          & off       & hybrid TAO step in reversal windows \\
+\texttt{KOBATHE\_TAO}                    & off       & hybrid TAO step everywhere \\
+\texttt{KOBATHE\_TAO\_TYPE}              & bntr      & TAO algorithm \\
+\texttt{KOBATHE\_TAO\_MAXIT}             & 200       & TAO iteration cap \\
+\texttt{KOBATHE\_TAO\_GATOL}, \texttt{\_GRTOL} & $10^{-8}$ & gradient tolerances \\
+\texttt{KOBATHE\_TAO\_ACCEPT\_FLOOR}     & $10^{-6}$ & residual acceptance for TAO \\
+\texttt{KOBATHE\_TAO\_SYMCHECK}          & off       & one-shot Hessian symmetry probe \\
+\texttt{KOBATHE\_CA}                     & off       & replay mode \\
+\texttt{KOBATHE\_LM\_REPLAY\_WINDOW}     & ---       & window $k_0{:}m$ \\
+\texttt{KOBATHE\_CA\_POP}, \texttt{\_GEN} & 8, 10    & population, generations \\
+\texttt{KOBATHE\_CA\_SEED}               & 20260715  & RNG seed (reproducibility) \\
+\texttt{KOBATHE\_CA\_TOPFRAC}            & 0.25      & belief-space acceptance fraction \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Campaign evidence}
+\label{sec:drv-evidence}
+
+Evidence from the Phase-I campaigns on the $2{\times}2{\times}4$ mesh,
+protocol $\pm$50/100/150/200\,mm, SPS~8, 196 targets, release build.
+
+\paragraph{Gate G1, gates off.}
+A fresh campaign with every gate off
+(\path{data/output/g1_gateoff}) reproduces the archived baseline
+\path{data/output/g0_baseline} \emph{byte by byte} in all eight CSV
+outputs (LM hysteresis, quasi-static hysteresis, control state, crack
+state, embedding gap, both rebar histories and the host probes). The
+non-regression contract of Section~\ref{sec:drv-bitident} holds on the
+real campaign, not only by construction.
+
+\paragraph{Gate G1, deflation on (base detector).}
+With \texttt{KOBATHE\_LM\_DEFLATE=1} and the default detector
+(\path{data/output/p1_deflation}) the run completes the full protocol
+with \texttt{noconv}=80, and the nine historical columns are identical
+to the baseline. Zero retries fire, consistent with the offline sweep of
+Section~\ref{sec:drv-envelope}: on this mesh no reversal-window step
+both converges and spikes. The detector is conservative in the exact
+sense intended, it never touches a step the plain continuation handles.
+
+\paragraph{Gate G1, deflation on non-converged spikes.}
+With the opt-in extension
+(\texttt{KOBATHE\_LM\_DEFLATE\_ON\_NOCONV=1},
+\path{data/output/p1_deflation_noconv}) the retry mechanism engages
+exactly where the offline sweep predicted, four retries at steps 117 and
+118 of the $+150$\,mm reversal, with roots registered, checkpoints
+restored and the new CSV columns populated. The \emph{branch-selection}
+outcome is negative on this mesh, and it is the most valuable
+measurement of the campaign. Deflating the stagnated high-force root
+sent the solver to \emph{neighbouring roots of even higher force}
+($|V|=0.43$ and $0.28$\,MN during the retries of step~117 and 118,
+against a $0.025$\,MN envelope), and committing the last attempt
+degraded the rest of the run (\texttt{noconv} 80~$\to$~111, peak $|V|$
+$0.048\to0.556$\,MN). The multi-equilibrium manifold near this reversal
+is dense in spurious basins, and repulsion alone does not know
+\emph{which} of the remaining basins is physical --- precisely the
+argument for the energy criterion of Cap.~\ref{ch:energy-tao-continuation}.
+Two consequences were adopted. The retry loop now carries a safety
+fallback, on exhaustion with a result worse than the base attempt it
+restores and reproduces the base attempt, so the experiment is
+never-worse-than-baseline by construction. And deflation stays an
+environment-gated experiment, not a promoted remedy
+(Section~\ref{sec:drv-promotion}).
+
+\paragraph{Gate G1, deflation with safety fallback.}
+The definitive deflation campaign
+(\path{data/output/p1_deflation_final}, residual guard active) exercises
+seven retries across four steps (117, 180, 181, 182). Every deflated
+re-solve landed either in a basin of \emph{higher} force (up to
+$|V|=14.7$\,MN at step 182, against a $0.016$\,MN envelope) or in a
+low-force junk state with an exploded residual ($|V|=0.0005$\,MN with
+$\lVert\mathbf R\rVert=1.5\times10^{2}$ at step 180, caught by the
+residual guard). The fallback restored the base attempt at all four
+steps, and the run's nine historical columns are byte-identical to the
+baseline with \texttt{noconv}=80. Gate G1 closes as follows. The
+non-regression clause holds (gates off, byte-identical). The mechanism
+clause holds (retries exercised in the real driver, roots registered,
+checkpoint/restore and record truncation correct). The branch-selection
+clause \emph{fails on this mesh}, and fails informatively: near these
+reversals the equilibrium manifold is dense in spurious basins, and
+repulsion from one root says nothing about the quality of the next one.
+Branch selection needs a criterion of \emph{descent}, not of
+\emph{avoidance}, which is what the energy hybrid provides.
+
+\paragraph{Gate G2, hybrid TAO.}
+With \texttt{KOBATHE\_TAO\_REVERSAL=1} (\path{data/output/p2_tao}) the
+symmetry probe reports
+$\lVert\mathbf K-\mathbf K^{\top}\rVert_F/\lVert\mathbf K\rVert_F =
+1.2\times10^{-17}$, so the penalty coupling leaves the Hessian
+numerically symmetric and BNTR keeps its Newton model. The campaign runs
+24 hybrid steps (three per reversal window, eight reversals) and is the
+strongest result of the three remedies.
+%
+\begin{itemize}
+  \item Every TAO step reports \emph{negative} incremental energy, the
+        trust region always descends from the LM proposal, which is the
+        branch-selection semantics G2 asks for
+        ($\Pi(\mathbf u_{\mathrm{tao}}) < \Pi(\mathbf u_{\mathrm{LM}})$
+        at the same load, same reference).
+  \item The dominant spike of the baseline (step 117, $+150$\,mm
+        reversal, $|V|=0.0477$\,MN) drops to $0.0189$\,MN, below the
+        $1.5\,V_{\mathrm{env}} = 0.037$\,MN bar, and the run's global
+        peak falls from $0.0508$ to $0.0377$\,MN.
+  \item \texttt{noconv} improves from 80 to 77. The healthier state the
+        hybrid leaves behind lets the plain LM converge at step 119,
+        which the baseline could not.
+  \item The strict floor $\lVert\mathbf R\rVert \le 10^{-6}$ holds on
+        6 of 24 TAO steps, all of them at the $\pm50$\,mm reversals
+        (residuals $10^{-9}$). Once heavy cracking accumulates the
+        incremental potential loses smoothness, BNTR saturates its
+        200-iteration budget and stalls at
+        $\lVert\mathbf R\rVert \sim 10^{-1}$, exactly the nonsmoothness
+        risk anticipated in Cap.~\ref{ch:energy-tao-continuation}.
+\end{itemize}
+%
+G2 is therefore met in its energy and envelope clauses and only
+partially in its residual clause, concentrated in the heavily damaged
+half of the protocol.
+
+\paragraph{Gate G4, CA tuner.}
+The campaign script ran phase~B on the $\pm150$\,mm reversal window
+($k_0{=}116$, $m{=}6$, population~8, ten generations, seed fixed,
+\path{data/output/p3_ca}). The window was chosen over the literal
+``first reversal'' of the gate because the first reversal has no
+regularized steps in the baseline, so the gate would be vacuous there;
+the $+150$\,mm window carries four of the six baseline failures and the
+dominant spike. Results.
+%
+\begin{itemize}
+  \item The best-fitness history is non-decreasing
+        ($0.256 \to 0.367 \to 0.373$ across ten generations, elitism),
+        and the population mean rises from $-5.7$ to $+0.02$.
+  \item The winning genome scores 3/6 converged in the window (baseline
+        2/6) with an in-window peak of $0.0217$\,MN, \emph{below} the
+        envelope itself, so the spike clause of G4
+        ($|V|_{\mathrm{peak}} \le 1.5\,V_{\mathrm{env}} = 0.039$) holds
+        with margin and the step-117 spike is suppressed entirely.
+  \item Phase~C, the full 196-target protocol under the winning genome,
+        drops \texttt{noconv} from 80 to 66 ($-17.5\%$) and the global
+        peak from $0.0508$ to $0.0481$\,MN, at zero per-step overhead
+        (the genome only re-parameterises the plain LM continuation).
+  \item The winner is structurally interesting,
+        $\mu_0 = 1.36\times10^{-2}$, grow $5.53$, drop $0.79$,
+        stagnation cutoff 14, predictor scale $6.25$, floor
+        $3.2\times10^{-5}$, and \emph{reversal subdivision 3 with window
+        3}. Subdivision alone was known to worsen the reversal (it
+        converges more firmly to the spurious branch); combined with a
+        slow $\mu$ relaxation (drop $0.79$ against the default $0.3$)
+        it helps, precisely the non-obvious coupling a tuner exists to
+        find.
+  \item Reproducibility is carried by construction (every stochastic
+        draw flows from \texttt{KOBATHE\_CA\_SEED}, bit-identical reruns
+        verified at module level by ctest
+        \texttt{algorithms\_cultural\_algorithm}) and the artifacts
+        record seed, window and genome.
+\end{itemize}
+
+\section{Promotion decision (Gate G5)}
+\label{sec:drv-promotion}
+
+The evidence matrix of the three remedies on the
+$2{\times}2{\times}4$ campaign.
+
+\begin{center}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+remedy & selects low branch & \texttt{noconv} & peak $|V|$ [MN] & overhead \\
+\midrule
+baseline G0            & ---            & 80 & 0.0508 & --- \\
+deflation (retry)      & no (all basins worse) & 80 & 0.0508 & checkpoint per window step \\
+hybrid TAO (reversals) & yes (energy descent)  & 77 & 0.0377 & $\le 200$ TAO its per window step \\
+CA-tuned LM (full run) & indirectly            & 66 & 0.0481 & none at run time \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+No remedy meets \emph{every} clause of its gate, so none is promoted to
+a default, and all three stay environment-gated reproducible
+experiments. Two dispositions follow from the matrix. The CA-tuned
+genome is the cheapest sustained improvement, it re-parameterises the
+continuation that already runs, and adopting it in a campaign is one
+line of environment variables (recorded in
+\path{ca_best_genome.json}). The hybrid TAO step is the only remedy
+that \emph{selects} the branch rather than avoiding a root, it tames
+the dominant spike below the envelope bar, and its open residual clause
+is a solver-tuning problem (nonsmooth $\Pi$ under heavy cracking), not
+a conceptual one. Deflation closes as a negative result with a complete
+mechanism, kept for meshes where the spurious basin structure is
+sparser. The workstream and this disposition are registered in
+\path{src/validation/ValidationCampaignCatalog.hh}; any statement in
+the thesis remains subject to the author's approval.
