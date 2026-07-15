@@ -388,6 +388,14 @@ def main() -> int:
         "kobathe_candidate": ("#7c3aed", "-", 1.25),
     }
 
+    # Paleta para distinguir varias ramas Ko-Bathe (p. ej. original vs corregida).
+    kobathe_palette = [
+        ("#7c3aed", "-", 1.25),   # 1a rama (original)
+        ("#0d9488", (0, (5, 2)), 1.7),  # 2a rama (diagnostico corregido), teal discontinuo
+        ("#dc2626", "-", 1.7),  # 3a rama: Newton-LM regularizado que completa 200 mm (rojo solido)
+    ]
+    kobathe_seen = 0
+
     fig, ax = plt.subplots(figsize=(7.4, 5.0))
     summary_curves: list[dict[str, Any]] = []
     for curve in curves:
@@ -403,6 +411,10 @@ def main() -> int:
             factor = sign_factor_to_reference(curve["rows"], reference_rows)
         rows = scaled_shear(curve["rows"], factor)
         color, linestyle, linewidth = styles.get(curve["role"], ("#4b5563", "-", 1.2))
+        if curve["role"] == "kobathe_candidate":
+            color, linestyle, linewidth = kobathe_palette[
+                min(kobathe_seen, len(kobathe_palette) - 1)]
+            kobathe_seen += 1
         ax.plot(
             [1000.0 * item["drift_m"] for item in rows],
             [1000.0 * item["base_shear_MN"] for item in rows],

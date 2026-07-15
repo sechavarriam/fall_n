@@ -55,7 +55,12 @@ base=(--analysis cyclic --amplitudes-mm "${AMPS:-100}" --steps-per-segment "${SP
   --solver-policy canonical-cascade --predictor-policy secant
   --max-bisections 16 --print-progress)
 
-echo "[lm-cyc] arranca $(date +%H:%M:%S)  amps=${AMPS:-100} sps=${SPS:-8} atol=$KOBATHE_LM_ATOL mumaxfrac=$KOBATHE_LM_MUMAXFRAC"
+# Volcado VTK opcional (env-gated, default OFF): WRITE_VTK=1 escribe malla, puntos
+# de Gauss, fisuras y tubos de barra por paso en <O>/cyc/vtk/ (ParaView, .pvd).
+# VTK_STRIDE controla la densidad temporal (1 = cada paso => evolucion continua).
+[ -n "${WRITE_VTK:-}" ] && base+=(--write-vtk --vtk-stride "${VTK_STRIDE:-1}")
+
+echo "[lm-cyc] arranca $(date +%H:%M:%S)  amps=${AMPS:-100} sps=${SPS:-8} atol=$KOBATHE_LM_ATOL mumaxfrac=$KOBATHE_LM_MUMAXFRAC vtk=${WRITE_VTK:-0}/${VTK_STRIDE:-1}"
 OMP_NUM_THREADS=$THREADS "$EXE" --output-dir "$O/cyc" "${base[@]}" \
   > "$O/logs/cyc.log" 2>&1
 rc=$?

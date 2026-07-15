@@ -22,14 +22,14 @@ common=(--analysis monotonic --monotonic-tip-mm "$TIP" --monotonic-steps "$STEPS
   --embedded-boundary-mode dirichlet-rebar-endcap
   --axial-preload-transfer-mode composite-section-force-split
   --axial-compression-mn 0.02 --axial-preload-steps 4
-  --penalty-alpha-scale-over-ec 10 --solver-policy newton_l2_only
+  --penalty-alpha-scale-over-ec 10 --solver-policy canonical-cascade
   --predictor-policy secant --continuation monolithic
   --concrete-profile production-stabilized
   --kobathe-crack-softening-law "$LAW"
   --concrete-characteristic-length-mode fixed-end-longitudinal-host-edge-mm
   --concrete-fracture-energy-nmm 0.14
   --kobathe-crack-closure-transition-strain 1e-4
-  --max-bisections 8 --print-progress)
+  --max-bisections 12 --print-progress)
 
 OMP_NUM_THREADS=5 "$EXE" --output-dir "$OUT/eta_lo" "${common[@]}" \
   --kobathe-crack-eta-n 0.0001 --kobathe-crack-eta-s 0.10 \

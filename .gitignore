@@ -2,7 +2,9 @@
 eigen/
 Eigen/
 build/
+build-*/
 build_stage*/
+scratchpad/
 unstructured_dft/
 .cache/
 .venv/

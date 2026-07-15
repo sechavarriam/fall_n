@@ -26,7 +26,7 @@ base=(--continuum-kinematics corotational --hex-order hex27 --nx 2 --ny 2 --nz 4
   --embedded-boundary-mode dirichlet-rebar-endcap
   --axial-preload-transfer-mode composite-section-force-split
   --axial-compression-mn 0.02 --axial-preload-steps 4
-  --penalty-alpha-scale-over-ec 10 --solver-policy newton_l2_only
+  --penalty-alpha-scale-over-ec 10 --solver-policy canonical-cascade
   --predictor-policy secant --continuation monolithic
   --concrete-profile production-stabilized
   --kobathe-crack-softening-law damage-secant
@@ -34,7 +34,7 @@ base=(--continuum-kinematics corotational --hex-order hex27 --nx 2 --ny 2 --nz 4
   --concrete-fracture-energy-nmm 0.14
   --kobathe-crack-eta-n 0.01 --kobathe-crack-eta-s 0.25
   --kobathe-crack-closure-transition-strain 1e-4
-  --max-bisections 8 --print-progress)
+  --max-bisections 12 --print-progress)
 
 run() { # nombre args...
   local name="$1"; shift

@@ -72,6 +72,35 @@
       "peak_abs_base_shear_kN": 44.880037200000004,
       "loop_work_MN_m": -1.0862106570100338e-12,
       "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed"
+    },
+    {
+      "label": "Ko-Bathe 2x2x4 ancla corregida (diagnostico)",
+      "role": "kobathe_candidate",
+      "path": "data\\output\\kobathe_200mm_overnight_20260710\\B2_cic200_revguard\\hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": 1.0,
+      "records": 187.0,
+      "max_abs_drift_mm": 87.5,
+      "peak_abs_base_shear_kN": 29.3638193,
+      "loop_work_MN_m": -0.0017061129016666717,
+      "metric_scope": "display_only_amplitude_window_mismatch; RMS and loop-work ratios to the 200 mm structural reference are intentionally not computed"
+    },
+    {
+      "label": "Ko-Bathe regularizado Newton-LM 200 mm",
+      "role": "kobathe_candidate",
+      "path": "data\\output\\kobathe_lmnewton_fullproto_v2\\cyc\\lmnewton_hysteresis.csv",
+      "status": "available",
+      "base_shear_sign_factor_to_structural": 1.0,
+      "records": 196.0,
+      "max_abs_drift_mm": 200.0,
+      "peak_abs_base_shear_kN": 50.830610300000004,
+      "loop_work_MN_m": -0.012558158066118173,
+      "metric_scope": "common_protocol_pseudotime",
+      "reference_loop_work_MN_m": -0.014521865956026612,
+      "loop_work_ratio_to_structural": 0.8647757873640546,
+      "rms_base_shear_error_kN": 9.475843674008107,
+      "peak_normalized_rms_base_shear_error": 0.4027045941383037,
+      "max_base_shear_error_kN": 45.95095468603155
     }
   ],
   "notes": "The OpenSees curve is the multi-element high-fidelity structural comparator used to audit the fall_n structural reference over the full 200 mm cyclic protocol, not the earlier incomplete bridge diagnostic or the shorter 50 mm window. Missing Ko-Bathe curves are recorded explicitly so the Chapter 9 claim-support audit can distinguish absent data from a failed physics result. Rerun this script after each long cyclic candidate finishes."

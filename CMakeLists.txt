@@ -1461,3 +1461,16 @@ set_property(TEST phase6_mpi_scalability                APPEND PROPERTY LABELS p
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
+
+# -- Sonda de material aislado (1 punto de Gauss) para diagnostico de la rama
+#    de fisuracion de KoBatheConcrete3D.  La herramienta existia en tools/ pero
+#    nunca se habia declarado como target.
+add_executable(kobathe_single_gp_probe tools/kobathe_single_gp_probe.cpp)
+target_include_directories(kobathe_single_gp_probe PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(kobathe_single_gp_probe PUBLIC
+    MPI::MPI_CXX
+    PkgConfig::PETSC
+    Eigen3::Eigen)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(kobathe_single_gp_probe PUBLIC OpenMP::OpenMP_CXX)
+endif()

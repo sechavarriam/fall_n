@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1905,6 +1906,11 @@ void write_runtime_manifest(
 
 int main(int argc, char** argv)
 {
+    // Sin buffer en stdout: cuando --print-progress se redirige a un archivo, el
+    // runtime ucrt usa buffering en bloque (y trata _IOLBF como full para
+    // archivos), dejando los logs invisibles hasta llenar el buffer. _IONBF
+    // descarga cada escritura -> monitorizable en corridas largas.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     bool petsc_initialized = false;
     std::filesystem::path attempted_output_dir{};
     bool should_write_exception_manifest = false;

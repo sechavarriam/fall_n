@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <iostream>
@@ -37,6 +38,53 @@
 #include <Eigen/SVD>
 
 #include "KoBatheConcrete.hh"   // Reuses KoBatheParameters
+
+
+// -----------------------------------------------------------------------------
+//  EXPERIMENTAL: fisura multi-direccional fija con UMBRAL ANGULAR
+//  (de Borst & Nauta, 1985) frente a la ortogonalidad forzada actual.
+//
+//  El modelo vigente congela crack_normals[] en la formacion y obliga a las
+//  fisuras 2 y 3 a ser ortogonales a la primera.  Cuando la direccion principal
+//  rota, ninguna fisura se alinea con ella y el material acumula traccion
+//  espuria (stress locking, Rots & Blaauwendraad 1989).
+//
+//  Apagado por defecto -> el build de produccion no cambia en absoluto.
+//  Compilar con -DKOBATHE_MULTI_CRACK=1 para activarlo.
+//  Umbral por defecto 30 deg (cos 30 = 0.866).
+// -----------------------------------------------------------------------------
+#ifndef KOBATHE_MULTI_CRACK
+#define KOBATHE_MULTI_CRACK 0
+#endif
+#ifndef KOBATHE_CRACK_ANGLE_DEG
+#define KOBATHE_CRACK_ANGLE_DEG 30.0
+#endif
+inline constexpr bool kMultiCrackAngle = (KOBATHE_MULTI_CRACK != 0);
+
+// ARREGLO C: acotar a f_t el ancla de formacion del puente de continuidad.
+// ENCENDIDO por defecto.  -DKOBATHE_ANCHOR_FT=0 reproduce el comportamiento
+// previo, para el A/B controlado.
+#ifndef KOBATHE_ANCHOR_FT
+#define KOBATHE_ANCHOR_FT 1
+#endif
+inline constexpr bool kAnchorFt = (KOBATHE_ANCHOR_FT != 0);
+
+// CALIBRACION runtime del ancla de formacion (controla la envolvente/capacidad).
+// KOBATHE_ANCHOR_CAP_RATIO escala el techo del clamp del ancla del puente de
+// continuidad: ratio=1.0 -> techo = f_t (arreglo C, sub-predice); ratio grande
+// -> el clamp deja de morder y se recupera el sobredisparo octaedrico original
+// (sobre-rigidiza).  Permite barrer la sobre-resistencia sin recompilar y ajustar
+// la capacidad flexural a la referencia estructural.
+inline double kobathe_anchor_cap_ratio() {
+    static const double r = []() {
+        const char* v = std::getenv("KOBATHE_ANCHOR_CAP_RATIO");
+        return (v != nullptr && v[0] != '\0') ? std::atof(v) : 1.0;
+    }();
+    return r;
+}
+
+inline const double kCosThetaThr =
+    std::cos(KOBATHE_CRACK_ANGLE_DEG * 3.14159265358979323846 / 180.0);
 
 
 // =============================================================================
@@ -715,8 +763,6 @@ private:
                 }
             } else {
                 // Damage-secant law driven by the ratcheted maximum opening.
-                const double Enn_residual =
-                    crack_stabilization_.eta_N * C_local(0, 0);
                 double eps_tp = ts.eps_tp;
                 double eps_tu = ts.eps_tu;
                 double ft = ts.ft;
@@ -734,8 +780,14 @@ private:
                     eps_tu = 2.0 * params_.Gf
                            / std::max(ft * params_.lb, TOL);
                 }
-                const double e_hat = std::max(
-                    {st.crack_strain_max[ic], st.crack_strain[ic], eps_tp});
+                // El trinquete ya vive en crack_strain_max: con el cap de
+                // delay-damage desactivado vale max(committed, e_nn) >=
+                // crack_strain, de modo que incluir crack_strain aquí era
+                // redundante.  Con el cap activo, en cambio, reintroducía la
+                // deformación de fisura SIN acotar y anulaba por completo la
+                // regularización viscosa.
+                const double e_hat =
+                    std::max(st.crack_strain_max[ic], eps_tp);
                 const double band = std::max(eps_tu - eps_tp, TOL);
                 // Envolvente NOMINAL (desde ft) con PUENTE de continuidad.
                 // El criterio octaédrico dispara por encima de ft (~1.32·ft
@@ -770,8 +822,21 @@ private:
                 // puente evaluado sobre sigma_nom(ê) alto daría una secante
                 // mayor que el módulo intacto — pico de rigidez no físico
                 // (pared de v10/v11, idéntica e independiente de w_drop).
+                // El residual debe acotar la TENSION, no imponer una rigidez.
+                // La version previa hacia  max(sigma_env/e_hat, eta_N*E), de
+                // modo que al agotarse la envolvente la fisura abierta seguia
+                // transmitiendo  sigma_nn = eta_N*E*e_hat,  que CRECE sin cota
+                // al abrirse (sonda de 1 GP: 1.01 MPa a e=3e-3 con eta_N=0.01,
+                // y 18.07 MPa = 6.2*ft con el eta_N=0.20 por defecto).  Esa
+                // traccion residual impide que el eje neutro se corra y es el
+                // origen de la sobre-rigidez lateral.
+                // Aqui el piso es una TENSION residual eta_N*ft: sigma_nn
+                // tiende a eta_N*ft y la secante decae como 1/e_hat, siempre
+                // positiva para el condicionamiento del tangente.
+                const double sigma_floor = crack_stabilization_.eta_N * ft;
+                const double sigma_eff = std::max(sigma_env, sigma_floor);
                 Enn_open = std::min(
-                    std::max(sigma_env / std::max(e_hat, TOL), Enn_residual),
+                    sigma_eff / std::max(e_hat, TOL),
                     C_local(0, 0));
                 // Fade de retención/acople en una ventana CORTA tras la
                 // formación (15% de la banda ~ decenas de micras de
@@ -796,7 +861,21 @@ private:
                 alpha = 0.5
                       * (1.0 + std::tanh(st.crack_strain[ic] / delta));
             }
-            double Enn = (1.0 - alpha) * C_local(0, 0) + alpha * Enn_open;
+            // EXPERIMENTAL (env-gated, default 1.0 = recuperación COMPLETA =
+            //  comportamiento del paper): acota la recuperación de rigidez normal
+            //  al CERRAR la fisura.  En la reversa (alpha->0) la fisura recupera
+            //  el C elástico completo de golpe, y el multi-equilibrio del
+            //  ablandamiento hace saltar la descarga a una rama espuria de fuerza
+            //  alta (spike de reversa).  frac<1 amortigua esa recuperación ->
+            //  reversa más suave, a costa de una fisura cerrada algo más blanda
+            //  en compresión.  Solo actúa al cerrar; la rama de carga (alpha=1 ->
+            //  Enn_open) queda idéntica.
+            static const double closure_stiff_frac = [] {
+                const char* v = std::getenv("KOBATHE_CLOSURE_STIFF_FRAC");
+                return (v != nullptr && v[0] != '\0') ? std::atof(v) : 1.0;
+            }();
+            double Enn = (1.0 - alpha) * closure_stiff_frac * C_local(0, 0)
+                       + alpha * Enn_open;
 
             // Retención de cortante graduada por el daño normal: sin salto
             // en la formación (dmg=0 -> beta_s=1), eta_S a apertura
@@ -1470,18 +1549,40 @@ struct EvalResult3D {
                         && s1_max >= tension_softening().ft;
                 if (g > 0.0 || rankine_fire) {
                     Vec3 normal = n1_dir.normalized();
+                    bool form_crack = true;
 
-                    // Force orthogonality with existing cracks
-                    if (st.num_cracks == 1) {
-                        // Project out component along existing crack normal
-                        const Vec3& n0 = st.crack_normals[0];
-                        normal = (normal - normal.dot(n0) * n0).normalized();
-                    } else if (st.num_cracks == 2) {
-                        // Third crack must be perpendicular to both existing
-                        normal = st.crack_normals[0].cross(st.crack_normals[1]).normalized();
+                    if constexpr (kMultiCrackAngle) {
+                        // Fisura multi-direccional fija (de Borst & Nauta):
+                        // la fisura nueva nace con la normal REAL de la
+                        // dirección principal, y solo si esta se desvía más de
+                        // theta_thr de todas las existentes.  La construcción
+                        // por ortogonalidad forzada nunca puede alinearse con
+                        // una dirección principal que rota, y de ahí el bloqueo
+                        // de tensiones (sonda: sigma_1 = 3.47*ft y subiendo;
+                        // columna real: 46 MPa = 16*ft en la cuerda traccionada).
+                        // cos_max = alineamiento con la fisura existente MAS
+                        // parecida.  Sin fisuras previas vale 0 y siempre se
+                        // forma.  Si la nueva normal esta a menos de theta_thr
+                        // de alguna existente, esa ya representa el plano.
+                        double cos_max = 0.0;
+                        for (int k = 0; k < st.num_cracks; ++k)
+                            cos_max = std::max(
+                                cos_max,
+                                std::abs(normal.dot(st.crack_normals[k])));
+                        form_crack = (cos_max <= kCosThetaThr);
+                    } else {
+                        // Force orthogonality with existing cracks
+                        if (st.num_cracks == 1) {
+                            // Project out component along existing crack normal
+                            const Vec3& n0 = st.crack_normals[0];
+                            normal = (normal - normal.dot(n0) * n0).normalized();
+                        } else if (st.num_cracks == 2) {
+                            // Third crack must be perpendicular to both existing
+                            normal = st.crack_normals[0].cross(st.crack_normals[1]).normalized();
+                        }
                     }
 
-                    if (normal.norm() > 0.5) {  // guard against degenerate cases
+                    if (form_crack && normal.norm() > 0.5) {  // guard against degenerate cases
                         const int ic_new = st.num_cracks;
                         st.crack_normals[ic_new] = normal;
                         // Ancla de formación sobre el plano definitivo
@@ -1498,7 +1599,21 @@ struct EvalResult3D {
                         Em(0, 2) = Em(2, 0) = 0.5 * eps_elastic[4];
                         Em(0, 1) = Em(1, 0) = 0.5 * eps_elastic[5];
                         const double eps_n = normal.dot(Em * normal);
-                        st.crack_ft_form[ic_new] = std::max(sig_n, 0.0);
+                        // ARREGLO C.  El ancla del puente de continuidad no
+                        // puede exceder f_t.  El paso finito hace que sigma_1
+                        // rebase el umbral antes de que la fisura nazca (sonda
+                        // de 1 GP: 1.48*ft), y anclar el puente a ese valor
+                        // sostiene una sobre-resistencia que la envolvente
+                        // nominal no tiene.  El clamp conserva el anclaje por
+                        // debajo de f_t (formaciones multiaxiales) y recorta el
+                        // rebase.  Compilar con -DKOBATHE_ANCHOR_FT=0 para
+                        // reproducir el comportamiento previo (A/B controlado).
+                        st.crack_ft_form[ic_new] =
+                            kAnchorFt
+                                ? std::clamp(sig_n, 0.0,
+                                             kobathe_anchor_cap_ratio() *
+                                                 tension_softening().ft)
+                                : std::max(sig_n, 0.0);
                         st.crack_eps_form[ic_new] = std::max(eps_n, 0.0);
                         st.num_cracks++;
                     }
