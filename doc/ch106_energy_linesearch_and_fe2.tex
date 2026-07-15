@@ -1,0 +1,232 @@
+% ==========================================================================
+%  Chapter 106 -- Energy Line Search, TAO Polish, and the FE2 Probe
+% ==========================================================================
+
+\chapter{Energy Line Search, TAO Polish, and the FE\textsuperscript{2} Probe}
+\label{ch:energy-linesearch-fe2}
+
+\paragraph{Normative status.}
+Second remediation round after the Phase-I closure
+(Cap.~\ref{ch:driver-integration}). Two solver-level remedies proposed
+from the Phase-I evidence are implemented and measured, an energy
+backtracking line search inside the LM continuation and an LM polish
+stage after the hybrid TAO step, and the FE\textsuperscript{2} route
+(material information passing between a beam macro and a KoBathe RVE) is
+probed as a modelling-level alternative. Everything remains
+environment-gated and OFF by default, and the gates-off campaign was
+re-verified byte-identical to \path{data/output/g0_baseline} after every
+solver change of this round.
+
+\section{Energy line search inside the LM continuation}
+\label{sec:ls-theory}
+
+The Phase-I autopsy of deflation (Cap.~\ref{ch:driver-integration})
+showed that near a reversal the spurious basins are dense, so
+\emph{avoiding} a known root is not selection. The hybrid TAO step
+selects by \emph{descending}, and the line search brings that principle
+into the LM step itself at almost no cost. With
+$\mathbf K + \mu\mathbf I$ positive definite the LM direction satisfies
+\[
+  \mathbf R^{\top}\,\mathrm d\mathbf u
+  = -\,\mathbf R^{\top}(\mathbf K+\mu\mathbf I)^{-1}\mathbf R \;<\; 0,
+\]
+and since $\mathbf R = \nabla\Pi$ within a frozen-state step,
+$\mathrm d\mathbf u$ is a \emph{descent direction of the incremental
+potential}. A full step that raises $\Pi$ is therefore not descending
+the energy landscape, it is jumping over a barrier into another basin
+--- the reversal-spike mechanism. The gated rule
+(\texttt{KOBATHE\_LM\_LINESEARCH=1}) is
+%
+\begin{enumerate}
+  \item accept the step only if the residual decreases (the original
+        rule) \emph{and} $\Pi$ does not increase;
+  \item if $\Pi$ increases, halve $\alpha$ (up to
+        \texttt{KOBATHE\_LM\_LS\_BACKTRACKS}, default 4);
+  \item if no $\alpha$ lowers $\Pi$, \emph{reject} the step so $\mu$
+        grows. The large-$\mu$ limit
+        $\mathrm d\mathbf u \to -\mu^{-1}\nabla\Pi$ is gradient descent
+        on $\Pi$, which cannot terminate at a maximum or saddle.
+\end{enumerate}
+%
+The energy comes from the same three-point quadrature backend of
+Cap.~\ref{ch:driver-integration} (the LM solver in the driver is now
+instantiated with \texttt{NLAnalysisEnergyBackend}, arithmetically
+identical to the plain adapter when the gate is off). The unit test
+\texttt{regularized\_newton\_energy\_linesearch} isolates the mechanism
+on $\Pi=(u^2-1)^2$, whose residual root $u=0$ is a \emph{maximum} of
+$\Pi$. Plain LM from $u_0=0.15$ converges to that maximum and reports
+success; with the gate on, the solver refuses it (every energy-raising
+step is rejected), descent inside a well is unimpeded, the cubic
+benchmark of the deflation test still lands on its energy-downhill
+root, and with the gate off the energy-capable backend reproduces the
+plain backend bit-exactly.
+
+\paragraph{Campaign.} With only the line search on
+(\path{data/output/p1_linesearch}), the dominant spike of the baseline
+collapses, step~117 falls from $0.0477$ to $0.0107$\,MN, \emph{below}
+the pre-reversal envelope, step~116 from $0.0281$ to $0.0194$, and the
+$-200$\,mm reversal calms from $0.0369/0.0393/0.0241$ to
+$0.0260/0.0107/0.0017$\,MN. Step 119 converges where the baseline did
+not. Globally \texttt{noconv} drops 80~$\to$~78 and the peak from
+$0.0508$ to $0.0493$\,MN. The cost is a handful of extra residual
+evaluations per Newton iteration, only while the gate is on.
+
+\section{LM polish after the hybrid TAO step}
+\label{sec:tao-polish}
+
+Phase-I left TAO selecting the right basin without closing the
+residual under heavy cracking. The polish stage
+(\texttt{KOBATHE\_TAO\_POLISH=1}) restores the pre-step state after the
+TAO solve, seeds the LM continuation with the TAO iterate through
+\texttt{set\_solution}, and lets the local monotone-residual iteration
+finish the job through the single surviving commit. The monotone
+acceptance cannot climb back over the $\lVert\mathbf R\rVert$ ridge
+into the spurious basin, and a residual guard reproduces the plain TAO
+step when the polish does not improve.
+
+\paragraph{Campaign.} (\path{data/output/p2_tao_polish}) The polish
+engaged on 18 of the 24 hybrid steps and did its local job, the
+$+150$\,mm-reversal residuals improve about threefold
+($0.137/0.126 \to 0.044/0.041$), three polished steps land near or
+below $10^{-4}$ and one closes fully (7 hybrid steps converged against
+6 without polish). The global outcome is mixed, \texttt{noconv} rises
+to 83 because the slightly different committed states shift the
+trajectory of the heavily damaged tail. The polish is therefore an
+honest refinement of the hybrid step, not a global win on this mesh.
+
+\section{Combined gates}
+\label{sec:combo}
+
+The full stack (\texttt{KOBATHE\_TAO\_REVERSAL} +
+\texttt{KOBATHE\_TAO\_POLISH} + \texttt{KOBATHE\_LM\_LINESEARCH},
+\path{data/output/p2_tao_ls_combo}) ties the best convergence count
+(\texttt{noconv}=77) and keeps every reversal spike tamed (step 117 at
+$0.0202$\,MN, well under the envelope bar). Its global $|V|$ maximum,
+$0.0554$\,MN, sits at steps 162--163, the $+187.5/+200$\,mm
+\emph{loading} extremes of the last cycle, not at a reversal. A
+higher force at the pushover extreme reflects a different, less-damaged
+committed trajectory carrying more load, which is not the spurious-basin
+signature the spike detector targets; the reversal-window metric is the
+one the extension is accountable for, and there the combination holds.
+
+\section{The FE\textsuperscript{2} probe}
+\label{sec:fe2-probe}
+
+The modelling-level question was whether passing material information
+between models (one-way or two-way) smooths the cyclic response. The
+repository already had the production FE\textsuperscript{2} engine
+(\texttt{MultiscaleAnalysis} + \texttt{BeamMacroBridge} +
+\texttt{NonlinearSubModelEvolver}, previously wired only to building
+drivers), and the probe added the missing artifact, a single-column
+driver (\path{main_rc_column_multiscale.cpp}) with the reference-column
+geometry, a fiber Timoshenko macro (eight 2-node elements with reduced
+integration, after a shear-locking autopsy against the validated
+cantilever benchmark) and one KoBathe RVE at the base hinge, driven by
+the exact 196-target protocol of the monolithic driver. A minimal
+additive toggle in the evolver selects the homogenisation operator
+(boundary reactions, the production path, versus the volume-average
+comparison path).
+
+\paragraph{One-way.} The macro trajectory is identical to the
+uncoupled fiber column by construction, and it is trivially smooth
+(196/196 steps, zero non-converged rows, peak $|V| = 0.0237$\,MN). The
+smoothness is bought by never letting the macro see the continuum
+pathology, and the price is constitutive fidelity, the fiber section
+carries half the monolithic peak shear.
+
+\paragraph{Two-way, the pathological oscillation and its autopsy.}
+The first full two-way runs oscillated violently ($|V|$ flipping sign
+step to step, up to $\pm 0.06$\,MN near zero drift) while reporting
+\texttt{macro\_converged=1} on every row. The audit traced a
+self-reinforcing defect in the hybrid observation window of
+\texttt{MultiscaleAnalysis} (the recovery path that advances with the
+last converged feedback when the staggered loop does not meet its 3\%
+tolerance). That path committed \emph{only the macro}, it never
+re-solved nor committed the local models, and the injected feedback
+refreshed \emph{only} on strictly converged steps. In a run whose only
+strict steps were the four axial-preload steps, the RVE stayed frozen
+at a near-virgin state while the macro cycled to $\pm 50$\,mm, every
+step imposed the full accumulated section kinematics on that stale
+state in one jump, the re-cracking response came out chaotic or
+diverged outright, the staggered force residual stayed pinned at
+$0.4$--$1.0$, and every step fell back to the hybrid window with an
+affine anchor ($\mathbf f_0$, $\boldsymbol\varepsilon_{\mathrm{ref}}$)
+extrapolating from the preload state. The fix is the opt-in
+\texttt{evolve\_locals\_in\_hybrid} of
+\texttt{TwoWayFailureRecoveryPolicy}: after the hybrid macro commit the
+locals are re-solved under the final macro state with the same
+machinery as the one-way path, their material history is committed,
+and the feedback anchor is refreshed from the committed state. The
+effect is night and day, the staggered residual drops to
+$0.02$--$0.07$, strict two-way steps reappear throughout the protocol,
+and the committed shear unloads smoothly through the reversals that
+previously oscillated.
+
+\paragraph{The homogenisation operator.} Three independent
+observations mark the operator as the real lever. With the frozen
+(defective) feedback, the volume-average operator converged strictly
+where boundary reactions could not and survived eleven steps further.
+With the fix, the roles invert, the boundary-reaction operator (whose
+condensed tangent is \emph{consistent} with its forces) runs stably,
+while the volume-average toggle, which replaces only the force vector
+and keeps the boundary-reaction tangent
+(\texttt{forces\_consistent\_with\_tangent=false}), aborts at step~40:
+once the feedback is live, the inconsistent affine pair
+$(\mathbf f_{\mathrm{vol}}, \mathbf D_{\mathrm{bnd}})$ of a cracked RVE
+makes the macro unsolvable at the reversal. A consistent volume-average
+operator needs its own tangent (finite differences of the averaged
+forces), noted as the follow-up.
+
+\paragraph{Two-way with the fix, full protocol.}
+With \texttt{evolve\_locals\_in\_hybrid} the boundary-reaction two-way
+completes all 196 targets with \emph{zero} non-converged rows, 20
+strictly converged steps and the rest in the (now well-fed) hybrid
+window with staggered force residuals of $0.02$--$0.07$. One noisy
+transient remains during the initial cracking of the RVE (steps
+$\sim$5--19, peak $|V|=0.064$\,MN) while the first committed local
+histories catch up with the macro; from the $\pm 50$\,mm cycle onward
+the loops are smooth, the critical reversals unload monotonically
+($0.027 \to 0.013 \to 0.007$\,MN at the $+150$\,mm reversal that
+carries the monolithic's dominant spike), and the large-amplitude
+cycles track the monolithic loop shape, pinching included, far more
+faithfully than the fiber macro. Deferring the coupling start past the
+initial-cracking window, or ramping the staggered relaxation during
+it, is the obvious next refinement.
+
+\section{Updated evidence matrix}
+\label{sec:round2-matrix}
+
+Both remediation levels, on the same $\pm$50/100/150/200\,mm protocol.
+The monolithic rows are directly comparable to
+Cap.~\ref{ch:driver-integration}; the FE\textsuperscript{2} rows are a
+\emph{different model} of the same column and are compared on
+smoothness and completion, not on force values.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+& \texttt{noconv} & spike (step 117) & note \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{monolithic continuum (solver remedies)}} \\
+baseline G0             & 80 & 0.0477 & peak 0.0508\,MN \\
+LM + energy line search & 78 & 0.0107 & near-zero cost \\
+hybrid TAO              & 77 & 0.0189 & peak 0.0377\,MN \\
+TAO + polish + LS       & 77 & 0.0202 & higher pushover extreme \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{FE\textsuperscript{2} column (modelling level)}} \\
+fiber macro / one-way   & 0/196 & --- & smooth, half the strength \\
+two-way boundary + fix  & 0/196 & smooth reversals & one onset transient \\
+two-way volume + fix    & aborts (40) & --- & inconsistent $(\mathbf f,\mathbf D)$ pair \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The reading across both levels is consistent with the Phase-I
+conclusion, selection needs \emph{descent} or \emph{consistent
+homogenised feedback}, not avoidance. At the solver level the energy
+line search is the cheapest sustained win and composes with TAO; at the
+modelling level the two-way FE\textsuperscript{2} with evolving local
+histories completes the protocol with zero non-converged steps and
+smooth large-amplitude loops, at the cost of one RVE solve chain per
+step. Everything remains environment- or flag-gated, and the gates-off
+monolithic path stays byte-identical to \path{data/output/g0_baseline}.
