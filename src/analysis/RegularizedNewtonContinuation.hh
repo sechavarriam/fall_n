@@ -194,6 +194,17 @@ struct RegularizedNewtonConfig {
     //  reproduce the plain warm-start continuation; the driver enables it.
     bool   secant_predictor{false};
     double secant_max_scale{4.0};  // clamp |s| so a tiny dp cannot blow up u_pred
+    // Energy line search (only effective when the Backend also models the
+    //  incremental energy, e.g. NLAnalysisEnergyBackend). The LM direction
+    //  with K + mu I positive definite is a DESCENT direction of the
+    //  incremental potential Pi (R = grad Pi), so a full step that RAISES Pi
+    //  is jumping over an energy barrier into another basin: alpha is
+    //  backtracked, and if no alpha lowers Pi (e.g. heading into a maximum of
+    //  Pi that is still a residual root) the step is REJECTED so mu grows —
+    //  the large-mu limit is gradient descent on Pi, which cannot stall at a
+    //  maximum/saddle. Off by default: bit-identical to the plain LM.
+    bool   energy_linesearch{false};
+    int    linesearch_max_backtracks{4};
 };
 
 struct RegularizedNewtonStepResult {
@@ -304,20 +315,44 @@ public:
             FALL_N_PETSC_CHECK(
                 VecWAXPY(ut_.get(), 1.0, du_.get(), u_.get()));         // u+du
             backend_.residual(ut_.get(), R_.get());
-            const double rnew = norm_(R_.get());
-            bool accept_step;
-            if constexpr (Defl::enabled) {
-                if (!roots_.empty()) {
-                    // Compare the DEFLATED residual so LM keeps the step that
-                    //  escapes a spurious basin even if ||F|| ticks up locally.
-                    const double eu = defl_.eta(u_.get(), roots_, w_.get());
-                    const double et = defl_.eta(ut_.get(), roots_, w_.get());
-                    accept_step = (rnew * et) < (rn * eu);
+            double rnew = norm_(R_.get());
+            const auto residual_accept = [&](double rnew_) {
+                if constexpr (Defl::enabled) {
+                    if (!roots_.empty()) {
+                        // Compare the DEFLATED residual so LM keeps the step
+                        //  that escapes a spurious basin even if ||F|| ticks
+                        //  up locally.
+                        const double eu = defl_.eta(u_.get(), roots_, w_.get());
+                        const double et =
+                            defl_.eta(ut_.get(), roots_, w_.get());
+                        return (rnew_ * et) < (rn * eu);
+                    }
+                    return rnew_ < rn;
                 } else {
-                    accept_step = (rnew < rn);
+                    return rnew_ < rn;
                 }
-            } else {
-                accept_step = (rnew < rn);
+            };
+            bool accept_step = residual_accept(rnew);
+            if constexpr (requires(Backend& b, Vec x, Vec y) {
+                              { b.incremental_energy(x, y) }
+                                  -> std::convertible_to<double>;
+                          }) {
+                if (cfg_.energy_linesearch && accept_step) {
+                    double alpha = 1.0;
+                    double e =
+                        backend_.incremental_energy(ut_.get(), u_.get());
+                    int bt = 0;
+                    while (e > 0.0 && bt < cfg_.linesearch_max_backtracks) {
+                        alpha *= 0.5;
+                        FALL_N_PETSC_CHECK(VecWAXPY(
+                            ut_.get(), alpha, du_.get(), u_.get()));
+                        backend_.residual(ut_.get(), R_.get());
+                        rnew = norm_(R_.get());
+                        ++bt;
+                        e = backend_.incremental_energy(ut_.get(), u_.get());
+                    }
+                    accept_step = (e <= 0.0) && residual_accept(rnew);
+                }
             }
             if (accept_step) {
                 FALL_N_PETSC_CHECK(VecCopy(ut_.get(), u_.get()));
