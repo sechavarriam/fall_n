@@ -6,7 +6,11 @@
 #include "src/analysis/PetscBorderedMixedControlNewton.hh"
 #include "src/analysis/PetscNonlinearAnalysisBorderedAdapter.hh"
 #include "src/analysis/RegularizedNewtonContinuation.hh"
+#include "src/analysis/TaoEnergyContinuation.hh"
 #include "src/analysis/PenaltyCoupling.hh"
+#include "src/algorithms/cultural/CulturalAlgorithm.hh"
+#include "src/algorithms/cultural/KnowledgeSources.hh"
+#include "src/algorithms/optimization/BoundedSearchSpace.hh"
 #include "src/domain/Domain.hh"
 #include "src/elements/ContinuumElement.hh"
 #include "src/elements/ElementPolicy.hh"
@@ -32,7 +36,9 @@
 #include <vtkCellType.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <cstdio>
@@ -4613,22 +4619,153 @@ run_reduced_rc_column_continuum_case_result_impl(
                 .tol_rel     = envd("KOBATHE_LM_RTOL", 1.0e-8),
                 .mu_max_frac = envd("KOBATHE_LM_MUMAXFRAC", 1.0e-1),
                 .stag_max    = static_cast<int>(envd("KOBATHE_LM_STAG", 12.0)),
-                .accept_floor = 1.0e-5,
+                .accept_floor = envd("KOBATHE_LM_ACCEPT_FLOOR", 1.0e-5),
                 // Predictor secante ON por defecto: mata el spike de reversa
                 //  (KOBATHE_LM_PREDICT=0 lo desactiva -> warm-start puro).
                 .secant_predictor = (envd("KOBATHE_LM_PREDICT", 1.0) != 0.0),
                 .secant_max_scale = envd("KOBATHE_LM_PREDICT_MAXSCALE", 4.0),
             };
 
+            // ── Extensión de SELECCIÓN DE RAMA (env-gated; OFF por defecto) ─
+            //  Con los gates apagados este bloque reproduce la continuación LM
+            //  original BIT a BIT: el solver se instancia con
+            //  ShermanMorrisonDeflation, pero sin raíces registradas su
+            //  aritmética es idéntica a NoDeflation (cada rama deflactada
+            //  exige !roots.empty()), y ni el checkpoint, ni el retry, ni TAO,
+            //  ni el CA se ejecutan.
+            //
+            //  P1.2 — deflación detect-restore-retry en reversas.
+            const bool defl_on = envd("KOBATHE_LM_DEFLATE", 0.0) != 0.0;
+            const double defl_spike = envd("KOBATHE_LM_DEFLATE_SPIKE", 1.5);
+            const int defl_maxretry = static_cast<int>(
+                envd("KOBATHE_LM_DEFLATE_MAXRETRY", 2.0));
+            //  Extiende el detector a espigas NO convergidas (opt-in). En la
+            //  malla 2x2x4 la rama espuria se manifiesta como pasos de reversa
+            //  ESTANCADOS en fuerza alta (conv=0, |R| sobre el piso): el
+            //  detector del flujo base (convergió Y espiga) no los toca.
+            const bool defl_on_noconv =
+                envd("KOBATHE_LM_DEFLATE_ON_NOCONV", 0.0) != 0.0;
+            //  Guarda de residuo del intento deflactado: un re-solve que
+            //  escapa de la espiga puede aterrizar en un estado basura
+            //  (|V| pequeño con |R| enorme); solo se conserva si su residuo
+            //  no excede en más de este factor al del intento base.
+            const double defl_resid_factor =
+                envd("KOBATHE_LM_DEFLATE_RESID_FACTOR", 10.0);
+            const fall_n::ShermanMorrisonDeflation defl{
+                .power   = envd("KOBATHE_LM_DEFLATE_POWER", 2.0),
+                .shift   = envd("KOBATHE_LM_DEFLATE_SHIFT", 1.0),
+                .tau_max = envd("KOBATHE_LM_DEFLATE_TAUMAX", 50.0)};
+
             fall_n::NLAnalysisContinuationBackend backend{nl};
             fall_n::RegularizedNewtonContinuation solver{std::move(backend),
-                                                         lmcfg, lmreg};
+                                                         lmcfg, lmreg, defl};
+
+            //  P2.3 — paso híbrido TAO sobre la energía incremental. Solo con
+            //  production_stabilized: el cierre duro de paper_reference rompe
+            //  la suavidad C1 de Pi que exige el trust-region.
+            bool tao_rev = envd("KOBATHE_TAO_REVERSAL", 0.0) != 0.0;
+            bool tao_all = envd("KOBATHE_TAO", 0.0) != 0.0;
+            if ((tao_rev || tao_all) &&
+                spec.concrete_profile !=
+                    ReducedRCColumnContinuumConcreteProfile::
+                        production_stabilized) {
+                std::fprintf(
+                    stderr,
+                    "[tao] gate ignorado: el perfil de concreto no es "
+                    "production_stabilized (sin suavidad C1 de la energia)\n");
+                tao_rev = false;
+                tao_all = false;
+            }
+            const bool tao_on = tao_rev || tao_all;
+            std::optional<fall_n::TaoEnergyContinuation<
+                fall_n::NLAnalysisEnergyBackend<AnalysisT>>>
+                tao;
+            petsc::OwnedVec u_lm;  // iterado LM entregado a TAO
+            if (tao_on) {
+                fall_n::TaoEnergyConfig taocfg{
+                    .max_it =
+                        static_cast<int>(envd("KOBATHE_TAO_MAXIT", 200.0)),
+                    .gatol = envd("KOBATHE_TAO_GATOL", 1.0e-8),
+                    .grtol = envd("KOBATHE_TAO_GRTOL", 1.0e-8),
+                    .accept_floor = envd("KOBATHE_TAO_ACCEPT_FLOOR", 1.0e-6)};
+                if (const char* tt = std::getenv("KOBATHE_TAO_TYPE");
+                    tt != nullptr && tt[0] != '\0') {
+                    taocfg.tao_type = tt;
+                }
+                if (envd("KOBATHE_TAO_SYMCHECK", 0.0) != 0.0) {
+                    //  ||K-K^T||_F/||K||_F UNA vez: si la penalización
+                    //  asimetriza el Hessiano (>1e-8) el Newton de región de
+                    //  confianza pierde fundamento y se cae al cuasi-Newton
+                    //  solo-gradiente, salvo elección explícita por env.
+                    fall_n::NLAnalysisEnergyBackend probe{nl};
+                    auto Ks = probe.create_matrix();
+                    probe.tangent(solver.solution(), Ks.get());
+                    Mat Kt = nullptr;
+                    MatTranspose(Ks.get(), MAT_INITIAL_MATRIX, &Kt);
+                    MatAXPY(Kt, -1.0, Ks.get(), DIFFERENT_NONZERO_PATTERN);
+                    PetscReal n_asym = 0.0, n_k = 0.0;
+                    MatNorm(Kt, NORM_FROBENIUS, &n_asym);
+                    MatNorm(Ks.get(), NORM_FROBENIUS, &n_k);
+                    MatDestroy(&Kt);
+                    const double rel =
+                        (n_k > 0.0) ? static_cast<double>(n_asym / n_k) : 0.0;
+                    std::fprintf(
+                        stderr, "[tao] symcheck ||K-K^T||/||K|| = %.3e\n", rel);
+                    if (rel > 1.0e-8 &&
+                        std::getenv("KOBATHE_TAO_TYPE") == nullptr) {
+                        std::fprintf(stderr,
+                                     "[tao] asimetria > 1e-8 -> "
+                                     "tao_type=bqnls (solo gradiente)\n");
+                        taocfg.tao_type = "bqnls";
+                    }
+                }
+                tao.emplace(fall_n::NLAnalysisEnergyBackend{nl}, taocfg);
+                u_lm = tao->backend().create_vector();
+            }
+
+            //  P3 — CA-tuner por replay de ventana (KOBATHE_CA=1 +
+            //  KOBATHE_LM_REPLAY_WINDOW="k0:m"): el protocolo corre hasta
+            //  k0-1, se toma un checkpoint (modelo+solver) y el Algoritmo
+            //  Cultural maximiza el fitness de la ventana re-jugándola por
+            //  candidato. El modo replay persiste sus artefactos y NO
+            //  continúa el protocolo.
+            const bool ca_on = envd("KOBATHE_CA", 0.0) != 0.0;
+            int ca_k0 = -1, ca_m = 0;
+            if (ca_on) {
+                const char* w = std::getenv("KOBATHE_LM_REPLAY_WINDOW");
+                if (w == nullptr ||
+                    std::sscanf(w, "%d:%d", &ca_k0, &ca_m) != 2 || ca_k0 < 0 ||
+                    ca_m < 1 ||
+                    static_cast<std::size_t>(ca_k0 + ca_m) > targets.size()) {
+                    std::fprintf(stderr,
+                                 "[ca] KOBATHE_LM_REPLAY_WINDOW invalida: se "
+                                 "espera \"k0:m\" con k0>=0 y k0+m<=%zu\n",
+                                 targets.size());
+                    return false;
+                }
+                if (defl_on || tao_on) {
+                    std::fprintf(
+                        stderr,
+                        "[ca] aviso: KOBATHE_LM_DEFLATE/KOBATHE_TAO se ignoran "
+                        "en modo replay (el CA tunea el LM puro)\n");
+                }
+            }
+            if (defl_on || tao_on || ca_on) {
+                std::fprintf(stderr,
+                             "[ext] gates: deflate=%d (spike=%.2f maxretry=%d) "
+                             "tao=%d (rev=%d all=%d) ca=%d\n",
+                             defl_on ? 1 : 0, defl_spike, defl_maxretry,
+                             tao_on ? 1 : 0, tao_rev ? 1 : 0, tao_all ? 1 : 0,
+                             ca_on ? 1 : 0);
+            }
 
             std::filesystem::create_directories(out_dir);
             std::ofstream lm(out_dir + "/lmnewton_hysteresis.csv");
             lm << "step,p,drift_m,base_shear_MN,base_shear_coupled_MN,iters,mu,"
-                  "resid,conv\n"
-               << std::scientific << std::setprecision(8);
+                  "resid,conv";
+            if (defl_on) lm << ",defl_roots,defl_retries";
+            if (tao_on) lm << ",engine,energy";
+            lm << "\n" << std::scientific << std::setprecision(8);
 
             // Sub-incrementación de REVERSA: en la inversión de deriva la
             //  tangente cambia de carácter (rama de ablandamiento -> descarga
@@ -4647,7 +4784,231 @@ run_reduced_rc_column_continuum_case_result_impl(
             double prev_drift =
                 target_drift_at(cfg, control_path.lateral_progress(prev_p));
             int last_dir = 0, since_rev = 1 << 20;
+
+            //  Envolvente de |V|: referencia del detector de espiga (una rama
+            //  espuria post-reversa da |V| >> envolvente pre-reversa).
+            double env_excursion = 0.0;  // max |V| de la excursión en curso
+            double env_ref = 0.0;        // envolvente congelada en la reversa
+            double env_all = 0.0;        // max |V| histórico (fitness del CA)
+
+            //  Los reintentos y el replay re-ejecutan pasos que el
+            //  step-callback ya registró: al restaurar el checkpoint hay que
+            //  recortar también los records acumulados, o quedarían filas
+            //  duplicadas en los CSV auxiliares.
+            const auto record_sizes = [&]() {
+                return std::array<std::size_t, 7>{
+                    result.hysteresis_records.size(),
+                    result.control_state_records.size(),
+                    result.crack_state_records.size(),
+                    result.embedding_gap_records.size(),
+                    result.rebar_history_records.size(),
+                    result.transverse_rebar_history_records.size(),
+                    result.host_probe_records.size()};
+            };
+            const auto truncate_records =
+                [&](const std::array<std::size_t, 7>& s) {
+                    result.hysteresis_records.resize(s[0]);
+                    result.control_state_records.resize(s[1]);
+                    result.crack_state_records.resize(s[2]);
+                    result.embedding_gap_records.resize(s[3]);
+                    result.rebar_history_records.resize(s[4]);
+                    result.transverse_rebar_history_records.resize(s[5]);
+                    result.host_probe_records.resize(s[6]);
+                };
+
+            //  Paso "crudo": sub-incrementa (p_from -> p_to]; solo el último
+            //  sub-paso cae exactamente en p_to (idéntico al lazo original).
+            auto run_step = [&](double p_from, double p_to, int nsub) {
+                RegularizedNewtonStepResult r{};
+                for (int j = 1; j <= nsub; ++j) {
+                    const double pj = p_from + (p_to - p_from) *
+                                                   static_cast<double>(j) /
+                                                   nsub;
+                    r = solver.advance_to(pj);
+                }
+                return r;
+            };
+
+            //  P3 — replay de ventana: objetivo del CA sobre el genoma de 8
+            //  genes del solver (los genes materiales latcheados en static
+            //  const solo admiten barrido por proceso externo).
+            auto run_ca_replay = [&]() {
+                const int ca_pop =
+                    static_cast<int>(envd("KOBATHE_CA_POP", 8.0));
+                const int ca_gen =
+                    static_cast<int>(envd("KOBATHE_CA_GEN", 10.0));
+                const auto ca_seed = static_cast<std::uint64_t>(
+                    envd("KOBATHE_CA_SEED", 20260715.0));
+                const double ca_topfrac = envd("KOBATHE_CA_TOPFRAC", 0.25);
+
+                const auto nlchk = nl.capture_checkpoint();
+                const auto schk = solver.capture_state();
+                const auto rec0 = record_sizes();
+                const double rp_prev_p = prev_p, rp_prev_drift = prev_drift;
+                const int rp_last_dir = last_dir, rp_since_rev = since_rev;
+                const double env_ref_ca = env_all;
+                std::fprintf(stderr,
+                             "[ca] replay window k0=%d m=%d pop=%d gen=%d "
+                             "seed=%llu env_ref=%.4f MN\n",
+                             ca_k0, ca_m, ca_pop, ca_gen,
+                             static_cast<unsigned long long>(ca_seed),
+                             env_ref_ca);
+
+                int n_eval = 0;
+                auto window_fitness =
+                    [&](std::span<const double> g) -> double {
+                    //  Decodifica el genoma:
+                    //    g0 log10(mu0)  g1 grow  g2 drop  g3 stag_max
+                    //    g4 predict_maxscale  g5 log10(accept_floor)
+                    //    g6 rev_subdiv  g7 rev_subn
+                    fall_n::RegularizedNewtonConfig c = lmcfg;
+                    fall_n::LevenbergMarquardt r = lmreg;
+                    r.mu0 = std::pow(10.0, g[0]);
+                    r.grow = g[1];
+                    r.drop = g[2];
+                    c.stag_max = static_cast<int>(std::lround(g[3]));
+                    c.secant_max_scale = g[4];
+                    c.accept_floor = std::pow(10.0, g[5]);
+                    const int csubdiv = static_cast<int>(std::lround(g[6]));
+                    const int csubn = static_cast<int>(std::lround(g[7]));
+                    solver.set_config(c);
+                    solver.set_regularization(r);
+                    nl.restore_checkpoint(nlchk);
+                    solver.restore_state(schk);
+                    truncate_records(rec0);
+                    double wp = rp_prev_p, wd = rp_prev_drift;
+                    int wl = rp_last_dir, ws = rp_since_rev;
+                    int n_conv = 0;
+                    long iters_sum = 0;
+                    double peak = 0.0;
+                    for (int k = ca_k0; k < ca_k0 + ca_m; ++k) {
+                        const double pk = targets[static_cast<std::size_t>(k)];
+                        const double dk = target_drift_at(
+                            cfg, control_path.lateral_progress(pk));
+                        const int dirk = (dk > wd) - (dk < wd);
+                        if (wl != 0 && dirk != 0 && dirk != wl)
+                            ws = 0;
+                        else if (dirk != 0)
+                            ++ws;
+                        const int nsubk =
+                            (csubdiv > 1 && ws < csubn) ? csubdiv : 1;
+                        const auto rk = run_step(wp, pk, nsubk);
+                        wp = pk;
+                        wd = dk;
+                        if (dirk != 0) wl = dirk;
+                        //  Puntúa SOLO en los targets originales.
+                        if (rk.converged) ++n_conv;
+                        iters_sum += rk.iterations;
+                        peak = std::max(
+                            peak,
+                            std::abs(extract_support_resultant_component(
+                                model, support_reaction_nodes, 0)));
+                    }
+                    //  fitness = w1 n_conv/m - w2 max(0, pico/env - 1)
+                    //            - w3 iters_norm,  w = (1, 1, 0.2).
+                    const double iters_norm =
+                        static_cast<double>(iters_sum) /
+                        (static_cast<double>(ca_m) *
+                         static_cast<double>(std::max(1, c.max_newton)));
+                    double fit = static_cast<double>(n_conv) / ca_m -
+                                 0.2 * iters_norm;
+                    if (env_ref_ca > 0.0) {
+                        fit -= std::max(0.0, peak / env_ref_ca - 1.0);
+                    }
+                    ++n_eval;
+                    std::fprintf(stderr,
+                                 "[ca] eval=%d conv=%d/%d peak=%.4f "
+                                 "iters=%ld fit=%.6f\n",
+                                 n_eval, n_conv, ca_m, peak, iters_sum, fit);
+                    return fit;
+                };
+
+                namespace alg = fall_n::algorithms;
+                alg::BoundedSearchSpace space(
+                    std::vector<double>{-4.0, 1.5, 0.05, 4.0, 1.0, -7.0, 1.0,
+                                        1.0},
+                    std::vector<double>{0.0, 10.0, 0.90, 30.0, 8.0, -3.0, 6.0,
+                                        5.0});
+                alg::cultural::CulturalConfig cacfg;
+                cacfg.population_size = static_cast<std::size_t>(ca_pop);
+                cacfg.max_generations = static_cast<std::size_t>(ca_gen);
+                cacfg.acceptance_fraction = ca_topfrac;
+                cacfg.seed = ca_seed;
+                alg::cultural::CulturalAlgorithm<
+                    alg::BoundedSearchSpace, alg::cultural::NormativeKnowledge,
+                    alg::cultural::SituationalKnowledge>
+                    ca(space, cacfg);
+                const auto ca_res = ca.maximize(window_fitness);
+
+                //  Persistencia: historia por generación y mejor genoma con
+                //  claves = nombres de las env que lo reproducen.
+                {
+                    std::ofstream hist(out_dir + "/ca_history.csv");
+                    hist << "gen,best,mean,g0,g1,g2,g3,g4,g5,g6,g7\n"
+                         << std::scientific << std::setprecision(8);
+                    for (std::size_t gi = 0;
+                         gi < ca_res.best_fitness_history.size(); ++gi) {
+                        hist << gi << "," << ca_res.best_fitness_history[gi]
+                             << "," << ca_res.mean_fitness_history[gi];
+                        for (const double gv : ca_res.best_genome_history[gi]) {
+                            hist << "," << gv;
+                        }
+                        hist << "\n";
+                    }
+                }
+                const auto& bg = ca_res.best.genome;
+                const double b_mu0 = std::pow(10.0, bg[0]);
+                const double b_floor = std::pow(10.0, bg[5]);
+                const int b_stag = static_cast<int>(std::lround(bg[3]));
+                const int b_subdiv = static_cast<int>(std::lround(bg[6]));
+                const int b_subn = static_cast<int>(std::lround(bg[7]));
+                {
+                    std::ofstream js(out_dir + "/ca_best_genome.json");
+                    js << std::scientific << std::setprecision(8);
+                    js << "{\n"
+                       << "  \"KOBATHE_LM_MU0\": " << b_mu0 << ",\n"
+                       << "  \"KOBATHE_LM_GROW\": " << bg[1] << ",\n"
+                       << "  \"KOBATHE_LM_DROP\": " << bg[2] << ",\n"
+                       << "  \"KOBATHE_LM_STAG\": " << b_stag << ",\n"
+                       << "  \"KOBATHE_LM_PREDICT_MAXSCALE\": " << bg[4]
+                       << ",\n"
+                       << "  \"KOBATHE_LM_ACCEPT_FLOOR\": " << b_floor << ",\n"
+                       << "  \"KOBATHE_LM_REVSUBDIV\": " << b_subdiv << ",\n"
+                       << "  \"KOBATHE_LM_REVSUBN\": " << b_subn << ",\n"
+                       << "  \"fitness\": " << ca_res.best.fitness << ",\n"
+                       << "  \"generations\": " << ca_res.generations << ",\n"
+                       << "  \"seed\": " << ca_seed << ",\n"
+                       << "  \"window\": \"" << ca_k0 << ":" << ca_m << "\"\n"
+                       << "}\n";
+                }
+                std::fprintf(
+                    stderr,
+                    "[ca] BEST: KOBATHE_LM_MU0=%.6e KOBATHE_LM_GROW=%.4f "
+                    "KOBATHE_LM_DROP=%.4f KOBATHE_LM_STAG=%d "
+                    "KOBATHE_LM_PREDICT_MAXSCALE=%.4f "
+                    "KOBATHE_LM_ACCEPT_FLOOR=%.6e KOBATHE_LM_REVSUBDIV=%d "
+                    "KOBATHE_LM_REVSUBN=%d (fitness=%.6f gens=%zu)\n",
+                    b_mu0, bg[1], bg[2], b_stag, bg[4], b_floor, b_subdiv,
+                    b_subn, ca_res.best.fitness, ca_res.generations);
+
+                //  Deja el estado en el checkpoint y el solver en su
+                //  configuración base (el replay no continúa el protocolo).
+                nl.restore_checkpoint(nlchk);
+                solver.restore_state(schk);
+                truncate_records(rec0);
+                solver.set_config(lmcfg);
+                solver.set_regularization(lmreg);
+            };
+
             for (const auto p : targets) {
+                if (ca_on && istep == ca_k0) {
+                    run_ca_replay();
+                    std::fprintf(stderr,
+                                 "[lm] CA replay-mode: protocolo detenido en "
+                                 "step=%d (no continúa)\n",
+                                 istep);
+                    return true;
+                }
                 const double drift_p =
                     target_drift_at(cfg, control_path.lateral_progress(p));
                 const int dir = (drift_p > prev_drift) - (drift_p < prev_drift);
@@ -4657,13 +5018,104 @@ run_reduced_rc_column_continuum_case_result_impl(
                     ++since_rev;
                 const int nsub =
                     (rev_subdiv > 1 && since_rev < rev_subn) ? rev_subdiv : 1;
-
-                RegularizedNewtonStepResult res{};
-                for (int j = 1; j <= nsub; ++j) {  // solo el último cae en p
-                    const double pj =
-                        prev_p + (p - prev_p) * static_cast<double>(j) / nsub;
-                    res = solver.advance_to(pj);
+                if (since_rev == 0) {  // reversa: congela la envolvente
+                    env_ref = env_excursion;
+                    env_excursion = 0.0;
                 }
+                const bool rev_window = since_rev < rev_subn;
+
+                solver.clear_spurious_roots();  // raíces locales a ESTE paso
+                int defl_retries = 0;
+                const char* engine = "lm";
+                double step_energy = std::numeric_limits<double>::quiet_NaN();
+                RegularizedNewtonStepResult res{};
+
+                if (tao_on && (tao_all || rev_window)) {
+                    //  P2.3 — híbrido: LM propone, TAO consolida. El commit
+                    //  del LM es INCONDICIONAL (el trinquete de fisura avanza
+                    //  sobre su rama), así que se restaura el estado pre-paso
+                    //  antes de que TAO resuelva y comitee SU solución.
+                    const auto nlchk = nl.capture_checkpoint();
+                    const auto schk = solver.capture_state();
+                    const auto rec0 = record_sizes();
+                    res = run_step(prev_p, p, nsub);
+                    VecCopy(solver.solution(), u_lm.get());
+                    nl.restore_checkpoint(nlchk);
+                    solver.restore_state(schk);
+                    truncate_records(rec0);
+                    tao->set_initial_guess(u_lm.get());
+                    res = tao->advance_to(p);
+                    solver.set_solution(tao->solution());
+                    engine = "tao";
+                    step_energy = tao->last_energy();
+                } else if (defl_on && rev_window && env_ref > 0.0) {
+                    //  P1.2 — detect-restore-retry: si el paso convergió en la
+                    //  rama alta (|V| > SPIKE * envolvente pre-reversa), la
+                    //  solución se registra como raíz espuria, se restaura el
+                    //  estado pre-paso (el commit ya avanzó el trinquete) y se
+                    //  re-resuelve deflactado.
+                    const auto nlchk = nl.capture_checkpoint();
+                    const auto schk = solver.capture_state();
+                    const auto rec0 = record_sizes();
+                    double bs_first = 0.0;  // |V| del intento base (sin raíces)
+                    RegularizedNewtonStepResult res_first{};
+                    for (;;) {
+                        res = run_step(prev_p, p, nsub);
+                        const double bs_try =
+                            std::abs(extract_support_resultant_component(
+                                model, support_reaction_nodes, 0));
+                        if (defl_retries == 0) {
+                            bs_first = bs_try;
+                            res_first = res;
+                        }
+                        const bool spurious =
+                            (res.converged || defl_on_noconv) &&
+                            bs_try > defl_spike * env_ref;
+                        if (!spurious || defl_retries >= defl_maxretry) {
+                            //  Fallback de seguridad (nunca peor que la
+                            //  continuación sin deflactar): se restaura y
+                            //  reproduce el intento base si la deflación
+                            //  terminó (a) aún espuria y con |V| mayor que el
+                            //  base, o (b) con el residuo disparado respecto
+                            //  al base (escape a un estado basura).
+                            const bool worse_force =
+                                spurious && bs_try > bs_first;
+                            const bool worse_resid =
+                                res.residual >
+                                res_first.residual * defl_resid_factor;
+                            if (defl_retries > 0 &&
+                                (worse_force || worse_resid)) {
+                                std::fprintf(
+                                    stderr,
+                                    "[defl] step=%d retries agotados "
+                                    "(|V|=%.4f base %.4f MN, |R|=%.3e base "
+                                    "%.3e) -> fallback al intento base\n",
+                                    istep, bs_try, bs_first, res.residual,
+                                    res_first.residual);
+                                solver.clear_spurious_roots();
+                                nl.restore_checkpoint(nlchk);
+                                solver.restore_state(schk);
+                                truncate_records(rec0);
+                                res = run_step(prev_p, p, nsub);
+                            }
+                            break;
+                        }
+                        std::fprintf(
+                            stderr,
+                            "[defl] step=%d p=%.4f |V|=%.4f MN > %.2f x "
+                            "env=%.4f MN -> retry %d/%d deflactado\n",
+                            istep, p, bs_try, defl_spike, env_ref,
+                            defl_retries + 1, defl_maxretry);
+                        solver.register_spurious_root(solver.solution());
+                        nl.restore_checkpoint(nlchk);
+                        solver.restore_state(schk);
+                        truncate_records(rec0);
+                        ++defl_retries;
+                    }
+                } else {
+                    res = run_step(prev_p, p, nsub);
+                }
+
                 prev_p = p;
                 prev_drift = drift_p;
                 if (dir != 0) last_dir = dir;
@@ -4675,9 +5127,18 @@ run_reduced_rc_column_continuum_case_result_impl(
                     has_embedded_rebars ? &coupling : nullptr,
                     has_embedded_transverse_rebars ? &transverse_coupling
                                                    : nullptr);
+                if (res.converged) {
+                    env_excursion = std::max(env_excursion, std::abs(bs));
+                    env_all = std::max(env_all, std::abs(bs));
+                }
                 lm << istep << "," << p << "," << drift_p << "," << bs << ","
                    << bs_c << "," << res.iterations << "," << res.mu_final << ","
-                   << res.residual << "," << (res.converged ? 1 : 0) << "\n";
+                   << res.residual << "," << (res.converged ? 1 : 0);
+                if (defl_on)
+                    lm << "," << solver.spurious_root_count() << ","
+                       << defl_retries;
+                if (tao_on) lm << "," << engine << "," << step_energy;
+                lm << "\n";
                 lm.flush();
                 if (!res.converged) {
                     ++n_noconv;

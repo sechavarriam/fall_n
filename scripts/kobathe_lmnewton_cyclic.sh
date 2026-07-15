@@ -12,7 +12,7 @@ set -u
 export PATH="/c/msys64/ucrt64/bin:$PATH"
 cd "$(dirname "$0")/.."
 O="${1:-data/output/kobathe_lmnewton_cyclic_$(date +%Y%m%d)}"
-EXE=./build-release/fall_n_reduced_rc_column_continuum_reference_benchmark.exe
+EXE="${EXE:-./build-release/fall_n_reduced_rc_column_continuum_reference_benchmark.exe}"
 THREADS=${THREADS:-3}
 mkdir -p "$O/logs"
 
