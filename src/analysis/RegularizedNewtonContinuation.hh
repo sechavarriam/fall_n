@@ -33,7 +33,9 @@
 #include <algorithm>
 #include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <utility>
+#include <vector>
 
 #include "src/petsc/PetscRaii.hh"
 #include "src/petsc/check.hh"
@@ -81,6 +83,85 @@ struct PureNewton {
 static_assert(RegularizationPolicy<LevenbergMarquardt>);
 static_assert(RegularizationPolicy<PureNewton>);
 
+// ── Deflation policy (compile-time) ──────────────────────────────────────────
+//  Branch selection at load reversals.  The softening + fixed smeared crack
+//  admits multiple equilibria and plain LM can commit to the spurious HIGH-force
+//  branch.  Deflation multiplies the Newton direction by a scalar that repels the
+//  iterate from previously registered spurious roots u_i (Farrell, Birkisson &
+//  Funke).  With eta(u) = prod_i ( ||u-u_i||^-power + shift ), the deflated
+//  direction is du_G = tau du_N with
+//    tau = 1 / (1 - (grad eta / eta) . du_N)      (rank-1 Sherman-Morrison).
+//  NoDeflation is the default: the solver path is then COMPILED IDENTICALLY to
+//  the un-deflated continuation (every deflation branch sits behind
+//  `if constexpr (Defl::enabled)`).
+template <typename D>
+concept DeflationPolicy =
+    requires(const D d, Vec u, Vec du, const std::vector<petsc::OwnedVec>& roots,
+             Vec work) {
+        { D::enabled } -> std::convertible_to<bool>;
+        { d.factor(u, du, roots, work) } -> std::convertible_to<double>;
+        { d.eta(u, roots, work) } -> std::convertible_to<double>;
+    };
+
+struct NoDeflation {
+    static constexpr bool enabled = false;
+    [[nodiscard]] double factor(Vec, Vec, const std::vector<petsc::OwnedVec>&,
+                                Vec) const noexcept { return 1.0; }
+    [[nodiscard]] double eta(Vec, const std::vector<petsc::OwnedVec>&,
+                             Vec) const noexcept { return 1.0; }
+};
+
+struct ShermanMorrisonDeflation {
+    static constexpr bool enabled = true;
+    double power{2.0};
+    double shift{1.0};
+    double tau_max{50.0};
+
+    // eta(u) = prod_i ( ||u-u_i||^-power + shift ).  Compared across a step
+    //  (rnew*eta(ut) vs rn*eta(u)) so LM accepts the move that escapes a spurious
+    //  basin; a plain product suffices for the few roots a reversal generates.
+    [[nodiscard]] double eta(Vec u, const std::vector<petsc::OwnedVec>& roots,
+                             Vec work) const {
+        double e = 1.0;
+        for (const auto& ri : roots) {
+            FALL_N_PETSC_CHECK(VecWAXPY(work, -1.0, ri.get(), u));  // u - u_i
+            PetscReal d = 0.0;
+            FALL_N_PETSC_CHECK(VecNorm(work, NORM_2, &d));
+            const double dd = std::max<double>(static_cast<double>(d), 1.0e-30);
+            e *= std::pow(dd, -power) + shift;
+        }
+        return e;
+    }
+
+    // tau = 1 / (1 - (grad eta / eta) . du_N), clamped to +/- tau_max (sign kept).
+    [[nodiscard]] double factor(Vec u, Vec du_N,
+                                const std::vector<petsc::OwnedVec>& roots,
+                                Vec work) const {
+        if (roots.empty()) return 1.0;
+        double s = 0.0;  // (grad eta / eta) . du_N
+        for (const auto& ri : roots) {
+            FALL_N_PETSC_CHECK(VecWAXPY(work, -1.0, ri.get(), u));  // u - u_i
+            PetscReal d = 0.0;
+            FALL_N_PETSC_CHECK(VecNorm(work, NORM_2, &d));
+            const double dd = static_cast<double>(d);
+            if (dd < 1.0e-30) continue;                 // at the root; skip
+            const double m = std::pow(dd, -power) + shift;   // m_i
+            PetscScalar dot = 0.0;
+            FALL_N_PETSC_CHECK(VecDot(work, du_N, &dot));     // (u-u_i).du_N
+            s += (-power * std::pow(dd, -power - 2.0) *
+                  static_cast<double>(PetscRealPart(dot))) / m;
+        }
+        double denom = 1.0 - s;
+        if (std::abs(denom) < 1.0e-30) denom = (denom < 0.0 ? -1.0e-30 : 1.0e-30);
+        double tau = 1.0 / denom;
+        if (std::abs(tau) > tau_max) tau = (tau < 0.0 ? -tau_max : tau_max);
+        return tau;
+    }
+};
+
+static_assert(DeflationPolicy<NoDeflation>);
+static_assert(DeflationPolicy<ShermanMorrisonDeflation>);
+
 // ── Assembly backend (compile-time) ──────────────────────────────────────────
 //  Provides the physics: vector/matrix factories, control application, residual
 //  and tangent assembly, and the commit seam.  An adapter over NonlinearAnalysis
@@ -124,13 +205,15 @@ struct RegularizedNewtonStepResult {
 
 // ── Solver ───────────────────────────────────────────────────────────────────
 template <ContinuationBackend Backend,
-          RegularizationPolicy Reg = LevenbergMarquardt>
+          RegularizationPolicy Reg = LevenbergMarquardt,
+          DeflationPolicy Defl = NoDeflation>
 class RegularizedNewtonContinuation {
 public:
     explicit RegularizedNewtonContinuation(Backend backend,
                                            RegularizedNewtonConfig cfg = {},
-                                           Reg reg = {})
-        : backend_(std::move(backend)), cfg_(cfg), reg_(reg)
+                                           Reg reg = {},
+                                           Defl defl = {})
+        : backend_(std::move(backend)), cfg_(cfg), reg_(reg), defl_(defl)
     {
         u_      = backend_.create_vector();
         R_      = backend_.create_vector();
@@ -139,6 +222,7 @@ public:
         dg_     = backend_.create_vector();
         u_prev_ = backend_.create_vector();  // second-last accepted (secant)
         u_hold_ = backend_.create_vector();  // this step's warm-start origin
+        w_      = backend_.create_vector();  // deflation work vector
         K_      = backend_.create_matrix();
         FALL_N_PETSC_CHECK(KSPCreate(
             PetscObjectComm(reinterpret_cast<PetscObject>(u_.get())),
@@ -210,11 +294,32 @@ public:
             FALL_N_PETSC_CHECK(KSPSetOperators(ksp_.get(), K_.get(), K_.get()));
             FALL_N_PETSC_CHECK(VecScale(R_.get(), -1.0));               // -R
             FALL_N_PETSC_CHECK(KSPSolve(ksp_.get(), R_.get(), du_.get()));
+            if constexpr (Defl::enabled) {
+                if (!roots_.empty()) {
+                    const double tau =
+                        defl_.factor(u_.get(), du_.get(), roots_, w_.get());
+                    FALL_N_PETSC_CHECK(VecScale(du_.get(), tau));  // du_G = tau du_N
+                }
+            }
             FALL_N_PETSC_CHECK(
                 VecWAXPY(ut_.get(), 1.0, du_.get(), u_.get()));         // u+du
             backend_.residual(ut_.get(), R_.get());
             const double rnew = norm_(R_.get());
-            if (rnew < rn) {
+            bool accept_step;
+            if constexpr (Defl::enabled) {
+                if (!roots_.empty()) {
+                    // Compare the DEFLATED residual so LM keeps the step that
+                    //  escapes a spurious basin even if ||F|| ticks up locally.
+                    const double eu = defl_.eta(u_.get(), roots_, w_.get());
+                    const double et = defl_.eta(ut_.get(), roots_, w_.get());
+                    accept_step = (rnew * et) < (rn * eu);
+                } else {
+                    accept_step = (rnew < rn);
+                }
+            } else {
+                accept_step = (rnew < rn);
+            }
+            if (accept_step) {
                 FALL_N_PETSC_CHECK(VecCopy(ut_.get(), u_.get()));
                 mu = reg_.on_accept(mu);
             } else {
@@ -240,6 +345,57 @@ public:
     [[nodiscard]] Vec solution() const noexcept { return u_.get(); }
     [[nodiscard]] Backend& backend() noexcept { return backend_; }
 
+    // ── Branch-selection / retry API ─────────────────────────────────────────
+    //  Drives the driver's detect-restore-retry loop across a reversal. All of
+    //  these leave the default (NoDeflation) continuation behaviour untouched:
+    //  registered roots only matter inside `if constexpr (Defl::enabled)`.
+    void register_spurious_root(Vec r) {
+        petsc::OwnedVec v = backend_.create_vector();
+        FALL_N_PETSC_CHECK(VecCopy(r, v.get()));
+        roots_.push_back(std::move(v));
+    }
+    void clear_spurious_roots() noexcept { roots_.clear(); }
+    [[nodiscard]] std::size_t spurious_root_count() const noexcept {
+        return roots_.size();
+    }
+
+    // Overwrite the current solution and reset the secant history, so the next
+    //  advance_to warm-starts cleanly from the injected state.
+    void set_solution(Vec u) {
+        FALL_N_PETSC_CHECK(VecCopy(u, u_.get()));
+        accepted_ = 0;
+    }
+
+    void set_config(const RegularizedNewtonConfig& cfg) noexcept { cfg_ = cfg; }
+    void set_regularization(const Reg& reg) noexcept { reg_ = reg; }
+
+    // Cheap checkpoint of the continuation state (solution + secant history) so a
+    //  spurious step can be rolled back and retried.
+    struct State {
+        petsc::OwnedVec u{}, u_prev{};
+        double p_curr{0.0};
+        double p_prev{0.0};
+        int    accepted{0};
+    };
+    [[nodiscard]] State capture_state() {
+        State s;
+        s.u      = backend_.create_vector();
+        s.u_prev = backend_.create_vector();
+        FALL_N_PETSC_CHECK(VecCopy(u_.get(),      s.u.get()));
+        FALL_N_PETSC_CHECK(VecCopy(u_prev_.get(), s.u_prev.get()));
+        s.p_curr   = p_curr_;
+        s.p_prev   = p_prev_;
+        s.accepted = accepted_;
+        return s;
+    }
+    void restore_state(const State& s) {
+        FALL_N_PETSC_CHECK(VecCopy(s.u.get(),      u_.get()));
+        FALL_N_PETSC_CHECK(VecCopy(s.u_prev.get(), u_prev_.get()));
+        p_curr_   = s.p_curr;
+        p_prev_   = s.p_prev;
+        accepted_ = s.accepted;
+    }
+
 private:
     [[nodiscard]] double norm_(Vec v) const
     {
@@ -250,10 +406,12 @@ private:
 
     Backend backend_;
     RegularizedNewtonConfig cfg_;
-    Reg reg_;
-    petsc::OwnedVec u_{}, R_{}, du_{}, ut_{}, dg_{}, u_prev_{}, u_hold_{};
+    Reg  reg_;
+    Defl defl_;
+    petsc::OwnedVec u_{}, R_{}, du_{}, ut_{}, dg_{}, u_prev_{}, u_hold_{}, w_{};
     petsc::OwnedMat K_{};
     petsc::OwnedKSP ksp_{};
+    std::vector<petsc::OwnedVec> roots_{};  // registered spurious roots (deflation)
     double p_curr_{0.0};   // control of the last accepted state (secant u_k)
     double p_prev_{0.0};   // control of the state before that (secant u_{k-1})
     int    accepted_{0};   // number of accepted steps (capped at 2)
