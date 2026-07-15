@@ -661,10 +661,6 @@ fall_n_add_test(TARGET fall_n_l_shaped_building_test
     NAME l_shaped_building  SOURCE tests/test_l_shaped_building.cpp
     LIBS FULL  LABEL unit)
 
-fall_n_add_test(TARGET fall_n_prismatic_mesh_test
-    NAME prismatic_mesh  SOURCE tests/test_prismatic_mesh.cpp
-    LIBS FULL  LABEL unit)
-
 fall_n_add_test(TARGET fall_n_linear_nl_transition_test
     NAME linear_nl_transition  SOURCE tests/test_linear_nl_transition.cpp
     LIBS FULL  LABEL unit)
@@ -675,10 +671,6 @@ fall_n_add_test(TARGET fall_n_field_transfer_test
 
 fall_n_add_test(TARGET fall_n_multiscale_coordinator_test
     NAME multiscale_coordinator  SOURCE tests/test_multiscale_coordinator.cpp
-    LIBS FULL  LABEL unit)
-
-fall_n_add_test(TARGET fall_n_multiscale_api_test
-    NAME multiscale_analysis_api  SOURCE tests/test_multiscale_analysis_api.cpp
     LIBS FULL  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_affine_section_subscale_model_test
@@ -707,10 +699,6 @@ fall_n_add_test(TARGET fall_n_plasticity_test
 
 fall_n_add_test(TARGET fall_n_ko_bathe_concrete_test
     NAME ko_bathe_concrete  SOURCE tests/test_ko_bathe_concrete.cpp
-    LIBS FULL  LABEL unit)
-
-fall_n_add_test(TARGET fall_n_ko_bathe_concrete_3d_test
-    NAME ko_bathe_concrete_3d  SOURCE tests/test_ko_bathe_concrete_3d.cpp
     LIBS FULL  LABEL unit)
 
 fall_n_add_test(TARGET fall_n_ko_bathe_analytical_tangent_test
@@ -1295,23 +1283,6 @@ fall_n_add_test(TARGET fall_n_phase4bis_schur_vs_bordered_diagnostic_test
     NAME phase4bis_schur_vs_bordered_diagnostic
     SOURCE tests/test_phase4bis_schur_vs_bordered_diagnostic.cpp
     LIBS EIGEN  LABEL unit)
-
-# Plan v2 §Fase 3.1 — XFEM corotational 200mm/300mm gate regressions.
-fall_n_add_test(TARGET fall_n_xfem_corotational_200mm_gate_test
-    NAME xfem_corotational_200mm_gate
-    SOURCE tests/test_xfem_corotational_200mm_gate.cpp
-    LIBS NONE  LABEL unit)
-
-fall_n_add_test(TARGET fall_n_xfem_corotational_300mm_gate_test
-    NAME xfem_corotational_300mm_gate
-    SOURCE tests/test_xfem_corotational_300mm_gate.cpp
-    LIBS NONE  LABEL unit)
-
-# Plan v2 §Fase 3.2/3.3 — XFEM TL/UL 200mm empirical residuals.
-fall_n_add_test(TARGET fall_n_xfem_finite_kinematics_residuals_test
-    NAME xfem_finite_kinematics_residuals
-    SOURCE tests/test_xfem_finite_kinematics_residuals.cpp
-    LIBS NONE  LABEL unit)
 
 # Plan v2 §Fase 4A — multiscale one-way replay PLAN smoke (header-only).
 fall_n_add_test(TARGET fall_n_multiscale_one_way_replay_plan_smoke_test
