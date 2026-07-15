@@ -613,6 +613,10 @@ fall_n_add_test(TARGET fall_n_vtk_tensor_fields_test
     NAME vtk_tensor_field_derivatives  SOURCE tests/test_vtk_tensor_field_derivatives.cpp
     LIBS NONE  LABEL unit)
 
+fall_n_add_test(TARGET fall_n_test_algorithms_cultural_algorithm
+    NAME algorithms_cultural_algorithm  SOURCE tests/test_algorithms_cultural_algorithm.cpp
+    LIBS NONE  LABEL unit)
+
 fall_n_add_test(TARGET fall_n_vtk_gauss_cloud_test
     NAME vtk_gauss_cloud_contract  SOURCE tests/test_vtk_gauss_cloud_contract.cpp
     LIBS VTK  LABEL unit)
