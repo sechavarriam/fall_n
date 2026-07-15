@@ -65,6 +65,7 @@ constexpr bool conditional_enablers_do_not_block_the_first_column_campaign_by_de
 {
     bool found_rebar_extension = false;
     bool found_alt_concrete = false;
+    bool found_branch_selection = false;
 
     for (const auto& row : plan) {
         if (row.priority_kind !=
@@ -86,12 +87,21 @@ constexpr bool conditional_enablers_do_not_block_the_first_column_campaign_by_de
                 !row.requires_new_implementation) {
                 return false;
             }
+        } else if (row.row_label ==
+                   "kobathe_reversal_branch_selection_extension") {
+            // Already implemented and environment-gated (OFF by default):
+            //  it must not block any stage and must not claim new work.
+            found_branch_selection = true;
+            if (row.blocks_any_stage() || row.requires_new_implementation) {
+                return false;
+            }
         } else {
             return false;
         }
     }
 
-    return found_rebar_extension && found_alt_concrete;
+    return found_rebar_extension && found_alt_concrete &&
+           found_branch_selection;
 }
 
 constexpr bool force_based_path_is_growth_only_and_not_a_baseline_blocker()
@@ -135,7 +145,7 @@ constexpr bool gate_counts_match_the_reboot_strategy()
                8 &&
            fall_n::canonical_validation_workstream_priority_count_v<
                    fall_n::ValidationWorkstreamPriorityKind::conditional_enabler> ==
-               2 &&
+               3 &&
            fall_n::canonical_validation_workstream_priority_count_v<
                    fall_n::ValidationWorkstreamPriorityKind::deferred_growth_path> ==
                2 &&

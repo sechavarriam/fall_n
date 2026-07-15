@@ -398,7 +398,33 @@ canonical_validation_reboot_workstream_table() noexcept
             false,
             true,
             false,
-            true)
+            true),
+        make_validation_campaign_workstream_row(
+            "kobathe_reversal_branch_selection_extension",
+            "continuum_solver_extensions",
+            "Close Gate G5 of the branch-selection extension at Ko-Bathe load"
+            " reversals: with all gates off the LM continuation reproduces the"
+            " archived g0 baseline byte-identically; deflation retries close"
+            " as a negative result with never-worse-than-baseline fallback;"
+            " the hybrid TAO energy step selects the low branch (noconv 80->77,"
+            " peak 0.0508->0.0377 MN); the CA-tuned genome gives the cheapest"
+            " sustained gain (noconv 80->66). None meets every clause of its"
+            " gate, so all three remain environment-gated experiments, not"
+            " defaults.",
+            "deflation_energy_descent_and_ca_tuning_at_reversals",
+            "RegularizedNewtonContinuation deflation policy +"
+            " TaoEnergyContinuation + src/algorithms cultural module + driver"
+            " gates + kobathe_ca_tuner.sh + bitacora ch99-ch105 +"
+            " g0_baseline/p1_deflation_final/p2_tao/p3_ca campaign CSVs",
+            "none; the fresh g0_baseline campaign is the non-regression anchor",
+            ValidationRebootPhaseKind::phase4_continuum_rc_column,
+            ValidationWorkstreamPriorityKind::conditional_enabler,
+            LegacyValidationSurfaceDispositionKind::exploratory_only_do_not_anchor_claims,
+            false,
+            false,
+            false,
+            false,
+            false)
     });
 }
 
