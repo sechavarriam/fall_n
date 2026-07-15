@@ -96,18 +96,24 @@ static RebarSpec make_rebar_layout(const BeamValidationConfig& cfg)
 {
     const double A_bar = M_PI / 4.0 * cfg.bar_diameter * cfg.bar_diameter;
 
-    // Corner bars (inset by one element)
+    // Physical bar positions (section-local coordinates, centred on the
+    //  centroid): corner bars inset by one element from each face, plus one
+    //  mid-face bar per side. RebarBar is {ly, lz, area, diameter, group}.
+    const double d_bar = cfg.bar_diameter;
+    const double y_bar = 0.5 * cfg.width  - cfg.width  / cfg.nx;   // inset 1 elem (X)
+    const double z_bar = 0.5 * cfg.height - cfg.height / cfg.ny;   // inset 1 elem (Y)
+
     RebarSpec rebar;
     rebar.bars = {
-        {1,           1,           A_bar, "Rebar"},   // bottom-left
-        {cfg.nx - 1,  1,           A_bar, "Rebar"},   // bottom-right
-        {1,           cfg.ny - 1,  A_bar, "Rebar"},   // top-left
-        {cfg.nx - 1,  cfg.ny - 1,  A_bar, "Rebar"},   // top-right
+        {-y_bar, -z_bar, A_bar, d_bar, "Rebar"},   // bottom-left
+        { y_bar, -z_bar, A_bar, d_bar, "Rebar"},   // bottom-right
+        {-y_bar,  z_bar, A_bar, d_bar, "Rebar"},   // top-left
+        { y_bar,  z_bar, A_bar, d_bar, "Rebar"},   // top-right
         // Mid-face bars
-        {cfg.nx / 2,  1,           A_bar, "Rebar"},   // bottom-mid
-        {cfg.nx / 2,  cfg.ny - 1,  A_bar, "Rebar"},   // top-mid
-        {1,           cfg.ny / 2,  A_bar, "Rebar"},   // left-mid
-        {cfg.nx - 1,  cfg.ny / 2,  A_bar, "Rebar"},   // right-mid
+        { 0.0,   -z_bar, A_bar, d_bar, "Rebar"},   // bottom-mid
+        { 0.0,    z_bar, A_bar, d_bar, "Rebar"},   // top-mid
+        {-y_bar,  0.0,   A_bar, d_bar, "Rebar"},   // left-mid
+        { y_bar,  0.0,   A_bar, d_bar, "Rebar"},   // right-mid
     };
 
     return rebar;
