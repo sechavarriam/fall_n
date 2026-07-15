@@ -1,0 +1,163 @@
+% ==========================================================================
+%  Chapter 99 -- Branch Selection at Softening Reversals (Extension Plan, §F0)
+% ==========================================================================
+
+\chapter{Branch Selection at Softening Reversals: Problem, Theory and Plan}
+\label{ch:branch-selection-reversals}
+
+\paragraph{Normative status.}
+This chapter opens the \emph{branch-selection extension} of the
+regularized continuation solver. It is a research growth path, not a
+correction of a defect: the \(\pm200\,\mathrm{mm}\) cyclic protocol on
+the reduced RC column already \emph{closes} under Levenberg--Marquardt
+(LM) continuation (Cap.~\ref{ch:arc-length} and the validation
+chapters), but a fraction of the reversal steps are accepted as
+\emph{regularized} rather than fully converged, and the accepted branch
+at some reversals carries a spurious force spike. The extension adds
+three independent, \textbf{env-gated, default-off} remedies that
+\emph{select} the physical branch: deflated continuation
+(Cap.~\ref{ch:deflated-continuation}), energy-minimisation continuation
+(Cap.~\ref{ch:energy-tao-continuation}), and a Cultural-Algorithm
+meta-tuner built on a new std-only optimisation module
+(Cap.~\ref{ch:cultural-algorithm-module}). Every remedy is compiled out
+of the default build path, so with all gates off the solver is
+bit-identical to the baseline recorded here.
+
+\section{The baseline and what it exposes (Gate G0)}
+
+The reference run \texttt{g0\_baseline} reproduces the current solver on
+a \(2\times2\times4\) Hex27 mesh, \texttt{profile=production\_stabilized},
+\texttt{tangent=fracture\_secant}, over the four-amplitude cyclic
+protocol \(\{50,100,150,200\}\,\mathrm{mm}\):
+%
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Accepted steps            & \(196\) \\
+Regularized (not fully converged) & \(80\) \\
+Crosses the \(88\,\mathrm{mm}\) limit point & yes \\
+Peak \(|V_\text{base}|\)  & \(5.08\times10^{-2}\,\mathrm{MN}\) \\
+\bottomrule
+\end{tabular}
+\end{center}
+%
+The \(80/196\) figure is the quantitative target of the extension: a
+successful branch-selection remedy must lower the count of regularized
+reversal steps (or the reversal spike magnitude) \emph{without}
+disturbing the well-conditioned unloading segments. The artefacts live
+under \path{data/output/g0_baseline/cyc/} and the driver is
+\href{run:src/validation/ReducedRCColumnContinuumBaseline.cpp}{%
+\texttt{ReducedRCColumnContinuumBaseline.cpp}}.
+
+\section{Why a reversal admits several equilibria}
+
+Let the discrete equilibrium at a frozen material state be
+\(\mathbf{R}(\mathbf{u})=\mathbf{f}_\text{int}(\mathbf{u})
+-\lambda\,\mathbf{f}_\text{ext}=\mathbf{0}\). For a hardening material
+\(\mathbf{R}\) is (locally) strictly monotone and the root is unique. The
+Ko--Bathe continuum is different: it combines strain \emph{softening}
+with a \emph{fixed} smeared crack and unilateral (tanh-smoothed) closure
+(Cap.~\ref{ch:ko-bathe-3d}). Once a Gauss point has cracked, its
+tangent contribution can be negative, and the crack-band regularisation
+fixes the localisation width but not the number of admissible global
+states. As a consequence the softening branch of \(\mathbf{R}=\mathbf{0}\)
+is \emph{non-unique}: the classic result that smeared softening produces
+mesh-sensitive, multiply-valued equilibrium paths is exactly the
+crack-band and rotating/fixed-crack literature
+\cite{BazantOh1983CrackBand,RotsBlaauwendraad1989CrackModels}.
+
+At a load reversal the situation sharpens. The warm-start
+\(\mathbf{u}_k\) sits at the softened extreme of the previous half-cycle.
+Two equilibria are then reachable from it at the new control value:
+%
+\begin{enumerate}
+  \item the \emph{physical} low-force branch, where the previously open
+        cracks unload elastically and the section recovers normal
+        stiffness on closure;
+  \item a \emph{spurious} high-force branch, where the iteration relaxes
+        into a different combination of open/closed cracks that also
+        satisfies \(\mathbf{R}=\mathbf{0}\) but at a much larger base
+        shear.
+\end{enumerate}
+%
+Both are stationary points of the incremental potential
+\(\Pi(\mathbf{u})\) whose gradient is \(\mathbf{R}=\nabla\Pi\) (with the
+state frozen inside the step, \(\mathbf{R}\) is a gradient because the
+secant modulus is symmetric, Cap.~\ref{ch:ko-bathe-3d}). The
+physical branch is a \emph{minimiser} of \(\Pi\); the spurious high-force
+branch is typically a saddle or a maximiser along the reversal
+direction. This distinction is the lever the energy remedy pulls
+(Cap.~\ref{ch:energy-tao-continuation}).
+
+\section{Why regularization alone does not select the branch}
+
+The LM continuation \cite{Levenberg1944,Marquardt1963} solves
+\((\mathbf{K}+\mu\mathbf{I})\,\delta\mathbf{u}=-\mathbf{R}\) with an
+adaptive \(\mu\). Its purpose is \emph{conditioning}, not selection: a
+positive \(\mu\) makes a near-singular tangent invertible so the
+continuation crosses the limit point where pure Newton stalls, and
+\(\mu\!\to\!0\) on a well-conditioned branch recovers a local Newton
+step. Crucially, LM converges into whatever basin of attraction the
+warm-start lies in. At a reversal the plain warm-start \(\mathbf{u}_k\)
+can lie in the basin of the spurious branch, and no amount of tangent
+regularisation moves it out: \(\mu\) only rescales the step, it does not
+change which root the iteration is attracted to. The secant predictor
+already implemented (Cap.~\ref{ch:arc-length},
+\href{run:src/analysis/RegularizedNewtonContinuation.hh}{%
+\texttt{RegularizedNewtonContinuation.hh}}) mitigates this by aiming the
+warm-start down the unloading branch, but it is a heuristic and does not
+\emph{guarantee} branch selection.
+
+Branch selection therefore requires a mechanism that is \emph{aware of
+the other roots}. Three such mechanisms are developed.
+
+\section{The three remedies}
+
+\paragraph{(P1) Deflated continuation.}
+Deflation multiplies the residual (equivalently, rescales the Newton
+direction) by an operator that becomes singular at previously found
+roots, so the iteration is \emph{repelled} from any root registered as
+spurious \cite{FarrellBirkissonFunke2015}. Registering the spurious
+high-force reversal state and re-solving forces convergence to a
+different --- physical --- root. Developed and verified in isolation in
+Cap.~\ref{ch:deflated-continuation}.
+
+\paragraph{(P2) Energy-minimisation continuation.}
+Instead of hunting a zero of \(\mathbf{R}\), minimise the incremental
+potential \(\Pi\) with a trust-region Newton optimiser
+\cite{NocedalWright2006,ConnGouldToint2000} from PETSc/TAO
+\cite{BalayPETScManual}. A descent method cannot terminate at a maximiser
+or saddle, so it selects the physical minimiser branch by construction.
+Developed in Cap.~\ref{ch:energy-tao-continuation}.
+
+\paragraph{(M/P3) Cultural-Algorithm meta-tuning.}
+The solver exposes a small parameter vector (initial \(\mu\), growth and
+drop factors, stagnation window, predictor scale, acceptance floor,
+reversal subdivision). A Cultural Algorithm \cite{Reynolds1994Cultural,
+ReynoldsPeng2004} searches this space by replaying a short window across
+a reversal, scoring by converged-fraction and spike magnitude. The
+algorithm is implemented as a reusable, dependency-free optimisation
+module (Cap.~\ref{ch:cultural-algorithm-module}) that will also serve the
+control-device design problem of
+\cite{LaraValenciaEchavarriaValencia2024}.
+
+\section{Design invariants (binding)}
+
+\begin{enumerate}
+  \item \textbf{Default equivalence.} Every remedy sits behind a
+        compile-time gate (\texttt{if constexpr} on a policy flag) or an
+        environment flag defaulting to off. With all gates off the CSV
+        output is bit-identical to \texttt{g0\_baseline}.
+  \item \textbf{No physics rewrite.} The remedies drive the existing
+        assemble/solve/accept seam; neither the constitutive law nor the
+        element nor PETSc SNES is re-implemented.
+  \item \textbf{Cheap rollback.} A spurious step is detected only
+        \emph{after} it is committed (the crack ratchet has advanced), so
+        every retry is bracketed by a state checkpoint/restore.
+  \item \textbf{Isolated verifiability.} Each remedy ships a std-only or
+        \texttt{CORE}-tier unit test that exercises the mechanism on a toy
+        problem before any coupling to the full column.
+\end{enumerate}
+
+These invariants are what make the extension safe to carry in the
+mainline solver header without endangering the validated baseline.

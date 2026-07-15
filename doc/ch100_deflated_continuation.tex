@@ -1,0 +1,183 @@
+% ==========================================================================
+%  Chapter 100 -- Deflated Continuation (Extension Plan, §P1)
+% ==========================================================================
+
+\chapter{Deflated Continuation for Spurious-Root Avoidance}
+\label{ch:deflated-continuation}
+
+\paragraph{Normative status.}
+Phase~P1 of the branch-selection extension
+(Cap.~\ref{ch:branch-selection-reversals}). The deflation policy and its
+solver integration are implemented in
+\href{run:src/analysis/RegularizedNewtonContinuation.hh}{%
+\texttt{RegularizedNewtonContinuation.hh}} and verified by ctest
+\texttt{regularized\_newton\_deflation}
+(\path{tests/test_regularized_newton_deflation.cpp}). Status:
+\texttt{mechanism\_verified\_in\_isolation}; the default
+(\texttt{NoDeflation}) path is compiled identically to the baseline, so
+Gate~G1's non-regression clause holds by construction. The remaining
+G1 clause --- bit-identical CSV against \texttt{g0\_baseline} with the
+gate off, plus a converged real reversal --- is deferred to the driver
+integration (Phase~I).
+
+\section{Deflation operators}
+
+Let \(\mathbf{R}:\mathbb{R}^n\to\mathbb{R}^n\) be the residual and
+\(\mathbf{u}_1,\dots,\mathbf{u}_m\) a set of known (here: \emph{spurious})
+roots. Following \cite{FarrellBirkissonFunke2015}, define the scalar
+deflation weight
+\[
+  \eta(\mathbf{u})=\prod_{i=1}^{m}
+      \Bigl(\lVert\mathbf{u}-\mathbf{u}_i\rVert^{-p}+\sigma\Bigr),
+  \qquad p>0,\ \sigma\ge 0,
+\]
+and the deflated residual \(\mathbf{G}(\mathbf{u})
+=\eta(\mathbf{u})\,\mathbf{R}(\mathbf{u})\). Two properties make
+\(\mathbf{G}\) the right object:
+%
+\begin{enumerate}
+  \item \emph{Root preservation.} Away from the deflated points,
+        \(\eta>0\) is finite, so \(\mathbf{G}(\mathbf{u})=\mathbf{0}
+        \iff \mathbf{R}(\mathbf{u})=\mathbf{0}\): every other equilibrium
+        of the problem is preserved.
+  \item \emph{Root repulsion.} As
+        \(\mathbf{u}\to\mathbf{u}_i\), \(\eta\to\infty\) (for
+        \(p>0\)); a Newton iteration on \(\mathbf{G}\) cannot re-converge
+        to \(\mathbf{u}_i\). The shift \(\sigma\) keeps \(\eta\) bounded
+        below away from the roots so the far-field problem is unchanged
+        up to a positive scale.
+\end{enumerate}
+%
+The exponent \(p\) sets how sharply the iteration is pushed off the
+deflated root (\(p=2\) here); \(\sigma=1\) is the standard shift.
+
+\section{Sherman--Morrison reduction of the deflated step}
+
+Newton on \(\mathbf{G}\) requires \(\nabla\mathbf{G}\). Because
+\(\mathbf{G}=\eta\mathbf{R}\),
+\[
+  \nabla\mathbf{G}
+   = \eta\,\nabla\mathbf{R}
+   + \mathbf{R}\,(\nabla\eta)^{\mathsf T},
+\]
+a \emph{rank-one} update of the scaled tangent \(\eta\nabla\mathbf{R}\).
+The deflated Newton step solves
+\(\nabla\mathbf{G}\,\delta\mathbf{u}_G=-\mathbf{G}\). Applying the
+Sherman--Morrison identity to the rank-one update, and writing the
+\emph{ordinary} (undeflated) Newton direction
+\(\delta\mathbf{u}_N=-(\nabla\mathbf{R})^{-1}\mathbf{R}\), the deflated
+direction collapses to a scalar rescaling
+\cite{FarrellBirkissonFunke2015}:
+\[
+  \boxed{\;\delta\mathbf{u}_G=\tau\,\delta\mathbf{u}_N,
+  \qquad
+  \tau=\frac{1}{\,1-\dfrac{\nabla\eta\cdot\delta\mathbf{u}_N}{\eta}\,}.\;}
+\]
+The whole cost of deflation is therefore \emph{one extra scalar} per
+Newton iteration, assembled from cheap vector operations. With
+\(\nabla\eta/\eta=\sum_i\nabla m_i/m_i\) and
+\(m_i=\lVert\mathbf{u}-\mathbf{u}_i\rVert^{-p}+\sigma\),
+\[
+  \frac{\nabla\eta}{\eta}\cdot\delta\mathbf{u}_N
+   =\sum_{i=1}^{m}
+      \frac{-p\,\lVert\mathbf{u}-\mathbf{u}_i\rVert^{-p-2}\,
+            \bigl(\mathbf{u}-\mathbf{u}_i\bigr)\cdot\delta\mathbf{u}_N}
+           {\lVert\mathbf{u}-\mathbf{u}_i\rVert^{-p}+\sigma},
+\]
+i.e.\ per registered root one \texttt{VecWAXPY} (form
+\(\mathbf{u}-\mathbf{u}_i\)), one \texttt{VecNorm} and one
+\texttt{VecDot}. The scalar \(\tau\) is clamped to
+\(\pm\tau_{\max}\) (sign preserved) so a near-singular denominator cannot
+produce an unbounded step.
+
+\section{Interaction with Levenberg--Marquardt: the acceptance test}
+
+The subtlety of combining deflation with LM is the \emph{acceptance
+test}. The baseline solver accepts a trial iterate only if the
+\emph{undeflated} residual decreases, \(\lVert\mathbf{R}(\mathbf{u}
++\delta\mathbf{u})\rVert<\lVert\mathbf{R}(\mathbf{u})\rVert\). But a step
+that \emph{escapes} the spurious basin must be allowed to raise
+\(\lVert\mathbf{R}\rVert\) locally while it climbs out. The fix is to
+monitor the \emph{deflated} residual across the step:
+\[
+  \text{accept}\iff
+  \lVert\mathbf{R}(\mathbf{u}+\delta\mathbf{u})\rVert\,
+    \eta(\mathbf{u}+\delta\mathbf{u})
+  \;<\;
+  \lVert\mathbf{R}(\mathbf{u})\rVert\,\eta(\mathbf{u}).
+\]
+Near a registered root \(\eta\) is large, so the deflated measure
+penalises staying put and rewards the move away. Convergence and the
+\texttt{accept\_floor} continue to be judged on the \emph{pure}
+\(\lVert\mathbf{R}\rVert\), so the deflation changes only \emph{which}
+step is taken, never the definition of a solution. When no roots are
+registered, \(\eta\equiv1\) and the test reduces to the baseline
+comparison.
+
+\section{Implementation}
+
+The mechanism is a compile-time policy, so the default solver is
+untouched:
+%
+\begin{itemize}
+  \item \texttt{concept DeflationPolicy} with two models: \texttt{NoDeflation}
+        (\texttt{enabled=false}) and
+        \texttt{ShermanMorrisonDeflation\{power,shift,tau\_max\}}.
+  \item A third class template parameter
+        \texttt{Defl = NoDeflation}. \emph{All} deflation code lives
+        behind \texttt{if constexpr (Defl::enabled)}; when disabled the
+        emitted object code is identical to the pre-P1 solver.
+  \item In \texttt{advance\_to}: after the \texttt{KSPSolve} the Newton
+        direction is scaled by \(\tau\); the acceptance test uses the
+        deflated measure above.
+  \item A branch-selection API for the driver's detect--restore--retry
+        loop: \texttt{register\_spurious\_root},
+        \texttt{clear\_spurious\_roots}, \texttt{set\_solution} (which
+        also resets the secant history), \texttt{set\_config},
+        \texttt{set\_regularization}, and
+        \texttt{capture\_state}/\texttt{restore\_state} for the cheap
+        checkpoint that brackets every retry (a spurious step is detected
+        only after the crack ratchet has advanced, hence the rollback).
+\end{itemize}
+
+\section{Verification (ctest \texttt{regularized\_newton\_deflation})}
+
+The toy backend is the 1-DOF cubic \(R(u)=(u-1)(u-2)(u-4)\), whose stable
+roots (\(R'>0\)) are \(u=1\) and \(u=4\) and whose unstable root is
+\(u=2\). Three checks:
+%
+\begin{description}
+  \item[A --- baseline attraction.] From \(u_0=3.8\) the undeflated LM
+        continuation lands on the high stable root \(u=4\)
+        (\(|R|=6.3\times10^{-10}\), converged).
+  \item[B --- deflated escape.] With \(u=4\) registered as spurious, the
+        deflated solver from the same \(u_0=3.8\) is repelled and
+        converges to a \emph{different} root, \(u=2\)
+        (\(|R|=8.2\times10^{-9}\), converged). This is the branch-selection
+        mechanism working end to end.
+  \item[C --- rollback.] \texttt{capture\_state}/\texttt{restore\_state}
+        round-trips the solution to machine precision after an
+        intervening perturbed solve.
+\end{description}
+%
+The test passes with zero failures. It deliberately does \emph{not}
+assert the pre-P1 anecdote ``\(u_0=3.5\to\) high root'': at \(u_0=3.5\)
+the ordinary Newton step overshoots root~\(4\) to \(u\approx4.5\), where
+the residual is larger, and the monotone-residual LM acceptance
+\emph{rejects} the overshoot and stalls. That is correct solver
+behaviour --- the plan's anecdote assumed pure Newton (which overshoots
+then returns), whereas this solver's guarded acceptance does not --- and
+it is why the isolated test seeds from \(u_0=3.8\), where the baseline
+converges cleanly and the deflation contrast is unambiguous.
+
+\section{Honest limits}
+
+The scalar \(\tau\) is exact for a pure Newton step; combined with a
+large LM \(\mu\) the correction is approximate, which is why the deflated
+\emph{acceptance} test (not just the direction scaling) is essential and
+why \(\tau_{\max}\) caps the rescaling. If a reversal lives pinned at
+\(\mu_{\max}\), deflation may not suffice on its own --- that is the
+regime the energy remedy (Cap.~\ref{ch:energy-tao-continuation}) and the
+meta-tuner (Cap.~\ref{ch:cultural-algorithm-module}) are meant to cover.
+The promotion decision between the three remedies is a Phase-I evidence
+matrix, not a foregone conclusion.

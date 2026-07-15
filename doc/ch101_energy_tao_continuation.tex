@@ -1,0 +1,142 @@
+% ==========================================================================
+%  Chapter 101 -- Energy-Minimisation Continuation via TAO (Extension Plan, §P2)
+% ==========================================================================
+
+\chapter{Energy-Minimisation Continuation via PETSc/TAO}
+\label{ch:energy-tao-continuation}
+
+\paragraph{Normative status.}
+Phase~P2 of the branch-selection extension
+(Cap.~\ref{ch:branch-selection-reversals}). Implemented in
+\href{run:src/analysis/TaoEnergyContinuation.hh}{%
+\texttt{TaoEnergyContinuation.hh}} and verified by ctest
+\texttt{tao\_energy\_continuation}
+(\path{tests/test_tao_energy_continuation.cpp}). Status:
+\texttt{mechanism\_verified\_in\_isolation}. The real-backend energy route
+(line quadrature of the residual) and the hybrid handoff from LM are
+scoped for the driver integration (Phase~I); Gate~G2 is therefore
+partially met (the toy model separates minimiser from maximiser).
+
+\section{The variational selection principle}
+
+Within a single continuation step the material state is frozen, and the
+Ko--Bathe secant modulus is symmetric
+(Cap.~\ref{ch:ko-bathe-3d}). The residual is then the gradient of
+an incremental potential and the tangent is its Hessian:
+\[
+  \mathbf{R}(\mathbf{u})=\nabla\Pi(\mathbf{u}),
+  \qquad
+  \mathbf{K}(\mathbf{u})=\nabla^2\Pi(\mathbf{u}).
+\]
+Every equilibrium is a stationary point \(\nabla\Pi=\mathbf{0}\). A
+residual root-finder (Newton, LM) is \emph{blind to the type} of
+stationary point: it will happily converge to a maximiser or a saddle,
+which at a softening reversal is exactly the spurious high-force branch
+(Cap.~\ref{ch:branch-selection-reversals}). Replace root-finding by
+\emph{minimisation},
+\[
+  \mathbf{u}^\star=\arg\min_{\mathbf{u}}\;\Pi(\mathbf{u}),
+\]
+and a descent method can only terminate at a local minimiser --- the
+physical branch. This is the same variational selection that underlies
+energy-based path-following; here it is used purely as a per-step branch
+filter, not as a replacement for the global continuation.
+
+\section{Why a trust-region optimiser}
+
+Near the reversal the Hessian \(\mathbf{K}\) is \emph{indefinite}
+(softening gives negative curvature along the localising direction). A
+line-search Newton method needs a positive-definite Hessian and would
+have to modify \(\mathbf{K}\) to descend; a \emph{trust-region} method
+does not. It minimises the quadratic model
+\[
+  m_k(\delta\mathbf{u})=\Pi(\mathbf{u}_k)
+  +\mathbf{R}_k^{\mathsf T}\delta\mathbf{u}
+  +\tfrac12\,\delta\mathbf{u}^{\mathsf T}\mathbf{K}_k\,\delta\mathbf{u}
+  \quad\text{s.t.}\quad
+  \lVert\delta\mathbf{u}\rVert\le\Delta_k,
+\]
+and the trust radius \(\Delta_k\) keeps the step in the region where the
+model is trustworthy even when \(\mathbf{K}_k\) has negative eigenvalues
+\cite{ConnGouldToint2000,NocedalWright2006}. The optimiser used is TAO's
+bounded Newton trust-region solver (\texttt{TAOBNTR})
+\cite{BalayPETScManual}, driven by callbacks that reuse the existing
+assembly: objective \(=\Pi\), gradient \(=\mathbf{R}\), Hessian
+\(=\mathbf{K}\).
+
+\section{Computing the incremental energy without a new assembly}
+
+The backend must report \(\Pi(\mathbf{u})-\Pi(\mathbf{u}_\text{ref})\).
+The cheapest honest route reuses the residual: since
+\(\mathbf{R}=\nabla\Pi\) with the state frozen, the potential difference
+is the line integral of the residual along the straight segment from the
+reference to the current iterate,
+\[
+  \Pi(\mathbf{u})-\Pi(\mathbf{u}_\text{ref})
+  =\int_0^1
+     \mathbf{R}\bigl(\mathbf{u}_\text{ref}+s\,\delta\mathbf{u}\bigr)^{\mathsf T}
+     \delta\mathbf{u}\,\mathrm{d}s,
+  \qquad
+  \delta\mathbf{u}=\mathbf{u}-\mathbf{u}_\text{ref},
+\]
+evaluated with a 3-point Gauss--Legendre rule. The integral is
+\emph{path-independent} precisely because \(\mathbf{R}\) is a gradient
+under the frozen state (verified: \texttt{compute\_response} runs with
+\texttt{check\_new\_cracks=false} inside a step,
+Cap.~\ref{ch:ko-bathe-3d}), so the straight segment is as good as
+any path and no separate energy kernel is needed. This route is what the
+real \texttt{NLAnalysisEnergyBackend} will use; the isolated unit test
+supplies \(\Pi\) analytically so that the TAO wiring is validated
+independently of the quadrature.
+
+\section{Implementation}
+
+\begin{itemize}
+  \item \texttt{concept EnergyContinuationBackend =
+        ContinuationBackend \&\& \{ incremental\_energy(u,u\_ref) \}} ---
+        the energy is the only addition over the P1 backend contract.
+  \item \texttt{TaoEnergyContinuation<Backend>}: owns the TAO context,
+        the reference vector, a residual work vector and the Hessian.
+        \texttt{advance\_to(p)} applies the control, sets
+        \(\mathbf{u}_\text{ref}\) to the last accepted state, warm-starts
+        TAO from the current iterate, solves, and accepts if
+        \(\lVert\mathbf{R}\rVert\le\texttt{accept\_floor}\). Convergence is
+        judged on the \emph{pure} residual, never on the energy.
+  \item \texttt{set\_initial\_guess} enables the hybrid step: run LM to
+        cross the limit point, hand its iterate to TAO to settle onto the
+        minimiser, hand the result back.
+\end{itemize}
+
+\section{Verification (ctest \texttt{tao\_energy\_continuation})}
+
+\begin{description}
+  \item[A --- quadratic SPD.] With \(\Pi=\tfrac12\mathbf{u}^{\mathsf T}
+        \mathbf{A}\mathbf{u}-\mathbf{b}^{\mathsf T}\mathbf{u}\),
+        \(\mathbf{A}=\operatorname{diag}(2,3)\),
+        \(\mathbf{b}=(2,3)\), TAO recovers the exact minimiser
+        \(\mathbf{A}^{-1}\mathbf{b}=(1,1)\) with \(\lVert\mathbf{R}\rVert=0\).
+  \item[B --- double well.] With \(\Pi=(u^2-1)^2\) the stationary points
+        are two minimisers \(u=\pm1\) and a maximiser \(u=0\); the
+        maximiser is a residual zero (\(R=4u(u^2-1)=0\) there). From
+        \(u_0=0.1\), a hair off the maximiser, TAO descends to the
+        minimiser \(u=1\) (\(|R|=5.7\times10^{-11}\)) and \emph{never}
+        stops at \(u=0\). A residual method seeded identically could
+        converge to \(u=0\); the energy method cannot. This is the P2
+        selection principle in one line of evidence.
+\end{description}
+%
+The test passes with zero failures.
+
+\section{Relation to P1 and the promotion question}
+
+Deflation (Cap.~\ref{ch:deflated-continuation}) needs the spurious root to
+have been \emph{seen and registered}; it is reactive. Energy minimisation
+is \emph{proactive}: it never selects the wrong branch in the first
+place, at the cost of a trust-region subproblem per step and a
+symmetric-Hessian assumption that holds only for
+\texttt{production\_stabilized} (the hard tanh closure of
+\texttt{paper\_reference} breaks smoothness, so TAO is restricted to the
+smoothed profile). Which remedy earns promotion --- deflation, TAO, a
+CA-tuned LM, or a hybrid --- is decided by the Phase-I evidence matrix
+(converged-reversal fraction, spike/envelope ratio, regularized-step
+count, overhead), not asserted here.

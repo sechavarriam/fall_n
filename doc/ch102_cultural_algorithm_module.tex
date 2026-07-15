@@ -1,0 +1,161 @@
+% ==========================================================================
+%  Chapter 102 -- Cultural-Algorithm Metaheuristics Module (Extension Plan, §M)
+% ==========================================================================
+
+\chapter{A Cultural-Algorithm Metaheuristics Module}
+\label{ch:cultural-algorithm-module}
+
+\paragraph{Normative status.}
+Phase~M of the branch-selection extension
+(Cap.~\ref{ch:branch-selection-reversals}), and the reusable substrate for
+the Phase-P3 solver meta-tuner. Implemented header-only under
+\path{src/algorithms/} and verified by ctest
+\texttt{algorithms\_cultural\_algorithm}
+(\path{tests/test_algorithms_cultural_algorithm.cpp}). Status:
+\texttt{closed\_with\_runtime\_evidence} (Gate~G3): the module compiles in
+the dependency-free \texttt{NONE} tier and is bit-for-bit deterministic
+under a fixed seed.
+
+\section{Why a Cultural Algorithm}
+
+The solver exposes a handful of continuation controls (initial \(\mu\),
+growth/drop factors, stagnation window, predictor scale, acceptance
+floor, reversal subdivision). Their good values are coupled and
+problem-dependent, and the objective --- ``converge the reversal without
+a force spike'' --- is cheap to evaluate by replaying a short window but
+expensive to differentiate. This is the natural habitat of a
+population-based metaheuristic. A \emph{Cultural Algorithm} (CA)
+\cite{Reynolds1994Cultural,ReynoldsPeng2004} is chosen over a plain
+genetic algorithm because it adds a \emph{belief space}: knowledge
+distilled from the best individuals is fed back to bias the search,
+which accelerates convergence on the smooth, low-dimensional,
+box-bounded landscapes that the solver's parameters inhabit. The same
+machinery is the CA that tunes tuned-inerter dampers in
+\cite{LaraValenciaEchavarriaValencia2024}; building it as a general
+module rather than a solver-specific script is deliberate reuse.
+
+\section{The dual-inheritance model}
+
+A CA evolves two coupled populations \cite{Reynolds1994Cultural}:
+%
+\begin{itemize}
+  \item the \emph{population space} --- the individuals, evolving by
+        selection and variation (the ``genetic'' layer);
+  \item the \emph{belief space} --- knowledge accumulated across
+        generations (the ``cultural'' layer).
+\end{itemize}
+%
+They communicate through two functions. The \emph{acceptance} function
+selects the elite that updates the belief space each generation; the
+\emph{influence} function lets the belief space bias the variation of the
+next generation. Reynolds catalogues several \emph{knowledge sources};
+this module implements the two that matter for smooth box-bounded search
+and leaves the rest as documented extension points:
+%
+\begin{description}
+  \item[Normative knowledge.] The per-gene interval
+        \([\ell_j,h_j]\) spanned by the accepted elite. Influence
+        resamples a gene uniformly inside its normative interval, pulling
+        offspring toward the region the elite occupies.
+  \item[Situational knowledge.] The best exemplar
+        \(\mathbf{u}^\star\) seen so far. Influence nudges a gene toward
+        \(\mathbf{u}^\star\) with a Gaussian step, exploiting the current
+        champion.
+  \item[Domain / History / Topographic.] Not needed here; the
+        \texttt{KnowledgeSource} concept documents the two-method contract
+        (\texttt{update(elite,space)}, \texttt{influence(genome,rng,space)})
+        so they can be added without touching the belief space.
+\end{description}
+
+\section{Architecture (concepts and policies, no CRTP)}
+
+The module is std-only and follows the library's compile-time-policy
+idiom (Cap.~\ref{ch:steppable_solver_concept} style), namespace
+\texttt{fall\_n::algorithms}:
+%
+\begin{itemize}
+  \item \texttt{optimization/Concepts.hh}: \texttt{ObjectiveFunction}
+        (over \texttt{std::span<const double>}, convention
+        \emph{maximise}) and \texttt{SearchSpace}
+        (\texttt{dimension/lower/upper/clamp/sample}).
+  \item \texttt{optimization/BoundedSearchSpace.hh}: the box
+        \([\boldsymbol\ell,\mathbf{h}]\); \texttt{static\_assert}s the
+        \texttt{SearchSpace} concept.
+  \item \texttt{cultural/\{Individual,KnowledgeSources,BeliefSpace,
+        PopulationSpace,CulturalAlgorithm\}.hh}.
+        \texttt{BeliefSpace<KS...>} holds the knowledge sources in a
+        \texttt{std::tuple} and fans \texttt{accept}/\texttt{influence}
+        over them with a fold expression, so adding a source is a
+        template-argument change.
+\end{itemize}
+%
+Randomness flows from a single \texttt{std::mt19937\_64} seeded by
+\texttt{CulturalConfig::seed}; every draw --- initial sampling, tournament,
+mutation, influence --- is taken from it, which is what makes a run
+reproducible. \texttt{maximize} takes the RNG type as a defaulted method
+template parameter (the class template ends in the knowledge-source pack,
+so the RNG cannot follow it there), keeping injectability without
+breaking the pack-last rule.
+
+\section{The generational loop}
+
+\begin{enumerate}
+  \item Sample and evaluate the initial population from the search space.
+  \item Rank by descending fitness.
+  \item \(\texttt{belief.accept}\): the top-fraction elite updates the
+        normative and situational sources.
+  \item Build the next generation: carry the incumbent best (elitism),
+        then fill by binary-tournament selection followed by variation
+        --- with probability \(p_\text{infl}\) the belief space biases the
+        child, otherwise a Gaussian mutation scaled by the box extent ---
+        and clamp into the box.
+  \item Track the best; stop on \texttt{max\_generations},
+        \texttt{target\_fitness}, or a stagnation window.
+\end{enumerate}
+%
+Elitism guarantees the best-fitness history is monotone
+non-decreasing, which the test asserts.
+
+\section{Verification (ctest \texttt{algorithms\_cultural\_algorithm})}
+
+Standard benchmarks, each maximised as the negated cost, fixed seeds:
+%
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Problem            & Best fitness reached & Meaning \\
+\midrule
+Sphere 5D          & \(-5.5\times10^{-3}\) & near the global optimum \(0\) \\
+Rosenbrock 2D      & \(-3.5\times10^{-3}\) & inside the curved valley, near \((1,1)\) \\
+Rastrigin 5D       & \(-3.0\)              & deep below the \(\sim\!-50\) random mean \\
+\bottomrule
+\end{tabular}
+\end{center}
+%
+plus: the best genome respects the box on every problem, the
+best-fitness history is non-decreasing (elitism), and two runs with the
+same seed are \emph{bit-identical}. Thresholds are set below the achieved
+values with margin so the deterministic test also guards against
+regressions. Zero failures.
+
+\section{The two applications}
+
+\paragraph{Solver meta-tuning (Phase~P3).} The genome is the solver's
+control vector; the objective replays a short window across the first
+reversal from a captured checkpoint (Cap.~\ref{ch:deflated-continuation}
+supplies \texttt{capture\_state}/\texttt{restore\_state}) and scores by
+converged fraction minus a spike penalty. The search space is the box of
+admissible controls; the CA returns a genome that is written back with
+\texttt{set\_config}/\texttt{set\_regularization}. Material-latched genes
+(closure stiffness fraction, anchor cap) are read once into
+\texttt{static const} and so are tuned only by an outer per-process
+sweep, never inside the replay loop --- a limitation recorded honestly.
+
+\paragraph{Control-device design (future).} The identical
+\texttt{maximize} drives tuned-mass/tuned-inerter damper design: the
+genome carries device parameters, the objective installs them through
+\texttt{DynamicAnalysis::set\_internal\_residual\_hook}, runs a ground
+motion from a checkpoint, and returns \(-\,\text{peak drift}\). No FEM
+dependency enters the module; the coupling lives entirely in the
+caller-supplied objective. This mirrors, and will reuse, the CA of
+\cite{LaraValenciaEchavarriaValencia2024}.
