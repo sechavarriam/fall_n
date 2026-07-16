@@ -195,6 +195,48 @@ int main(int argc, char** argv) {
               "D: with the gate off the energy backend is bit-identical");
     }
 
+    // --- E. Proximal continuation crosses the |R| ridge to the minimum -------
+    //  From u0=0.15 the residual |4u(u^2-1)| RISES monotonically up to the
+    //  ridge at u=1/sqrt(3): plain LM walks to the maximum u=0 (block A) and
+    //  the line search alone refuses to move (every energy-downhill step
+    //  raises |R|).  The PROXIMAL phase minimises Pi + kappa/2 (u-u_n)^2,
+    //  whose convexified solution (~0.79 for kappa = 0.5||K||) lies PAST the
+    //  ridge, and the kappa=0 polish then converges to the true minimum u=1.
+    //  Branch selection by CONTINUITY where descent and avoidance both fail.
+    {
+        RegularizedNewtonConfig cfg_prox = cfg;
+        cfg_prox.max_newton = 400;
+        //  kappa = frac*||diag K|| debe superar la curvatura negativa maxima
+        //  del potencial (aqui |Pi''(0)| = 4, con ||diag K(0.15)|| = 3.73)
+        //  para que cada subproblema proximal sea estrictamente convexo (una
+        //  sola raiz) y el flujo no pueda saltar de cuenca: frac = 2.
+        cfg_prox.proximal_frac = 2.0;
+        RegularizedNewtonContinuation<DoubleWellEnergyBackend> solver(
+            DoubleWellEnergyBackend{}, cfg_prox);
+        seed(solver, 0.15);
+        const auto r = solver.advance_to(0.0);
+        const double u = get1(solver.solution());
+        std::printf("E  proximal      u=%.6f  Pi=%.6f  conv=%d\n", u,
+                    well_pi(u), r.converged);
+        check(r.converged && std::abs(u - 1.0) < 1.0e-4,
+              "E: proximal + polish reaches the true minimum u=1");
+    }
+
+    // --- F. Proximal keeps the healthy cubic benchmark intact ----------------
+    {
+        RegularizedNewtonConfig cfg_prox = cfg;
+        cfg_prox.proximal_frac = 0.5;
+        RegularizedNewtonContinuation<CubicEnergyBackend> solver(
+            CubicEnergyBackend{}, cfg_prox);
+        seed(solver, 3.5);
+        const auto r = solver.advance_to(0.0);
+        const double u = get1(solver.solution());
+        std::printf("F  prox cubic    u=%.6f  R=%.3e  conv=%d\n", u, cubic(u),
+                    r.converged);
+        check(r.converged && std::abs(u - 4.0) < 1.0e-3,
+              "F: connected basin from 3.5 still lands on u=4");
+    }
+
     std::printf("%s (%d failure%s)\n", g_failed ? "TEST FAILED" : "TEST PASSED",
                 g_failed, g_failed == 1 ? "" : "s");
 

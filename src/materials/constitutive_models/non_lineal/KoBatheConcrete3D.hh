@@ -1102,6 +1102,31 @@ private:
 
             st.crack_strain[ic] = e_nn;
             double e_hat_new = std::max(committed_crack_strain_max[ic], e_nn);
+            // Regularización viscosa SUAVE del trinquete (Duvaut-Lions): en
+            // vez del salto rate-independiente al máximo trial, el trinquete
+            // RELAJA hacia él con un factor beta = 1 - exp(-Δp/τ_v) por paso
+            // (beta = 1 reproduce el original bit a bit).  La sobre-tensión
+            // transitoria resultante suaviza los quiebres C0 de la evolución
+            // de fisura que generan los multi-equilibrios de reversa; en el
+            // límite beta -> 1 (viscosidad nula) se recupera la respuesta
+            // rate-independiente.  Gen material LATCHEADO por proceso
+            // (KOBATHE_VISCOUS_RATCHET_BETA), como los demás genes.
+            {
+                static const double viscous_beta = [] {
+                    const char* v =
+                        std::getenv("KOBATHE_VISCOUS_RATCHET_BETA");
+                    const double b = (v != nullptr && v[0] != '\0')
+                                         ? std::atof(v)
+                                         : 1.0;
+                    return std::clamp(b, 0.0, 1.0);
+                }();
+                if (viscous_beta < 1.0) {
+                    e_hat_new =
+                        committed_crack_strain_max[ic]
+                        + viscous_beta
+                              * (e_hat_new - committed_crack_strain_max[ic]);
+                }
+            }
             // Delay-damage: acota el avance del trinquete por paso.  El
             // exceso (e_nn - cap) NO se pierde del estado (crack_strain
             // guarda la apertura real), solo se retiene su efecto en la

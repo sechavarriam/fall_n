@@ -4630,6 +4630,9 @@ run_reduced_rc_column_continuum_case_result_impl(
                     (envd("KOBATHE_LM_LINESEARCH", 0.0) != 0.0),
                 .linesearch_max_backtracks =
                     static_cast<int>(envd("KOBATHE_LM_LS_BACKTRACKS", 4.0)),
+                //  Continuación proximal (selección por CONTINUIDAD): fase A
+                //  argmin Pi + kappa/2||u-u_n||^2, fase B pulido. OFF = 0.
+                .proximal_frac = envd("KOBATHE_LM_PROXIMAL", 0.0),
             };
 
             // ── Extensión de SELECCIÓN DE RAMA (env-gated; OFF por defecto) ─

@@ -205,6 +205,13 @@ struct RegularizedNewtonConfig {
     //  maximum/saddle. Off by default: bit-identical to the plain LM.
     bool   energy_linesearch{false};
     int    linesearch_max_backtracks{4};
+    // Continuación proximal (selección de rama por CONTINUIDAD): con
+    //  proximal_frac > 0 el paso se resuelve en dos fases, primero el punto
+    //  proximal  argmin Pi(u) + kappa/2 ||u-u_n||^2  con
+    //  kappa = proximal_frac * ||diag(K)|| (convexifica y elige la cuenca
+    //  conexa con el último aceptado), luego el pulido con kappa = 0 hasta
+    //  el equilibrio verdadero.  0 = apagado (lazo original intacto).
+    double proximal_frac{0.0};
 };
 
 struct RegularizedNewtonStepResult {
@@ -233,6 +240,8 @@ public:
         dg_     = backend_.create_vector();
         u_prev_ = backend_.create_vector();  // second-last accepted (secant)
         u_hold_ = backend_.create_vector();  // this step's warm-start origin
+        pv_     = backend_.create_vector();  // proximal work vector (u - a)
+        pa_     = backend_.create_vector();  // proximal flow anchor a
         w_      = backend_.create_vector();  // deflation work vector
         K_      = backend_.create_matrix();
         FALL_N_PETSC_CHECK(KSPCreate(
@@ -285,82 +294,183 @@ public:
 
         backend_.residual(u_.get(), R_.get());
         const double r0 = std::max(norm_(R_.get()), 1.0e-30);
-        double r_best = r0;
         double mu = reg_.initial();
-        int stag = 0;
         int it = 0;
         bool converged = false;
-        for (; it < cfg_.max_newton; ++it) {
-            const double rn = norm_(R_.get());
-            if (rn <= cfg_.tol_abs || rn <= cfg_.tol_rel * r0) {
-                converged = true;
-                break;
-            }
-            if (rn < r_best * 0.9999) { r_best = rn; stag = 0; }
-            else if (++stag > cfg_.stag_max) break;  // accept best regularized
 
-            backend_.tangent(u_.get(), K_.get());
-            mu = std::min(mu, mu_max);
-            if (mu > 0.0) FALL_N_PETSC_CHECK(MatShift(K_.get(), mu));  // K + mu I
-            FALL_N_PETSC_CHECK(KSPSetOperators(ksp_.get(), K_.get(), K_.get()));
-            FALL_N_PETSC_CHECK(VecScale(R_.get(), -1.0));               // -R
-            FALL_N_PETSC_CHECK(KSPSolve(ksp_.get(), R_.get(), du_.get()));
-            if constexpr (Defl::enabled) {
-                if (!roots_.empty()) {
-                    const double tau =
-                        defl_.factor(u_.get(), du_.get(), roots_, w_.get());
-                    FALL_N_PETSC_CHECK(VecScale(du_.get(), tau));  // du_G = tau du_N
-                }
+        //  Continuación PROXIMAL (opt-in, proximal_frac > 0): la fase A
+        //  resuelve el paso proximal
+        //      argmin_u  Pi(u) + kappa/2 ||u - u_n||^2
+        //  (residuo R + kappa (u-u_n), tangente K + kappa I).  kappa
+        //  convexifica el potencial incremental y sesga la solución hacia la
+        //  rama CONEXA con el último estado aceptado: selección de rama por
+        //  CONTINUIDAD (la versión por-paso del mu por-iteración del LM;
+        //  pseudo-transient continuation en forma de punto proximal).  La
+        //  fase B (kappa = 0) pule desde esa cuenca hasta el equilibrio
+        //  verdadero.  Con proximal_frac = 0 la fase A no existe y el lazo
+        //  es idéntico al original.
+        const double kappa_full =
+            cfg_.proximal_frac > 0.0
+                ? cfg_.proximal_frac * std::max<double>(diagn, 1.0e-30)
+                : 0.0;
+        //  El ancla del flujo proximal AVANZA con cada sub-paso convergido
+        //  (backward-Euler del flujo de gradiente u' = -grad Pi con paso
+        //  1/kappa): un único paso proximal anclado en u_n se queda a mitad
+        //  de camino cuando la cuenca está lejos; el flujo la recorre.
+        if (kappa_full > 0.0) {
+            FALL_N_PETSC_CHECK(VecCopy(u_.get(), pa_.get()));
+        }
+        const auto eval_residual = [&](Vec x, Vec r, double kappa) {
+            backend_.residual(x, r);
+            if (kappa > 0.0) {
+                FALL_N_PETSC_CHECK(
+                    VecWAXPY(pv_.get(), -1.0, pa_.get(), x));  // x - ancla
+                FALL_N_PETSC_CHECK(VecAXPY(r, kappa, pv_.get()));
             }
+        };
+        const auto prox_energy_delta = [&](Vec xt, Vec x, double kappa) {
+            //  kappa/2 (||xt - a||^2 - ||x - a||^2): el término proximal del
+            //  mérito energético de la fase A.
             FALL_N_PETSC_CHECK(
-                VecWAXPY(ut_.get(), 1.0, du_.get(), u_.get()));         // u+du
-            backend_.residual(ut_.get(), R_.get());
-            double rnew = norm_(R_.get());
-            const auto residual_accept = [&](double rnew_) {
+                VecWAXPY(pv_.get(), -1.0, pa_.get(), xt));
+            PetscReal nt = 0.0;
+            FALL_N_PETSC_CHECK(VecNorm(pv_.get(), NORM_2, &nt));
+            FALL_N_PETSC_CHECK(
+                VecWAXPY(pv_.get(), -1.0, pa_.get(), x));
+            PetscReal nx = 0.0;
+            FALL_N_PETSC_CHECK(VecNorm(pv_.get(), NORM_2, &nx));
+            return 0.5 * kappa *
+                   (static_cast<double>(nt) * static_cast<double>(nt) -
+                    static_cast<double>(nx) * static_cast<double>(nx));
+        };
+
+        for (int phase = (kappa_full > 0.0 ? 0 : 1); phase < 2; ++phase) {
+            const double kappa = (phase == 0) ? kappa_full : 0.0;
+            const int it_cap = (phase == 0)
+                ? std::max(10, cfg_.max_newton / 2)
+                : cfg_.max_newton;
+            if (phase == 0) {
+                eval_residual(u_.get(), R_.get(), kappa);
+            } else if (kappa_full > 0.0) {
+                eval_residual(u_.get(), R_.get(), 0.0);  // residuo verdadero
+            }
+            bool phase_conv = false;
+            for (;;) {   // lazo de FLUJO proximal (una vuelta si kappa = 0)
+            double r_best = std::max(norm_(R_.get()), 1.0e-30);
+            int stag = 0;
+            phase_conv = false;
+            for (; it < it_cap; ++it) {
+                const double rn = norm_(R_.get());
+                if (rn <= cfg_.tol_abs || rn <= cfg_.tol_rel * r0) {
+                    phase_conv = true;
+                    break;
+                }
+                if (rn < r_best * 0.9999) { r_best = rn; stag = 0; }
+                else if (++stag > cfg_.stag_max) break;  // accept best regularized
+
+                backend_.tangent(u_.get(), K_.get());
+                mu = std::min(mu, mu_max);
+                if (mu + kappa > 0.0) {
+                    FALL_N_PETSC_CHECK(
+                        MatShift(K_.get(), mu + kappa));  // K + (mu+kappa) I
+                }
+                FALL_N_PETSC_CHECK(
+                    KSPSetOperators(ksp_.get(), K_.get(), K_.get()));
+                FALL_N_PETSC_CHECK(VecScale(R_.get(), -1.0));           // -R
+                FALL_N_PETSC_CHECK(KSPSolve(ksp_.get(), R_.get(), du_.get()));
                 if constexpr (Defl::enabled) {
                     if (!roots_.empty()) {
-                        // Compare the DEFLATED residual so LM keeps the step
-                        //  that escapes a spurious basin even if ||F|| ticks
-                        //  up locally.
-                        const double eu = defl_.eta(u_.get(), roots_, w_.get());
-                        const double et =
-                            defl_.eta(ut_.get(), roots_, w_.get());
-                        return (rnew_ * et) < (rn * eu);
+                        const double tau =
+                            defl_.factor(u_.get(), du_.get(), roots_, w_.get());
+                        FALL_N_PETSC_CHECK(
+                            VecScale(du_.get(), tau));  // du_G = tau du_N
                     }
-                    return rnew_ < rn;
+                }
+                FALL_N_PETSC_CHECK(
+                    VecWAXPY(ut_.get(), 1.0, du_.get(), u_.get()));     // u+du
+                eval_residual(ut_.get(), R_.get(), kappa);
+                double rnew = norm_(R_.get());
+                const auto residual_accept = [&](double rnew_) {
+                    if constexpr (Defl::enabled) {
+                        if (!roots_.empty()) {
+                            // Compare the DEFLATED residual so LM keeps the
+                            //  step that escapes a spurious basin even if
+                            //  ||F|| ticks up locally.
+                            const double eu =
+                                defl_.eta(u_.get(), roots_, w_.get());
+                            const double et =
+                                defl_.eta(ut_.get(), roots_, w_.get());
+                            return (rnew_ * et) < (rn * eu);
+                        }
+                        return rnew_ < rn;
+                    } else {
+                        return rnew_ < rn;
+                    }
+                };
+                bool accept_step = residual_accept(rnew);
+                if constexpr (requires(Backend& b, Vec x, Vec y) {
+                                  { b.incremental_energy(x, y) }
+                                      -> std::convertible_to<double>;
+                              }) {
+                    if (cfg_.energy_linesearch && accept_step) {
+                        double alpha = 1.0;
+                        double e =
+                            backend_.incremental_energy(ut_.get(), u_.get());
+                        if (kappa > 0.0) {
+                            e += prox_energy_delta(ut_.get(), u_.get(), kappa);
+                        }
+                        int bt = 0;
+                        while (e > 0.0 && bt < cfg_.linesearch_max_backtracks) {
+                            alpha *= 0.5;
+                            FALL_N_PETSC_CHECK(VecWAXPY(
+                                ut_.get(), alpha, du_.get(), u_.get()));
+                            eval_residual(ut_.get(), R_.get(), kappa);
+                            rnew = norm_(R_.get());
+                            ++bt;
+                            e = backend_.incremental_energy(ut_.get(),
+                                                            u_.get());
+                            if (kappa > 0.0) {
+                                e += prox_energy_delta(ut_.get(), u_.get(),
+                                                       kappa);
+                            }
+                        }
+                        accept_step = (e <= 0.0) && residual_accept(rnew);
+                    }
+                }
+                if (accept_step) {
+                    FALL_N_PETSC_CHECK(VecCopy(ut_.get(), u_.get()));
+                    mu = reg_.on_accept(mu);
                 } else {
-                    return rnew_ < rn;
-                }
-            };
-            bool accept_step = residual_accept(rnew);
-            if constexpr (requires(Backend& b, Vec x, Vec y) {
-                              { b.incremental_energy(x, y) }
-                                  -> std::convertible_to<double>;
-                          }) {
-                if (cfg_.energy_linesearch && accept_step) {
-                    double alpha = 1.0;
-                    double e =
-                        backend_.incremental_energy(ut_.get(), u_.get());
-                    int bt = 0;
-                    while (e > 0.0 && bt < cfg_.linesearch_max_backtracks) {
-                        alpha *= 0.5;
-                        FALL_N_PETSC_CHECK(VecWAXPY(
-                            ut_.get(), alpha, du_.get(), u_.get()));
-                        backend_.residual(ut_.get(), R_.get());
-                        rnew = norm_(R_.get());
-                        ++bt;
-                        e = backend_.incremental_energy(ut_.get(), u_.get());
-                    }
-                    accept_step = (e <= 0.0) && residual_accept(rnew);
+                    mu = reg_.on_reject(mu, mu_max);
+                    eval_residual(u_.get(), R_.get(), kappa);  // R back at u
                 }
             }
-            if (accept_step) {
-                FALL_N_PETSC_CHECK(VecCopy(ut_.get(), u_.get()));
-                mu = reg_.on_accept(mu);
-            } else {
-                mu = reg_.on_reject(mu, mu_max);
-                backend_.residual(u_.get(), R_.get());  // R back at u
+            if (phase != 0 || !phase_conv || it >= it_cap) break;
+            //  ¿Flujo estacionario?  Si el sub-paso proximal convergió con
+            //  ||u - ancla|| ~ 0, entonces grad Pi ~ 0 en un punto ESTABLE
+            //  del flujo (los máximos/sillas repelen la iteración); si no,
+            //  el ancla avanza (backward-Euler) y se resuelve el siguiente
+            //  sub-paso.
+            {
+                FALL_N_PETSC_CHECK(
+                    VecWAXPY(pv_.get(), -1.0, pa_.get(), u_.get()));
+                PetscReal step_n = 0.0, u_n = 0.0;
+                FALL_N_PETSC_CHECK(VecNorm(pv_.get(), NORM_2, &step_n));
+                FALL_N_PETSC_CHECK(VecNorm(u_.get(), NORM_2, &u_n));
+                if (static_cast<double>(step_n) <=
+                    1.0e-8 * std::max(1.0, static_cast<double>(u_n))) {
+                    break;  // estacionario: el flujo llegó a un mínimo
+                }
+                FALL_N_PETSC_CHECK(VecCopy(u_.get(), pa_.get()));
+                eval_residual(u_.get(), R_.get(), kappa);  // re-anclado
             }
+            }
+            converged = phase_conv;
+        }
+        //  El piso de aceptación y el residuo reportado son SIEMPRE del
+        //  residuo verdadero (la fase A converge sobre el proximal).
+        if (kappa_full > 0.0) {
+            backend_.residual(u_.get(), R_.get());
         }
         const double rfinal = norm_(R_.get());
         if (!converged && rfinal <= cfg_.accept_floor) converged = true;
@@ -443,7 +553,8 @@ private:
     RegularizedNewtonConfig cfg_;
     Reg  reg_;
     Defl defl_;
-    petsc::OwnedVec u_{}, R_{}, du_{}, ut_{}, dg_{}, u_prev_{}, u_hold_{}, w_{};
+    petsc::OwnedVec u_{}, R_{}, du_{}, ut_{}, dg_{}, u_prev_{}, u_hold_{}, w_{},
+                    pv_{}, pa_{};
     petsc::OwnedMat K_{};
     petsc::OwnedKSP ksp_{};
     std::vector<petsc::OwnedVec> roots_{};  // registered spurious roots (deflation)
