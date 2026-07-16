@@ -208,9 +208,14 @@ struct RegularizedNewtonConfig {
     // Continuación proximal (selección de rama por CONTINUIDAD): con
     //  proximal_frac > 0 el paso se resuelve en dos fases, primero el punto
     //  proximal  argmin Pi(u) + kappa/2 ||u-u_n||^2  con
-    //  kappa = proximal_frac * ||diag(K)|| (convexifica y elige la cuenca
-    //  conexa con el último aceptado), luego el pulido con kappa = 0 hasta
-    //  el equilibrio verdadero.  0 = apagado (lazo original intacto).
+    //  kappa = proximal_frac * K_rms, donde K_rms es el RMS del diagonal de
+    //  K (escala POR grado de libertad: la norma-2 completa crece con
+    //  sqrt(N) e inflaría kappa en un modelo real). Convexifica y elige la
+    //  cuenca conexa con el último aceptado; el pulido con kappa = 0 lleva
+    //  al equilibrio verdadero. Si el flujo proximal no alcanza
+    //  estacionariedad dentro de su presupuesto, el paso se RESTAURA y se
+    //  resuelve plano con presupuesto completo (nunca peor que el lazo
+    //  original).  0 = apagado (lazo original intacto).
     double proximal_frac{0.0};
 };
 
@@ -242,6 +247,7 @@ public:
         u_hold_ = backend_.create_vector();  // this step's warm-start origin
         pv_     = backend_.create_vector();  // proximal work vector (u - a)
         pa_     = backend_.create_vector();  // proximal flow anchor a
+        p0_     = backend_.create_vector();  // proximal restore point (step start)
         w_      = backend_.create_vector();  // deflation work vector
         K_      = backend_.create_matrix();
         FALL_N_PETSC_CHECK(KSPCreate(
@@ -309,9 +315,17 @@ public:
         //  fase B (kappa = 0) pule desde esa cuenca hasta el equilibrio
         //  verdadero.  Con proximal_frac = 0 la fase A no existe y el lazo
         //  es idéntico al original.
+        //  kappa se escala con el K_ii representativo POR grado de libertad
+        //  (RMS del diagonal): la norma-2 completa crece con sqrt(N) y en un
+        //  modelo real inflaría kappa en órdenes de magnitud respecto de la
+        //  rigidez de cada DOF (mu_max conserva su convención histórica).
+        PetscInt prox_n = 1;
+        FALL_N_PETSC_CHECK(VecGetSize(dg_.get(), &prox_n));
+        const double diag_rms =
+            diagn / std::sqrt(static_cast<double>(std::max<PetscInt>(prox_n, 1)));
         const double kappa_full =
             cfg_.proximal_frac > 0.0
-                ? cfg_.proximal_frac * std::max<double>(diagn, 1.0e-30)
+                ? cfg_.proximal_frac * std::max<double>(diag_rms, 1.0e-30)
                 : 0.0;
         //  El ancla del flujo proximal AVANZA con cada sub-paso convergido
         //  (backward-Euler del flujo de gradiente u' = -grad Pi con paso
@@ -319,6 +333,7 @@ public:
         //  de camino cuando la cuenca está lejos; el flujo la recorre.
         if (kappa_full > 0.0) {
             FALL_N_PETSC_CHECK(VecCopy(u_.get(), pa_.get()));
+            FALL_N_PETSC_CHECK(VecCopy(u_.get(), p0_.get()));  // punto de restauración
         }
         const auto eval_residual = [&](Vec x, Vec r, double kappa) {
             backend_.residual(x, r);
@@ -355,6 +370,7 @@ public:
                 eval_residual(u_.get(), R_.get(), 0.0);  // residuo verdadero
             }
             bool phase_conv = false;
+            bool flow_stationary = false;
             for (;;) {   // lazo de FLUJO proximal (una vuelta si kappa = 0)
             double r_best = std::max(norm_(R_.get()), 1.0e-30);
             int stag = 0;
@@ -459,11 +475,23 @@ public:
                 FALL_N_PETSC_CHECK(VecNorm(u_.get(), NORM_2, &u_n));
                 if (static_cast<double>(step_n) <=
                     1.0e-8 * std::max(1.0, static_cast<double>(u_n))) {
+                    flow_stationary = true;
                     break;  // estacionario: el flujo llegó a un mínimo
                 }
                 FALL_N_PETSC_CHECK(VecCopy(u_.get(), pa_.get()));
                 eval_residual(u_.get(), R_.get(), kappa);  // re-anclado
             }
+            }
+            if (phase == 0 && !flow_stationary) {
+                //  SALVAGUARDA: el flujo se agotó (presupuesto o estancamiento)
+                //  a mitad de camino. Ese estado intermedio está sesgado por
+                //  kappa y NO debe llegar al accept(): se restaura el arranque
+                //  del paso y la fase B corre como resolución plana con
+                //  presupuesto completo (nunca peor que el lazo original).
+                FALL_N_PETSC_CHECK(VecCopy(p0_.get(), u_.get()));
+                it = 0;
+                mu = reg_.initial();
+                continue;
             }
             converged = phase_conv;
         }
@@ -554,7 +582,7 @@ private:
     Reg  reg_;
     Defl defl_;
     petsc::OwnedVec u_{}, R_{}, du_{}, ut_{}, dg_{}, u_prev_{}, u_hold_{}, w_{},
-                    pv_{}, pa_{};
+                    pv_{}, pa_{}, p0_{};
     petsc::OwnedMat K_{};
     petsc::OwnedKSP ksp_{};
     std::vector<petsc::OwnedVec> roots_{};  // registered spurious roots (deflation)
