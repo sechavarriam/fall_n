@@ -11,8 +11,19 @@ namespace fall_n {
 
 template <typename ModelT, typename SubModelT>
 class LocalBoundaryConditionApplicator {
+public:
+    using ImposedValueList =
+        std::vector<std::pair<std::size_t, Eigen::Vector3d>>;
+
+private:
     ModelT* model_{nullptr};
     SubModelT* sub_{nullptr};
+    //  Optional extra Dirichlet planes (e.g. interior element-layer levels in
+    //  the evolver's layers mode).  They are written verbatim after the two
+    //  face lists on every write_imposed_values() call, so perturbation
+    //  solves that only rebuild the faces keep the interior clamped at its
+    //  current values instead of zeroing it.
+    const std::vector<ImposedValueList>* extra_imposed_{nullptr};
 
     void rebuild_face_boundary_conditions_() const
     {
@@ -39,6 +50,14 @@ public:
         : model_{model}
         , sub_{sub}
     {}
+
+    /// Attach extra imposed-value lists (interior layer planes).  The pointer
+    /// must outlive this applicator; pass nullptr to detach.
+    void set_extra_imposed(
+        const std::vector<ImposedValueList>* extra) noexcept
+    {
+        extra_imposed_ = extra;
+    }
 
     void update_kinematics(const SectionKinematics& kin_A,
                            const SectionKinematics& kin_B) const
@@ -87,6 +106,12 @@ public:
 
         write_bc(sub_->bc_min_z);
         write_bc(sub_->bc_max_z);
+
+        if (extra_imposed_) {
+            for (const auto& bc_list : *extra_imposed_) {
+                write_bc(bc_list);
+            }
+        }
 
         VecRestoreArray(imposed, &arr);
     }

@@ -23,6 +23,30 @@
 //  reset to zero between steps  the converged state from step N serves
 //  as the initial guess for step N+1.
 //
+//  MACRO-GUIDED INTERIOR KINEMATICS (opt-in, set_interior_kinematics):
+//    By default only the two extreme faces carry Dirichlet planes (kin_A at
+//    MinZ, kin_B at MaxZ) and the RVE interior is free.  In layers mode the
+//    evolver additionally imposes FULL plane-section Dirichlet conditions at
+//    every element-layer LEVEL of the structured grid (z = k·H/nz,
+//    k = 0..nz — only element edges, never the quadratic mid-levels, so
+//    localisation within each layer remains possible).  The section planes
+//    come from the macro beam interpolation (update_kinematics_profile);
+//    between levels the displacement field stays free.  This is a
+//    macro-guided kinematic REGULARISATION: it removes the free interior
+//    modes where the Ko-Bathe fixed-crack multi-equilibria live, at the cost
+//    of a stiffer homogenised operator (the perturbation/condensed tangent
+//    sees interior planes clamped at their current values).
+//
+//  LOCAL SOLVE ENGINE (opt-in, set_local_solve_engine):
+//    LocalSolveEngine::Snes (default) drives each kinematics-ramp
+//    sub-increment with the persistent SNES.  LocalSolveEngine::EnergyLM
+//    drives the same sub-increment with a RegularizedNewtonContinuation
+//    (Levenberg-Marquardt + secant predictor + incremental-energy line
+//    search) over an NLAnalysisEnergyBackend, selecting the local branch by
+//    energy descent where the fixed-crack switch admits several equilibria.
+//    The engine only SOLVES: acceptance/commit/rollback discipline stays in
+//    the evolver's existing ramp code (identical to the SNES path).
+//
 // =============================================================================
 
 #include <algorithm>
@@ -33,6 +57,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,6 +69,8 @@
 #include "../analysis/MultiscaleTypes.hh"
 #include "../analysis/NLAnalysis.hh"
 #include "../analysis/PenaltyCoupling.hh"
+#include "../analysis/RegularizedNewtonContinuation.hh"
+#include "../analysis/TaoEnergyContinuation.hh"
 
 #include "../materials/MaterialPolicy.hh"
 #include "../materials/Material.hh"
@@ -94,6 +121,15 @@ namespace fall_n {
 //        and shared between PenaltyCoupling (standalone) and
 //        NonlinearSubModelEvolver (FE² sub-model).
 
+
+// =============================================================================
+//  LocalSolveEngine — nonlinear driver for each kinematics-ramp sub-increment
+// =============================================================================
+
+enum class LocalSolveEngine {
+    Snes,      ///< persistent SNES Newton (default, historical behaviour)
+    EnergyLM   ///< regularized Newton (LM) + energy line search (branch selection)
+};
 
 // =============================================================================
 //  BasicNonlinearSubModelEvolver
@@ -229,6 +265,29 @@ class BasicNonlinearSubModelEvolver {
     std::function<void(typename MixedModel::container_type&)>
         state_transfer_callback_;
 
+    //  ── Macro-guided interior kinematics (layers mode, see header note) ──
+    //  layer_node_ids_[k] caches the node IDs of element-layer level k
+    //  (iz = step·k, k = 0..nz; levels 0 and nz are the existing faces).
+    //  interior_layer_bcs_ holds the Dirichlet planes of levels 1..nz-1.
+    bool use_interior_kinematics_{false};
+    std::vector<std::vector<PetscInt>> layer_node_ids_{};
+    std::vector<std::vector<std::pair<std::size_t, Eigen::Vector3d>>>
+        interior_layer_bcs_{};
+    std::vector<SectionKinematics> layer_kins_{};
+
+    //  ── Local solve engine (EnergyLM: LM + energy line search) ───────────
+    //  The NL analysis + LM solver are built ONCE per evolver (lazily, after
+    //  the model exists) and reused; they are torn down with the model and
+    //  never moved across evolver instances (hooks capture `this`).
+    using LocalNL = ::NonlinearAnalysis<Policy, KinematicPolicy, NDOF,
+                                        MultiElementPolicy>;
+    using LocalEnergyEngine =
+        RegularizedNewtonContinuation<NLAnalysisEnergyBackend<LocalNL>>;
+    LocalSolveEngine local_solve_engine_{LocalSolveEngine::Snes};
+    std::unique_ptr<LocalNL> engine_nl_{};
+    std::unique_ptr<LocalEnergyEngine> engine_lm_{};
+    bool engine_reseed_needed_{true};
+
     [[nodiscard]] StateOps make_state_ops_() noexcept
     {
         return StateOps{model_.get(), U_};
@@ -236,7 +295,40 @@ class BasicNonlinearSubModelEvolver {
 
     [[nodiscard]] BoundaryConditionApplicator make_bc_applicator_() noexcept
     {
-        return BoundaryConditionApplicator{model_.get(), sub_};
+        BoundaryConditionApplicator applicator{model_.get(), sub_};
+        if (use_interior_kinematics_) {
+            //  Interior element-layer planes ride along with every imposed
+            //  write (including homogenizer perturbations, which only rebuild
+            //  the face planes: the interior stays clamped at its current
+            //  macro-guided values instead of being zeroed).
+            applicator.set_extra_imposed(&interior_layer_bcs_);
+        }
+        return applicator;
+    }
+
+    //  Cache node IDs per element-layer level (iz = step·k, k = 0..nz).
+    //  Only element edges — the quadratic mid-levels stay free so that
+    //  localisation within each 1-element layer is not suppressed.
+    void cache_layer_nodes_()
+    {
+        if (!layer_node_ids_.empty()) {
+            return;
+        }
+        const auto& grid = sub_->grid;
+        layer_node_ids_.resize(static_cast<std::size_t>(grid.nz) + 1u);
+        for (int k = 0; k <= grid.nz; ++k) {
+            auto& ids = layer_node_ids_[static_cast<std::size_t>(k)];
+            const int iz = grid.step * k;
+            ids.reserve(static_cast<std::size_t>(
+                grid.nodes_x() * grid.nodes_y()));
+            for (int iy = 0; iy < grid.nodes_y(); ++iy) {
+                for (int ix = 0; ix < grid.nodes_x(); ++ix) {
+                    if (grid.active_node_for_order(ix, iy, iz)) {
+                        ids.push_back(grid.node_id(ix, iy, iz));
+                    }
+                }
+            }
+        }
     }
 
     [[nodiscard]] LocalHomogenizer make_local_homogenizer_(
@@ -263,6 +355,166 @@ class BasicNonlinearSubModelEvolver {
             make_bc_applicator_(),
             make_state_ops_(),
             condensed_workspace_.get()};
+    }
+
+    //  Penalty rebar forces on the LOCAL residual vector — shared verbatim
+    //  between the persistent-SNES FormResidual and the EnergyLM engine's
+    //  residual hook so both engines assemble the exact same physics.
+    static void add_penalty_forces_to_local_residual_(
+        const std::vector<PenaltyCouplingEntry>& couplings,
+        double alpha,
+        const PenaltyCouplingLaw& law,
+        Vec u_local,
+        Vec f_int_local,
+        DM dm)
+    {
+        if (couplings.empty()) {
+            return;
+        }
+
+        PetscSection sec;
+        DMGetLocalSection(dm, &sec);
+
+        const PetscScalar* u_arr;
+        VecGetArrayRead(u_local, &u_arr);
+        PetscScalar* f_arr;
+        VecGetArray(f_int_local, &f_arr);
+
+        for (const auto& pc : couplings) {
+            PetscInt r_off;
+            PetscSectionGetOffset(sec, pc.rebar_sieve_pt, &r_off);
+
+            double u_interp[3] = {0.0, 0.0, 0.0};
+            for (const auto& [sp, Ni] : pc.hex_weights) {
+                PetscInt h_off;
+                PetscSectionGetOffset(sec, sp, &h_off);
+                for (int d = 0; d < 3; ++d)
+                    u_interp[d] += Ni * u_arr[h_off + d];
+            }
+
+            for (int d = 0; d < 3; ++d) {
+                const double gap = u_arr[r_off + d] - u_interp[d];
+                const auto response = law.evaluate(gap, alpha);
+                f_arr[r_off + d] += response.force;
+                for (const auto& [sp, Ni] : pc.hex_weights) {
+                    PetscInt h_off;
+                    PetscSectionGetOffset(sec, sp, &h_off);
+                    f_arr[h_off + d] -= Ni * response.force;
+                }
+            }
+        }
+
+        VecRestoreArrayRead(u_local, &u_arr);
+        VecRestoreArray(f_int_local, &f_arr);
+    }
+
+    //  ── EnergyLM engine (LM + secant predictor + energy line search) ────
+    //
+    //  Built once per evolver, after the model exists.  The engine only
+    //  SOLVES the current imposed state: the inner NonlinearAnalysis runs
+    //  with auto_commit=false, so accept_external_solution_step only syncs
+    //  the model state vector and the surrounding evolver ramp keeps its
+    //  existing commit/revert/checkpoint discipline (identical to SNES).
+
+    [[nodiscard]] RegularizedNewtonConfig make_engine_config_() const noexcept
+    {
+        RegularizedNewtonConfig cfg{};
+        cfg.max_newton = snes_max_it_;
+        cfg.tol_abs = snes_atol_;         // parity with the SNES tolerances
+        cfg.tol_rel = snes_rtol_;
+        cfg.accept_floor = snes_atol_;    // aligned with the evolver tolerance
+        cfg.secant_predictor = true;
+        cfg.energy_linesearch = true;
+        return cfg;
+    }
+
+    void ensure_local_engine_()
+    {
+        if (engine_lm_ || local_solve_engine_ != LocalSolveEngine::EnergyLM
+            || !model_)
+        {
+            return;
+        }
+
+        engine_nl_ = std::make_unique<LocalNL>(model_.get());
+        engine_nl_->set_incremental_logging(false);
+        engine_nl_->set_auto_commit(false);
+        engine_nl_->set_residual_hook(
+            [this](Vec u_local, Vec f_int_local, DM dm) {
+                add_penalty_forces_to_local_residual_(
+                    penalty_couplings_, alpha_penalty_,
+                    penalty_coupling_law_, u_local, f_int_local, dm);
+            });
+        engine_nl_->set_jacobian_hook(
+            [this](Vec u_local, Mat J_mat, DM dm) {
+                if (!penalty_couplings_.empty()) {
+                    add_penalty_coupling_entries_to_jacobian(
+                        penalty_couplings_, alpha_penalty_,
+                        penalty_coupling_law_, u_local, J_mat, dm);
+                }
+            });
+        //  The evolver manages the imposed vector itself; the incremental
+        //  control law of the inner analysis only zeroes external forces.
+        engine_nl_->begin_incremental(
+            1, 0,
+            make_control([](double, Vec, Vec f_ext, MixedModel*) {
+                VecSet(f_ext, 0.0);
+            }));
+
+        engine_lm_ = std::make_unique<LocalEnergyEngine>(
+            NLAnalysisEnergyBackend<LocalNL>{*engine_nl_},
+            make_engine_config_());
+        engine_reseed_needed_ = true;
+    }
+
+    void reset_local_engine_()
+    {
+        engine_lm_.reset();
+        engine_nl_.reset();
+        engine_reseed_needed_ = true;
+    }
+
+    struct LocalEngineSolveOutcome {
+        SNESConvergedReason reason{SNES_DIVERGED_MAX_IT};
+        PetscInt iterations{0};
+        PetscReal function_norm{0.0};
+    };
+
+    //  Solve the CURRENT imposed state (already written into the model's
+    //  imposed_solution) with the configured engine.  t_sub is the global
+    //  ramp fraction of the sub-increment (secant-predictor parameter).
+    [[nodiscard]] LocalEngineSolveOutcome solve_imposed_state_(double t_sub)
+    {
+        if (local_solve_engine_ == LocalSolveEngine::EnergyLM) {
+            ensure_local_engine_();
+        }
+        if (local_solve_engine_ == LocalSolveEngine::EnergyLM && engine_lm_) {
+            if (engine_reseed_needed_) {
+                engine_lm_->set_solution(U_);
+                engine_lm_->set_config(make_engine_config_());
+                engine_reseed_needed_ = false;
+            }
+            const auto step = engine_lm_->advance_to(t_sub);
+            VecCopy(engine_lm_->solution(), U_);
+
+            LocalEngineSolveOutcome outcome;
+            outcome.reason = step.converged
+                ? SNES_CONVERGED_FNORM_ABS
+                : SNES_DIVERGED_MAX_IT;
+            outcome.iterations = static_cast<PetscInt>(step.iterations);
+            outcome.function_norm = static_cast<PetscReal>(step.residual);
+            if (!step.converged) {
+                engine_reseed_needed_ = true;
+            }
+            return outcome;
+        }
+
+        SNESSolve(snes_, nullptr, U_);
+        LocalEngineSolveOutcome outcome;
+        SNESGetConvergedReason(snes_, &outcome.reason);
+        SNESGetIterationNumber(snes_, &outcome.iterations);
+        SNESGetFunctionNorm(snes_, &outcome.function_norm);
+        return outcome;
     }
 
     struct MaterialSolveDiagnostics {
@@ -442,14 +694,10 @@ class BasicNonlinearSubModelEvolver {
                 global_span_fraction * step_frac;
             restore_imposed_at_progress(target_p);
 
-            SNESSolve(snes_, nullptr, U_);
-
-            SNESConvergedReason reason;
-            SNESGetConvergedReason(snes_, &reason);
-            PetscInt snes_iters = 0;
-            SNESGetIterationNumber(snes_, &snes_iters);
-            PetscReal fnorm = 0.0;
-            SNESGetFunctionNorm(snes_, &fnorm);
+            const auto engine_outcome = solve_imposed_state_(global_target_p);
+            const SNESConvergedReason reason = engine_outcome.reason;
+            const PetscInt snes_iters = engine_outcome.iterations;
+            const PetscReal fnorm = engine_outcome.function_norm;
 
             stats.last_reason = static_cast<int>(reason);
             stats.last_snes_iterations = snes_iters;
@@ -507,6 +755,7 @@ class BasicNonlinearSubModelEvolver {
             VecCopy(U_checkpoint, U_);
             VecCopy(imp_checkpoint, model_->imposed_solution());
             revert_state();
+            engine_reseed_needed_ = true;   // U_ rolled back → reseed the LM
             ++stats.total_bisections;
             stats.failure_cause = classify_snes_failure_(reason);
 
@@ -682,6 +931,7 @@ class BasicNonlinearSubModelEvolver {
 
     void reset_transient_model_()
     {
+        reset_local_engine_();
         destroy_petsc_objects();
         model_.reset();
         model_ready_ = false;
@@ -717,43 +967,15 @@ class BasicNonlinearSubModelEvolver {
             elem.compute_internal_forces(u_local, f_int_local);
 
         // ── Penalty coupling for embedded rebar nodes ────────────
+        //  (shared with the EnergyLM engine's residual hook)
         if (ctx->penalty_couplings && !ctx->penalty_couplings->empty()) {
-            PetscSection sec;
-            DMGetLocalSection(dm, &sec);
-
-            const PetscScalar* u_arr;
-            VecGetArrayRead(u_local, &u_arr);
-            PetscScalar* f_arr;
-            VecGetArray(f_int_local, &f_arr);
-
-            const double alpha = ctx->alpha_penalty;
-            for (const auto& pc : *ctx->penalty_couplings) {
-                PetscInt r_off;
-                PetscSectionGetOffset(sec, pc.rebar_sieve_pt, &r_off);
-
-                double u_interp[3] = {0.0, 0.0, 0.0};
-                for (const auto& [sp, Ni] : pc.hex_weights) {
-                    PetscInt h_off;
-                    PetscSectionGetOffset(sec, sp, &h_off);
-                    for (int d = 0; d < 3; ++d)
-                        u_interp[d] += Ni * u_arr[h_off + d];
-                }
-
-                for (int d = 0; d < 3; ++d) {
-                    const double gap = u_arr[r_off + d] - u_interp[d];
-                    const auto response =
-                        ctx->penalty_coupling_law.evaluate(gap, alpha);
-                    f_arr[r_off + d] += response.force;
-                    for (const auto& [sp, Ni] : pc.hex_weights) {
-                        PetscInt h_off;
-                        PetscSectionGetOffset(sec, sp, &h_off);
-                        f_arr[h_off + d] -= Ni * response.force;
-                    }
-                }
-            }
-
-            VecRestoreArrayRead(u_local, &u_arr);
-            VecRestoreArray(f_int_local, &f_arr);
+            add_penalty_forces_to_local_residual_(
+                *ctx->penalty_couplings,
+                ctx->alpha_penalty,
+                ctx->penalty_coupling_law,
+                u_local,
+                f_int_local,
+                dm);
         }
 
         VecSet(R_out, 0.0);
@@ -970,6 +1192,11 @@ public:
         , penalty_couplings_{std::move(o.penalty_couplings_)}
         , condensed_workspace_{std::move(o.condensed_workspace_)}
         , state_transfer_callback_{std::move(o.state_transfer_callback_)}
+        , use_interior_kinematics_{o.use_interior_kinematics_}
+        , layer_node_ids_{std::move(o.layer_node_ids_)}
+        , interior_layer_bcs_{std::move(o.interior_layer_bcs_)}
+        , layer_kins_{std::move(o.layer_kins_)}
+        , local_solve_engine_{o.local_solve_engine_}
     {
         if (!condensed_workspace_) {
             condensed_workspace_ = std::make_unique<CondensationWorkspace>();
@@ -977,11 +1204,17 @@ public:
         ctx_ = {model_.get(), f_ext_,
                 &penalty_couplings_, alpha_penalty_,
                 penalty_coupling_law_};
+        //  The EnergyLM engine's hooks capture `this`; never move it across
+        //  instances — it is rebuilt lazily on the destination.
+        o.reset_local_engine_();
     }
 
     BasicNonlinearSubModelEvolver& operator=(
         BasicNonlinearSubModelEvolver&& o) noexcept {
         if (this != &o) {
+            //  Drop this instance's engine BEFORE replacing the model it
+            //  references (hooks capture `this`; rebuilt lazily on demand).
+            reset_local_engine_();
             destroy_petsc_objects();
             sub_ = o.sub_; fc_ = o.fc_;
             local_ex_ = o.local_ex_; local_ey_ = o.local_ey_; local_ez_ = o.local_ez_;
@@ -1051,6 +1284,13 @@ public:
                 condensed_workspace_ =
                     std::make_unique<CondensationWorkspace>();
             }
+            use_interior_kinematics_ = o.use_interior_kinematics_;
+            layer_node_ids_          = std::move(o.layer_node_ids_);
+            interior_layer_bcs_      = std::move(o.interior_layer_bcs_);
+            layer_kins_              = std::move(o.layer_kins_);
+            local_solve_engine_      = o.local_solve_engine_;
+            //  The source's engine captured the source `this`: drop it.
+            o.reset_local_engine_();
             ctx_ = {model_.get(), f_ext_,
                     &penalty_couplings_, alpha_penalty_,
                     penalty_coupling_law_};
@@ -1185,6 +1425,95 @@ public:
     void set_auto_commit(bool enabled) noexcept { auto_commit_ = enabled; }
     [[nodiscard]] bool auto_commit() const noexcept { return auto_commit_; }
 
+    // ── Macro-guided interior kinematics (layers mode) ───────────────────
+    /// Enable full plane-section Dirichlet planes at every element-layer
+    /// level (see header note).  Requires the macro side to feed the level
+    /// profile through update_kinematics_profile() before the first solve
+    /// (MultiscaleAnalysis does this automatically when the bridge exposes
+    /// extract_element_kinematics_profile).
+    void set_interior_kinematics(bool enabled)
+    {
+        use_interior_kinematics_ = enabled;
+        if (enabled) {
+            cache_layer_nodes_();
+        }
+    }
+
+    [[nodiscard]] bool uses_interior_kinematics() const noexcept
+    {
+        return use_interior_kinematics_;
+    }
+
+    /// Element-layer stations ξ_k ∈ [-1, +1] (k = 0..nz, ξ_k = -1 + 2·z_k/H)
+    /// where update_kinematics_profile() expects one SectionKinematics each.
+    /// With Hex27 and nz layers these are ONLY the element edges (iz = 2k);
+    /// the quadratic mid-levels stay free.
+    [[nodiscard]] std::vector<double> kinematic_sample_stations() const
+    {
+        std::vector<double> stations;
+        const auto& grid = sub_->grid;
+        const double length = std::max(grid.length, 1.0e-30);
+        stations.reserve(static_cast<std::size_t>(grid.nz) + 1u);
+        for (int k = 0; k <= grid.nz; ++k) {
+            stations.push_back(
+                2.0 * grid.z_coordinate(grid.step * k) / length - 1.0);
+        }
+        return stations;
+    }
+
+    /// Impose the full section-plane profile: extreme faces through the
+    /// existing applicator path (sub_->kin_A / kin_B), interior levels as
+    /// additional full-Dirichlet planes.  `kins` must follow
+    /// kinematic_sample_stations() order and size (nz + 1 levels).
+    /// Falls back to the plain two-face path when layers mode is off.
+    void update_kinematics_profile(std::span<const SectionKinematics> kins)
+    {
+        if (kins.size() < 2) {
+            throw std::invalid_argument(
+                "BasicNonlinearSubModelEvolver::update_kinematics_profile "
+                "needs at least the two extreme sections.");
+        }
+        if (!use_interior_kinematics_) {
+            update_kinematics(kins.front(), kins.back());
+            return;
+        }
+
+        cache_layer_nodes_();
+        if (kins.size() != layer_node_ids_.size()) {
+            throw std::invalid_argument(
+                "BasicNonlinearSubModelEvolver::update_kinematics_profile: "
+                "expected one SectionKinematics per element-layer level "
+                "(kinematic_sample_stations().size()).");
+        }
+
+        layer_kins_.assign(kins.begin(), kins.end());
+        interior_layer_bcs_.clear();
+        interior_layer_bcs_.reserve(layer_node_ids_.size() - 2u);
+        for (std::size_t k = 1; k + 1 < layer_node_ids_.size(); ++k) {
+            interior_layer_bcs_.push_back(compute_boundary_displacements(
+                kins[k], sub_->domain, layer_node_ids_[k]));
+        }
+        make_bc_applicator_().update_kinematics(kins.front(), kins.back());
+    }
+
+    // ── Local solve engine ────────────────────────────────────────────────
+    /// Select the nonlinear driver used for each ramp sub-increment.
+    /// EnergyLM = RegularizedNewtonContinuation with secant predictor and
+    /// incremental-energy line search (local branch selection); tolerances
+    /// track set_snes_params.  Commit/rollback discipline is unchanged.
+    void set_local_solve_engine(LocalSolveEngine engine) noexcept
+    {
+        if (engine != local_solve_engine_) {
+            local_solve_engine_ = engine;
+            reset_local_engine_();
+        }
+    }
+
+    [[nodiscard]] LocalSolveEngine local_solve_engine() const noexcept
+    {
+        return local_solve_engine_;
+    }
+
     void set_regularization_policy(
         RegularizationPolicyKind policy,
         double diagonal_floor = 1.0) noexcept
@@ -1314,6 +1643,7 @@ public:
     void restore_checkpoint(const checkpoint_type& checkpoint) {
         make_bc_applicator_().update_kinematics(
             checkpoint.kin_A, checkpoint.kin_B);
+        engine_reseed_needed_ = true;   // U_ will change → reseed the LM
         use_arc_length_ = checkpoint.arc_length_active;
         adaptive_subsequent_steps_ = checkpoint.adaptive_subsequent_steps;
         adaptive_subsequent_skip_full_step_ =
@@ -1819,6 +2149,21 @@ private:
         for (const auto& [nid, u] : sub_->bc_max_z)
             model_->constrain_node(nid, {u[0], u[1], u[2]});
 
+        //  Layers mode: interior element-layer levels are full Dirichlet
+        //  planes too (macro-guided kinematic regularisation).  The lists
+        //  must have been populated by update_kinematics_profile().
+        if (use_interior_kinematics_) {
+            if (interior_layer_bcs_.empty() && sub_->grid.nz > 1) {
+                throw std::runtime_error(
+                    "BasicNonlinearSubModelEvolver: interior kinematics "
+                    "enabled but update_kinematics_profile() was never "
+                    "called before the first solve.");
+            }
+            for (const auto& bc_list : interior_layer_bcs_)
+                for (const auto& [nid, u] : bc_list)
+                    model_->constrain_node(nid, {u[0], u[1], u[2]});
+        }
+
         model_->setup();
 
         // 2.5. Pre-compute penalty coupling for embedded rebar
@@ -1827,6 +2172,8 @@ private:
 
         // 3. Set up persistent SNES + allocate U, R, J
         setup_snes();
+        ensure_local_engine_();
+        engine_reseed_needed_ = true;
 
         // 3.5. FE² state transfer: inject material history from macro-beam
         //      into micro-model elements BEFORE the incremental ramp.
@@ -1903,16 +2250,10 @@ private:
                 VecCopy(target, model_->imposed_solution());
                 VecScale(model_->imposed_solution(), p);
 
-                SNESSolve(snes_, nullptr, U_);
-
-                SNESConvergedReason reason;
-                SNESGetConvergedReason(snes_, &reason);
-
-                PetscInt nits;
-                SNESGetIterationNumber(snes_, &nits);
-
-                PetscReal fnorm;
-                SNESGetFunctionNorm(snes_, &fnorm);
+                const auto engine_outcome = solve_imposed_state_(p);
+                const SNESConvergedReason reason = engine_outcome.reason;
+                const PetscInt nits = engine_outcome.iterations;
+                const PetscReal fnorm = engine_outcome.function_norm;
                 last_reason = static_cast<int>(reason);
                 last_nits = nits;
                 last_fnorm = static_cast<double>(fnorm);
@@ -2005,25 +2346,24 @@ private:
             return subsequent_solve_adaptive();
         }
 
-        // ── Standard path: full-step SNES ────────────────────────────
+        // ── Standard path: full-step solve ───────────────────────────
+
+        // Fresh secant history per macro step (set_solution from current U_).
+        engine_reseed_needed_ = true;
 
         // Save imposed values and U (pre-allocated work vectors)
         VecCopy(model_->imposed_solution(), imp_work_);
 
         write_imposed_values();
 
-        // Save U before SNES attempt so we can restore on failure
+        // Save U before the solve attempt so we can restore on failure
         VecCopy(U_, U_work_);
 
         // Newton from current U (NOT reset to zero)
-        SNESSolve(snes_, nullptr, U_);
-
-        SNESConvergedReason reason;
-        SNESGetConvergedReason(snes_, &reason);
-        PetscInt nits = 0;
-        SNESGetIterationNumber(snes_, &nits);
-        PetscReal fnorm = 0.0;
-        SNESGetFunctionNorm(snes_, &fnorm);
+        const auto engine_outcome = solve_imposed_state_(1.0);
+        const SNESConvergedReason reason = engine_outcome.reason;
+        const PetscInt nits = engine_outcome.iterations;
+        const PetscReal fnorm = engine_outcome.function_norm;
 
         bool converged = (reason > 0);
         if (converged) {
@@ -2036,6 +2376,7 @@ private:
             VecCopy(U_work_, U_);                          // restore displacement vector
             VecCopy(imp_work_, model_->imposed_solution()); // restore imposed BCs
             revert_state();
+            engine_reseed_needed_ = true;   // U_ rolled back → reseed the LM
 
             if (adaptive_subsequent_steps_) {
                 std::println(
@@ -2086,6 +2427,9 @@ private:
     //  The method fails only when the minimum step fraction is reached.
 
     SubModelSolverResult subsequent_solve_adaptive() {
+        // Fresh secant history per macro step (set_solution from current U_).
+        engine_reseed_needed_ = true;
+
         // 1. Save previous imposed values (last converged step's BCs)
         Vec imp_prev;
         VecDuplicate(model_->imposed_solution(), &imp_prev);

@@ -4,7 +4,9 @@
 #include <array>
 #include <cstddef>
 #include <limits>
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 #include "MultiscaleCoordinator.hh"
 #include "MultiscaleTypes.hh"
@@ -71,6 +73,26 @@ public:
         const auto up = beam.rotation_matrix().transpose().col(1);
         ek.up_direction = {up[0], up[1], up[2]};
         return ek;
+    }
+
+    /// Section-plane kinematics at an arbitrary set of stations ξ ∈ [-1, 1]
+    /// of the SAME element (extract_section_kinematics works at any ξ).
+    /// Used by local models that impose interior element-layer planes
+    /// (macro-guided kinematic regularisation); the two-face path stays on
+    /// extract_element_kinematics.
+    [[nodiscard]] std::vector<SectionKinematics>
+    extract_element_kinematics_profile(std::size_t element_id,
+                                       std::span<const double> stations) const
+    {
+        auto& beam = beam_for_(element_id);
+        const auto u_loc = beam.local_state_vector(model_->state_vector());
+
+        std::vector<SectionKinematics> kins;
+        kins.reserve(stations.size());
+        for (const double xi : stations) {
+            kins.push_back(extract_section_kinematics(beam, u_loc, xi));
+        }
+        return kins;
     }
 
     [[nodiscard]] MacroSectionState
