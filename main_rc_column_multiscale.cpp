@@ -125,6 +125,13 @@ struct CliOptions {
     double staggered_tol{0.03};
     double staggered_relax{0.7};
     int    coupling_start_step{1};
+    //  Warmup escalonado del two-way: los primeros N pasos corren en
+    //  one-way (el RVE trackea y COMITEA la historia sin retroalimentar,
+    //  fisurando gradualmente fuera del lazo acoplado) y el two-way arranca
+    //  CALIENTE en N+1 — sin el salto frio del primer feedback de un RVE
+    //  virgen ni el transitorio de primera fisuracion dentro del lazo.
+    //  0 = two-way desde el primer paso.
+    int    two_way_warmup_steps{0};
     int    steps_cap{0};   // 0 = full protocol
     //  Two-way stabilisers (MultiscaleAnalysis built-ins).  The default
     //  tangent regularisation mirrors the L-shaped 16-storey campaign
@@ -214,6 +221,8 @@ void print_usage(const char* prog)
             opts.staggered_relax = std::stod(next());
         } else if (arg == "--coupling-start-step") {
             opts.coupling_start_step = std::stoi(next());
+        } else if (arg == "--two-way-warmup") {
+            opts.two_way_warmup_steps = std::stoi(next());
         } else if (arg == "--steps-cap") {
             opts.steps_cap = std::stoi(next());
         } else if (arg == "--tangent-reg") {
@@ -679,6 +688,23 @@ static int run_column_fe2(const CliOptions& opts)
             continue;
         }
         nl.set_increment_size(delta);
+
+        //  Warmup escalonado: conmuta la política de recuperación por paso.
+        //  Durante el warmup el modo OneWayOnly hace que el two-way degrade
+        //  a one-way (el RVE evoluciona y comitea sin retroalimentar); al
+        //  cruzar N vuelve la ventana híbrida y el acople arranca con la
+        //  historia local completa y consistente.
+        if (opts.coupling == CouplingChoice::TwoWay &&
+            opts.two_way_warmup_steps > 0) {
+            TwoWayFailureRecoveryPolicy staged{};
+            staged.mode = step <= opts.two_way_warmup_steps
+                ? TwoWayFailureRecoveryMode::OneWayOnly
+                : TwoWayFailureRecoveryMode::HybridObservationWindow;
+            staged.max_hybrid_steps = 0;
+            staged.evolve_locals_in_hybrid = true;
+            staged.clear_feedback_on_hybrid_macro_failure = true;
+            analysis.set_two_way_failure_recovery_policy(staged);
+        }
 
         const bool step_ok = analysis.step();
         const auto& report = analysis.last_report();
