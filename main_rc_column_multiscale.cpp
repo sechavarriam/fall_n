@@ -136,6 +136,10 @@ struct CliOptions {
     double macro_cutback_factor{0.5};
     int    macro_backtrack_attempts{3};
     double macro_backtrack_factor{0.5};
+    //  B1: macro-guided interior kinematics of the RVE (element-layer planes)
+    bool interior_kinematics{false};
+    //  D: local nonlinear engine for the RVE ramp sub-increments
+    LocalSolveEngine local_engine{LocalSolveEngine::Snes};
 };
 
 [[nodiscard]] TwoWayTangentRegularizationMode
@@ -170,7 +174,10 @@ void print_usage(const char* prog)
         "Usage: {} --output-dir DIR [--coupling macro-only|one-way|two-way]\n"
         "          [--homog boundary|volume] [--max-staggered-iter N]\n"
         "          [--staggered-tol x] [--staggered-relax x]\n"
-        "          [--coupling-start-step N] [--steps-cap N]",
+        "          [--coupling-start-step N] [--steps-cap N]\n"
+        "          [--tangent-reg none|blend|spectral-floor|blend-spectral|"
+        "secant-column-floor]\n"
+        "          [--kin-transfer faces|layers] [--local-engine snes|energy-lm]",
         prog);
 }
 
@@ -211,6 +218,23 @@ void print_usage(const char* prog)
             opts.steps_cap = std::stoi(next());
         } else if (arg == "--tangent-reg") {
             opts.tangent_reg = parse_tangent_regularization_mode(next());
+        } else if (arg == "--kin-transfer") {
+            const auto value = next();
+            if (value == "faces")       opts.interior_kinematics = false;
+            else if (value == "layers") opts.interior_kinematics = true;
+            else throw std::invalid_argument(
+                "unknown --kin-transfer: " + value + " (use faces|layers)");
+        } else if (arg == "--local-engine") {
+            const auto value = next();
+            if (value == "snes") {
+                opts.local_engine = LocalSolveEngine::Snes;
+            } else if (value == "energy-lm") {
+                opts.local_engine = LocalSolveEngine::EnergyLM;
+            } else {
+                throw std::invalid_argument(
+                    "unknown --local-engine: " + value
+                    + " (use snes|energy-lm)");
+            }
         } else if (arg == "--macro-cutback-attempts") {
             opts.macro_cutback_attempts = std::stoi(next());
         } else if (arg == "--macro-backtrack-attempts") {
@@ -461,7 +485,17 @@ static int run_column_fe2(const CliOptions& opts)
                 nl_evolvers.back().set_homogenization_operator(
                     HomogenizationOperator::VolumeAverage);
             }
+            //  B1: macro-guided interior section planes (layers mode).
+            nl_evolvers.back().set_interior_kinematics(
+                opts.interior_kinematics);
+            //  D: local engine for the ramp sub-increments.
+            nl_evolvers.back().set_local_solve_engine(opts.local_engine);
         }
+
+        std::println("  RVE:   kin_transfer={}  local_engine={}",
+                     opts.interior_kinematics ? "layers" : "faces",
+                     opts.local_engine == LocalSolveEngine::EnergyLM
+                         ? "energy-lm" : "snes");
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -540,6 +574,11 @@ static int run_column_fe2(const CliOptions& opts)
         //  the locals under the final macro state keeps the micro history
         //  tracking the protocol and refreshes the affine feedback anchor.
         recovery.evolve_locals_in_hybrid = true;
+        //  En reversas con cinemática de capas, la tangente condensada del
+        //  RVE muy fisurado puede ser demasiado degradada para el Newton
+        //  macro incluso en ventana híbrida: como último recurso el paso se
+        //  reintenta con la inyección limpia (one-way de emergencia).
+        recovery.clear_feedback_on_hybrid_macro_failure = true;
         analysis.set_two_way_failure_recovery_policy(recovery);
 
         //  Stabilisers for the injected cracked-RVE operator, so a macro
