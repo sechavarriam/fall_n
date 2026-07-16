@@ -124,6 +124,16 @@ struct TwoWayFailureRecoveryPolicy {
     //  reference — a self-reinforcing staggered-divergence spiral. Opt-in to
     //  preserve the original observational semantics of the building drivers.
     bool evolve_locals_in_hybrid{false};
+    //  Last-resort fallback inside the hybrid window: when the macro solve
+    //  fails even WITH the last-converged feedback injected (typical at a
+    //  load reversal where the refreshed condensed tangent of a heavily
+    //  cracked RVE is too degraded for the macro Newton), retry the step
+    //  once more with the injection CLEARED (pure macro constitutive at the
+    //  coupling sites, reported as ClearedOneWay feedback). The locals still
+    //  evolve and commit under the final macro state when
+    //  evolve_locals_in_hybrid is set, so the coupling can re-engage on the
+    //  next step. Opt-in.
+    bool clear_feedback_on_hybrid_macro_failure{false};
 };
 
 enum class RegularizationPolicyKind {

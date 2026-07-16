@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@
 #include "MicroSolveExecutor.hh"
 #include "MultiscaleModel.hh"
 #include "SteppableSolver.hh"
+#include "../reconstruction/FieldTransfer.hh"
 #include "../reconstruction/SectionOperatorValidationNorm.hh"
 
 namespace fall_n {
@@ -739,6 +741,49 @@ private:
         }
     }
 
+    //  Feed the local model the macro kinematics: two-face path by default;
+    //  when the local model requests interior element-layer planes (layers
+    //  mode) and the bridge can sample arbitrary stations, transfer the full
+    //  section-plane profile instead.  Both capabilities are detected by
+    //  concept, so local models / bridges without the API compile the
+    //  historical two-face path unchanged.
+    void update_local_model_kinematics_(LocalModelT& local_model,
+                                        std::size_t site_index)
+    {
+        const auto element_id = model_.site(site_index).macro_element_id;
+
+        if constexpr (
+            requires(LocalModelT& lm,
+                     std::span<const SectionKinematics> kins) {
+                { lm.uses_interior_kinematics() }
+                    -> std::convertible_to<bool>;
+                { lm.kinematic_sample_stations() }
+                    -> std::convertible_to<std::vector<double>>;
+                lm.update_kinematics_profile(kins);
+            }
+            && requires(MacroBridgeT& bridge,
+                        std::span<const double> stations) {
+                { bridge.extract_element_kinematics_profile(
+                      std::size_t{}, stations) }
+                    -> std::convertible_to<std::vector<SectionKinematics>>;
+            })
+        {
+            if (local_model.uses_interior_kinematics()) {
+                const auto stations = local_model.kinematic_sample_stations();
+                const auto kins =
+                    model_.macro_bridge().extract_element_kinematics_profile(
+                        element_id, std::span<const double>{stations});
+                local_model.update_kinematics_profile(
+                    std::span<const SectionKinematics>{kins});
+                return;
+            }
+        }
+
+        const auto ek =
+            model_.macro_bridge().extract_element_kinematics(element_id);
+        local_model.update_kinematics(ek.kin_A, ek.kin_B);
+    }
+
     [[nodiscard]] bool macro_solver_supports_increment_control_() const
     {
         if constexpr (requires(MacroSolverT& solver, double dp) {
@@ -837,10 +882,7 @@ private:
                 local_model.set_auto_commit(true);
                 configure_local_tangent_policy_(local_model);
 
-                const auto ek =
-                    model_.macro_bridge().extract_element_kinematics(
-                        model_.site(i).macro_element_id);
-                local_model.update_kinematics(ek.kin_A, ek.kin_B);
+                update_local_model_kinematics_(local_model, i);
                 if constexpr (requires(LocalModelT& lm,
                                         const MacroSectionState& state) {
                                   lm.update_macro_section_state(state);
@@ -1244,6 +1286,7 @@ private:
         set_macro_trial_mode_(true);
 
         bool accepted = false;
+        bool staggered_macro_failed = false;
         const int max_iter = std::max(2, algorithm_->max_iterations());
         std::vector<double> previous_iteration_force_residuals(
             model_.num_local_models(),
@@ -1384,18 +1427,17 @@ private:
             }
 
             if (!macro_ok) {
-                macro_solver_->restore_checkpoint(macro_checkpoint);
-                for (std::size_t i = 0; i < model_.num_local_models(); ++i) {
-                    model_.local_models()[i].restore_checkpoint(local_checkpoints[i]);
-                    model_.local_models()[i].set_auto_commit(true);
-                }
-                last_report_.converged = false;
-                last_report_.rollback_performed = true;
-                last_report_.termination_reason =
-                    CouplingTerminationReason::MacroSolveFailed;
-                restore_previous_injection_();
-                set_macro_trial_mode_(false);
-                return false;
+                //  NO abortar aquí: el fallo macro de la fase staggered cae a
+                //  la MISMA ventana de recuperación que la no-convergencia
+                //  (reintento con el último feedback convergido y, si la
+                //  política lo permite, con inyección limpia). El return
+                //  directo previo hacía inalcanzables la ventana híbrida y su
+                //  fallback de inyección limpia exactamente en las reversas,
+                //  donde el operador afín congelado del pico vuelve singular
+                //  al macro para CUALQUIER dp (colapso de bisección a ancho
+                //  cero a 1e-4 del target).
+                staggered_macro_failed = true;
+                break;
             }
             capture_attempted_macro_state_();
             macro_success_baseline = active_predictor;
@@ -1420,10 +1462,7 @@ private:
                     local_model.restore_checkpoint(local_checkpoints[i]);
                     configure_local_tangent_policy_(local_model);
 
-                    const auto ek =
-                        model_.macro_bridge().extract_element_kinematics(
-                            model_.site(i).macro_element_id);
-                    local_model.update_kinematics(ek.kin_A, ek.kin_B);
+                    update_local_model_kinematics_(local_model, i);
                     if constexpr (requires(LocalModelT& lm,
                                             const MacroSectionState& state) {
                                       lm.update_macro_section_state(state);
@@ -1734,32 +1773,62 @@ private:
                     CouplingFeedbackSource::ClearedOneWay;
             }
 
-            const auto macro_t0 = std::chrono::steady_clock::now();
-            bool macro_ok = false;
-            if constexpr (requires(MacroSolverT& solver, double dp) {
-                              { solver.get_increment_size() }
-                                  -> std::convertible_to<double>;
-                              solver.set_increment_size(dp);
-                          }) {
-                if (macro_trial_increment > 0.0) {
-                    macro_solver_->set_increment_size(macro_trial_increment);
-                }
-                if (macro_step_target_time > macro_step_start_time) {
-                    const auto verdict =
-                        macro_solver_->step_to(macro_step_target_time);
-                    macro_ok = verdict != StepVerdict::Stop &&
-                        macro_solver_->current_time()
-                            >= macro_step_target_time - 1.0e-12;
+            const auto attempt_hybrid_macro = [&]() -> bool {
+                const auto macro_t0 = std::chrono::steady_clock::now();
+                bool ok = false;
+                if constexpr (requires(MacroSolverT& solver, double dp) {
+                                  { solver.get_increment_size() }
+                                      -> std::convertible_to<double>;
+                                  solver.set_increment_size(dp);
+                              }) {
+                    if (macro_trial_increment > 0.0) {
+                        macro_solver_->set_increment_size(
+                            macro_trial_increment);
+                    }
+                    if (macro_step_target_time > macro_step_start_time) {
+                        const auto verdict =
+                            macro_solver_->step_to(macro_step_target_time);
+                        ok = verdict != StepVerdict::Stop &&
+                            macro_solver_->current_time()
+                                >= macro_step_target_time - 1.0e-12;
+                    } else {
+                        ok = macro_solver_->step();
+                    }
                 } else {
-                    macro_ok = macro_solver_->step();
+                    ok = macro_solver_->step();
                 }
-            } else {
-                macro_ok = macro_solver_->step();
+                const auto macro_t1 = std::chrono::steady_clock::now();
+                last_report_.macro_solve_seconds +=
+                    std::chrono::duration<double>(macro_t1 - macro_t0)
+                        .count();
+                capture_macro_solver_diagnostics_();
+                return ok;
+            };
+
+            bool macro_ok = attempt_hybrid_macro();
+            bool used_cleared_feedback = false;
+
+            if (!macro_ok
+                && two_way_failure_recovery_policy_
+                       .clear_feedback_on_hybrid_macro_failure
+                && has_last_feedback)
+            {
+                used_cleared_feedback = true;
+                //  Último recurso: reintenta el paso con la inyección LIMPIA
+                //  (constitutiva macro pura en los sitios). Típico en una
+                //  reversa donde la tangente condensada refrescada de un RVE
+                //  muy fisurado es demasiado degradada para el Newton macro.
+                //  Se reporta como ClearedOneWay; los locales siguen
+                //  evolucionando abajo, así que el acople puede reengancharse
+                //  en el paso siguiente.
+                macro_solver_->restore_checkpoint(macro_checkpoint);
+                inject_or_clear_({});
+                last_report_.feedback_source =
+                    CouplingFeedbackSource::ClearedOneWay;
+                last_report_.hybrid_reason =
+                    "hybrid_macro_failed_retried_with_cleared_feedback";
+                macro_ok = attempt_hybrid_macro();
             }
-            const auto macro_t1 = std::chrono::steady_clock::now();
-            last_report_.macro_solve_seconds +=
-                std::chrono::duration<double>(macro_t1 - macro_t0).count();
-            capture_macro_solver_diagnostics_();
 
             if (!macro_ok) {
                 macro_solver_->restore_checkpoint(macro_checkpoint);
@@ -1825,10 +1894,21 @@ private:
                 CouplingRegime::HybridObservationWindow;
             last_report_.termination_reason =
                 CouplingTerminationReason::HybridObservationStepCompleted;
-            last_report_.hybrid_reason =
-                last_report_.failed_submodels > 0
-                    ? "micro_solve_failed_advanced_with_last_feedback"
-                    : "max_iterations_advanced_with_last_feedback";
+            {
+                const char* base_reason =
+                    last_report_.failed_submodels > 0
+                        ? "micro_solve_failed_advanced_with_last_feedback"
+                        : (staggered_macro_failed
+                               ? "staggered_macro_failed_advanced_with_"
+                                 "last_feedback"
+                               : "max_iterations_advanced_with_last_feedback");
+                //  Conserva el marcador del reintento con inyección limpia
+                //  (antes se sobreescribía aquí y era invisible en los logs).
+                last_report_.hybrid_reason = used_cleared_feedback
+                    ? std::string{base_reason}
+                          + "|hybrid_macro_failed_retried_with_cleared_feedback"
+                    : std::string{base_reason};
+            }
             last_report_.one_way_replay_status =
                 "deferred_after_two_way_failure";
             last_report_.work_gap = has_last_feedback
@@ -1861,7 +1941,9 @@ private:
             last_report_.termination_reason =
                 (last_report_.failed_submodels > 0)
                     ? CouplingTerminationReason::MicroSolveFailed
-                    : CouplingTerminationReason::MaxIterationsReached;
+                    : (staggered_macro_failed
+                           ? CouplingTerminationReason::MacroSolveFailed
+                           : CouplingTerminationReason::MaxIterationsReached);
             return false;
         }
 
