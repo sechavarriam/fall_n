@@ -258,6 +258,29 @@ lateral translation per level, leaving in-plane warping and axial
 free), fewer interior planes, or weak (penalty) enforcement, all of
 which live in the same seam this round built.
 
+\paragraph{Startup strategies --- when to engage matters more than
+how.} The remaining end-face imperfection was the initial-cracking
+transient, and a four-way experiment
+(\texttt{--two-way-warmup}~/~\texttt{--coupling-start-step}) settled
+it decisively. Immediate coupling gives the known transient (peak
+$0.064$\,MN, roughness 1.15). A short one-way warmup through first
+cracking (8 steps) already removes it (peak $0.029$, zero steps above
+$0.03$\,MN). A \emph{long} warmup through the first push (20 steps) is
+the \emph{worst} strategy of all (peak $0.128$): the RVE history
+developed under one-way tracking is not consistent with the coupled
+equilibrium, and its first feedback jolts the macro --- tracked
+history is not consistent history. And the pure delayed start that
+engages a \emph{virgin} RVE exactly at the first reversal wins on
+every metric (peak $0.027$\,MN, zero steps above $0.03$, roughness
+$0.60$ --- smoother than the uncoupled fiber itself, while genuinely
+carrying the RVE feedback at the large-amplitude peaks): the
+unloading branch is elastic and single-valued, so consistency at
+engagement is free, and the damage history then accumulates
+progressively inside the limiter-protected loop. The engagement
+\emph{point}, not the preparation, is the lever --- reversals are the
+natural coupling-activation events, which composes directly with the
+criterion-based activation of the building drivers.
+
 The energy-lm local engine produces a trajectory \emph{identical to
 four decimals} to the SNES engine across the entire protocol,
 excursions included. That is the cleanest confirmation of the
