@@ -42,14 +42,17 @@ twb = load(os.path.join("fe2_col", "two_way_boundary",
 twv = load(os.path.join("fe2_col", "two_way_volume",
                         "fe2_column_hysteresis.csv"))
 
+twl = load(os.path.join("fe2_col", "two_way_layers",
+                        "fe2_column_hysteresis.csv"))
+
 runs = [
     ("Macro fibra (= one-way)", S_MACRO, macro, False,
      "196/196 · 0 no conv · pico 23.7 kN — suave, sin fidelidad 3D"),
-    ("Two-way, reacciones de borde", S_TWB, twb, False,
-     "196/196 · 0 no conv · transitorio de fisuración inicial (pasos 5-19), "
-     "luego lazos suaves"),
-    ("Two-way, promedio volumétrico", S_TWV, twv, True,
-     "aborta en paso 40 — par (f_vol, D_borde) inconsistente con feedback vivo"),
+    ("Two-way, caras extremas", S_TWB, twb, False,
+     "196/196 · 0 no conv · transitorio inicial (5-19) · lazo global más liso"),
+    ("Two-way, capas interiores (B1)", S_TWV, twl, False,
+     "196/196 · 49 estrictos · local impecable (energy-lm idéntico) · "
+     "global más rugoso: sobre-restricción"),
 ]
 
 fig, axes = plt.subplots(
@@ -83,8 +86,8 @@ handles = [
     plt.Line2D([], [], color=MUTED, linewidth=1.2,
                label="monolítico G0 (continuo 3D, referencia)"),
     plt.Line2D([], [], color=S_MACRO, linewidth=1.8, label="macro fibra"),
-    plt.Line2D([], [], color=S_TWB, linewidth=1.8, label="two-way borde"),
-    plt.Line2D([], [], color=S_TWV, linewidth=1.8, label="two-way volumen"),
+    plt.Line2D([], [], color=S_TWB, linewidth=1.8, label="two-way caras"),
+    plt.Line2D([], [], color=S_TWV, linewidth=1.8, label="two-way capas"),
 ]
 fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False,
            fontsize=9, labelcolor=INK2, bbox_to_anchor=(0.5, -0.005))
