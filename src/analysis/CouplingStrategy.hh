@@ -150,6 +150,59 @@ public:
     {}
 };
 
+//  Relajación dinámica de Aitken (Δ²) sobre el vector de fuerzas de sección
+//  (Küttler & Wall, Comput Mech 2008). El factor ω se adapta con los
+//  incrementos sucesivos del punto fijo staggered,
+//      ω_{k+1} = −ω_k · Δr_k·(Δr_{k+1}−Δr_k) / |Δr_{k+1}−Δr_k|²,
+//  y mata la oscilación período-2 que una relajación constante sostiene
+//  (la firma del "serrucho" paso a paso del two-way en estados muy
+//  fisurados). El estado interno se reinicia cuando iteration <= 1, es
+//  decir al comienzo del lazo staggered de cada paso macro.
+//  LIMITACIÓN: guarda UN estado escalar/vectorial, así que es correcta con
+//  UN sitio de acople (la columna FE²); con múltiples sitios los estados se
+//  mezclarían — usar una instancia por sitio antes de escalar a edificios.
+class AitkenRelaxation final : public RelaxationPolicy {
+    double omega_init_;
+    double omega_min_;
+    double omega_max_;
+    double omega_{0.0};
+    Eigen::Vector<double, 6> prev_delta_ = Eigen::Vector<double, 6>::Zero();
+    bool has_prev_{false};
+
+public:
+    explicit AitkenRelaxation(double omega_init = 0.5,
+                              double omega_min = 0.05,
+                              double omega_max = 1.0)
+        : omega_init_{omega_init}
+        , omega_min_{omega_min}
+        , omega_max_{omega_max}
+    {}
+
+    void relax(SectionHomogenizedResponse& current,
+               const SectionHomogenizedResponse& previous,
+               int iteration) override
+    {
+        const auto ref = current.strain_ref;
+        const Eigen::Vector<double, 6> delta =
+            affine_force_at(current, ref) - affine_force_at(previous, ref);
+
+        if (iteration <= 1 || !has_prev_) {
+            omega_ = omega_init_;
+        } else {
+            const Eigen::Vector<double, 6> diff = delta - prev_delta_;
+            const double n2 = diff.squaredNorm();
+            if (n2 > 1.0e-24) {
+                omega_ = -omega_ * prev_delta_.dot(diff) / n2;
+                omega_ = std::clamp(omega_, omega_min_, omega_max_);
+            }
+        }
+        prev_delta_ = delta;
+        has_prev_ = true;
+
+        blend_section_response(current, previous, omega_);
+    }
+};
+
 struct SiteAdaptiveRelaxationSettings {
     bool enabled{false};
     double residual_growth_limit{1.25};
