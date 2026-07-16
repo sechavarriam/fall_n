@@ -292,3 +292,141 @@ feedback of an over-constrained RVE), not a local branch jump. The
 local line search remains the right tool where the control is weaker
 (end-face transfer, larger sub-models), and it costs nothing to keep
 gated.
+
+\section{Round 3 --- selection by continuity, and viscosity at the
+constitutive root}
+\label{sec:kb-round3}
+
+\paragraph{Two principles remained untested.} The program so far
+selects branches by \emph{descent} (energy line search), by
+\emph{avoidance} (deflation), by \emph{trust region} (TAO), and by
+\emph{control} (FE\textsuperscript{2} kinematic transfer). Two
+classical principles were still missing from the matrix. The first is
+selection by \emph{continuity}: a proximal-point continuation
+(backward-Euler discretization of the gradient flow
+$\dot{u} = -\nabla\Pi$) whose phase A iterates sub-problems
+$\arg\min_u \Pi(u) + \tfrac{\kappa}{2}\lVert u - a\rVert^2$ with an
+\emph{advancing} anchor $a$ until the flow is stationary, and whose
+phase B polishes with $\kappa = 0$ to the true equilibrium. The flow
+can only stop at stable stationary points (maxima and saddles repel
+it), so among the multiple equilibria of a reversal it picks the one
+\emph{connected} to the last accepted state. Two design lessons came
+out of the unit evidence on the double well $(u^2-1)^2$ and are now
+fixed in the test: a \emph{single} proximal step anchored at $u_n$
+stops halfway when the basin is far, so the anchor must advance; and
+$\kappa$ must exceed the largest negative curvature of the potential
+for each sub-problem to be strictly convex (single root), otherwise
+the inner LM can itself jump basins. The second principle attacks the
+root cause instead of the symptom: the crack-normal ratchet
+$\hat{e} \leftarrow \max(\hat{e}, e_{nn})$ is a $C^0$ kink, and a
+Duvaut--Lions relaxation
+$\hat{e}_{n+1} = \hat{e}_n + \beta\,(\hat{e}^{\mathrm{trial}} -
+\hat{e}_n)$ with $\beta \in (0,1]$ smooths it per step ($\beta = 1$
+reproduces the original bit for bit), trading the kink for a bounded
+viscous overstress proportional to $1-\beta$.
+
+\paragraph{First shots, honest autopsies.} Both first-guess campaigns
+($\kappa$-fraction $0.05$, $\beta = 0.4$, both composed with the line
+search on the $2{\times}2{\times}4$ protocol) were rejected on sight
+by the author, and the post-mortems are instructive:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+run & $|V|_{\max}$ [kN] & zigzag & steps $>30$\,kN & $>60$\,kN \\
+\midrule
+line-search reference    & 49.3   & 18.0\% & 13 & 0  \\
+proximal $0.05$ (3a)     & 2374.1 & 23.5\% & 95 & 78 \\
+Duvaut--Lions $0.4$ (3a) & 101.6  & 24.4\% & 54 & 16 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The proximal catastrophe is \emph{not} a verdict on the principle ---
+it is two implementation defects compounding. First, $\kappa$ was
+scaled by the full 2-norm $\lVert\operatorname{diag}K\rVert_2$, which
+grows with $\sqrt{N}$: invisible in the 1-DOF unit test, but on the
+column ($\approx 135$ DOFs) the requested $0.05$ ran as an effective
+$\sim 0.6\,K_{ii}$ --- a flow so viscous that phase A exhausted its
+iteration budget (half of \texttt{max\_newton}) mid-flow. Second,
+nothing guarded that exit: phase B inherited a mid-flow state biased
+by $\kappa$ \emph{and} only the remaining half budget, stagnated, and
+the backend's unconditional \texttt{accept()} committed the
+unequilibrated state to the material history --- from step ${\sim}95$
+onward the run rides a spurious $\sim 2000$\,kN plateau it can never
+leave. The corrected implementation scales $\kappa$ with the
+\emph{per-DOF} RMS of the diagonal and adds a safeguard: a flow that
+ends without reaching stationarity restores the step start and re-runs
+phase B as the plain loop with full budget and reset $\mu$, so the
+proximal mode is never worse than the original loop. The
+Duvaut--Lions failure, in contrast, is the intrinsic mechanism at too
+strong a dose: relaxing the ratchet keeps the cracked stiffness high,
+and the resulting viscous overstress carries twice the reference peak
+while making the zigzag \emph{worse}.
+
+\paragraph{Round 3b --- fair shots, and both families close.} With
+the per-DOF scale and the safeguard in place, the corrected campaigns
+settle both questions. The proximal continuation at
+$\kappa = 0.5\,K_{\mathrm{rms}}$ completes the protocol with metrics
+\emph{indistinguishable} from the line-search reference in every
+amplitude block --- noconv 78, peak $49.3$\,kN, block-wise zigzag and
+total variation identical --- and a maximum trajectory difference of
+$2\times 10^{-8}$\,MN over 196 steps (solver-tolerance noise), at
+$3.1\times$ the wall clock ($2446$ vs $791$\,s). Selection by
+continuity, implemented safely, selects the same branches descent
+already selects on this problem: on the hard steps the flow exhausts
+its budget and the safeguard hands back the plain loop, and where the
+flow does reach stationarity it lands in the basin the line search
+picks anyway. The capability stays gated as a validated diagnostic ---
+the unit test still exhibits the one regime where it is the only
+survivor --- but it is not promoted. The Duvaut--Lions relaxation at
+the milder $\beta = 0.8$ confirms the overstress mechanism and adds
+its amplitude dependence: identical to the reference through the
+$100$\,mm block, it buys zigzag in the large blocks ($18.2$ vs
+$27.3\%$ at $150$\,mm, $29.5$ vs $34.1\%$ at $200$\,mm) and pays with
+peaks of $45.3$ and $89.6$\,kN against $32.5$ and $49.3$ (noconv 85
+vs 78). A dose that is gentle at $150$\,mm is strong at $200$\,mm
+because the per-step crack growth is larger, so no fixed $\beta$ has
+a useful window across the protocol. Both families close: continuity
+is redundant with descent here, and constitutive viscosity trades the
+symptom for a worse one.
+
+\section{Round 4 --- the section, the closure kink, and the reopened
+$z$-refinement}
+\label{sec:kb-round4}
+
+\paragraph{The author's observation redirects the program.} The
+uniform $4{\times}4{\times}8$ refinement had been killed mid-run on
+its aggravated $150$\,mm peak, but the author's re-reading of the
+partial evidence stands: block-wise, the refined mesh matched the
+reference exactly through $50$\,mm, undercut its $100$\,mm peak
+($28.8$ vs $30.7$\,kN), and its $150$\,mm total variation was already
+\emph{lower} ($0.20$ vs $0.22$\,MN) despite the higher peak --- and
+the decisive $200$\,mm block was never measured because the kill came
+at step 140. Mesh refinement converging toward the structural-element
+reference is not discardable on that record. The round therefore runs
+three campaigns: the transverse-only $4{\times}4{\times}4$ (the clean
+variable --- the crack-band length is tied to the fixed-end
+\emph{longitudinal} host edge, so refining only the section leaves
+$l_b$ and the softening slope intact while resolving the
+crack-closure front and neutral-axis migration), the full-protocol
+$4{\times}4{\times}8$ at bias $1.5$ (the fair completion of the
+killed run), and a zero-cost constitutive probe widening the crack
+closure transition strain from $10^{-4}$ to $10^{-3}$ (the closure
+branch switch, Eqs.~18--20 of the paper, is the \emph{other} $C^0$
+kink and the one a reversal actually triggers).
+
+\paragraph{Closure smearing: negative, with an inverted mechanism.}
+The widened transition is worse in every block --- peaks $41.8$ /
+$42.7$ / $78.2$\,kN against $30.7$ / $32.5$ / $49.3$, zigzag up to
+$40.9$ vs $34.1\%$, noconv 97 vs 78. The lesson inverts the
+expectation: smearing the closure switch over a $10\times$ wider
+strain band does not smooth the branch selection, it populates the
+response with partially-closed stiffness states that \emph{enlarge}
+the family of nearby equilibria. The closure kink serves the model
+better sharp than diffuse, which is consistent with the paper's own
+choice of a discrete switch.
+
+%% ROUND4-MESH-RESULTS: block metrics of p1_ls_sec444 (transverse-only)
+%% and p2_ls_448_full (full-protocol z-refined) vs the reference, and
+%% the round's verdict on where the regularization actually lives.

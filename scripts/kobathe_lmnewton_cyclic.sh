@@ -51,7 +51,7 @@ base=(--analysis cyclic --amplitudes-mm "${AMPS:-100}" --steps-per-segment "${SP
   --concrete-fracture-energy-nmm 0.14
   --kobathe-crack-softening-law damage-secant
   --kobathe-crack-eta-n 0.01 --kobathe-crack-eta-s 0.25
-  --kobathe-crack-closure-transition-strain 1e-4
+  --kobathe-crack-closure-transition-strain "${CLOSURE_TRANS:-1e-4}"
   --solver-policy canonical-cascade --predictor-policy secant
   --max-bisections 16 --print-progress)
 
