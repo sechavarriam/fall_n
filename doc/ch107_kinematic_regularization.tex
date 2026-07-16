@@ -1,0 +1,271 @@
+% ==========================================================================
+%  Chapter 107 -- Macro-Guided Kinematic Regularization of Ko-Bathe Reversals
+% ==========================================================================
+
+\chapter{Macro-Guided Kinematic Regularization of Ko--Bathe Reversals}
+\label{ch:kinematic-regularization}
+
+\paragraph{Normative status.}
+Third remediation round, building on the FE\textsuperscript{2} probe of
+Cap.~\ref{ch:energy-linesearch-fe2}. The working hypothesis, stated by
+the author and supported by the two-way evidence, is that the macro
+model \emph{guides} the local model toward the physical branch because
+imposed section kinematics are a strong control, and that enriching the
+kinematic transfer (interior sections, and eventually the full
+interpolated field) regularizes the Ko--Bathe reversal behaviour at its
+source. Everything in this round is opt-in and additive.
+
+\section{What the original model does at reversals}
+\label{sec:kb-paper-reversals}
+
+A close reading of the source paper \cite{KoBathe2026} (73-page PDF,
+read page by page) fixes what is, and what is not, treated:
+
+\begin{itemize}
+  \item Loading versus unloading is classified per material point by
+        the $J_2$ ratchet $\tau_o \le \tau_o^{\max}$ (Eq.~2b of the
+        paper), where $\tau_o^{\max}$ is the maximum over the
+        \emph{converged} history, and unloading is solved as an
+        incremental \emph{linear} response with softened moduli
+        ($K_s$, $G_s$).
+  \item Crack closure is a \emph{discrete constitutive branch switch}
+        (Table~1 and Eqs.~18--20 of the paper): a crack is open while
+        $0 < \bar e^{C}_n \le \max_{\tau}(\bar e^{C}_n)$, and on
+        closure the crack count drops ($n \to n-1$) with an
+        instantaneous change of constitutive matrix. No transition
+        smoothing of any kind is applied.
+  \item The celebrated ``nonlinear solution procedure'' of the title
+        is the \emph{local} plastic--fracture--crack iteration at the
+        material point (Fig.~8 of the paper); globally the model rides
+        standard incremental FE solves.
+  \item Every structural validation in the paper is \emph{monotonic}
+        (panels, beams, benchmark problems). A text-layer search of all
+        73 pages finds ``cyclic'' only in the titles of five
+        bibliography entries. Structural load reversals, global
+        convergence across them, and the selection among the multiple
+        equilibria that the discrete closure switch creates are not
+        addressed.
+\end{itemize}
+
+The reversal pathology characterised in
+Caps.~\ref{ch:branch-selection-reversals}--\ref{ch:energy-linesearch-fe2}
+(dense spurious basins at reversals, stagnated high-force acceptances,
+the need for descent- or control-based selection) is therefore genuinely
+outside the scope of the original model, and the regularization
+programme of this chapter is new ground.
+
+\section{Why kinematic control regularizes}
+\label{sec:kb-control}
+
+The FE\textsuperscript{2} evidence of
+Cap.~\ref{ch:energy-linesearch-fe2} showed that once the local history
+tracks the macro, the two-way column completes the full protocol with
+zero non-converged steps and smooth reversals, while the same material
+in the monolithic driver keeps its stagnation band. The mechanical
+reason is that the RVE is driven by \emph{imposed section kinematics},
+a Dirichlet-dominated control. Every kinematic mode that is imposed
+removes one direction of the solution manifold in which spurious
+equilibria can live; with enough imposed modes the local problem at
+fixed macro state approaches well-posedness even where the material law
+is only piecewise smooth. The macro, whose own (fiber or homogenised)
+response is smooth, thereby \emph{selects the branch} for the local
+model --- the author's ``the macro guides the local solution''
+hypothesis, made mechanical.
+
+Until this round the transfer imposed exactly two rigid section planes,
+the end faces of the hinge element
+(\texttt{LocalBoundaryConditionApplicator}), leaving the whole interior
+of the RVE free. The enrichment ladder is
+%
+\begin{enumerate}
+  \item interior section planes at the element-layer levels of the RVE
+        mesh (this round, B1),
+  \item a 3+-node Timoshenko macro so the hinge element itself carries
+        curvature gradients (B2),
+  \item the full interpolated boundary field $u(z) = N(\xi)\,u_e$ (B3),
+\end{enumerate}
+%
+complemented by the energy line search of
+Cap.~\ref{ch:energy-linesearch-fe2} driving the \emph{local} solve
+(D), so that branch selection by descent acts exactly where the
+multi-equilibria live.
+
+\section{Fidelity audit of the implementation against the paper}
+\label{sec:kb-audit}
+
+A block-by-block comparison of
+\path{src/materials/.../KoBatheConcrete3D.hh} against the paper,
+carried out with the rendered pages side by side, gives the following
+map.
+
+\paragraph{Faithful.} The empirical moduli and coefficients are the
+paper's Appendix~A verbatim ($K_e = 11000+3.2f_c$, $G_e$, and the full
+$A,b,c,d,k,l,m,n$ sets including both $f_c$ branches), the softened
+moduli follow Eq.~10 including the tangential variants
+($K_c, G_c$) the paper prescribes for the constitutive matrix, the
+mean-stress classification and the Lode angle are standard, and the
+loading ratchets ($\tau_o^{\max}$, crack-strain maxima) update on
+committed states only, as Table~1 requires.
+
+\paragraph{Deliberate extensions (documented in the header).} Secant
+damage-style unloading (the softened moduli are evaluated at the
+\emph{historical maxima} $\sigma_o^{\max}, \tau_o^{\max}$ instead of the
+paper's last-converged values, making fracture softening irreversible
+and unload/reload hysteresis-free), the smoothed tanh crack closure of
+the \texttt{production\_stabilized} profile against the paper's
+discrete branch switch, the graduated crack shear retention, the
+$0.01\,K_e$ floors on the softened moduli, and the delay-damage opening
+cap. Each exists to tame precisely the reversal pathologies the paper
+never exercises.
+
+\paragraph{One major divergence, not an extension.} The paper's Eq.~2b
+defines the classification stress as the \emph{octahedral} shear
+stress, $\tau_o = \sqrt{2J_2/3}$ (verified at 300\,dpi, the radical
+covers the $/3$; the second form
+$\sqrt{\sigma^{dev}_{ij}\sigma^{dev}_{ij}/3}$ confirms it). The
+implementation computes
+%
+\[
+  \tau_o^{\text{code}} = \frac{\sqrt{2J_2}}{3}
+  = \frac{1}{\sqrt 3}\,\tau_o^{\text{paper}},
+\]
+%
+(both in the 3D header and in the 2D model it inherits from), while
+using the paper's Appendix-A constants unchanged. The ratchet
+comparisons are scale-invariant, so loading classification is
+unaffected, and this is why the model behaves self-consistently. Three
+consumers do feel the factor, all in the direction of \emph{less}
+degradation than the paper. The shear softening
+$G_s = G_e/[1+c(\tau_o/f_c)^{d-1}]$ sees its argument reduced to
+$(1/\sqrt3)^{d-1} \approx 0.40$ of the paper's at $f_c=30$; the
+internal confining pressure $\sigma_{id}$ is understated by
+$1/\sqrt3$; and the cracking envelope of Eq.~16
+($\tau_o - 0.944 f_c(\cdot)^{0.724}$, a Kotsovos octahedral fit)
+triggers nucleation later. The effect is equivalent to running the
+paper's model with rescaled constants
+($c' = c\,3^{-(d-1)/2}$, $k' = k\,3^{-n/2}$, envelope inflated by
+$\sqrt3$), a stiffer-in-shear, later-cracking variant. Every fall\_n
+validation gate to date is self-referential against its own baselines,
+so nothing already claimed is invalidated, and correcting the
+definition would break bit-identity with every archived campaign.
+The correction is therefore an \emph{author decision}: fix and
+re-baseline (physically closer to the paper, likely more shear-brittle
+and possibly a different reversal landscape), or keep and document the
+implicit recalibration. Until that decision, the divergence stands
+recorded here.
+
+\section{B1 --- interior-section kinematic transfer}
+\label{sec:kb-b1}
+
+The transfer enrichment imposes the beam-interpolated section planes at
+the element-layer levels of the RVE mesh ($z_k = k H_{sub}/n_z$,
+$\xi_k = -1 + 2k/n_z$; only element boundaries, never the quadratic
+mid-levels, so localization can still develop inside each 0.1\,m
+layer). The machinery reuses \texttt{extract\_section\_kinematics} at
+arbitrary $\xi$ and \texttt{compute\_boundary\_displacements} per
+level; \texttt{MultiscaleAnalysis} takes the profile path only when
+the local model opts in (concept-detected, building drivers
+untouched), and the driver exposes it as
+\texttt{--kin-transfer layers}.
+
+The effect was immediate and twofold. The preload steps converge in
+\emph{strict} two-way with staggered residuals of
+$10^{-5}$--$7\times10^{-4}$ (faces: $10^{-2}$), and the
+initial-cracking transient collapses from the $\pm 64$\,kN sign-flip
+chaos of the faces run to a single $+26$\,kN release followed by a
+clean ramp. It also exposed the last defect in the chain: the first
+reversal aborted because a staggered macro failure returned
+\texttt{MacroSolveFailed} \emph{without ever reaching} the hybrid
+recovery window (so neither the fresh-feedback retry nor the
+cleared-injection fallback could act; the frozen $+50$\,mm affine
+operator is a barrier no step size crosses, PETSc reason $-11$ at
+every bisection depth). Redirecting the staggered failure into the
+existing recovery path fixed the reversal, and the unloading branch
+now traces the elastic slope cleanly.
+
+\section{D --- energy line search inside the RVE solve}
+\label{sec:kb-d}
+
+The evolver gained an opt-in local engine
+(\texttt{--local-engine energy-lm}) that drives each kinematic-ramp
+sub-increment with the LM continuation over the energy backend
+(\texttt{energy\_linesearch} active), reusing the exact machinery
+validated on the monolithic driver, with the evolver's
+commit discipline unchanged. In the smoke window the trajectories of
+\texttt{snes} and \texttt{energy-lm} coincide to four decimals, as
+they must where the local solve has no basin ambiguity; the engine's
+verdict belongs to the full-protocol campaigns at the large-amplitude
+reversals.
+
+\section{Campaign evidence}
+\label{sec:kb-evidence}
+
+\paragraph{The corrected physics is harder, and it reorders the
+remedies.} The overnight campaigns on the fix branch
+(\path{data/output} of the worktree, baseline \path{g0_tauoct}) close
+the monolithic side of the two-physics matrix:
+
+\begin{center}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& \multicolumn{2}{c}{$\tau_o$ transcribed (old)} &
+  \multicolumn{2}{c}{$\tau_o$ octahedral (fix)} \\
+& noconv & $|V|_{\max}$ & noconv & $|V|_{\max}$ \\
+\midrule
+baseline          & 80 & 0.051 & 100 & 0.084 \\
+line search       & 78 & 0.049 & 97  & 0.059 \\
+hybrid TAO        & 77 & 0.038 & 96  & \textbf{0.123} \\
+combo             & 77 & 0.055 & 92  & 0.058 \\
+CA-tuned (f=1.0)  & 66 & 0.048 & 91  & 0.067 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three conclusions. First, the corrected physics is uniformly harder
+(noconv $+20$--$25\%$, baseline peak $+66\%$), consistent with
+$40\%$ more effective shear softening and an uninflated cracking
+envelope, and its dominant anomaly moves to the \emph{loading} branch
+of the $+200$\,mm excursion (steps 154--157). Second, the energy line
+search is the only remedy whose character survives the physics change,
+containing the peak on both ($0.059$ vs $0.084$) at near-zero cost;
+the combo inherits that containment. Third, the hybrid TAO
+\emph{inverts}: its trust region, which tamed the old physics' spikes,
+commits a $0.123$\,MN state on the corrected one --- the sharper
+nonsmoothness pushes BNTR past its useful regime, and TAO should not
+be promoted without the line-search guard in front. The CA tuner keeps
+finding useful genomes on both physics (and the latched-gene sweep
+prefers \texttt{frac}=0.5 with noconv 66 on the corrected physics,
+at the price of a different material response --- a physics choice,
+not a solver one).
+
+\paragraph{FE\textsuperscript{2} with interior layers --- a genuine
+trade-off, honestly measured.} Both full-protocol layer campaigns
+complete all 196 steps with zero non-converged rows and \emph{49
+strictly converged coupling steps against 20 with end faces}; the
+initial-cracking transient disappears, and the sampled reversal
+windows (20--22, 116--118, 180--182) unload monotonically along the
+elastic slope. The \emph{global} trajectory, however, is rougher than
+the end-face run: 21 steps exceed $0.03$\,MN against 5 (12 vs.\ 2
+above $0.05$), total variation of $V$ 1.39 vs.\ 1.15\,MN, peak
+$0.10$\,MN on late unloading branches. The mechanics is legible:
+rigid section planes every $0.1$\,m over-constrain the RVE exactly
+where cracking wants to localize between planes, its condensed
+response stiffens and spikes, and that excess feeds the macro through
+the (now fresh) feedback. Strong kinematic control always selects
+\emph{a} branch --- occasionally an artificially stiff one. The
+natural refinements are partial layer control (impose only the
+lateral translation per level, leaving in-plane warping and axial
+free), fewer interior planes, or weak (penalty) enforcement, all of
+which live in the same seam this round built.
+
+The energy-lm local engine produces a trajectory \emph{identical to
+four decimals} to the SNES engine across the entire protocol,
+excursions included. That is the cleanest confirmation of the
+chapter's thesis available: under layer-level kinematic control the
+RVE's local solves never face basin ambiguity, so there is nothing
+left for the energy criterion to select --- and the residual global
+roughness is therefore a \emph{coupling-side} phenomenon (the
+feedback of an over-constrained RVE), not a local branch jump. The
+local line search remains the right tool where the control is weaker
+(end-face transfer, larger sub-models), and it costs nothing to keep
+gated.
