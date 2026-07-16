@@ -75,23 +75,33 @@ static const double EC_COL = 4700.0 * std::sqrt(COL_FPC);
 static const double GC_COL = EC_COL / (2.0 * (1.0 + NU_RC));
 
 // ── Cyclic protocol (monolithic reduced-column driver defaults) ─────────────
+//  STEPS_PER_SEGMENT y la malla del RVE son configurables por CLI
+//  (--steps-per-segment, --sub-nx/-ny/-nz) para los estudios de
+//  refinamiento temporal y espacial; los conteos derivados se recomputan
+//  tras el parseo con recompute_protocol_counts().
 static constexpr std::array<double, 4> AMPLITUDES_M{0.050, 0.100, 0.150, 0.200};
-static constexpr int    STEPS_PER_SEGMENT      = 8;
+static int              STEPS_PER_SEGMENT      = 8;
 static constexpr int    SEGMENT_SUBSTEP_FACTOR = 2;   // monolithic default
 static constexpr int    AXIAL_PRELOAD_STEPS    = 4;   // monolithic default
 static constexpr double AXIAL_COMPRESSION_MN   = 0.02;
 static constexpr int    MAX_BISECTIONS         = 8;
 
 //  12 segments × 8 steps × 2 = 192 lateral targets (+4 preload = 196 total)
-static const int LATERAL_STEPS =
-    fall_n::cyclic_step_count(AMPLITUDES_M.size(), STEPS_PER_SEGMENT)
-    * SEGMENT_SUBSTEP_FACTOR;
-static const int TOTAL_STEPS = AXIAL_PRELOAD_STEPS + LATERAL_STEPS;
+static int LATERAL_STEPS = 0;
+static int TOTAL_STEPS = 0;
+
+static void recompute_protocol_counts()
+{
+    LATERAL_STEPS =
+        fall_n::cyclic_step_count(AMPLITUDES_M.size(), STEPS_PER_SEGMENT)
+        * SEGMENT_SUBSTEP_FACTOR;
+    TOTAL_STEPS = AXIAL_PRELOAD_STEPS + LATERAL_STEPS;
+}
 
 // ── RVE mesh (base hinge sub-model) ─────────────────────────────────────────
-static constexpr int SUB_NX = 2;
-static constexpr int SUB_NY = 2;
-static constexpr int SUB_NZ = 4;
+static int SUB_NX = 2;
+static int SUB_NY = 2;
+static int SUB_NZ = 4;
 
 // ── Macro node / element layout ──────────────────────────────────────────────
 //  N_ELEMS two-node elements stacked along z: nodes 0 (base) … N_ELEMS (top).
@@ -125,6 +135,8 @@ struct CliOptions {
     double staggered_tol{0.03};
     double staggered_relax{0.7};
     int    coupling_start_step{1};
+    double force_gap_limit{0.05};   // clamp del limitador de fuerzas two-way
+    bool   aitken_relaxation{false};   // Aitken dinamico vs constante
     //  Warmup escalonado del two-way: los primeros N pasos corren en
     //  one-way (el RVE trackea y COMITEA la historia sin retroalimentar,
     //  fisurando gradualmente fuera del lazo acoplado) y el two-way arranca
@@ -223,6 +235,22 @@ void print_usage(const char* prog)
             opts.coupling_start_step = std::stoi(next());
         } else if (arg == "--two-way-warmup") {
             opts.two_way_warmup_steps = std::stoi(next());
+        } else if (arg == "--force-gap-limit") {
+            opts.force_gap_limit = std::stod(next());
+        } else if (arg == "--relaxation") {
+            const auto value = next();
+            if (value == "constant")    opts.aitken_relaxation = false;
+            else if (value == "aitken") opts.aitken_relaxation = true;
+            else throw std::invalid_argument(
+                "unknown --relaxation: " + value + " (use constant|aitken)");
+        } else if (arg == "--steps-per-segment") {
+            STEPS_PER_SEGMENT = std::stoi(next());
+        } else if (arg == "--sub-nx") {
+            SUB_NX = std::stoi(next());
+        } else if (arg == "--sub-ny") {
+            SUB_NY = std::stoi(next());
+        } else if (arg == "--sub-nz") {
+            SUB_NZ = std::stoi(next());
         } else if (arg == "--steps-cap") {
             opts.steps_cap = std::stoi(next());
         } else if (arg == "--tangent-reg") {
@@ -563,7 +591,11 @@ static int run_column_fe2(const CliOptions& opts)
         std::move(algorithm),
         std::make_unique<ForceAndTangentConvergence>(
             opts.staggered_tol, opts.staggered_tol),
-        std::make_unique<ConstantRelaxation>(opts.staggered_relax),
+        opts.aitken_relaxation
+            ? std::unique_ptr<RelaxationPolicy>(
+                  std::make_unique<AitkenRelaxation>(opts.staggered_relax))
+            : std::unique_ptr<RelaxationPolicy>(
+                  std::make_unique<ConstantRelaxation>(opts.staggered_relax)),
         SerialExecutor{});
     analysis.set_coupling_start_step(opts.coupling_start_step);
     analysis.set_section_dimensions(COL_B, COL_H);
@@ -602,7 +634,11 @@ static int run_column_fe2(const CliOptions& opts)
         analysis.set_two_way_feedback_limiter(feedback_limiter);
 
         TwoWayForceFeedbackLimiterSettings force_limiter{};
-        force_limiter.enabled = true;      // force_gap_limit 0.05
+        force_limiter.enabled = true;
+        //  El clamp del gap de fuerzas fija la amplitud del "diente" que un
+        //  paso híbrido no convergido puede comitear: apretarlo suaviza el
+        //  serrucho paso a paso a costa de feedback más lento.
+        force_limiter.force_gap_limit = opts.force_gap_limit;
         analysis.set_two_way_force_feedback_limiter(force_limiter);
     }
 
@@ -813,6 +849,7 @@ int main(int argc, char* argv[])
         std::println(stderr, "[fe2-column] CLI error: {}", ex.what());
         return 2;
     }
+    recompute_protocol_counts();   // tras el parseo (--steps-per-segment)
 
     PetscInitialize(&argc, &argv, nullptr, nullptr);
     PetscOptionsSetValue(nullptr, "-snes_monitor_cancel", "");

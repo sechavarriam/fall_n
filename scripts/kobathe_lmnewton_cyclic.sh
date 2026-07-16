@@ -39,7 +39,7 @@ export PETSC_OPTIONS="${PETSC_OPTIONS:-}"
 
 base=(--analysis cyclic --amplitudes-mm "${AMPS:-100}" --steps-per-segment "${SPS:-8}"
   --hex-order hex27 --nx "${NX:-2}" --ny "${NY:-2}" --nz "${NZ:-4}"
-  --longitudinal-bias-power 2.2 --longitudinal-bias-location "${BIAS_LOCATION:-fixed-end}"
+  --longitudinal-bias-power "${BIAS_POWER:-2.2}" --longitudinal-bias-location "${BIAS_LOCATION:-fixed-end}"
   --top-cap-mode lateral-translation-only
   --reinforcement-mode embedded-longitudinal-bars
   --embedded-boundary-mode dirichlet-rebar-endcap
