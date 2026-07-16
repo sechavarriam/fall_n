@@ -1,0 +1,387 @@
+% ==========================================================================
+%  Chapter 108 -- Theoretical Compendium of the Branch-Selection Programme
+% ==========================================================================
+
+\chapter{Theoretical Compendium of the Branch-Selection Programme}
+\label{ch:theoretical-compendium}
+
+\paragraph{Normative status.}
+Reference chapter. It fixes, with explicit definitions and the exact
+mathematics implemented, every concept the branch-selection and
+multiscale programme of Caps.~\ref{ch:branch-selection-reversals}--%
+\ref{ch:kinematic-regularization} relies on, so that no later reading
+of the campaigns or of the code admits ambiguity. Everything stated
+here is implemented in the repository; where fall\_n deliberately
+extends a published formulation, the extension is stated as such.
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Notation and conventions}
+\label{sec:tc-notation}
+
+\begin{definition}[Tensor storage]
+Second-order symmetric tensors are stored in Voigt order
+$\{11,22,33,23,13,12\}$ as $\mathbb{R}^6$ vectors; engineering shear
+strains carry the factor 2. Where orthogonal transformations of the
+constitutive matrix are needed (crack systems), the implementation
+converts to the Mandel basis (off-diagonal entries scaled by
+$\sqrt2$), applies the rotation, and converts back, so that
+$\mathbf{C}^{\text{mandel}} = \mathbf{Q}\,\mathbf{C}\,\mathbf{Q}^\top$
+preserves the energy inner product.
+\end{definition}
+
+\begin{definition}[Stress invariants]
+\label{def:tc-invariants}
+With principal stresses $\sigma_1\le\sigma_2\le\sigma_3$, deviators
+$s_i = \sigma_i - \sigma_o$ and $J_2 = \tfrac12\sum_i s_i^2$,
+\[
+  \sigma_o = \tfrac13\,\sigma_{kk}, \qquad
+  \tau_o^{\text{oct}} = \sqrt{\tfrac{2J_2}{3}}, \qquad
+  \cos 3\theta = \tfrac{3\sqrt3}{2}\, J_3\, J_2^{-3/2},
+\]
+where $\tau_o^{\text{oct}}$ is the octahedral shear stress of
+\cite{KoBathe2026} (Eq.~2b there). The historical fall\_n
+transcription computed $\tau_o^{\text{code}} = \sqrt{2J_2}/3 =
+\tau_o^{\text{oct}}/\sqrt3$; the branch
+\texttt{fix/kobathe-tau-octahedral} restores the octahedral
+definition. Every statement in this compendium holds for either
+definition provided it is used consistently; the quantitative
+constants of Section~\ref{sec:tc-kobathe} are calibrated for the
+octahedral one (Cap.~\ref{ch:kinematic-regularization},
+fidelity audit).
+\end{definition}
+
+\begin{definition}[Pseudo-time and protocol]
+The quasi-static protocol is parameterised by pseudo-time
+$p\in(0,1]$, discretised into $N_T$ targets $p_k = k/N_T$. For the
+reference column, $N_T = N_{\text{pre}} + N_{\text{lat}}$ with
+$N_{\text{pre}}=4$ axial-preload targets and
+$N_{\text{lat}} = 2\,S\,n_{\text{seg}}$ lateral targets ($S$ steps
+per segment, substep factor 2, $n_{\text{seg}}=12$ segments from four
+amplitudes $\pm50/100/150/200$\,mm, each $0\to+A\to-A\to0$). The
+prescribed tip drift is the piecewise-linear map
+$\delta(p)$ of the cyclic protocol; a \emph{reversal} is a sign
+change of $\delta(p_{k+1})-\delta(p_k)$.
+\end{definition}
+
+\begin{definition}[Base shear convention]
+$V$ denotes the horizontal support resultant. The CSVs store the
+\emph{reaction} (negative under positive push); figures plot
+$V=-\text{reaction}$ so that loops run bottom-left to top-right.
+\end{definition}
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{The incremental problem and the frozen-state potential}
+\label{sec:tc-incremental}
+
+\begin{definition}[Committed state, trial state, ratchets]
+The material history $\mathcal{H}$ (plastic strains, crack systems,
+loading maxima) advances only at \emph{commit}, executed once per
+accepted step through
+\texttt{accept\_external\_solution\_step}/\texttt{commit\_trial\_state}.
+Within a step every residual or tangent evaluation is a \emph{trial}:
+it reads $\mathcal{H}$ but does not write it. Two \emph{ratchets}
+(monotone history variables evaluated over committed configurations
+only) drive the model of Section~\ref{sec:tc-kobathe}: the loading
+maximum $\tau_o^{\max}$ and the per-crack strain maximum
+$\max_\tau \bar e^{C}_n$.
+\end{definition}
+
+\begin{proposition}[Frozen-state conservativity]
+\label{prop:tc-conservative}
+Within a step (fixed $\mathcal{H}$, crack count frozen by
+\texttt{check\_new\_cracks=false}), the residual field is the gradient
+of an incremental potential, $\mathbf R(\mathbf u)=\nabla\Pi(\mathbf
+u)$, because every constitutive branch then in force is a secant
+(path-independent) law. Consequently the line integral
+\[
+  \Pi(\mathbf u)-\Pi(\mathbf u_{\mathrm{ref}})
+  \;=\; \int_0^1 \mathbf R\!\left(\mathbf u_{\mathrm{ref}} +
+        s\,\Delta\mathbf u\right)^{\!\top} \Delta\mathbf u \; ds,
+  \qquad \Delta\mathbf u=\mathbf u-\mathbf u_{\mathrm{ref}},
+\]
+is path-independent and is evaluated exactly (for polynomial
+integrands) by the three-point Gauss--Legendre rule of
+\texttt{NLAnalysisEnergyBackend}. Energies are comparable only within
+one step and from one $\mathbf u_{\mathrm{ref}}$.
+\end{proposition}
+
+\begin{remark}
+The hypothesis matters: across a commit the ratchets advance and
+$\Pi$ changes branch, so no global potential exists over the protocol.
+All energy-based criteria below are strictly per-step.
+\end{remark}
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Regularized Newton continuation and its selection layers}
+\label{sec:tc-lm}
+
+\begin{definition}[LM step]
+At control target $p$, warm-started at the last accepted $\mathbf u$,
+each iteration solves
+\[
+  (\mathbf K + \mu\,\mathbf I)\, d\mathbf u = -\mathbf R(\mathbf u),
+\]
+with $\mathbf K$ the assembled tangent and $\mu\ge0$ the
+Levenberg--Marquardt regularizer \cite{Levenberg1944,Marquardt1963}.
+The schedule multiplies $\mu$ by \texttt{grow} on rejection and by
+\texttt{drop} on acceptance, capped at
+$\mu_{\max}=f_{\mu}\lVert\operatorname{diag}\mathbf K\rVert$; this is
+the classical trust-region correspondence (larger $\mu$
+$\Leftrightarrow$ smaller trust radius)
+\cite{NocedalWright2006,ConnGouldToint2000}. Acceptance requires a
+monotone residual decrease; a stagnation cutoff accepts the best
+regularized iterate, and a step is reported converged if
+$\lVert\mathbf R\rVert$ meets the tolerances or the acceptance floor.
+The secant predictor extrapolates the warm start along $p$ with a
+bounded scale and falls back to the plain warm start if it raises the
+residual.
+\end{definition}
+
+\begin{proposition}[Descent property]
+\label{prop:tc-descent}
+If $\mathbf K+\mu\mathbf I$ is positive definite then
+$\mathbf R^\top d\mathbf u = -\mathbf R^\top(\mathbf K+\mu\mathbf
+I)^{-1}\mathbf R < 0$; with
+Proposition~\ref{prop:tc-conservative}, $d\mathbf u$ is a descent
+direction of $\Pi$. In the large-$\mu$ limit $d\mathbf u \to
+-\mu^{-1}\nabla\Pi$, i.e.\ gradient descent, which cannot converge to
+a maximiser or saddle of $\Pi$.
+\end{proposition}
+
+\begin{definition}[Energy line search]
+\label{def:tc-ls}
+Gate \texttt{energy\_linesearch}: a candidate step $\alpha\,d\mathbf
+u$ (starting at $\alpha=1$) is accepted only if the residual test of
+the LM step holds \emph{and}
+$\Pi(\mathbf u+\alpha\,d\mathbf u)\le\Pi(\mathbf u)$; otherwise
+$\alpha$ is halved up to a fixed number of backtracks, and if no
+$\alpha$ achieves energy non-increase the iteration is \emph{rejected}
+so that $\mu$ grows. By Proposition~\ref{prop:tc-descent} the
+rejection loop terminates in the gradient-descent regime, which
+excludes convergence to energy maxima (the mechanism the double-well
+unit test isolates). The rule prevents basin jumps; it does not claim
+global descent across residual ridges.
+\end{definition}
+
+\begin{definition}[Deflation]
+For known roots $\{\mathbf u_i\}$, the deflation operator
+\cite{FarrellBirkissonFunke2015}
+$\eta(\mathbf u)=\prod_i\left(\lVert\mathbf u-\mathbf
+u_i\rVert^{-p}+\alpha\right)$ modifies the Newton direction by the
+rank-one Sherman--Morrison factor
+$\tau = \left(1-\frac{\nabla\eta\cdot d\mathbf
+u}{\eta}\right)^{-1}$ (clamped), and the acceptance test compares
+deflated residuals $\lVert\mathbf R\rVert\,\eta$. The campaign verdict
+(Cap.~\ref{ch:driver-integration}) is negative for this material:
+repulsion selects \emph{some other} root, with no control over its
+quality; the implementation retains it as a gated experiment with a
+never-worse-than-base fallback.
+\end{definition}
+
+\begin{definition}[Energy trust-region step]
+The hybrid TAO step minimises the incremental potential with the
+bound-constrained Newton trust region \texttt{bntr} of PETSc/TAO
+\cite{BalayPETScManual}: objective $\Pi$, gradient $\mathbf R$,
+Hessian $\mathbf K$ (Proposition~\ref{prop:tc-conservative}); the LM
+iterate seeds it, the accepted minimiser is handed back. It selects by
+construction (descent to a minimiser) and is fragile exactly where
+$\Pi$ loses $C^1$ regularity; the two-physics matrix of
+Cap.~\ref{ch:kinematic-regularization} bounds its domain of use.
+\end{definition}
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{The constitutive model, as implemented}
+\label{sec:tc-kobathe}
+
+The concrete model follows \cite{KoBathe2026}: strain-driven
+plastic-fracturing with (i) loading/unloading classification by
+$\tau_o \gtrless \tau_o^{\max}$; (ii) empirically softened bulk/shear
+moduli $K_s(\sigma_o), G_s(\tau_o)$ and their tangential companions
+$K_c, G_c$ (Eq.~10 and Appendix~A there, coefficients
+$A,b,c,d,k,l,m,n$ as functions of $f_c$); (iii) an internal confining
+pressure $\sigma_{id}$; (iv) up to three orthogonal smeared cracks per
+point with orientation from the largest principal stress, opening
+ratchet $0<\bar e^{C}_n\le\max_\tau \bar e^{C}_n$, branch matrices
+$\mathbf C^{C(n)}$, and crushing (all-zero law) beyond three; (v)
+crack-band regularization through $G_F$ and a length scale $l_b$.
+Unloading is incrementally linear in the softened moduli.
+
+fall\_n's deliberate extensions, each motivated by the reversal
+pathologies the source never exercises
+(Cap.~\ref{ch:kinematic-regularization} fidelity audit): softened
+moduli evaluated at the historical maxima (irreversible,
+damage-secant unloading without hysteresis), a $\tanh$-smoothed crack
+closure replacing the discrete branch switch in the
+\texttt{production\_stabilized} profile, opening-graduated shear
+retention and Poisson decoupling on the crack planes, floors
+$0.01\,K_e, 0.01\,G_e$ on the softened moduli, and the delay-damage
+cap on per-step opening growth.
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Element-wise FE\textsuperscript{2} enrichment}
+\label{sec:tc-fe2}
+
+\begin{definition}[Coupling site and RVE $=$ macro element]
+\label{def:tc-site}
+A \emph{coupling site} attaches to one macro beam element $e$ (a
+Gauss point of it carries the injected section law). Its local model
+is a full three-dimensional discretisation of the \emph{entire domain
+of that element}: the prismatic solid between the element's end
+sections (\texttt{align\_to\_beam(endpoint\_A, endpoint\_B)}), with
+the complete cross-section, embedded reinforcement, and persistent
+material history. Nothing smaller than the element is ever
+sub-modelled. In the reference column (eight $0.4$\,m elements) one
+site enriches the base element; the container
+(\texttt{MultiscaleModel}) holds arbitrarily many (site, local) pairs
+--- the building drivers enrich many elements at once --- so the
+scheme extends to frames by registering one RVE per structural
+element wherever local physics matters, with feedback active where
+warranted. Enriching \emph{all} elements of the column is a
+configuration, not a code change.
+\end{definition}
+
+\begin{definition}[Downscaling: kinematic transfer]
+Let $\hat{\mathbf u}(\xi), \hat{\bm\theta}(\xi)$ be the macro
+element's interpolated section translation and rotation. The transfer
+imposes on boundary nodes of the RVE the rigid-section map
+\[
+  \mathbf u(y,z)\big|_{\xi}
+  \;=\; \hat{\mathbf u}(\xi) + \hat{\bm\theta}(\xi)\times(0,y,z)^\top ,
+\]
+as Dirichlet data. Mode \texttt{faces} applies it at the two end
+sections ($\xi=\pm1$) only, leaving the interior free; mode
+\texttt{layers} (B1) applies it additionally at the element-layer
+stations $\xi_k=-1+2k/n_z$, a stronger control that removes local
+basin ambiguity at a measured cost in global fidelity
+(over-constraint, Cap.~\ref{ch:kinematic-regularization}).
+\end{definition}
+
+\begin{definition}[Upscaling: section operator]
+The local model returns the pair $(\mathbf f, \mathbf D)$ of
+section resultants and tangent. The production operator computes
+$\mathbf f\in\mathbb{R}^6$ as the reduction of the boundary reactions
+of the loaded face to $[N,M_y,M_z,V_y,V_z,M_t]$, and
+$\mathbf D\in\mathbb{R}^{6\times6}$ by static condensation of the
+local stiffness onto the six generalized section coordinates. The
+volume-average operator (comparison path) replaces $\mathbf f$ by
+resultants of the Gauss-point mean stress; used alone it yields an
+inconsistent pair (flagged
+\texttt{forces\_consistent\_with\_tangent=false}) whose live feedback
+is unstable (Cap.~\ref{ch:energy-linesearch-fe2}); a consistent
+volume operator requires its own tangent (finite differences of the
+averaged forces) and remains future work.
+\end{definition}
+
+\begin{definition}[Affine injection]
+The macro consumes the feedback as the frozen affine section law
+$\mathbf f(\bm\varepsilon) = \mathbf f_0 + \mathbf
+D\,(\bm\varepsilon-\bm\varepsilon_{\mathrm{ref}})$ at the site's
+Gauss point, where $\bm\varepsilon_{\mathrm{ref}}$ is the macro
+section strain at which $(\mathbf f_0,\mathbf D)$ was homogenised. A
+stale $\bm\varepsilon_{\mathrm{ref}}$ extrapolates; the frozen-history
+spiral of Cap.~\ref{ch:energy-linesearch-fe2} was precisely an
+ancient anchor extrapolating across cycles.
+\end{definition}
+
+\begin{definition}[Staggered fixed point, relaxation, metrics]
+One coupled step iterates: macro trial solve under the current
+injection $\to$ per site, restore the local start-of-step state,
+impose the trial kinematics, solve, homogenise $\to$ relax the
+response against the previous iterate $\to$ test convergence. The
+force and tangent metrics are relative gaps
+\[
+  \mathrm{res}_F = \frac{\lVert \mathbf f^{(k)} - \mathbf
+  f^{(k-1)}\rVert}{\max(\lVert\mathbf f^{(k)}\rVert, s_F)},
+  \qquad
+  \mathrm{res}_K = \frac{\lVert \mathbf D^{(k)} - \mathbf
+  D^{(k-1)}\rVert_F}{\max(\lVert\mathbf D^{(k)}\rVert_F, s_K)} ,
+\]
+against the staggered tolerance (3\% here). Relaxation policies
+implement
+$\mathbf x^{(k)} \leftarrow \omega\,\mathbf x^{(k)} +
+(1-\omega)\,\mathbf x^{(k-1)}$ blended consistently on
+$(\mathbf f,\mathbf D)$ at a common $\bm\varepsilon_{\mathrm{ref}}$:
+constant $\omega$, or Aitken $\Delta^2$ dynamic relaxation
+\cite{KuttlerWall2008}
+\[
+  \omega_{k+1} = -\,\omega_k\,
+  \frac{\Delta\mathbf r_k \cdot (\Delta\mathbf r_{k+1}-\Delta\mathbf
+  r_k)}{\lVert \Delta\mathbf r_{k+1}-\Delta\mathbf r_k \rVert^2},
+\]
+clamped to $[\omega_{\min},\omega_{\max}]$ and reset at each step's
+first iteration (single-site state; per-site instances required
+before frame-scale use).
+\end{definition}
+
+\begin{definition}[Recovery regimes and engagement]
+A step that meets the staggered tolerance commits in
+\emph{strict} regime. Otherwise the hybrid observation window
+re-solves the macro under the last converged (or cleared) feedback,
+commits, then \emph{evolves and commits the locals} under the final
+macro state and refreshes the feedback anchor
+(\texttt{evolve\_locals\_in\_hybrid}; the staggered-failure path
+falls into this same recovery). Engagement policy: coupling may start
+at any step; the measured hierarchy
+(Cap.~\ref{ch:kinematic-regularization}) is \emph{virgin engagement
+at the first post-yield reversal} $>$ short one-way warmup $>$
+immediate $>$ long one-way warmup, because the unloading branch is
+elastic and single-valued (consistency at engagement is free) whereas
+one-way-tracked history is not equilibrium-consistent with the
+coupled system.
+\end{definition}
+
+The scheme instantiates the classical FE\textsuperscript{2} programme
+\cite{Feyel1999,FeyelandChaboche2000,Feyel2003,Miehe2002,Kouznetsova2004,Geers2010}
+in its element-wise, structural-section variant: the ``unit cell'' is
+not a periodic microstructure but the element's own domain, the
+macro-to-micro link is section kinematics rather than deformation
+gradients, and the upscaled quantity is a section law rather than a
+stress. All well-posedness levers identified in that literature
+(relaxation, operator consistency, engagement) reappear here in
+section form.
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{The metaheuristic layer}
+\label{sec:tc-ca}
+
+The Cultural Algorithm \cite{Reynolds1994Cultural,ReynoldsPeng2004}
+maximises objectives $f:\mathbb{R}^d\to\mathbb{R}$ over a box, with a
+population evolved under belief-space influence (normative intervals
+of the elite; situational best) and elitism; a single seeded
+\texttt{mt19937\_64} makes runs bit-reproducible. In the solver-tuning
+instance the genome is the eight-dimensional LM configuration
+(log-scales for $\mu_0$ and the acceptance floor; rounded integers
+for stagnation and subdivision genes), the objective replays a
+checkpointed protocol window, and the fitness is
+$w_1 n_{\text{conv}}/m - w_2\max(0, |V|_{\text{peak}}/V_{\text{env}}
+- 1) - w_3\bar\imath$ with $w=(1,1,0.2)$. The same layer is reserved
+for control-device optimisation \cite{LaraValenciaEchavarriaValencia2024}.
+
+% ─────────────────────────────────────────────────────────────────────────
+\section{Diagnostic metrics}
+\label{sec:tc-metrics}
+
+\begin{definition}[Campaign metrics]
+For a protocol trace $\{(d_k, V_k, c_k)\}_{k=1}^{N}$ (drift, base
+shear, converged flag):
+\emph{noconv} $=\#\{k: c_k=0\}$ (floor- or stagnation-accepted
+steps); peak $|V|_{\max}=\max_k |V_k|$; envelope variables
+$V_{\mathrm{exc}}$ (running max of $|V|$ over converged steps of the
+current excursion), $V_{\mathrm{env}}$ (its value frozen at each
+reversal; reference of the spike detector
+$|V|> s\,V_{\mathrm{env}}$), $V_{\mathrm{all}}$ (historical max);
+\emph{roughness} $\Sigma\Delta V = \sum_k |V_{k}-V_{k-1}|$ (total
+variation; compare per-step when $N$ differs); \emph{zigzag} $=$ the
+fraction of protocol-monotone steps ($ (d_k-d_{k-1})(d_{k-1}-d_{k-2})
+> 0$) at which $\Delta V$ alternates sign
+($(V_k-V_{k-1})(V_{k-1}-V_{k-2})<0$) --- the sawtooth measure, with
+the uncoupled fiber column at $2.2\%$ as the smooth reference.
+\end{definition}
+
+\begin{remark}
+Boundedness ($|V|_{\max}$, spike counts) and smoothness (zigzag,
+roughness) are independent qualities; the anti-sawtooth campaign of
+Cap.~\ref{ch:kinematic-regularization} shows limiter-based
+boundedness coexisting with fixed-point sawtooth, and cures for one
+degrading the other (the 2\% force clamp).
+\end{remark}
