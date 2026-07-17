@@ -4847,9 +4847,10 @@ run_reduced_rc_column_continuum_case_result_impl(
                 return r;
             };
 
-            //  P3 — replay de ventana: objetivo del CA sobre el genoma de 8
-            //  genes del solver (los genes materiales latcheados en static
-            //  const solo admiten barrido por proceso externo).
+            //  P3 — replay de ventana: objetivo del CA sobre el vector de 8
+            //  rasgos (traits) del solver (los parámetros materiales
+            //  latcheados en static const solo admiten barrido por proceso
+            //  externo).
             auto run_ca_replay = [&]() {
                 const int ca_pop =
                     static_cast<int>(envd("KOBATHE_CA_POP", 8.0));
@@ -4858,6 +4859,13 @@ run_reduced_rc_column_continuum_case_result_impl(
                 const auto ca_seed = static_cast<std::uint64_t>(
                     envd("KOBATHE_CA_SEED", 20260715.0));
                 const double ca_topfrac = envd("KOBATHE_CA_TOPFRAC", 0.25);
+                //  Fitness v2 anclado a la física (opt-in, defaults = v1):
+                //  VTARGET>0 penaliza el pico RELATIVO A LA MESETA física del
+                //  elemento estructural (no a la envolvente propia), y WZZ>0
+                //  penaliza la fracción de flips de dV en tramos de deriva
+                //  monótona dentro de la ventana.
+                const double ca_vtarget = envd("KOBATHE_CA_VTARGET", 0.0);
+                const double ca_wzz = envd("KOBATHE_CA_WZZ", 0.0);
 
                 const auto nlchk = nl.capture_checkpoint();
                 const auto schk = solver.capture_state();
@@ -4867,15 +4875,15 @@ run_reduced_rc_column_continuum_case_result_impl(
                 const double env_ref_ca = env_all;
                 std::fprintf(stderr,
                              "[ca] replay window k0=%d m=%d pop=%d gen=%d "
-                             "seed=%llu env_ref=%.4f MN\n",
+                             "seed=%llu env_ref=%.4f MN vtarget=%.4f wzz=%.2f\n",
                              ca_k0, ca_m, ca_pop, ca_gen,
                              static_cast<unsigned long long>(ca_seed),
-                             env_ref_ca);
+                             env_ref_ca, ca_vtarget, ca_wzz);
 
                 int n_eval = 0;
                 auto window_fitness =
                     [&](std::span<const double> g) -> double {
-                    //  Decodifica el genoma:
+                    //  Decodifica los rasgos:
                     //    g0 log10(mu0)  g1 grow  g2 drop  g3 stag_max
                     //    g4 predict_maxscale  g5 log10(accept_floor)
                     //    g6 rev_subdiv  g7 rev_subn
@@ -4899,6 +4907,9 @@ run_reduced_rc_column_continuum_case_result_impl(
                     int n_conv = 0;
                     long iters_sum = 0;
                     double peak = 0.0;
+                    std::vector<double> win_v, win_d;
+                    win_v.reserve(static_cast<std::size_t>(ca_m));
+                    win_d.reserve(static_cast<std::size_t>(ca_m));
                     for (int k = ca_k0; k < ca_k0 + ca_m; ++k) {
                         const double pk = targets[static_cast<std::size_t>(k)];
                         const double dk = target_drift_at(
@@ -4917,27 +4928,50 @@ run_reduced_rc_column_continuum_case_result_impl(
                         //  Puntúa SOLO en los targets originales.
                         if (rk.converged) ++n_conv;
                         iters_sum += rk.iterations;
-                        peak = std::max(
-                            peak,
-                            std::abs(extract_support_resultant_component(
-                                model, support_reaction_nodes, 0)));
+                        const double vk = extract_support_resultant_component(
+                            model, support_reaction_nodes, 0);
+                        peak = std::max(peak, std::abs(vk));
+                        win_v.push_back(vk);
+                        win_d.push_back(wd);
                     }
-                    //  fitness = w1 n_conv/m - w2 max(0, pico/env - 1)
-                    //            - w3 iters_norm,  w = (1, 1, 0.2).
+                    //  fitness v1: w1 n_conv/m - w2 max(0, pico/env - 1)
+                    //              - w3 iters_norm,  w = (1, 1, 0.2).
+                    //  fitness v2 (VTARGET/WZZ > 0): la referencia del pico es
+                    //  la meseta FISICA (Timoshenko) y se penaliza el zigzag
+                    //  de la ventana -- el CA busca el caso que apunta a la
+                    //  respuesta esperada del elemento estructural.
                     const double iters_norm =
                         static_cast<double>(iters_sum) /
                         (static_cast<double>(ca_m) *
                          static_cast<double>(std::max(1, c.max_newton)));
                     double fit = static_cast<double>(n_conv) / ca_m -
                                  0.2 * iters_norm;
-                    if (env_ref_ca > 0.0) {
+                    if (ca_vtarget > 0.0) {
+                        fit -= std::max(0.0, peak / ca_vtarget - 1.0);
+                    } else if (env_ref_ca > 0.0) {
                         fit -= std::max(0.0, peak / env_ref_ca - 1.0);
+                    }
+                    int zz_flips = 0, zz_segs = 0;
+                    for (std::size_t i = 2; i < win_v.size(); ++i) {
+                        const double dd = win_d[i] - win_d[i - 1];
+                        const double pdd = win_d[i - 1] - win_d[i - 2];
+                        const double dv = win_v[i] - win_v[i - 1];
+                        const double pdv = win_v[i - 1] - win_v[i - 2];
+                        if (dd * pdd > 0.0) {
+                            ++zz_segs;
+                            if (dv * pdv < 0.0) ++zz_flips;
+                        }
+                    }
+                    if (ca_wzz > 0.0 && zz_segs > 0) {
+                        fit -= ca_wzz * static_cast<double>(zz_flips) /
+                               static_cast<double>(zz_segs);
                     }
                     ++n_eval;
                     std::fprintf(stderr,
                                  "[ca] eval=%d conv=%d/%d peak=%.4f "
-                                 "iters=%ld fit=%.6f\n",
-                                 n_eval, n_conv, ca_m, peak, iters_sum, fit);
+                                 "iters=%ld zz=%d/%d fit=%.6f\n",
+                                 n_eval, n_conv, ca_m, peak, iters_sum,
+                                 zz_flips, zz_segs, fit);
                     return fit;
                 };
 
@@ -4968,13 +5002,13 @@ run_reduced_rc_column_continuum_case_result_impl(
                          gi < ca_res.best_fitness_history.size(); ++gi) {
                         hist << gi << "," << ca_res.best_fitness_history[gi]
                              << "," << ca_res.mean_fitness_history[gi];
-                        for (const double gv : ca_res.best_genome_history[gi]) {
+                        for (const double gv : ca_res.best_traits_history[gi]) {
                             hist << "," << gv;
                         }
                         hist << "\n";
                     }
                 }
-                const auto& bg = ca_res.best.genome;
+                const auto& bg = ca_res.best.traits;
                 const double b_mu0 = std::pow(10.0, bg[0]);
                 const double b_floor = std::pow(10.0, bg[5]);
                 const int b_stag = static_cast<int>(std::lround(bg[3]));
@@ -4996,6 +5030,8 @@ run_reduced_rc_column_continuum_case_result_impl(
                        << "  \"fitness\": " << ca_res.best.fitness << ",\n"
                        << "  \"generations\": " << ca_res.generations << ",\n"
                        << "  \"seed\": " << ca_seed << ",\n"
+                       << "  \"vtarget_MN\": " << ca_vtarget << ",\n"
+                       << "  \"wzz\": " << ca_wzz << ",\n"
                        << "  \"window\": \"" << ca_k0 << ":" << ca_m << "\"\n"
                        << "}\n";
                 }
