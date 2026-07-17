@@ -193,6 +193,12 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::filesystem::create_directories(o.out + "/eval");
+    std::filesystem::create_directories(o.out + "/runs");
+    {
+        //  Manifiesto de corridas (una fila por eval): rasgos + metricas.
+        std::ofstream man(o.out + "/runs/manifest.csv");
+        man << "eval,gap,relax,stag,start,fit,env,peak,zz,conv,rows\n";
+    }
 
     //  Referencia fisica para el seguimiento de envolvente (opcional). Si no
     //  se da --vref-csv, wenv se ignora y el fitness recupera la version v1.
@@ -244,6 +250,22 @@ int main(int argc, char** argv) {
                 - o.wzz * m.zz
                 - o.wit * (m.iters_mean / std::max(1, stag))
                 - wenv * (m.env / o.vtarget);
+        }
+        //  Persistir la trayectoria de ESTE candidato (el eval/ se sobrescribe
+        //  en la siguiente evaluacion): copia a runs/run_NNN.csv y anota los
+        //  rasgos y metricas en el manifiesto, para trazar todas las corridas.
+        if (m.ok) {
+            const std::string runs = o.out + "/runs";
+            std::error_code cp;
+            std::filesystem::copy_file(
+                dir + "/fe2_column_hysteresis.csv",
+                std::format("{}/run_{:03d}.csv", runs, n_eval),
+                std::filesystem::copy_options::overwrite_existing, cp);
+            std::ofstream man(runs + "/manifest.csv", std::ios::app);
+            man << std::format(
+                "{},{:.6f},{:.6f},{},{},{:.6f},{:.6f},{:.6f},{:.6f},{},{}\n",
+                n_eval, gap, relax, stag, start, fit, m.env, m.peak, m.zz,
+                m.conv, m.rows);
         }
         std::println(
             "[ca-fe2] eval={} gap={:.3f} relax={:.3f} stag={} start={} rc={} "
