@@ -157,6 +157,30 @@ through \texttt{--steps-cap}). The per-generation curves of both
 campaigns persist in \path{ca_history.csv} and the comparative figure
 \path{data/output/ca_convergence.png}.
 
+\paragraph{Series ca3 --- the source ablation, disciplined by seed
+variance.} The overnight orchestrator closed the ablation with three
+runs: the five-source belief space on both windows (same seed as ca2)
+and a two-source rerun of the hard window under an alternate seed.
+The raw numbers read as a five-source loss on both windows --- window
+fitness $-0.620$ vs $-0.465$ on $156{:}12$ and $+0.130$ vs $+0.326$
+on $112{:}12$, with the five-source full-protocol vectors also weaker
+(peak $0.140$\,MN on the hard window) --- inverting the unit-benchmark
+result, where the full belief space improved Rastrigin threefold. The
+alternate seed disciplines that reading. Two sources under seed B
+score $-0.660$ on the hard window, \emph{below} the five-source run,
+so the seed-to-seed spread ($\approx 0.20$ in fitness) is of the same
+order as the source gap. The defensible conclusion at this budget
+(pop $10 \times 12$ generations, single seeds per cell) is therefore
+neutral-negative: the five-source advantage seen on cheap informative
+benchmarks does not transfer to the expensive, weakly informative
+window objectives, and the observed differences sit within run
+variance. Knowledge-source richness is not monotone in value --- on
+deceptive landscapes the extra exploitation channels (domain
+consensus, topographic cells) spend budget that normative intervals
+and the situational exemplar use more robustly. The comparative
+convergence curves of all six campaigns persist in
+\path{data/output/ca_convergence.png}.
+
 \section{The FE\textsuperscript{2} coupling as the second search
 space}
 \label{sec:ca-fe2}
