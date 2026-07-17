@@ -109,9 +109,53 @@ reference. Per-generation best/mean fitness and the best-traits
 trajectory persist to \path{ca_history.csv} --- the convergence curves
 that document the metaheuristic at work.
 
-%% CA2-RESULTS: best traits, fitness convergence, full-protocol
-%% validation vs the line-search reference and the Timoshenko target,
-%% for ca2_w112 and ca2_w156.
+\paragraph{Series ca2 --- a robust optimum, and an objective-design
+lesson.} Both campaigns completed their $10\times 12$ budget with the
+full-protocol validation run of phase C. The window verdicts differ
+--- $112{:}12$ is achievable (best window fitness $+0.33$) while
+$156{:}12$ stays unconquered (best $-0.47$, no candidate converges
+the anomaly window strictly) --- yet both searches land in the
+\emph{same trait family}, which makes the optimum reproducible across
+windows:
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+trait & \path{ca2_w112} & \path{ca2_w156} \\
+\midrule
+$\log_{10}\mu_0$        & $-3.66$ & $-3.92$ \\
+grow / drop             & $5.29$ / $0.56$ & $6.81$ / $0.34$ \\
+stagnation cap          & $13$ & $17$ \\
+predictor max scale     & $4.16$ & $3.88$ \\
+acceptance floor        & $10^{-3}$ & $10^{-3}$ \\
+reversal subdiv / steps & $2/1$ & $3/4$ \\
+\midrule
+full-protocol noconv    & $\mathbf{53}$ & $\mathbf{54}$ \\
+full-protocol $|V|_{\max}$ [MN] & $0.061$ & $0.062$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Against the line-search reference (noconv 78, $|V|_{\max}=0.049$) the
+tuned vectors cut the regularized states by a third --- tiny initial
+$\mu$, aggressive growth, a loose $10^{-3}$ acceptance floor and mild
+reversal sub-incrementation let the continuation converge where the
+reference stagnates --- and they halve the zigzag of the $200$\,mm
+block ($15.9$ vs $34.1\%$ for w156). The price appears exactly where
+the objective could not see it. Outside the tuned window the peaks
+grow to $0.061$\,MN ($51.3$\,kN in the $150$\,mm block for w156
+against $32.5$ of the reference), and the reactivated
+sub-incrementation is the mechanism the early campaign had already
+flagged: smaller post-reversal steps converge \emph{more firmly} to
+whatever branch is nearest, spurious ones included. The lesson is
+about objective design, not about the optimizer. A physics-anchored
+fitness evaluated on a single window rewards local exploitation at
+global expense, so the v3 objective must span all critical windows
+(or the capped protocol, which is precisely what the
+FE\textsuperscript{2} tuner of \autoref{sec:ca-fe2} already does
+through \texttt{--steps-cap}). The per-generation curves of both
+campaigns persist in \path{ca_history.csv} and the comparative figure
+\path{data/output/ca_convergence.png}.
 
 \section{The FE\textsuperscript{2} coupling as the second search
 space}
