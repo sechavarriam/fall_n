@@ -427,6 +427,38 @@ the family of nearby equilibria. The closure kink serves the model
 better sharp than diffuse, which is consistent with the paper's own
 choice of a discrete switch.
 
-%% ROUND4-MESH-RESULTS: block metrics of p1_ls_sec444 (transverse-only)
-%% and p2_ls_448_full (full-protocol z-refined) vs the reference, and
-%% the round's verdict on where the regularization actually lives.
+\paragraph{The sectional sequence: the physics converges, the solver
+does not follow.} The transverse-only ladder ($2{\times}2 \to 4{\times}4
+\to 8{\times}8$ at fixed $nz=4$ and fixed crack-band length) closed with
+a genuinely two-sided verdict. On the side of the author's convergence
+hypothesis: the $4{\times}4{\times}4$ loading branches become
+\emph{physical} --- the $+200$\,mm peak lands at $23.2$\,kN, on the
+Timoshenko plateau ($23.1$), where the coarse reference carried
+$49.3$ --- the block zigzag drops (34\% $\to$ 20\% at $200$\,mm), the
+defect concentrates in a single reversal event (step 173,
+$-82.3$\,kN), and that event \emph{weakens with resolution}: the same
+reversal at $8{\times}8{\times}4$ spikes to $-61.7$\,kN. Sectional
+resolution does resolve the crack-closure front the way the hypothesis
+wanted. On the other side: the price is a breakdown of trackability.
+The regularized-state count climbs $78 \to 103 \to 133$ along the
+ladder ($27\,670$\,s of solve at $8{\times}8$), and beyond
+$4{\times}4$ the large-amplitude blocks are dominated by
+stagnation-accepted states far from equilibrium --- sustained
+$40$--$45$\,kN plateaus on unloading branches, block peaks of $93.7$
+($150$\,mm) and $136.3$\,kN ($200$\,mm), globally the worst of the
+program. Finer sections resolve \emph{more} crack states with more
+nearby equilibria, and the fixed-budget continuation cannot track
+them. The $z$-refined $4{\times}4{\times}8$ was stopped by the author
+at its first broken peak (79 steps), consistent with the crack-band
+mechanism: shortening the fixed-end element steepens the softening
+slope and sharpens exactly what the round tries to smooth.
+
+The round's conclusion is a division of labor. The mesh ladder moves
+the physics toward the structural element, and $4{\times}4{\times}4$
+is its sweet spot on current budgets --- physical loading branches at
+$1.6\times$ the reference cost, with one residual reversal event. Past
+that point the refinement outpaces the solver, so the next rung needs
+a solver ladder to match (budget and tolerance escalation with
+resolution, the dissipation-based arc-length of the remedies
+inventory, or the FE\textsuperscript{2} kinematic control that
+sidesteps the local multi-equilibria altogether).
