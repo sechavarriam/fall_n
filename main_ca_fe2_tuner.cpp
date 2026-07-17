@@ -42,6 +42,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <print>
 #include <sstream>
 #include <string>
@@ -49,9 +50,17 @@
 
 namespace {
 
+//  Umbral de deriva que define los "pasos de envolvente" (los entornos de
+//  los picos de excursion, donde el cortante resistente debe desarrollarse).
+//  El deficit de envolvente se promedia SOLO sobre estos pasos, de modo que
+//  un colapso localizado en un pico profundo (p.ej. -150 mm) no se diluye en
+//  el promedio del protocolo completo como ocurriria con una media global.
+constexpr double kEnvelopeDriftThreshold = 0.090;   // m (|deriva| >= 90 mm)
+
 struct Options {
     std::string exe;
     std::string out;
+    std::string vref;          // CSV de referencia fisica (Timoshenko macro-only)
     int pop = 6;
     int gen = 6;
     unsigned long long seed = 20260716ULL;
@@ -59,6 +68,7 @@ struct Options {
     double vtarget = 0.0237;   // MN, meseta Timoshenko
     double wzz = 0.5;
     double wit = 0.1;
+    double wenv = 1.0;         // peso del seguimiento de envolvente
     int threads = 3;
     int stall = 3;
 };
@@ -69,10 +79,33 @@ struct WindowMetrics {
     double peak = 0.0;
     double iters_mean = 0.0;
     double zz = 0.0;
+    double env = 0.0;          // deficit medio de envolvente [MN] en picos
+    int env_steps = 0;         // n de pasos de envolvente evaluados
     bool ok = false;
 };
 
-WindowMetrics parse_csv(const std::string& path) {
+//  Referencia fisica: step -> base_shear_MN (con signo) de la corrida
+//  Timoshenko macro-only. El mismo protocolo de deriva hace que el step k
+//  del candidato y de la referencia coincidan.
+std::map<int, double> load_reference(const std::string& path) {
+    std::map<int, double> ref;
+    std::ifstream f(path);
+    if (!f) return ref;
+    std::string line;
+    std::getline(f, line);
+    while (std::getline(f, line)) {
+        std::istringstream ss(line);
+        std::string tok;
+        std::vector<std::string> c;
+        while (std::getline(ss, tok, ',')) c.push_back(tok);
+        if (c.size() < 4) continue;
+        ref[std::atoi(c[0].c_str())] = std::atof(c[3].c_str());
+    }
+    return ref;
+}
+
+WindowMetrics parse_csv(const std::string& path,
+                        const std::map<int, double>& vref) {
     WindowMetrics m;
     std::ifstream f(path);
     if (!f) return m;
@@ -80,6 +113,7 @@ WindowMetrics parse_csv(const std::string& path) {
     std::getline(f, line);   // encabezado
     std::vector<double> d, v;
     long iters_sum = 0;
+    double env_sum = 0.0;
     while (std::getline(f, line)) {
         // step,p,drift_m,base_shear_MN,staggered_iters,macro_converged
         std::istringstream ss(line);
@@ -90,14 +124,28 @@ WindowMetrics parse_csv(const std::string& path) {
         const int step = std::atoi(c[0].c_str());
         if (step <= 4) continue;   // precarga fuera de la ventana
         ++m.rows;
-        d.push_back(std::atof(c[2].c_str()));
-        v.push_back(std::atof(c[3].c_str()));
+        const double drift = std::atof(c[2].c_str());
+        const double vcand = std::atof(c[3].c_str());
+        d.push_back(drift);
+        v.push_back(vcand);
         iters_sum += std::atol(c[4].c_str());
         m.conv += (std::atoi(c[5].c_str()) != 0) ? 1 : 0;
-        m.peak = std::max(m.peak, std::abs(v.back()));
+        m.peak = std::max(m.peak, std::abs(vcand));
+        //  Deficit de envolvente: solo en los picos de excursion y solo la
+        //  parte de SUB-respuesta (caer por debajo de la envolvente fisica).
+        //  El termino de pico ya castiga el exceso; este castiga el colapso.
+        if (std::abs(drift) >= kEnvelopeDriftThreshold) {
+            const auto it = vref.find(step);
+            if (it != vref.end()) {
+                ++m.env_steps;
+                env_sum += std::max(0.0,
+                                    std::abs(it->second) - std::abs(vcand));
+            }
+        }
     }
     if (m.rows < 5) return m;
     m.iters_mean = static_cast<double>(iters_sum) / m.rows;
+    m.env = (m.env_steps > 0) ? env_sum / m.env_steps : 0.0;
     int flips = 0, segs = 0;
     for (std::size_t i = 2; i < v.size(); ++i) {
         const double dd = d[i] - d[i - 1], pdd = d[i - 1] - d[i - 2];
@@ -127,6 +175,7 @@ int main(int argc, char** argv) {
         };
         if      (a == "--exe")       o.exe = next();
         else if (a == "--out")       o.out = next();
+        else if (a == "--vref-csv")  o.vref = next();
         else if (a == "--pop")       o.pop = std::stoi(next());
         else if (a == "--gen")       o.gen = std::stoi(next());
         else if (a == "--seed")      o.seed = std::stoull(next());
@@ -134,6 +183,7 @@ int main(int argc, char** argv) {
         else if (a == "--vtarget")   o.vtarget = std::stod(next());
         else if (a == "--wzz")       o.wzz = std::stod(next());
         else if (a == "--wit")       o.wit = std::stod(next());
+        else if (a == "--wenv")      o.wenv = std::stod(next());
         else if (a == "--threads")   o.threads = std::stoi(next());
         else if (a == "--stall")     o.stall = std::stoi(next());
         else { std::println(stderr, "argumento desconocido: {}", a); return 2; }
@@ -143,6 +193,15 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::filesystem::create_directories(o.out + "/eval");
+
+    //  Referencia fisica para el seguimiento de envolvente (opcional). Si no
+    //  se da --vref-csv, wenv se ignora y el fitness recupera la version v1.
+    const std::map<int, double> vref =
+        o.vref.empty() ? std::map<int, double>{} : load_reference(o.vref);
+    const double wenv = vref.empty() ? 0.0 : o.wenv;
+    if (!o.vref.empty() && vref.empty()) {
+        std::println(stderr, "aviso: --vref-csv no se pudo leer: {}", o.vref);
+    }
 
 #ifdef _WIN32
     _putenv_s("OMP_NUM_THREADS", std::to_string(o.threads).c_str());
@@ -176,19 +235,22 @@ int main(int argc, char** argv) {
             "> {}/driver.log 2>&1",
             o.exe, dir, o.steps_cap, gap, relax, stag, start, dir);
         const int rc = std::system(cmd.c_str());
-        const WindowMetrics m = parse_csv(dir + "/fe2_column_hysteresis.csv");
+        const WindowMetrics m =
+            parse_csv(dir + "/fe2_column_hysteresis.csv", vref);
         double fit = -10.0;
         if (m.ok) {
             fit = static_cast<double>(m.conv) / m.rows
                 - std::max(0.0, m.peak / o.vtarget - 1.0)
                 - o.wzz * m.zz
-                - o.wit * (m.iters_mean / std::max(1, stag));
+                - o.wit * (m.iters_mean / std::max(1, stag))
+                - wenv * (m.env / o.vtarget);
         }
         std::println(
             "[ca-fe2] eval={} gap={:.3f} relax={:.3f} stag={} start={} rc={} "
-            "rows={} conv={} peak={:.4f} zz={:.3f} it={:.2f} fit={:.6f}",
+            "rows={} conv={} peak={:.4f} zz={:.3f} it={:.2f} env={:.4f}({}) "
+            "fit={:.6f}",
             n_eval, gap, relax, stag, start, rc, m.rows, m.conv, m.peak, m.zz,
-            m.iters_mean, fit);
+            m.iters_mean, m.env, m.env_steps, fit);
         std::fflush(stdout);
         return fit;
     };
@@ -224,10 +286,11 @@ int main(int argc, char** argv) {
             "{:.6f},\n  \"max_staggered_iter\": {},\n  "
             "\"coupling_start_step\": {},\n  \"fitness\": {:.8f},\n  "
             "\"generations\": {},\n  \"seed\": {},\n  \"steps_cap\": {},\n  "
-            "\"vtarget_MN\": {:.6f}\n}}\n",
+            "\"vtarget_MN\": {:.6f},\n  \"wenv\": {:.4f},\n  \"wzz\": {:.4f}\n"
+            "}}\n",
             bg[0], bg[1], static_cast<int>(std::lround(bg[2])),
             static_cast<int>(std::lround(bg[3])), res.best.fitness,
-            res.generations, o.seed, o.steps_cap, o.vtarget);
+            res.generations, o.seed, o.steps_cap, o.vtarget, wenv, o.wzz);
     }
     std::println(
         "[ca-fe2] MEJOR fit={:.6f} gap={:.3f} relax={:.3f} stag={} start={} "
