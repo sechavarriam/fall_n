@@ -407,7 +407,7 @@ canonical_validation_reboot_workstream_table() noexcept
             " archived g0 baseline byte-identically; deflation retries close"
             " as a negative result with never-worse-than-baseline fallback;"
             " the hybrid TAO energy step selects the low branch (noconv 80->77,"
-            " peak 0.0508->0.0377 MN); the CA-tuned genome gives the cheapest"
+            " peak 0.0508->0.0377 MN); the CA-tuned traits give the cheapest"
             " sustained gain (noconv 80->66). None meets every clause of its"
             " gate, so all three remain environment-gated experiments, not"
             " defaults.",

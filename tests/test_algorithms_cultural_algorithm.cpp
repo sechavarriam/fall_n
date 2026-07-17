@@ -21,16 +21,34 @@ using fall_n::algorithms::BoundedSearchSpace;
 using fall_n::algorithms::cultural::CulturalAlgorithm;
 using fall_n::algorithms::cultural::CulturalConfig;
 using fall_n::algorithms::cultural::CulturalResult;
+using fall_n::algorithms::cultural::DomainKnowledge;
+using fall_n::algorithms::cultural::EvolutionaryProgrammingModel;
+using fall_n::algorithms::cultural::GeneticRecombinationModel;
+using fall_n::algorithms::cultural::HistoryKnowledge;
 using fall_n::algorithms::cultural::NormativeKnowledge;
 using fall_n::algorithms::cultural::SituationalKnowledge;
+using fall_n::algorithms::cultural::TopographicKnowledge;
 
 // --- concept conformance (checked with concrete types) -----------------------
 namespace {
 using fall_n::algorithms::cultural::KnowledgeSource;
+using fall_n::algorithms::cultural::PopulationModel;
 static_assert(KnowledgeSource<NormativeKnowledge, BoundedSearchSpace, std::mt19937_64>,
               "NormativeKnowledge must model KnowledgeSource");
 static_assert(KnowledgeSource<SituationalKnowledge, BoundedSearchSpace, std::mt19937_64>,
               "SituationalKnowledge must model KnowledgeSource");
+static_assert(KnowledgeSource<DomainKnowledge, BoundedSearchSpace, std::mt19937_64>,
+              "DomainKnowledge must model KnowledgeSource");
+static_assert(KnowledgeSource<HistoryKnowledge, BoundedSearchSpace, std::mt19937_64>,
+              "HistoryKnowledge must model KnowledgeSource");
+static_assert(KnowledgeSource<TopographicKnowledge, BoundedSearchSpace, std::mt19937_64>,
+              "TopographicKnowledge must model KnowledgeSource");
+static_assert(PopulationModel<EvolutionaryProgrammingModel, BoundedSearchSpace,
+                              std::mt19937_64>,
+              "EvolutionaryProgrammingModel must model PopulationModel");
+static_assert(PopulationModel<GeneticRecombinationModel, BoundedSearchSpace,
+                              std::mt19937_64>,
+              "GeneticRecombinationModel must model PopulationModel");
 
 int g_failed = 0;
 void check(bool ok, const char* what) {
@@ -81,12 +99,12 @@ int main() {
         const CulturalResult r = ca.maximize(sphere);
         std::printf("sphere5D     best=%.6g  gens=%zu\n", r.best.fitness, r.generations);
         check(r.best.fitness > -1e-2, "sphere5D converges near optimum");
-        check(within(r.best.genome, -5.0, 5.0), "sphere5D best inside box");
+        check(within(r.best.traits, -5.0, 5.0), "sphere5D best inside box");
         check(!r.best_fitness_history.empty(), "history recorded");
         check(r.mean_fitness_history.size() == r.best_fitness_history.size(),
               "mean history aligned with best history");
-        check(r.best_genome_history.size() == r.best_fitness_history.size(),
-              "genome history aligned with best history");
+        check(r.best_traits_history.size() == r.best_fitness_history.size(),
+              "traits history aligned with best history");
         // elitism => monotonically non-decreasing best history
         bool monotone = true;
         for (std::size_t i = 1; i < r.best_fitness_history.size(); ++i)
@@ -112,7 +130,7 @@ int main() {
         const CulturalResult r = ca.maximize(rosenbrock2);
         std::printf("rosenbrock2D best=%.6g\n", r.best.fitness);
         check(r.best.fitness > -0.1, "rosenbrock2D descends the valley");
-        check(within(r.best.genome, -5.0, 5.0), "rosenbrock2D best inside box");
+        check(within(r.best.traits, -5.0, 5.0), "rosenbrock2D best inside box");
     }
 
     // --- Rastrigin 5D: highly multimodal ------------------------------------
@@ -126,7 +144,47 @@ int main() {
         std::printf("rastrigin5D  best=%.6g\n", r.best.fitness);
         // random start averages ~ -50; a working CA gets well below that.
         check(r.best.fitness > -8.0, "rastrigin5D improves markedly over random");
-        check(within(r.best.genome, -5.12, 5.12), "rastrigin5D best inside box");
+        check(within(r.best.traits, -5.12, 5.12), "rastrigin5D best inside box");
+    }
+
+    // --- Full five-source belief space (literature extensions) --------------
+    {
+        using CA5 = CulturalAlgorithm<BoundedSearchSpace, NormativeKnowledge,
+                                      SituationalKnowledge, DomainKnowledge,
+                                      HistoryKnowledge, TopographicKnowledge>;
+        CulturalConfig cfg;
+        cfg.population_size = 60;
+        cfg.max_generations = 500;
+        cfg.seed = 2024;
+        CA5 ca(box(5, -5.12, 5.12), cfg);
+        const CulturalResult r = ca.maximize(rastrigin);
+        std::printf("rastrigin5D  best=%.6g  (5 knowledge sources)\n",
+                    r.best.fitness);
+        check(r.best.fitness > -8.0,
+              "5-source belief space matches the 2-source quality");
+        check(within(r.best.traits, -5.12, 5.12), "5-source best inside box");
+    }
+
+    // --- Genetic recombination as an ALTERNATIVE population model -----------
+    //  The CA is a meta-heuristic: swapping the population-space model keeps
+    //  the belief space untouched. This instantiation is the "genetic" reading.
+    {
+        CulturalConfig cfg;
+        cfg.population_size = 40;
+        cfg.max_generations = 300;
+        cfg.seed = 12345;
+        CA ca(box(5, -5.0, 5.0), cfg);
+        const CulturalResult r =
+            ca.maximize(sphere, GeneticRecombinationModel{});
+        std::printf("sphere5D     best=%.6g  (genetic population model)\n",
+                    r.best.fitness);
+        //  Same convergence check as the curved-valley benchmark: the point is
+        //  that the ALTERNATIVE instantiation converges, not that BLX-alpha
+        //  matches EP's final polish rate on a quadratic.
+        check(r.best.fitness > -0.1,
+              "genetic population model also converges on sphere5D");
+        check(within(r.best.traits, -5.0, 5.0),
+              "genetic-model best inside box");
     }
 
     // --- Determinism: identical results for identical seed ------------------
@@ -138,10 +196,10 @@ int main() {
         auto run = [&] { return CA(box(4, -3.0, 3.0), cfg).maximize(sphere); };
         const CulturalResult a = run();
         const CulturalResult b = run();
-        bool same = a.best.genome.size() == b.best.genome.size() &&
+        bool same = a.best.traits.size() == b.best.traits.size() &&
                     a.best.fitness == b.best.fitness;
-        for (std::size_t i = 0; same && i < a.best.genome.size(); ++i)
-            same = same && (a.best.genome[i] == b.best.genome[i]);
+        for (std::size_t i = 0; same && i < a.best.traits.size(); ++i)
+            same = same && (a.best.traits[i] == b.best.traits[i]);
         check(same, "bit-identical result across runs with the same seed");
     }
 

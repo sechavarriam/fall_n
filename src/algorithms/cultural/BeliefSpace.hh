@@ -46,10 +46,10 @@ public:
         std::apply([&](auto&... src) { (src.update(elite, space), ...); }, sources_);
     }
 
-    /// Let every source bias the child genome in turn.
+    /// Let every source bias the candidate's traits in turn.
     template <class Rng, class Space>
-    void influence(std::span<double> g, Rng& rng, const Space& space) const {
-        std::apply([&](const auto&... src) { (src.influence(g, rng, space), ...); }, sources_);
+    void influence(std::span<double> t, Rng& rng, const Space& space) const {
+        std::apply([&](const auto&... src) { (src.influence(t, rng, space), ...); }, sources_);
     }
 };
 
