@@ -176,4 +176,43 @@ with case D on all four blocks. Implementation seam: the in-process
 objective wraps the same \texttt{MultiscaleAnalysis} entry the column
 driver uses, so no new physics code is involved.
 
-%% CA-FE2-RESULTS: pending implementation of the in-process objective.
+\paragraph{The coupling instance closes: the CA matches the hand-tuned
+case and improves its regularity.} The process-level tuner
+(\path{fall_n_ca_fe2_tuner}, full five-source belief space) ran its
+$6\times 6$ budget overnight --- 36 evaluations, each a complete driver
+run capped at 64 steps --- with the fitness anchored to the physical
+plateau. The best fitness climbed from $0.585$ to $0.810$ and the
+search converged on a coherent basin: force clamp $0.165$, relaxation
+$0.769$, staggered cap $19$, and engagement at step $39$ --- the CA
+\emph{rediscovered} the engagement-at-reversal principle on its own
+(step 39 is the second in-window reversal), and every high-fitness
+candidate shares it. The full-protocol validation settles the caveat
+that the capped objective might have simply shortened the coupled
+exposure:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+block & \multicolumn{2}{c}{CA vector} & \multicolumn{2}{c}{case D
+(hand)} \\
+ & $|V|_{\max}$ & zigzag & $|V|_{\max}$ & zigzag \\
+\midrule
+preload+50\,mm & 21.7 & 13.3\% & 23.1 & 40.0\% \\
+100\,mm        & 27.4 & 38.6\% & 26.7 & 27.3\% \\
+150\,mm        & 27.4 & 11.4\% & 26.7 & 25.0\% \\
+200\,mm        & 28.1 &  0.0\% & 27.0 &  0.0\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All 196 macro steps converge (noconv 0, like case D). The peaks sit in
+the same class ($+17$--$22\%$ over the $23.1$\,kN plateau), the large
+blocks are \emph{smoother} than the hand-tuned mark (200\,mm total
+variation $0.09$\,MN --- the Timoshenko trace's own value), and the
+residual roughness concentrates in the $100$\,mm block because the
+discovered engagement lands mid-cycle there. In 36 evaluations the
+metaheuristic reproduced what took a multi-round manual campaign to
+find, and shifted the trade-off toward global regularity. The
+remaining refinement is engagement phasing (aligning the start step
+with a block boundary), which the trait bounds can encode directly in
+the next round.
