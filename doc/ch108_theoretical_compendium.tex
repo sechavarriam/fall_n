@@ -346,16 +346,32 @@ section form.
 
 The Cultural Algorithm \cite{Reynolds1994Cultural,ReynoldsPeng2004}
 maximises objectives $f:\mathbb{R}^d\to\mathbb{R}$ over a box, with a
-population evolved under belief-space influence (normative intervals
-of the elite; situational best) and elitism; a single seeded
-\texttt{mt19937\_64} makes runs bit-reproducible. In the solver-tuning
-instance the genome is the eight-dimensional LM configuration
-(log-scales for $\mu_0$ and the acceptance floor; rounded integers
-for stagnation and subdivision genes), the objective replays a
-checkpointed protocol window, and the fitness is
-$w_1 n_{\text{conv}}/m - w_2\max(0, |V|_{\text{peak}}/V_{\text{env}}
-- 1) - w_3\bar\imath$ with $w=(1,1,0.2)$. The same layer is reserved
-for control-device optimisation \cite{LaraValenciaEchavarriaValencia2024}.
+population evolved under belief-space influence and elitism; a single
+seeded \texttt{mt19937\_64} makes runs bit-reproducible. The
+implementation keeps the framework's META character explicit
+\cite{Maheri2021CulturalSurvey}: candidate solutions carry
+\emph{traits} (not a ``genome'' --- that vocabulary belongs to one
+instantiation), the population space is an interchangeable
+\texttt{PopulationModel} policy (evolutionary programming by default;
+a BLX-$\alpha$ genetic-recombination model is provided as the
+alternative reading), and the belief space aggregates any subset of
+the literature's five knowledge sources --- normative (elite
+intervals), situational (best exemplar), domain (fitness-weighted
+elite consensus), history (temporal trend of generation bests) and
+topographic (per-trait occupancy cells). On the multimodal Rastrigin
+benchmark the five-source belief space improves the two-source result
+($-0.87$ vs $-3.01$ at equal budget). In the solver-tuning instance
+the traits are the eight-dimensional LM configuration (log-scales for
+$\mu_0$ and the acceptance floor; rounded integers for stagnation and
+subdivision), the objective replays a checkpointed protocol window,
+and the fitness is
+$w_1 n_{\text{conv}}/m - w_2\max(0, |V|_{\text{peak}}/V_{\text{ref}}
+- 1) - w_3\bar\imath - w_4\,\mathrm{zigzag}$ with $w=(1,1,0.2,w_4)$,
+where $V_{\text{ref}}$ is the run's own pre-reversal envelope in the
+v1 fitness and the \emph{physical plateau of the structural element}
+(Cap.~\ref{ch:cultural-program}) in the v2 fitness. The same layer is
+reserved for control-device optimisation
+\cite{LaraValenciaEchavarriaValencia2024}.
 
 % ─────────────────────────────────────────────────────────────────────────
 \section{Diagnostic metrics}

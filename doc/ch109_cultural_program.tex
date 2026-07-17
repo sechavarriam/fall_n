@@ -1,0 +1,135 @@
+% ==========================================================================
+%  Chapter 109 -- The Cultural-Algorithm Program: Searching for the Best Case
+% ==========================================================================
+
+\chapter{The Cultural-Algorithm Program: Searching for the Best Case}
+\label{ch:cultural-program}
+
+\paragraph{Normative status.}
+Author-directed round: the thesis must include the use of the cultural
+algorithm, either tuning the Levenberg--Marquardt continuation that
+leads the monolithic remediation program or acting on the
+FE\textsuperscript{2} coupling, and the comparison basis for every
+campaign is now the \emph{expected physical response of the structural
+element} (the Timoshenko fiber column, plateau
+$\approx 23.5$\,kN, zigzag $\le 4.5\%$), with the hand-tuned two-way
+case D (force clamp $25\%$ + staggered 12; $27.0$\,kN, $23.5\%$) as
+the standing mark to beat. The formulation follows the author's
+tuned-inerter-damper optimisation paper
+\cite{LaraValenciaEchavarriaValencia2024} and the extensions
+catalogued in the cultural-algorithm literature
+\cite{Reynolds1994Cultural,ReynoldsPeng2004,Maheri2021CulturalSurvey}.
+
+\section{Semantic generalisation of the module}
+\label{sec:ca-semantics}
+
+The \path{src/algorithms/cultural} module was reviewed so that no
+class commits to the \emph{genetic} instantiation of the framework:
+
+\begin{itemize}
+  \item \texttt{Individual} carries \emph{traits} and a fitness. The
+        solution vector is Reynolds' behavioural-trait vector; calling
+        it a genome would bind the framework to one population
+        substrate.
+  \item The population space is a \texttt{PopulationModel} policy with
+        two operators, \texttt{propose} (parent selection and, if the
+        model uses it, recombination) and \texttt{vary} (the model's
+        own variation). \texttt{EvolutionaryProgrammingModel} (binary
+        tournament + Gaussian perturbation, the classical CA pairing)
+        is the default and reproduces the historical behaviour
+        bit-for-bit; \texttt{GeneticRecombinationModel}
+        (two-tournament BLX-$\alpha$ blend) is provided to make the
+        point executable: the genetic algorithm is \emph{one}
+        instantiation of the population space, not the framework.
+  \item The belief space now offers the five knowledge sources of the
+        literature: \emph{normative} (per-trait elite intervals),
+        \emph{situational} (best exemplar), \emph{domain}
+        (fitness-weighted elite consensus), \emph{history} (temporal
+        trend of the generation bests over a sliding window) and
+        \emph{topographic} (per-trait occupancy histogram, resampling
+        inside the most-visited cell). All are duck-typed policies
+        checked by the \texttt{KnowledgeSource} concept, and the
+        config knob formerly named after mutation is now the model's
+        \texttt{variation\_sigma\_frac}.
+\end{itemize}
+
+The unit evidence (\path{tests/test_algorithms_cultural_algorithm.cpp})
+keeps the original convergence, box-respect, elitism and determinism
+checks and adds two: the five-source belief space \emph{improves} the
+multimodal Rastrigin benchmark over the two-source configuration
+($-0.87$ vs $-3.01$ at equal budget --- the domain and topographic
+sources pay for themselves on multimodal landscapes), and the genetic
+instantiation converges on the sphere benchmark through the same loop
+with the belief space untouched.
+
+\section{Campaign design: tuning the winning solver against the
+physical target}
+\label{sec:ca-campaigns}
+
+The round-1--4 remediation program (Caps.~\ref{ch:kinematic-regularization}
+and prior) left the energy line search as the standing monolithic
+remedy and redirected every comparison to the structural-element
+response. The CA program turns that redirection into an objective.
+The window-replay harness of Phase P3 (checkpoint at step $k_0$,
+re-play $m$ steps per candidate, restore) is reused with a
+\emph{physics-anchored} fitness (v2, opt-in through
+\texttt{KOBATHE\_CA\_VTARGET} / \texttt{KOBATHE\_CA\_WZZ}; defaults
+reproduce v1):
+\[
+  f = \frac{n_{\mathrm{conv}}}{m}
+    - \max\!\Bigl(0, \frac{|V|_{\mathrm{peak}}}{V_{\mathrm{Timo}}}-1\Bigr)
+    - 0.2\,\bar\imath
+    - w_{zz}\,\frac{\#\text{flips}}{\#\text{monotone steps}},
+\]
+so a candidate is rewarded for converging, for keeping the window's
+peak at or below the \emph{physical plateau} $V_{\mathrm{Timo}}$
+(rather than below the run's own envelope, which tolerates inherited
+spikes), and for a smooth force path inside the window. Two campaigns
+bracket the two anomalies the reference line-search run still
+exhibits on the $2{\times}2{\times}4$ protocol:
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+campaign & window & brackets & budget \\
+\midrule
+\path{ca2_w112} & $112{:}12$ & $+150$\,mm peak and its reversal &
+  pop 10 $\times$ 12 gen \\
+\path{ca2_w156} & $156{:}12$ & $+200$\,mm loading anomaly (step
+  161) and reversal & pop 10 $\times$ 12 gen \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both campaigns run with the line search on ($V_{\mathrm{Timo}} =
+0.0237$\,MN, $w_{zz}=0.5$, seed 20260715, top fraction $0.25$), and
+each closes with a full-protocol validation run under the best traits
+(phase C of the tuner script), summarised against the line-search
+reference. Per-generation best/mean fitness and the best-traits
+trajectory persist to \path{ca_history.csv} --- the convergence curves
+that document the metaheuristic at work.
+
+%% CA2-RESULTS: best traits, fitness convergence, full-protocol
+%% validation vs the line-search reference and the Timoshenko target,
+%% for ca2_w112 and ca2_w156.
+
+\section{The FE\textsuperscript{2} coupling as the second search
+space}
+\label{sec:ca-fe2}
+
+The strongest thesis showcase after the solver instance is the
+coupling itself: case D was \emph{hand-tuned} (force-gap clamp
+$25\%$, staggered cap 12), and the two-way evidence shows its
+quality is controlled by exactly the kind of low-dimensional,
+expensive-to-probe hyperparameter vector the CA is built for ---
+clamp fraction, staggered cap, relaxation factor, engagement step.
+The planned instance reuses the same module over that four-trait
+space with a reduced-protocol objective (single $100$\,mm cycle,
+coarse RVE) whose fitness combines the distance to the Timoshenko
+plateau, the window zigzag and the coupling-convergence rate; the
+full-protocol validation then confronts the CA-found configuration
+with case D on all four blocks. Implementation seam: the in-process
+objective wraps the same \texttt{MultiscaleAnalysis} entry the column
+driver uses, so no new physics code is involved.
+
+%% CA-FE2-RESULTS: pending implementation of the in-process objective.
