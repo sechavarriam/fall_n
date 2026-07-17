@@ -4986,11 +4986,31 @@ run_reduced_rc_column_continuum_case_result_impl(
                 cacfg.max_generations = static_cast<std::size_t>(ca_gen);
                 cacfg.acceptance_fraction = ca_topfrac;
                 cacfg.seed = ca_seed;
-                alg::cultural::CulturalAlgorithm<
-                    alg::BoundedSearchSpace, alg::cultural::NormativeKnowledge,
-                    alg::cultural::SituationalKnowledge>
-                    ca(space, cacfg);
-                const auto ca_res = ca.maximize(window_fitness);
+                //  KOBATHE_CA_SOURCES=5 activa el belief space completo de la
+                //  literatura (normativa, situacional, dominio, historia,
+                //  topografica); el default 2 conserva la configuracion
+                //  historica (normativa + situacional) bit a bit.
+                const int ca_sources =
+                    static_cast<int>(envd("KOBATHE_CA_SOURCES", 2.0));
+                const auto ca_res = [&] {
+                    if (ca_sources >= 5) {
+                        alg::cultural::CulturalAlgorithm<
+                            alg::BoundedSearchSpace,
+                            alg::cultural::NormativeKnowledge,
+                            alg::cultural::SituationalKnowledge,
+                            alg::cultural::DomainKnowledge,
+                            alg::cultural::HistoryKnowledge,
+                            alg::cultural::TopographicKnowledge>
+                            ca5(space, cacfg);
+                        return ca5.maximize(window_fitness);
+                    }
+                    alg::cultural::CulturalAlgorithm<
+                        alg::BoundedSearchSpace,
+                        alg::cultural::NormativeKnowledge,
+                        alg::cultural::SituationalKnowledge>
+                        ca(space, cacfg);
+                    return ca.maximize(window_fitness);
+                }();
 
                 //  Persistencia: historia por generación y mejor genoma con
                 //  claves = nombres de las env que lo reproducen.

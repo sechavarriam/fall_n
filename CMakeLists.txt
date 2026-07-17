@@ -248,6 +248,10 @@ fall_n_use_multiscale_api(fall_n_table_multiscale)
 add_executable(fall_n_rc_column_multiscale main_rc_column_multiscale.cpp)
 fall_n_use_multiscale_api(fall_n_rc_column_multiscale)
 
+# ── CA sobre los rasgos de acople FE² (std-only; lanza el driver por proceso) ─
+add_executable(fall_n_ca_fe2_tuner main_ca_fe2_tuner.cpp)
+target_include_directories(fall_n_ca_fe2_tuner PRIVATE ${CMAKE_SOURCE_DIR})
+
 # ── Cyclic validation of FE² pipeline (progressive 5-case suite) ─────────────
 add_executable(fall_n_table_cyclic_validation
     main_table_cyclic_validation.cpp
