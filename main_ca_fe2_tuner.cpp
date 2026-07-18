@@ -69,6 +69,7 @@ struct Options {
     double wzz = 0.5;
     double wit = 0.1;
     double wenv = 1.0;         // peso del seguimiento de envolvente
+    int min_rows = 0;          // filas minimas post-precarga para ser valido
     int threads = 3;
     int stall = 3;
 };
@@ -184,6 +185,7 @@ int main(int argc, char** argv) {
         else if (a == "--wzz")       o.wzz = std::stod(next());
         else if (a == "--wit")       o.wit = std::stod(next());
         else if (a == "--wenv")      o.wenv = std::stod(next());
+        else if (a == "--min-rows")  o.min_rows = std::stoi(next());
         else if (a == "--threads")   o.threads = std::stoi(next());
         else if (a == "--stall")     o.stall = std::stoi(next());
         else { std::println(stderr, "argumento desconocido: {}", a); return 2; }
@@ -243,8 +245,14 @@ int main(int argc, char** argv) {
         const int rc = std::system(cmd.c_str());
         const WindowMetrics m =
             parse_csv(dir + "/fe2_column_hysteresis.csv", vref);
+        //  LAGUNA CERRADA: una corrida que muere temprano con todos sus pasos
+        //  convergidos esquivaba las excursiones grandes y puntuaba
+        //  fraudulentamente alto (conv sobre SUS filas, envolvente muestreada
+        //  en pocos pasos). Un rc distinto de cero o menos filas que
+        //  --min-rows invalida al candidato.
+        const bool complete = (rc == 0) && (m.rows >= o.min_rows);
         double fit = -10.0;
-        if (m.ok) {
+        if (m.ok && complete) {
             fit = static_cast<double>(m.conv) / m.rows
                 - std::max(0.0, m.peak / o.vtarget - 1.0)
                 - o.wzz * m.zz
