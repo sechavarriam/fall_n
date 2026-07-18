@@ -4635,6 +4635,31 @@ run_reduced_rc_column_continuum_case_result_impl(
                 .proximal_frac = envd("KOBATHE_LM_PROXIMAL", 0.0),
             };
 
+            //  SWITCH Newton->LM (opt-in; 0 = LM desde el inicio, flujo
+            //  original bit a bit). La fase "Newton" NO sale de la
+            //  continuación: es la MISMA maquinaria con mu = 0 (K du = -R,
+            //  sin regularización ni line search), porque nl.step_to dentro
+            //  de esta ruta diverge -- el backend de energía deja a nl en el
+            //  modo de estado congelado y el lazo estándar no aplica. El
+            //  switch es entonces un intercambio de configuración del solver
+            //  en el paso k, sin siembra ni contabilidad especial. Idea del
+            //  autor: elegir CUANDO regularizar para hacer bypass de las
+            //  oscilaciones tempranas.
+            const int lm_switch_step =
+                static_cast<int>(envd("KOBATHE_LM_SWITCH_STEP", 0.0));
+            fall_n::RegularizedNewtonConfig newton_cfg = lmcfg;
+            newton_cfg.mu_max_frac = 0.0;          // mu = min(mu, 0) = 0
+            newton_cfg.energy_linesearch = false;  // Newton estándar
+            newton_cfg.proximal_frac = 0.0;
+            const fall_n::LevenbergMarquardt newton_reg{
+                .mu0 = 0.0, .grow = 1.0, .drop = 1.0, .mu_min = 0.0};
+            if (lm_switch_step > 0) {
+                std::fprintf(stderr,
+                             "[lm] switch Newton(mu=0)->LM habilitado en "
+                             "step=%d\n",
+                             lm_switch_step);
+            }
+
             // ── Extensión de SELECCIÓN DE RAMA (env-gated; OFF por defecto) ─
             //  Con los gates apagados este bloque reproduce la continuación LM
             //  original BIT a BIT: el solver se instancia con
@@ -4887,6 +4912,11 @@ run_reduced_rc_column_continuum_case_result_impl(
                     //    g0 log10(mu0)  g1 grow  g2 drop  g3 stag_max
                     //    g4 predict_maxscale  g5 log10(accept_floor)
                     //    g6 rev_subdiv  g7 rev_subn
+                    //    g8 switch_step (0 = LM puro; k>0 = Newton estandar
+                    //       en los pasos globales < k, LM despues -- dentro
+                    //       de la ventana el rasgo actua cuando k cae en
+                    //       [k0, k0+m); el prefijo compartido corre siempre
+                    //       con la configuracion base)
                     fall_n::RegularizedNewtonConfig c = lmcfg;
                     fall_n::LevenbergMarquardt r = lmreg;
                     r.mu0 = std::pow(10.0, g[0]);
@@ -4897,6 +4927,18 @@ run_reduced_rc_column_continuum_case_result_impl(
                     c.accept_floor = std::pow(10.0, g[5]);
                     const int csubdiv = static_cast<int>(std::lround(g[6]));
                     const int csubn = static_cast<int>(std::lround(g[7]));
+                    const int cswitch =
+                        (g.size() > 8)
+                            ? static_cast<int>(std::lround(g[8]))
+                            : 0;
+                    //  Variante Newton (mu = 0, sin line search) del propio
+                    //  candidato, por la MISMA maquinaria de continuación.
+                    fall_n::RegularizedNewtonConfig cn = c;
+                    cn.mu_max_frac = 0.0;
+                    cn.energy_linesearch = false;
+                    cn.proximal_frac = 0.0;
+                    const fall_n::LevenbergMarquardt rn{
+                        .mu0 = 0.0, .grow = 1.0, .drop = 1.0, .mu_min = 0.0};
                     solver.set_config(c);
                     solver.set_regularization(r);
                     nl.restore_checkpoint(nlchk);
@@ -4904,6 +4946,7 @@ run_reduced_rc_column_continuum_case_result_impl(
                     truncate_records(rec0);
                     double wp = rp_prev_p, wd = rp_prev_drift;
                     int wl = rp_last_dir, ws = rp_since_rev;
+                    bool cur_newton = false;
                     int n_conv = 0;
                     long iters_sum = 0;
                     double peak = 0.0;
@@ -4921,6 +4964,14 @@ run_reduced_rc_column_continuum_case_result_impl(
                             ++ws;
                         const int nsubk =
                             (csubdiv > 1 && ws < csubn) ? csubdiv : 1;
+                        //  Fase del switch dentro de la ventana: intercambio
+                        //  de configuración (Newton mu=0 vs LM del candidato).
+                        const bool use_newton = (k < cswitch);
+                        if (use_newton != cur_newton) {
+                            solver.set_config(use_newton ? cn : c);
+                            solver.set_regularization(use_newton ? rn : r);
+                            cur_newton = use_newton;
+                        }
                         const auto rk = run_step(wp, pk, nsubk);
                         wp = pk;
                         wd = dk;
@@ -4976,11 +5027,21 @@ run_reduced_rc_column_continuum_case_result_impl(
                 };
 
                 namespace alg = fall_n::algorithms;
-                alg::BoundedSearchSpace space(
-                    std::vector<double>{-4.0, 1.5, 0.05, 4.0, 1.0, -7.0, 1.0,
-                                        1.0},
-                    std::vector<double>{0.0, 10.0, 0.90, 30.0, 8.0, -3.0, 6.0,
-                                        5.0});
+                //  KOBATHE_CA_SWITCH_GENE=1 anade el noveno rasgo g8 =
+                //  switch_step (Newton estandar hasta el paso global g8, LM
+                //  despues). El default 8 genes conserva las campanas ca2/ca3
+                //  bit a bit (misma dimension, misma secuencia RNG).
+                const bool ca_switch_gene =
+                    envd("KOBATHE_CA_SWITCH_GENE", 0.0) != 0.0;
+                std::vector<double> ca_lo{-4.0, 1.5, 0.05, 4.0, 1.0, -7.0,
+                                          1.0, 1.0};
+                std::vector<double> ca_hi{0.0, 10.0, 0.90, 30.0, 8.0, -3.0,
+                                          6.0, 5.0};
+                if (ca_switch_gene) {
+                    ca_lo.push_back(0.0);
+                    ca_hi.push_back(60.0);
+                }
+                alg::BoundedSearchSpace space(ca_lo, ca_hi);
                 alg::cultural::CulturalConfig cacfg;
                 cacfg.population_size = static_cast<std::size_t>(ca_pop);
                 cacfg.max_generations = static_cast<std::size_t>(ca_gen);
@@ -5016,7 +5077,9 @@ run_reduced_rc_column_continuum_case_result_impl(
                 //  claves = nombres de las env que lo reproducen.
                 {
                     std::ofstream hist(out_dir + "/ca_history.csv");
-                    hist << "gen,best,mean,g0,g1,g2,g3,g4,g5,g6,g7\n"
+                    hist << (ca_switch_gene
+                                 ? "gen,best,mean,g0,g1,g2,g3,g4,g5,g6,g7,g8\n"
+                                 : "gen,best,mean,g0,g1,g2,g3,g4,g5,g6,g7\n")
                          << std::scientific << std::setprecision(8);
                     for (std::size_t gi = 0;
                          gi < ca_res.best_fitness_history.size(); ++gi) {
@@ -5034,6 +5097,8 @@ run_reduced_rc_column_continuum_case_result_impl(
                 const int b_stag = static_cast<int>(std::lround(bg[3]));
                 const int b_subdiv = static_cast<int>(std::lround(bg[6]));
                 const int b_subn = static_cast<int>(std::lround(bg[7]));
+                const int b_switch =
+                    ca_switch_gene ? static_cast<int>(std::lround(bg[8])) : 0;
                 {
                     std::ofstream js(out_dir + "/ca_best_genome.json");
                     js << std::scientific << std::setprecision(8);
@@ -5047,6 +5112,8 @@ run_reduced_rc_column_continuum_case_result_impl(
                        << "  \"KOBATHE_LM_ACCEPT_FLOOR\": " << b_floor << ",\n"
                        << "  \"KOBATHE_LM_REVSUBDIV\": " << b_subdiv << ",\n"
                        << "  \"KOBATHE_LM_REVSUBN\": " << b_subn << ",\n"
+                       << "  \"KOBATHE_LM_SWITCH_STEP\": " << b_switch
+                       << ",\n"
                        << "  \"fitness\": " << ca_res.best.fitness << ",\n"
                        << "  \"generations\": " << ca_res.generations << ",\n"
                        << "  \"seed\": " << ca_seed << ",\n"
@@ -5061,9 +5128,11 @@ run_reduced_rc_column_continuum_case_result_impl(
                     "KOBATHE_LM_DROP=%.4f KOBATHE_LM_STAG=%d "
                     "KOBATHE_LM_PREDICT_MAXSCALE=%.4f "
                     "KOBATHE_LM_ACCEPT_FLOOR=%.6e KOBATHE_LM_REVSUBDIV=%d "
-                    "KOBATHE_LM_REVSUBN=%d (fitness=%.6f gens=%zu)\n",
+                    "KOBATHE_LM_REVSUBN=%d KOBATHE_LM_SWITCH_STEP=%d "
+                    "(fitness=%.6f gens=%zu)\n",
                     b_mu0, bg[1], bg[2], b_stag, bg[4], b_floor, b_subdiv,
-                    b_subn, ca_res.best.fitness, ca_res.generations);
+                    b_subn, b_switch, ca_res.best.fitness,
+                    ca_res.generations);
 
                 //  Deja el estado en el checkpoint y el solver en su
                 //  configuración base (el replay no continúa el protocolo).
@@ -5097,6 +5166,23 @@ run_reduced_rc_column_continuum_case_result_impl(
                     env_excursion = 0.0;
                 }
                 const bool rev_window = since_rev < rev_subn;
+
+                //  SWITCH: intercambio de configuración en las fronteras de
+                //  fase. El resto del lazo (CSV, envolvente, reversa) es
+                //  idéntico en ambas fases; el solver conserva su estado.
+                if (lm_switch_step > 0) {
+                    if (istep == 0) {
+                        solver.set_config(newton_cfg);
+                        solver.set_regularization(newton_reg);
+                    } else if (istep == lm_switch_step) {
+                        solver.set_config(lmcfg);
+                        solver.set_regularization(lmreg);
+                        std::fprintf(stderr,
+                                     "[lm] switch: Newton(mu=0)->LM en "
+                                     "step=%d (drift=%.2fmm)\n",
+                                     istep, drift_p * 1.0e3);
+                    }
+                }
 
                 solver.clear_spurious_roots();  // raíces locales a ESTE paso
                 int defl_retries = 0;

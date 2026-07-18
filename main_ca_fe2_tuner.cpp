@@ -17,10 +17,18 @@
 //        - w_zz * fraccion_de_flips(dV en tramos de deriva monotona)
 //        - w_it * (iters_staggered_medias / tope)
 //
-//  Rasgos (4):  g0 force-gap-limit  [0.05, 0.60]
+//  Rasgos (7):  g0 force-gap-limit  [0.05, 0.60]
 //               g1 staggered-relax  [0.30, 1.00]
 //               g2 max-staggered-iter [4, 20]   (redondeado)
-//               g3 coupling-start-step [8, 40]  (redondeado)
+//               g3 coupling-start-step [8, 110] (redondeado; rango ampliado
+//                    para permitir el enganche DESPUES de los ciclos
+//                    casi-elasticos -- la cota vieja de 40 estaba activa y
+//                    forzaba el transitorio dentro de los ciclos pequenos)
+//               g4 sub-bias-power   [1.0, 4.0]  (bias longitudinal del RVE,
+//                    costo cero: mismo numero de elementos)
+//               g5 sub-bias-location {fixed-end, loaded-end, both-ends}
+//                    (redondeado de [0,3))
+//               (el tamano de malla NO es rasgo: factorial post-hoc)
 //
 //  Uso:
 //    fall_n_ca_fe2_tuner --exe RUTA --out DIR [--pop 6] [--gen 6]
@@ -57,6 +65,13 @@ namespace {
 //  el promedio del protocolo completo como ocurriria con una media global.
 constexpr double kEnvelopeDriftThreshold = 0.090;   // m (|deriva| >= 90 mm)
 
+//  Umbral de deriva del regimen CASI-ELASTICO para el termino de fidelidad:
+//  en |deriva| <= 60 mm el RVE permanece esencialmente elastico y la
+//  respuesta acoplada debe calcar a la referencia macro-only -- toda
+//  desviacion alli es artefacto del punto fijo (la oscilacion temprana que
+//  hacia inviable al optimo v2), no fisica nueva.
+constexpr double kElasticDriftThreshold = 0.060;    // m (|deriva| <= 60 mm)
+
 struct Options {
     std::string exe;
     std::string out;
@@ -69,6 +84,7 @@ struct Options {
     double wzz = 0.5;
     double wit = 0.1;
     double wenv = 1.0;         // peso del seguimiento de envolvente
+    double wfid = 0.0;         // peso de la fidelidad casi-elastica (0 = off)
     int min_rows = 0;          // filas minimas post-precarga para ser valido
     int threads = 3;
     int stall = 3;
@@ -82,6 +98,9 @@ struct WindowMetrics {
     double zz = 0.0;
     double env = 0.0;          // deficit medio de envolvente [MN] en picos
     int env_steps = 0;         // n de pasos de envolvente evaluados
+    double fid = 0.0;          // desviacion media vs referencia [MN] en
+                               // regimen casi-elastico (|deriva| <= 60 mm)
+    int fid_steps = 0;         // n de pasos de fidelidad evaluados
     bool ok = false;
 };
 
@@ -115,6 +134,7 @@ WindowMetrics parse_csv(const std::string& path,
     std::vector<double> d, v;
     long iters_sum = 0;
     double env_sum = 0.0;
+    double fid_sum = 0.0;
     while (std::getline(f, line)) {
         // step,p,drift_m,base_shear_MN,staggered_iters,macro_converged
         std::istringstream ss(line);
@@ -143,10 +163,21 @@ WindowMetrics parse_csv(const std::string& path,
                                     std::abs(it->second) - std::abs(vcand));
             }
         }
+        //  Fidelidad casi-elastica: desviacion ABSOLUTA (ambos signos)
+        //  respecto de la referencia en los ciclos pequenos, donde el
+        //  acoplado debe calcar al macro.
+        if (std::abs(drift) <= kElasticDriftThreshold) {
+            const auto it = vref.find(step);
+            if (it != vref.end()) {
+                ++m.fid_steps;
+                fid_sum += std::abs(vcand - it->second);
+            }
+        }
     }
     if (m.rows < 5) return m;
     m.iters_mean = static_cast<double>(iters_sum) / m.rows;
     m.env = (m.env_steps > 0) ? env_sum / m.env_steps : 0.0;
+    m.fid = (m.fid_steps > 0) ? fid_sum / m.fid_steps : 0.0;
     int flips = 0, segs = 0;
     for (std::size_t i = 2; i < v.size(); ++i) {
         const double dd = d[i] - d[i - 1], pdd = d[i - 1] - d[i - 2];
@@ -185,6 +216,7 @@ int main(int argc, char** argv) {
         else if (a == "--wzz")       o.wzz = std::stod(next());
         else if (a == "--wit")       o.wit = std::stod(next());
         else if (a == "--wenv")      o.wenv = std::stod(next());
+        else if (a == "--wfid")      o.wfid = std::stod(next());
         else if (a == "--min-rows")  o.min_rows = std::stoi(next());
         else if (a == "--threads")   o.threads = std::stoi(next());
         else if (a == "--stall")     o.stall = std::stoi(next());
@@ -199,7 +231,8 @@ int main(int argc, char** argv) {
     {
         //  Manifiesto de corridas (una fila por eval): rasgos + metricas.
         std::ofstream man(o.out + "/runs/manifest.csv");
-        man << "eval,gap,relax,stag,start,fit,env,peak,zz,conv,rows\n";
+        man << "eval,gap,relax,stag,start,biaspow,biasloc,fit,env,fid,peak,"
+               "zz,conv,rows\n";
     }
 
     //  Referencia fisica para el seguimiento de envolvente (opcional). Si no
@@ -219,8 +252,11 @@ int main(int argc, char** argv) {
 
     namespace alg = fall_n::algorithms;
     alg::BoundedSearchSpace space(
-        std::vector<double>{0.05, 0.30, 4.0, 8.0},
-        std::vector<double>{0.60, 1.00, 20.0, 40.0});
+        std::vector<double>{0.05, 0.30, 4.0,   8.0, 1.0, 0.0},
+        std::vector<double>{0.60, 1.00, 20.0, 110.0, 4.0, 3.0});
+
+    static constexpr const char* kBiasLocNames[3] = {
+        "fixed-end", "loaded-end", "both-ends"};
 
     int n_eval = 0;
     auto objective = [&](std::span<const double> g) -> double {
@@ -228,6 +264,9 @@ int main(int argc, char** argv) {
         const double relax = g[1];
         const int stag = static_cast<int>(std::lround(g[2]));
         const int start = static_cast<int>(std::lround(g[3]));
+        const double bias_pow = g[4];
+        int bias_loc = static_cast<int>(g[5]);   // [0,3) -> {0,1,2}
+        bias_loc = std::clamp(bias_loc, 0, 2);
         ++n_eval;
         const std::string dir = o.out + "/eval";
         std::error_code ec;
@@ -240,8 +279,10 @@ int main(int argc, char** argv) {
             "--kin-transfer faces --local-engine snes --steps-cap {} "
             "--force-gap-limit {:.6f} --staggered-relax {:.6f} "
             "--max-staggered-iter {} --coupling-start-step {} "
+            "--sub-bias-power {:.6f} --sub-bias-location {} "
             "> {}/driver.log 2>&1",
-            o.exe, dir, o.steps_cap, gap, relax, stag, start, dir);
+            o.exe, dir, o.steps_cap, gap, relax, stag, start, bias_pow,
+            kBiasLocNames[bias_loc], dir);
         const int rc = std::system(cmd.c_str());
         const WindowMetrics m =
             parse_csv(dir + "/fe2_column_hysteresis.csv", vref);
@@ -257,7 +298,8 @@ int main(int argc, char** argv) {
                 - std::max(0.0, m.peak / o.vtarget - 1.0)
                 - o.wzz * m.zz
                 - o.wit * (m.iters_mean / std::max(1, stag))
-                - wenv * (m.env / o.vtarget);
+                - wenv * (m.env / o.vtarget)
+                - (vref.empty() ? 0.0 : o.wfid) * (m.fid / o.vtarget);
         }
         //  Persistir la trayectoria de ESTE candidato (el eval/ se sobrescribe
         //  en la siguiente evaluacion): copia a runs/run_NNN.csv y anota los
@@ -271,16 +313,18 @@ int main(int argc, char** argv) {
                 std::filesystem::copy_options::overwrite_existing, cp);
             std::ofstream man(runs + "/manifest.csv", std::ios::app);
             man << std::format(
-                "{},{:.6f},{:.6f},{},{},{:.6f},{:.6f},{:.6f},{:.6f},{},{}\n",
-                n_eval, gap, relax, stag, start, fit, m.env, m.peak, m.zz,
-                m.conv, m.rows);
+                "{},{:.6f},{:.6f},{},{},{:.6f},{},{:.6f},{:.6f},{:.6f},"
+                "{:.6f},{:.6f},{},{}\n",
+                n_eval, gap, relax, stag, start, bias_pow, bias_loc, fit,
+                m.env, m.fid, m.peak, m.zz, m.conv, m.rows);
         }
         std::println(
-            "[ca-fe2] eval={} gap={:.3f} relax={:.3f} stag={} start={} rc={} "
-            "rows={} conv={} peak={:.4f} zz={:.3f} it={:.2f} env={:.4f}({}) "
-            "fit={:.6f}",
-            n_eval, gap, relax, stag, start, rc, m.rows, m.conv, m.peak, m.zz,
-            m.iters_mean, m.env, m.env_steps, fit);
+            "[ca-fe2] eval={} gap={:.3f} relax={:.3f} stag={} start={} "
+            "bias={:.2f}/{} rc={} rows={} conv={} peak={:.4f} zz={:.3f} "
+            "it={:.2f} env={:.4f}({}) fid={:.4f}({}) fit={:.6f}",
+            n_eval, gap, relax, stag, start, bias_pow,
+            kBiasLocNames[bias_loc], rc, m.rows, m.conv, m.peak, m.zz,
+            m.iters_mean, m.env, m.env_steps, m.fid, m.fid_steps, fit);
         std::fflush(stdout);
         return fit;
     };
@@ -300,7 +344,8 @@ int main(int argc, char** argv) {
 
     {
         std::ofstream hist(o.out + "/ca_history.csv");
-        hist << "gen,best,mean,g0_gap,g1_relax,g2_stag,g3_start\n";
+        hist << "gen,best,mean,g0_gap,g1_relax,g2_stag,g3_start,"
+                "g4_biaspow,g5_biasloc\n";
         for (std::size_t i = 0; i < res.best_fitness_history.size(); ++i) {
             hist << i << ',' << res.best_fitness_history[i] << ','
                  << res.mean_fitness_history[i];
@@ -310,24 +355,31 @@ int main(int argc, char** argv) {
     }
     {
         const auto& bg = res.best.traits;
+        const int bloc =
+            std::clamp(static_cast<int>(bg[5]), 0, 2);
         std::ofstream js(o.out + "/ca_best_traits.json");
         js << std::format(
             "{{\n  \"force_gap_limit\": {:.6f},\n  \"staggered_relax\": "
             "{:.6f},\n  \"max_staggered_iter\": {},\n  "
-            "\"coupling_start_step\": {},\n  \"fitness\": {:.8f},\n  "
+            "\"coupling_start_step\": {},\n  \"sub_bias_power\": {:.6f},\n  "
+            "\"sub_bias_location\": \"{}\",\n  \"fitness\": {:.8f},\n  "
             "\"generations\": {},\n  \"seed\": {},\n  \"steps_cap\": {},\n  "
-            "\"vtarget_MN\": {:.6f},\n  \"wenv\": {:.4f},\n  \"wzz\": {:.4f}\n"
+            "\"vtarget_MN\": {:.6f},\n  \"wenv\": {:.4f},\n  "
+            "\"wfid\": {:.4f},\n  \"wzz\": {:.4f}\n"
             "}}\n",
             bg[0], bg[1], static_cast<int>(std::lround(bg[2])),
-            static_cast<int>(std::lround(bg[3])), res.best.fitness,
-            res.generations, o.seed, o.steps_cap, o.vtarget, wenv, o.wzz);
+            static_cast<int>(std::lround(bg[3])), bg[4], kBiasLocNames[bloc],
+            res.best.fitness, res.generations, o.seed, o.steps_cap,
+            o.vtarget, wenv, (vref.empty() ? 0.0 : o.wfid), o.wzz);
     }
     std::println(
         "[ca-fe2] MEJOR fit={:.6f} gap={:.3f} relax={:.3f} stag={} start={} "
-        "({} generaciones, {} evaluaciones)",
+        "bias={:.2f}/{} ({} generaciones, {} evaluaciones)",
         res.best.fitness, res.best.traits[0], res.best.traits[1],
         static_cast<int>(std::lround(res.best.traits[2])),
-        static_cast<int>(std::lround(res.best.traits[3])), res.generations,
-        n_eval);
+        static_cast<int>(std::lround(res.best.traits[3])),
+        res.best.traits[4],
+        kBiasLocNames[std::clamp(static_cast<int>(res.best.traits[5]), 0, 2)],
+        res.generations, n_eval);
     return 0;
 }

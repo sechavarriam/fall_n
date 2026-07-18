@@ -102,6 +102,13 @@ static void recompute_protocol_counts()
 static int SUB_NX = 2;
 static int SUB_NY = 2;
 static int SUB_NZ = 4;
+//  Longitudinal bias of the RVE mesh along the beam axis (sub-nz direction).
+//  Power 1.0 = uniform levels; the location selects which end(s) concentrate
+//  resolution. Infrastructure lives in PrismaticDomainBuilder and is already
+//  forwarded by MultiscaleCoordinator::build_sub_models via SubModelSpec.
+static double SUB_BIAS_POWER = 1.0;
+static LongitudinalBiasLocation SUB_BIAS_LOC =
+    LongitudinalBiasLocation::FixedEnd;
 
 // ── Macro node / element layout ──────────────────────────────────────────────
 //  N_ELEMS two-node elements stacked along z: nodes 0 (base) … N_ELEMS (top).
@@ -251,6 +258,19 @@ void print_usage(const char* prog)
             SUB_NY = std::stoi(next());
         } else if (arg == "--sub-nz") {
             SUB_NZ = std::stoi(next());
+        } else if (arg == "--sub-bias-power") {
+            SUB_BIAS_POWER = std::stod(next());
+        } else if (arg == "--sub-bias-location") {
+            const auto value = next();
+            if (value == "fixed-end")
+                SUB_BIAS_LOC = LongitudinalBiasLocation::FixedEnd;
+            else if (value == "loaded-end")
+                SUB_BIAS_LOC = LongitudinalBiasLocation::LoadedEnd;
+            else if (value == "both-ends")
+                SUB_BIAS_LOC = LongitudinalBiasLocation::BothEnds;
+            else throw std::invalid_argument(
+                "unknown --sub-bias-location: " + value +
+                " (use fixed-end|loaded-end|both-ends)");
         } else if (arg == "--steps-cap") {
             opts.steps_cap = std::stoi(next());
         } else if (arg == "--tangent-reg") {
@@ -497,6 +517,8 @@ static int run_column_fe2(const CliOptions& opts)
             .ny = SUB_NY,
             .nz = SUB_NZ,
             .hex_order = HexOrder::Quadratic,
+            .longitudinal_bias_power = SUB_BIAS_POWER,
+            .longitudinal_bias_location = SUB_BIAS_LOC,
             .rebar_bars = std::move(bars),
             .rebar_E  = STEEL_E,
             .rebar_fy = STEEL_FY,
@@ -507,6 +529,8 @@ static int run_column_fe2(const CliOptions& opts)
             const auto rpt = coordinator.report();
             std::println("  RVE:   {} sub-model(s), {} hex/sub, {} nodes/sub",
                          rpt.num_elements, rpt.total_elements, rpt.total_nodes);
+            std::println("  RVE:   z_bias power={} location={}",
+                         SUB_BIAS_POWER, to_string(SUB_BIAS_LOC));
         }
 
         const std::string evol_dir = opts.output_dir + "/sub_models";
