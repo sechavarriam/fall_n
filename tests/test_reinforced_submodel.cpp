@@ -263,9 +263,18 @@ static void test_vtk_crack_export() {
     sub.rebar_embeddings = std::move(rd.embeddings);
     sub.rebar_diameters  = std::move(rd.bar_diameters);
 
-    // Tension: fix min-z face, pull max-z face with ε ≈ 5×10⁻⁴
-    // This should exceed the cracking threshold (ft/Ee ≈ 5.6×10⁻⁵)
-    constexpr double imposed_disp = 0.0005;  // 0.5 mm over 1 m → ε = 5×10⁻⁴
+    // ECCENTRIC tension: linear profile eps(y) = eps_mean + kappa·y so the
+    // max-y edge exceeds the cracking threshold (ft/Ee ≈ 5.6×10⁻⁵, edge
+    // reaches 1.2×10⁻⁴ = 2.1× onset) while the min-y edge stays elastic.
+    // Cracking then initiates locally and propagates as a stable wedge.
+    // Under the corrected octahedral tau_o (Eq. 2b) a UNIFORM tension tie
+    // of this slenderness snaps back at first cracking (the band releases
+    // more elastic energy than the section absorbs) and no plain-Newton
+    // continuation traverses it at any step size — the eccentric case
+    // preserves the test's purpose (committed cracked GPs + VTK crack
+    // fields) on a stable branch.
+    constexpr double eps_mean = 7.5e-5;
+    constexpr double kappa    = 3.0e-4;   // strain gradient per metre of y
 
     auto face_min = sub.grid.nodes_on_face(PrismFace::MinZ);
     auto face_max = sub.grid.nodes_on_face(PrismFace::MaxZ);
@@ -283,9 +292,23 @@ static void test_vtk_crack_export() {
     for (auto nid : face_min)
         sub.bc_min_z.emplace_back(static_cast<std::size_t>(nid),
             Eigen::Vector3d(0.0, 0.0, 0.0));
-    for (auto nid : face_max)
+
+    // Structured grid ids follow nid = iz·NX·NY + iy·NX + ix, so iy (and
+    // its y) invert in O(1). Rebar end nodes live past the structured
+    // range — the center bar sits at y = 0 and takes eps_mean directly.
+    const int nxn = sub.grid.nodes_x();
+    const int nyn = sub.grid.nodes_y();
+    const PetscInt structured_total = sub.grid.total_nodes();
+    for (auto nid : face_max) {
+        double y = 0.0;
+        if (nid < structured_total) {
+            const int iy = (static_cast<int>(nid) % (nxn * nyn)) / nxn;
+            y = sub.grid.y_coordinate(iy);
+        }
+        const double dz = (eps_mean + kappa * y) * spec.length;
         sub.bc_max_z.emplace_back(static_cast<std::size_t>(nid),
-            Eigen::Vector3d(0.0, 0.0, imposed_disp));
+            Eigen::Vector3d(0.0, 0.0, dz));
+    }
 
     SubModelSolver solver(30.0);
     RebarSteelConfig steel{200000.0, 420.0, 0.01};
