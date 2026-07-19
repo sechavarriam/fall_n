@@ -25,6 +25,9 @@ Testing/
 *.cmake
 *.tcl
 *.msh
+# fixture hermetico de los tests de validacion (generado una vez con
+# `gmsh validation_cube.geo -3 -order 2`; ver encabezado del .geo)
+!tests/validation_cube.msh
 *.exe
 tmp_*.log
 tmp_*.py
