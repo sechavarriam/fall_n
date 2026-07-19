@@ -334,8 +334,11 @@ private:
         // J₂ = (s₁² + s₂² + s₃²) / 2
         const double J2 = 0.5 * (s1*s1 + s2*s2 + s3*s3);
 
-        // τ_o = √(2J₂) / 3
-        const double tau_o = std::sqrt(std::max(2.0 * J2, 0.0)) / 3.0;
+        // τ_o = √(2J₂/3)  (Eq. 2b del paper — cortante OCTAÉDRICO).
+        //  La transcripción pre-2026-07 √(2J₂)/3 subestimaba τ_o en 1/√3,
+        //  debilitando el ablandamiento Gs, σ_id y la envolvente de
+        //  fisuración frente a las constantes del Apéndice A (cap. 107).
+        const double tau_o = std::sqrt(std::max(2.0 * J2 / 3.0, 0.0));
 
         // Lode angle: cos(3θ) = (3√3/2) · J₃ / J₂^(3/2)
         const double J3 = s1 * s2 * s3;

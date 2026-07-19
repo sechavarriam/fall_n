@@ -270,8 +270,11 @@ private:
         // J₂ = (s1² + s2² − s1·s2) / 3  for plane stress with s3=0
         const double J2 = (s1 * s1 + s2 * s2 - s1 * s2) / 3.0;
 
-        // τ_o = √(2J₂) / 3  (paper's Eq. 2b)
-        const double tau_o = std::sqrt(std::max(2.0 * J2, 0.0)) / 3.0;
+        // τ_o = √(2J₂/3)  (paper's Eq. 2b — the OCTAHEDRAL shear stress).
+        //  The pre-2026-07 transcription √(2J₂)/3 understated τ_o by 1/√3,
+        //  which weakened the Gs softening, σ_id and the cracking envelope
+        //  against the paper's Appendix-A constants (see bitácora cap. 107).
+        const double tau_o = std::sqrt(std::max(2.0 * J2 / 3.0, 0.0));
 
         return {sigma_o, tau_o};
     }
