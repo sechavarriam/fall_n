@@ -25,7 +25,6 @@
 //
 // ============================================================================
 
-#include "../numerics/Tensor.hh"
 #include "../continuum/ConstitutiveKinematics.hh"
 #include "ConstitutiveIntegrator.hh"
 #include "InternalFieldSnapshot.hh"

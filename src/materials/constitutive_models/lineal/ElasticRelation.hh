@@ -11,7 +11,6 @@
 #include "../../ConstitutiveState.hh"
 #include "../../ConstitutiveRelation.hh"
 
-#include "../../../numerics/linear_algebra/Matrix.hh"
 #include "../../../utils/index.hh"
 
 

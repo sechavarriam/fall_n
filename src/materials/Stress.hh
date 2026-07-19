@@ -1,13 +1,9 @@
 #ifndef FALL_N_CAUCHY_STRESS
 #define FALL_N_CAUCHY_STRESS
 
-//#include "../numerics/Tensor.hh"
-
 # include <array>
 # include <concepts>
 # include <span>
-
-# include "../numerics/linear_algebra/Vector.hh"
 
 # include "VoigtVector.hh"
 
