@@ -168,34 +168,7 @@ public:
         writer->SetInputData(vtk_grid);
         writer->SetDataModeToAscii(); // Remove to keep binary 
         writer->Update();             // Remove to keep binary
-        writer->Write(); 
-
-
-
-        //vtkNew<vtkXMLUnstructuredGridReader> reader;
-        //reader->SetFileName("/home/sechavarriam/MyLibs/fall_n/data/output/structure.vtu");
-        //reader->Update();
-        //
-        //vtkNew<vtkDataSetMapper> mapper;
-        //mapper->SetInputConnection(reader->GetOutputPort());
-//
-        //vtkNew<vtkActor> actor;
-        //actor->SetMapper(mapper);
-        //actor->GetProperty()->SetColor(1.0, 0.0, 0.0);
-//
-        //vtkNew<vtkRenderer> renderer;
-        //vtkNew<vtkRenderWindow> renderWindow;
-        //renderWindow->AddRenderer(renderer);
-        //renderWindow->SetWindowName("WriteVTU");
-//
-        //vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
-        //renderWindowInteractor->SetRenderWindow(renderWindow);
-//
-        //renderer->AddActor(actor);
-        //renderer->SetBackground(0.0, 0.0, 0.0);
-//
-        //renderWindow->Render();
-        //renderWindowInteractor->Start();
+        writer->Write();
     }
 
 public:
