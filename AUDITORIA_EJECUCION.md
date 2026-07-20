@@ -1,7 +1,10 @@
 # Ejecución de la auditoría de publicación — estado por ítem
 
-Actualizado: 2026-07-19. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
+Actualizado: 2026-07-20. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
 Rama de trabajo `feature/algorithms-metaheuristics`.
+
+**Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`, corrida
+final sobre `89234c7`; ~100 min). Sin push: todos los commits son locales.
 
 ## Bloque 1 — P0 no destructivos
 
@@ -22,11 +25,136 @@ Rama de trabajo `feature/algorithms-metaheuristics`.
 
 | Ítem | Estado | Nota |
 |---|---|---|
-| Namespaces núcleo → `fall_n` | pendiente | |
-| Dependencia invertida reconstruction→validation | pendiente | análisis y propuesta, sin movimientos grandes |
-| ~17 archivos muertos | pendiente | verificación uno a uno antes de proponer |
-| Mutación global de opciones PETSc | pendiente | |
+| Namespaces núcleo → `fall_n` | **HECHO** | `e1f0937`: NLAnalysis, LinearAnalysis, DynamicAnalysis, IncrementalControl y Benchmark envueltos en `fall_n`, ~200 sitios calificados en 50 archivos. Suite completa 145/145 en verde sobre ese árbol. De paso `48e2051` corrige una rotura preexistente del tuner CA (rename `genome`→`traits` de `bdae433`). |
+| Dependencia invertida reconstruction→validation | **HECHO** | `89234c7`: `LocalModelVTKSnapshot.hh` nuevo en reconstruction; el adapter de validation conserva el nombre histórico como alias; el evolver ya no incluye validation. |
+| ~17 archivos muertos | **VERIFICADO** | los 17 con cero referencias (grep sobre src/tests/*.cpp/CMake/scripts); includes vestigiales retirados en `d5d1520`; `git rm` preparado abajo, pendiente de aprobación |
+| Mutación global de opciones PETSc | **HECHO** | `89234c7`. En `SubModelSolver.hh` (2 sitios) las opciones globales eran letra muerta para el solve local (el perfil tipado de `solve_incremental` las pisaba en cada intento) — se eliminaron sin cambio de comportamiento. En `NonlinearSubModelEvolver.hh` se reemplazaron por configuración directa del SNES propio tras `SNESSetFromOptions`, preservando la precedencia previa. Quedan fuera de alcance y documentadas: las opciones prefijadas de sub-solver en `NonlinearSolvePolicy.hh` (namespaced por prefijo del KSP, activas solo bajo perfil explícito) y `utils/SolverConfig.hh` (utilidad opt-in usada solo por `test_benchmark`). |
 | Plan de corte del monolito (5.4k líneas) | pendiente | solo plan, sin ejecutar |
+
+### Archivos muertos — verificación (2026-07-19)
+
+Los 17 candidatos de la tabla original tienen **cero referencias** en
+`src/`, `tests/`, los `main_*.cpp`, `CMakeLists.txt` y `scripts/`. Los dos
+falsos positivos del grep se descartaron a mano (`ModelBuilder` casaba con
+`StructuralModelBuilder.hh`, que es otro archivo y sí vive; `Section.hh`
+colisiona con el módulo `section/`, por eso se buscó la ruta
+`elements/Section.hh` completa). Los tres includes vestigiales que aún los
+mencionaban se retiraron en `d5d1520` (suite de materiales 6/6 verde).
+
+Grupo A — basura evidente (cascarón comentado, vacío, o con banner
+DEPRECATED/`Deprecated*` propio):
+
+```
+src/graph/AdjacencyMatrix.hh                                  (0 líneas de código)
+src/elements/element_geometry/BeamColumn_Euler.hh             (clase 100% comentada)
+src/post-processing/VTK/VTKdataContainer.hh                   (banner DEPRECATED)
+src/post-processing/VTK/VTKwriter.hh                          (vacío)
+src/post-processing/VTK/VTKheaders.hh                         (solo includes; único usuario: VTKdataContainer)
+src/numerics/Tensor.hh                                        (clase comentada, helpers sin uso)
+src/numerics/linear_algebra/Vector.hh                         (clases Deprecated*, "to be removed")
+src/numerics/linear_algebra/Matrix.hh                         (ídem)
+src/numerics/linear_algebra/LinalgOperations.hh               (opera solo sobre los Deprecated*)
+src/materials/update_strategy/non-lineal/FullImplicitBackwardEuler.hh  (vacío)
+```
+
+Grupo B — huérfanos con código real (cero referencias, pero contenido no
+trivial que el autor podría querer conservar):
+
+```
+src/graph/AdjacencyList.hh
+src/elements/NodalSection.hh
+src/elements/Section.hh
+src/geometry/Simplex.hh
+src/geometry/geometry.hh
+src/model/DoF.hh
+src/model/ModelBuilder.hh
+src/reconstruction/FiberToTrussMapper.hh
+src/utils/GeneralConcepts.hh
+src/utils/unique_void_ptr.hh
+```
+
+Comando preparado (un solo commit dedicado, tras aprobación):
+
+```powershell
+git rm src/graph/AdjacencyMatrix.hh src/graph/AdjacencyList.hh `
+  src/elements/element_geometry/BeamColumn_Euler.hh `
+  src/elements/NodalSection.hh src/elements/Section.hh `
+  src/geometry/Simplex.hh src/geometry/geometry.hh `
+  src/model/DoF.hh src/model/ModelBuilder.hh `
+  "src/post-processing/VTK/VTKdataContainer.hh" `
+  "src/post-processing/VTK/VTKwriter.hh" `
+  "src/post-processing/VTK/VTKheaders.hh" `
+  src/numerics/Tensor.hh `
+  src/numerics/linear_algebra/Vector.hh `
+  src/numerics/linear_algebra/Matrix.hh `
+  src/numerics/linear_algebra/LinalgOperations.hh `
+  "src/materials/update_strategy/non-lineal/FullImplicitBackwardEuler.hh"
+git commit -m "src: elimina 17 archivos muertos verificados (cero referencias)"
+```
+
+Nota: `doc/ch82_cyclic_validation.tex.old` (backup trackeado) también es
+candidato, pero vive en `doc/` — intocado por regla de esta sesión.
+
+### Dependencia invertida reconstruction→validation — análisis
+
+El único punto de contacto es `NonlinearSubModelEvolver.hh:88`, que incluye
+`validation/ReducedRCManagedXfemLocalModelAdapter.hh` (2 274 líneas) solo
+para nombrar el struct de valor `ReducedRCManagedXfemLocalVTKSnapshot`
+(retorno del contrato duck-typed `write_vtk_snapshot`, compartido por los
+cuatro modelos locales: el adapter XFEM, `ManagedXfemSubscaleEvolver`,
+`SeismicFE2LocalModelVariant` y el evolver de reconstruction). El evolver
+no usa ningún otro símbolo del header — sus demás dependencias ya son
+propias.
+
+Propuesta (mínima, sin mover los modelos locales de validation):
+
+1. Nuevo header `src/reconstruction/LocalModelVTKSnapshot.hh` con el struct
+   renombrado `LocalModelVTKSnapshot` (mismos campos), en `fall_n`.
+2. El adapter de validation lo incluye y conserva
+   `using ReducedRCManagedXfemLocalVTKSnapshot = LocalModelVTKSnapshot;`
+   para no tocar los ~10 sitios de uso existentes.
+3. El evolver cambia el include de validation por el header nuevo y usa el
+   nombre neutro. Con eso `reconstruction` deja de depender de
+   `validation` por completo (dirección correcta: validation→reconstruction).
+
+### Plan de corte del monolito `ReducedRCColumnContinuumBaseline.cpp` (5 720 líneas) — SOLO PLAN
+
+Estructura actual: helpers en namespace anónimo (57–2892: trazas de
+control, sumarios de refuerzo, precarga axial, sondas cinemáticas,
+snapshots VTK, escritores CSV, fábricas de materiales, extractores de
+registros), `describe_*` públicos (2895–2979), el gigante
+`run_reduced_rc_column_continuum_case_result_impl` (2980–5670, con las
+ramas env-gated `KOBATHE_DYNAMIC` 3911–4360, `KOBATHE_ARCLEN` 4370–4590,
+`KOBATHE_LMNEWTON`+TAO+CA 4593–5430 y el camino cuasi-estático por defecto)
+y wrappers públicos (5672–5720).
+
+Orden de extracción propuesto (cada paso: compilar
+`fall_n_reduced_rc_column_continuum_baseline_test` + benchmark, correr el
+test, y un smoke corto de la rama tocada):
+
+1. **IO** → `ReducedRCColumnContinuumIO.{hh,cpp}`: escritores CSV
+   (1886–2173), snapshots VTK (1462–1885) y extractores de registros
+   (2610–2891). Sumideros puros; riesgo bajo. Requiere mover los structs de
+   registro a un header de detalle compartido.
+2. **Materiales** → `ReducedRCColumnContinuumMaterials.{hh,cpp}`: perfiles
+   de concreto, fábricas Ko-Bathe/rebar, descriptores de confinamiento
+   (605–621, 2174–2609) + los `describe_*` públicos.
+3. **Cinemática** → header propio para `AffineTopCapDofTie` y los ties de
+   tapa (candidato a `analysis/` como utilidad reusable de amarres DOF).
+4. **Un TU por variante de solver**, extrayendo cada rama env-gated con un
+   `ContinuumSolveContext` (struct de referencias: nl, model, spec, cfg,
+   couplings, ties, recorders, out_dir):
+   `...DynamicRelaxation.cpp`, `...ArcLength.cpp`, `...LMContinuation.cpp`
+   (incluye el híbrido TAO), `...CATuner.cpp` (replay CA; depende del TU de
+   LM). El orquestador queda delgado: parsing del spec, construcción del
+   modelo, acoples, scheme de control, camino cuasi-estático y postproceso.
+
+Riesgos y por qué NO se ejecuta ahora: las ramas capturan ~30 locales por
+referencia (el `ContinuumSolveContext` es mecánico pero ancho), la rama CA
+reenvía el estado interno del solver LM (checkpoint/restore), y el archivo
+sustenta campañas de tesis ACTIVAS. Condición de entrada sugerida: harness
+de golden-run (correr el smoke de 50 mm antes/después y diff byte a byte de
+los CSV) y ventana sin campañas en vuelo.
 
 ## Decisiones que quedan del autor
 
