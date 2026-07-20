@@ -145,7 +145,7 @@ static void test_1_free_vibration_period() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     BoundaryConditionSet<DIM> bcs;
     for (auto nid : X1_NODES)
@@ -224,7 +224,7 @@ static void test_2_amplitude_conservation() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     constexpr double u0 = 0.001;
     BoundaryConditionSet<DIM> bcs;
@@ -277,7 +277,7 @@ static void test_3_rayleigh_damping_decay() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     constexpr double u0 = 0.001;
     BoundaryConditionSet<DIM> bcs;
@@ -378,7 +378,7 @@ static void test_5_ground_motion_seismic() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     // Sinusoidal ground acceleration pulse in x-direction
     double A0 = 0.5;
@@ -447,7 +447,7 @@ static void test_6_multidirectional_ground_motion() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     double A_x = 0.3, A_z = 0.5;
     double omega_x = 20.0, omega_z = 35.0;
@@ -512,7 +512,7 @@ static void test_7_forced_vibration_csv() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     double F0 = 0.01;
     double omega_f = 0.5 * omega_analytical;
@@ -585,7 +585,7 @@ static void test_8_j2_plasticity_dynamic() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     constexpr double u0_large = 0.01;
     BoundaryConditionSet<DIM> bcs;
@@ -637,7 +637,7 @@ static void test_9_spectral_radius_comparison() {
         M.setup();
         M.set_density(rho);
 
-        DynamicAnalysis<Policy> dyn(&M);
+        fall_n::DynamicAnalysis<Policy> dyn(&M);
         TSAlpha2SetRadius(dyn.get_ts(), rho_inf);
 
         constexpr double u0 = 0.001;

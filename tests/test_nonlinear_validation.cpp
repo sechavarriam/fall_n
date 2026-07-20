@@ -246,7 +246,7 @@ static void test_1_small_strain_reference() {
 
     // Use SNES (not LinearAnalysis) to validate the nonlinear pipeline
     // with a linear problem.  Should converge in 1 iteration.
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
     bool converged = nl.solve();
 
     check(converged, "SNES converged");
@@ -299,7 +299,7 @@ static void test_2_tl_svk_vs_small_strain() {
     M.setup();
     apply_z_traction(M, small_load);  // same load as Test 1
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     bool converged = nl.solve();
 
     check(converged, "SNES converged (TL+SVK)");
@@ -343,7 +343,7 @@ static void test_3_tl_nh_vs_small_strain() {
     M.setup();
     apply_z_traction(M, small_load);  // same load as Tests 1-2
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     bool converged = nl.solve();
 
     check(converged, "SNES converged (TL+NH)");
@@ -393,7 +393,7 @@ static void test_4_ul_svk_equals_tl() {
         M.setup();
         apply_z_traction(M, small_load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
         nl.solve();
         tl_sol = extract_solution(M);
     }
@@ -413,7 +413,7 @@ static void test_4_ul_svk_equals_tl() {
         M.setup();
         apply_z_traction(M, small_load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
         nl.solve();
 
         check(nl.converged_reason() > 0, "SNES converged (UL+SVK)");
@@ -457,7 +457,7 @@ static void test_5_ul_nh_equals_tl() {
         M.setup();
         apply_z_traction(M, small_load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
         nl.solve();
         tl_sol = extract_solution(M);
     }
@@ -477,7 +477,7 @@ static void test_5_ul_nh_equals_tl() {
         M.setup();
         apply_z_traction(M, small_load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
         nl.solve();
 
         check(nl.converged_reason() > 0, "SNES converged (UL+NH)");
@@ -523,7 +523,7 @@ static void test_6_tl_svk_incremental() {
     M.setup();
     apply_z_traction(M, large_load);  // large load for finite deformation
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     bool ok = nl.solve_incremental(5);  // 5 steps, auto-bisection
 
     check(ok, "All load steps converged (TL+SVK, 5 steps)");
@@ -569,7 +569,7 @@ static void test_7_tl_nh_incremental() {
     M.setup();
     apply_z_traction(M, large_load);  // same large load as Test 6
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     bool ok = nl.solve_incremental(10, 4);  // 10 steps, 4 bisection levels
 
     check(ok, "All load steps converged (TL+NH, 10 steps)");
@@ -624,7 +624,7 @@ static void test_8_j2_plasticity() {
         M.setup();
         apply_z_traction(M, load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
         bool ok = nl.solve_incremental(20, 4);
 
         check(ok, "J2 plasticity converged (20 load steps)");
@@ -648,7 +648,7 @@ static void test_8_j2_plasticity() {
         M.setup();
         apply_z_traction(M, load);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
         nl.solve();
 
         elastic_uz = max_z_displacement(M);
@@ -699,7 +699,7 @@ static void test_9_bisection_recovery() {
     M.setup();
     apply_z_traction(M, 100.0);  // very large load
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     // Only 2 steps → Δλ = 0.5 each → likely needs bisection
     bool ok = nl.solve_incremental(2, 5);  // 5 bisection levels
 
@@ -825,7 +825,7 @@ int main(int argc, char** args) {
             M.setup();
             apply_z_traction(M, small_load);
 
-            NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+            fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
             nl.solve();
 
             // update_elements_state is called inside solve; call again for safety

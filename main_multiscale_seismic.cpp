@@ -137,7 +137,7 @@ static constexpr int EVOL_PRINT_INTERVAL = 500;   // progress every 500 steps (=
 static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
-using DynSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
+using DynSolver    = fall_n::DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 
 // Concrete beam element type stored inside StructuralElement
 using BeamElemT = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;

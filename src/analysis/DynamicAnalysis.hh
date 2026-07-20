@@ -96,6 +96,8 @@
 #include "SteppableSolver.hh"
 
 
+namespace fall_n {
+
 template <typename MaterialPolicy,
           typename KinematicPolicy = continuum::SmallStrain,
           std::size_t ndofs = MaterialPolicy::dim,
@@ -1358,5 +1360,7 @@ public:
     DynamicAnalysis& operator=(DynamicAnalysis&&)      = default;
 };
 
+
+} // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_DYNAMIC_ANALYSIS_HH

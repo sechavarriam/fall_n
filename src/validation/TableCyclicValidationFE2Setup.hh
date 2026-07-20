@@ -8,7 +8,7 @@
 
 namespace fall_n::table_cyclic_validation {
 
-using ValidationNlAnalysis = NonlinearAnalysis<
+using ValidationNlAnalysis = fall_n::NonlinearAnalysis<
     TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using ValidationMacroBridge = BeamMacroBridge<StructModel, BeamElemT2>;
 using ValidationMicroExecutor = SerialExecutor;

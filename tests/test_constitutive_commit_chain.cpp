@@ -248,7 +248,7 @@ void test_snes_single_step_commit() {
     check(init_norm < 1e-12, "initial state is zero");
 
     // Solve
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool converged = nl.solve();
 
     check(converged, "SNES converged");
@@ -287,7 +287,7 @@ void test_incremental_commit() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool all_ok = nl.solve_incremental(3);
     check(all_ok, "incremental solve converged (3 steps)");
 

@@ -347,7 +347,7 @@ public:
         PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
         PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-        NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF> nl{&M};
+        fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF> nl{&M};
 
         // Save a snapshot of the full imposed displacement vector
         Vec u_full;
@@ -357,7 +357,7 @@ public:
         constexpr int NUM_STEPS    = 20;
         constexpr int MAX_BISECT   = 8;
 
-        auto displacement_scheme = make_control(
+        auto displacement_scheme = fall_n::make_control(
             [&u_full](double p, Vec /*f_full*/, Vec f_ext, auto* model) {
                 VecSet(f_ext, 0.0);                        // no body forces
                 VecCopy(u_full, model->imposed_solution()); // restore full BCs
@@ -522,7 +522,7 @@ public:
         PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
         PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-        NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF,
+        fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF,
                           MultiElementPolicy> nl{&M};
 
         if (!sub.rebar_embeddings.empty()) {
@@ -539,7 +539,7 @@ public:
         constexpr int NUM_STEPS  = 20;
         constexpr int MAX_BISECT = 8;
 
-        auto displacement_scheme = make_control(
+        auto displacement_scheme = fall_n::make_control(
             [&u_full](double p, Vec /*f_full*/, Vec f_ext, auto* model) {
                 VecSet(f_ext, 0.0);
                 VecCopy(u_full, model->imposed_solution());

@@ -33,6 +33,8 @@
 //
 // =============================================================================
 
+namespace fall_n {
+
 template <typename S, typename ModelT>
 concept IncrementalControlPolicy = requires(
     S& scheme, double p, Vec f_full, Vec f_ext, ModelT* model)
@@ -409,5 +411,7 @@ struct ArcLengthControl {
         : delta_ell{dell}, psi{psi_val}, variant{var} {}
 };
 
+
+} // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_INCREMENTAL_CONTROL_HH

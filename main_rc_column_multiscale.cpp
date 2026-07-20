@@ -124,7 +124,7 @@ using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using BeamElemT    = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;
 using ShellElemT   = MITC16Shell<>;
-using MacroSolver  = NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain,
+using MacroSolver  = fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain,
                                        NDOF, StructPolicy>;
 using MacroBridge  = BeamMacroBridge<StructModel, BeamElemT>;
 using ColumnFE2Analysis = MultiscaleAnalysis<
@@ -700,7 +700,7 @@ static int run_column_fe2(const CliOptions& opts)
     // ─────────────────────────────────────────────────────────────────────
     //  5. Incremental displacement control: preload ramp, then cyclic drift
     // ─────────────────────────────────────────────────────────────────────
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [](double p, Vec f_full, Vec f_ext, StructModel* m) {
             const double p0 = preload_completion_p();
             if (p <= p0) {

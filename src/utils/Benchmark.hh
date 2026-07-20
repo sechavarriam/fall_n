@@ -80,6 +80,8 @@
 //  TimingRecord — A single measurement
 // =============================================================================
 
+namespace fall_n {
+
 struct TimingRecord {
     double elapsed_s{0.0};     // wall-clock seconds
     int    call_count{0};      // number of times measured
@@ -457,5 +459,7 @@ public:
 
 } // namespace perf
 
+
+} // namespace fall_n
 
 #endif // FN_BENCHMARK_HH

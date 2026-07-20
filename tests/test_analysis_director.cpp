@@ -73,9 +73,9 @@ static void create_unit_cube(Domain<DIM>& D) {
 }
 
 using Policy = ThreeDimensionalMaterial;
-using NLA    = NonlinearAnalysis<Policy, continuum::SmallStrain>;
+using NLA    = fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain>;
 using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
-using DynA   = DynamicAnalysis<Policy>;
+using DynA   = fall_n::DynamicAnalysis<Policy>;
 
 /// NL fixture: elastic unit cube, x=0 clamped, x=1 loaded.
 struct NLFixture {

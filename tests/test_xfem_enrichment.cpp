@@ -1101,7 +1101,7 @@ int main(int argc, char** argv)
         for (std::size_t node : {0ul, 1ul, 2ul, 3ul}) {
             model.fix_node(node);
         }
-        std::vector<DisplacementControl::PrescribedDOF> controls;
+        std::vector<fall_n::DisplacementControl::PrescribedDOF> controls;
         for (std::size_t node : {4ul, 5ul, 6ul, 7ul}) {
             model.constrain_dof(node, 0, 0.0);
             model.constrain_dof(node, 1, 0.0);
@@ -1110,7 +1110,7 @@ int main(int argc, char** argv)
         }
         model.setup();
 
-        NonlinearAnalysis<
+        fall_n::NonlinearAnalysis<
             ThreeDimensionalMaterial,
             continuum::SmallStrain,
             3,
@@ -1118,7 +1118,7 @@ int main(int argc, char** argv)
         const bool ok = analysis.solve_incremental(
             2,
             2,
-            DisplacementControl{std::move(controls)});
+            fall_n::DisplacementControl{std::move(controls)});
         check(ok,
               "global XFEM solid participates in a PETSc/SNES displacement-control solve");
     }

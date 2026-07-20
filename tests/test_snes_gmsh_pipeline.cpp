@@ -181,7 +181,7 @@ static void test_1_gmsh_small_strain_linear() {
     M.setup();
     apply_z_traction(M, 5.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
     nl.solve();
 
     auto reason = nl.converged_reason();
@@ -220,7 +220,7 @@ static void test_2_gmsh_tl_svk() {
     M.setup();
     apply_z_traction(M, 5.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve();
 
     auto reason = nl.converged_reason();
@@ -253,7 +253,7 @@ static void test_3_gmsh_tl_svk_incremental() {
     M.setup();
     apply_z_traction(M, 50.0);  // 10× larger load → geometric NL matters
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve_incremental(5);
 
     auto reason = nl.converged_reason();
@@ -283,7 +283,7 @@ static void test_4_gmsh_tl_nh_incremental() {
     M.setup();
     apply_z_traction(M, 50.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve_incremental(5);
 
     auto reason = nl.converged_reason();
@@ -320,7 +320,7 @@ static void test_5_gmsh_ul_svk() {
         M.setup();
         apply_z_traction(M, 5.0);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
         nl.solve();
         tl_sol = extract_solution(M);
     }
@@ -340,7 +340,7 @@ static void test_5_gmsh_ul_svk() {
         M.setup();
         apply_z_traction(M, 5.0);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
         nl.solve();
 
         check(nl.converged_reason() > 0, "SNES converged (UL)");
@@ -371,7 +371,7 @@ static void test_6_gmsh_ul_nh_incremental() {
     M.setup();
     apply_z_traction(M, 50.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::UpdatedLagrangian> nl{&M};
     nl.solve_incremental(5);
 
     auto reason = nl.converged_reason();
@@ -409,7 +409,7 @@ static void test_7_gmsh_j2_small_strain() {
     //   constraint from clamped face (von Mises equivalent reduced)
     apply_z_traction(M, 100.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
     nl.solve_incremental(20);
 
     auto reason = nl.converged_reason();
@@ -447,7 +447,7 @@ static void test_8_gmsh_tl_j2_incremental() {
     M.setup();
     apply_z_traction(M, 100.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve_incremental(20);
 
     auto reason = nl.converged_reason();
@@ -485,7 +485,7 @@ static void test_9_elastic_vs_plastic() {
         M.setup();
         apply_z_traction(M, 100.0);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
         nl.solve();
         max_uz_elastic = max_z_displacement(M);
     }
@@ -504,7 +504,7 @@ static void test_9_elastic_vs_plastic() {
         M.setup();
         apply_z_traction(M, 100.0);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
         nl.solve_incremental(20);
         check(nl.converged_reason() > 0, "Plastic solve converged");
         max_uz_plastic = max_z_displacement(M);

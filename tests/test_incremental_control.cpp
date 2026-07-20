@@ -82,7 +82,7 @@ void test_load_control_default() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     // Default overload — should behave exactly as before
     bool ok = nl.solve_incremental(3);
@@ -114,9 +114,9 @@ void test_load_control_explicit() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
-    bool ok = nl.solve_incremental(3, 4, LoadControl{});
+    bool ok = nl.solve_incremental(3, 4, fall_n::LoadControl{});
     check(ok, "solve_incremental(3, 4, LoadControl{}) converged");
 
     PetscReal norm;
@@ -149,7 +149,7 @@ void test_displacement_control_single() {
     M.setup();
 
     // No external forces — pure displacement control
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     const double target_disp = 0.005;
     std::vector<double> imposed_vs_total_state_mismatch;
@@ -164,7 +164,7 @@ void test_displacement_control_single() {
         check(std::abs(total_state - expected) < 1e-10,
               "step callback: total state reflects imposed displacement");
     });
-    bool ok = nl.solve_incremental(5, 4, DisplacementControl{1, 0, target_disp});
+    bool ok = nl.solve_incremental(5, 4, fall_n::DisplacementControl{1, 0, target_disp});
     check(ok, "DisplacementControl single-DOF converged");
 
     // Verify the state vector: node 1 should have ~target_disp in x
@@ -222,12 +222,12 @@ void test_displacement_control_multi() {
     M.setup();
 
     const double target = 0.003;
-    DisplacementControl dc{
+    fall_n::DisplacementControl dc{
         {{1, 0, target}, {3, 0, target}},
         0.0  // no proportional load
     };
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool ok = nl.solve_incremental(4, 4, dc);
     check(ok, "DisplacementControl multi-DOF converged");
 
@@ -330,10 +330,10 @@ void test_custom_control() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     // Custom: sqrt ramping of the load
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [](double p, Vec f_full, Vec f_ext, auto* /*model*/) {
             VecCopy(f_full, f_ext);
             VecScale(f_ext, std::sqrt(p));
@@ -405,8 +405,8 @@ void test_trial_residual_tangent_evaluation_api() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
-    nl.begin_incremental(4, 2, LoadControl{});
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    nl.begin_incremental(4, 2, fall_n::LoadControl{});
 
     auto trial_u = nl.clone_solution_vector();
     auto residual = nl.create_global_vector();
@@ -439,17 +439,17 @@ void test_concept_satisfaction() {
     using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
 
     // LoadControl
-    static_assert(IncrementalControlPolicy<LoadControl, ModelT>,
+    static_assert(fall_n::IncrementalControlPolicy<fall_n::LoadControl, ModelT>,
                   "LoadControl must satisfy IncrementalControlPolicy");
 
     // DisplacementControl
-    static_assert(IncrementalControlPolicy<DisplacementControl, ModelT>,
+    static_assert(fall_n::IncrementalControlPolicy<fall_n::DisplacementControl, ModelT>,
                   "DisplacementControl must satisfy IncrementalControlPolicy");
 
     // CustomControl with lambda
     auto lam = [](double, Vec, Vec, auto*){};
-    using CC = CustomControl<decltype(lam)>;
-    static_assert(IncrementalControlPolicy<CC, ModelT>,
+    using CC = fall_n::CustomControl<decltype(lam)>;
+    static_assert(fall_n::IncrementalControlPolicy<CC, ModelT>,
                   "CustomControl<lambda> must satisfy IncrementalControlPolicy");
 
     check(true, "LoadControl satisfies IncrementalControlPolicy");

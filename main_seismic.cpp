@@ -118,7 +118,7 @@ static constexpr int    DAMAGE_INTERVAL   = 10;      // evaluate damage every 10
 // ── Type aliases ──────────────────────────────────────────────────────────────
 using StructuralPolicy = SingleElementPolicy<StructuralElement>;
 using StructuralModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
-using DynamicSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
+using DynamicSolver    = fall_n::DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>;
 
 // ── Formulation selection ─────────────────────────────────────────────────────
 enum class Formulation { LinearElastic, NonlinearSmallStrain, Corotational };

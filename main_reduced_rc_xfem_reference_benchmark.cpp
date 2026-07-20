@@ -3344,7 +3344,7 @@ template <typename GlobalXFEMKinematicPolicy>
         const int steps = static_cast<int>(
             protocol.size() > 1 ? protocol.size() - 1 : 1);
 
-        using XFEMAnalysis = NonlinearAnalysis<
+        using XFEMAnalysis = fall_n::NonlinearAnalysis<
             ThreeDimensionalMaterial,
             GlobalXFEMKinematicPolicy,
             3,
@@ -3643,7 +3643,7 @@ template <typename GlobalXFEMKinematicPolicy>
                 });
         }
 
-        auto scheme = make_control(
+        auto scheme = fall_n::make_control(
             [&top_nodes, &top_rebar_nodes, &protocol](
                 double p,
                 Vec f_full,

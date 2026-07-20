@@ -64,7 +64,7 @@ std::vector<StepRecord> run_case0(const std::string& out_dir,
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+    fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                       BeamPolicy>
         nl{&model};
 
@@ -86,7 +86,7 @@ std::vector<StepRecord> run_case0(const std::string& out_dir,
         }
     });
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [top_node, &cfg](double p, Vec /*f_full*/, Vec f_ext, BeamModel* m) {
             VecSet(f_ext, 0.0);
             m->update_imposed_value(top_node, 0, cfg.displacement(p));
@@ -167,7 +167,7 @@ static std::vector<StepRecord> run_case1_impl(
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+    fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                       BeamPolicy>
         nl{&model};
 
@@ -189,7 +189,7 @@ static std::vector<StepRecord> run_case1_impl(
         }
     });
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [top_node, &cfg](double p, Vec /*f_full*/, Vec f_ext, BeamModel* m) {
             VecSet(f_ext, 0.0);
             m->update_imposed_value(top_node, 0, cfg.displacement(p));
@@ -349,7 +349,7 @@ static std::vector<StepRecord> run_case2_impl(
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
                       MultiElementPolicy>
         nl{&model};
 
@@ -422,7 +422,7 @@ static std::vector<StepRecord> run_case2_impl(
     }
 
     auto scheme =
-        make_control([&top_nodes, &cfg](double p, Vec /*f_full*/, Vec f_ext,
+        fall_n::make_control([&top_nodes, &cfg](double p, Vec /*f_full*/, Vec f_ext,
                                         MixedModel* m) {
             VecSet(f_ext, 0.0);
             const double d = cfg.displacement(p);
@@ -547,7 +547,7 @@ std::vector<StepRecord> run_case3(const std::string& out_dir,
     PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type", "lu");
 
-    NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
+    fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF,
                       StructPolicy>
         nl{&model};
     std::filesystem::create_directories(out_dir + "/recorders");
@@ -596,7 +596,7 @@ std::vector<StepRecord> run_case3(const std::string& out_dir,
         }
     });
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [&slab_corners, &cfg](double p, Vec /*f_full*/, Vec f_ext,
                               StructModel* m) {
             VecSet(f_ext, 0.0);

@@ -157,7 +157,7 @@ static constexpr int MAX_EVOL_STEPS      = 50;  // cap evolution to keep runtime
 static constexpr std::size_t NDOF = 6;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
-using DynSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
+using DynSolver    = fall_n::DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using BeamElemT    = BeamElement<TimoshenkoBeam3D, 3, beam::SmallRotation>;
 using ShellElemT   = MITC4Shell<>;
 

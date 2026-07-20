@@ -241,9 +241,9 @@ run_reduced_rc_column_material_baseline(
     }
     validate_custom_protocol(spec.custom_protocol);
 
-    StopWatch total_timer;
+    fall_n::StopWatch total_timer;
     total_timer.start();
-    StopWatch solve_timer;
+    fall_n::StopWatch solve_timer;
     solve_timer.start();
 
     auto records = [&]() {
@@ -260,7 +260,7 @@ run_reduced_rc_column_material_baseline(
     const double solve_wall_seconds = solve_timer.stop();
     print_progress(spec, records);
 
-    StopWatch output_timer;
+    fall_n::StopWatch output_timer;
     output_timer.start();
     if (spec.write_csv) {
         std::filesystem::create_directories(out_dir);

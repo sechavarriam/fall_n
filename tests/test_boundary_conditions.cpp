@@ -485,7 +485,7 @@ void test_roller_vs_clamped() {
         D.create_boundary_from_plane("Load", 0, X_TIP);
         M.apply_surface_traction("Load", 0.0, 0.05, -0.05);
 
-        LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+        fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
         solver.solve();
 
         const PetscScalar* arr; PetscInt n;
@@ -524,7 +524,7 @@ void test_roller_vs_clamped() {
         D.create_boundary_from_plane("Load", 0, X_TIP);
         M.apply_surface_traction("Load", 0.0, 0.05, -0.05);
 
-        LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+        fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
         solver.solve();
 
         const PetscScalar* arr; PetscInt n;
@@ -568,7 +568,7 @@ void test_model_state_capture() {
     D.create_boundary_from_plane("Load", 0, X_TIP);
     M.apply_surface_traction("Load", 0.0, 0.05, -0.05);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
     M.update_elements_state();
 
@@ -661,7 +661,7 @@ void test_backward_compat_fix_x() {
     D.create_boundary_from_plane("Load", 0, X_TIP);
     M.apply_surface_traction("Load", 0.0, 0.05, -0.05);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     const PetscScalar* arr; PetscInt n;

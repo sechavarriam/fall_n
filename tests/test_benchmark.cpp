@@ -100,10 +100,10 @@ static void create_unit_cube(Domain<DIM>& D) {
 static void test_1_scoped_timer() {
     std::cout << "\n── Test 1: ScopedTimer ──\n";
 
-    TimingRecord rec;
+    fall_n::TimingRecord rec;
 
     {
-        ScopedTimer t(rec);
+        fall_n::ScopedTimer t(rec);
         // Burn ~10 ms
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -114,7 +114,7 @@ static void test_1_scoped_timer() {
 
     // Accumulate a second measurement
     {
-        ScopedTimer t(rec);
+        fall_n::ScopedTimer t(rec);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -131,7 +131,7 @@ static void test_1_scoped_timer() {
 static void test_2_stopwatch() {
     std::cout << "\n── Test 2: StopWatch ──\n";
 
-    StopWatch sw;
+    fall_n::StopWatch sw;
     check(!sw.running(), "StopWatch: initially not running");
     check(sw.calls() == 0, "StopWatch: initial calls == 0");
 
@@ -159,7 +159,7 @@ static void test_2_stopwatch() {
 static void test_3_analysis_timer() {
     std::cout << "\n── Test 3: AnalysisTimer ──\n";
 
-    AnalysisTimer timer;
+    fall_n::AnalysisTimer timer;
 
     timer.start("setup");
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -201,7 +201,7 @@ static void test_4_element_timer() {
     std::cout << "\n── Test 4: ElementTimer ──\n";
 
     constexpr std::size_t N = 10;
-    ElementTimer et(N);
+    fall_n::ElementTimer et(N);
 
     check(et.num_elements() == N, "ElementTimer: num_elements == 10");
 
@@ -238,10 +238,10 @@ static void test_4_element_timer() {
 static void test_5_petsc_log_stages() {
     std::cout << "\n── Test 5: PETSc log stages ──\n";
 
-    const auto& stages = perf::register_analysis_stages();
+    const auto& stages = fall_n::perf::register_analysis_stages();
 
     // Re-calling should return the same handles (idempotent via static flag).
-    const auto& stages2 = perf::register_analysis_stages();
+    const auto& stages2 = fall_n::perf::register_analysis_stages();
     check(stages.setup == stages2.setup,       "PetscLogStage: idempotent setup");
     check(stages.assembly == stages2.assembly, "PetscLogStage: idempotent assembly");
     check(stages.solve == stages2.solve,       "PetscLogStage: idempotent solve");
@@ -249,7 +249,7 @@ static void test_5_petsc_log_stages() {
 
     // ScopedStage push/pop should work without crash
     {
-        perf::ScopedStage s(stages.assembly);
+        fall_n::perf::ScopedStage s(stages.assembly);
         // Some trivial PETSc operation inside the stage
         Vec v;
         VecCreateSeq(PETSC_COMM_SELF, 10, &v);
@@ -437,7 +437,7 @@ static void test_10_linear_timer() {
     D.create_boundary_from_plane("LoadX1", 0, 1.0);
     M.apply_surface_traction("LoadX1", 10.0, 0.0, 0.0);
 
-    LinearAnalysis<ThreeDimensionalMaterial> lin{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> lin{&M};
     lin.solve();
 
     const auto& timer = lin.timer();
@@ -484,7 +484,7 @@ static void test_11_nonlinear_timer() {
     D.create_boundary_from_plane("LoadX1", 0, 1.0);
     M.apply_surface_traction("LoadX1", 10.0, 0.0, 0.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial> nl{&M};
     bool ok = nl.solve();
 
     check(ok, "NonlinearAnalysis: solve converged");
@@ -522,7 +522,7 @@ static void test_12_dynamic_timer() {
     M.setup();
     M.set_density(rho_density);
 
-    DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
+    fall_n::DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
 
     // Small initial displacement to trigger dynamics
     BoundaryConditionSet<3> bcs;

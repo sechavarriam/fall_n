@@ -148,7 +148,7 @@ static void test_1_small_strain_linear_elastic() {
     M.setup();
     apply_uniaxial_tension(M, 0.02);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
     nl.solve();
 
     auto reason = nl.converged_reason();
@@ -201,7 +201,7 @@ static void test_2_small_strain_svk() {
     M.setup();
     apply_uniaxial_tension(M, 0.02);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain> nl{&M};
     nl.solve();
 
     check(nl.converged_reason() > 0, "SNES converged");
@@ -236,7 +236,7 @@ static void test_3_total_lagrangian_svk() {
     M.setup();
     apply_uniaxial_tension(M, 0.02);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve();
 
     auto reason = nl.converged_reason();
@@ -280,7 +280,7 @@ static void test_4_total_lagrangian_neohookean() {
     M.setup();
     apply_uniaxial_tension(M, 0.02);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve();
 
     auto reason = nl.converged_reason();
@@ -326,7 +326,7 @@ static void test_5_tl_svk_incremental() {
     // Larger force → noticeable geometric nonlinearity
     apply_uniaxial_tension(M, 2.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve_incremental(5);  // 5 load steps
 
     auto reason = nl.converged_reason();
@@ -362,7 +362,7 @@ static void test_6_tl_nh_incremental() {
 
     apply_uniaxial_tension(M, 2.0);
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
     nl.solve_incremental(5);
 
     auto reason = nl.converged_reason();
@@ -403,7 +403,7 @@ static void test_7_assembly_consistency() {
         M.setup();
         apply_uniaxial_tension(M, 0.5);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
         nl.solve();
         sol1 = extract_solution(M);
     }
@@ -422,7 +422,7 @@ static void test_7_assembly_consistency() {
         M.setup();
         apply_uniaxial_tension(M, 0.5);
 
-        NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::TotalLagrangian> nl{&M};
         nl.solve();
         sol2 = extract_solution(M);
     }

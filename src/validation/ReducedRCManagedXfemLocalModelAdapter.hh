@@ -144,7 +144,7 @@ public:
     using XFEMModel =
         Model<ThreeDimensionalMaterial, continuum::SmallStrain, 3, XFEMPolicy>;
     using XFEMAnalysis =
-        NonlinearAnalysis<ThreeDimensionalMaterial,
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial,
                           continuum::SmallStrain,
                           3,
                           XFEMPolicy>;

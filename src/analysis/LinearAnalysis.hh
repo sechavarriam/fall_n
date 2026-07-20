@@ -24,6 +24,8 @@
 //
 // =============================================================================
 
+namespace fall_n {
+
 template <typename MaterialPolicy,
           typename KinematicPolicy = continuum::SmallStrain,
           std::size_t ndofs = MaterialPolicy::dim,
@@ -119,5 +121,7 @@ public:
 
     ~LinearAnalysis() = default;
 };
+
+} // namespace fall_n
 
 #endif // FALL_N_SRC_ANALYSIS_LINEARANALYSIS_HH

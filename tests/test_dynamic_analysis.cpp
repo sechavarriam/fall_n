@@ -413,7 +413,7 @@ static void test_10_sdof_free_vibration() {
 
     // ── Create DynamicAnalysis ──────────────────────────────────────
 
-    DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
+    fall_n::DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
 
     // ── Set initial conditions: u₀ = 0.001 at x=1 face ─────────────
 
@@ -490,7 +490,7 @@ static void test_11_sdof_rayleigh_damping() {
     M.setup();
     M.set_density(rho_density);
 
-    DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
+    fall_n::DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
 
     BoundaryConditionSet<3> bcs;
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul}) {
@@ -542,7 +542,7 @@ static void test_12_forced_vibration() {
     M.setup();
     M.set_density(rho_density);
 
-    DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
+    fall_n::DynamicAnalysis<ThreeDimensionalMaterial> dyn(&M);
 
     // Apply harmonic force at x=1 face
     double F0 = 0.1;   // force amplitude per node

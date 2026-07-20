@@ -258,7 +258,7 @@ static void test_5_snes_solve_mpi() {
     M.fix_x(0.0);
     M.setup();
 
-    NonlinearAnalysis<Policy> nla(&M);
+    fall_n::NonlinearAnalysis<Policy> nla(&M);
 
     // Apply force at x=1 face (fx, fy, fz per node)
     M.apply_node_force(1, 0.1, 0.0, 0.0);
@@ -304,7 +304,7 @@ static void test_6_ts_solve_mpi() {
     M.setup();
     M.set_density(rho);
 
-    DynamicAnalysis<Policy> dyn(&M);
+    fall_n::DynamicAnalysis<Policy> dyn(&M);
 
     BoundaryConditionSet<DIM> bcs;
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})

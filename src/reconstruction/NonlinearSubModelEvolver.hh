@@ -279,7 +279,7 @@ class BasicNonlinearSubModelEvolver {
     //  The NL analysis + LM solver are built ONCE per evolver (lazily, after
     //  the model exists) and reused; they are torn down with the model and
     //  never moved across evolver instances (hooks capture `this`).
-    using LocalNL = ::NonlinearAnalysis<Policy, KinematicPolicy, NDOF,
+    using LocalNL = fall_n::NonlinearAnalysis<Policy, KinematicPolicy, NDOF,
                                         MultiElementPolicy>;
     using LocalEnergyEngine =
         RegularizedNewtonContinuation<NLAnalysisEnergyBackend<LocalNL>>;
@@ -457,7 +457,7 @@ class BasicNonlinearSubModelEvolver {
         //  control law of the inner analysis only zeroes external forces.
         engine_nl_->begin_incremental(
             1, 0,
-            make_control([](double, Vec, Vec f_ext, MixedModel*) {
+            fall_n::make_control([](double, Vec, Vec f_ext, MixedModel*) {
                 VecSet(f_ext, 0.0);
             }));
 

@@ -100,7 +100,7 @@ struct TestFixture {
 
 static constexpr double u0 = 0.001;
 
-static void apply_ic(DynamicAnalysis<Policy>& dyn) {
+static void apply_ic(fall_n::DynamicAnalysis<Policy>& dyn) {
     BoundaryConditionSet<DIM> bcs;
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul}) {
         bcs.add_initial_condition({id, {u0, 0.0, 0.0}, {0.0, 0.0, 0.0}});
@@ -117,7 +117,7 @@ static void test_1_single_step() {
     std::cout << "\n--- Test 1: step() — single time step ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -143,7 +143,7 @@ static void test_2_step_n() {
     std::cout << "\n--- Test 2: step_n(n) — advance exactly n steps ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -167,7 +167,7 @@ static void test_3_step_to() {
     std::cout << "\n--- Test 3: step_to(t) — advance to target time ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -194,7 +194,7 @@ static void test_4_pause_at_times() {
     std::cout << "\n--- Test 4: step_to + pause_at_times ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -238,7 +238,7 @@ static void test_5_pause_every_n() {
     std::cout << "\n--- Test 5: step_n + pause_every_n ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -269,7 +269,7 @@ static void test_6_custom_predicate() {
     std::cout << "\n--- Test 6: pause_on — custom condition ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -303,7 +303,7 @@ static void test_7_compose_directors() {
     std::cout << "\n--- Test 7: compose directors ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -335,7 +335,7 @@ static void test_8_time_step_reconfig() {
     std::cout << "\n--- Test 8: set_time_step / get_time_step ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt1 = T_est / 50.0;
@@ -376,14 +376,14 @@ static void test_9_equivalence() {
 
     // ── Batch solve ─────────────────────────────────────────────────
     TestFixture fix1;
-    DynamicAnalysis<Policy> dyn1(fix1.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn1(fix1.model.get());
     apply_ic(dyn1);
     dyn1.solve(t_final, dt);
     auto u_batch = dyn1.get_nodal_displacement(1);
 
     // ── step_to solve ───────────────────────────────────────────────
     TestFixture fix2;
-    DynamicAnalysis<Policy> dyn2(fix2.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn2(fix2.model.get());
     apply_ic(dyn2);
     dyn2.set_time_step(dt);
     dyn2.step_to(t_final);
@@ -424,7 +424,7 @@ static void test_10_stop_on() {
     std::cout << "\n--- Test 10: StepVerdict::Stop via stop_on ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     double dt = T_est / 50.0;
@@ -454,7 +454,7 @@ static void test_11_nonlinear_solve_profile_config() {
     std::cout << "\n--- Test 11: dynamic nonlinear solve profile config ---\n";
 
     TestFixture fix;
-    DynamicAnalysis<Policy> dyn(fix.model.get());
+    fall_n::DynamicAnalysis<Policy> dyn(fix.model.get());
     apply_ic(dyn);
 
     dyn.set_nonlinear_solve_profiles({

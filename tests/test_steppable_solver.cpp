@@ -77,15 +77,15 @@ static void create_unit_cube(Domain<DIM>& D) {
 }
 
 using Policy = ThreeDimensionalMaterial;
-using LinA   = LinearAnalysis<Policy, continuum::SmallStrain>;
-using NLA    = NonlinearAnalysis<Policy, continuum::SmallStrain>;
-using NLA_TL = NonlinearAnalysis<Policy, continuum::TotalLagrangian>;
-using NLA_UL = NonlinearAnalysis<Policy, continuum::UpdatedLagrangian>;
+using LinA   = fall_n::LinearAnalysis<Policy, continuum::SmallStrain>;
+using NLA    = fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain>;
+using NLA_TL = fall_n::NonlinearAnalysis<Policy, continuum::TotalLagrangian>;
+using NLA_UL = fall_n::NonlinearAnalysis<Policy, continuum::UpdatedLagrangian>;
 using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
 using ModelTL = Model<Policy, continuum::TotalLagrangian, NDOF>;
 using ModelUL = Model<Policy, continuum::UpdatedLagrangian, NDOF>;
-using DynA   = DynamicAnalysis<Policy>;
-using DynTL  = DynamicAnalysis<Policy, continuum::TotalLagrangian>;
+using DynA   = fall_n::DynamicAnalysis<Policy>;
+using DynTL  = fall_n::DynamicAnalysis<Policy, continuum::TotalLagrangian>;
 using ArcTL  = fall_n::ArcLengthSolver<Policy, continuum::TotalLagrangian>;
 
 using ContSmallElem = ContinuumElement<Policy, NDOF, continuum::SmallStrain>;
@@ -103,10 +103,10 @@ using BeamSRModel   = Model<TimoshenkoBeam3D, beam::SmallRotation, 6, BeamSRPoli
 using BeamCRModel   = Model<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
 using ShellSRModel  = Model<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
 using ShellCRModel  = Model<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
-using BeamSRLin     = LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, BeamSRPolicy>;
-using BeamCRNLA     = NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
-using ShellSRLin    = LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
-using ShellCRNLA    = NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
+using BeamSRLin     = fall_n::LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, BeamSRPolicy>;
+using BeamCRNLA     = fall_n::NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, BeamCRPolicy>;
+using ShellSRLin    = fall_n::LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, ShellSRPolicy>;
+using ShellCRNLA    = fall_n::NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, ShellCRPolicy>;
 static constexpr auto representative_family_formulation_analysis_route_audit_table =
     fall_n::canonical_representative_family_formulation_analysis_route_audit_table_v;
 static constexpr auto representative_model_solver_slice_audit_table =
@@ -646,7 +646,7 @@ void test_dynamic_analysis_state() {
     std::cout << "\nTest 10: Dynamic get_analysis_state\n";
 
     DynFixture f;
-    using DynA = DynamicAnalysis<Policy>;
+    using DynA = fall_n::DynamicAnalysis<Policy>;
     DynA dyn{f.model.get()};
 
     // Apply a small initial displacement

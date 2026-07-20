@@ -2996,9 +2996,9 @@ run_reduced_rc_column_continuum_case_result_impl(
             "cover-aligned transverse meshing is enabled.");
     }
 
-    StopWatch total_timer;
+    fall_n::StopWatch total_timer;
     total_timer.start();
-    StopWatch analysis_timer;
+    fall_n::StopWatch analysis_timer;
     analysis_timer.start();
     ReducedRCColumnContinuumRunResult result{};
 
@@ -3063,7 +3063,7 @@ run_reduced_rc_column_continuum_case_result_impl(
     using ModelT =
         Model<ThreeDimensionalMaterial, KinematicPolicy, 3, MultiElementPolicy>;
     using AnalysisT =
-        NonlinearAnalysis<ThreeDimensionalMaterial, KinematicPolicy, 3, MultiElementPolicy>;
+        fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, KinematicPolicy, 3, MultiElementPolicy>;
 
     std::vector<FEM_Element> elements;
     elements.reserve(domain.num_elements());
@@ -3864,7 +3864,7 @@ run_reduced_rc_column_continuum_case_result_impl(
         }
     });
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [&cfg,
          &top_face_nodes,
          &top_rebar_nodes,
@@ -3921,7 +3921,7 @@ run_reduced_rc_column_continuum_case_result_impl(
             return (v != nullptr && v[0] != '\0') ? std::atof(v) : def;
         };
         using DynA =
-            DynamicAnalysis<ThreeDimensionalMaterial, KinematicPolicy, 3,
+            fall_n::DynamicAnalysis<ThreeDimensionalMaterial, KinematicPolicy, 3,
                             MultiElementPolicy>;
 
         const double rho     = env_d("KOBATHE_DYN_RHO", 2.4e-3);
@@ -5617,7 +5617,7 @@ run_reduced_rc_column_continuum_case_result_impl(
     }
     result.timing.solve_wall_seconds = analysis_timer.stop();
 
-    StopWatch output_timer;
+    fall_n::StopWatch output_timer;
     output_timer.start();
     std::filesystem::create_directories(out_dir);
     if (spec.write_hysteresis_csv) {

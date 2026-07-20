@@ -72,8 +72,8 @@ static void create_unit_cube(Domain<DIM>& D) {
 
 using Policy = ThreeDimensionalMaterial;
 using ModelT = Model<Policy, continuum::SmallStrain, NDOF>;
-using DynA   = DynamicAnalysis<Policy>;
-using NLA    = NonlinearAnalysis<Policy, continuum::SmallStrain>;
+using DynA   = fall_n::DynamicAnalysis<Policy>;
+using NLA    = fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain>;
 
 
 // =============================================================================

@@ -310,9 +310,9 @@ ReducedRCColumnTrussBaselineResult run_reduced_rc_column_truss_baseline(
             });
     }
 
-    StopWatch total_timer;
+    fall_n::StopWatch total_timer;
     total_timer.start();
-    StopWatch analysis_timer;
+    fall_n::StopWatch analysis_timer;
     analysis_timer.start();
 
     const auto material_result = run_reduced_rc_column_material_baseline(
@@ -551,7 +551,7 @@ ReducedRCColumnTrussBaselineResult run_reduced_rc_column_truss_baseline(
 
     print_progress(spec, truss_records);
 
-    StopWatch output_timer;
+    fall_n::StopWatch output_timer;
     output_timer.start();
     if (spec.write_csv) {
         std::filesystem::create_directories(out_dir);

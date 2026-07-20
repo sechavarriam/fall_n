@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
         model.setup();
         model.apply_node_force(1, 0.0, 0.0, -0.05, 0.0, 0.0, 0.0);
 
-        NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>
+        fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructuralPolicy>
             solver{&model};
         const bool ok = solver.solve_incremental(8, 4);
 

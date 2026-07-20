@@ -63,8 +63,8 @@ void test_fixed_control_bordered_adapter_closes_elastic_load_step()
         model.apply_node_force(node_id, 0.25, 0.0, 0.0);
     }
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> analysis{&model};
-    analysis.begin_incremental(1, 0, LoadControl{});
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> analysis{&model};
+    analysis.begin_incremental(1, 0, fall_n::LoadControl{});
 
     auto initial = analysis.clone_solution_vector();
     const auto result = fall_n::solve_petsc_bordered_mixed_control_newton(
@@ -105,7 +105,7 @@ void test_fixed_control_bordered_adapter_closes_elastic_load_step()
     analysis.accept_external_solution_step(
         result.unknowns.get(),
         result.load_parameter,
-        NonlinearAnalysis<Policy, continuum::SmallStrain>::
+        fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain>::
             IncrementStepDiagnostics{
                 .total_newton_iterations = result.iterations,
                 .last_function_norm = result.residual_norm,

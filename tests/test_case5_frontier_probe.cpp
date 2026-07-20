@@ -54,7 +54,7 @@ int main()
         auto& analysis = *ctx.analysis;
         const std::array<std::size_t, 4> slab_corners = {4, 7, 16, 19};
 
-        auto scheme = make_control(
+        auto scheme = fall_n::make_control(
             [&slab_corners, &cfg]
             (double p, Vec /*f_full*/, Vec f_ext, auto* m) {
                 VecSet(f_ext, 0.0);

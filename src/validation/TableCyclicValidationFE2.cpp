@@ -54,7 +54,7 @@ run_case_fe2(bool two_way, const std::string& out_dir,
     auto shell_profile =
         fall_n::reconstruction::ShellThicknessProfile<3>{};
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [&slab_corners, &cfg]
         (double p, Vec /*f_full*/, Vec f_ext, StructModel* m) {
             VecSet(f_ext, 0.0);

@@ -648,8 +648,8 @@ static constexpr std::size_t NDOF = 6;
 static constexpr std::size_t MACRO_BEAM_N = 4;
 using StructPolicy = SingleElementPolicy<StructuralElement>;
 using StructModel  = Model<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
-using DynSolver    = DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
-using StaticSolver = NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
+using DynSolver    = fall_n::DynamicAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
+using StaticSolver = fall_n::NonlinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF, StructPolicy>;
 using BeamElemT    = TimoshenkoBeamN<MACRO_BEAM_N, TimoshenkoBeam3D>;
 using ShellElemT   = MITC4Shell<>;
 

@@ -258,7 +258,7 @@ std::vector<StepRecord> run_case(
     PetscOptionsSetValue(nullptr, "-ksp_type",  "preonly");
     PetscOptionsSetValue(nullptr, "-pc_type",   "lu");
 
-    NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
+    fall_n::NonlinearAnalysis<ThreeDimensionalMaterial, continuum::SmallStrain, 3,
                       ElemPolicyT> nl{&model};
 
     // Capture full imposed-solution snapshot
@@ -303,7 +303,7 @@ std::vector<StepRecord> run_case(
         });
 
     // Displacement control: scale imposed BCs by p
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [&u_full](double p, Vec /*f_full*/, Vec f_ext, auto* m) {
             VecSet(f_ext, 0.0);                         // no body forces
             VecCopy(u_full, m->imposed_solution());      // restore full BCs

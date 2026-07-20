@@ -459,10 +459,10 @@ void benchmark_serendipity_family() {
     }
 
     constexpr int repeats = 4000;
-    StopWatch sw_hex20;
-    StopWatch sw_hex27;
-    StopWatch sw_tet_ser;
-    StopWatch sw_tet_lag;
+    fall_n::StopWatch sw_hex20;
+    fall_n::StopWatch sw_hex27;
+    fall_n::StopWatch sw_tet_ser;
+    fall_n::StopWatch sw_tet_lag;
 
     sw_hex20.start();
     double vol20 = 0.0;

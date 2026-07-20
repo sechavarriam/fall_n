@@ -115,7 +115,7 @@ private:
     double delta_lambda_prev_{0.0}; ///< previous step's Δλ (for sign)
 
     // Configuration
-    ArcLengthVariant variant_{ArcLengthVariant::Cylindrical};
+    fall_n::ArcLengthVariant variant_{fall_n::ArcLengthVariant::Cylindrical};
     double delta_ell_{1.0};         ///< arc-length increment
     double psi_{1.0};               ///< load scaling factor
     double f_ref_norm_sq_{0.0};     ///< ‖f_ref‖² (cached)
@@ -271,7 +271,7 @@ public:
 
     void set_arc_length(double dell)     { delta_ell_ = dell; }
     void set_psi(double p)               { psi_ = p; }
-    void set_variant(ArcLengthVariant v) { variant_ = v; }
+    void set_variant(fall_n::ArcLengthVariant v) { variant_ = v; }
     void set_max_iterations(int n)       { max_iter_ = n; }
     void set_tolerances(double rtol, double atol) { rtol_ = rtol; atol_ = atol; }
     void set_residual_hook(ResidualHook hook) { residual_hook_ = std::move(hook); }
@@ -422,7 +422,7 @@ public:
             // Compute δλ from constraint
             double delta_lambda_corr = 0.0;
 
-            if (variant_ == ArcLengthVariant::Cylindrical) {
+            if (variant_ == fall_n::ArcLengthVariant::Cylindrical) {
                 double dU_dot_duR, dU_dot_duf;
                 VecDot(delta_u_step_, delta_u_R_, &dU_dot_duR);
                 VecDot(delta_u_step_, delta_u_f_, &dU_dot_duf);

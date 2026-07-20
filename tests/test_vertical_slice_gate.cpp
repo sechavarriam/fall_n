@@ -121,7 +121,7 @@ static void test_1_elastic_reference() {
     double total_load = 1.0;
     apply_z_traction(M, total_load);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     elastic_curve.clear();
     nl.set_step_callback([&](int step, double lambda, const auto& model) {
@@ -172,7 +172,7 @@ static void test_2_j2_incremental() {
     double total_load = 1.0;
     apply_z_traction(M, total_load);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     plastic_curve.clear();
     nl.set_step_callback([&](int step, double lambda, const auto& model) {
@@ -290,7 +290,7 @@ static void test_5_internal_field_snapshot() {
 
     apply_z_traction(M, 5.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool ok = nl.solve_incremental(10, 4);
     check(ok, "solve converged for snapshot test");
 
@@ -346,7 +346,7 @@ static void test_6_explicit_revert() {
 
     apply_z_traction(M, 2.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
 
     // ── Step 1: solve 5 increments and commit ──
     bool ok = nl.solve_incremental(5, 4);
@@ -401,7 +401,7 @@ static void test_7_unload_residual() {
     // ── Phase A: loading to full load ──
     apply_z_traction(M, 3.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool ok_load = nl.solve_incremental(10, 4);
     check(ok_load, "loading phase converged (10 steps)");
 
@@ -447,7 +447,7 @@ static void test_8_raii_wrappers() {
         M.setup();
         apply_z_traction(M, 1.0);
 
-        NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+        fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
         nl.solve();
     }
     // If we reach here without abort, RAII destruction succeeded.

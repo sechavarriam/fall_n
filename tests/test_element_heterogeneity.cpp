@@ -362,7 +362,7 @@ void test_snes_with_revert() {
     for (std::size_t id : {1ul, 3ul, 5ul, 7ul})
         M.apply_node_force(id, f_per_node, 0.0, 0.0);
 
-    NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
+    fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain> nl{&M};
     bool ok = nl.solve_incremental(2);
     check(ok, "incremental solve converges (2 steps)");
 

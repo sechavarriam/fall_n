@@ -549,9 +549,9 @@ run_reduced_rc_column_section_moment_curvature_baseline(
             "steps_per_segment for cyclic curvature control.");
     }
 
-    StopWatch total_timer;
+    fall_n::StopWatch total_timer;
     total_timer.start();
-    StopWatch solve_timer;
+    fall_n::StopWatch solve_timer;
     solve_timer.start();
 
     auto section_material = make_section_material(spec);
@@ -606,7 +606,7 @@ run_reduced_rc_column_section_moment_curvature_baseline(
     }
 
     const double solve_wall_seconds = solve_timer.stop();
-    StopWatch output_timer;
+    fall_n::StopWatch output_timer;
     output_timer.start();
 
     if (spec.write_csv) {

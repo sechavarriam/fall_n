@@ -465,7 +465,7 @@ static void test_2_continuum_tip_load_z() {
     }
 
     // 6. Solve K·u = f with PETSc direct LU
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     // 7. Extract maximum z-displacement at the tip face (x ≈ L)
@@ -510,7 +510,7 @@ static void test_3_continuum_tip_load_y() {
     D.create_boundary_from_plane("Tip", 0, L);
     M.apply_surface_traction("Tip", 0.0, ty, 0.0);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     double dy = tip_displacement(M, 1, L, NDOF_CONT);
@@ -592,7 +592,7 @@ static void test_4_beam_N2_tip_load_z() {
     // Beam DOFs per node: (u, v, w, θ_x, θ_y, θ_z) — w is DOF index 2.
     M.apply_node_force(NEL_BEAM, 0.0, 0.0, P, 0.0, 0.0, 0.0);
 
-    LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
+    fall_n::LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
     solver.solve();
 
     // Read tip w-displacement (DOF index 2 at the last node, x = L)
@@ -647,7 +647,7 @@ static void test_5_beam_N2_tip_load_y() {
     // Apply tip load P in y at last node (DOF index 1 = v)
     M.apply_node_force(NEL_BEAM, 0.0, P, 0.0, 0.0, 0.0, 0.0);
 
-    LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
+    fall_n::LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
     solver.solve();
 
     double dy = tip_displacement(M, 1, L, NDOF_BEAM, 0.1);
@@ -720,7 +720,7 @@ static void test_6_beam_N3_tip_load_z() {
     // Tip load at the last node (index N_NODES_QUAD−1 = 10, x = 10.0)
     M.apply_node_force(N_NODES_QUAD - 1, 0.0, 0.0, P, 0.0, 0.0, 0.0);
 
-    LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamN3Policy> solver{&M};
+    fall_n::LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamN3Policy> solver{&M};
     solver.solve();
 
     double dz = tip_displacement(M, 2, L, NDOF_BEAM, 0.1);
@@ -832,7 +832,7 @@ static void test_9_tet4_tip_load_z() {
         std::cout << "  [DIAG] Total DOFs: " << fn << "\n";
     }
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     double dz = tip_displacement(M, 2, L, NDOF_CONT);
@@ -894,7 +894,7 @@ static void test_10_tet4_tip_load_y() {
     D.create_boundary_from_plane("Tip", 0, L);
     M.apply_surface_traction("Tip", 0.0, ty, 0.0);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     double dy = tip_displacement(M, 1, L, NDOF_CONT);
@@ -972,7 +972,7 @@ static void test_11_tet10_tip_load_z() {
         std::cout << "  [DIAG] Total DOFs: " << fn << "\n";
     }
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     // ─── TET10 Strain diagnostic ─────────────────────────────────────────
@@ -1048,7 +1048,7 @@ static void test_12_tet10_tip_load_y() {
     D.create_boundary_from_plane("Tip", 0, L);
     M.apply_surface_traction("Tip", 0.0, ty, 0.0);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     double dy = tip_displacement(M, 1, L, NDOF_CONT);
@@ -1106,7 +1106,7 @@ static void test_7_cross_validation() {
         D.create_boundary_from_plane("Tip", 0, L);
         M.apply_surface_traction("Tip", 0.0, 0.0, tz);
 
-        LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+        fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
         solver.solve();
 
         continuum_dz_cache = std::abs(tip_displacement(M, 2, L, NDOF_CONT));
@@ -1136,7 +1136,7 @@ static void test_7_cross_validation() {
         M.setup();
         M.apply_node_force(NEL_BEAM, 0.0, 0.0, P, 0.0, 0.0, 0.0);
 
-        LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
+        fall_n::LinearAnalysis<TimoshenkoBeam3D, continuum::SmallStrain, NDOF_BEAM, BeamElemPolicy> solver{&M};
         solver.solve();
 
         beam_N2_dz_cache = std::abs(tip_displacement(M, 2, L, NDOF_BEAM, 0.1));
@@ -1208,7 +1208,7 @@ static void test_8_deflection_curve() {
     D.create_boundary_from_plane("Tip", 0, L);
     M.apply_surface_traction("Tip", 0.0, 0.0, tz);
 
-    LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
+    fall_n::LinearAnalysis<ThreeDimensionalMaterial> solver{&M};
     solver.solve();
 
     // ─── Compare at 5 stations ───

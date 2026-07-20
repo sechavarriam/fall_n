@@ -1283,9 +1283,9 @@ run_reduced_rc_column_small_strain_beam_case_impl(
     const std::string& out_dir,
     const table_cyclic_validation::CyclicValidationRunConfig& cfg)
 {
-    StopWatch total_timer;
+    fall_n::StopWatch total_timer;
     total_timer.start();
-    StopWatch analysis_timer;
+    fall_n::StopWatch analysis_timer;
     analysis_timer.start();
 
     using QuadratureT = BeamAxisQuadratureT<QuadratureFamily, N - 1>;
@@ -1355,7 +1355,7 @@ run_reduced_rc_column_small_strain_beam_case_impl(
     }
 
     using AnalysisT =
-        NonlinearAnalysis<TimoshenkoBeam3D,
+        fall_n::NonlinearAnalysis<TimoshenkoBeam3D,
                           continuum::SmallStrain,
                           kReducedRCColumnNDoF,
                           BeamPolicy>;
@@ -1648,7 +1648,7 @@ run_reduced_rc_column_small_strain_beam_case_impl(
                 actual_tip_lateral_displacement);
     });
 
-    auto scheme = make_control(
+    auto scheme = fall_n::make_control(
         [top_node, &cfg, &spec, control_path](
             double runtime_p, Vec f_full, Vec f_ext, BeamModel* m) {
             const double lateral_p = control_path.lateral_progress(runtime_p);
@@ -1766,7 +1766,7 @@ run_reduced_rc_column_small_strain_beam_case_impl(
             to_string(spec.continuation_kind));
     }
 
-    StopWatch output_timer;
+    fall_n::StopWatch output_timer;
     if (spec.write_hysteresis_csv) {
         output_timer.start();
         std::filesystem::create_directories(out_dir);

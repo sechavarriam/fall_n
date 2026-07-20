@@ -46,13 +46,13 @@ using continuum_updated_lagrangian_model =
     Model<continuum_material_policy, continuum::UpdatedLagrangian, continuum_ndofs>;
 
 using continuum_linear_analysis =
-    LinearAnalysis<continuum_material_policy, continuum::SmallStrain, continuum_ndofs>;
+    fall_n::LinearAnalysis<continuum_material_policy, continuum::SmallStrain, continuum_ndofs>;
 using continuum_total_lagrangian_newton =
-    NonlinearAnalysis<continuum_material_policy, continuum::TotalLagrangian, continuum_ndofs>;
+    fall_n::NonlinearAnalysis<continuum_material_policy, continuum::TotalLagrangian, continuum_ndofs>;
 using continuum_updated_lagrangian_newton =
-    NonlinearAnalysis<continuum_material_policy, continuum::UpdatedLagrangian, continuum_ndofs>;
+    fall_n::NonlinearAnalysis<continuum_material_policy, continuum::UpdatedLagrangian, continuum_ndofs>;
 using continuum_total_lagrangian_dynamics =
-    DynamicAnalysis<continuum_material_policy, continuum::TotalLagrangian>;
+    fall_n::DynamicAnalysis<continuum_material_policy, continuum::TotalLagrangian>;
 using continuum_total_lagrangian_arc_length =
     ArcLengthSolver<continuum_material_policy, continuum::TotalLagrangian>;
 
@@ -67,9 +67,9 @@ using beam_small_rotation_model =
 using beam_corotational_model =
     Model<TimoshenkoBeam3D, beam::Corotational, 6, beam_corotational_policy>;
 using beam_small_rotation_linear =
-    LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, beam_small_rotation_policy>;
+    fall_n::LinearAnalysis<TimoshenkoBeam3D, beam::SmallRotation, 6, beam_small_rotation_policy>;
 using beam_corotational_newton =
-    NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, beam_corotational_policy>;
+    fall_n::NonlinearAnalysis<TimoshenkoBeam3D, beam::Corotational, 6, beam_corotational_policy>;
 
 using shell_small_rotation_element = MITC4Shell<>;
 using shell_corotational_element = CorotationalMITC4Shell<>;
@@ -80,9 +80,9 @@ using shell_small_rotation_model =
 using shell_corotational_model =
     Model<MindlinReissnerShell3D, shell::Corotational, 6, shell_corotational_policy>;
 using shell_small_rotation_linear =
-    LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, shell_small_rotation_policy>;
+    fall_n::LinearAnalysis<MindlinReissnerShell3D, shell::SmallRotation, 6, shell_small_rotation_policy>;
 using shell_corotational_newton =
-    NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, shell_corotational_policy>;
+    fall_n::NonlinearAnalysis<MindlinReissnerShell3D, shell::Corotational, 6, shell_corotational_policy>;
 
 } // namespace representative_model_solver_slices
 
