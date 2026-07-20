@@ -48,6 +48,7 @@
 #include "src/model/PrismaticDomainBuilder.hh"
 #include "src/post-processing/VTK/VTKModelExporter.hh"
 #include "src/reconstruction/LocalCrackData.hh"
+#include "src/reconstruction/LocalModelVTKSnapshot.hh"
 #include "src/reconstruction/LocalVTKOutputProfile.hh"
 #include "src/validation/ReducedRCManagedLocalModelReplay.hh"
 #include "src/xfem/CohesiveCrackLaw.hh"
@@ -101,22 +102,9 @@ struct ReducedRCManagedXfemLocalModelAdapterOptions {
     double observation_rebar_yield_strength_mpa{420.0};
 };
 
-struct ReducedRCManagedXfemLocalVTKSnapshot {
-    bool written{false};
-    std::string mesh_path{};
-    std::string gauss_path{};
-    std::string cracks_path{};
-    std::string cracks_visible_path{};
-    std::string rebar_path{};
-    std::string current_rebar_path{};
-    std::string rebar_tubes_path{};
-    std::string current_rebar_tubes_path{};
-    std::size_t crack_record_count{0};
-    std::size_t visible_crack_record_count{0};
-    std::size_t active_crack_plane_count{0};
-    int last_active_crack_plane_id{0};
-    std::string status_label{"not_written"};
-};
+//  The snapshot value type now lives in reconstruction/ (the core evolver
+//  returns it too); this alias preserves the historical validation name.
+using ReducedRCManagedXfemLocalVTKSnapshot = LocalModelVTKSnapshot;
 
 [[nodiscard]] constexpr std::string_view to_string(
     ReducedRCManagedXfemLocalModelAdapterOptions::DownscalingMode mode) noexcept
@@ -584,7 +572,7 @@ public:
                     std::max(1, options_.local_transition_steps);
                 const int max_bisections =
                     std::max(0, options_.local_max_bisections);
-                auto scheme = make_control(
+                auto scheme = fall_n::make_control(
                     [this, start, target](
                         double p, Vec f_full, Vec f_ext, XFEMModel* model) {
                         VecCopy(f_full, f_ext);

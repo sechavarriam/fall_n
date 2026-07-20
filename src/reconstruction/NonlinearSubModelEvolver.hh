@@ -84,8 +84,8 @@
 #include "LocalCrackData.hh"
 #include "LocalCrackDiagnostics.hh"
 #include "LocalModelAdapter.hh"
+#include "LocalModelVTKSnapshot.hh"
 #include "LocalVTKOutputWriter.hh"
-#include "../validation/ReducedRCManagedXfemLocalModelAdapter.hh"
 #include "PersistentLocalStateOps.hh"
 #include "../analysis/ArcLengthSolver.hh"
 
@@ -1737,12 +1737,12 @@ public:
         ++step_count_;
     }
 
-    [[nodiscard]] ReducedRCManagedXfemLocalVTKSnapshot write_vtk_snapshot(
+    [[nodiscard]] LocalModelVTKSnapshot write_vtk_snapshot(
         double time,
         int step,
         double /*visual_scale*/ = 0.0)
     {
-        ReducedRCManagedXfemLocalVTKSnapshot snapshot{};
+        LocalModelVTKSnapshot snapshot{};
         if (!model_ready_ || !model_ || !U_) {
             snapshot.status_label = "continuum_kobathe_model_not_initialized";
             return snapshot;
@@ -2066,32 +2066,34 @@ private:
                 &penalty_couplings_, alpha_penalty_,
                 penalty_coupling_law_};
 
-        // Use l2 line search — minimizes ||F(x + αΔx)||² along the Newton
-        // direction.  bt rejects too many steps with secant tangents (slow),
-        // basic allows NaN-producing overshoots (DIVERGED_FUNCTION_DOMAIN).
-        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "l2");
-        PetscOptionsSetValue(nullptr, "-snes_max_it",
-                             std::to_string(snes_max_it_).c_str());
-        PetscOptionsSetValue(nullptr, "-snes_atol",
-                             std::to_string(snes_atol_).c_str());
-        PetscOptionsSetValue(nullptr, "-snes_rtol",
-                             std::to_string(snes_rtol_).c_str());
-        PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-        PetscOptionsSetValue(nullptr, "-pc_type", "lu");
-
         SNESCreate(PETSC_COMM_SELF, &snes_);
         SNESSetFunction(snes_, R_, FormResidual, &ctx_);
         SNESSetJacobian(snes_, J_, J_, FormJacobian, &ctx_);
         SNESSetFromOptions(snes_);
 
-        // ── RCM reordering on LU factorizer ──────────────────────────
-        //  Reorders within the direct solver for reduced fill-in.
-        //  ReuseOrdering caches symbolic factorization across steps.
+        // Configuración LOCAL del solver (tras SNESSetFromOptions, para que
+        // estos valores manden como antes, pero sin mutar la base de opciones
+        // global de PETSc, que se filtraba a todos los solvers del proceso).
+        //
+        // Line search l2 — minimiza ||F(x + αΔx)||² sobre la dirección de
+        // Newton.  bt rechaza demasiados pasos con tangentes secantes (lento);
+        // basic permite sobredisparos que producen NaN
+        // (DIVERGED_FUNCTION_DOMAIN).
         {
+            SNESSetTolerances(snes_, snes_atol_, snes_rtol_, PETSC_DEFAULT,
+                              snes_max_it_, PETSC_DEFAULT);
+            SNESLineSearch linesearch;
+            SNESGetLineSearch(snes_, &linesearch);
+            SNESLineSearchSetType(linesearch, SNESLINESEARCHL2);
+
+            // RCM reordering en el factorizador LU: menos fill-in, y
+            // ReuseOrdering cachea la factorización simbólica entre pasos.
             KSP ksp;
             SNESGetKSP(snes_, &ksp);
+            KSPSetType(ksp, KSPPREONLY);
             PC pc;
             KSPGetPC(ksp, &pc);
+            PCSetType(pc, PCLU);
             PCFactorSetMatOrderingType(pc, MATORDERINGRCM);
             PCFactorSetReuseOrdering(pc, PETSC_TRUE);
         }

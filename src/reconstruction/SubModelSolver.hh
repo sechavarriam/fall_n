@@ -337,16 +337,13 @@ public:
         //  num_steps increments.  A CustomControl lambda scales the
         //  imposed_solution vector by the control parameter p ∈ [0, 1].
         //
-        // Configure PETSc solver via options database for this sub-model solve.
-        //
         // The repository default local law is still Ko-Bathe-based, but the
         // factory contract allows callers to inject a different constitutive
         // family without changing the solver protocol.
-        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
-        PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
-        PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-        PetscOptionsSetValue(nullptr, "-pc_type", "lu");
-
+        //
+        // Solver configuration comes from the typed NonlinearSolveProfile that
+        // solve_incremental applies on every attempt (newton + backtracking,
+        // KSPPREONLY + PCLU); no global PETSc options are mutated here.
         fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF> nl{&M};
 
         // Save a snapshot of the full imposed displacement vector
@@ -517,11 +514,10 @@ public:
         }
 
         // ── 5. Nonlinear incremental solve ─────────────────────────
-        PetscOptionsSetValue(nullptr, "-snes_linesearch_type", "basic");
-        PetscOptionsSetValue(nullptr, "-snes_max_it", "50");
-        PetscOptionsSetValue(nullptr, "-ksp_type", "preonly");
-        PetscOptionsSetValue(nullptr, "-pc_type", "lu");
-
+        //
+        // Solver configuration comes from the typed NonlinearSolveProfile that
+        // solve_incremental applies on every attempt (newton + backtracking,
+        // KSPPREONLY + PCLU); no global PETSc options are mutated here.
         fall_n::NonlinearAnalysis<Policy, continuum::SmallStrain, NDOF,
                           MultiElementPolicy> nl{&M};
 
