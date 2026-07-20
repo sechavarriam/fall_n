@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
     const auto result = ca.maximize(objective);
 
     RegularizedNewtonConfig best_cfg; LevenbergMarquardt best_lm;
-    decode(std::span<const double>(result.best.genome), best_cfg, best_lm);
+    decode(std::span<const double>(result.best.traits), best_cfg, best_lm);
     std::printf("CA-tuned config: mu0=%.3g grow=%.2f drop=%.2f mu_max_frac=%.3f "
                 "stag=%d  best|R|=%.4g  gens=%zu\n",
                 best_lm.mu0, best_lm.grow, best_lm.drop, best_cfg.mu_max_frac,
