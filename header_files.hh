@@ -45,7 +45,6 @@
 // Geometry Module
 //================================================================================
 
-#include "src/geometry/geometry.hh"
 #include "src/geometry/Topology.hh"
 #include "src/geometry/Cell.hh"
 #include "src/geometry/SerendipityCell.hh"
@@ -58,8 +57,6 @@
 //================================================================================
 
 #include "src/elements/Node.hh"
-#include "src/elements/Section.hh"
-//#include "src/elements/NodalSection.hh"
 
 #include "src/elements/FEM_Element.hh"
 #include "src/elements/ContinuumElement.hh"
@@ -83,9 +80,6 @@
 // Numerics Module
 // =================================================================================
 
-// #include "src/numerics/Polynomial.hh"
-// #include "src/numerics/Tensor.hh"
-
 #include "src/numerics/Interpolation/GenericInterpolant.hh"
 #include "src/numerics/Interpolation/LagrangeInterpolation.hh"
 
@@ -101,10 +95,6 @@
 #include "src/numerics/numerical_integration/BeamAxisQuadrature.hh"
 #include "src/numerics/numerical_integration/SimplexQuadrature.hh"
 #include "src/numerics/numerical_integration/StroudConicalProduct.hh"
-
-#include "src/numerics/linear_algebra/Matrix.hh"
-#include "src/numerics/linear_algebra/Vector.hh"
-#include "src/numerics/linear_algebra/LinalgOperations.hh"
 
 // =================================================================================
 // Material Module
@@ -194,12 +184,10 @@
 #include "src/continuum/Continuum.hh"
 
 #include "src/model/DoFStorage.hh"
-#include "src/model/DoF.hh"       // Legacy — kept for transition (see DoFStorage.hh)
 #include "src/model/NodeSelector.hh"
 #include "src/model/ModelCheckpoint.hh"
 #include "src/model/ModelState.hh"
 #include "src/model/Model.hh"
-#include "src/model/ModelBuilder.hh"
 #include "src/model/BoundaryCondition.hh"
 
 // --- Load application utilities ---
@@ -259,9 +247,6 @@
 
 #include "src/mesh/gmsh/ReadGmsh.hh"
 #include "src/mesh/gmsh/GmshDomainBuilder.hh"
-
-//#include "src/graph/AdjacencyList.hh"
-//#include "src/graph/AdjacencyMatrix.hh"
 
 // =================================================================================
 // Post-processing Module
