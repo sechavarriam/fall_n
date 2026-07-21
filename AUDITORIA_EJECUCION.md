@@ -4,8 +4,9 @@ Actualizado: 2026-07-21. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
 Rama de trabajo `feature/algorithms-metaheuristics`.
 
 **Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`, última
-corrida completa sobre `89234c7`; ~100 min). Build completo (275 targets,
-`-Werror`) en verde tras cada lote. Sin push: todos los commits son locales.
+corrida completa sobre el HEAD `9aff9c4` con todo el barrido P1/P2; ~100 min).
+Build completo (275 targets, `-Werror`) en verde tras cada lote. Sin push:
+todos los commits son locales.
 
 ## Bloque 1 — P0 no destructivos
 
