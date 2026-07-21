@@ -1,10 +1,11 @@
 # Ejecución de la auditoría de publicación — estado por ítem
 
-Actualizado: 2026-07-20. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
+Actualizado: 2026-07-21. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
 Rama de trabajo `feature/algorithms-metaheuristics`.
 
-**Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`, corrida
-final sobre `89234c7`; ~100 min). Sin push: todos los commits son locales.
+**Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`, última
+corrida completa sobre `89234c7`; ~100 min). Build completo (275 targets,
+`-Werror`) en verde tras cada lote. Sin push: todos los commits son locales.
 
 ## Bloque 1 — P0 no destructivos
 
@@ -27,7 +28,7 @@ final sobre `89234c7`; ~100 min). Sin push: todos los commits son locales.
 |---|---|---|
 | Namespaces núcleo → `fall_n` | **HECHO** | `e1f0937`: NLAnalysis, LinearAnalysis, DynamicAnalysis, IncrementalControl y Benchmark envueltos en `fall_n`, ~200 sitios calificados en 50 archivos. Suite completa 145/145 en verde sobre ese árbol. De paso `48e2051` corrige una rotura preexistente del tuner CA (rename `genome`→`traits` de `bdae433`). |
 | Dependencia invertida reconstruction→validation | **HECHO** | `89234c7`: `LocalModelVTKSnapshot.hh` nuevo en reconstruction; el adapter de validation conserva el nombre histórico como alias; el evolver ya no incluye validation. |
-| ~17 archivos muertos | **VERIFICADO** | los 17 con cero referencias (grep sobre src/tests/*.cpp/CMake/scripts); includes vestigiales retirados en `d5d1520`; `git rm` preparado abajo, pendiente de aprobación |
+| ~17 archivos muertos | **HECHO** | `49db8c6` elimina **20** archivos verificados (los 17 del plan + 3 extra hallados) y limpia el umbrella legacy `header_files.hh` que incluía 6 de ellos. Aprobado por el autor ("purga de lo inútil"). Detalle de verificación abajo. |
 | Mutación global de opciones PETSc | **HECHO** | `89234c7`. En `SubModelSolver.hh` (2 sitios) las opciones globales eran letra muerta para el solve local (el perfil tipado de `solve_incremental` las pisaba en cada intento) — se eliminaron sin cambio de comportamiento. En `NonlinearSubModelEvolver.hh` se reemplazaron por configuración directa del SNES propio tras `SNESSetFromOptions`, preservando la precedencia previa. Quedan fuera de alcance y documentadas: las opciones prefijadas de sub-solver en `NonlinearSolvePolicy.hh` (namespaced por prefijo del KSP, activas solo bajo perfil explícito) y `utils/SolverConfig.hh` (utilidad opt-in usada solo por `test_benchmark`). |
 | Plan de corte del monolito (5.4k líneas) | pendiente | solo plan, sin ejecutar |
 
@@ -155,6 +156,36 @@ reenvía el estado interno del solver LM (checkpoint/restore), y el archivo
 sustenta campañas de tesis ACTIVAS. Condición de entrada sugerida: harness
 de golden-run (correr el smoke de 50 mm antes/después y diff byte a byte de
 los CSV) y ventana sin campañas en vuelo.
+
+## Bloque 4 — Barrido P1/P2 (2026-07-20/21)
+
+| Ítem | Estado | Commit |
+|---|---|---|
+| `-Werror` incondicional → `FALL_N_WERROR` (ON por defecto) | **HECHO** | `98b6e54` |
+| Fugas de doc interna ("Plan v2 §Fase", "Cap. 79 H1", "bitácora", jerga "ARREGLO C"/"genes") | **HECHO** | `e69b42e` (7 headers + KoBathe) |
+| Español en DOC de API pública → inglés (`proximal_frac`, `AitkenRelaxation`, adapter bordered) | **HECHO** | `e69b42e` |
+| Cita autorreferencial en `KnowledgeSources.hh` neutralizada | **HECHO** | `e69b42e` |
+| Typos: `Funtor`→`Functor`, guard `CUADRATURE`→`QUADRATURE`, "efiiente", backslash suelto | **HECHO** | `e69b42e`, auto-contención |
+| `index.hh`: `throw bool`/`catch(bool)` + stdout → `if` + stderr | **HECHO** | `b968ddc` |
+| `PythonPlotter`: `std::system` endurecido (rechaza comillas/newline) | **HECHO** | `b968ddc` |
+| Headers no auto-contenidos | **HECHO** | `Quadrature.hh` (+Eigen), `ShellKinematicPolicy.hh` (+ElementGeometry, +MITCShellPolicy), `StructuralFieldReconstruction.hh` (+MITCShellElement). `Model.hh`, `Domain.hh` y `NonlinearSubModelEvolver.hh` ya eran auto-contenidos (verificado con `-fsyntax-only` en aislamiento). |
+| Banner de `MultiscaleAnalysis.hh` (clase insignia sin banner) + `ReadGmsh.hh` | **HECHO** | + declaración del subconjunto Gmsh soportado (MSH 4.1 ASCII) y borrado del bloque de ejemplo muerto tras el `#endif` |
+
+### Ítems P1/P2 NO ejecutados (con razón)
+
+- **Encapsular estado público crudo** (`Lagrange/Serendipity/SimplexElement`,
+  `Domain::mesh`, `Mesh::dm`, `Node::sieve_id`, `ArcLengthControl::delta_u`):
+  refactor de acceso que toca todos los llamadores; riesgo alto sin revisión
+  humana. Pendiente.
+- **Banners en ~30 headers**: cosmético, alta rotación en headers muy
+  incluidos; se hizo la clase insignia como muestra. El resto pendiente.
+- **`std::cout` en headers de librería → `std::ostream&` inyectable**:
+  cambio de firma en varios sitios; pendiente.
+- **Política única de idioma para el resto de comentarios ES**: barrido
+  amplio; el audit lo marca como P2 diferible. Solo se tradujo la doc de API
+  pública.
+- **Parser Gmsh (8 stubs)**: se declaró el subconjunto soportado en el
+  banner; implementar los stubs es trabajo de feature, no de higiene.
 
 ## Decisiones que quedan del autor
 
