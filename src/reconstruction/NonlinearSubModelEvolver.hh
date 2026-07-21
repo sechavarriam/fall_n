@@ -188,9 +188,9 @@ class BasicNonlinearSubModelEvolver {
     Vec  U_work_{nullptr};       ///< pre-allocated work vector (U-sized)
     Vec  imp_work_{nullptr};     ///< pre-allocated work vector (imposed-sized)
     /// Persistent bisection checkpoint storage for solve_ramp_adaptive_
-    /// (Plan v2 §Fase 1 hot-path: avoid per-call VecDuplicate inside the
-    /// adaptive bisection loop; previously two VecDuplicate + two VecDestroy
-    /// per macro-step solve).
+    /// (hot path: avoid per-call VecDuplicate inside the adaptive bisection
+    /// loop; previously two VecDuplicate + two VecDestroy per macro-step
+    /// solve).
     Vec  U_checkpoint_{nullptr};
     Vec  imp_checkpoint_{nullptr};
 
@@ -678,7 +678,7 @@ class BasicNonlinearSubModelEvolver {
         double progress = 0.0;
         double step_frac = clamped_initial_step;
 
-        // Reuse persistent member checkpoints (Plan v2 §Fase 1 hot-path).
+        // Reuse persistent member checkpoints (hot path).
         // Aliases keep the rest of the body legible without renaming.
         Vec U_checkpoint = U_checkpoint_;
         Vec imp_checkpoint = imp_checkpoint_;
@@ -1070,7 +1070,7 @@ public:
         destroy_petsc_objects();
     }
 
-    /// Plan v2 §Fase 1.6 — runtime-adjustable VTK throttle.
+    /// Runtime-adjustable VTK throttle.
     ///
     /// Allows the multiscale orchestrator to retune output frequency
     /// per-stage (e.g., dense for `enriched_fe2_guarded_smoke`, sparse

@@ -9,7 +9,7 @@
 //
 //  The five sources follow the cultural-algorithm literature (Reynolds;
 //  Reynolds & Peng; the comprehensive survey of Maheri et al.), which is also
-//  the basis of the author's tuned-inerter-damper optimisation paper
+//  the basis of a tuned-inerter-damper optimisation study
 //  (Lara-Valencia, Echavarria-Montana & Valencia-Gonzalez, 2024):
 //
 //    NormativeKnowledge   -- per-trait interval of the elite; resamples a

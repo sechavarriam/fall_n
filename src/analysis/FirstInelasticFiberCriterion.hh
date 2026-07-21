@@ -1,4 +1,4 @@
-// Plan v2 — Stage A/B activation criterion.
+// Stage A/B activation criterion.
 //
 // `FirstInelasticFiberCriterion` is a small, header-only, Eigen-free
 // activation predicate intended to drive FE² site activation on the

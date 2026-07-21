@@ -150,17 +150,17 @@ public:
     {}
 };
 
-//  Relajación dinámica de Aitken (Δ²) sobre el vector de fuerzas de sección
-//  (Küttler & Wall, Comput Mech 2008). El factor ω se adapta con los
-//  incrementos sucesivos del punto fijo staggered,
+//  Aitken (Δ²) dynamic relaxation on the section force vector
+//  (Küttler & Wall, Comput Mech 2008). The factor ω adapts from the
+//  successive increments of the staggered fixed point,
 //      ω_{k+1} = −ω_k · Δr_k·(Δr_{k+1}−Δr_k) / |Δr_{k+1}−Δr_k|²,
-//  y mata la oscilación período-2 que una relajación constante sostiene
-//  (la firma del "serrucho" paso a paso del two-way en estados muy
-//  fisurados). El estado interno se reinicia cuando iteration <= 1, es
-//  decir al comienzo del lazo staggered de cada paso macro.
-//  LIMITACIÓN: guarda UN estado escalar/vectorial, así que es correcta con
-//  UN sitio de acople (la columna FE²); con múltiples sitios los estados se
-//  mezclarían — usar una instancia por sitio antes de escalar a edificios.
+//  and kills the period-2 oscillation that a constant relaxation sustains
+//  (the step-by-step "sawtooth" signature of the two-way path in heavily
+//  cracked states). The internal state resets when iteration <= 1, i.e. at
+//  the start of each macro step's staggered loop.
+//  LIMITATION: it holds ONE scalar/vector state, so it is correct with ONE
+//  coupling site (the FE² column); with multiple sites the states would mix
+//  — use one instance per site before scaling up to buildings.
 class AitkenRelaxation final : public RelaxationPolicy {
     double omega_init_;
     double omega_min_;

@@ -61,9 +61,9 @@
 #endif
 inline constexpr bool kMultiCrackAngle = (KOBATHE_MULTI_CRACK != 0);
 
-// ARREGLO C: acotar a f_t el ancla de formacion del puente de continuidad.
-// ENCENDIDO por defecto.  -DKOBATHE_ANCHOR_FT=0 reproduce el comportamiento
-// previo, para el A/B controlado.
+// Formation-anchor cap: clamp the continuity-bridge formation anchor to f_t.
+// ON by default.  -DKOBATHE_ANCHOR_FT=0 reproduces the previous behavior,
+// for a controlled A/B comparison.
 #ifndef KOBATHE_ANCHOR_FT
 #define KOBATHE_ANCHOR_FT 1
 #endif
@@ -1112,8 +1112,9 @@ private:
             // transitoria resultante suaviza los quiebres C0 de la evolución
             // de fisura que generan los multi-equilibrios de reversa; en el
             // límite beta -> 1 (viscosidad nula) se recupera la respuesta
-            // rate-independiente.  Gen material LATCHEADO por proceso
-            // (KOBATHE_VISCOUS_RATCHET_BETA), como los demás genes.
+            // rate-independiente.  Parametro material LATCHEADO por proceso
+            // (KOBATHE_VISCOUS_RATCHET_BETA), como los demas parametros de
+            // calibracion del CA.
             {
                 static const double viscous_beta = [] {
                     const char* v =
@@ -1627,8 +1628,8 @@ struct EvalResult3D {
                         Em(0, 2) = Em(2, 0) = 0.5 * eps_elastic[4];
                         Em(0, 1) = Em(1, 0) = 0.5 * eps_elastic[5];
                         const double eps_n = normal.dot(Em * normal);
-                        // ARREGLO C.  El ancla del puente de continuidad no
-                        // puede exceder f_t.  El paso finito hace que sigma_1
+                        // Formation-anchor cap.  El ancla del puente de
+                        // continuidad no puede exceder f_t.  El paso finito hace que sigma_1
                         // rebase el umbral antes de que la fisura nazca (sonda
                         // de 1 GP: 1.48*ft), y anclar el puente a ese valor
                         // sostiene una sobre-resistencia que la envolvente

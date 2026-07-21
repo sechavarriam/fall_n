@@ -722,7 +722,7 @@ to_string(TwoWayTangentRegularizationMode mode)
     return "unknown_two_way_tangent_regularization";
 }
 
-// ─── Plan v2 §Fase 4C — UpscalingResult ──────────────────────────────────
+// ─── UpscalingResult ─────────────────────────────────────────────────────
 //
 // Bidirectional plumbing payload returned by an upscaling bridge after
 // completing a sub-model homogenisation step. The macro model consumes
@@ -730,8 +730,8 @@ to_string(TwoWayTangentRegularizationMode mode)
 // f_hom, D_hom)` (shim already in place per cyclic-validation-status).
 //
 // The `D_hom` block is computed primarily through bordered mixed-control
-// (the principal mechanism per Plan v2 §Fase 4C); the optional Schur
-// route remains a diagnostic comparator (§Fase 4-bis).
+// (the principal mechanism); the optional Schur route remains a diagnostic
+// comparator.
 //
 // Field semantics:
 //   - eps_ref            : reference strain vector at which the
@@ -741,8 +741,8 @@ to_string(TwoWayTangentRegularizationMode mode)
 //                          ordered to match `f_hom`).
 //   - frobenius_residual : ||K_macro_observed - D_hom||_F /
 //                          ||D_hom||_F at the linearisation point;
-//                          gate threshold for §Fase 4D guarded smoke
-//                          (≤ 0.03 per Cap. 79).
+//                          gate threshold for the guarded smoke run
+//                          (≤ 0.03).
 //   - snes_iters         : SNES iterations consumed by the sub-step.
 //   - converged          : true iff the sub-step converged within the
 //                          guarded budget.

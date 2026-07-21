@@ -10,14 +10,13 @@
 namespace interpolation{
 
 //Concept of generic interpolant
-template <typename Funtor, typename PointType, typename ReturnType>
-concept Interpolant = requires(Funtor f, PointType x)
+template <typename Functor, typename PointType, typename ReturnType>
+concept Interpolant = requires(Functor f, PointType x)
 {
     {f(x)} -> std::convertible_to<ReturnType>;
     f.points();
     f.values();
 };
-\
 
 }
 

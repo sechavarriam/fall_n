@@ -1,7 +1,7 @@
 #ifndef FALL_N_SRC_RECONSTRUCTION_ENRICHMENT_ACTIVATION_POLICY_HH
 #define FALL_N_SRC_RECONSTRUCTION_ENRICHMENT_ACTIVATION_POLICY_HH
 
-// Plan v2 §Fase 3.5 — adaptive enrichment activation policy.
+// Adaptive enrichment activation policy.
 //
 // Pure header, dependency-free predicate consumed by the multiscale
 // orchestrator before promoting a continuum-smeared local site to an
@@ -18,7 +18,7 @@
 //
 // Defaults match the value used in the 200 mm canonical run (NZ=4
 // shifted-Heaviside, bounded dowel-x bridging) and the guarded coupling
-// activation step (10) declared in Cap. 79 §Fase 6 hypothesis H1.
+// activation step (10) used in the guarded FE2 runs.
 
 #include <string_view>
 

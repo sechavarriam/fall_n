@@ -35,10 +35,11 @@ struct PetscNonlinearAnalysisBorderedAdapterSettings {
     double control_column_step{1.0e-6};
     double minimum_control_column_step{1.0e-10};
     bool use_central_difference{true};
-    // Orden de la diferencia finita de la columna de carga dR/dλ:
-    //  1 = adelantada O(h); 2 = central O(h^2); 4 = central de 5 puntos O(h^4).
-    //  Un orden mayor da un dR/dλ más fiel -> mejor sistema bordered y mejor
-    //  predictor tangente, a costa de más evaluaciones de residuo por columna.
+    // Finite-difference order of the load column dR/dλ:
+    //  1 = forward O(h); 2 = central O(h^2); 4 = 5-point central O(h^4).
+    //  A higher order gives a more faithful dR/dλ -> a better bordered system
+    //  and a better tangent predictor, at the cost of more residual
+    //  evaluations per column.
     int control_column_order{2};
 };
 
@@ -70,8 +71,8 @@ template <typename AnalysisT>
     const double h = bounded_control_perturbation(p, settings);
     auto column = analysis.create_global_vector();
 
-    // Orden efectivo: control_column_order manda; si quedó en el legado (2) se
-    //  respeta use_central_difference (false -> orden 1 adelantada).
+    // Effective order: control_column_order wins; if left at the legacy
+    //  value (2), use_central_difference is honored (false -> forward order 1).
     int order = settings.control_column_order;
     if (order != 1 && order != 2 && order != 4) order = 2;
     if (order == 2 && !settings.use_central_difference) order = 1;
@@ -186,11 +187,12 @@ make_arc_length_petsc_bordered_evaluation(
     analysis.apply_incremental_control_parameter(state.load_parameter);
     analysis.evaluate_residual_at(state.unknowns, eval.residual.get());
     analysis.evaluate_tangent_at(state.unknowns, eval.tangent.get());
-    // Regularización Levenberg-Marquardt del bloque K del sistema bordered:
-    //  K <- K + mu*I con mu = mu_frac*||diag(K)||.  Vuelve resoluble el corrector
-    //  bordered en el punto límite (donde K es casi-singular y el arc-length
-    //  puro se atasca), combinando el trazado paramétrico del arc-length con la
-    //  regularización que cruza el punto límite.
+    // Levenberg-Marquardt regularization of the K block of the bordered
+    //  system:  K <- K + mu*I with mu = mu_frac*||diag(K)||.  It makes the
+    //  bordered corrector solvable at the limit point (where K is
+    //  near-singular and pure arc-length stalls), combining the parametric
+    //  arc-length tracing with the regularization that crosses the limit
+    //  point.
     if (regularization_mu_frac > 0.0) {
         petsc::OwnedVec diag = analysis.create_global_vector();
         FALL_N_PETSC_CHECK(MatGetDiagonal(eval.tangent.get(), diag.get()));

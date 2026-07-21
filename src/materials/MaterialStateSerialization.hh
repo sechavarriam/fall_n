@@ -1,8 +1,8 @@
 #ifndef FALL_N_SRC_MATERIALS_MATERIAL_STATE_SERIALIZATION_HH
 #define FALL_N_SRC_MATERIALS_MATERIAL_STATE_SERIALIZATION_HH
 
-// Plan v2 §Fase 2.1 (partial) — additive serialization primitives for
-// known material/enrichment internal state types.
+// Additive serialization primitives for known material/enrichment internal
+// state types.
 //
 // This header introduces a non-intrusive serialize/deserialize
 // concept-based API that complements the existing type-erased `StateRef`
@@ -22,8 +22,8 @@
 //   3. A versioned header struct so checkpoints encode the type and
 //      layout fingerprint, allowing safe round-trip detection.
 //
-// Use case: Plan v2 §Fase 4B `local_site_batch` warm-start / checkpoint
-// seed reuse. The orchestrator captures bytes for known states and
+// Use case: `local_site_batch` warm-start / checkpoint seed reuse. The
+// orchestrator captures bytes for known states and
 // resurrects them on resume without touching `StateRef`'s injection
 // path.
 

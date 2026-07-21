@@ -1,7 +1,7 @@
 #ifndef FALL_N_VALIDATION_MULTISCALE_REPLAY_DRIVER_HELPERS_HH
 #define FALL_N_VALIDATION_MULTISCALE_REPLAY_DRIVER_HELPERS_HH
 
-// Plan v2 §Fase 4 — Shared helpers for the four-stage standalone drivers
+// Shared helpers for the four-stage standalone drivers
 //   (one_way_replay → local_site_batch → elastic_fe2_smoke → enriched_smoke).
 //
 // Header-only. Provides:

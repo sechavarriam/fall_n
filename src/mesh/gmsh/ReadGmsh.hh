@@ -155,8 +155,8 @@ namespace gmsh
 
             std::size_t i = 0;
             for (auto const &keyword : msh_keywords)
-            {                                            // sintetizar en función. set_positions();
-                std::size_t pos = buffer_.find(keyword); // Se puede hacer mas efiiente aprovechando el orden de los keywords.
+            {                                            // TODO: factor into a set_positions() helper.
+                std::size_t pos = buffer_.find(keyword); // Could exploit the keyword order to be more efficient.
                 if (pos != std::string::npos) keyword_position_[i] = pos;
                 ++i;
             }

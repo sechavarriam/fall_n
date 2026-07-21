@@ -205,17 +205,17 @@ struct RegularizedNewtonConfig {
     //  maximum/saddle. Off by default: bit-identical to the plain LM.
     bool   energy_linesearch{false};
     int    linesearch_max_backtracks{4};
-    // Continuación proximal (selección de rama por CONTINUIDAD): con
-    //  proximal_frac > 0 el paso se resuelve en dos fases, primero el punto
-    //  proximal  argmin Pi(u) + kappa/2 ||u-u_n||^2  con
-    //  kappa = proximal_frac * K_rms, donde K_rms es el RMS del diagonal de
-    //  K (escala POR grado de libertad: la norma-2 completa crece con
-    //  sqrt(N) e inflaría kappa en un modelo real). Convexifica y elige la
-    //  cuenca conexa con el último aceptado; el pulido con kappa = 0 lleva
-    //  al equilibrio verdadero. Si el flujo proximal no alcanza
-    //  estacionariedad dentro de su presupuesto, el paso se RESTAURA y se
-    //  resuelve plano con presupuesto completo (nunca peor que el lazo
-    //  original).  0 = apagado (lazo original intacto).
+    // Proximal continuation (branch selection by CONTINUITY): with
+    //  proximal_frac > 0 the step is solved in two phases. Phase A solves the
+    //  proximal point  argmin Pi(u) + kappa/2 ||u-u_n||^2  with
+    //  kappa = proximal_frac * K_rms, where K_rms is the RMS of the diagonal
+    //  of K (a per-DOF scale: the full 2-norm grows with sqrt(N) and would
+    //  inflate kappa on a real model). It convexifies and selects the basin
+    //  connected to the last accepted state; phase B (kappa = 0) polishes to
+    //  the true equilibrium. If the proximal flow does not reach stationarity
+    //  within its budget, the step is RESTORED and solved flat with the full
+    //  budget (never worse than the original loop).
+    //  0 = off (original loop untouched).
     double proximal_frac{0.0};
 };
 

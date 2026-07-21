@@ -1,7 +1,7 @@
 #ifndef FALL_N_SRC_RECONSTRUCTION_LOCAL_MODEL_KIND_HH
 #define FALL_N_SRC_RECONSTRUCTION_LOCAL_MODEL_KIND_HH
 
-// Plan v2 §Fase 2.7 — runtime LocalModelKind enum.
+// Runtime LocalModelKind enum.
 //
 // Lightweight tag consumable in the multiscale hot path (e.g.
 // `MultiscaleAnalysis::step()`) to dispatch behaviour for guarded
@@ -47,7 +47,7 @@ local_model_kind_label(LocalModelKind k) noexcept
 }
 
 /// True iff the kind admits enriched-DOF activation under guarded policy
-/// (Plan v2 §Fase 4D `enriched_fe2_guarded_smoke`).
+/// (the `enriched_fe2_guarded_smoke` path).
 [[nodiscard]] constexpr bool
 local_model_kind_supports_enrichment_activation(LocalModelKind k) noexcept
 {
