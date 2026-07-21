@@ -51,13 +51,9 @@ list_2_md_index(const std::size_t index) {
   std::size_t num_positions =
       std::ranges::fold_left(array_limits, 1, std::multiplies<int>());
 
-  try { // TODO: Improve this error handling.
-    if (index >= num_positions) {
-      throw index >= num_positions;
-    }
-  } catch (bool out_of_range) {
-    std::cout << "Index out of range. Returning zero array." << std::endl;
-    return std::array<std::size_t, sizeof...(N)>{0};
+  if (index >= num_positions) {
+    std::cerr << "list_2_md_index: index out of range; returning zero array.\n";
+    return IndexTuple{0};
   }
 
   std::integral auto divisor = num_positions/int(array_limits.back()); // TODO: Check if this is integer division or
