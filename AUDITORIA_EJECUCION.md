@@ -181,7 +181,10 @@ los CSV) y ventana sin campañas en vuelo.
 - **Banners en ~30 headers**: cosmético, alta rotación en headers muy
   incluidos; se hizo la clase insignia como muestra. El resto pendiente.
 - **`std::cout` en headers de librería → `std::ostream&` inyectable**:
-  cambio de firma en varios sitios; pendiente.
+  alcance real medido = 118 ocurrencias en 22 headers (materials `describe`,
+  parsers Gmsh `print_raw`, timers, etc.). Es un refactor amplio de firmas con
+  matiz semántico (distinguir salida de diagnóstico legítima de errores); no
+  es un cambio mecánico acotado. Pendiente de decisión de diseño del autor.
 - **Política única de idioma para el resto de comentarios ES**: barrido
   amplio; el audit lo marca como P2 diferible. Solo se tradujo la doc de API
   pública.
