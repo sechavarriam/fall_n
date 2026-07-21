@@ -13,6 +13,7 @@
 #include "../elements/BeamElement.hh"
 #include "../elements/TimoshenkoBeamN.hh"
 #include "../elements/ShellElement.hh"
+#include "../elements/MITCShellElement.hh"
 #include "../materials/SectionConstitutiveSnapshot.hh"
 
 namespace fall_n::reconstruction {

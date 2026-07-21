@@ -41,9 +41,8 @@
 #include <Eigen/Geometry>
 
 #include "../continuum/FormulationScopeAudit.hh"
-
-template <std::size_t dim>
-class ElementGeometry;
+#include "element_geometry/ElementGeometry.hh"
+#include "MITCShellPolicy.hh"
 
 namespace shell {
 

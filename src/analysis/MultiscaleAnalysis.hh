@@ -1,6 +1,27 @@
 #ifndef FALL_N_SRC_ANALYSIS_MULTISCALE_ANALYSIS_HH
 #define FALL_N_SRC_ANALYSIS_MULTISCALE_ANALYSIS_HH
 
+// =============================================================================
+//  MultiscaleAnalysis — FE² coupling driver between a macro solver and a
+//  set of local subscale models
+// =============================================================================
+//
+//  Owns the staggered coupling protocol for a beam-to-continuum FE² problem:
+//  it advances a checkpointable macro solver, drives one local model per
+//  coupling site through the injected executor, homogenises each site's
+//  response (force + tangent + reference strain), and iterates the two-way
+//  fixed point with a configurable relaxation policy and convergence check.
+//  Rollback/restart is provided through RestartBundle (macro + local
+//  checkpoints and the last converged responses).
+//
+//  All collaborators are injected at compile time through concepts:
+//    - MacroSolverT   : a CheckpointableSteppableSolver (e.g. NonlinearAnalysis)
+//    - MacroBridgeT   : extracts macro kinematics / injects section response
+//    - LocalModelT    : a LocalModelAdapter (section-specialised subscale model)
+//    - ExecutorT      : serial or parallel dispatch over the coupling sites
+//
+// =============================================================================
+
 #include <algorithm>
 #include <chrono>
 #include <cstddef>

@@ -1,16 +1,18 @@
-#ifndef FN_GAUSS_CUADRATURE
-#define FN_GAUSS_CUADRATURE
+#ifndef FN_GAUSS_QUADRATURE
+#define FN_GAUSS_QUADRATURE
 
 #include <array>
 #include <concepts>
 #include <iostream>
-#include <functional> 
-#include <algorithm>  
-#include <numeric>   
+#include <functional>
+#include <algorithm>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 
 #include <tuple>
+
+#include <Eigen/Dense>
 
 // in clang, print
 #ifdef __clang__ 
