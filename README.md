@@ -5,6 +5,10 @@ analysis, with a focus on reinforced-concrete structures and beam-to-continuum
 multiscale (FE²) coupling. It is developed as part of a doctoral research
 project at the Universidad Nacional de Colombia.
 
+> **Status.** Research code under active development, pre-1.0. The public
+> surface is stabilising module by module; expect breaking changes until a
+> tagged release. See [Roadmap](#roadmap).
+
 ## Highlights
 
 - **Elements**: Timoshenko beams with configurable axis quadrature
@@ -13,7 +17,7 @@ project at the Universidad Nacional de Colombia.
   (hex8/hex20/hex27), with small-strain, total-Lagrangian,
   updated-Lagrangian, and corotational kinematic policies.
 - **Constitutive models**: a Ko–Bathe 3D concrete model with octahedral
-  invariants, crack band regularization and cyclic crack closure;
+  invariants, crack-band regularization and cyclic crack closure;
   Menegotto–Pinto steel; Kent–Park concrete; damage and plasticity
   compositions with explicit commit/rollback state chains.
 - **Solvers**: PETSc-backed nonlinear statics (SNES), implicit dynamics
@@ -28,12 +32,21 @@ project at the Universidad Nacional de Colombia.
   parameter sets over benchmark campaigns.
 - **Compile-time audit layer**: the supported combinations of element
   family × kinematic formulation × analysis route are encoded as concepts
-  and constexpr catalogs, so unsupported combinations are rejected at
+  and `constexpr` catalogs, so unsupported combinations are rejected at
   compile time instead of failing silently at runtime.
 
-The architecture favors C++20/23 concepts over inheritance or CRTP for
-polymorphism; CRTP appears only in static mixin classes that inject
-operations into strong types.
+### Design principles
+
+- **Concepts over inheritance.** Polymorphism is expressed with C++20/23
+  concepts; runtime type-erasure is used only where heterogeneous containers
+  genuinely need it. CRTP appears only in static mixin classes that inject
+  operations into strong types.
+- **Semantics in the type system.** Kinematic formulation, work-conjugate
+  stress/strain pairing, and analysis-route maturity are encoded as
+  compile-time metadata rather than runtime flags.
+- **State discipline.** Constitutive and model state advance through explicit
+  commit / rollback / checkpoint chains, so a diverged solve never corrupts
+  the next step.
 
 ## Requirements
 
@@ -44,6 +57,10 @@ operations into strong types.
 - [Eigen3](https://eigen.tuxfamily.org)
 - [VTK](https://vtk.org) (IO/XML and filter modules)
 - OpenMP (optional, used when available)
+
+Warnings are treated as errors by default; pass `-DFALL_N_WERROR=OFF` to
+`cmake` when building with a third-party compiler that emits its own
+diagnostics.
 
 ## Build
 
@@ -138,14 +155,43 @@ The reference table lives in
 [docs/kobathe_env_vars.md](docs/kobathe_env_vars.md); unset variables
 always fall back to the documented defaults.
 
-## History
+## Documentation
 
-The detailed development log that previously lived in this README —
-architecture evolution, validation campaigns, and design decisions — is
-preserved in [CHANGELOG.md](CHANGELOG.md).
+The project keeps three distinct kinds of written record; do not confuse
+them:
+
+- **Development log / research bitácora** (`doc/`, LaTeX). A chronological
+  account of the theory, formulations, and validation campaigns behind the
+  implementation. It is a *record of how the code came to be*, not a usage
+  manual, and tracks the doctoral research.
+- **Changelog** ([CHANGELOG.md](CHANGELOG.md)). The internal, near-commit
+  history of architectural and validation milestones that previously lived
+  in this README.
+- **User & developer documentation** (`docs/`). Task-oriented documentation
+  of *how to use and extend the library* — currently limited to the
+  `KOBATHE_*` reference. A proper user-documentation site is planned; see
+  [Roadmap](#roadmap).
+
+## Roadmap
+
+- **Scriptable public API.** A stable, language-agnostic C API surface so the
+  library can be driven from an interpreter, in the spirit of OpenSees /
+  OpenSeesPy. The binding layer is intended to be generic enough to host
+  multiple front-ends — a Python package first, and a Julia interface
+  (a promising scripting language for numerical work) as a second target —
+  over one shared core.
+- **User-documentation site.** A modern documentation system with class
+  diagrams, rendered equations, and a bibliography, extensible by future
+  contributors.
+- **Continued module hardening.** Encapsulation of the remaining public raw
+  state, and splitting the large validation-campaign translation units into
+  reusable library seams.
 
 ## License
 
-`fall_n` is released under the GNU General Public License v3.0 (see
-[LICENSE](LICENSE)). PETSc, Eigen, and VTK are used under their respective
-compatible licenses.
+Copyright (C) 2022–2026 Sebastián Echavarría Montaña.
+
+`fall_n` is free software, released under the GNU General Public License,
+version 3 or (at your option) any later version — see [LICENSE](LICENSE).
+It is distributed WITHOUT ANY WARRANTY. PETSc, Eigen, and VTK are used under
+their respective GPL-compatible licenses.
