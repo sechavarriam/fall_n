@@ -15,7 +15,7 @@ todos los commits son locales.
 | Ruta personal en `VTKdataContainer.hh:176` | **HECHO** | `0b2634b` retira el bloque comentado completo. El archivo sigue siendo candidato a eliminación (ver tabla de muertos). |
 | `box.geo.opt` trackeado | **HECHO** | `a562a3f` lo destrackea junto con `box1.msh` e `Ibeam_default.msh` (mallas generadas sin referencia en src/tests/scripts). `.gitignore` ahora excluye `*.geo.opt`. Los archivos siguen en disco. |
 | README 287 KB con mojibake | **HECHO** | `f35e3a6`. README de publicación nuevo; historial íntegro en `CHANGELOG.md` con 87 clústeres de mojibake reparados. |
-| PDFs Ko_Bathe trackeados | **PENDIENTE DE APROBACIÓN** | Plan de purga abajo. Sin ejecutar nada. |
+| PDFs Ko_Bathe trackeados | **HEAD LIMPIO + PURGA VERIFICADA** | `c357ca8` los saca del HEAD e ignora `doc/ref/`. La purga de historia se verificó en un espejo aislado (Ko-Bathe y box.geo.opt → 0 commits; pack 224.8→217.2 MiB). Falta solo el `git push --force` al remoto, gatillado por el autor. Detalle abajo. |
 
 ## Bloque 2 — Documentación de configuración
 
@@ -209,7 +209,19 @@ los CSV) y ventana sin campañas en vuelo.
 
 ---
 
-## Plan de purga de historia (P0.1) — PREPARADO, NO EJECUTADO
+## Plan de purga de historia (P0.1) — VERIFICADO; FALTA SOLO EL FORCE-PUSH
+
+**Estado 2026-07-21:** el HEAD ya está limpio (`c357ca8`) y `git-filter-repo`
+2.47.0 quedó instalado (`py -3.12 -m pip install --user git-filter-repo`). La
+operación de purga se **ejecutó y verificó en un clon espejo aislado del repo
+local**: tras `filter-repo`, `doc/ref/Ko_Bathe-2026.*` y `data/input/box.geo.opt`
+aparecen en **0 commits** de toda la historia, y el pack baja de 224.8 a
+217.2 MiB. El espejo de verificación era desechable y se eliminó.
+
+Lo único que falta es correr la purga contra un espejo **del remoto** y hacer
+`git push --force`. Eso NO se ejecutó: reescribe el remoto público, rompe
+todos los clones y coincide con edición de tesis en paralelo. Es el paso que
+el autor debe gatillar (comando probado abajo).
 
 ### Qué purgar
 
@@ -227,29 +239,29 @@ los CSV) y ventana sin campañas en vuelo.
 - Pack actual: **224.8 MiB**; la purga de `doc/ref` recorta ~16.5 MB.
 - Hay múltiples ramas locales y remotas; `git filter-repo` reescribe TODAS
   las refs del clon donde corre.
-- `git-filter-repo` **no está instalado** en esta máquina
-  (`pip install git-filter-repo`).
+- `git-filter-repo` **ya instalado** (2.47.0, vía `py -3.12`). Invocar como
+  `py -3.12 -m git_filter_repo ...` o `git filter-repo ...` si el script está
+  en el PATH.
 - Hay al menos un worktree adicional activo (`fix/kobathe-tau-octahedral`);
   filter-repo debe correr en un **clon espejo fresco**, nunca en el árbol
   de trabajo con la tesis y las campañas en vuelo.
 
 ### Comandos preparados (ejecutar SOLO tras aprobación y al final de la limpieza)
 
+Pasos 0 (HEAD) y la verificación (pasos 2-4) YA ejecutados/probados. Lo que
+resta para el autor es correrlo contra el REMOTO y publicar:
+
 ```powershell
-# 0) Prerrequisito (una vez)
-pip install git-filter-repo
+# 1) Empujar primero el trabajo local pendiente de esta rama (si se desea
+#    conservarlo), para que el espejo del remoto lo incluya en la purga.
+#    Alternativamente, purgar el remoto y luego re-empujar la rama local.
 
-# 1) Paso previo en el árbol de trabajo: retirar del HEAD y citar en BibTeX
-git rm --cached doc/ref/Ko_Bathe-2026.pdf doc/ref/Ko_Bathe-2026.docx doc/ref/Ko_Bathe-2026.extracted.txt
-Add-Content .gitignore "`ndoc/ref/"
-git commit -m "doc: retira la obra de terceros del indice; queda la cita en references.bib"
-
-# 2) Clon espejo fresco (la purga corre aquí, no en c:\MyLibs\fall_n)
+# 2) Clon espejo fresco DEL REMOTO (la purga corre aquí, no en c:\MyLibs\fall_n)
 git clone --mirror https://github.com/sechavarriam/fall_n.git C:\tmp\fall_n_purge.git
 cd C:\tmp\fall_n_purge.git
 
-# 3) Purga (todas las refs)
-git filter-repo --invert-paths `
+# 3) Purga (todas las refs) — comando ya verificado en el espejo local
+py -3.12 -m git_filter_repo --invert-paths `
   --path doc/ref/Ko_Bathe-2026.pdf `
   --path doc/ref/Ko_Bathe-2026.docx `
   --path doc/ref/Ko_Bathe-2026.extracted.txt `
@@ -259,7 +271,7 @@ git filter-repo --invert-paths `
 git count-objects -vH
 git log --all --oneline -- doc/ref/   # debe salir vacío
 
-# 5) Publicación (DESTRUCTIVO: reescribe el remoto)
+# 5) Publicación (DESTRUCTIVO: reescribe el remoto) — PASO DEL AUTOR
 git push --force --all
 git push --force --tags
 ```
