@@ -30,6 +30,8 @@ Testing/
 !tests/validation_cube.msh
 # cache de preferencias de la GUI de Gmsh (contiene rutas absolutas locales)
 *.geo.opt
+# material de referencia de terceros (copyright); no redistribuir con el repo
+doc/ref/
 *.exe
 tmp_*.log
 tmp_*.py
