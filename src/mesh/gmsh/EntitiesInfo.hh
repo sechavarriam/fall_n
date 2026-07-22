@@ -49,13 +49,6 @@ namespace gmsh
             double X, Y, Z;
             std::size_t num_physical_tags;
             std::vector<int> physical_tags;
-
-            void print_raw()
-            {
-                std::cout << tag << " " << X << " " << Y << " " << Z << " " << num_physical_tags << " ";
-                for (auto const &tag : physical_tags){std::cout << tag << " ";};
-                std::cout << std::endl;
-            };
         };
 
         struct GeneralEntity // Curve, Surface, Volume
@@ -68,26 +61,6 @@ namespace gmsh
             std::vector<int> physical_tags;
             std::size_t  num_bounding_entities; // numBoundingPoints, numBoundingCurves, numBoundingSurfaces
             std::vector<int> bounding_entities;
-
-            void print_raw()
-            {
-                std::cout << tag << " " << minX << " " << minY << " " << minZ << " " << maxX << " " << maxY << " " << maxZ << " " << num_physical_tags << " " << num_bounding_entities << " ";
-                for (auto const &tag : bounding_entities){std::cout << tag << " ";};
-                std::cout << std::endl;
-            };
-
-            void print()
-            {
-                std::cout << "tag: " << tag << std::endl;
-                std::cout << "minX: " << minX << std::endl;
-                std::cout << "minY: " << minY << std::endl;
-                std::cout << "minZ: " << minZ << std::endl;
-                std::cout << "maxX: " << maxX << std::endl;
-                std::cout << "maxY: " << maxY << std::endl;
-                std::cout << "maxZ: " << maxZ << std::endl;
-                std::cout << "num_physical_tags: " << num_physical_tags << std::endl;
-                std::cout << "num_bounding_entities: " << num_bounding_entities << std::endl;
-            };
         };
     }; // namespace Entity
 

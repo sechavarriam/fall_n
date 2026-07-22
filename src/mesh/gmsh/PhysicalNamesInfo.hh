@@ -28,15 +28,6 @@ namespace gmsh
         int numPhysicalNames;
         std::vector<PhysicalEntity> physical_entities;
 
-        void print_raw()
-        {
-            std::cout << numPhysicalNames << std::endl;
-            for (auto const &[dim, tag, name] : physical_entities)
-            {
-                std::cout << dim << " " << tag << " " << name << std::endl;
-            }
-        };
-
         PhysicalNamesInfo() = default;
         PhysicalNamesInfo(std::string_view keword_info)
         {

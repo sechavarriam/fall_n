@@ -1118,51 +1118,6 @@ protected:
     }
 };
 
-template <typename ElementT>
-struct StructuralPartitionedModel {
-    using element_type = ElementT;
-
-    std::vector<ElementT> elements_{};
-    Vec state_{nullptr};
-
-    const auto& elements() const noexcept { return elements_; }
-    Vec state_vector() const noexcept { return state_; }
-};
-
-template <typename ModelT, typename BeamProfileT, typename ThicknessProfileT>
-class StructuralBlockBuilderHarness
-    : public StructuralVTMExporterImpl<ModelT, BeamProfileT, ThicknessProfileT> {
-    using Base = StructuralVTMExporterImpl<ModelT, BeamProfileT, ThicknessProfileT>;
-
-public:
-    using Base::Base;
-
-    template <typename StateAccessor>
-    vtkSmartPointer<vtkPolyData> axis_block(StateAccessor&& accessor) const {
-        return Base::build_axis_block(std::forward<StateAccessor>(accessor));
-    }
-
-    template <typename StateAccessor>
-    vtkSmartPointer<vtkPolyData> surface_block(StateAccessor&& accessor) const {
-        return Base::build_surface_block(std::forward<StateAccessor>(accessor));
-    }
-
-    template <typename StateAccessor>
-    vtkSmartPointer<vtkPolyData> sections_block(StateAccessor&& accessor) const {
-        return Base::build_sections_block(std::forward<StateAccessor>(accessor));
-    }
-
-    template <typename StateAccessor>
-    vtkSmartPointer<vtkPolyData> material_sites_block(StateAccessor&& accessor) const {
-        return Base::build_material_sites_block(std::forward<StateAccessor>(accessor));
-    }
-
-    template <typename StateAccessor>
-    vtkSmartPointer<vtkPolyData> fibers_block(StateAccessor&& accessor) const {
-        return Base::build_fibers_block(std::forward<StateAccessor>(accessor));
-    }
-};
-
 template <typename F>
 void dispatch_supported_structural(const StructuralElement& element, F&& visitor) {
     if (const auto* beam = element.template as<BeamElement<TimoshenkoBeam3D, 3>>()) {
@@ -1224,24 +1179,6 @@ template <typename ModelT,
           typename ThicknessProfileT>
     requires std::same_as<typename ModelT::element_type, StructuralElement>
 class StructuralVTMExporter<ModelT, BeamProfileT, ThicknessProfileT> {
-    using BeamElem = BeamElement<TimoshenkoBeam3D, 3>;
-    using BeamN2 = TimoshenkoBeamN<2>;
-    using BeamN3 = TimoshenkoBeamN<3>;
-    using BeamN4 = TimoshenkoBeamN<4>;
-    using ShellElem = ShellElement<MindlinReissnerShell3D>;
-
-    using BeamModel = detail::StructuralPartitionedModel<BeamElem>;
-    using BeamN2Model = detail::StructuralPartitionedModel<BeamN2>;
-    using BeamN3Model = detail::StructuralPartitionedModel<BeamN3>;
-    using BeamN4Model = detail::StructuralPartitionedModel<BeamN4>;
-    using ShellModel = detail::StructuralPartitionedModel<ShellElem>;
-
-    using BeamBuilder = detail::StructuralBlockBuilderHarness<BeamModel, BeamProfileT, ThicknessProfileT>;
-    using BeamN2Builder = detail::StructuralBlockBuilderHarness<BeamN2Model, BeamProfileT, ThicknessProfileT>;
-    using BeamN3Builder = detail::StructuralBlockBuilderHarness<BeamN3Model, BeamProfileT, ThicknessProfileT>;
-    using BeamN4Builder = detail::StructuralBlockBuilderHarness<BeamN4Model, BeamProfileT, ThicknessProfileT>;
-    using ShellBuilder = detail::StructuralBlockBuilderHarness<ShellModel, BeamProfileT, ThicknessProfileT>;
-
     const ModelT* model_{nullptr};
     BeamProfileT beam_profile_{};
     ThicknessProfileT thickness_profile_{};

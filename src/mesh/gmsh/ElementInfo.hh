@@ -34,17 +34,6 @@ $EndElements
             int entityDim, entityTag, elementType;
 
             std::map<std::size_t, std::vector<std::size_t>> elementTags;
-
-            void print_raw()
-            {
-                std::cout << entityDim << " " << entityTag << " " << elementType << " " << numElementsInBlock << " " << std::endl;
-                for (auto const &[e_tag, n_tags] : elementTags)
-                {
-                    std::cout << e_tag << " ";
-                    for (auto const &n_tag : n_tags){std::cout << n_tag << " ";};
-                    std::cout << std::endl;
-                }
-            };
         };
     };
 

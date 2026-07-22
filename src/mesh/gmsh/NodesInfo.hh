@@ -39,13 +39,6 @@ $EndNodes
 
             std::vector<int> nodeTag;
             std::vector<std::array<double, 3>> coordinates; // This should be another struct or tuple if parametric is allowed
-
-            void print_raw()
-            {
-                std::cout << entityDim << " " << entityTag << " " << parametric << " " << numNodesInBlock << " " << std::endl;
-                for (auto const &tag : nodeTag){std::cout << tag << std::endl;};
-                for (auto const &coord : coordinates){std::cout << coord[0] << " " << coord[1] << " " << coord[2] << std::endl;};
-            };
         };
     };
 
