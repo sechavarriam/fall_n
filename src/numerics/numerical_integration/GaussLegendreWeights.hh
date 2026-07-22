@@ -59,74 +59,7 @@ namespace GaussLegendre{
         }   
     };
 
-    template <std::size_t... n> // n: Number of quadrature points in each direction.
-    static consteval auto CellWeights(){
-
-        static constexpr std::size_t dim    {sizeof...(n)};
-        static constexpr std::size_t n_nodes{(n*...)};
-        static constexpr std::tuple< std::array<double,n>...> dir_weights{weights<n>()...}; //Weights for each direction.
-        
-        std::array<double,n_nodes> weight_list{};
-
-        for(auto i = 0; i < n_nodes; ++i){
-            [&]<std::size_t... Is>(std::index_sequence<Is...>){
-                weight_list[i] = (std::get<Is>(dir_weights)[utils::list_2_md_index<n...>(i)[Is]] * ...);
-            }(std::make_index_sequence<dim>{});
-        }
-        return weight_list;
-    };
-        
-
-
 } // namespace GaussLegendre
-
-
-/*
-    template<std::size_t OrderX,std::size_t OrderY=OrderX> requires (OrderX>0 && OrderY>0)
-    static consteval std::array<double,OrderX*OrderY> Weights2D(){
-        std::array<double,OrderX*OrderY> W;
-        int pos = 0;
-        for(auto&& i:Weights1D<OrderX>()){
-            for(auto&& j:Weights1D<OrderY>()){
-                W[pos] = i*j;
-                ++pos; 
-            }
-        }
-        return W;
-    };
-
-    template<std::size_t OrderX,std::size_t OrderY=OrderX, std::size_t OrderZ=OrderY> 
-    requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    static consteval std::array<double,OrderX*OrderY*OrderZ> Weights3D(){
-        std::array<double,OrderX*OrderY*OrderZ> W;
-        int pos = 0;
-        for(auto&& i:Weights1D<OrderX>()){
-            for(auto&& j:Weights1D<OrderY>()){
-                for(auto&& k:Weights1D<OrderZ>()){
-                    W[pos] = i*j*k;
-                    ++pos; 
-                }
-            }
-        }
-        return W;
-    };
-
-    // Wrapper
-    template<std::size_t Dim, std::size_t OrderX,std::size_t OrderY=OrderX, std::size_t OrderZ=OrderY> 
-    requires (OrderX>0 && OrderY>0 && OrderZ>0)
-    static consteval auto Weights(){
-        if constexpr (Dim==1){
-            return Weights1D<OrderX>();
-        }else if constexpr (Dim==2){
-            return Weights2D<OrderX,OrderY>();
-        }else if constexpr (Dim==3){
-            return Weights3D<OrderX,OrderY,OrderZ>();
-        }else{
-            return std::array<double,0>{};
-        }
-    };
-
-*/
 
 
 

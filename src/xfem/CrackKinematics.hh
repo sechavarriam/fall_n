@@ -26,19 +26,6 @@ struct CrackJumpKinematics {
     return crack_normal / n_norm;
 }
 
-[[nodiscard]] inline Eigen::Matrix3d normal_projector(
-    const Eigen::Vector3d& crack_normal)
-{
-    const Eigen::Vector3d n = normalized_crack_normal(crack_normal);
-    return n * n.transpose();
-}
-
-[[nodiscard]] inline Eigen::Matrix3d tangential_projector(
-    const Eigen::Vector3d& crack_normal)
-{
-    return Eigen::Matrix3d::Identity() - normal_projector(crack_normal);
-}
-
 [[nodiscard]] inline CrackJumpKinematics split_crack_jump(
     const Eigen::Vector3d& crack_normal,
     const Eigen::Vector3d& jump)

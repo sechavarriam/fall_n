@@ -28,11 +28,6 @@ requires(sizeof...(N) == sizeof...(ijk))
     n += md_index[i];
   }
 
-  ////Column major order
-  //for (std::size_t i = 1; i < dim; ++i) {
-  //  n += md_index[i] * array_limits[i];
-  //}
-  
   return n;
 }; 
 

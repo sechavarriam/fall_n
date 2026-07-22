@@ -81,19 +81,6 @@ public:
     // tangent(): returns the constant tangent operator (no kinematic argument).
     TangentT tangent() const { return stiffness_matrix_; }
 
-    // --- Legacy interface (backward compatibility) ---------------------------
-
-    // These delegate to the concept-conforming methods above.
-    // TODO: Migrate call sites and remove these.
-
-    StressT compute_stress(const StrainT& strain) const {
-        return compute_response(strain);
-    }
-
-    void compute_stress(StressT& stress, const StrainT& strain) const {
-        stress.set_components(stiffness_matrix_ * strain.components());
-    }
-
     // Direct read access to the stiffness matrix.
     const TangentT& stiffness_matrix() const { return stiffness_matrix_; }
 
@@ -169,16 +156,6 @@ public:
         TangentT C;
         C(0, 0) = E_;
         return C;
-    }
-
-    // --- Legacy interface ----------------------------------------------------
-
-    StressT compute_stress(const StrainT& strain) const {
-        return compute_response(strain);
-    }
-
-    void compute_stress(const StrainT& strain, StressT& stress) const {
-        stress.set_components(E_ * strain.components());
     }
 
     // --- Parameter access ----------------------------------------------------

@@ -521,37 +521,6 @@ private:
         if (observer_notifications_enabled_ && monitor_callback_) {
             monitor_callback_(step, t, U, V);
         }
-
-        return;
-
-        DM dm = model_->get_plex();
-
-        // ── 1. Update model state vector ─────────────────────────────
-        Vec scratch;
-        DMGetLocalVector(dm, &scratch);
-        VecSet(scratch, 0.0);
-        FALL_N_PETSC_CHECK(DMGlobalToLocalBegin(dm, U, INSERT_VALUES, scratch));
-        FALL_N_PETSC_CHECK(DMGlobalToLocalEnd  (dm, U, INSERT_VALUES, scratch));
-
-        VecAXPY(scratch, 1.0, model_->imposed_solution());
-        VecCopy(scratch, model_->state_vector());
-        DMRestoreLocalVector(dm, &scratch);
-
-        // ── 2. Commit material state from the same localized vector ──
-        for (auto& element : model_->elements()) {
-            element.commit_material_state(model_->state_vector());
-        }
-
-        // ── 3. Observer pipeline ─────────────────────────────────────
-        if (observer_callback_.on_step) {
-            fall_n::StepEvent ev{step, t, U, V};
-            observer_callback_.on_step(ev, *model_);
-        }
-
-        // ── 4. Legacy monitor callback ───────────────────────────────
-        if (monitor_callback_) {
-            monitor_callback_(step, t, U, V);
-        }
     }
 
 

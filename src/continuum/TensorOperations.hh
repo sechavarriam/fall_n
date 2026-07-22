@@ -68,15 +68,6 @@ double jacobian(const Tensor2<dim>& F) {
 //    R = F · U⁻¹
 //    V = R · U · Rᵀ  =  F · Rᵀ
 
-struct PolarDecompositionResult {
-    // These are Tensor2 rather than SymmetricTensor2 because
-    // R is not symmetric, and keeping uniform type simplifies the API.
-    // U and V can be extracted as SymmetricTensor2 via accessors.
-    Eigen::Matrix3d R;   // rotation
-    Eigen::Matrix3d U;   // right stretch
-    Eigen::Matrix3d V;   // left stretch
-};
-
 /// Polar decomposition of a 3×3 tensor F.
 /// F = R · U  with  R ∈ SO(3),  U = sqrt(FᵀF).
 /// Requires det(F) > 0.

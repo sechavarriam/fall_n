@@ -301,7 +301,6 @@ private:
         ofs << '\n';
 
         // Data rows
-        if (fibers.empty()) return;
         const std::size_t n_steps = fibers[0]->times.size();
         for (std::size_t s = 0; s < n_steps; ++s) {
             ofs << std::format("{:.8e}", fibers[0]->times[s]);

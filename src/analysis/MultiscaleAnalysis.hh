@@ -109,14 +109,6 @@ private:
     std::vector<SectionHomogenizedResponse> last_converged_responses_{};
     LocalSubproblemRuntimeManager<LocalModelT> local_runtime_{};
 
-    [[nodiscard]] static double relative_norm_(
-        const Eigen::Vector<double, 6>& a,
-        const Eigen::Vector<double, 6>& b)
-    {
-        const double denom = std::max({1.0, a.norm(), b.norm()});
-        return (a - b).norm() / denom;
-    }
-
     [[nodiscard]] static double force_gap_(
         const SectionHomogenizedResponse& a,
         const SectionHomogenizedResponse& b)
@@ -508,14 +500,6 @@ private:
             *max_column_gap = metrics.max_column_gap;
         }
         return metrics.relative_gap;
-    }
-
-    [[nodiscard]] static double relative_norm_(
-        const Eigen::Matrix<double, 6, 6>& a,
-        const Eigen::Matrix<double, 6, 6>& b)
-    {
-        const double denom = std::max({1.0, a.norm(), b.norm()});
-        return (a - b).norm() / denom;
     }
 
     [[nodiscard]] static bool is_hard_failure_(ResponseStatus status)
