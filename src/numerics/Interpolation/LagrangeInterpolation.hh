@@ -36,8 +36,7 @@ namespace interpolation{
       return [this, i](const double&  x){   
         double L_i = 1.0;
         for (std::size_t j = 0; j < nPoints; ++j){
-          (j != i) ? L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j])
-                   : L_i *= 1.0;
+          if (j != i) L_i *= (x - xPoints[j]) / (xPoints[i] - xPoints[j]);
         }
         return L_i;
       };

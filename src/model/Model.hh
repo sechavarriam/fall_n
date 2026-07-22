@@ -762,7 +762,7 @@ public:
 
 
     void update_elements_state(){
-        if constexpr (requires(element_type e) { e.set_material_point_state(*static_cast<Model*>(nullptr)); }) {
+        if constexpr (requires(element_type e, Model& m) { e.set_material_point_state(m); }) {
             for (auto &element : elements_) {
                 element.set_material_point_state(*this);
             }

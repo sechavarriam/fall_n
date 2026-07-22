@@ -106,9 +106,12 @@ inline PetscErrorCode get_ordering(Mat K, MatOrderingType type,
 /// is destroyed and replaced with the permuted version.
 ///
 /// Returns the bandwidth reduction ratio: old_bw / new_bw.
-inline double apply_rcm(Mat* K) {
+/// Reorder *K in place with the given PETSc ordering, replacing the matrix
+/// with its permuted copy.  Returns the bandwidth reduction ratio
+/// old_bw / new_bw and reports it under `label`.
+inline double apply_ordering(Mat* K, MatOrderingType type, const char* label) {
     IS rperm, cperm;
-    MatGetOrdering(*K, MATORDERINGRCM, &rperm, &cperm);
+    MatGetOrdering(*K, type, &rperm, &cperm);
 
     PetscInt old_bw = compute_bandwidth(*K);
 
@@ -126,39 +129,16 @@ inline double apply_rcm(Mat* K) {
     double ratio = (new_bw > 0) ? static_cast<double>(old_bw) / new_bw : 1.0;
 
     PetscPrintf(PETSC_COMM_WORLD,
-        "  RCM reordering: bandwidth %d → %d (%.1fx reduction)\n",
-        static_cast<int>(old_bw), static_cast<int>(new_bw), ratio);
+        "  %s reordering: bandwidth %d → %d (%.1fx reduction)\n",
+        label, static_cast<int>(old_bw), static_cast<int>(new_bw), ratio);
 
     return ratio;
 }
 
+inline double apply_rcm(Mat* K) { return apply_ordering(K, MATORDERINGRCM, "RCM"); }
 
 /// Apply Nested Dissection reordering (better for direct solvers).
-inline double apply_nd(Mat* K) {
-    IS rperm, cperm;
-    MatGetOrdering(*K, MATORDERINGND, &rperm, &cperm);
-
-    PetscInt old_bw = compute_bandwidth(*K);
-
-    Mat K_perm;
-    MatPermute(*K, rperm, cperm, &K_perm);
-
-    PetscInt new_bw = compute_bandwidth(K_perm);
-
-    MatDestroy(K);
-    *K = K_perm;
-
-    ISDestroy(&rperm);
-    ISDestroy(&cperm);
-
-    double ratio = (new_bw > 0) ? static_cast<double>(old_bw) / new_bw : 1.0;
-
-    PetscPrintf(PETSC_COMM_WORLD,
-        "  ND reordering: bandwidth %d → %d (%.1fx reduction)\n",
-        static_cast<int>(old_bw), static_cast<int>(new_bw), ratio);
-
-    return ratio;
-}
+inline double apply_nd(Mat* K) { return apply_ordering(K, MATORDERINGND, "ND"); }
 
 
 /// Print sparsity statistics for a matrix.

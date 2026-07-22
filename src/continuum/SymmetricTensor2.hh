@@ -437,50 +437,41 @@ public:
     //
     // This applies to: sqrt(T), log(T), exp(T), pow(T, α), etc.
 
-    /// Square root: T^{1/2}.  Requires T positive definite.
-    SymmetricTensor2 sqrt() const {
+    /// Isotropic tensor function: applies a scalar map to each eigenvalue,
+    ///   f(T) = Σ f(λᵢ) nᵢ⊗nᵢ.
+    /// The eigendecomposition and dyadic accumulation are shared; sqrt/log/
+    /// exp/pow differ only in the per-eigenvalue scalar map.
+    template <class Fn>
+    SymmetricTensor2 spectral_map(Fn f) const {
         auto [evals, evecs] = eigendecomposition();
         MatrixT result = MatrixT::Zero();
         for (std::size_t i = 0; i < dim; ++i) {
             VectorT ni = evecs.col(i);
-            result += std::sqrt(evals[i]) * ni * ni.transpose();
+            result += f(evals[i]) * ni * ni.transpose();
         }
         return SymmetricTensor2{Tensor2<dim>{result}};
+    }
+
+    /// Square root: T^{1/2}.  Requires T positive definite.
+    SymmetricTensor2 sqrt() const {
+        return spectral_map([](double l) { return std::sqrt(l); });
     }
 
     /// Natural logarithm: ln(T).  Requires T positive definite.
     /// This is the core of the Hencky (logarithmic) strain:
     ///   ε_H = ½ ln(C) = ½ ln(FᵀF)
     SymmetricTensor2 log() const {
-        auto [evals, evecs] = eigendecomposition();
-        MatrixT result = MatrixT::Zero();
-        for (std::size_t i = 0; i < dim; ++i) {
-            VectorT ni = evecs.col(i);
-            result += std::log(evals[i]) * ni * ni.transpose();
-        }
-        return SymmetricTensor2{Tensor2<dim>{result}};
+        return spectral_map([](double l) { return std::log(l); });
     }
 
     /// Exponential: exp(T).
     SymmetricTensor2 exp() const {
-        auto [evals, evecs] = eigendecomposition();
-        MatrixT result = MatrixT::Zero();
-        for (std::size_t i = 0; i < dim; ++i) {
-            VectorT ni = evecs.col(i);
-            result += std::exp(evals[i]) * ni * ni.transpose();
-        }
-        return SymmetricTensor2{Tensor2<dim>{result}};
+        return spectral_map([](double l) { return std::exp(l); });
     }
 
     /// Power: T^α.  Requires T positive definite for non-integer α.
     SymmetricTensor2 pow(double alpha) const {
-        auto [evals, evecs] = eigendecomposition();
-        MatrixT result = MatrixT::Zero();
-        for (std::size_t i = 0; i < dim; ++i) {
-            VectorT ni = evecs.col(i);
-            result += std::pow(evals[i], alpha) * ni * ni.transpose();
-        }
-        return SymmetricTensor2{Tensor2<dim>{result}};
+        return spectral_map([alpha](double l) { return std::pow(l, alpha); });
     }
 
     // ── Arithmetic operators ─────────────────────────────────────────────────

@@ -68,70 +68,35 @@ double jacobian(const Tensor2<dim>& F) {
 //    R = F · U⁻¹
 //    V = R · U · Rᵀ  =  F · Rᵀ
 
-/// Polar decomposition of a 3×3 tensor F.
-/// F = R · U  with  R ∈ SO(3),  U = sqrt(FᵀF).
+/// Polar decomposition of a tensor F (dim = 2 or 3).
+/// F = R · U  with  R ∈ SO(dim),  U = sqrt(FᵀF).
 /// Requires det(F) > 0.
 template <std::size_t dim>
-    requires (dim == 3)
+    requires (dim == 2 || dim == 3)
 auto polar_decomposition(const Tensor2<dim>& F) {
-    // C = FᵀF
-    auto C_mat = (F.matrix().transpose() * F.matrix()).eval();
-    
-    // Spectral decomposition of C (symmetric positive definite)
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(C_mat);
+    using Mat = Eigen::Matrix<double, dim, dim>;
+    using Vec = Eigen::Matrix<double, dim, 1>;
+
+    // C = FᵀF, symmetric positive definite.
+    Mat C_mat = F.matrix().transpose() * F.matrix();
+
+    // Spectral decomposition of C.
+    Eigen::SelfAdjointEigenSolver<Mat> solver(C_mat);
     auto evals = solver.eigenvalues();   // λᵢ² in ascending order
     auto evecs = solver.eigenvectors();  // columns = Nᵢ
 
-    // U = C^{1/2} = Σ sqrt(λᵢ²) Nᵢ⊗Nᵢ
-    Eigen::Matrix3d U_mat = Eigen::Matrix3d::Zero();
-    Eigen::Matrix3d U_inv = Eigen::Matrix3d::Zero();
-    for (int i = 0; i < 3; ++i) {
+    // U = C^{1/2} = Σ sqrt(λᵢ²) Nᵢ⊗Nᵢ ;  U⁻¹ = Σ (1/λᵢ) Nᵢ⊗Nᵢ
+    Mat U_mat = Mat::Zero();
+    Mat U_inv = Mat::Zero();
+    for (std::size_t i = 0; i < dim; ++i) {
         double lam = std::sqrt(evals[i]);
-        Eigen::Vector3d ni = evecs.col(i);
+        Vec ni = evecs.col(i);
         U_mat += lam * ni * ni.transpose();
         U_inv += (1.0 / lam) * ni * ni.transpose();
     }
 
-    // R = F · U⁻¹
-    Eigen::Matrix3d R_mat = F.matrix() * U_inv;
-
-    // V = F · Rᵀ = R · U · Rᵀ
-    Eigen::Matrix3d V_mat = F.matrix() * R_mat.transpose();
-
-    struct Result {
-        Tensor2<dim>          R;
-        SymmetricTensor2<dim> U;
-        SymmetricTensor2<dim> V;
-    };
-
-    return Result{
-        Tensor2<dim>{R_mat},
-        SymmetricTensor2<dim>{Tensor2<dim>{U_mat}},
-        SymmetricTensor2<dim>{Tensor2<dim>{V_mat}}
-    };
-}
-
-/// Polar decomposition for 2D (F ∈ ℝ²ˣ²).
-template <std::size_t dim>
-    requires (dim == 2)
-auto polar_decomposition(const Tensor2<dim>& F) {
-    Eigen::Matrix2d FtF = F.matrix().transpose() * F.matrix();
-    
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(FtF);
-    auto evals = solver.eigenvalues();
-    auto evecs = solver.eigenvectors();
-
-    Eigen::Matrix2d U_mat = Eigen::Matrix2d::Zero();
-    Eigen::Matrix2d U_inv = Eigen::Matrix2d::Zero();
-    for (int i = 0; i < 2; ++i) {
-        double lam = std::sqrt(evals[i]);
-        Eigen::Vector2d ni = evecs.col(i);
-        U_mat += lam * ni * ni.transpose();
-        U_inv += (1.0 / lam) * ni * ni.transpose();
-    }
-
-    Eigen::Matrix2d R_mat = F.matrix() * U_inv;
-    Eigen::Matrix2d V_mat = F.matrix() * R_mat.transpose();
+    Mat R_mat = F.matrix() * U_inv;              // R = F · U⁻¹
+    Mat V_mat = F.matrix() * R_mat.transpose();  // V = F · Rᵀ = R · U · Rᵀ
 
     struct Result {
         Tensor2<dim>          R;
