@@ -1,12 +1,36 @@
 # Ejecución de la auditoría de publicación — estado por ítem
 
-Actualizado: 2026-07-21. Ejecuta el plan de `AUDITORIA_PUBLICACION.md`.
+Actualizado: 2026-07-22. Ejecuta el plan de `AUDITORIA_PUBLICACION.md` y una
+segunda fase de reducción de código guiada por un workflow de auditoría.
 Rama de trabajo `feature/algorithms-metaheuristics`.
 
-**Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`, última
-corrida completa sobre el HEAD `9aff9c4` con todo el barrido P1/P2; ~100 min).
+**Estado de la suite: 145/145 en verde** (`ctest --timeout 3000`; última
+corrida completa sobre `f5797d4`, HEAD tras la fase de reducción; ~54 min).
 Build completo (275 targets, `-Werror`) en verde tras cada lote. Sin push:
 todos los commits son locales.
+
+## Fase 5 — Auditoría de reducción de código (workflow + aplicación en serie)
+
+Un workflow de agentes lectores barrió los headers y produjo **34 hallazgos
+SAFE verificados adversarialmente** (de 106; 33 risky y 39 rechazados). Se
+aplicaron **33/34** en serie, cada uno con build + tests del módulo tocado;
+`[30]` (extraer una expresión de deformación infinitesimal diagnóstica en
+`ConstitutiveKinematics.hh`) se **omitió** por marginal (d-3) y porque el
+lambda dispararía `-Wunused-variable` bajo `-Werror` en las instanciaciones
+que no lo usan. Commits:
+
+| Categoría | Hallazgos | Commit | Δlíneas |
+|---|---|---|---|
+| Deadcode (bloque inalcanzable, funciones/structs/overloads sin uso, comentarios muertos) | 10 | `ab1616c` | −193 |
+| Deadcode (harness VTM sin usar, dumpers `print_raw` Gmsh sin caller) | 2 | `6640799` | −117 |
+| Refactors duplicación (spectral_map, polar_decomposition fusionado, apply_ordering, ternario→if, requires nombrado) | 5 | `06f30d3` | −65 |
+| Refactors plumbing/assembly (checkpoint helpers, bind_all_, DOF free-functions, emit, stress_tensor_from_voigt) | 5 | `b2299b7` | −89 |
+| Documentación (banners con semántica física verificada) | 10 | `3b1f62f` | +157 |
+| `std::ranges::count_if` (18 bucles en 7 catálogos) | 1 | `f5797d4` | −73 |
+
+Todos los cambios de código son behaviour-preserving (mismas operaciones,
+mismo orden FP); los de documentación son comment-only. Reducción neta de
+código ~380 líneas + 157 de documentación de semántica física/numérica.
 
 ## Bloque 1 — P0 no destructivos
 
