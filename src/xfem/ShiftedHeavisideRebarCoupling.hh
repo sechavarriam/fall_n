@@ -49,49 +49,13 @@ private:
     double alpha_{1.0e6};
     std::vector<Entry> entries_{};
 
-    [[nodiscard]] static PetscInt local_dof_index_(
-        PetscSection section,
-        PetscInt sieve_point,
-        int component) noexcept
-    {
-        PetscInt ndof = 0;
-        PetscSectionGetDof(section, sieve_point, &ndof);
-        if (component < 0 || component >= ndof) {
-            return -1;
-        }
-
-        PetscInt offset = 0;
-        PetscSectionGetOffset(section, sieve_point, &offset);
-        if (offset < 0) {
-            return -1;
-        }
-        return offset + component;
-    }
-
-    [[nodiscard]] static PetscInt global_dof_index_(
-        PetscSection section,
-        ISLocalToGlobalMapping local_to_global,
-        PetscInt sieve_point,
-        int component) noexcept
-    {
-        const PetscInt local =
-            local_dof_index_(section, sieve_point, component);
-        if (local < 0) {
-            return -1;
-        }
-
-        PetscInt global = -1;
-        ISLocalToGlobalMappingApply(local_to_global, 1, &local, &global);
-        return global;
-    }
-
     [[nodiscard]] static double displacement_at_(
         PetscSection section,
         const PetscScalar* u,
         PetscInt sieve_point,
         int component) noexcept
     {
-        const PetscInt local = local_dof_index_(section, sieve_point, component);
+        const PetscInt local = petsc_local_dof_index(section, sieve_point, component);
         return local >= 0 ? static_cast<double>(u[local]) : 0.0;
     }
 
@@ -227,7 +191,7 @@ public:
             for (int d = 0; d < 3; ++d) {
                 const PetscScalar r_value =
                     alpha_ * gap[static_cast<std::size_t>(d)];
-                const PetscInt r_global = global_dof_index_(
+                const PetscInt r_global = petsc_global_dof_index(
                     section, local_to_global, entry.rebar_sieve_point, d);
                 if (r_global >= 0) {
                     VecSetValues(
@@ -236,7 +200,7 @@ public:
 
                 for (const auto& host : entry.host_weights) {
                     const PetscScalar h_value = -host.standard * r_value;
-                    const PetscInt h_global = global_dof_index_(
+                    const PetscInt h_global = petsc_global_dof_index(
                         section, local_to_global, host.sieve_point, d);
                     if (h_global >= 0) {
                         VecSetValues(
@@ -248,7 +212,7 @@ public:
                     }
 
                     const PetscScalar a_value = -host.enriched * r_value;
-                    const PetscInt a_global = global_dof_index_(
+                    const PetscInt a_global = petsc_global_dof_index(
                         section,
                         local_to_global,
                         host.sieve_point,
@@ -286,20 +250,20 @@ public:
                 std::vector<std::pair<PetscInt, double>> participants;
                 participants.reserve(1 + 2 * entry.host_weights.size());
 
-                const PetscInt r_global = global_dof_index_(
+                const PetscInt r_global = petsc_global_dof_index(
                     section, local_to_global, entry.rebar_sieve_point, d);
                 if (r_global >= 0) {
                     participants.emplace_back(r_global, 1.0);
                 }
 
                 for (const auto& host : entry.host_weights) {
-                    const PetscInt h_global = global_dof_index_(
+                    const PetscInt h_global = petsc_global_dof_index(
                         section, local_to_global, host.sieve_point, d);
                     if (h_global >= 0) {
                         participants.emplace_back(h_global, -host.standard);
                     }
 
-                    const PetscInt a_global = global_dof_index_(
+                    const PetscInt a_global = petsc_global_dof_index(
                         section,
                         local_to_global,
                         host.sieve_point,

@@ -86,6 +86,22 @@ private:
 
     petsc::OwnedMat Kt_{};
 
+    // Snapshot helpers for capture/restore_checkpoint: clone_vec_ duplicates
+    // and deep-copies a source vector into a fresh destination; copy_if_both_
+    // copies into an existing destination.  Both are no-ops on null handles.
+    static void clone_vec_(const petsc::OwnedVec& src, petsc::OwnedVec& dst) {
+        if (src) {
+            FALL_N_PETSC_CHECK(VecDuplicate(src.get(), dst.ptr()));
+            FALL_N_PETSC_CHECK(VecCopy(src.get(), dst.get()));
+        }
+    }
+    static void copy_if_both_(const petsc::OwnedVec& src,
+                              const petsc::OwnedVec& dst) {
+        if (src && dst) {
+            FALL_N_PETSC_CHECK(VecCopy(src.get(), dst.get()));
+        }
+    }
+
 public:
 
     struct ImposedValueUpdate {
@@ -113,26 +129,9 @@ public:
     [[nodiscard]] checkpoint_type capture_checkpoint() const {
         checkpoint_type checkpoint;
 
-        if (current_state_) {
-            FALL_N_PETSC_CHECK(VecDuplicate(current_state_.get(),
-                                            checkpoint.state_vector.ptr()));
-            FALL_N_PETSC_CHECK(VecCopy(current_state_.get(),
-                                       checkpoint.state_vector.get()));
-        }
-
-        if (global_imposed_solution_) {
-            FALL_N_PETSC_CHECK(VecDuplicate(global_imposed_solution_.get(),
-                                            checkpoint.imposed_solution.ptr()));
-            FALL_N_PETSC_CHECK(VecCopy(global_imposed_solution_.get(),
-                                       checkpoint.imposed_solution.get()));
-        }
-
-        if (nodal_forces_) {
-            FALL_N_PETSC_CHECK(VecDuplicate(nodal_forces_.get(),
-                                            checkpoint.force_vector.ptr()));
-            FALL_N_PETSC_CHECK(VecCopy(nodal_forces_.get(),
-                                       checkpoint.force_vector.get()));
-        }
+        clone_vec_(current_state_, checkpoint.state_vector);
+        clone_vec_(global_imposed_solution_, checkpoint.imposed_solution);
+        clone_vec_(nodal_forces_, checkpoint.force_vector);
 
         checkpoint.elements = elements_;
 
@@ -144,20 +143,9 @@ public:
             elements_ = *checkpoint.elements;
         }
 
-        if (checkpoint.state_vector && current_state_) {
-            FALL_N_PETSC_CHECK(VecCopy(checkpoint.state_vector.get(),
-                                       current_state_.get()));
-        }
-
-        if (checkpoint.imposed_solution && global_imposed_solution_) {
-            FALL_N_PETSC_CHECK(VecCopy(checkpoint.imposed_solution.get(),
-                                       global_imposed_solution_.get()));
-        }
-
-        if (checkpoint.force_vector && nodal_forces_) {
-            FALL_N_PETSC_CHECK(VecCopy(checkpoint.force_vector.get(),
-                                       nodal_forces_.get()));
-        }
+        copy_if_both_(checkpoint.state_vector, current_state_);
+        copy_if_both_(checkpoint.imposed_solution, global_imposed_solution_);
+        copy_if_both_(checkpoint.force_vector, nodal_forces_);
 
         update_elements_state();
     }

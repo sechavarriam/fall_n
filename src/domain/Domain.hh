@@ -411,52 +411,45 @@ public:
         }
     }
 
-    // Bind the purely geometric view first so mapping/Jacobians do not depend
-    // on the analysis-node cache.
-    void link_geometry_to_elements() {
-        if (!vertex_index_built_) build_vertex_index();
-
+    // Apply `bind` to every (element, local-node index) over the volume
+    // elements (parallelized — each element binding is independent) and the
+    // boundary groups.  link_geometry_to_elements / link_nodes_to_elements
+    // differ only in the lookup table and the bind target, passed as a callable.
+    template <class Bind>
+    void bind_all_(Bind bind) {
         const auto ne = elements_.size();
         #ifdef _OPENMP
         #pragma omp parallel for schedule(static)
         #endif
         for (std::size_t e = 0; e < ne; ++e) {
             for (std::size_t i = 0; i < elements_[e].num_nodes(); ++i) {
-                elements_[e].bind_point(i, vertex_by_id_[elements_[e].node(i)]);
+                bind(elements_[e], i);
             }
         }
 
         for (auto& [name, surf_elems] : boundary_elements_) {
             for (auto& elem : surf_elems) {
                 for (std::size_t i = 0; i < elem.num_nodes(); ++i) {
-                    elem.bind_point(i, vertex_by_id_[elem.node(i)]);
+                    bind(elem, i);
                 }
             }
         }
     }
 
-    void link_nodes_to_elements(){
+    // Bind the purely geometric view first so mapping/Jacobians do not depend
+    // on the analysis-node cache.
+    void link_geometry_to_elements() {
+        if (!vertex_index_built_) build_vertex_index();
+        bind_all_([this](auto& el, std::size_t i) {
+            el.bind_point(i, vertex_by_id_[el.node(i)]);
+        });
+    }
+
+    void link_nodes_to_elements() {
         if (!node_index_built_) build_node_index();
-
-        // Volume elements — O(1) lookup, parallelizable (each element is independent)
-        const auto ne = elements_.size();
-        #ifdef _OPENMP
-        #pragma omp parallel for schedule(static)
-        #endif
-        for (std::size_t e = 0; e < ne; ++e) {
-            for (std::size_t i = 0; i < elements_[e].num_nodes(); ++i) {
-                elements_[e].bind_node(i, node_by_id_[elements_[e].node(i)]);
-            }
-        }
-
-        // Boundary (surface) elements — O(1) lookup
-        for (auto& [name, surf_elems] : boundary_elements_) {
-            for (auto& elem : surf_elems) {
-                for (std::size_t i = 0; i < elem.num_nodes(); ++i) {
-                    elem.bind_node(i, node_by_id_[elem.node(i)]);
-                }
-            }
-        }
+        bind_all_([this](auto& el, std::size_t i) {
+            el.bind_node(i, node_by_id_[el.node(i)]);
+        });
     }
 
     void assemble_sieve() {

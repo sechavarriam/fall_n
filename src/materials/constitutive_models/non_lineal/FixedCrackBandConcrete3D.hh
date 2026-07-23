@@ -128,6 +128,21 @@ private:
         return eps;
     }
 
+    // Symmetric stress tensor from a Voigt-6 stress vector.  Unlike
+    // strain_tensor_from_voigt there are no engineering half-factors: the
+    // off-diagonals are the shear stresses directly.
+    [[nodiscard]] static Mat3 stress_tensor_from_voigt(const Vec6& s) noexcept
+    {
+        Mat3 sig = Mat3::Zero();
+        sig(0, 0) = s(0);
+        sig(1, 1) = s(1);
+        sig(2, 2) = s(2);
+        sig(1, 2) = sig(2, 1) = s(3);
+        sig(0, 2) = sig(2, 0) = s(4);
+        sig(0, 1) = sig(1, 0) = s(5);
+        return sig;
+    }
+
     [[nodiscard]] static KinematicT strain_from_components(
         const Vec6& components) noexcept
     {
@@ -474,16 +489,7 @@ private:
         const Vec6& local_stress,
         const InternalVariablesT& alpha) const noexcept
     {
-        const Mat3 local_tensor = [&] {
-            Mat3 sig = Mat3::Zero();
-            sig(0, 0) = local_stress(0);
-            sig(1, 1) = local_stress(1);
-            sig(2, 2) = local_stress(2);
-            sig(1, 2) = sig(2, 1) = local_stress(3);
-            sig(0, 2) = sig(2, 0) = local_stress(4);
-            sig(0, 1) = sig(1, 0) = local_stress(5);
-            return sig;
-        }();
+        const Mat3 local_tensor = stress_tensor_from_voigt(local_stress);
         const Mat3 R = crack_basis(alpha);
         return voigt_from_tensor(R * local_tensor * R.transpose());
     }
@@ -585,16 +591,8 @@ private:
         next.eps_committed = strain.components();
         next.sigma_committed = stress;
 
-        Eigen::SelfAdjointEigenSolver<Mat3> stress_solver{[&] {
-            Mat3 sig = Mat3::Zero();
-            sig(0, 0) = stress(0);
-            sig(1, 1) = stress(1);
-            sig(2, 2) = stress(2);
-            sig(1, 2) = sig(2, 1) = stress(3);
-            sig(0, 2) = sig(2, 0) = stress(4);
-            sig(0, 1) = sig(1, 0) = stress(5);
-            return sig;
-        }()};
+        Eigen::SelfAdjointEigenSolver<Mat3> stress_solver{
+            stress_tensor_from_voigt(stress)};
         const auto stress_principal = stress_solver.eigenvalues();
         const double sigma_o = std::max(stress_principal(2), 0.0);
         const double tau_o =

@@ -61,46 +61,30 @@ inline constexpr unsigned int cell_type_from(std::size_t top_dim, std::size_t nu
 inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes,
                                       vtkIdType* out)
 {
+    // Write a fall_n→VTK node-index permutation into `out`, returning its length.
+    auto emit = [out](std::initializer_list<vtkIdType> perm) -> std::size_t {
+        std::size_t n = 0;
+        for (vtkIdType v : perm) out[n++] = v;
+        return n;
+    };
+
     // 1D ──────────────────────────────────────────────────────────────────
     if (top_dim == 1) {
-        if (num_nodes == 2) {
-            constexpr vtkIdType o[] = {0, 1};
-            for (std::size_t i = 0; i < 2; ++i) out[i] = o[i];
-            return 2;
-        }
-        if (num_nodes == 3) {
-            constexpr vtkIdType o[] = {0, 2, 1};
-            for (std::size_t i = 0; i < 3; ++i) out[i] = o[i];
-            return 3;
-        }
+        if (num_nodes == 2) return emit({0, 1});
+        if (num_nodes == 3) return emit({0, 2, 1});
     }
 
     // 2D ──────────────────────────────────────────────────────────────────
     if (top_dim == 2) {
-        if (num_nodes == 3) {   // VTK_TRIANGLE — identity permutation
-            constexpr vtkIdType o[] = {0, 1, 2};
-            for (std::size_t i = 0; i < 3; ++i) out[i] = o[i];
-            return 3;
-        }
-        if (num_nodes == 4) {
-            constexpr vtkIdType o[] = {0, 1, 3, 2};
-            for (std::size_t i = 0; i < 4; ++i) out[i] = o[i];
-            return 4;
-        }
+        if (num_nodes == 3) return emit({0, 1, 2});     // VTK_TRIANGLE — identity permutation
+        if (num_nodes == 4) return emit({0, 1, 3, 2});
         if (num_nodes == 6) {
             // VTK_QUADRATIC_TRIANGLE
             // fall_n edge midpoints: (0,1)=3, (0,2)=4, (1,2)=5
             // VTK edge midpoints:    (0,1)=3, (1,2)=4, (0,2)=5
-            constexpr vtkIdType o[] = {0, 1, 2, 3, 5, 4};
-            for (std::size_t i = 0; i < 6; ++i) out[i] = o[i];
-            return 6;
+            return emit({0, 1, 2, 3, 5, 4});
         }
-        if (num_nodes == 8) {
-            // VTK_QUADRATIC_QUAD
-            constexpr vtkIdType o[] = {0, 1, 2, 3, 4, 5, 6, 7};
-            for (std::size_t i = 0; i < 8; ++i) out[i] = o[i];
-            return 8;
-        }
+        if (num_nodes == 8) return emit({0, 1, 2, 3, 4, 5, 6, 7});  // VTK_QUADRATIC_QUAD
         if (num_nodes == 9) {
             // VTK_BIQUADRATIC_QUAD
             //
@@ -113,24 +97,14 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             //   0=(−1,−1) 1=(+1,−1) 2=(+1,+1) 3=(−1,+1)
             //   4=(0,−1) 5=(+1,0) 6=(0,+1) 7=(−1,0)
             //   8=(0,0)
-            constexpr vtkIdType o[] = {0, 2, 8, 6, 1, 5, 7, 3, 4};
-            for (std::size_t i = 0; i < 9; ++i) out[i] = o[i];
-            return 9;
+            return emit({0, 2, 8, 6, 1, 5, 7, 3, 4});
         }
     }
 
     // 3D ──────────────────────────────────────────────────────────────────
     if (top_dim == 3) {
-        if (num_nodes == 4) {   // VTK_TETRA — identity permutation
-            constexpr vtkIdType o[] = {0, 1, 2, 3};
-            for (std::size_t i = 0; i < 4; ++i) out[i] = o[i];
-            return 4;
-        }
-        if (num_nodes == 8) {
-            constexpr vtkIdType o[] = {0, 1, 3, 2, 4, 5, 7, 6};
-            for (std::size_t i = 0; i < 8; ++i) out[i] = o[i];
-            return 8;
-        }
+        if (num_nodes == 4) return emit({0, 1, 2, 3});          // VTK_TETRA — identity permutation
+        if (num_nodes == 8) return emit({0, 1, 3, 2, 4, 5, 7, 6});
         if (num_nodes == 27) {
             // VTK_TRIQUADRATIC_HEXAHEDRON
             //
@@ -147,33 +121,27 @@ inline std::size_t node_ordering_into(std::size_t top_dim, std::size_t num_nodes
             //   25: face(4,5,6,7) z=+1 → fall_n 22
             //
             // Verified against vtkTriQuadraticHexahedron::GetParametricCoords().
-            constexpr vtkIdType o[] = {
+            return emit({
                 0, 2, 8, 6, 18, 20, 26, 24,   // corners
                 1, 5, 7, 3, 19, 23, 25, 21,   // mid-edge (bottom + top faces)
                 9, 11, 17, 15,                 // mid-edge (z-direction)
                 12, 14, 10, 16,                // face centers (x−, x+, y−, y+)
                 4, 22, 13                      // face z−, face z+, body center
-            };
-            for (std::size_t i = 0; i < 27; ++i) out[i] = o[i];
-            return 27;
+            });
         }
         if (num_nodes == 10) {
             // VTK_QUADRATIC_TETRA
             // fall_n edge midpoints: (0,1)=4, (0,2)=5, (0,3)=6, (1,2)=7, (1,3)=8, (2,3)=9
             // VTK edge midpoints:    (0,1)=4, (1,2)=5, (0,2)=6, (0,3)=7, (1,3)=8, (2,3)=9
-            constexpr vtkIdType o[] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 9};
-            for (std::size_t i = 0; i < 10; ++i) out[i] = o[i];
-            return 10;
+            return emit({0, 1, 2, 3, 4, 7, 5, 6, 8, 9});
         }
         if (num_nodes == 20) {
             // VTK_QUADRATIC_HEXAHEDRON
-            constexpr vtkIdType o[] = {
+            return emit({
                 0, 1, 2, 3, 4, 5, 6, 7,
                 8, 9, 10, 11, 12, 13, 14, 15,
                 16, 17, 18, 19
-            };
-            for (std::size_t i = 0; i < 20; ++i) out[i] = o[i];
-            return 20;
+            });
         }
     }
 
