@@ -1,6 +1,8 @@
 #ifndef FALL_N_COMPUTATIONAL_CLAIM_TRACE_CATALOG_HH
 #define FALL_N_COMPUTATIONAL_CLAIM_TRACE_CATALOG_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  ComputationalClaimTraceCatalog.hh -- canonical representative matrix tying
 //                                       scientific claims to typed slices and
@@ -271,13 +273,8 @@ count_representative_computational_claims_by_evidence_breadth(
     const std::array<RepresentativeComputationalClaimTraceRow, N>& rows,
     ComputationalClaimEvidenceBreadthKind breadth) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.evidence_breadth == breadth) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.evidence_breadth == breadth; });
 }
 
 template <std::size_t N>
@@ -285,13 +282,8 @@ template <std::size_t N>
 count_representative_reference_computational_claims(
     const std::array<RepresentativeComputationalClaimTraceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.is_reference_claim) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.is_reference_claim; });
 }
 
 template <std::size_t N>
@@ -299,13 +291,8 @@ template <std::size_t N>
 count_representative_computational_claims_requiring_scope_disclaimer(
     const std::array<RepresentativeComputationalClaimTraceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.requires_scope_disclaimer()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.requires_scope_disclaimer(); });
 }
 
 template <std::size_t N>
@@ -313,13 +300,8 @@ template <std::size_t N>
 count_representative_computational_claims_requiring_physical_validation(
     const std::array<RepresentativeComputationalClaimTraceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.requires_physical_validation) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.requires_physical_validation; });
 }
 
 template <ComputationalClaimEvidenceBreadthKind Breadth>

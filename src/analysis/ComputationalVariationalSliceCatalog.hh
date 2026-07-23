@@ -1,6 +1,8 @@
 #ifndef FALL_N_COMPUTATIONAL_VARIATIONAL_SLICE_CATALOG_HH
 #define FALL_N_COMPUTATIONAL_VARIATIONAL_SLICE_CATALOG_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  ComputationalVariationalSliceCatalog.hh -- canonical representative matrix
 //                                             of typed computational slices and
@@ -157,13 +159,8 @@ template <std::size_t N>
 count_representative_computational_variational_slices_requiring_scope_disclaimer(
     const std::array<RepresentativeComputationalVariationalSliceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.requires_scope_disclaimer()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.requires_scope_disclaimer(); });
 }
 
 template <std::size_t N>
@@ -171,13 +168,8 @@ template <std::size_t N>
 count_representative_structural_reduction_variational_slices(
     const std::array<RepresentativeComputationalVariationalSliceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.audit_scope.is_structural_reduction_path()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.audit_scope.is_structural_reduction_path(); });
 }
 
 template <std::size_t N>
@@ -185,13 +177,8 @@ template <std::size_t N>
 count_representative_effective_operator_predictor_variational_slices(
     const std::array<RepresentativeComputationalVariationalSliceRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.audit_scope.admits_effective_operator_predictor_injection) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.audit_scope.admits_effective_operator_predictor_injection; });
 }
 
 inline constexpr std::size_t

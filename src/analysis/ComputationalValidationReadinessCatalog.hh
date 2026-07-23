@@ -1,6 +1,8 @@
 #ifndef FALL_N_COMPUTATIONAL_VALIDATION_READINESS_CATALOG_HH
 #define FALL_N_COMPUTATIONAL_VALIDATION_READINESS_CATALOG_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  ComputationalValidationReadinessCatalog.hh -- canonical representative
 //                                                matrix stating which audited
@@ -242,13 +244,8 @@ count_representative_validation_readiness_rows(
     const std::array<RepresentativeComputationalValidationReadinessRow, N>& rows,
     ComputationalValidationReadinessKind readiness_kind) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.readiness_kind == readiness_kind) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.readiness_kind == readiness_kind; });
 }
 
 template <std::size_t N>
@@ -256,13 +253,8 @@ template <std::size_t N>
 count_representative_validation_baseline_rows(
     const std::array<RepresentativeComputationalValidationReadinessRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.can_anchor_validation_baseline) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.can_anchor_validation_baseline; });
 }
 
 template <std::size_t N>
@@ -270,13 +262,8 @@ template <std::size_t N>
 count_representative_targeted_physical_validation_rows(
     const std::array<RepresentativeComputationalValidationReadinessRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.can_enter_targeted_physical_validation) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.can_enter_targeted_physical_validation; });
 }
 
 template <ComputationalValidationReadinessKind ReadinessKind>

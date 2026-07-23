@@ -1,6 +1,8 @@
 #ifndef FALL_N_ANALYSIS_ROUTE_CATALOG_HH
 #define FALL_N_ANALYSIS_ROUTE_CATALOG_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  AnalysisRouteCatalog.hh -- canonical representative route matrix
 // =============================================================================
@@ -137,13 +139,8 @@ count_representative_analysis_route_support_level(
     const std::array<RepresentativeAnalysisRouteAuditRow, N>& rows,
     AnalysisRouteSupportLevel level) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.support_level() == level) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.support_level() == level; });
 }
 
 template <std::size_t N>
@@ -151,13 +148,8 @@ template <std::size_t N>
 count_representative_analysis_routes_requiring_scope_disclaimer(
     const std::array<RepresentativeAnalysisRouteAuditRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.audit_scope.requires_scope_disclaimer()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.audit_scope.requires_scope_disclaimer(); });
 }
 
 template <AnalysisRouteSupportLevel Level>

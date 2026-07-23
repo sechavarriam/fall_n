@@ -1,6 +1,8 @@
 #ifndef FALL_N_COMPUTATIONAL_MODEL_SLICE_AUDIT_HH
 #define FALL_N_COMPUTATIONAL_MODEL_SLICE_AUDIT_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  ComputationalModelSliceAudit.hh -- audited composition of model + solver
 // =============================================================================
@@ -194,13 +196,8 @@ count_model_solver_slice_support_level(
     const std::array<ComputationalModelSliceAuditRow, N>& rows,
     ComputationalModelSliceSupportLevel level) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.support_level() == level) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.support_level() == level; });
 }
 
 template <std::size_t N>
@@ -208,13 +205,8 @@ template <std::size_t N>
 count_model_solver_slices_requiring_scope_disclaimer(
     const std::array<ComputationalModelSliceAuditRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.audit_scope.requires_scope_disclaimer()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.audit_scope.requires_scope_disclaimer(); });
 }
 
 template <typename ModelT, typename SolverT>

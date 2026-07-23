@@ -28,6 +28,7 @@
 //
 // =============================================================================
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <string_view>
@@ -625,11 +626,8 @@ inline constexpr FamilyFormulationAnalysisRouteAuditScope
     continuum::FormulationKind formulation_kind) noexcept
 {
     const auto row = canonical_family_formulation_analysis_route_row(family, formulation_kind);
-    std::size_t count = 0;
-    for (const auto& scope : row) {
-        count += static_cast<std::size_t>(scope.supports_normatively());
-    }
-    return count;
+    return std::ranges::count_if(
+        row, [](const auto& scope) { return scope.supports_normatively(); });
 }
 
 [[nodiscard]] constexpr std::size_t count_runtime_declared_analysis_routes(
@@ -637,11 +635,8 @@ inline constexpr FamilyFormulationAnalysisRouteAuditScope
     continuum::FormulationKind formulation_kind) noexcept
 {
     const auto row = canonical_family_formulation_analysis_route_row(family, formulation_kind);
-    std::size_t count = 0;
-    for (const auto& scope : row) {
-        count += static_cast<std::size_t>(scope.has_runtime_path);
-    }
-    return count;
+    return std::ranges::count_if(
+        row, [](const auto& scope) { return scope.has_runtime_path; });
 }
 
 template <typename SolverT>

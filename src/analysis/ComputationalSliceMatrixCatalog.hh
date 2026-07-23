@@ -1,6 +1,8 @@
 #ifndef FALL_N_COMPUTATIONAL_SLICE_MATRIX_CATALOG_HH
 #define FALL_N_COMPUTATIONAL_SLICE_MATRIX_CATALOG_HH
 
+#include <algorithm>
+
 // =============================================================================
 //  ComputationalSliceMatrixCatalog.hh -- canonical hard matrix of validated
 //                                        family x formulation x route x slice
@@ -185,13 +187,8 @@ count_representative_computational_slice_matrix_support_level(
     const std::array<RepresentativeComputationalSliceMatrixRow, N>& rows,
     ComputationalModelSliceSupportLevel level) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.slice_support_level() == level) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.slice_support_level() == level; });
 }
 
 template <std::size_t N>
@@ -199,13 +196,8 @@ template <std::size_t N>
 count_representative_computational_slice_matrix_rows_requiring_scope_disclaimer(
     const std::array<RepresentativeComputationalSliceMatrixRow, N>& rows) noexcept
 {
-    std::size_t count = 0;
-    for (const auto& row : rows) {
-        if (row.requires_scope_disclaimer()) {
-            ++count;
-        }
-    }
-    return count;
+    return std::ranges::count_if(
+        rows, [&](const auto& row) { return row.requires_scope_disclaimer(); });
 }
 
 template <ComputationalModelSliceSupportLevel Level>
