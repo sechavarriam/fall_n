@@ -1,6 +1,26 @@
 #ifndef FALL_N_SRC_ANALYSIS_BEAM_MACRO_BRIDGE_HH
 #define FALL_N_SRC_ANALYSIS_BEAM_MACRO_BRIDGE_HH
 
+// =============================================================================
+//  BeamMacroBridge — FE² macro ↔ section coupling bridge
+// =============================================================================
+//
+//  Extracts macro-beam section kinematics for the local subscale model and
+//  injects the homogenized section response back into the macro model.
+//
+//  Contracts:
+//    - extract_section_state(...) returns a MacroSectionState whose `strain`
+//      is the section generalized strain and `forces` the work-conjugate
+//      section force resultants (same Vector6 ordering).
+//    - inject_response(...) feeds a homogenized section tangent
+//      D = d(forces)/d(strain) at a specific section integration point, with
+//      `forces` referenced to `strain_ref` (the affine-operator point).
+//    - CouplingSite::local_frame fixes the local↔global frame convention.
+//    - default_site(...) selects the section GP whose xi is nearest a
+//      requested station.
+//
+// =============================================================================
+
 #include <array>
 #include <cstddef>
 #include <limits>

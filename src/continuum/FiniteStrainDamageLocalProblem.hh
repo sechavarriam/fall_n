@@ -1,6 +1,18 @@
 #ifndef FALL_N_FINITE_STRAIN_DAMAGE_LOCAL_PROBLEM_HH
 #define FALL_N_FINITE_STRAIN_DAMAGE_LOCAL_PROBLEM_HH
 
+// =============================================================================
+//  FiniteStrainDamageLocalProblem — local update for the finite-strain
+//  scalar-damage law (physical model documented in FiniteStrainDamageRelation.hh)
+// =============================================================================
+//
+//  Advances the damage history κ and evaluates the degraded 2nd Piola–Kirchhoff
+//  stress and consistent tangent at a Gauss point from the Green–Lagrange
+//  strain E, with κ_{n+1} = max(κ_n, ‖E₊‖) irreversible and effective stress
+//  S = g(d)·S₀(E).
+//
+// =============================================================================
+
 #include <algorithm>
 #include <cmath>
 #include <concepts>

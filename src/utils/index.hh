@@ -1,6 +1,22 @@
 #ifndef FALL_N_INDEXING_UTILITIES
 #define FALL_N_INDEXING_UTILITIES
 
+// =============================================================================
+//  index.hh — flat ↔ multi-index converters for tensor-product layouts
+// =============================================================================
+//
+//  md_index_2_list<N...> and list_2_md_index<N...> map between a flat offset
+//  and a multi-index over a tensor-product grid.  The template pack N... are
+//  the per-dimension extents (Nx, Ny, Nz, ...).  The flattening is ROW-MAJOR:
+//    flat = ((i0)·N1 + i1)·N2 + i2 ...
+//  These drive tensor-product Gauss quadrature (CellQuadrature) and Lagrange
+//  node numbering (Cell, LagrangeInterpolation, GaussLegendreWeights); a wrong
+//  convention silently permutes quadrature points and nodes.  The valid flat
+//  range is [0, ∏N − 1]; list_2_md_index returns a zero-filled tuple when out
+//  of range.
+//
+// =============================================================================
+
 #include <iostream>
 #include <array>
 #include <functional>

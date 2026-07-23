@@ -201,16 +201,13 @@ public:
 
 
 // =============================================================================
-//  CallableDamageCriterion — Wraps a user-provided callable as a criterion
+//  FirstMaterialNonlinearityCriterion — first-nonlinearity strain thresholds
 // =============================================================================
 //
-//  Allows users to define custom criteria without subclassing:
-//
-//    auto my_criterion = fall_n::make_damage_criterion(
-//        "MyCustomCriterion",
-//        [](const StructuralElement& elem, std::size_t idx, Vec u) {
-//            return fall_n::ElementDamageInfo{.element_index=idx, .damage_index=0.0};
-//        });
+//  Flags an element once a monitored fiber strain first crosses a material
+//  first-nonlinearity threshold: steel yield (ε_y), concrete tension cracking,
+//  or concrete compression reference strain.  It reads the fiber work-conjugate
+//  quantities (strain_xx, stress_xx, material_role) and reports the damage onset.
 
 class FirstMaterialNonlinearityCriterion : public DamageCriterion {
     double concrete_tension_cracking_strain_{1.0e-4};
@@ -333,6 +330,18 @@ private:
         return {0.0, "unknown_material_role"};
     }
 };
+
+// =============================================================================
+//  CallableDamageCriterion — wraps a user-provided callable as a criterion
+// =============================================================================
+//
+//  Allows users to define custom criteria without subclassing:
+//
+//    auto my_criterion = fall_n::make_damage_criterion(
+//        "MyCustomCriterion",
+//        [](const StructuralElement& elem, std::size_t idx, Vec u) {
+//            return fall_n::ElementDamageInfo{.element_index=idx, .damage_index=0.0};
+//        });
 
 class CallableDamageCriterion : public DamageCriterion {
     using EvalFn = std::function<ElementDamageInfo(

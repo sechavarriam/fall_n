@@ -1,6 +1,25 @@
 #ifndef FALL_N_FINITE_STRAIN_DAMAGE_RELATION_HH
 #define FALL_N_FINITE_STRAIN_DAMAGE_RELATION_HH
 
+// =============================================================================
+//  FiniteStrainDamageRelation — isotropic finite-strain scalar-damage law
+// =============================================================================
+//
+//  The library's first finite-strain inelastic continuum law.  It degrades an
+//  elastic finite-strain response by a scalar isotropic damage variable:
+//
+//    driving force   Y      = ‖E₊‖, the norm of the positive (tensile)
+//                             spectral part of the Green–Lagrange strain E
+//    history         κ_{n+1}= max(κ_n, Y)       (rate-independent, irreversible)
+//    damage          d      = 1 − exp(−(κ − κ₀)/κ_f)   for κ > κ₀, else 0
+//    degradation     g(d)   = r + (1 − r)(1 − d)²      (residual stiffness r)
+//    effective stress S     = g(d) · S₀(E)
+//
+//  The work-conjugate pair it degrades is (E, 2nd Piola–Kirchhoff S).  κ₀ and
+//  κ_f carry strain-equivalent units (thresholds/scales on the driving force Y).
+//
+// =============================================================================
+
 #include <concepts>
 #include <utility>
 

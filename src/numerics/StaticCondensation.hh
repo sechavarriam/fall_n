@@ -62,9 +62,11 @@ struct CondensedSystem {
 //  Returns a CondensedSystem with the Schur complement and cached data
 //  needed by recover_internal().
 //
-//  Throws std::invalid_argument if dimensions are inconsistent,
-//  or if K_ii is singular (determined by a threshold on the determinant
-//  of the LDLT decomposition, which is more robust than a raw inverse).
+//  Throws std::invalid_argument if the dimensions are inconsistent, and
+//  std::runtime_error if the internal block K_ii is not symmetric positive
+//  definite — the LDLT must succeed, be positive-definite, and have a strictly
+//  positive minimum diagonal entry.  For a physical FE internal-DOF block K_ii
+//  this SPD condition holds.
 
 inline auto condense(const Eigen::MatrixXd& K_full,
                      const Eigen::VectorXd& f_full,

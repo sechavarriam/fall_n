@@ -183,6 +183,16 @@ struct CouplingSite {
     Eigen::Matrix3d local_frame{Eigen::Matrix3d::Identity()};
 };
 
+// ── Work-conjugate section carriers ──────────────────────────────────────
+//
+// MacroSectionState and SectionHomogenizedResponse carry the beam section's
+// generalized strain and its work-conjugate generalized force resultants,
+// exchanged across the FE² macro↔local boundary.  Both use one fixed Vector6
+// component ordering and their power pairing is  P = forcesᵀ · strain_rate.
+// In SectionHomogenizedResponse, `tangent` = d(forces)/d(strain) (6×6) and
+// `forces` are referenced to `strain_ref` (the affine-operator linearization
+// point), so (strain_ref, forces, tangent) defines the affine section law
+//   s(e) = forces + tangent · (e − strain_ref).
 struct MacroSectionState {
     CouplingSite site{};
     Eigen::Vector<double, 6> strain{Eigen::Vector<double, 6>::Zero()};

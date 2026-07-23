@@ -122,6 +122,12 @@ public:
                         if (!vol_group.empty()) elem.set_physical_group(vol_group);
                         break;
                         }
+                    // HEX_8 (Gmsh type 5) → fall_n LagrangeElement<3,2,2,2>.
+                    // index_ordering permutes Gmsh's local corner numbering into
+                    // fall_n's lexicographic node order (flat = i0 + 2·i1 + 4·i2).
+                    // Correctness-critical: it fixes which physical vertex feeds
+                    // each tensor-product shape function, hence the Jacobian and
+                    // B-matrix of the element.
                     case 5:
                         {
                         auto integrator = GaussLegendreCellIntegrator<2,2,2>{}; // 2×2×2 full integration for HEX8
@@ -135,9 +141,15 @@ public:
                         
                         break;
                         }
+                    // HEX_27 (Gmsh type 12) → fall_n LagrangeElement<3,3,3,3>.
+                    // 27-entry permutation from Gmsh's local numbering (8 corners,
+                    // 12 edge mid-nodes, 6 face centers, 1 body center) into
+                    // fall_n's lexicographic order (flat = i0 + 3·i1 + 9·i2).  As
+                    // for HEX_8, a wrong entry silently mis-assigns a shape
+                    // function.
                     case 12:
                         {
-                        auto integrator = GaussLegendreCellIntegrator<3,3,3>{}; 
+                        auto integrator = GaussLegendreCellIntegrator<3,3,3>{};
                            
                         auto& elem = domain_->make_element<LagrangeElement<3,3,3,3>, decltype(integrator)>(
                             std::move(integrator),

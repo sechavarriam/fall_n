@@ -1,6 +1,26 @@
 #ifndef VOIGTVECTOR_HH
 #define VOIGTVECTOR_HH
 
+// =============================================================================
+//  VoigtVector<N> — fixed-size Voigt carrier for a symmetric 2nd-order tensor
+// =============================================================================
+//
+//  Stores the N independent components of a symmetric tensor in Voigt notation.
+//  N ∈ {1, 3, 6} maps to spatial dim {1, 2, 3}.
+//
+//  Component order (a load-bearing convention shared across the library, e.g.
+//  FixedCrackBandConcrete3D::voigt_from_tensor):
+//    N=1 (1D):  [xx]
+//    N=3 (2D):  [xx, yy, xy]
+//    N=6 (3D):  [xx, yy, zz, yz, xz, xy]   (indices 3,4,5 → yz, xz, xy)
+//
+//  matrix() reconstructs the symmetric tensor placing each off-diagonal
+//  component directly, with NO ½ factor: it assumes STRESS-like components.
+//  The Strain<N> specialization stores engineering shear γ_ij = 2 ε_ij, so
+//  matrix() is tensor-correct for Stress but not for engineering strain.
+//
+// =============================================================================
+
 #include <array>
 #include <cstddef>
 

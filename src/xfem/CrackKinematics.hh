@@ -1,6 +1,24 @@
 #ifndef FALL_N_XFEM_CRACK_KINEMATICS_HH
 #define FALL_N_XFEM_CRACK_KINEMATICS_HH
 
+// =============================================================================
+//  CrackKinematics.hh — interface (crack) kinematics for the cohesive stack
+// =============================================================================
+//
+//  Decomposes a displacement jump across a crack into normal/tangential parts
+//  and derives the scalar measures the cohesive law consumes.
+//
+//  Conventions:
+//    - effective_mixed_mode_separation uses `mode_mixity_weight` as the β
+//      factor in  δ_eff = sqrt(⟨δ_n⟩² + β² |δ_t|²)  with a Macaulay bracket
+//      ⟨·⟩ on the normal opening: compression (δ_n < 0) contributes no
+//      effective separation.  Larger β weights sliding relative to opening.
+//    - UNITS: crack_band_opening_mm takes and returns millimetres, whereas the
+//      rest of the cohesive stack (CohesiveCrackLaw.hh) works in metres.  Do
+//      not mix them — a metre/mm confusion is a 1000× error.
+//
+// =============================================================================
+
 #include <Eigen/Dense>
 
 #include <algorithm>
